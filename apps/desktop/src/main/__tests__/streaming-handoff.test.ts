@@ -37,6 +37,7 @@ function renderLiveTurn(liveTurn: LiveTurnProjection): string {
       isArchived: false,
       hasUnread: false,
       llmConnectionSlug: 'conn',
+      connectionLocked: false,
       model: 'model',
       permissionMode: 'ask',
     },
@@ -77,7 +78,7 @@ describe('single live-turn handoff', () => {
       activeSession: {
         id: 'session-1', name: 'streaming', lastMessageAt: 1, status: 'active', backend: 'ai-sdk',
         labels: [], isFlagged: false, isArchived: false, hasUnread: false,
-        llmConnectionSlug: 'conn', model: 'model', permissionMode: 'ask',
+        llmConnectionSlug: 'conn', connectionLocked: false, model: 'model', permissionMode: 'ask',
       },
       messages: [
         { type: 'user', id: 'user-1', turnId: 'turn-1', ts: 1, text: 'go' },
@@ -106,7 +107,7 @@ describe('single live-turn handoff', () => {
       activeSession: {
         id: 'session-1', name: 'streaming', lastMessageAt: 1, status: 'running', backend: 'pi-agent',
         labels: [], isFlagged: false, isArchived: false, hasUnread: false,
-        llmConnectionSlug: 'conn', model: 'model', permissionMode: 'ask',
+        llmConnectionSlug: 'conn', connectionLocked: false, model: 'model', permissionMode: 'ask',
       },
       messages: [
         { type: 'user', id: 'user-1', turnId: 'turn-1', ts: 1, text: 'go' },

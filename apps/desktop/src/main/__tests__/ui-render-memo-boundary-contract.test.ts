@@ -143,6 +143,7 @@ function createSession(id: string, name: string, onRender: () => void): SessionS
     status: 'active',
     backend: 'fake',
     llmConnectionSlug: 'fake',
+    connectionLocked: false,
     model: 'fake-model',
     permissionMode: 'ask',
   };

@@ -544,6 +544,7 @@ function toSummary(header: SessionHeader, messages: StoredMessage[] = []): Sessi
     ...(header.branchOfTurnId ? { branchOfTurnId: header.branchOfTurnId } : {}),
     backend: header.backend,
     llmConnectionSlug: header.llmConnectionSlug,
+    connectionLocked: header.connectionLocked,
     model: header.model,
     permissionMode: header.permissionMode,
     ...(header.thinkingLevel !== undefined ? { thinkingLevel: header.thinkingLevel } : {}),

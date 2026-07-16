@@ -1298,6 +1298,7 @@ class TinySessionStore implements SessionStore {
       name: header.name,
       isFlagged: header.isFlagged,
       isArchived: header.isArchived,
+      connectionLocked: header.connectionLocked,
       labels: header.labels,
       hasUnread: header.hasUnread,
       ...(header.lastMessageAt !== undefined ? { lastMessageAt: header.lastMessageAt } : {}),

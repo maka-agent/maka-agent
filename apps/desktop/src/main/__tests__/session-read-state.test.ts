@@ -148,6 +148,7 @@ function session(overrides: Partial<SessionSummary> & { id: string }): SessionSu
     branchOfTurnId: overrides.branchOfTurnId,
     backend: overrides.backend ?? 'ai-sdk',
     llmConnectionSlug: overrides.llmConnectionSlug ?? 'default',
+    connectionLocked: overrides.connectionLocked ?? false,
     model: overrides.model ?? 'default',
     permissionMode: overrides.permissionMode ?? 'ask',
   };

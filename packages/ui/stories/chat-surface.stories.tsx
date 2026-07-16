@@ -51,6 +51,7 @@ function session(overrides: Partial<SessionSummary> = {}): SessionSummary {
     status: 'active',
     backend: 'ai-sdk',
     llmConnectionSlug: 'anthropic-main',
+    connectionLocked: false,
     model: 'claude-sonnet-4-5',
     permissionMode: 'ask',
     ...overrides,

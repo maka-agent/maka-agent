@@ -952,7 +952,22 @@ export type {
 export {
   isConnectionReady,
   isRealConnection,
+  normalizeOpenAiCodexConnection,
+  normalizeRequestedModelForReadiness,
 } from './connection-readiness.js';
+
+// session-send-projection.ts (#1038) — single "will the next send
+// succeed / rebind / fail" decision shared by the desktop send gate and
+// the renderer session health notice.
+export type {
+  SessionSendProjection,
+  SessionSendProjectionInput,
+  SessionSendProjectionSession,
+} from './session-send-projection.js';
+export {
+  projectSessionSendOutcome,
+  shouldRebindSessionToDefault,
+} from './session-send-projection.js';
 
 // connection-error-copy.ts — shared not-ready-connection fix copy
 export {

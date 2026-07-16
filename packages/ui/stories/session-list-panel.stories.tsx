@@ -46,6 +46,7 @@ function makeSession(input: {
     ...(input.lastMessageAt !== undefined ? { lastMessageAt: input.lastMessageAt } : {}),
     backend: input.backend ?? 'ai-sdk',
     llmConnectionSlug: input.llmConnectionSlug ?? 'zai-live',
+    connectionLocked: false,
     model: 'glm-4.7',
     permissionMode: 'ask',
   };

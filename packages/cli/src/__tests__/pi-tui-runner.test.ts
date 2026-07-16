@@ -4227,6 +4227,7 @@ function fakeSessionSummary(sessionId: string, cwd = '/repo', name = 'Existing c
     status: 'active',
     backend: 'ai-sdk',
     llmConnectionSlug: 'claude-subscription',
+    connectionLocked: false,
     model: 'claude-sonnet-4-5',
     permissionMode: 'ask',
   };

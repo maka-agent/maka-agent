@@ -125,6 +125,13 @@ export interface SessionSummary {
   branchOfTurnId?: string;
   backend: BackendKind;
   llmConnectionSlug: string;
+  /**
+   * True once the session has user messages — its connection/model is
+   * sticky and the send path will never silently rebind it. Surfaced so
+   * the renderer can project send outcomes (#1038) without a main
+   * round-trip.
+   */
+  connectionLocked: boolean;
   /** Sticky session default model id for renderer/header display. */
   model: string;
   /** Per-model reasoning-depth variant; `undefined` = model default. Cleared on model switch. */

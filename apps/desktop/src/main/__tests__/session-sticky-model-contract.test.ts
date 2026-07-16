@@ -33,17 +33,24 @@ describe('PR-SESSION-STICKY-MODEL-0 contract', () => {
 
   it('validates sends against the session model, not the latest provider default', async () => {
     const readiness = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/main/chat-readiness.ts'), 'utf8');
+    const coreReadiness = await readFile(resolve(REPO_ROOT, 'packages/core/src/connection-readiness.ts'), 'utf8');
+    const projection = await readFile(resolve(REPO_ROOT, 'packages/core/src/session-send-projection.ts'), 'utf8');
     const main = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/main/main.ts'), 'utf8');
 
     assert.match(readiness, /assertSessionCanSend\([\s\S]*header: Pick<SessionHeader, 'backend' \| 'llmConnectionSlug' \| 'model'>/);
     assert.match(readiness, /requireReadyConnection\(header\.llmConnectionSlug, deps, header\.model\)/);
-    assert.match(readiness, /normalizeRequestedModel\(connection, requestedModel\)/);
-    assert.match(readiness, /CODEX_SUBSCRIPTION_UNSUPPORTED_CHATGPT_MODELS\.has\(requestedModel\)/);
+    // Codex normalization moved to @maka/core (#1038) so the send gate
+    // and the session send projection share one normalization.
+    assert.match(coreReadiness, /normalizeRequestedModelForReadiness\(\s*connection: LlmConnection,\s*requestedModel: string \| undefined,\s*\)/);
+    assert.match(coreReadiness, /CODEX_SUBSCRIPTION_UNSUPPORTED_CHATGPT_MODELS\.has\(requestedModel\)/);
     assert.match(main, /const \{ connection, apiKey, model \} = await getReadyConnection\(ctx\.header\.llmConnectionSlug, ctx\.header\.model\)/);
     assert.match(main, /header: \{ \.\.\.ctx\.header, model \}/);
     assert.match(main, /modelId: model/);
-    assert.match(readiness, /Once a session has user messages, its connection\/model is sticky/);
-    assert.match(readiness, /if \(header\.connectionLocked\) \{\s*throw error;\s*\}/);
+    // #1038: the locked/sticky guarantee lives in the core projection —
+    // the desktop send gate delegates the decision to it.
+    assert.match(projection, /Once a session has user messages, its connection\/model is sticky/);
+    assert.match(projection, /if \(session\.connectionLocked\) \{\s*return \{ kind: 'blocked', reason: ownReason, connectionLocked: true \};\s*\}/);
+    assert.match(readiness, /projectSessionSendOutcome\(\{\s*session: header,/);
   });
 
   it('preserves sticky model through branch sessions and session summaries', async () => {

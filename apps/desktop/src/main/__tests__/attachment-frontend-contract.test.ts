@@ -118,6 +118,7 @@ describe('attachment frontend contract', () => {
       status: 'active',
       backend: 'ai-sdk',
       llmConnectionSlug: 'fixture',
+      connectionLocked: false,
       model: 'fixture-model',
       permissionMode: 'ask',
     };

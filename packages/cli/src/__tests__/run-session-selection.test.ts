@@ -158,6 +158,7 @@ function session(overrides: Partial<SessionSummary> = {}): SessionSummary {
     status: 'active',
     backend: 'ai-sdk',
     llmConnectionSlug: 'fixture',
+    connectionLocked: false,
     model: 'fixture-model',
     permissionMode: 'explore',
     ...overrides,

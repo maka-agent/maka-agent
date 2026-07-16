@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { LlmConnection, SessionSummary, SettingsSection, ThinkingLevel } from '@maka/core';
 import { thinkingVariantsForModel } from '@maka/core';
 import type { ChatModelChoice } from '@maka/ui';
@@ -127,23 +127,47 @@ export function useShellChatModel(options: {
     : undefined;
   const newChatModelLabel = chatModelChoiceLabel(chatModelChoices, newChatModel?.llmConnectionSlug, newChatModel?.model);
 
-  // Cheap renderer-side "is the default connection plausibly ready" check —
-  // used only as a display filter for hard-only health notices (#1032). Soft
-  // rebind cases stay silent when this is true; backend remains authoritative
-  // at send time for missing_api_key / missing_model / etc.
-  const defaultConnectionReady = useMemo(() => {
-    if (!defaultConnection) return false;
-    const entry = connections.find((connection) => connection.slug === defaultConnection);
-    return entry?.enabled === true;
-  }, [defaultConnection, connections]);
+  // #1038: the notice decides from the same facts as the send gate, so
+  // the renderer needs real secret presence, not the old
+  // "default exists && enabled" proxy. Probe every connection's secret
+  // via IPC whenever the connection list changes (the list refreshes on
+  // every connection mutation, including API-key saves). Until the
+  // probe lands, presence is treated optimistically so a destructive
+  // notice never flashes on first paint.
+  const [secretPresence, setSecretPresence] = useState<Readonly<Record<string, boolean>>>({});
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.all(
+      connections.map(async (connection) => {
+        try {
+          return [connection.slug, await window.maka.connections.hasSecret(connection.slug)] as const;
+        } catch {
+          return [connection.slug, true] as const;
+        }
+      }),
+    ).then((entries) => {
+      if (!cancelled) setSecretPresence(Object.fromEntries(entries));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [connections]);
 
   // Notice derivation is a pure function (see `session-health-notice.ts`); we
   // wrap the returned `onClickTarget` here with the Settings-jump action.
   const sessionHealthNotice = useMemo<SessionHealthNoticeView | undefined>(() => {
     const derived = deriveSessionHealthNotice({
-      backend: activeSession?.backend,
-      hasActiveConnection: Boolean(activeConnection),
-      defaultConnectionReady,
+      session: activeSession
+        ? {
+            backend: activeSession.backend,
+            llmConnectionSlug: activeSession.llmConnectionSlug,
+            model: activeSession.model,
+            connectionLocked: activeSession.connectionLocked,
+          }
+        : undefined,
+      connections,
+      defaultSlug: defaultConnection,
+      hasSecret: (slug) => secretPresence[slug] ?? true,
       lastTestStatus: activeConnection?.lastTestStatus,
     });
     if (!derived) return undefined;
@@ -162,9 +186,13 @@ export function useShellChatModel(options: {
   }, [
     activeSession?.id,
     activeSession?.backend,
-    activeConnection?.slug,
+    activeSession?.llmConnectionSlug,
+    activeSession?.model,
+    activeSession?.connectionLocked,
+    connections,
+    defaultConnection,
+    secretPresence,
     activeConnection?.lastTestStatus,
-    defaultConnectionReady,
   ]);
 
   return {

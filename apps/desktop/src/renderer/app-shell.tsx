@@ -577,6 +577,7 @@ export function AppShell({
     status: 'active',
     backend: 'fake',
     llmConnectionSlug: 'default',
+    connectionLocked: false,
     model: 'fake-model',
     // Transient placeholder while the real SessionSummary loads --
     // matches the configured default so the composer doesn't flash a

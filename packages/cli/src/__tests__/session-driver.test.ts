@@ -226,6 +226,7 @@ describe('Maka session driver', () => {
         status: 'active',
         backend: 'ai-sdk',
         llmConnectionSlug: 'anthropic',
+        connectionLocked: false,
         model: 'claude-opus-4-1',
         permissionMode: 'execute',
       }];
@@ -691,6 +692,7 @@ class RecordingRuntime {
       status: input.status ?? 'active',
       backend: input.backend,
       llmConnectionSlug: input.llmConnectionSlug,
+      connectionLocked: false,
       model: input.model ?? '',
       permissionMode: input.permissionMode,
     };
@@ -748,6 +750,7 @@ class RecordingRuntime {
       status: 'active',
       backend: 'ai-sdk',
       llmConnectionSlug: 'anthropic',
+      connectionLocked: false,
       model: 'claude-sonnet-4-5',
       permissionMode: mode,
     };
@@ -765,6 +768,7 @@ class RecordingRuntime {
       status: 'active',
       backend: 'ai-sdk',
       llmConnectionSlug: patch.llmConnectionSlug ?? 'anthropic',
+      connectionLocked: false,
       model: patch.model ?? 'claude-sonnet-4-5',
       permissionMode: 'ask',
     };
@@ -823,6 +827,7 @@ function sessionSummary(overrides: Partial<SessionSummary>): SessionSummary {
     status: 'active',
     backend: 'ai-sdk',
     llmConnectionSlug: 'anthropic',
+    connectionLocked: false,
     model: 'claude-sonnet-4-5',
     permissionMode: 'ask',
     ...overrides,

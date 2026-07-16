@@ -24,6 +24,7 @@
  */
 
 import {
+  CODEX_SUBSCRIPTION_UNSUPPORTED_CHATGPT_MODELS,
   PROVIDER_DEFAULTS,
   providerAuthRequiresSecret,
   type LlmConnection,
@@ -138,6 +139,55 @@ export function isConnectionReady(input: IsConnectionReadyInput): IsConnectionRe
     }
   }
   return { ready: true, model };
+}
+
+/**
+ * Pre-readiness normalization for ChatGPT-subscription (Codex)
+ * connections: models the subscription cannot serve are filtered out of
+ * the enabled list and the default falls back to the first servable
+ * model, so the readiness gate below judges the models that would
+ * actually be used. Pure; returns the input unchanged for non-Codex
+ * providers. Moved from the desktop send path (#1038) so the send gate
+ * and the session send projection share one normalization.
+ */
+export function normalizeOpenAiCodexConnection(connection: LlmConnection): LlmConnection {
+  if (connection.providerType !== 'openai-codex') return connection;
+  const fallbackModels = PROVIDER_DEFAULTS['openai-codex'].fallbackModels;
+  const safeModels = (connection.models ?? []).filter(
+    (entry) => entry.id && !CODEX_SUBSCRIPTION_UNSUPPORTED_CHATGPT_MODELS.has(entry.id),
+  );
+  const models = safeModels.length
+    ? safeModels
+    : fallbackModels.map((id) => ({ id }));
+  const enabledModelIds = new Set(models.map((entry) => entry.id));
+  const defaultModel =
+    connection.defaultModel &&
+    !CODEX_SUBSCRIPTION_UNSUPPORTED_CHATGPT_MODELS.has(connection.defaultModel) &&
+    enabledModelIds.has(connection.defaultModel)
+      ? connection.defaultModel
+      : models[0]?.id ?? fallbackModels[0] ?? connection.defaultModel;
+  if (models === connection.models && defaultModel === connection.defaultModel) return connection;
+  return { ...connection, defaultModel, models };
+}
+
+/**
+ * The requested model as the readiness gate should see it: a requested
+ * ChatGPT-subscription-unsupported model on a Codex connection is
+ * dropped so the gate validates the connection's (normalized) default
+ * instead of a model the subscription cannot serve.
+ */
+export function normalizeRequestedModelForReadiness(
+  connection: LlmConnection,
+  requestedModel: string | undefined,
+): string | undefined {
+  if (
+    connection.providerType === 'openai-codex' &&
+    requestedModel &&
+    CODEX_SUBSCRIPTION_UNSUPPORTED_CHATGPT_MODELS.has(requestedModel)
+  ) {
+    return undefined;
+  }
+  return requestedModel;
 }
 
 /**

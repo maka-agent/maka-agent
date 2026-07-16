@@ -1,13 +1,18 @@
 import {
   isConnectionReady,
+  normalizeOpenAiCodexConnection,
+  normalizeRequestedModelForReadiness,
+  projectSessionSendOutcome,
   type ChatConfigurationReason,
   type LlmConnection,
   type SessionHeader,
 } from '@maka/core';
-import {
-  CODEX_SUBSCRIPTION_UNSUPPORTED_CHATGPT_MODELS,
-  PROVIDER_DEFAULTS,
-} from '@maka/core/llm-connections';
+import { PROVIDER_DEFAULTS } from '@maka/core/llm-connections';
+
+// The rebind-eligibility taxonomy moved to `@maka/core/session-send-projection`
+// (#1038) so the send gate and the renderer health notice share one
+// decision source. Re-exported here for back-compat.
+export { shouldRebindSessionToDefault } from '@maka/core';
 
 export const NO_REAL_CONNECTION_CODE = 'NO_REAL_CONNECTION';
 
@@ -73,7 +78,7 @@ export async function requireReadyConnection(
   // expects.
   const normalizedConnection = normalizeOpenAiCodexConnection(connection);
   const apiKey = await deps.getApiKey(normalizedConnection.slug);
-  const normalizedRequestedModel = normalizeRequestedModel(connection, requestedModel);
+  const normalizedRequestedModel = normalizeRequestedModelForReadiness(connection, requestedModel);
   const verdict = isConnectionReady({
     connection: normalizedConnection,
     hasSecret: typeof apiKey === 'string' && apiKey.length > 0,
@@ -88,40 +93,6 @@ export async function requireReadyConnection(
   }
 
   return { connection: normalizedConnection, apiKey: apiKey ?? '', model: verdict.model };
-}
-
-function normalizeOpenAiCodexConnection(connection: LlmConnection): LlmConnection {
-  if (connection.providerType !== 'openai-codex') return connection;
-  const fallbackModels = PROVIDER_DEFAULTS['openai-codex'].fallbackModels;
-  const safeModels = (connection.models ?? []).filter(
-    (entry) => entry.id && !CODEX_SUBSCRIPTION_UNSUPPORTED_CHATGPT_MODELS.has(entry.id),
-  );
-  const models = safeModels.length
-    ? safeModels
-    : fallbackModels.map((id) => ({ id }));
-  const enabledModelIds = new Set(models.map((entry) => entry.id));
-  const defaultModel =
-    connection.defaultModel &&
-    !CODEX_SUBSCRIPTION_UNSUPPORTED_CHATGPT_MODELS.has(connection.defaultModel) &&
-    enabledModelIds.has(connection.defaultModel)
-      ? connection.defaultModel
-      : models[0]?.id ?? fallbackModels[0] ?? connection.defaultModel;
-  if (models === connection.models && defaultModel === connection.defaultModel) return connection;
-  return { ...connection, defaultModel, models };
-}
-
-function normalizeRequestedModel(
-  connection: LlmConnection,
-  requestedModel: string | undefined,
-): string | undefined {
-  if (
-    connection.providerType === 'openai-codex' &&
-    requestedModel &&
-    CODEX_SUBSCRIPTION_UNSUPPORTED_CHATGPT_MODELS.has(requestedModel)
-  ) {
-    return undefined;
-  }
-  return requestedModel;
 }
 
 /**
@@ -185,42 +156,57 @@ export async function ensureSessionCanSendOrRebind(
   header: Pick<SessionHeader, 'backend' | 'llmConnectionSlug' | 'model' | 'connectionLocked'>,
   deps: SessionRebindDeps,
 ): Promise<SessionRebindResult> {
-  try {
-    await assertSessionCanSend(header, deps.readyConnectionDeps);
-    return { rebound: false };
-  } catch (error) {
-    // Once a session has user messages, its connection/model is sticky.
-    // Rebind remains only a recovery path for empty legacy placeholders.
-    if (header.connectionLocked) {
-      throw error;
-    }
-    if (!shouldRebindSessionToDefault(errorReason(error))) {
-      throw error;
-    }
-    const defaultSlug = await deps.getDefaultSlug();
-    const connectionSlugs = await deps.listConnectionSlugs().catch(() => []);
-    let ready: ReadyConnection | undefined;
-    for (const slug of new Set([defaultSlug, ...connectionSlugs])) {
-      try {
-        ready = await requireReadyConnection(slug, deps.readyConnectionDeps);
-        break;
-      } catch {
-        // Try the next persisted connection; the original error wins if none are ready.
-      }
-    }
-    if (!ready) throw error;
+  // #1038: the send/rebind DECISION lives in the core projection so the
+  // renderer health notice answers "will the next send fail?" from the
+  // same facts and the same code. Main resolves the async facts
+  // (connections + secret presence), delegates the decision, then owns
+  // the side effects: the rebind mutation and the canonical error copy.
+  const [defaultSlug, connectionSlugs] = await Promise.all([
+    deps.getDefaultSlug(),
+    deps.listConnectionSlugs().catch(() => []),
+  ]);
+  // Fact-gathering covers the same universe the rebind walk considers:
+  // the default connection first, then every persisted slug.
+  const candidateSlugs = [...new Set([defaultSlug, ...connectionSlugs])]
+    .filter((slug): slug is string => typeof slug === 'string' && slug.length > 0);
+  const connections: LlmConnection[] = [];
+  const secretPresence = new Map<string, boolean>();
+  await Promise.all(candidateSlugs.map(async (slug) => {
+    const connection = await deps.readyConnectionDeps.getConnection(slug);
+    if (!connection) return;
+    connections.push(connection);
+    const apiKey = await deps.readyConnectionDeps.getApiKey(connection.slug);
+    secretPresence.set(connection.slug, typeof apiKey === 'string' && apiKey.length > 0);
+  }));
+
+  const outcome = projectSessionSendOutcome({
+    session: header,
+    connections,
+    defaultSlug,
+    hasSecret: (slug) => secretPresence.get(slug) === true,
+  });
+
+  if (outcome.kind === 'ready') return { rebound: false };
+
+  if (outcome.kind === 'rebind') {
     await deps.updateSession(sessionId, {
       backend: 'ai-sdk',
-      llmConnectionSlug: ready.connection.slug,
-      model: ready.model,
+      llmConnectionSlug: outcome.connectionSlug,
+      model: outcome.model,
       connectionLocked: true,
     });
     return {
       rebound: true,
-      connectionSlug: ready.connection.slug,
-      modelId: ready.model,
+      connectionSlug: outcome.connectionSlug,
+      modelId: outcome.model,
     };
   }
+
+  // Blocked. Re-run the throwing authority so the exact historical
+  // error copy surfaces unchanged; if the facts shifted underneath us
+  // (e.g. a key was just saved), the send may proceed after all.
+  await assertSessionCanSend(header, deps.readyConnectionDeps);
+  return { rebound: false };
 }
 
 export function chatConfigurationError(message: string, reason: ChatConfigurationReason): Error {
@@ -246,13 +232,4 @@ export function errorReason(error: unknown): string | undefined {
     return String((error as { reason?: unknown }).reason);
   }
   return undefined;
-}
-
-export function shouldRebindSessionToDefault(reason: string | undefined): boolean {
-  return reason === 'fake_backend' ||
-    reason === 'connection_missing' ||
-    reason === 'missing_model' ||
-    reason === 'empty_model_list' ||
-    reason === 'model_not_enabled' ||
-    reason === 'model_not_chat_capable';
 }

@@ -14,6 +14,7 @@ export function makeSessionSummary(overrides: Partial<SessionSummary> = {}): Ses
     status: 'active',
     backend: 'ai-sdk',
     llmConnectionSlug: 'test-connection',
+    connectionLocked: false,
     model: 'test-model',
     permissionMode: 'ask',
     ...overrides,

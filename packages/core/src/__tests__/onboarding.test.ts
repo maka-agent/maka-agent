@@ -69,6 +69,7 @@ function session(id: string, overrides: Partial<SessionSummary> = {}): SessionSu
     status: overrides.status ?? 'active',
     backend: 'ai-sdk',
     llmConnectionSlug: 'anthropic-live',
+    connectionLocked: false,
     model: 'claude-sonnet-4-5-20250929',
     permissionMode: 'ask',
     ...overrides,

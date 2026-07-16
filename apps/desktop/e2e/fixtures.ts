@@ -119,6 +119,7 @@ export const test = base.extend<{
   emptyWindow: Page;
   longTranscriptWindow: Page;
   permissionWindow: Page;
+  staleSessionsWindow: Page;
   sessionWorkbarWindow: Page;
 }>({
   // Seeded: a pre-staged connection clears onboarding so the composer is ready.
@@ -149,6 +150,18 @@ export const test = base.extend<{
   permissionWindow: async ({}, use) => {
     await withE2eWindow(
       { seed: false, readinessSelector: '.maka-permission-prompt', visualSmokeScenario: 'permission-destructive' },
+      use,
+    );
+  },
+  // Stale sessions: boots the visual-smoke `stale-sessions` fixture — one
+  // healthy session (zai-live, secret seeded), one unlocked fake session
+  // (opened active), and one locked legacy session whose connection is
+  // gone. Exercises the #1038 health-notice authority against real IPC
+  // (connection list, hasSecret probe, connectionLocked summaries).
+  // Readiness = turns on screen: the fake session is open.
+  staleSessionsWindow: async ({}, use) => {
+    await withE2eWindow(
+      { seed: false, readinessSelector: '.maka-turn', visualSmokeScenario: 'stale-sessions' },
       use,
     );
   },

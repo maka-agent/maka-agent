@@ -1147,6 +1147,7 @@ export function headerToSummary(h: SessionHeader): SessionSummary {
     ...(h.branchOfTurnId ? { branchOfTurnId: h.branchOfTurnId } : {}),
     backend: h.backend,
     llmConnectionSlug: h.llmConnectionSlug,
+    connectionLocked: h.connectionLocked,
     model: h.model,
     permissionMode: h.permissionMode ?? 'ask',
   };

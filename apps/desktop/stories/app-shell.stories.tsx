@@ -60,6 +60,7 @@ function makeSession(input: {
     lastMessageAt: input.lastMessageAt ?? NOW - 12 * 60_000,
     backend: 'ai-sdk',
     llmConnectionSlug: 'anthropic-main',
+    connectionLocked: false,
     model: 'claude-sonnet-4-5',
     permissionMode: 'ask',
   };
