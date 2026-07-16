@@ -766,6 +766,31 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('streaming text past the viewport keeps appending visible content (#1135)', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new StreamingPastViewportDriver();
+    const run = runMakaPiTui({
+      title: 'Maka', driver, cwd: '/repo', model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription', permissionMode: 'ask', terminal,
+    });
+
+    terminal.input('r');
+    terminal.input('\r');
+    // The assistant reply fills the viewport, then a second delta appends a
+    // unique tail marker. The tail must be visible — the entry straddles the
+    // scrollback/viewport boundary and only its scrollback prefix is frozen.
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('UNIQUE-TAIL-MARKER'));
+    assert.equal(terminal.output().includes('\x1b[3J'), false);
+
+    exitMaka(terminal);
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close during test cleanup');
+      }),
+    ]);
+  });
+
   test('off-screen thinking_complete never clears scrollback (#1135)', async () => {
     const terminal = new FakeTerminal();
     const driver = new OffscreenThinkingDriver();
@@ -4945,6 +4970,27 @@ class OffscreenThinkingDriver extends ToolOutputDriver {
       messageId: 'message-3', text: 'late-visible-reply',
     };
     yield { type: 'complete', id: 'event-complete', turnId: 'turn-1', ts: 5, stopReason: 'end_turn' };
+  }
+}
+
+// #1135: an assistant reply grows past the viewport boundary. The entry
+// straddles scrollback and viewport — its scrollback prefix is frozen but the
+// visible tail must keep updating.
+class StreamingPastViewportDriver extends ToolOutputDriver {
+  override async *sendPrompt(_prompt: string): AsyncIterable<SessionEvent> {
+    // First delta: ~30 paragraphs fill a 24-row viewport.
+    yield {
+      type: 'text_delta', id: 'event-text-1', turnId: 'turn-1', ts: 1,
+      messageId: 'message-1',
+      text: Array.from({ length: 30 }, (_, i) => `line-${i}`).join('\n\n'),
+    };
+    // Second delta: a unique marker appended to the same entry.
+    yield {
+      type: 'text_delta', id: 'event-text-2', turnId: 'turn-1', ts: 2,
+      messageId: 'message-1',
+      text: '\n\nUNIQUE-TAIL-MARKER',
+    };
+    yield { type: 'complete', id: 'event-complete', turnId: 'turn-1', ts: 3, stopReason: 'end_turn' };
   }
 }
 

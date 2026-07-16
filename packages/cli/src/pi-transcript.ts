@@ -218,11 +218,6 @@ export function refreshRunningShellRunElapsed(
   let found = false;
   for (const entry of state.entries) {
     if (entry.kind !== 'tool' || entry.status !== 'running' || entry.result?.kind !== 'shell_run') continue;
-    // Skip off-screen running cards: updating their elapsed time would change
-    // their rendered lines, but those lines are frozen in scrollback (#1135).
-    // The underlying durationMs stays stale until the card re-enters the
-    // viewport or the session is replayed.
-    if (!entryInLiveViewport(state, entry)) continue;
     entry.durationMs = Math.max(0, now - entry.result.startedAt);
     found = true;
   }
@@ -553,13 +548,21 @@ export function applyMakaSessionEventToTranscript(
       if (tool && parent && shellRun && !event.isError) {
         applyLiveShellRunResultToParent(state, parent, shellRun);
         if (tool.toolName === 'Read' || tool.toolName === 'StopBackgroundTask') {
-          // Splicing an off-screen entry shifts subsequent entries' line numbers,
-          // which changes the composed buffer above the viewport and forces a
-          // scrollback-clearing full redraw (#1135). Leave it in place: its
-          // frozen render stays in scrollback, the fold already applied to the
-          // parent, and the stale entry is cleaned on the next session switch.
+          // Splicing an off-screen entry shifts subsequent entries' line
+          // numbers, which changes the composed buffer above the viewport and
+          // forces a scrollback-clearing full redraw (#1135). Leave it in
+          // place but mark it done so a future full redraw (width change,
+          // session switch) renders it correctly rather than as a stale
+          // running card. The stale entry is fully cleaned on the next
+          // session switch / replaceTranscriptWithStoredMessages.
           if (entryInLiveViewport(state, tool)) {
             state.entries.splice(state.entries.indexOf(tool), 1);
+          } else {
+            tool.status = 'done';
+            tool.result = event.content;
+            tool.output = formatToolResultContent(event.content);
+            tool.durationMs = event.durationMs;
+            tool.resultVersion += 1;
           }
         } else {
           applyOwnShellRunResult(tool, shellRun, event.durationMs);
@@ -965,10 +968,16 @@ export function renderMakaPiTranscript(
     const continuesStack = entry.kind === 'tool' && prev?.kind === 'tool';
     if (!continuesStack) lines.push('');
     entryFirstLine.set(entry, lines.length);
-    // An entry whose first line sits above the live viewport is in terminal
-    // scrollback — freeze its rendered lines (#1135).
-    const offScreen = lines.length < viewportTop;
-    lines.push(...renderTranscriptEntryMemoized(entry, safeWidth, offScreen));
+    // An entry that sits entirely above the live viewport is in terminal
+    // scrollback — freeze its rendered lines (#1135). An entry that straddles
+    // the boundary (first line in scrollback, tail still visible) must still
+    // re-render: append-only entries (assistant text, tool deltas) only change
+    // the visible tail, and pi-tui's `firstChanged` will be inside the
+    // viewport, so no full redraw is triggered.
+    const cachedLines = transcriptEntryRenderCache.get(entry);
+    const entryHeight = cachedLines?.lines.length ?? 0;
+    const fullyOffScreen = entryHeight > 0 && lines.length + entryHeight <= viewportTop;
+    lines.push(...renderTranscriptEntryMemoized(entry, safeWidth, fullyOffScreen));
   }
   state.renderGeometry.entryFirstLine = entryFirstLine;
 
