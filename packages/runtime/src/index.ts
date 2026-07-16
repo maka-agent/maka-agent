@@ -485,6 +485,7 @@ export {
   extractOAuthSubscriptionAccessToken,
   isOAuthSubscriptionProvider,
   parseOAuthSubscriptionTokens,
+  refreshAndPersistOAuthSubscriptionTokens,
   refreshOAuthSubscriptionTokens,
   resolveOAuthSubscriptionAccessToken,
   resolveOAuthSubscriptionTokens,
@@ -496,7 +497,9 @@ export {
 export type {
   OAuthSubscriptionCredentialStore,
   OAuthSubscriptionProvider,
+  OAuthSubscriptionRefreshAndPersistOutcome,
   OAuthSubscriptionTokens,
+  RefreshAndPersistOAuthSubscriptionTokensInput,
   ResolveOAuthSubscriptionAccessTokenInput,
 } from './subscription-credentials.js';
 export { buildSubscriptionModelFetch } from './subscription-model-fetch.js';

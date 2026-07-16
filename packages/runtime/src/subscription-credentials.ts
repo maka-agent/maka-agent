@@ -56,6 +56,12 @@ export function extractOAuthSubscriptionAccessToken(raw: string): string | null 
 export interface OAuthSubscriptionCredentialStore {
   getSecret(slug: string, kind: 'oauth_token'): Promise<string | null>;
   setSecret?(slug: string, kind: 'oauth_token', value: string): Promise<void>;
+  compareAndSetSecret?(
+    slug: string,
+    kind: 'oauth_token',
+    expected: string | null,
+    value: string,
+  ): Promise<{ committed: true } | { committed: false; current: string | null }>;
 }
 
 export interface ResolveOAuthSubscriptionAccessTokenInput {
@@ -65,6 +71,26 @@ export interface ResolveOAuthSubscriptionAccessTokenInput {
   now?: () => number;
   fetchFn?: typeof fetch;
 }
+
+export type OAuthSubscriptionRefreshAndPersistOutcome =
+  | { outcome: 'refreshed'; tokens: OAuthSubscriptionTokens }
+  | { outcome: 'superseded'; tokens: OAuthSubscriptionTokens }
+  | { outcome: 'logged-out' }
+  | { outcome: 'refresh-failed'; error: unknown }
+  | { outcome: 'storage-failed'; error: unknown };
+
+export type RefreshAndPersistOAuthSubscriptionTokensInput = {
+  slug: string;
+  credentialStore: OAuthSubscriptionCredentialStore;
+  now?: () => number;
+  fetchFn?: typeof fetch;
+} & (
+  | { providerType: OAuthSubscriptionProvider; refreshTokens?: never }
+  | {
+    providerType?: never;
+    refreshTokens: (tokens: OAuthSubscriptionTokens) => Promise<OAuthSubscriptionTokens>;
+  }
+);
 
 const CLAUDE_CLIENT_ID = '9d1c250a-e61b-44d9-88ed-5944d1962f5e';
 const CLAUDE_TOKEN_ENDPOINT = 'https://platform.claude.com/v1/oauth/token';
@@ -91,18 +117,78 @@ export async function resolveOAuthSubscriptionTokens(
 
   const now = input.now ?? (() => Date.now());
   if (tokens.expires_at - now() > TOKEN_REFRESH_SKEW_MS) return tokens;
-  if (!input.credentialStore.setSecret) return null;
+  if (!input.credentialStore.compareAndSetSecret && !input.credentialStore.setSecret) return null;
 
-  const refreshed = await refreshOAuthSubscriptionTokens({
+  const result = await refreshAndPersistOAuthSubscriptionTokens({
     providerType: input.providerType,
-    tokens,
+    slug: input.slug,
+    credentialStore: input.credentialStore,
     now,
     fetchFn: input.fetchFn ?? fetch,
-  }).catch(() => null);
-  if (!refreshed) return null;
+  });
+  return result.outcome === 'refreshed' || result.outcome === 'superseded'
+    ? result.tokens
+    : null;
+}
 
-  await input.credentialStore.setSecret(input.slug, 'oauth_token', serializeOAuthSubscriptionTokens(refreshed));
-  return refreshed;
+export async function refreshAndPersistOAuthSubscriptionTokens(
+  input: RefreshAndPersistOAuthSubscriptionTokensInput,
+): Promise<OAuthSubscriptionRefreshAndPersistOutcome> {
+  let raw: string | null;
+  try {
+    raw = await input.credentialStore.getSecret(input.slug, 'oauth_token');
+  } catch (error) {
+    return { outcome: 'storage-failed', error };
+  }
+  if (raw === null) return { outcome: 'logged-out' };
+
+  const tokens = parseOAuthSubscriptionTokens(raw);
+  if (!tokens) {
+    return { outcome: 'storage-failed', error: new Error('Stored OAuth token is invalid.') };
+  }
+
+  let refreshed: OAuthSubscriptionTokens;
+  try {
+    refreshed = input.refreshTokens
+      ? await input.refreshTokens(tokens)
+      : await refreshOAuthSubscriptionTokens({
+        providerType: input.providerType,
+        tokens,
+        now: input.now,
+        fetchFn: input.fetchFn,
+      });
+  } catch (error) {
+    return { outcome: 'refresh-failed', error };
+  }
+
+  const serialized = serializeOAuthSubscriptionTokens(refreshed);
+  try {
+    if (input.credentialStore.compareAndSetSecret) {
+      const committed = await input.credentialStore.compareAndSetSecret(
+        input.slug,
+        'oauth_token',
+        raw,
+        serialized,
+      );
+      if (!committed.committed) {
+        if (committed.current === null) return { outcome: 'logged-out' };
+        const current = parseOAuthSubscriptionTokens(committed.current);
+        if (!current) {
+          return { outcome: 'storage-failed', error: new Error('Stored OAuth token is invalid.') };
+        }
+        return { outcome: 'superseded', tokens: current };
+      }
+    } else {
+      if (!input.credentialStore.setSecret) {
+        return { outcome: 'storage-failed', error: new Error('Credential store is read-only.') };
+      }
+      await input.credentialStore.setSecret(input.slug, 'oauth_token', serialized);
+    }
+  } catch (error) {
+    return { outcome: 'storage-failed', error };
+  }
+
+  return { outcome: 'refreshed', tokens: refreshed };
 }
 
 /**

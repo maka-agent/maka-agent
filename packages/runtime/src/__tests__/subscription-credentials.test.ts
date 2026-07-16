@@ -1,9 +1,15 @@
 import assert from 'node:assert/strict';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, test } from 'node:test';
+
+import { createFileCredentialStore } from '@maka/storage';
 
 import {
   createGitHubCopilotAccountTokens,
   parseOAuthSubscriptionTokens,
+  refreshAndPersistOAuthSubscriptionTokens,
   resolveOAuthSubscriptionTokens,
 } from '../subscription-credentials.js';
 
@@ -113,5 +119,140 @@ describe('OAuth refresh response validation', () => {
     assert.equal(tokens?.access_token, 'new-access');
     assert.equal(tokens?.refresh_token, 'old-refresh');
     assert.equal(writes.length, 1);
+  });
+});
+
+describe('OAuth refresh persistence transaction', () => {
+  test('resolve accepts a store whose only write capability is compare-and-set', async () => {
+    const stored = JSON.stringify({
+      access_token: 'old-access',
+      refresh_token: 'old-refresh',
+      expires_at: 1_000,
+    });
+    let committed: string | null = null;
+    const tokens = await resolveOAuthSubscriptionTokens({
+      providerType: 'claude-subscription',
+      slug: 'claude-subscription',
+      credentialStore: {
+        getSecret: async () => stored,
+        compareAndSetSecret: async (_slug, _kind, expected, value) => {
+          assert.equal(expected, stored);
+          committed = value;
+          return { committed: true };
+        },
+      },
+      now: () => 10_000_000,
+      fetchFn: async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({ access_token: 'new-access', refresh_token: 'new-refresh', expires_in: 3600 }),
+      } as unknown as Response),
+    });
+
+    assert.equal(tokens?.access_token, 'new-access');
+    assert.equal(parseOAuthSubscriptionTokens(committed ?? '')?.access_token, 'new-access');
+  });
+
+  test('a logout from another store stays terminal while refresh is in flight', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'maka-oauth-refresh-'));
+    try {
+      const refreshingStore = createFileCredentialStore(dir);
+      const logoutStore = createFileCredentialStore(dir);
+      const stored = JSON.stringify({
+        access_token: 'old-access',
+        refresh_token: 'old-refresh',
+        expires_at: 1_000,
+      });
+      await refreshingStore.setSecret('claude-subscription', 'oauth_token', stored);
+
+      let releaseRefresh!: (response: Response) => void;
+      let markRefreshStarted!: () => void;
+      const refreshStarted = new Promise<void>((resolve) => {
+        markRefreshStarted = resolve;
+      });
+      const refreshResponse = new Promise<Response>((resolve) => {
+        releaseRefresh = resolve;
+      });
+      const resolving = resolveOAuthSubscriptionTokens({
+        providerType: 'claude-subscription',
+        slug: 'claude-subscription',
+        credentialStore: refreshingStore,
+        now: () => 10_000_000,
+        fetchFn: async () => {
+          markRefreshStarted();
+          return refreshResponse;
+        },
+      });
+
+      await refreshStarted;
+      await logoutStore.deleteSecret('claude-subscription', 'oauth_token');
+      releaseRefresh({
+        ok: true,
+        status: 200,
+        json: async () => ({ access_token: 'new-access', refresh_token: 'new-refresh', expires_in: 3600 }),
+      } as unknown as Response);
+
+      assert.equal(await resolving, null);
+      assert.equal(await logoutStore.getSecret('claude-subscription', 'oauth_token'), null);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('two concurrent refreshes converge on the single committed token', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'maka-oauth-refresh-'));
+    try {
+      const storeA = createFileCredentialStore(dir);
+      const storeB = createFileCredentialStore(dir);
+      const stored = JSON.stringify({
+        access_token: 'old-access',
+        refresh_token: 'old-refresh',
+        expires_at: 1_000,
+      });
+      await storeA.setSecret('claude-subscription', 'oauth_token', stored);
+
+      let started = 0;
+      let markBothStarted!: () => void;
+      const bothStarted = new Promise<void>((resolve) => {
+        markBothStarted = resolve;
+      });
+      let releaseBoth!: () => void;
+      const released = new Promise<void>((resolve) => {
+        releaseBoth = resolve;
+      });
+      const run = (store: typeof storeA, suffix: string) => refreshAndPersistOAuthSubscriptionTokens({
+        slug: 'claude-subscription',
+        credentialStore: store,
+        refreshTokens: async () => {
+          started += 1;
+          if (started === 2) markBothStarted();
+          await released;
+          return {
+            access_token: `access-${suffix}`,
+            refresh_token: `refresh-${suffix}`,
+            expires_at: 20_000_000,
+          };
+        },
+      });
+
+      const pendingA = run(storeA, 'A');
+      const pendingB = run(storeB, 'B');
+      await bothStarted;
+      releaseBoth();
+      const results = await Promise.all([pendingA, pendingB]);
+
+      assert.deepEqual(results.map((result) => result.outcome).sort(), ['refreshed', 'superseded']);
+      const winner = results.find((result) => result.outcome === 'refreshed');
+      const loser = results.find((result) => result.outcome === 'superseded');
+      assert.ok(winner?.outcome === 'refreshed');
+      assert.ok(loser?.outcome === 'superseded');
+      assert.deepEqual(loser.tokens, winner.tokens);
+      assert.deepEqual(
+        parseOAuthSubscriptionTokens((await storeA.getSecret('claude-subscription', 'oauth_token')) ?? ''),
+        winner.tokens,
+      );
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });
