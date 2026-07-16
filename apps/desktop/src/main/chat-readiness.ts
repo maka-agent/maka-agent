@@ -190,57 +190,64 @@ export async function ensureSessionCanSendOrRebind(
   }
 
   // Phase 2: rebind candidates, resolved in deterministic order
-  // (default first, then persisted order). Each candidate resolves
-  // independently — an unreadable connection is skipped, exactly like
-  // the historical walk's per-candidate catch.
+  // (default first, then persisted order) with the historical
+  // short-circuit: candidates are probed one at a time and the walk
+  // stops as soon as the projection can decide, so the recovery path
+  // never waits on — nor even probes — later candidates once a ready
+  // one is found (a slow or hanging OAuth refresh on an unrelated
+  // connection cannot stall the send). getDefaultSlug stays
+  // fail-closed (a default-store read error rejects the send rather
+  // than risking a rebind picked from incomplete facts), while the
+  // list read fails open to [] — the default alone can still serve.
   const [defaultSlug, connectionSlugs] = await Promise.all([
     deps.getDefaultSlug(),
     deps.listConnectionSlugs().catch(() => []),
   ]);
   const candidateSlugs = [...new Set([defaultSlug, ...connectionSlugs])]
     .filter((slug): slug is string => typeof slug === 'string' && slug.length > 0);
-  const candidates = await Promise.all(candidateSlugs.map(async (slug) => {
-    try {
-      const connection = await deps.readyConnectionDeps.getConnection(slug);
-      if (!connection) return undefined;
-      const hasSecret = await hasUsableSecret(deps.readyConnectionDeps, connection.slug);
-      return { connection, hasSecret };
-    } catch {
-      return undefined;
-    }
-  }));
   const connections: LlmConnection[] = [];
   const secretPresence = new Map<string, boolean>();
-  for (const candidate of candidates) {
-    if (!candidate) continue;
-    connections.push(candidate.connection);
-    secretPresence.set(candidate.connection.slug, candidate.hasSecret);
-  }
-
-  const outcome = projectSessionSendOutcome({
-    session: header,
-    connections,
-    defaultSlug,
-    hasSecret: (slug) => secretPresence.get(slug) === true,
-  });
-
-  if (outcome.kind === 'ready') return { rebound: false }; // facts shifted mid-flight
-
-  if (outcome.kind === 'rebind') {
-    await deps.updateSession(sessionId, {
-      backend: 'ai-sdk',
-      llmConnectionSlug: outcome.connectionSlug,
-      model: outcome.model,
-      connectionLocked: true,
+  for (const slug of candidateSlugs) {
+    try {
+      const connection = await deps.readyConnectionDeps.getConnection(slug);
+      if (connection) {
+        connections.push(connection);
+        secretPresence.set(connection.slug, await hasUsableSecret(deps.readyConnectionDeps, connection.slug));
+      }
+    } catch {
+      // Unreadable candidate: skipped, exactly like the historical
+      // walk's per-candidate catch.
+    }
+    // Re-run the projection over the resolved prefix. The winner is
+    // identical to a full assembly (the projection picks the FIRST
+    // ready candidate in this same order), but `blocked` here only
+    // means "not yet" — a later candidate may still serve, so only
+    // ready/rebind stop the walk.
+    const outcome = projectSessionSendOutcome({
+      session: header,
+      connections,
+      defaultSlug,
+      hasSecret: (candidateSlug) => secretPresence.get(candidateSlug) === true,
     });
-    return {
-      rebound: true,
-      connectionSlug: outcome.connectionSlug,
-      modelId: outcome.model,
-    };
+
+    if (outcome.kind === 'ready') return { rebound: false }; // facts shifted mid-flight
+
+    if (outcome.kind === 'rebind') {
+      await deps.updateSession(sessionId, {
+        backend: 'ai-sdk',
+        llmConnectionSlug: outcome.connectionSlug,
+        model: outcome.model,
+        connectionLocked: true,
+      });
+      return {
+        rebound: true,
+        connectionSlug: outcome.connectionSlug,
+        modelId: outcome.model,
+      };
+    }
   }
 
-  // Blocked: same canonical-error re-run as above.
+  // Blocked after the full walk: same canonical-error re-run as above.
   await assertSessionCanSend(header, deps.readyConnectionDeps);
   return { rebound: false };
 }

@@ -724,6 +724,44 @@ describe('send-gate fact resolution stays staged (#1038 review)', () => {
     assert.equal(updates.length, 1);
   });
 
+  test('rebind walk stops probing after the first ready candidate, so a hanging later candidate cannot stall recovery', async () => {
+    const secretReads: string[] = [];
+    const updates: unknown[] = [];
+    const gate = ensureSessionCanSendOrRebind(
+      'session-1',
+      header({ backend: 'fake', llmConnectionSlug: 'fake', model: 'fake-model' }),
+      {
+        readyConnectionDeps: {
+          async getConnection(slug: string) {
+            return connection({ slug });
+          },
+          async getApiKey(slug: string) {
+            secretReads.push(slug);
+            if (slug === 'hanging-oauth') return new Promise<never>(() => {});
+            return 'sk-test';
+          },
+        },
+        async getDefaultSlug() {
+          return 'ready-default';
+        },
+        async listConnectionSlugs() {
+          return ['ready-default', 'hanging-oauth'];
+        },
+        async updateSession(_id, patch) {
+          updates.push(patch);
+        },
+      },
+    );
+    const outcome = await Promise.race([
+      gate,
+      new Promise((resolve) => setTimeout(() => resolve('timed_out'), 500)),
+    ]);
+
+    assert.deepEqual(outcome, { rebound: true, connectionSlug: 'ready-default', modelId: 'claude-3-5-sonnet-20241022' });
+    assert.equal(updates.length, 1);
+    assert.deepEqual(secretReads, ['ready-default'], 'candidates after the first ready one must never be probed');
+  });
+
   test('rebind walk skips candidates whose facts cannot be read', async () => {
     const result = await ensureSessionCanSendOrRebind(
       'session-1',
