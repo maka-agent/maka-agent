@@ -191,6 +191,7 @@ import {
   buildHistoryCompactCheckpoint,
   historyCompactCheckpointToRuntimeEvent,
   matchHistoryCompactCheckpointPrefix,
+  projectHistoryCompactCheckpointReplay,
   type HistoryCompactCheckpoint,
 } from './history-compact-checkpoint.js';
 import { resolveSelectedModelContextWindow } from './context-budget-policy.js';
@@ -4371,9 +4372,9 @@ function buildHistoryCompactCheckpointFailOpenContext(
       byTurn.set(event.turnId, [event]);
     }
   }
-  const checkpointEvent = historyCompactCheckpointToRuntimeEvent(checkpoint);
   const maxTokens = policy.maxHistoryEstimatedTokens ?? Number.POSITIVE_INFINITY;
-  let selectedTokens = estimateRuntimeEventsTokens([checkpointEvent], charsPerToken);
+  const replayPrefix = projectHistoryCompactCheckpointReplay(checkpoint, match.coveredRuntimeEvents, []);
+  let selectedTokens = estimateRuntimeEventsTokens(replayPrefix, charsPerToken);
   const selectedGroups: RuntimeEvent[][] = [];
   for (let index = turnOrder.length - 1; index >= 0; index -= 1) {
     const group = byTurn.get(turnOrder[index]!) ?? [];
@@ -4383,10 +4384,15 @@ function buildHistoryCompactCheckpointFailOpenContext(
     selectedTokens += groupTokens;
   }
   const replayTail = selectedGroups.flat();
-  return evaluateHistoryCompactCheckpointReplay(checkpoint, replayTail, policy, {
+  const replayEvents = projectHistoryCompactCheckpointReplay(
+    checkpoint,
+    match.coveredRuntimeEvents,
+    replayTail,
+  );
+  return evaluateHistoryCompactCheckpointReplay(checkpoint, replayEvents.slice(1), policy, {
     sourceReplayEvents: [...match.coveredRuntimeEvents, ...replayTail],
   }).fits
-    ? [checkpointEvent, ...replayTail]
+    ? replayEvents
     : [...retainedCandidates];
 }
 

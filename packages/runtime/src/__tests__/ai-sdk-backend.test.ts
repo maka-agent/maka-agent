@@ -2971,6 +2971,58 @@ describe('AiSdkBackend model history', () => {
     assert.equal(prompt.includes('FALLBACK_NEWLY_EVICTED_RAW'), false);
   });
 
+  test('V2 rolling failure replays a mid-turn checkpoint with its verbatim head anchor', async () => {
+    const model = completionModel();
+    const old = runtimeTextEvent({
+      id: 'mid-fallback-old', turnId: 'mid-fallback-turn-1', role: 'model', author: 'agent',
+      text: 'MID_FALLBACK_OLD_RAW '.repeat(40),
+    });
+    const anchor = runtimeTextEvent({
+      id: 'mid-fallback-anchor', turnId: 'mid-fallback-turn-2', role: 'user', author: 'user',
+      text: 'MID_FALLBACK_VERBATIM_ANCHOR',
+    });
+    const evicted = runtimeTextEvent({
+      id: 'mid-fallback-evicted', turnId: 'mid-fallback-turn-3', role: 'model', author: 'agent',
+      text: 'MID_FALLBACK_NEWLY_EVICTED_RAW '.repeat(80),
+    });
+    const recent = runtimeTextEvent({
+      id: 'mid-fallback-recent', turnId: 'mid-fallback-turn-4', role: 'user', author: 'user',
+      text: 'MID_FALLBACK_RECENT_TURN',
+    });
+    const previous = buildHistoryCompactCheckpoint({
+      sessionId: 'session-1',
+      coveredRuntimeEvents: [old, anchor],
+      summary: 'MID_FALLBACK_PRIOR_SUMMARY',
+      phase: 'mid_turn',
+      headAnchor: { runtimeEventId: anchor.id, turnId: anchor.turnId },
+      charsPerToken: 1,
+    });
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1', header: header(), appendMessage: async () => {},
+      connection: connection(), apiKey: 'sk-test', modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model, tools: [], newId: idGenerator(), now: monotonicClock(),
+      contextBudget: {
+        maxHistoryEstimatedTokens: 1_500, charsPerToken: 1,
+        historyCompact: { enabled: true, mode: 'read_write', highWaterRatio: 0.01 },
+      },
+      loadHistoryCompactCheckpoint: () => previous,
+      summarizeHistoryCompact: async () => undefined,
+      recordHistoryCompactCheckpoint: () => { throw new Error('failed summary must not be recorded'); },
+    });
+
+    await drain(backend.send({
+      turnId: 'turn-current', text: 'continue', context: [], runtimeContext: [old, anchor, evicted, recent],
+    }));
+
+    const prompt = JSON.stringify(compactPrompt(model));
+    assert.match(prompt, /MID_FALLBACK_PRIOR_SUMMARY/);
+    assert.match(prompt, /MID_FALLBACK_VERBATIM_ANCHOR/);
+    assert.match(prompt, /MID_FALLBACK_RECENT_TURN/);
+    assert.equal(prompt.includes('MID_FALLBACK_OLD_RAW'), false);
+    assert.equal(prompt.includes('MID_FALLBACK_NEWLY_EVICTED_RAW'), false);
+  });
+
   test('V2 rolling failure does not replay a prior checkpoint outside current compact limits', async () => {
     const model = completionModel();
     const old = runtimeTextEvent({

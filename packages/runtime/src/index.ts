@@ -570,10 +570,11 @@ export type {
   HistoryCompactCleanupResult,
   HistoryCompactCleanupSkip,
 } from './history-compact-cleanup.js';
-export { buildLlmHistorySummarizer } from './history-compact-summarizer.js';
+export { buildLlmHistorySummarizer, HistoryCompactSummarizerError } from './history-compact-summarizer.js';
 export type {
   BuildLlmHistorySummarizerOptions,
 } from './history-compact-summarizer.js';
+export type { HistoryCompactSummarizerFailureReason } from './history-compact-error.js';
 export {
   ACTIVE_ARCHIVED_TOOL_RESULT_PLACEHOLDER_KIND,
   ARCHIVED_TOOL_RESULT_PLACEHOLDER_KIND,
