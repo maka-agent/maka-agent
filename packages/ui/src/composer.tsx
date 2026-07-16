@@ -17,16 +17,9 @@ import { ChatModelSwitcher, ModelChipStatic, NewChatModelPicker } from './chat-m
 import type { UiCatalog } from '@maka/core';
 import { useUiLocale } from './locale-context.js';
 import { type ChatModelChoice, modelChoiceValue } from './chat-model-helpers.js';
-import {
-  type ComposerHistoryState,
-  appendPromptContextDraft,
-  navigateComposerHistory,
-  readComposerDraft,
-  reconcileHistorySync,
-  rememberComposerDraft,
-  rememberComposerHistoryEntry,
-} from './composer-helpers.js';
-import { readGlobalInputHistory, saveGlobalInputHistoryEntry } from './input-history.js';
+import { appendPromptContextDraft } from './composer-helpers.js';
+import { useComposerDraft } from './use-composer-draft.js';
+import { useComposerHistory } from './use-composer-history.js';
 import {
   createChatInputActionOwner,
   detectMentionTrigger,
@@ -251,9 +244,6 @@ export const Composer = forwardRef<
   const [dragActive, setDragActive] = useState(false);
   const [sendPending, setSendPending] = useState(false);
   const [pendingImportAction, setPendingImportAction] = useState<ComposerImportActionId | null>(null);
-  const [hasDraftText, setHasDraftText] = useState(false);
-  const draftStoreRef = useRef<Map<string, string>>(new Map());
-  const activeDraftKeyRef = useRef<string | undefined>(props.draftKey);
   const composerMountedRef = useMountedRef();
   const sendPendingRef = useRef(false);
   const compositionActiveRef = useRef(false);
@@ -263,7 +253,21 @@ export const Composer = forwardRef<
       if (composerMountedRef.current) setPendingImportAction(action);
     });
   }
-  const promptHistoryRef = useRef<ComposerHistoryState>({ entries: readGlobalInputHistory() ?? [], index: -1, savedDraft: '' });
+  // Draft persistence + prompt-history navigation live in dedicated hooks
+  // (issue #1044). `resetPromptHistoryNavigation` is a hoisted wrapper so the
+  // draft hook's swap effect can reset history navigation even though the
+  // history hook is created one line below it.
+  const { hasDraftText, saveCurrentDraft, clearDraft, activeDraftKey } = useComposerDraft({
+    textareaRef,
+    draftKey: props.draftKey,
+    autoResize,
+    onDraftKeyChange: resetPromptHistoryNavigation,
+  });
+  const { resetNavigation, rememberSentEntry, handleArrowKey } = useComposerHistory({
+    textareaRef,
+    autoResize,
+    saveCurrentDraft,
+  });
   // Mention popup state (@ file / skill). `mention` holds the active trigger +
   // query + trigger-char index; items/loading/activeIndex drive the popup. The
   // whole block stays inert unless the matching provider prop is present, so
@@ -303,39 +307,9 @@ export const Composer = forwardRef<
     el.style.height = `${Math.min(el.scrollHeight, COMPOSER_MAX_HEIGHT)}px`;
   }
 
-  function saveCurrentDraft(value?: string) {
-    const nextValue = value ?? textareaRef.current?.value ?? '';
-    rememberComposerDraft(draftStoreRef.current, activeDraftKeyRef.current, nextValue);
-    setHasDraftText(Boolean(nextValue.trim()));
-  }
-
   function resetPromptHistoryNavigation() {
-    promptHistoryRef.current = {
-      entries: promptHistoryRef.current.entries,
-      index: -1,
-      savedDraft: '',
-    };
+    resetNavigation();
   }
-
-  useEffect(() => {
-    const el = textareaRef.current;
-    const previousKey = activeDraftKeyRef.current;
-    const nextKey = props.draftKey;
-
-    if (previousKey !== nextKey) {
-      rememberComposerDraft(draftStoreRef.current, previousKey, el?.value ?? '');
-      activeDraftKeyRef.current = nextKey;
-      resetPromptHistoryNavigation();
-      if (el) {
-        const nextDraft = readComposerDraft(draftStoreRef.current, nextKey);
-        el.value = nextDraft;
-        setHasDraftText(Boolean(nextDraft.trim()));
-        autoResize();
-        const length = el.value.length;
-        el.setSelectionRange(length, length);
-      }
-    }
-  }, [props.draftKey]);
 
   useImperativeHandle(
     ref,
@@ -372,7 +346,7 @@ export const Composer = forwardRef<
     const form = formRef.current;
     const text = (textarea?.value ?? '').trim();
     if (!text) return;
-    const submittedDraftKey = activeDraftKeyRef.current;
+    const submittedDraftKey = activeDraftKey();
     sendPendingRef.current = true;
     setSendPending(true);
     let sent: boolean | void;
@@ -386,13 +360,8 @@ export const Composer = forwardRef<
     if (sent === false) return;
     // Save to both local ref and global persistence so the history
     // survives page reloads and is shared across all input surfaces.
-    saveGlobalInputHistoryEntry(text);
-    promptHistoryRef.current = {
-      entries: rememberComposerHistoryEntry(promptHistoryRef.current.entries, text),
-      index: -1,
-      savedDraft: '',
-    };
-    rememberComposerDraft(draftStoreRef.current, submittedDraftKey, '');
+    rememberSentEntry(text);
+    clearDraft(submittedDraftKey);
     saveCurrentDraft('');
     form?.reset();
     // form.reset() empties the textarea but doesn't fire input — collapse
@@ -470,56 +439,11 @@ export const Composer = forwardRef<
       return;
     }
     // PR-GLOBAL-INPUT-HISTORY: up/down arrow navigates the global input
-    // history. Bare arrow keys only start navigation when the textarea is
-    // empty, or when the user is already mid-navigation (index >= 0); in a
-    // multi-line draft the caret keeps moving so editing isn't hijacked.
-    // Ctrl/Cmd + ArrowUp/ArrowDown is an explicit shortcut that always
-    // navigates history regardless of the current draft.
+    // history; the state machine + textarea application live in
+    // useComposerHistory (issue #1044). A consumed keystroke stops here so it
+    // can't fall through to send.
     if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
-      const explicit = Boolean(event.ctrlKey || event.metaKey);
-      const plainArrow = !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey;
-      if (plainArrow || explicit) {
-        const el = textareaRef.current;
-        const isNavigatingHistory = promptHistoryRef.current.index >= 0;
-        const canStartHistory = Boolean(el && !el.value.trim());
-        if (el && (explicit || isNavigatingHistory || canStartHistory)) {
-          // Re-read global history from localStorage on every navigation so
-          // a clear from Settings (an overlay that keeps the Composer
-          // mounted) is picked up immediately, and a transient storage
-          // failure does not clobber the in-memory history.
-          // reconcileHistorySync restores the saved draft if a clear happened
-          // mid-navigation (so the user doesn't lose what they were typing).
-          const synced = readGlobalInputHistory();
-          const { state, restoreDraft } = reconcileHistorySync(promptHistoryRef.current, synced);
-          promptHistoryRef.current = state;
-          if (restoreDraft && el) {
-            el.value = state.savedDraft;
-            saveCurrentDraft(state.savedDraft);
-            autoResize();
-            const length = el.value.length;
-            el.setSelectionRange(length, length);
-          }
-          // Nothing to navigate when history was cleared (synced empty).
-          // When the storage read failed (synced === null), keep navigating
-          // with the in-memory entries.
-          if (synced !== null && synced.length === 0) return;
-          const next = navigateComposerHistory(
-            promptHistoryRef.current,
-            event.key === 'ArrowUp' ? 'previous' : 'next',
-            el.value,
-          );
-          if (next.changed) {
-            event.preventDefault();
-            promptHistoryRef.current = next.state;
-            el.value = next.value;
-            saveCurrentDraft(next.value);
-            autoResize();
-            const length = el.value.length;
-            el.setSelectionRange(length, length);
-            return;
-          }
-        }
-      }
+      if (handleArrowKey(event)) return;
     }
     if (event.key !== 'Enter') return;
     if (event.shiftKey || event.altKey) return; // Shift+Enter / Alt+Enter inserts a newline.
