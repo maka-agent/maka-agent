@@ -75,6 +75,7 @@ const PRICING = {
   source: 'z.ai-public-2026-07-13',
 };
 const HARBOR_SETUP_TEARDOWN_GRACE_SEC = 15 * 60;
+const ORACLE_EVIDENCE_RESOLUTION_TIMEOUT_MS = 15_000;
 const BACKGROUND_RUN_ENV = 'MAKA_HARNESS_AB_BACKGROUND_RUN';
 const BACKGROUND_STARTED_AT_ENV = 'MAKA_HARNESS_AB_DETACHED_STARTED_AT';
 const BACKGROUND_JOURNAL_FILENAME = 'background-run.json';
@@ -352,30 +353,47 @@ export async function resolveAdvisoryOracleEvidence({
   loadSnapshot = loadHarnessOracleRegistrySnapshot,
   buildAuditTasks = buildHarnessOracleAuditTasks,
   resolveBaseImageDigest = resolveHarnessOracleBaseImageDigest,
+  resolutionTimeoutMs = ORACLE_EVIDENCE_RESOLUTION_TIMEOUT_MS,
 }) {
   const warnings = [];
   let snapshot = null;
   let annotations;
   if (registryUrl && expectedSnapshotFingerprint) {
+    const controller = new AbortController();
+    let timeout;
     try {
-      snapshot = await loadSnapshot({
-        url: registryUrl,
-        expectedFingerprint: expectedSnapshotFingerprint,
-      });
-      const digestCache = new Map();
-      const auditTasks = await buildAuditTasks({
-        tasks: allTasks,
-        executionPolicyFingerprint,
-        environment: 'docker',
-        platform: HARBOR_ORACLE_DOCKER_PLATFORM,
-        resolveBaseImageDigest: (reference, platform) => (
-          resolveBaseImageDigest(reference, platform, digestCache)
-        ),
-      });
-      annotations = resolveHarnessOracleAnnotations(auditTasks, snapshot);
+      const resolution = (async () => {
+        snapshot = await loadSnapshot({
+          url: registryUrl,
+          expectedFingerprint: expectedSnapshotFingerprint,
+          signal: controller.signal,
+        });
+        const digestCache = new Map();
+        const auditTasks = await buildAuditTasks({
+          tasks: allTasks,
+          executionPolicyFingerprint,
+          environment: 'docker',
+          platform: HARBOR_ORACLE_DOCKER_PLATFORM,
+          resolveBaseImageDigest: (reference, platform) => (
+            resolveBaseImageDigest(reference, platform, digestCache, controller.signal)
+          ),
+        });
+        return resolveHarnessOracleAnnotations(auditTasks, snapshot);
+      })();
+      annotations = await Promise.race([
+        resolution,
+        new Promise((_, reject) => {
+          timeout = setTimeout(() => {
+            controller.abort();
+            reject(new Error('Oracle evidence resolution timed out'));
+          }, resolutionTimeoutMs);
+        }),
+      ]);
     } catch {
       snapshot = null;
       warnings.push('Oracle registry could not be resolved; A/B continues without it');
+    } finally {
+      clearTimeout(timeout);
     }
   } else {
     warnings.push('Oracle registry URL and fingerprint are not both configured; A/B continues without it');
@@ -402,7 +420,7 @@ export async function resolveHarnessOracleEvidenceForRun(manifestPath, resolveEv
   return resolveEvidence();
 }
 
-export async function resolveHarnessOracleBaseImageDigest(reference, platform, cache = new Map()) {
+export async function resolveHarnessOracleBaseImageDigest(reference, platform, cache = new Map(), signal) {
   const key = `${platform}:${reference}`;
   if (!cache.has(key)) {
     cache.set(key, execFileAsync('docker', [
@@ -412,7 +430,7 @@ export async function resolveHarnessOracleBaseImageDigest(reference, platform, c
       reference,
       '--format',
       '{{json .Manifest}}',
-    ]).then(({ stdout }) => resolvedImageDigestFromInspect(stdout, platform)));
+    ], { signal }).then(({ stdout }) => resolvedImageDigestFromInspect(stdout, platform)));
   }
   return cache.get(key);
 }

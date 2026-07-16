@@ -100,7 +100,11 @@ export interface BuildHarnessOracleRegistrySnapshotInput {
 export interface LoadHarnessOracleRegistrySnapshotInput {
   url: string;
   expectedFingerprint: string;
-  fetch?: (url: string | URL) => Promise<Pick<Response, 'ok' | 'status' | 'json'>>;
+  signal?: AbortSignal;
+  fetch?: (
+    url: string | URL,
+    init?: { signal?: AbortSignal },
+  ) => Promise<Pick<Response, 'ok' | 'status' | 'json'>>;
 }
 
 export interface HarnessOracleEnvironmentIdentityInput {
@@ -335,7 +339,7 @@ export function resolveHarnessOracleAnnotations(
 export async function loadHarnessOracleRegistrySnapshot(
   input: LoadHarnessOracleRegistrySnapshotInput,
 ): Promise<HarnessOracleRegistrySnapshot> {
-  const response = await (input.fetch ?? globalThis.fetch)(input.url);
+  const response = await (input.fetch ?? globalThis.fetch)(input.url, { signal: input.signal });
   if (!response.ok) {
     throw new Error(`Oracle registry download failed with HTTP ${response.status}`);
   }

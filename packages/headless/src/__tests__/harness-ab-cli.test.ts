@@ -81,6 +81,27 @@ test('harness A/B degrades identity resolution failures to missing advisory evid
   ]);
 });
 
+test('harness A/B bounds a stalled advisory evidence lookup', async () => {
+  const { resolveAdvisoryOracleEvidence } = await import(
+    new URL('../../harbor/run-harness-ab.mjs', import.meta.url).href
+  );
+  const resolution = resolveAdvisoryOracleEvidence({
+    allTasks: [{ id: 'task-a', path: '/tasks/task-a' }],
+    executionPolicyFingerprint: `sha256:${'a'.repeat(64)}`,
+    registryUrl: 'https://example.invalid/oracle-registry.json',
+    expectedSnapshotFingerprint: `sha256:${'b'.repeat(64)}`,
+    resolutionTimeoutMs: 10,
+    loadSnapshot: async () => new Promise(() => {}),
+  });
+
+  const evidence = await Promise.race([
+    resolution,
+    new Promise((_, reject) => setTimeout(() => reject(new Error('advisory lookup remained pending')), 100)),
+  ]);
+
+  assert.deepEqual(evidence.annotations, [{ taskId: 'task-a', state: 'missing' }]);
+});
+
 test('harness A/B freezes the stored advisory evidence when resuming a run', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'maka-harness-ab-evidence-resume-'));
   try {
