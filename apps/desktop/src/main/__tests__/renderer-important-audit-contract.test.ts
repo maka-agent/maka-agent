@@ -96,7 +96,10 @@ function isA11yOnlyFile(file: string): boolean {
   return (
     file.endsWith('apps/desktop/src/renderer/styles/base.css') ||
     file.endsWith('apps/desktop/src/renderer/maka-tokens.css') ||
-    file.endsWith('apps/desktop/src/renderer/styles/settings/nav-sidebar.css')
+    file.endsWith('apps/desktop/src/renderer/styles/settings/nav-sidebar.css') ||
+    // Settings row primitives (consolidated from nav-sidebar.css); its only
+    // `!important` is the prefers-reduced-motion transition override.
+    file.endsWith('apps/desktop/src/renderer/styles/settings/rows.css')
   );
 }
 
