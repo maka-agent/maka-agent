@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { describe, it } from 'node:test';
@@ -33,9 +32,23 @@ function readJson(path: string) {
   };
 }
 
+function resolveTscBin(repoRoot: string): string {
+  let dir = resolve(repoRoot);
+  for (;;) {
+    const candidate = join(dir, 'node_modules', 'typescript', 'bin', 'tsc');
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+    const parent = resolve(dir, '..');
+    if (parent === dir) {
+      throw new Error(`Could not find typescript/bin/tsc under ${repoRoot}`);
+    }
+    dir = parent;
+  }
+}
+
 function readTypescriptConfig(repoRoot: string, configPath: string) {
-  const requireFromRepo = createRequire(join(repoRoot, 'package.json'));
-  const tscBin = requireFromRepo.resolve('typescript/bin/tsc');
+  const tscBin = resolveTscBin(repoRoot);
   return JSON.parse(execFileSync(
     process.execPath,
     [tscBin, '-p', configPath, '--showConfig'],
