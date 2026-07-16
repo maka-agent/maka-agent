@@ -30,6 +30,7 @@ const pairs = [
   { pkg: '@maka/core', src: 'packages/core/src', dist: 'packages/core/dist' },
   { pkg: '@maka/storage', src: 'packages/storage/src', dist: 'packages/storage/dist' },
   { pkg: '@maka/runtime', src: 'packages/runtime/src', dist: 'packages/runtime/dist' },
+  { pkg: '@maka/runtime-host', src: 'packages/runtime-host/src', dist: 'packages/runtime-host/dist' },
   { pkg: '@maka/ui', src: 'packages/ui/src', dist: 'packages/ui/dist' },
   { pkg: '@maka/desktop:main', src: 'apps/desktop/src/main', dist: 'apps/desktop/dist/main' },
   { pkg: '@maka/desktop:preload', src: 'apps/desktop/src/preload', dist: 'apps/desktop/dist/preload' },
