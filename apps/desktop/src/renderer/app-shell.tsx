@@ -201,6 +201,7 @@ export function AppShell({
   const [memoryActive, setMemoryActive] = useState(false);
   const {
     connections,
+    connectionsRevision,
     defaultConnection,
     setConnections,
     setDefaultConnection,
@@ -349,8 +350,13 @@ export function AppShell({
     sessionHealthNotice,
   } = useShellChatModel({
     connections,
+    connectionsRevision,
     defaultConnection,
     activeSession,
+    // Only trust the loaded transcript once the active session's
+    // messages finished loading; during the load the list may still be
+    // empty or carry the previous session.
+    activeSessionHasUserMessage: !messageLoadPending && messages.some((message) => message.type === 'user'),
     persistedComposerDefaults,
     openSettingsSection,
   });

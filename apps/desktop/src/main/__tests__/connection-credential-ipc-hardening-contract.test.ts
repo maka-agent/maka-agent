@@ -122,7 +122,12 @@ describe('connection credential IPC hardening contract', () => {
     const hasSecret = handlerBlock('connections:hasSecret');
     assert.match(
       hasSecret,
-      /slug = normalizeConnectionSlugForIpc\(slug, 'connection slug'\);[\s\S]*return Boolean\(await resolveConnectionSecret\(slug\)\);/,
+      /slug = normalizeConnectionSlugForIpc\(slug, 'connection slug'\);[\s\S]*const connection = await connectionStore\.get\(slug\);[\s\S]*return hasConnectionSecret\(connection\);/,
+    );
+    assert.doesNotMatch(
+      hasSecret,
+      /resolveConnectionSecret\(/,
+      'hasSecret is a read-only status probe: it must never call the network-refreshing resolveConnectionSecret',
     );
   });
 
@@ -149,7 +154,15 @@ describe('connection credential IPC hardening contract', () => {
     );
     assert.match(mainSource, /connections:test[\s\S]*const apiKey = await resolveConnectionSecret\(slug\)/);
     assert.match(mainSource, /connections:fetchModels[\s\S]*const apiKey = await resolveConnectionSecret\(slug\)/);
-    assert.match(mainSource, /connections:hasSecret[\s\S]*return Boolean\(await resolveConnectionSecret\(slug\)\)/);
+    // hasSecret is the exception: a read-only status probe (session
+    // health notice) that must use the read-only hasConnectionSecret,
+    // so observing it never refreshes OAuth tokens or hits the network.
+    assert.match(mainSource, /connections:hasSecret[\s\S]*return hasConnectionSecret\(connection\)/);
+    assert.match(
+      mainSource,
+      /registerConnectionsIpc\(\{[\s\S]*resolveConnectionSecret,[\s\S]*hasConnectionSecret,[\s\S]*\}\)/,
+      'registerConnectionsIpc must be wired with the read-only hasConnectionSecret alongside resolveConnectionSecret',
+    );
   });
 
   it('lets optional-auth providers test and discover models without a saved key', () => {

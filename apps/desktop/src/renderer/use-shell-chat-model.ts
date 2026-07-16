@@ -34,8 +34,25 @@ export type SessionHealthNoticeView = {
  */
 export function useShellChatModel(options: {
   connections: LlmConnection[];
+  /**
+   * Refresh counter from `useShellConnections`: bumps on every successful
+   * `refreshConnections`, including credential-only changes that keep the
+   * list identity (`updatedAt` unchanged). The secret probe below depends
+   * on it so those changes re-probe instead of serving stale presence
+   * (#1038 review).
+   */
+  connectionsRevision: number;
   defaultConnection: string | null;
   activeSession: SessionSummary | undefined;
+  /**
+   * True when the active session's loaded transcript already contains a
+   * user message. Storage self-heals `connectionLocked` only on
+   * `readHeader`/`readMessages`, so a just-opened legacy session's
+   * summary can still read unlocked; the loaded transcript is the same
+   * primary evidence storage uses, and the notice must not treat the
+   * session as rebindable in the meantime (#1038 review).
+   */
+  activeSessionHasUserMessage: boolean;
   persistedComposerDefaults: ComposerDefaults | null;
   openSettingsSection: (section: SettingsSection) => void;
 }): {
@@ -57,7 +74,7 @@ export function useShellChatModel(options: {
   setPendingNewChatThinkingLevel: (next: ThinkingLevel | null) => void;
   sessionHealthNotice: SessionHealthNoticeView | undefined;
 } {
-  const { connections, defaultConnection, activeSession, persistedComposerDefaults, openSettingsSection } = options;
+  const { connections, connectionsRevision, defaultConnection, activeSession, activeSessionHasUserMessage, persistedComposerDefaults, openSettingsSection } = options;
   // Persisted composer defaults seed the empty-state model so the home view is
   // populated before the async `app:info` round-trip completes on mount.
   const [pendingNewChatModel, setPendingNewChatModel] = useState<NewChatModel | null>(
@@ -151,7 +168,7 @@ export function useShellChatModel(options: {
     return () => {
       cancelled = true;
     };
-  }, [connections]);
+  }, [connections, connectionsRevision]);
 
   // Notice derivation is a pure function (see `session-health-notice.ts`); we
   // wrap the returned `onClickTarget` here with the Settings-jump action.
@@ -162,7 +179,10 @@ export function useShellChatModel(options: {
             backend: activeSession.backend,
             llmConnectionSlug: activeSession.llmConnectionSlug,
             model: activeSession.model,
-            connectionLocked: activeSession.connectionLocked,
+            // Effective lock: the healed summary bit OR the same primary
+            // evidence storage heals from (a user message in the loaded
+            // transcript). See the option doc above.
+            connectionLocked: activeSession.connectionLocked || activeSessionHasUserMessage,
           }
         : undefined,
       connections,
@@ -189,6 +209,7 @@ export function useShellChatModel(options: {
     activeSession?.llmConnectionSlug,
     activeSession?.model,
     activeSession?.connectionLocked,
+    activeSessionHasUserMessage,
     connections,
     defaultConnection,
     secretPresence,

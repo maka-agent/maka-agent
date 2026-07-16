@@ -1708,6 +1708,7 @@ function registerIpc(): void {
     credentialStore,
     syncOAuthModelConnections,
     resolveConnectionSecret,
+    hasConnectionSecret,
     emitConnectionListChanged,
   });
 

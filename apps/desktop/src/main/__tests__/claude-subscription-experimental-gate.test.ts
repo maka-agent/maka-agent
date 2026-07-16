@@ -361,7 +361,7 @@ describe('Claude OAuth model connection bridge', () => {
     );
     assert.match(src, /connections:test[\s\S]*const apiKey = await resolveConnectionSecret\(slug\)/, 'connections:test must use resolveConnectionSecret');
     assert.match(src, /connections:fetchModels[\s\S]*const apiKey = await resolveConnectionSecret\(slug\)/, 'connections:fetchModels must use resolveConnectionSecret');
-    assert.match(src, /connections:hasSecret[\s\S]*Boolean\(await resolveConnectionSecret\(slug\)\)/, 'connections:hasSecret must report OAuth login presence for claude-subscription');
+    assert.match(src, /connections:hasSecret[\s\S]*return hasConnectionSecret\(connection\)/, 'connections:hasSecret must report OAuth login presence for claude-subscription through the read-only hasConnectionSecret (hasStoredCredential), not the refreshing resolveConnectionSecret');
     assert.match(src, /getApiKey:\s*\(slug:\s*string\)\s*=>\s*resolveConnectionSecret\(slug\)/, 'chat send readiness must use OAuth tokens through resolveConnectionSecret');
   });
 

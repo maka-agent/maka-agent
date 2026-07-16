@@ -9,6 +9,7 @@ import type {
   UpdateConnectionInput,
 } from '@maka/core';
 import { PROVIDER_DEFAULTS, providerAuthRequiresSecret } from '@maka/core/llm-connections';
+import type { LlmConnection } from '@maka/core/llm-connections';
 import { fetchProviderModels, testConnection } from '@maka/runtime';
 import { createConnectionStore } from '@maka/storage';
 import { createFileCredentialStore } from './credential-store.js';
@@ -26,6 +27,7 @@ interface ConnectionsIpcDeps extends ConnectionInputNormalizerDeps {
   credentialStore: CredentialStore;
   syncOAuthModelConnections: () => Promise<void>;
   resolveConnectionSecret: (slug: string) => Promise<string | null>;
+  hasConnectionSecret: (connection: LlmConnection) => Promise<boolean>;
   emitConnectionListChanged: () => void;
 }
 
@@ -127,6 +129,7 @@ export function registerConnectionsIpc(deps: ConnectionsIpcDeps): void {
     credentialStore,
     syncOAuthModelConnections,
     resolveConnectionSecret,
+    hasConnectionSecret,
     emitConnectionListChanged,
   } = deps;
 
@@ -244,6 +247,14 @@ export function registerConnectionsIpc(deps: ConnectionsIpcDeps): void {
   });
   ipcMain.handle('connections:hasSecret', async (_event, slug: string) => {
     slug = normalizeConnectionSlugForIpc(slug, 'connection slug');
-    return Boolean(await resolveConnectionSecret(slug));
+    // Read-only status probe (session health notice): must use the
+    // read-only hasConnectionSecret, never resolveConnectionSecret —
+    // the latter refreshes near-expiry OAuth tokens over the network,
+    // which a read-only status read must not do just by being observed.
+    // Send/test/fetch-models stay on resolveConnectionSecret and keep
+    // the refresh; the send gate remains the authoritative check.
+    const connection = await connectionStore.get(slug);
+    if (!connection) return false;
+    return hasConnectionSecret(connection);
   });
 }
