@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
+import { HARBOR_ORACLE_VERSION } from '../harness-oracle-policy.js';
 
 test('Oracle registry audit is manual, incremental, bounded, and append-only', async () => {
   const workflow = await readFile(new URL('../../../../.github/workflows/oracle-evidence-audit.yml', import.meta.url), 'utf8');
@@ -15,6 +16,9 @@ test('Oracle registry audit is manual, incremental, bounded, and append-only', a
   assert.match(workflow, /run-oracle-registry-audit\.mjs task/);
   assert.match(workflow, /run-oracle-registry-audit\.mjs merge/);
   assert.match(workflow, /d49e28f1e4ddd13d289e85a5f312a66750951932/);
+  assert.match(workflow, new RegExp(`HARBOR_VERSION: ${HARBOR_ORACLE_VERSION.replaceAll('.', '\\.')}`));
+  assert.equal(workflow.match(/retention-days: 7/g)?.length, 2);
+  assert.doesNotMatch(workflow, /retention-days: 1\b/);
   assert.match(workflow, /gh release create/);
   assert.doesNotMatch(workflow, /--clobber/);
 });
