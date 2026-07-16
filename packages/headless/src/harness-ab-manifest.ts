@@ -176,12 +176,6 @@ export interface HarnessAbRunManifestInput {
   subjectFingerprint: string;
   taskSourceFingerprint: string;
   toolchainFingerprint: string;
-  qualification?: {
-    agent: 'oracle';
-    evidenceFingerprint: string;
-    verifierPolicyFingerprint: string;
-    inspectedTaskIds: readonly string[];
-  };
   oracleEvidence?: {
     registryUrl?: string;
     expectedSnapshotFingerprint?: string;
@@ -203,7 +197,12 @@ export type HarnessAbRunManifest = AbRunManifest & {
     };
     model: HarnessAbRunManifestInput['model'];
     pricing: HarnessAbRunManifestInput['pricing'];
-    qualification?: NonNullable<HarnessAbRunManifestInput['qualification']>;
+    qualification?: {
+      agent: 'oracle';
+      evidenceFingerprint: string;
+      verifierPolicyFingerprint: string;
+      inspectedTaskIds: readonly string[];
+    };
     oracleEvidence?: NonNullable<HarnessAbRunManifestInput['oracleEvidence']>;
   };
   pilotTaskIds: string[];
@@ -241,12 +240,6 @@ export function buildHarnessAbRunManifest(input: HarnessAbRunManifestInput): Har
     },
     model: { ...input.model },
     pricing: { ...input.pricing },
-    ...(input.qualification ? {
-      qualification: {
-        ...input.qualification,
-        inspectedTaskIds: [...input.qualification.inspectedTaskIds],
-      },
-    } : {}),
     ...(input.oracleEvidence ? {
       oracleEvidence: {
         ...input.oracleEvidence,

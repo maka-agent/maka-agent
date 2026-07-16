@@ -85,30 +85,6 @@ describe('harness A/B manifest', () => {
     assert.notEqual(changed.arms[1].fingerprint, original.arms[1].fingerprint);
   });
 
-  test('binds Oracle qualification evidence into the run identity', () => {
-    const original = buildHarnessAbRunManifest({
-      ...manifestInput(['a', 'b', 'c']),
-      qualification: {
-        agent: 'oracle',
-        evidenceFingerprint: 'sha256:evidence-a',
-        verifierPolicyFingerprint: 'sha256:verifier',
-        inspectedTaskIds: ['a', 'b', 'c'],
-      },
-    });
-    const changed = buildHarnessAbRunManifest({
-      ...manifestInput(['a', 'b', 'c']),
-      qualification: {
-        agent: 'oracle',
-        evidenceFingerprint: 'sha256:evidence-b',
-        verifierPolicyFingerprint: 'sha256:verifier',
-        inspectedTaskIds: ['a', 'b', 'c'],
-      },
-    });
-
-    assert.equal(original.metadata.qualification?.evidenceFingerprint, 'sha256:evidence-a');
-    assert.notEqual(changed.fingerprint, original.fingerprint);
-  });
-
   test('records advisory Oracle annotations without changing frozen A/B selection', () => {
     const oracleEvidence = {
       registryUrl: 'https://github.com/maka-agent/maka-agent/releases/download/oracle-evidence/snapshot.json',

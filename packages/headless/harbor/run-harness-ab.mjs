@@ -119,7 +119,6 @@ export function buildHarnessAbManifest({
   taskSourceFingerprint,
   toolchainFingerprint,
   taskIds = TERMINAL_BENCH_2_1_TASK_IDS,
-  qualification,
   oracleEvidence,
 }) {
   return buildHarnessAbRunManifest({
@@ -167,7 +166,6 @@ export function buildHarnessAbManifest({
     subjectFingerprint,
     taskSourceFingerprint,
     toolchainFingerprint,
-    ...(qualification ? { qualification } : {}),
     ...(oracleEvidence ? { oracleEvidence } : {}),
   });
 }

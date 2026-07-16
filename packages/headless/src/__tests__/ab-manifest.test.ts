@@ -76,6 +76,12 @@ describe('buildAbRunManifest', () => {
     try {
       const manifest = buildAbRunManifest({
         experimentKind: 'runtime',
+        metadata: {
+          qualification: {
+            agent: 'oracle',
+            selectedTaskIds: ['task-a'],
+          },
+        },
         arms: [
           { id: 'off', kind: 'runtime', fingerprint: sha256('off') },
           { id: 'on', kind: 'runtime', fingerprint: sha256('on') },
@@ -94,6 +100,9 @@ describe('buildAbRunManifest', () => {
       await writeFile(path, `${JSON.stringify(manifest)}\n`, 'utf8');
 
       assert.deepEqual(await readAbRunManifest(path), manifest);
+      assert.deepEqual(manifest.metadata, {
+        qualification: { agent: 'oracle', selectedTaskIds: ['task-a'] },
+      });
       assert.equal(await readAbRunManifest(join(dir, 'missing.json')), null);
     } finally {
       await rm(dir, { recursive: true, force: true });

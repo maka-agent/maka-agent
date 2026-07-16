@@ -43,7 +43,6 @@
     "#runtime-policy-ab-run": "./dist/runtime-policy-ab-run.js",
     "#runtime-policy-ab-lifecycle": "./dist/runtime-policy-ab-lifecycle.js",
     "#harness-ab-manifest": "./dist/harness-ab-manifest.js",
-    "#harness-qualification": "./dist/harness-qualification.js",
     "#harness-oracle-registry": "./dist/harness-oracle-registry.js",
     "#harness-oracle-policy": "./dist/harness-oracle-policy.js",
     "#harness-ab-run": "./dist/harness-ab-run.js",
