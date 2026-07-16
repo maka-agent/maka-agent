@@ -49,8 +49,8 @@ import { DialogContent, DialogRoot, Button as UiButton } from './ui.js';
  *     the query, write history, or route via internal URI strings.
  */
 /**
- * Dependency-injected search interface. Production wiring binds this
- * to `window.maka.search.thread`; tests pass an in-memory fake.
+ * Dependency-injected search interface. Production wiring binds this to the
+ * desktop preload's thread search; tests pass an in-memory fake.
  *
  * The return type matches the IPC envelope exactly: either an array
  * of `SearchResult` (success path) or a `{ ok: false, reason, message }`
@@ -89,8 +89,8 @@ export function SearchModal(props: {
    */
   onNavigateToSession?(sessionId: string, turnId?: string): void;
   /**
-   * Injected `search:thread` IPC. Production binds to
-   * `window.maka.search.thread`; tests supply a fake.
+   * Injected `search:thread` IPC. Production binds to the desktop preload;
+   * tests supply a fake.
    *
    * Optional so the modal renders a degraded "search unavailable"
    * state when the renderer cannot bind to the IPC (legacy / smoke

@@ -147,7 +147,7 @@ export function ChatView(props: {
    * Host reader for image attachment bytes, threaded to each turn's user-message
    * thumbnails. The desktop shell passes its preload `attachments.readBytes`;
    * non-desktop hosts omit it and image thumbnails stay in their pending
-   * skeleton. Keeps @maka/ui host-agnostic (no direct `window.maka` access).
+   * skeleton. Keeps @maka/ui host-agnostic with no direct host-global access.
    * Pass an identity-stable reference so the memoized TurnViews keep skipping
    * reconciliation on the hot streaming path.
    */

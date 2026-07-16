@@ -19,10 +19,10 @@ import { useUiLocale } from './locale-context.js';
 
 /**
  * Injected host capability that reads a session attachment's bytes. @maka/ui is
- * host-agnostic: it never reaches into `window.maka` (the desktop preload) or any
- * other host global. The desktop renderer threads its
- * `window.maka.attachments.readBytes` in through this prop; non-desktop hosts
- * (Storybook, tests, a future web shell) can omit it or supply their own reader,
+ * host-agnostic: it never reaches into the desktop preload or any other host
+ * global. The desktop renderer threads its attachment reader through this prop;
+ * non-desktop hosts (Storybook, tests, a future web shell) can omit it or supply
+ * their own reader,
  * in which case an image attachment stays in its pending skeleton.
  */
 export type ReadAttachmentBytes = (

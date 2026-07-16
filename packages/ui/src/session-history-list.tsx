@@ -90,7 +90,7 @@ export function SessionHistoryList(props: {
   // PR-UX-POLISH-1 commit 4 (WAWQAQ msg `e0dbad11` + kenji msg
   // `2844f64f`): in-list `筛选会话` filter input removed. All search
   // capability lives in the top-level `搜索` modal (PR-SEARCH-MODAL-
-  // REAL-0 wires it to `window.maka.search.thread()` in the same PR).
+  // REAL-0 wires it to the desktop preload's thread search in the same PR).
   // The previous `searchQuery` state + `searchInputRef` + ⌘F/Ctrl+F
   // focus binding are gone with it; ⌘F is freed for future use.
   // `filteredSessions` collapses to a direct passthrough of
