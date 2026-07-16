@@ -15,7 +15,7 @@ import {
   HARBOR_CELL_CONTEXT_ENV_KEYS,
   normalizeHarborCellContextEnv,
   type HarborCellContextEnvKey,
-} from './harbor-cell.js';
+} from './harbor-cell-context-budget-env.js';
 
 export const RUNTIME_POLICY_CONTEXT_ENV_KEYS = HARBOR_CELL_CONTEXT_ENV_KEYS;
 export const RUNTIME_POLICY_SHARED_AGENT_ENV_KEYS = [

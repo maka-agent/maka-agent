@@ -33,6 +33,7 @@ import {
   providerCredentialEnv,
   requireProviderCredentialEnv,
 } from './provider-env.js';
+import { positiveIntEnv } from './headless-run-env.js';
 import {
   OPENCODE_TOOLCHAIN_CONTAINER_PATH,
   OPENCODE_TOOLCHAIN_FINGERPRINT,
@@ -640,7 +641,7 @@ export function buildHarborJobConfig(
   }
 
   Object.assign(agentEnv, attemptAgentEnv ?? {});
-  const cellTimeoutSec = positiveIntEnv(agentEnv.MAKA_CELL_TIMEOUT_SEC)
+  const cellTimeoutSec = positiveIntEnv(agentEnv.MAKA_CELL_TIMEOUT_SEC, 'MAKA_CELL_TIMEOUT_SEC')
     ?? input.task.metadata?.agentTimeoutSec;
   if (cellTimeoutSec !== undefined) agentEnv.MAKA_CELL_TIMEOUT_SEC = String(cellTimeoutSec);
   const verifier = verifierPolicy(input.task);
@@ -709,12 +710,6 @@ function verifierPolicy(task: HarborTaskRunInput['task']): {
     outerTimeoutSec: attemptTimeoutSec * HARBOR_ORACLE_MAX_ATTEMPTS
       + HARBOR_ORACLE_EXECUTION_POLICY.verifier.retryGraceSec,
   };
-}
-
-function positiveIntEnv(raw: string | undefined): number | undefined {
-  if (raw === undefined) return undefined;
-  const value = Number(raw);
-  return Number.isInteger(value) && value > 0 ? value : undefined;
 }
 
 async function hostSideProviderRuntime(options: HarborTaskRunnerOptions): Promise<{
