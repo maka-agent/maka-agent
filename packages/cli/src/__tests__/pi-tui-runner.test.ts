@@ -8,6 +8,7 @@ import {
   SHELL_RUN_UPDATE_BUFFER_MAX_ENTRIES,
   type PermissionMode,
   type PermissionResponse,
+  type QueueEnqueueOutcome,
   type SessionEvent,
   type SessionSummary,
   type StoredMessage,
@@ -1150,6 +1151,396 @@ describe('Maka Pi TUI runner', () => {
     terminal.input('\x1b');
     terminal.input('\x1b');
     await waitFor(() => terminal.progressStates.at(-1) === false);
+    terminal.input('/exit');
+    terminal.input('\r');
+    await run;
+  });
+
+  test('Enter during a turn steers the running turn and shows a pending Steering line', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SteeringTurnDriver();
+    const run = runMakaPiTui({
+      title: 'Maka', driver, cwd: '/repo', model: 'm', connectionSlug: 'c', permissionMode: 'bypass', terminal,
+    });
+
+    terminal.input('start the work');
+    terminal.input('\r');
+    await waitFor(() => terminal.progressStates.at(-1) === true);
+
+    terminal.input('also handle Y');
+    terminal.input('\r');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('Steering: also handle Y'));
+    assert.deepEqual(driver.steered, ['also handle Y']);
+
+    terminal.input('\x1b');
+    terminal.input('\x1b');
+    await waitFor(() => terminal.progressStates.at(-1) === false);
+    // Interrupt refills the editor with the cleared queue; clear it before /exit.
+    terminal.input('\x03');
+    terminal.input('/exit');
+    terminal.input('\r');
+    await run;
+  });
+
+  test('Alt+Enter during a turn queues a followup and shows a pending Queued line', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SteeringTurnDriver();
+    const run = runMakaPiTui({
+      title: 'Maka', driver, cwd: '/repo', model: 'm', connectionSlug: 'c', permissionMode: 'bypass', terminal,
+    });
+
+    terminal.input('start the work');
+    terminal.input('\r');
+    await waitFor(() => terminal.progressStates.at(-1) === true);
+
+    terminal.input('do this next');
+    terminal.input('\x1b\r'); // Alt+Enter
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('Queued: do this next'));
+    assert.deepEqual(driver.queuedMessages, ['do this next']);
+    assert.deepEqual(driver.steered, []);
+
+    terminal.input('\x1b');
+    terminal.input('\x1b');
+    await waitFor(() => terminal.progressStates.at(-1) === false);
+    // Interrupt refills the editor with the cleared queue; clear it before /exit.
+    terminal.input('\x03');
+    terminal.input('/exit');
+    terminal.input('\r');
+    await run;
+  });
+
+  test('Alt+Up takes the queued messages back into the editor', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SteeringTurnDriver();
+    const run = runMakaPiTui({
+      title: 'Maka', driver, cwd: '/repo', model: 'm', connectionSlug: 'c', permissionMode: 'bypass', terminal,
+    });
+
+    terminal.input('start the work');
+    terminal.input('\r');
+    await waitFor(() => terminal.progressStates.at(-1) === true);
+
+    terminal.input('reword this later');
+    terminal.input('\r'); // steer
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('Steering: reword this later'));
+
+    terminal.input('\x1b[1;3A'); // Alt+Up
+    await waitFor(() => driver.retractCalls === 1);
+    // The pending bar is cleared and the text is back in the editor.
+    await waitFor(() => {
+      const screen = plainTerminalOutput(terminal.screenOutput());
+      return !screen.includes('Steering: reword this later') && screen.includes('reword this later');
+    });
+
+    terminal.input('\x1b');
+    terminal.input('\x1b');
+    await waitFor(() => terminal.progressStates.at(-1) === false);
+    terminal.input('\x03'); // clear the refilled draft
+    terminal.input('/exit');
+    terminal.input('\r');
+    await run;
+  });
+
+  test('Alt+Up in the enqueue tick retracts from the authority, not the lagging mirror', async () => {
+    // Round-6 R2: the enqueue outcome arrives synchronously but the mirror
+    // updates only when the queue_update event is consumed. An Alt+Up in
+    // that same tick must still call the authoritative retract — gating the
+    // mutation on the (empty) mirror would strand a message the runtime
+    // demonstrably holds.
+    const terminal = new FakeTerminal();
+    const driver = new SteeringTurnDriver();
+    const run = runMakaPiTui({
+      title: 'Maka', driver, cwd: '/repo', model: 'm', connectionSlug: 'c', permissionMode: 'bypass', terminal,
+    });
+
+    terminal.input('start the work');
+    terminal.input('\r');
+    await waitFor(() => terminal.progressStates.at(-1) === true);
+
+    terminal.input('reword this later');
+    terminal.input('\r'); // steer — queued synchronously in the driver
+    terminal.input('\x1b[1;3A'); // Alt+Up in the same tick, mirror still empty
+    await waitFor(() => driver.retractCalls === 1);
+    await waitFor(() => {
+      const screen = plainTerminalOutput(terminal.screenOutput());
+      return screen.includes('reword this later') && !screen.includes('Steering: reword this later');
+    });
+
+    terminal.input('\x1b');
+    terminal.input('\x1b');
+    await waitFor(() => terminal.progressStates.at(-1) === false);
+    terminal.input('\x03');
+    terminal.input('/exit');
+    terminal.input('\r');
+    await run;
+  });
+
+  test('double-Escape interrupt refills the editor with the cleared queue', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SteeringTurnDriver();
+    const run = runMakaPiTui({
+      title: 'Maka', driver, cwd: '/repo', model: 'm', connectionSlug: 'c', permissionMode: 'bypass', terminal,
+    });
+
+    terminal.input('start the work');
+    terminal.input('\r');
+    await waitFor(() => terminal.progressStates.at(-1) === true);
+
+    terminal.input('unfinished idea');
+    terminal.input('\r'); // steer
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('Steering: unfinished idea'));
+
+    terminal.input('\x1b');
+    terminal.input('\x1b'); // interrupt
+    await waitFor(() => terminal.progressStates.at(-1) === false);
+    assert.ok(driver.stopCalls >= 1);
+    // Queue cleared from the pending bar; text preserved in the editor.
+    await waitFor(() => {
+      const screen = plainTerminalOutput(terminal.screenOutput());
+      return !screen.includes('Steering: unfinished idea') && screen.includes('unfinished idea');
+    });
+
+    terminal.input('\x03'); // clear the refilled draft
+    terminal.input('/exit');
+    terminal.input('\r');
+    await run;
+  });
+
+  test('interrupt refills only messages still queued, not steering already consumed', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SteeringTurnDriver();
+    const run = runMakaPiTui({
+      title: 'Maka', driver, cwd: '/repo', model: 'm', connectionSlug: 'c', permissionMode: 'bypass', terminal,
+    });
+
+    terminal.input('start the work');
+    terminal.input('\r');
+    await waitFor(() => terminal.progressStates.at(-1) === true);
+
+    terminal.input('already consumed');
+    terminal.input('\r'); // steer
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('Steering: already consumed'));
+
+    terminal.input('still queued');
+    terminal.input('\x1b\r'); // Alt+Enter queues a followup
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('Queued: still queued'));
+
+    // The turn consumes the steering message at a step boundary; the CLI
+    // mirror has not seen a queue_update yet and still shows it.
+    driver.consumeSteering();
+
+    terminal.input('\x1b');
+    terminal.input('\x1b'); // interrupt
+    await waitFor(() => terminal.progressStates.at(-1) === false);
+    // Only the followup that was still queued comes back into the editor; the
+    // consumed steering text must not be resurrected from the stale mirror.
+    await waitFor(() => {
+      const screen = plainTerminalOutput(terminal.screenOutput());
+      return screen.includes('still queued') && !screen.includes('already consumed');
+    });
+
+    terminal.input('\x03'); // clear the refilled draft
+    terminal.input('/exit');
+    terminal.input('\r');
+    await run;
+  });
+
+  test('Alt+Enter during a control action keeps the draft in the editor', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new DeferredControlDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('/model claude-opus-4-1');
+    terminal.input('\r');
+    await waitFor(() => driver.models.length === 1);
+
+    terminal.input('a draft to keep');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('a draft to keep'));
+
+    terminal.input('\x1b\r'); // Alt+Enter while a control action holds `busy`
+    await delay(20);
+
+    assert.deepEqual(driver.prompts, []);
+    assert.ok(plainTerminalOutput(terminal.screenOutput()).includes('a draft to keep'));
+
+    driver.releaseSetModel();
+    await delay(20);
+    terminal.input('\x03'); // clear the preserved draft
+    terminal.input('/exit');
+    terminal.input('\r');
+    await run;
+  });
+
+  test('a fallback enqueue during a long turn is never dropped and flushes into the next turn', async () => {
+    const terminal = new FakeTerminal();
+    // Every enqueue reports `fallback` — the runtime never has a live owner.
+    const driver = new FallbackSteeringDriver();
+    const run = runMakaPiTui({
+      title: 'Maka', driver, cwd: '/repo', model: 'm', connectionSlug: 'c', permissionMode: 'bypass', terminal,
+    });
+
+    terminal.input('start the work');
+    terminal.input('\r');
+    await waitFor(() => terminal.progressStates.at(-1) === true);
+
+    terminal.input('second thought');
+    terminal.input('\r'); // steer → fallback → CLI-held pending
+    terminal.input('and afterwards');
+    terminal.input('\x1b\r'); // Alt+Enter → fallback → CLI-held pending
+    await waitFor(() => {
+      const screen = plainTerminalOutput(terminal.screenOutput());
+      return screen.includes('Steering: second thought') && screen.includes('Queued: and afterwards');
+    });
+
+    // The old bounded poll gave up after ~2s of busy and silently dropped the
+    // text; a normal turn easily outlives that budget.
+    await delay(2200);
+    const screen = plainTerminalOutput(terminal.screenOutput());
+    assert.equal(screen.includes('Steering: second thought'), true);
+    assert.equal(screen.includes('Queued: and afterwards'), true);
+    assert.deepEqual(driver.prompts, ['start the work']);
+
+    // The turn boundary flushes the undelivered texts into the next turn.
+    driver.endTurn();
+    await waitFor(() => driver.prompts.length === 2);
+    assert.equal(driver.prompts[1], 'second thought\n\nand afterwards');
+
+    await waitFor(() => driver.parked);
+    driver.endTurn();
+    await waitFor(() => terminal.progressStates.at(-1) === false);
+    terminal.input('/exit');
+    terminal.input('\r');
+    await run;
+  });
+
+  test('a fallback steer retries the same enqueue and lands once the owner appears', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new FallbackSteeringDriver();
+    driver.steerFallbacks = 2; // the owner appears after ~200ms of retries
+    const run = runMakaPiTui({
+      title: 'Maka', driver, cwd: '/repo', model: 'm', connectionSlug: 'c', permissionMode: 'bypass', terminal,
+    });
+
+    terminal.input('start the work');
+    terminal.input('\r');
+    await waitFor(() => terminal.progressStates.at(-1) === true);
+
+    terminal.input('late owner');
+    terminal.input('\r'); // steer → fallback, retried until it lands
+    await waitForUpTo(() => driver.steered.includes('late owner'), 1_000);
+    // Landed as a steer of the RUNNING turn — no fresh turn was opened.
+    assert.deepEqual(driver.prompts, ['start the work']);
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('Steering: late owner'));
+
+    driver.endTurn();
+    await waitFor(() => terminal.progressStates.at(-1) === false);
+    // Nothing left to flush: the text was delivered mid-turn, not re-queued.
+    assert.deepEqual(driver.prompts, ['start the work']);
+    terminal.input('/exit');
+    terminal.input('\r');
+    await run;
+  });
+
+  test('interrupt refills CLI-held fallback text into the editor', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new FallbackSteeringDriver();
+    const run = runMakaPiTui({
+      title: 'Maka', driver, cwd: '/repo', model: 'm', connectionSlug: 'c', permissionMode: 'bypass', terminal,
+    });
+
+    terminal.input('start the work');
+    terminal.input('\r');
+    await waitFor(() => terminal.progressStates.at(-1) === true);
+
+    terminal.input('rescue me');
+    terminal.input('\r'); // steer → fallback → CLI-held pending
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('Steering: rescue me'));
+
+    terminal.input('\x1b');
+    terminal.input('\x1b'); // interrupt
+    await waitFor(() => terminal.progressStates.at(-1) === false);
+    // The CLI-held text comes back for re-editing; the pending bar clears.
+    await waitFor(() => {
+      const screen = plainTerminalOutput(terminal.screenOutput());
+      return screen.includes('rescue me') && !screen.includes('Steering: rescue me');
+    });
+
+    terminal.input('\x03'); // clear the refilled draft
+    terminal.input('/exit');
+    terminal.input('\r');
+    await run;
+  });
+
+  test('input during the interrupt convergence window stays in the editor and opens no turn', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlowStopDriver(); // stop() returns but the turn keeps running
+    const run = runMakaPiTui({
+      title: 'Maka', driver, cwd: '/repo', model: 'm', connectionSlug: 'c', permissionMode: 'bypass', terminal,
+    });
+
+    terminal.input('start the work');
+    terminal.input('\r');
+    await waitFor(() => terminal.progressStates.at(-1) === true);
+
+    terminal.input('\x1b');
+    terminal.input('\x1b'); // interrupt: stop issued, turn not yet terminal
+    await waitFor(() => driver.stopCalls === 1);
+
+    terminal.input('after stop');
+    terminal.input('\r'); // Enter: submits are disabled during convergence
+    terminal.input('\x1b\r'); // Alt+Enter: gated before touching the editor
+    await delay(20);
+
+    driver.endTurn(); // the aborted turn finally terminates
+    await waitFor(() => terminal.progressStates.at(-1) === false);
+    await delay(30);
+    // No second sendPrompt; the typed text is still in the editor as a draft.
+    assert.deepEqual(driver.prompts, ['start the work']);
+    assert.equal(plainTerminalOutput(terminal.screenOutput()).includes('after stop'), true);
+
+    terminal.input('\x03'); // clear the preserved draft
+    terminal.input('/exit');
+    terminal.input('\r');
+    await run;
+  });
+
+  test('an aborted turn never auto-opens the flush turn; undelivered text becomes a draft', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new FallbackSteeringDriver(); // enqueues always fall back
+    const run = runMakaPiTui({
+      title: 'Maka', driver, cwd: '/repo', model: 'm', connectionSlug: 'c', permissionMode: 'bypass', terminal,
+    });
+
+    terminal.input('start the work');
+    terminal.input('\r');
+    await waitFor(() => terminal.progressStates.at(-1) === true);
+
+    terminal.input('next thing');
+    terminal.input('\x1b\r'); // Alt+Enter → fallback → CLI-held pending
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('Queued: next thing'));
+
+    // The turn ends as ABORTED on its own (not via the CLI interrupt path):
+    // the boundary flush must not open a turn the user just stopped.
+    driver.abortNextTurn = true;
+    driver.endTurn();
+    await waitFor(() => terminal.progressStates.at(-1) === false);
+    await delay(30);
+    assert.deepEqual(driver.prompts, ['start the work']);
+    // The undelivered text is an editable draft, not a queued line.
+    await waitFor(() => {
+      const screen = plainTerminalOutput(terminal.screenOutput());
+      return screen.includes('next thing') && !screen.includes('Queued: next thing');
+    });
+
+    terminal.input('\x03'); // clear the preserved draft
     terminal.input('/exit');
     terminal.input('\r');
     await run;
@@ -3542,6 +3933,16 @@ function editorInputText(terminal: FakeTerminal): string {
   return lines.slice(topEditorBorderIndex + 1, bottomEditorBorderIndex).join('\n').trim();
 }
 
+/** Like waitFor, but with a caller-chosen deadline for slower convergence. */
+async function waitForUpTo(predicate: () => boolean, ms: number): Promise<void> {
+  const deadline = Date.now() + ms;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await delay(10);
+  }
+  assert.equal(predicate(), true);
+}
+
 function exitMaka(_terminal: FakeTerminal): void {
   const previousExitCode = process.exitCode;
   process.emit('SIGTERM');
@@ -3813,8 +4214,273 @@ class InterruptibleTurnDriver implements MakaSessionDriver {
   }
 }
 
+// A parking turn plus an in-memory steering/followup mirror, so the runner's
+// keybindings (Enter steer, Alt+Enter queue, Alt+↑ retract, Esc Esc refill) can
+// be exercised end-to-end without a real runtime.
+class SteeringTurnDriver implements MakaSessionDriver {
+  stopCalls = 0;
+  readonly steered: string[] = [];
+  readonly queuedMessages: string[] = [];
+  retractCalls = 0;
+  private steering: string[] = [];
+  private followup: string[] = [];
+  private pendingEvents: SessionEvent[] = [];
+  private wakeTurn: (() => void) | null = null;
+  private turnEnded = false;
+  private eventSeq = 0;
+
+  async listSessions(): Promise<SessionSummary[]> {
+    return [];
+  }
+
+  async *compactSession(): AsyncIterable<never> {}
+
+  // Queue contents travel on ONE path, exactly like the runtime: enqueues
+  // emit a `queue_update` through the parked turn stream; the outcome only
+  // says `queued`.
+  private emitQueueUpdate(): void {
+    this.eventSeq += 1;
+    this.pendingEvents.push({
+      type: 'queue_update',
+      id: `queue-update-${this.eventSeq}`,
+      turnId: 'turn-1',
+      ts: this.eventSeq,
+      steering: [...this.steering],
+      followup: [...this.followup],
+    });
+    this.wakeTurn?.();
+    this.wakeTurn = null;
+  }
+
+  async *sendPrompt(_prompt: string): AsyncIterable<SessionEvent> {
+    this.turnEnded = false;
+    for (;;) {
+      while (this.pendingEvents.length > 0) yield this.pendingEvents.shift()!;
+      if (this.turnEnded) break;
+      await new Promise<void>((resolve) => {
+        this.wakeTurn = resolve;
+      });
+    }
+    yield { type: 'abort', id: 'event-abort', turnId: 'turn-1', ts: 1, reason: 'user_stop' };
+    yield { type: 'complete', id: 'event-complete', turnId: 'turn-1', ts: 2, stopReason: 'user_stop' };
+  }
+
+  steer(text: string): QueueEnqueueOutcome {
+    this.steered.push(text);
+    this.steering.push(text);
+    this.emitQueueUpdate();
+    return { kind: 'queued' };
+  }
+
+  queueMessage(text: string): QueueEnqueueOutcome {
+    this.queuedMessages.push(text);
+    this.followup.push(text);
+    this.emitQueueUpdate();
+    return { kind: 'queued' };
+  }
+
+  takePendingFollowup(): string | null {
+    if (this.followup.length === 0) return null;
+    const joined = this.followup.join('\n\n');
+    this.followup = [];
+    return joined;
+  }
+
+  retractQueued(): string {
+    this.retractCalls += 1;
+    const joined = [...this.steering, ...this.followup].join('\n\n');
+    this.steering = [];
+    this.followup = [];
+    this.emitQueueUpdate();
+    return joined;
+  }
+
+  // Simulates the runtime consuming the steering queue at a step boundary
+  // before any queue_update reaches the CLI, leaving the render mirror stale.
+  consumeSteering(): void {
+    this.steering = [];
+  }
+
+  async stop(): Promise<void> {
+    this.stopCalls += 1;
+    // The runtime clears its queues on stop; mirror that here.
+    this.steering = [];
+    this.followup = [];
+    this.turnEnded = true;
+    this.wakeTurn?.();
+    this.wakeTurn = null;
+  }
+
+  async respondToPermission(_response: PermissionResponse): Promise<void> {}
+  async renameSession(): Promise<void> {}
+  async setModel(): Promise<void> {}
+  async setPermissionMode(): Promise<void> {}
+  async setThinkingLevel(): Promise<void> {}
+  async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> {
+    return switchResult(fakeSessionSummary(sessionId));
+  }
+  async listRewindTargets(): Promise<RewindTarget[]> {
+    return [];
+  }
+  async rewindToTurn(): Promise<MakaSessionRewindResult> {
+    throw new Error('rewind not supported in this fake');
+  }
+  startNewSession(): void {}
+  getSessionId(): string {
+    return 'session-1';
+  }
+}
+
+/**
+ * A driver whose enqueues hit the no-live-owner `fallback` outcome for the
+ * first N calls (configurable, default forever) while the turn parks until
+ * `endTurn()` — the begin-window shape behind review finding N2.
+ */
+class FallbackSteeringDriver implements MakaSessionDriver {
+  readonly prompts: string[] = [];
+  readonly steered: string[] = [];
+  readonly queuedMessages: string[] = [];
+  stopCalls = 0;
+  /** Enqueue calls that report `fallback` before the owner "appears". */
+  steerFallbacks = Number.POSITIVE_INFINITY;
+  queueFallbacks = Number.POSITIVE_INFINITY;
+  private steering: string[] = [];
+  private followup: string[] = [];
+  private pendingEvents: SessionEvent[] = [];
+  private wakeTurn: (() => void) | null = null;
+  private turnOpen = false;
+  private turnEnded = false;
+  private eventSeq = 0;
+
+  get parked(): boolean {
+    return this.turnOpen && !this.turnEnded;
+  }
+
+  async listSessions(): Promise<SessionSummary[]> {
+    return [];
+  }
+
+  async *compactSession(): AsyncIterable<never> {}
+
+  // Same single-path contract as the runtime: queue contents reach the CLI
+  // only through `queue_update` events on the turn stream.
+  private emitQueueUpdate(): void {
+    this.eventSeq += 1;
+    this.pendingEvents.push({
+      type: 'queue_update',
+      id: `queue-update-${this.eventSeq}`,
+      turnId: `turn-${this.prompts.length}`,
+      ts: this.eventSeq,
+      steering: [...this.steering],
+      followup: [...this.followup],
+    });
+    this.wakeTurn?.();
+    this.wakeTurn = null;
+  }
+
+  async *sendPrompt(prompt: string): AsyncIterable<SessionEvent> {
+    this.prompts.push(prompt);
+    this.turnOpen = true;
+    this.turnEnded = false;
+    for (;;) {
+      while (this.pendingEvents.length > 0) yield this.pendingEvents.shift()!;
+      if (this.turnEnded) break;
+      await new Promise<void>((resolve) => {
+        this.wakeTurn = resolve;
+      });
+    }
+    this.turnOpen = false;
+    if (this.abortNextTurn) {
+      this.abortNextTurn = false;
+      yield { type: 'abort', id: `abort-${this.prompts.length}`, turnId: `turn-${this.prompts.length}`, ts: 1, reason: 'user_stop' };
+      yield { type: 'complete', id: `complete-${this.prompts.length}`, turnId: `turn-${this.prompts.length}`, ts: 2, stopReason: 'user_stop' };
+      return;
+    }
+    yield {
+      type: 'complete',
+      id: `complete-${this.prompts.length}`,
+      turnId: `turn-${this.prompts.length}`,
+      ts: 1,
+      stopReason: 'end_turn',
+    };
+  }
+
+  /** Next endTurn() finishes the turn as aborted instead of end_turn. */
+  abortNextTurn = false;
+
+  steer(text: string): QueueEnqueueOutcome {
+    if (this.steerFallbacks > 0) {
+      this.steerFallbacks -= 1;
+      return { kind: 'fallback' };
+    }
+    this.steered.push(text);
+    this.steering.push(text);
+    this.emitQueueUpdate();
+    return { kind: 'queued' };
+  }
+
+  queueMessage(text: string): QueueEnqueueOutcome {
+    if (this.queueFallbacks > 0) {
+      this.queueFallbacks -= 1;
+      return { kind: 'fallback' };
+    }
+    this.queuedMessages.push(text);
+    this.followup.push(text);
+    this.emitQueueUpdate();
+    return { kind: 'queued' };
+  }
+
+  takePendingFollowup(): string | null {
+    if (this.followup.length === 0) return null;
+    const joined = this.followup.join('\n\n');
+    this.followup = [];
+    return joined;
+  }
+
+  retractQueued(): string {
+    const joined = [...this.steering, ...this.followup].join('\n\n');
+    this.steering = [];
+    this.followup = [];
+    this.emitQueueUpdate();
+    return joined;
+  }
+
+  endTurn(): void {
+    this.turnEnded = true;
+    this.wakeTurn?.();
+    this.wakeTurn = null;
+  }
+
+  async stop(): Promise<void> {
+    this.stopCalls += 1;
+    this.steering = [];
+    this.followup = [];
+    this.endTurn();
+  }
+
+  async respondToPermission(_response: PermissionResponse): Promise<void> {}
+  async renameSession(): Promise<void> {}
+  async setModel(): Promise<void> {}
+  async setPermissionMode(): Promise<void> {}
+  async setThinkingLevel(): Promise<void> {}
+  async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> {
+    return switchResult(fakeSessionSummary(sessionId));
+  }
+  async listRewindTargets(): Promise<RewindTarget[]> {
+    return [];
+  }
+  async rewindToTurn(): Promise<MakaSessionRewindResult> {
+    throw new Error('rewind not supported in this fake');
+  }
+  startNewSession(): void {}
+  getSessionId(): string {
+    return 'session-1';
+  }
+}
+
 class SlowStopDriver implements MakaSessionDriver {
   stopCalls = 0;
+  readonly prompts: string[] = [];
   private releaseTurn: (() => void) | null = null;
 
   async listSessions(): Promise<SessionSummary[]> {
@@ -3823,7 +4489,8 @@ class SlowStopDriver implements MakaSessionDriver {
 
   async *compactSession(): AsyncIterable<never> {}
 
-  async *sendPrompt(_prompt: string): AsyncIterable<SessionEvent> {
+  async *sendPrompt(prompt: string): AsyncIterable<SessionEvent> {
+    this.prompts.push(prompt);
     await new Promise<void>((resolve) => {
       this.releaseTurn = resolve;
     });

@@ -67,6 +67,21 @@ export interface MakaPiTranscriptState {
   pendingShellRunPolls: Map<string, MakaPiPendingShellRunPoll>;
   /** Aggregated token usage for statusline display; reset on session switch. */
   usage: MakaPiUsageSummary;
+  /**
+   * Read-only mirror of the runtime's authoritative pending queues, driven by
+   * `queue_update` events and enqueue results. Rendered as the pending bar above
+   * the editor; never the source of truth (the runtime owns that).
+   */
+  steering: string[];
+  followup: string[];
+  /**
+   * Messages whose enqueue hit the no-live-owner fallback while a turn was
+   * running (the begin window). CLI-owned, NOT a runtime mirror: the runner
+   * retries the original enqueue until it lands and flushes any remainder
+   * into the next turn at the turn boundary, so the text is never dropped.
+   * Rendered in the pending bar alongside the mirror.
+   */
+  pendingFallback: Array<{ text: string; enqueue: 'steer' | 'queue' }>;
 }
 
 export type MakaPiPendingInteraction = AnyPermissionRequestEvent | UserQuestionRequestEvent;
@@ -138,6 +153,9 @@ export function createMakaPiTranscriptState(): MakaPiTranscriptState {
     expandAllThinking: false,
     pendingShellRunPolls: new Map(),
     usage: { costUsd: 0, cacheHitInput: 0, cacheMissInput: 0 },
+    steering: [],
+    followup: [],
+    pendingFallback: [],
   };
 }
 
@@ -234,6 +252,10 @@ export function replaceTranscriptWithStoredMessages(
   state.expandAllTools = false;
   state.expandAllThinking = false;
   state.usage = { costUsd: 0, cacheHitInput: 0, cacheMissInput: 0 };
+  // Queues are per-active-run; a switched/reset session has none pending.
+  state.steering = [];
+  state.followup = [];
+  state.pendingFallback = [];
   for (const msg of messages) {
     if (msg.type === 'token_usage') accumulateUsage(state.usage, msg);
   }
@@ -556,6 +578,17 @@ export function applyMakaSessionEventToTranscript(
         level: 'info',
         text: `Plan submitted: ${event.title}`,
       });
+      break;
+
+    case 'steering_message':
+      // A user interjection injected mid-turn; render it in place as a user turn.
+      appendUserPrompt(state, event.text);
+      break;
+
+    case 'queue_update':
+      // Authoritative snapshot from the runtime; mirror it for the pending bar.
+      state.steering = [...event.steering];
+      state.followup = [...event.followup];
       break;
 
     case 'token_usage': {
@@ -1071,6 +1104,43 @@ export function renderMakaPiActivityStrip(metadata: MakaPiTranscriptMetadata, wi
   if (metadata.turnElapsedMs === undefined) return '';
   const seconds = Math.floor(metadata.turnElapsedMs / 1000);
   return fitLine(ansi.dim(`Working… ${seconds}s`), safeWidth);
+}
+
+/**
+ * Pending-queue bar shown above the editor while messages are queued. Each
+ * steering message reads `Steering: <text>` (injected into the running turn at
+ * the next step boundary); each followup reads `Queued: <text>` (opens the next
+ * turn). A trailing hint reminds the user that alt+↑ takes them back to edit.
+ * Renders nothing when both queues are empty.
+ */
+export function renderMakaPiPendingQueue(state: MakaPiTranscriptState, width: number): string[] {
+  if (state.steering.length === 0 && state.followup.length === 0 && state.pendingFallback.length === 0) {
+    return [];
+  }
+  const safeWidth = Math.max(1, width);
+  const steering = [
+    ...state.steering,
+    ...state.pendingFallback.filter((entry) => entry.enqueue === 'steer').map((entry) => entry.text),
+  ];
+  const followup = [
+    ...state.followup,
+    ...state.pendingFallback.filter((entry) => entry.enqueue === 'queue').map((entry) => entry.text),
+  ];
+  const lines: string[] = [];
+  for (const text of steering) {
+    lines.push(fitLine(`${ansi.accent('Steering:')} ${ansi.dim(firstLinePreview(text))}`, safeWidth));
+  }
+  for (const text of followup) {
+    lines.push(fitLine(`${ansi.dim('Queued:')} ${ansi.dim(firstLinePreview(text))}`, safeWidth));
+  }
+  lines.push(fitLine(ansi.dim('alt+↑ 取回队列以重新编辑'), safeWidth));
+  return lines;
+}
+
+/** First non-empty line of a queued message, trimmed for a one-line preview. */
+function firstLinePreview(text: string): string {
+  const line = text.split('\n').map((part) => part.trim()).find((part) => part.length > 0) ?? '';
+  return limitText(line, 200);
 }
 
 /**

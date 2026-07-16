@@ -7,6 +7,7 @@ import type {
   CreateSessionInput,
   PermissionMode,
   PermissionResponse,
+  QueueEnqueueOutcome,
   SessionEvent,
   SessionSummary,
   StoredMessage,
@@ -665,6 +666,48 @@ describe('Maka session driver', () => {
     assert.equal(runtime.created[1]?.model, 'claude-opus-4-1');
     assert.equal(runtime.created[1]?.name, 'second');
   });
+
+  test('steer / queueMessage / takePendingFollowup / retractQueued delegate to the runtime', async () => {
+    const runtime = new RecordingRuntime();
+    const driver = createMakaSessionDriver({
+      runtime,
+      cwd: '/repo',
+      llmConnectionSlug: 'anthropic',
+      model: 'claude-sonnet-4-5',
+    });
+    await collect(driver.sendPrompt('run tests'));
+
+    runtime.steerOutcome = { kind: 'queued' };
+    assert.deepEqual(driver.steer?.('x'), { kind: 'queued' });
+    assert.deepEqual(runtime.steered, [{ sessionId: 'session-1', text: 'x' }]);
+
+    runtime.queueOutcome = { kind: 'queued' };
+    assert.deepEqual(driver.queueMessage?.('y'), { kind: 'queued' });
+    assert.deepEqual(runtime.queued, [{ sessionId: 'session-1', text: 'y' }]);
+
+    runtime.followupText = 'a\n\nb';
+    assert.equal(driver.takePendingFollowup?.(), 'a\n\nb');
+    assert.deepEqual(runtime.followupDrains, ['session-1']);
+
+    runtime.retractText = 'x\n\ny';
+    assert.equal(driver.retractQueued?.(), 'x\n\ny');
+    assert.deepEqual(runtime.retracted, ['session-1']);
+  });
+
+  test('steer / queueMessage fall back before any session exists', () => {
+    const runtime = new RecordingRuntime();
+    const driver = createMakaSessionDriver({
+      runtime,
+      cwd: '/repo',
+      llmConnectionSlug: 'anthropic',
+      model: 'claude-sonnet-4-5',
+    });
+    assert.deepEqual(driver.steer?.('x'), { kind: 'fallback' });
+    assert.deepEqual(driver.queueMessage?.('y'), { kind: 'fallback' });
+    assert.equal(driver.takePendingFollowup?.(), null);
+    assert.equal(driver.retractQueued?.(), '');
+    assert.deepEqual(runtime.steered, []);
+  });
 });
 
 class RecordingRuntime {
@@ -729,6 +772,35 @@ class RecordingRuntime {
   }
 
   async stopSession(_sessionId: string): Promise<void> {}
+
+  readonly steered: Array<{ sessionId: string; text: string }> = [];
+  readonly queued: Array<{ sessionId: string; text: string }> = [];
+  readonly followupDrains: string[] = [];
+  readonly retracted: string[] = [];
+  steerOutcome: QueueEnqueueOutcome = { kind: 'queued' };
+  queueOutcome: QueueEnqueueOutcome = { kind: 'queued' };
+  followupText: string | null = null;
+  retractText = '';
+
+  steer(sessionId: string, text: string): QueueEnqueueOutcome {
+    this.steered.push({ sessionId, text });
+    return this.steerOutcome;
+  }
+
+  queueMessage(sessionId: string, text: string): QueueEnqueueOutcome {
+    this.queued.push({ sessionId, text });
+    return this.queueOutcome;
+  }
+
+  drainFollowup(sessionId: string): string | null {
+    this.followupDrains.push(sessionId);
+    return this.followupText;
+  }
+
+  retractQueue(sessionId: string): string {
+    this.retracted.push(sessionId);
+    return this.retractText;
+  }
 
   async respondToPermission(sessionId: string, response: PermissionResponse): Promise<void> {
     this.permissionResponses.push({ sessionId, response });

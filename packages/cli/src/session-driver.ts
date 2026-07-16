@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { realpath } from 'node:fs/promises';
-import type { SessionEvent } from '@maka/core/events';
+import type { QueueEnqueueOutcome, SessionEvent } from '@maka/core/events';
 import type { PermissionMode, PermissionResponse } from '@maka/core/permission';
 import type { UserQuestionResponse } from '@maka/core/user-question';
 import type { BranchFromTurnInput, CreateSessionInput, UserMessageInput } from '@maka/core/runtime-inputs';
@@ -14,6 +14,10 @@ export interface MakaSessionRuntime {
   sendMessage(sessionId: string, input: UserMessageInput): AsyncIterable<SessionEvent>;
   compactSession(sessionId: string, input?: { turnId?: string }): AsyncIterable<SessionEvent>;
   stopSession(sessionId: string, input?: { source?: 'stop_button' }): Promise<void>;
+  steer(sessionId: string, text: string): QueueEnqueueOutcome;
+  queueMessage(sessionId: string, text: string): QueueEnqueueOutcome;
+  drainFollowup(sessionId: string): string | null;
+  retractQueue(sessionId: string): string;
   respondToPermission(sessionId: string, response: PermissionResponse): Promise<void>;
   respondToUserQuestion?(sessionId: string, response: UserQuestionResponse): Promise<void>;
   setPermissionMode(sessionId: string, mode: PermissionMode): Promise<SessionSummary>;
@@ -60,6 +64,19 @@ export interface MakaSessionDriver {
   getSessionResumeAvailability?(session: SessionSummary): Promise<SessionResumeAvailability>;
   sendPrompt(prompt: string): AsyncIterable<SessionEvent>;
   compactSession(): AsyncIterable<SessionEvent>;
+  /**
+   * Queue the text for mid-turn injection at the next step boundary. Returns
+   * `fallback` when there is no active run (the turn just ended); the caller
+   * should open a fresh turn with the text instead so it is never dropped.
+   * Optional so existing driver stubs need not implement the steering surface.
+   */
+  steer?(text: string): QueueEnqueueOutcome;
+  /** Queue the text to open the turn after the current one finishes. */
+  queueMessage?(text: string): QueueEnqueueOutcome;
+  /** Drain the followup queue into one `\n\n`-joined prompt, or null if empty. */
+  takePendingFollowup?(): string | null;
+  /** Take back every queued message as one `\n\n`-joined string (clears both queues). */
+  retractQueued?(): string;
   respondToPermission(response: PermissionResponse): Promise<void>;
   respondToUserQuestion?(response: UserQuestionResponse): Promise<void>;
   /**
@@ -162,6 +179,26 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
   async stop(): Promise<void> {
     if (!this.sessionId) return;
     await this.input.runtime.stopSession(this.sessionId, { source: 'stop_button' });
+  }
+
+  steer(text: string): QueueEnqueueOutcome {
+    if (!this.sessionId) return { kind: 'fallback' };
+    return this.input.runtime.steer(this.sessionId, text);
+  }
+
+  queueMessage(text: string): QueueEnqueueOutcome {
+    if (!this.sessionId) return { kind: 'fallback' };
+    return this.input.runtime.queueMessage(this.sessionId, text);
+  }
+
+  takePendingFollowup(): string | null {
+    if (!this.sessionId) return null;
+    return this.input.runtime.drainFollowup(this.sessionId);
+  }
+
+  retractQueued(): string {
+    if (!this.sessionId) return '';
+    return this.input.runtime.retractQueue(this.sessionId);
   }
 
   async respondToPermission(response: PermissionResponse): Promise<void> {

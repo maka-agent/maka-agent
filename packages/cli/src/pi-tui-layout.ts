@@ -1,6 +1,7 @@
 import { Container, type Component, type Terminal } from '@earendil-works/pi-tui';
 import {
   renderMakaPiActivityStrip,
+  renderMakaPiPendingQueue,
   renderMakaPiStatusLine,
   renderMakaPiTranscript,
   type MakaPiTranscriptMetadata,
@@ -40,6 +41,17 @@ export class MakaActivityStripComponent implements Component {
   }
 }
 
+/** The pending-queue bar (Steering:/Queued:) rendered just above the editor. */
+export class MakaPendingQueueComponent implements Component {
+  constructor(private readonly state: MakaPiTranscriptState) {}
+
+  invalidate(): void {}
+
+  render(width: number): string[] {
+    return renderMakaPiPendingQueue(this.state, width);
+  }
+}
+
 /**
  * Stacks the transcript above the editor and status line. The transcript is
  * never windowed: every line is emitted and, when the whole document is taller
@@ -56,6 +68,7 @@ export class MakaPiLayoutComponent extends Container {
   constructor(
     private readonly transcript: MakaTranscriptComponent,
     private readonly activityStrip: MakaActivityStripComponent,
+    private readonly pendingQueue: MakaPendingQueueComponent,
     private readonly editor: Component,
     private readonly statusLine: Component,
     private readonly terminal: Terminal,
@@ -63,6 +76,7 @@ export class MakaPiLayoutComponent extends Container {
     super();
     this.addChild(transcript);
     this.addChild(activityStrip);
+    this.addChild(pendingQueue);
     this.addChild(editor);
     this.addChild(statusLine);
   }
@@ -70,6 +84,7 @@ export class MakaPiLayoutComponent extends Container {
   render(width: number): string[] {
     const transcriptLines = this.transcript.render(width);
     const activityLines = this.activityStrip.render(width);
+    const pendingLines = this.pendingQueue.render(width);
     const editorLines = this.editor.render(width);
     const statusLines = this.statusLine.render(width);
     // #1064: when the activity strip is showing (a turn is running), separate
@@ -80,13 +95,14 @@ export class MakaPiLayoutComponent extends Container {
     const lastTranscriptLine = transcriptLines[transcriptLines.length - 1];
     const needGap = activityActive && lastTranscriptLine !== undefined && lastTranscriptLine.length > 0;
     const paddedTranscript = needGap ? [...transcriptLines, ''] : transcriptLines;
-    const chromeRows = activityLines.length + editorLines.length + statusLines.length;
+    const chromeRows = activityLines.length + pendingLines.length + editorLines.length + statusLines.length;
     const viewportRows = Math.max(0, this.terminal.rows - chromeRows);
     const paddingRows = Math.max(0, viewportRows - paddedTranscript.length);
     return [
       ...paddedTranscript,
       ...Array.from({ length: paddingRows }, () => ''),
       ...activityLines,
+      ...pendingLines,
       ...editorLines,
       ...statusLines,
     ];

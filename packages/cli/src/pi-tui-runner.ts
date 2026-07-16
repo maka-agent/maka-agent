@@ -55,6 +55,7 @@ import {
 } from './tui-attention.js';
 import {
   MakaActivityStripComponent,
+  MakaPendingQueueComponent,
   MakaPiLayoutComponent,
   MakaStatusLineComponent,
   MakaTranscriptComponent,
@@ -164,13 +165,14 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
 
   const transcript = new MakaTranscriptComponent(state, metadata);
   const activityStrip = new MakaActivityStripComponent(metadata);
+  const pendingQueue = new MakaPendingQueueComponent(state);
   const statusLine = new MakaStatusLineComponent(metadata);
   // Show the whole slash-command set at once — discoverability is the point of
   // the menu. Keep a little headroom above the current command count.
   const editor = new Editor(tui, editorTheme(), { paddingX: 1, autocompleteMaxVisible: EDITOR_AUTOCOMPLETE_MAX_VISIBLE });
   let refreshEditorCwd: ((cwd: string) => void) | undefined;
   const editorSurface = new MakaAutocompleteAboveEditorComponent(editor);
-  const layout = new MakaPiLayoutComponent(transcript, activityStrip, editorSurface, statusLine, terminal);
+  const layout = new MakaPiLayoutComponent(transcript, activityStrip, pendingQueue, editorSurface, statusLine, terminal);
   const attention = new AttentionController(terminal, {
     baseTitle: input.title,
     ...(input.attentionLongTurnThresholdMs !== undefined
@@ -336,6 +338,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     resetShellRunSessionState();
     shellRunElapsedTicker.dispose();
     stopTurnElapsedTicker();
+    stopFallbackRetry();
     terminal.setProgress(false);
     // Drop the busy / attention title marker so the tab is not handed back to
     // the shell still marked busy when the session exits.
@@ -416,24 +419,170 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     return true;
   };
 
+  // Refill the editor from a retract result, prepended to any current draft.
+  // Shared by the interrupt path and the alt+↑ path. The text always comes
+  // from `driver.retractQueued()` — a synchronous in-process read of the
+  // runtime's authoritative queues — never from the render mirror, which can
+  // lag a step-boundary consumption and would resurrect an already-consumed
+  // steering message for a double execution. Clears the local mirror.
+  const refillEditorFromQueues = (joined: string) => {
+    state.steering = [];
+    state.followup = [];
+    if (!joined) return;
+    const draft = editor.getText();
+    editor.setText(draft ? `${joined}\n\n${draft}` : joined);
+  };
+
   const requestTurnInterrupt = () => {
     if (interruptRequested) return;
     interruptRequested = true;
+    // The convergence window (stop issued, turn not yet terminal) accepts no
+    // new input: submits would race the abort and could open work the user
+    // just cancelled. The normal turn finally restores submit; a rejected
+    // stop restores it here.
+    editor.disableSubmit = true;
+    // Retract synchronously from the authoritative queue before stop() clears
+    // it: only messages still queued come back for re-editing; anything the
+    // turn already consumed stays consumed (it is in the transcript/ledger).
+    // CLI-held fallback texts (never reached the runtime) come back too.
+    refillEditorFromQueues(
+      [takePendingFallback(), input.driver.retractQueued?.() ?? '']
+        .filter(Boolean)
+        .join('\n\n'),
+    );
+    requestRender();
     void input.driver.stop().catch((error) => {
       interruptRequested = false;
+      editor.disableSubmit = false;
       reportError(error);
     });
   };
 
-  editor.onSubmit = (prompt) => {
+  // Open a fresh turn from a submitted prompt (idle path). Control actions hold
+  // `busy`, so a prompt typed mid-switch is ignored rather than racing it.
+  const submitPrompt = (prompt: string) => {
     if (busy || !prompt.trim()) {
       requestRender();
       return;
     }
     editor.addToHistory(prompt);
     if (handleSlashCommand(prompt)) return;
-
     runAgentTurn(prompt);
+  };
+
+  // Fallback handoff owner. A `fallback` outcome while the turn is running
+  // means the runtime has no live steering owner YET (the begin window) or
+  // just lost it; the runtime keeps no record of the text, so the CLI owns
+  // delivery: retry the SAME enqueue until the owner appears, and flush any
+  // remainder into the next turn at the turn boundary. Never a bounded wait —
+  // a normal turn outlives any fixed budget and the text must not vanish.
+  const FALLBACK_RETRY_MS = 100;
+  let fallbackRetryTimer: ReturnType<typeof setInterval> | null = null;
+
+  const stopFallbackRetry = () => {
+    if (fallbackRetryTimer === null) return;
+    clearInterval(fallbackRetryTimer);
+    fallbackRetryTimer = null;
+  };
+
+  const retryPendingFallback = () => {
+    if (closed || !turnRunning || state.pendingFallback.length === 0) {
+      stopFallbackRetry();
+      return;
+    }
+    const remaining: typeof state.pendingFallback = [];
+    for (const entry of state.pendingFallback) {
+      const outcome = entry.enqueue === 'steer'
+        ? input.driver.steer?.(entry.text)
+        : input.driver.queueMessage?.(entry.text);
+      if (outcome?.kind !== 'queued') remaining.push(entry);
+    }
+    if (remaining.length === state.pendingFallback.length) return;
+    state.pendingFallback = remaining;
+    if (remaining.length === 0) stopFallbackRetry();
+    // The queue mirror updates only from `queue_update` events (single path);
+    // this render just drops the delivered entries from the fallback list.
+    requestRender();
+  };
+
+  const deferFallback = (text: string, enqueue: 'steer' | 'queue') => {
+    state.pendingFallback.push({ text, enqueue });
+    fallbackRetryTimer ??= setInterval(retryPendingFallback, FALLBACK_RETRY_MS);
+    requestRender();
+  };
+
+  /** Drain the CLI-held fallback texts (delivery order), stopping the retry loop. */
+  const takePendingFallback = (): string => {
+    stopFallbackRetry();
+    if (state.pendingFallback.length === 0) return '';
+    const joined = state.pendingFallback.map((entry) => entry.text).join('\n\n');
+    state.pendingFallback = [];
+    return joined;
+  };
+
+  // Enter during a turn steers it (inject at the next step boundary); the
+  // runtime falls back to a fresh turn if the run already ended.
+  const steerRunningTurn = (text: string) => {
+    if (!text.trim()) {
+      requestRender();
+      return;
+    }
+    editor.addToHistory(text);
+    const outcome = input.driver.steer?.(text);
+    if (!outcome || outcome.kind === 'fallback') {
+      if (turnRunning) deferFallback(text, 'steer');
+      else submitPrompt(text);
+      return;
+    }
+    // Queued: the runtime's `queue_update` event refreshes the mirror.
+    requestRender();
+  };
+
+  // Alt+Enter: during a turn, queue the text to open the next turn; when idle,
+  // it submits like Enter.
+  const handleAltEnter = () => {
+    // Mirror Enter's control-busy guard BEFORE touching the editor: during a
+    // control action (busy without a running turn) submitPrompt would drop the
+    // prompt, so keep the draft in place instead of clearing it into the void.
+    if (busy && !turnRunning) return;
+    // Interrupt convergence window: the turn is being stopped, so nothing may
+    // be queued onto it and no fresh turn may open — keep the draft.
+    if (interruptRequested) return;
+    const text = editor.getExpandedText().trim();
+    if (!text) return;
+    editor.setText('');
+    if (!turnRunning) {
+      submitPrompt(text);
+      return;
+    }
+    editor.addToHistory(text);
+    const outcome = input.driver.queueMessage?.(text);
+    if (!outcome || outcome.kind === 'fallback') {
+      if (turnRunning) deferFallback(text, 'queue');
+      else submitPrompt(text);
+      return;
+    }
+    // Queued: the runtime's `queue_update` event refreshes the mirror.
+    requestRender();
+  };
+
+  // Alt+↑: take back every queued message (both queues plus CLI-held fallback
+  // texts), joined and prepended to the current draft for re-editing.
+  const retractQueuedMessages = () => {
+    refillEditorFromQueues(
+      [takePendingFallback(), input.driver.retractQueued?.() ?? '']
+        .filter(Boolean)
+        .join('\n\n'),
+    );
+    requestRender();
+  };
+
+  editor.onSubmit = (prompt) => {
+    if (turnRunning) {
+      steerRunningTurn(prompt);
+      return;
+    }
+    submitPrompt(prompt);
   };
 
   // Runs one agent turn rendered in the transcript, then lets the host decide
@@ -445,7 +594,8 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     startTurnElapsedTicker();
     interruptRequested = false;
     lastTurnEscapeAt = 0;
-    editor.disableSubmit = true;
+    // The editor stays submittable during a turn so Enter steers the running
+    // turn (see editor.onSubmit) instead of being swallowed.
     terminal.setProgress(true);
     attention.promptTurnStarted();
     requestRender();
@@ -493,12 +643,35 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       terminal.setProgress(false);
       attention.promptTurnEnded();
       requestRender();
-      // Do not auto-continue (goal) if teardown began (`closed`), the user
-      // interrupted the turn (double-Escape → driver.stop() → user_stop/abort),
-      // or it ended in error. An autonomous loop MUST halt on the Stop
-      // affordance and must not hammer a failing turn — mirrors the desktop
-      // `turnAborted` guard.
-      if (!closed && turnOutcome?.kind === 'completed') {
+      if (closed) return;
+      // Turn boundary flush: CLI-held fallback texts that never reached the
+      // runtime (the enqueue retry never found a live owner) are delivered
+      // FIRST, then queued followups (alt+Enter) — both open the next turn
+      // before any goal auto-continuation. Consumed here outside the turn
+      // stream, so clear the local mirror explicitly.
+      const fallbackText = takePendingFallback();
+      const followup = input.driver.takePendingFollowup?.();
+      const nextPrompt = [fallbackText, followup ?? ''].filter(Boolean).join('\n\n');
+      if (nextPrompt) {
+        state.steering = [];
+        state.followup = [];
+        if (turnOutcome?.kind !== 'completed') {
+          // The turn was aborted or errored: auto-opening a turn would defeat
+          // the interrupt (or hammer a failure). Keep the undelivered text as
+          // an editable draft instead, merged ahead of any current draft.
+          refillEditorFromQueues(nextPrompt);
+          requestRender();
+          return;
+        }
+        requestRender();
+        runAgentTurn(nextPrompt);
+        return;
+      }
+      // Do not auto-continue (goal) if the user interrupted the turn
+      // (double-Escape → driver.stop() → user_stop/abort) or it ended in error.
+      // An autonomous loop MUST halt on the Stop affordance and must not hammer
+      // a failing turn — mirrors the desktop `turnAborted` guard.
+      if (turnOutcome?.kind === 'completed') {
         input.onTurnComplete?.(turnOutcome.turnId, (text) => runAgentTurn(text));
       }
     });
@@ -831,6 +1004,9 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       '  Ctrl+O — expand or collapse all tool output',
       '  Ctrl+T — expand or collapse the latest thinking block',
       '  Scroll the transcript with your terminal or trackpad',
+      '  Enter (during a turn) — steer: inject a message into the running turn',
+      '  Alt+Enter (during a turn) — queue a message for the next turn',
+      '  Alt+↑ — take queued messages back into the editor to re-edit',
       '  Esc Esc (during a turn) — interrupt the turn',
       '  Esc Esc (when idle) — rewind to an earlier turn',
       '  Ctrl+C — stop the turn, clear input, or press twice to exit',
@@ -1147,6 +1323,23 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       return { consume: true };
     }
     if (tui.hasOverlay()) return undefined;
+    // Alt+Enter: queue a followup (during a turn) or submit (when idle). Alt+↑:
+    // take back the queued messages to re-edit. Neither is an editor binding
+    // (newline is shift+enter/ctrl+j; history is plain up), so intercepting
+    // here does not collide with the editor's own keys.
+    if (matchesKey(data, Key.alt('enter')) && !isKeyRepeat(data)) {
+      handleAltEnter();
+      return { consume: true };
+    }
+    if (matchesKey(data, Key.alt('up')) && !isKeyRepeat(data)) {
+      // Always retract from the authority: the render mirror lags the
+      // queue_update event, so an enqueue followed by Alt+Up in the same
+      // tick would see an empty mirror while the runtime holds the message.
+      // Alt+Up is not an editor binding, and an empty retract refill is a
+      // no-op, so consuming unconditionally loses nothing.
+      retractQueuedMessages();
+      return { consume: true };
+    }
     if (matchesKey(data, Key.ctrl('c')) && isKeyRepeat(data)) return { consume: true };
     if (!matchesKey(data, Key.ctrl('c'))) lastIdleCtrlCAt = 0;
     // The idle rewind gesture requires two *consecutive* Escapes. Any other key
