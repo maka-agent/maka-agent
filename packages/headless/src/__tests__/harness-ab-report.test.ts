@@ -268,6 +268,35 @@ describe('harness A/B report', () => {
       /harness A\/B stopped: systemic_provider_failure/,
     );
   });
+
+  test('renders advisory Oracle states and warnings without changing statistical inclusion', () => {
+    const summary = summarizeAbComparison({
+      runId: 'glm-harness-ab',
+      roundId: 'ab-summary',
+      baselineArmId: 'maka',
+      candidateArmId: 'opencode',
+      evaluationTaskIds: ['a', 'b'],
+      baselineRuns: [[completed('a', true), completed('b', false)]],
+      candidateRuns: [[completed('a', false), completed('b', true)]],
+    });
+    const report = buildHarnessAbReport(summary, {
+      snapshotFingerprint: `sha256:${'a'.repeat(64)}`,
+      annotations: [
+        { taskId: 'a', state: 'passed', qualificationKey: `sha256:${'b'.repeat(64)}` },
+        { taskId: 'b', state: 'missing', qualificationKey: `sha256:${'c'.repeat(64)}` },
+      ],
+      warnings: ['Oracle evidence missing for task b'],
+    });
+
+    assert.equal(report.effectiveness.pairedEvaluated, 2);
+    assert.deepEqual(report.oracleEvidence?.stateCounts, { passed: 1, missing: 1 });
+    assert.deepEqual(report.oracleEvidence?.annotations.map(({ taskId, state }) => ({ taskId, state })), [
+      { taskId: 'a', state: 'passed' },
+      { taskId: 'b', state: 'missing' },
+    ]);
+    assert.match(renderHarnessAbReportMarkdown(report), /Oracle evidence: passed 1, missing 1\./);
+    assert.match(renderHarnessAbReportMarkdown(report), /Warning: Oracle evidence missing for task b/);
+  });
 });
 
 function usage(

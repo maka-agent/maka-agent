@@ -4,6 +4,7 @@ import { describe, test } from 'node:test';
 import {
   auditHarnessOracleRegistry,
   HarnessOracleAuditExecutionError,
+  loadHarnessOracleRegistrySnapshot,
   resolveHarnessOracleAnnotations,
 } from '../harness-oracle-registry.js';
 
@@ -231,6 +232,44 @@ describe('harness Oracle evidence registry', () => {
       { taskId: 'missing', state: 'missing' },
     ]);
     assert.equal('selectedTaskIds' in annotations, false);
+  });
+
+  test('downloads a pinned registry snapshot and rejects an unexpected fingerprint', async () => {
+    const baseline = await auditHarnessOracleRegistry({
+      tasks: [{
+        task: { id: 'a', path: '/tasks/a' },
+        identity: {
+          taskFingerprint: 'sha256:task-a',
+          verifierPolicyFingerprint: 'sha256:verifier',
+          environmentFingerprint: 'sha256:environment',
+          runtimeFingerprint: 'sha256:runtime',
+        },
+      }],
+      provenance: { issuer: 'github-actions', repository: 'maka-agent/maka-agent', runId: '123' },
+      runOracle: async () => ({ outcome: 'passed', reward: 1, attempts: 1 }),
+    });
+    const urls: string[] = [];
+    const fetchSnapshot = async (url: string | URL) => {
+      urls.push(String(url));
+      return new Response(JSON.stringify(baseline.snapshot), { status: 200 });
+    };
+
+    const loaded = await loadHarnessOracleRegistrySnapshot({
+      url: 'https://github.com/maka-agent/maka-agent/releases/download/oracle-evidence/snapshot.json',
+      expectedFingerprint: baseline.snapshot.fingerprint,
+      fetch: fetchSnapshot,
+    });
+    assert.equal(loaded.fingerprint, baseline.snapshot.fingerprint);
+    assert.deepEqual(urls, ['https://github.com/maka-agent/maka-agent/releases/download/oracle-evidence/snapshot.json']);
+
+    await assert.rejects(
+      loadHarnessOracleRegistrySnapshot({
+        url: 'https://example.invalid/snapshot.json',
+        expectedFingerprint: `sha256:${'0'.repeat(64)}`,
+        fetch: fetchSnapshot,
+      }),
+      /registry snapshot fingerprint does not match the pinned profile/,
+    );
   });
 });
 

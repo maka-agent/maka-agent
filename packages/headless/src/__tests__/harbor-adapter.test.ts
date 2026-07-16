@@ -397,6 +397,17 @@ describe('Harbor adapter contract', () => {
     assert.doesNotMatch(source, /DEEPSEEK_API_KEY[^_]/);
   });
 
+  test('run-harness-ab.mjs consumes advisory registry evidence without invoking Oracle', async () => {
+    const source = await readRepoFile('packages/headless/harbor/run-harness-ab.mjs');
+
+    assert.match(source, /loadHarnessOracleRegistrySnapshot/);
+    assert.match(source, /resolveHarnessOracleAnnotations/);
+    assert.match(source, /taskIds: TERMINAL_BENCH_2_1_TASK_IDS/);
+    assert.doesNotMatch(source, /ensureHarnessOracleQualification/);
+    assert.doesNotMatch(source, /createHarborOracleQualifier/);
+    assert.doesNotMatch(source, /qualification\.selectedTaskIds/);
+  });
+
   test('run-prompt-ab.mjs rejects unsupported provider overrides', async (t: TestContext) => {
     const tmp = mkdtempSync(resolve(tmpdir(), 'maka-prompt-ab-provider-'));
     try {

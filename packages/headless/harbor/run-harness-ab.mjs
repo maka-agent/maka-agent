@@ -8,16 +8,18 @@ import { fileURLToPath } from 'node:url';
 import { ensureAbRunManifest } from '#ab-manifest';
 import {
   discoverCachedHarborTasks,
+  fingerprintFixedPromptTask,
   fingerprintFixedPromptTaskTree,
   resolveFixedPromptRunRoot,
 } from '#fixed-prompt-task-source';
 import {
   buildHarborVerifierPolicyFingerprint,
-  createHarborOracleQualifier,
   createHarborTaskRunner,
-  HARBOR_VERIFIER_MAX_ATTEMPTS,
 } from '#harbor-task-runner';
-import { ensureHarnessOracleQualification } from '#harness-qualification';
+import {
+  loadHarnessOracleRegistrySnapshot,
+  resolveHarnessOracleAnnotations,
+} from '#harness-oracle-registry';
 import {
   OPENCODE_TOOLCHAIN_FINGERPRINT,
   OPENCODE_TOOLCHAIN_SPEC,
@@ -27,7 +29,6 @@ import {
   assertTerminalBench21TaskSet,
   assertTerminalBench21TaskTreeFingerprint,
   buildHarnessAbRunManifest,
-  deterministicHarnessTaskOrder,
   HARNESS_MAKA_CONTEXT_BUDGET,
   TERMINAL_BENCH_2_1_REVISION,
   TERMINAL_BENCH_2_1_TASK_IDS,
@@ -48,8 +49,7 @@ import {
 } from './run-prompt-ab.mjs';
 
 const EXPECTED_SOURCE_TASKS = TERMINAL_BENCH_2_1_TASK_IDS.length;
-const EXPECTED_EVALUATION_TASKS = 30;
-export const DEFAULT_HARNESS_AB_RUN_ID = 'glm-5.2-maka-vs-opencode-tbench-2.1-qualified';
+export const DEFAULT_HARNESS_AB_RUN_ID = 'glm-5.2-maka-vs-opencode-tbench-2.1-full-v2';
 const CANARY_TASKS = 2;
 const PILOT_TASKS = 30;
 const PROVIDER = 'zai-coding-plan';
@@ -80,8 +80,8 @@ function envPath(name, fallback) {
 
 function runLimit(raw) {
   const parsed = Number(raw ?? PILOT_TASKS);
-  if (parsed !== CANARY_TASKS && parsed !== PILOT_TASKS) {
-    throw new Error(`MAKA_HARNESS_AB_LIMIT must be ${CANARY_TASKS} or ${PILOT_TASKS}`);
+  if (parsed !== CANARY_TASKS && parsed !== PILOT_TASKS && parsed !== EXPECTED_SOURCE_TASKS) {
+    throw new Error(`MAKA_HARNESS_AB_LIMIT must be ${CANARY_TASKS}, ${PILOT_TASKS}, or ${EXPECTED_SOURCE_TASKS}`);
   }
   return parsed;
 }
@@ -112,6 +112,7 @@ export function buildHarnessAbManifest({
   toolchainFingerprint,
   taskIds = TERMINAL_BENCH_2_1_TASK_IDS,
   qualification,
+  oracleEvidence,
 }) {
   return buildHarnessAbRunManifest({
     benchmark: {
@@ -159,6 +160,7 @@ export function buildHarnessAbManifest({
     taskSourceFingerprint,
     toolchainFingerprint,
     ...(qualification ? { qualification } : {}),
+    ...(oracleEvidence ? { oracleEvidence } : {}),
   });
 }
 
@@ -201,7 +203,7 @@ async function runLocked({ repoRoot, makaRepoPath, tasksRoot, runId, limit, runR
   assertTerminalBench21TaskTreeFingerprint(taskSourceFingerprint);
 
   if (process.env.MAKA_HARNESS_AB_DRY_RUN === '1') {
-    console.log(`dry-run: Oracle qualification will select ${EXPECTED_EVALUATION_TASKS}/${EXPECTED_SOURCE_TASKS} frozen tasks before ${limit} paired Pass@1 cells`);
+    console.log(`dry-run: frozen ${EXPECTED_SOURCE_TASKS}-task profile will run ${limit} paired Pass@1 cells; Oracle evidence is advisory`);
     return;
   }
 
@@ -214,32 +216,18 @@ async function runLocked({ repoRoot, makaRepoPath, tasksRoot, runId, limit, runR
     undefined,
     makaRepoPath,
   );
-  const verifierPolicy = {
-    fingerprint: buildHarborVerifierPolicyFingerprint({
-      implementationSource: await readFile(join(makaRepoPath, 'packages/headless/harbor/maka_verifier.py')),
-      toolchainFingerprint: hostToolchainFingerprint,
-    }),
-    maxAttempts: HARBOR_VERIFIER_MAX_ATTEMPTS,
-  };
+  const verifierPolicyFingerprint = buildHarborVerifierPolicyFingerprint({
+    implementationSource: await readFile(join(makaRepoPath, 'packages/headless/harbor/maka_verifier.py')),
+    toolchainFingerprint: hostToolchainFingerprint,
+  });
 
   const tasksById = new Map(allTasks.map((task) => [task.id, task]));
-  const orderedTasks = deterministicHarnessTaskOrder(allTasks.map((task) => task.id), ORDER_SEED)
-    .map((taskId) => tasksById.get(taskId));
-  if (orderedTasks.some((task) => !task)) throw new Error('frozen task order contains a task absent from the task source');
-  const qualification = await ensureHarnessOracleQualification(
-    join(runRoot, 'oracle-qualification.json'),
-    {
-      candidateTasks: orderedTasks,
-      targetCount: EXPECTED_EVALUATION_TASKS,
-      taskSourceFingerprint,
-      verifierPolicy,
-      runOracle: createHarborOracleQualifier({
-        makaRepoPath,
-        jobsDir: join(runRoot, 'qualification-jobs'),
-        dockerPlatform: 'linux/amd64',
-      }),
-    },
-  );
+  const oracleEvidence = await resolveAdvisoryOracleEvidence({
+    allTasks,
+    verifierPolicyFingerprint,
+    runtimeFingerprint: hostToolchainFingerprint,
+  });
+  for (const warning of oracleEvidence.warnings) console.warn(`warning: ${warning}`);
 
   const toolchainFingerprint = `sha256:${createHash('sha256').update(JSON.stringify({
     hostToolchainFingerprint,
@@ -249,13 +237,8 @@ async function runLocked({ repoRoot, makaRepoPath, tasksRoot, runId, limit, runR
     subjectFingerprint,
     taskSourceFingerprint,
     toolchainFingerprint,
-    taskIds: qualification.selectedTaskIds,
-    qualification: {
-      agent: 'oracle',
-      evidenceFingerprint: qualification.fingerprint,
-      verifierPolicyFingerprint: qualification.verifierPolicyFingerprint,
-      inspectedTaskIds: qualification.candidates.map((candidate) => candidate.taskId),
-    },
+    taskIds: TERMINAL_BENCH_2_1_TASK_IDS,
+    oracleEvidence,
   });
   const manifestPath = join(runRoot, 'harness-ab-manifest.json');
   await ensureAbRunManifest(manifestPath, manifest);
@@ -335,12 +318,76 @@ async function runLocked({ repoRoot, makaRepoPath, tasksRoot, runId, limit, runR
       },
     ],
   });
-  const report = buildHarnessAbReport(summary);
+  const evaluatedTaskIds = new Set(evaluationTasks.map((task) => task.id));
+  const report = buildHarnessAbReport(summary, {
+    ...(oracleEvidence.resolvedSnapshotFingerprint
+      ? { snapshotFingerprint: oracleEvidence.resolvedSnapshotFingerprint }
+      : {}),
+    annotations: oracleEvidence.annotations.filter((annotation) => evaluatedTaskIds.has(annotation.taskId)),
+    warnings: oracleEvidence.warnings,
+  });
   await writeFile(join(runRoot, 'harness-ab-report.json'), `${JSON.stringify(report, null, 2)}\n`, 'utf8');
   await writeFile(join(runRoot, 'harness-ab-report.csv'), renderHarnessAbReportCsv(report), 'utf8');
   await writeFile(join(runRoot, 'harness-ab-report.md'), renderHarnessAbReportMarkdown(report), 'utf8');
   assertHarnessAbReportCompleted(report);
   console.log(`${report.runStatus}: ${report.coverage.attemptedCells}/${report.coverage.scheduledCells} cells attempted; ${report.effectiveness.pairedEvaluated} paired Pass@1 outcomes -> ${runRoot}`);
+}
+
+async function resolveAdvisoryOracleEvidence({ allTasks, verifierPolicyFingerprint, runtimeFingerprint }) {
+  const auditTasks = await Promise.all(allTasks.map(async (task) => {
+    const taskFingerprint = await fingerprintFixedPromptTask(task);
+    return {
+      task,
+      identity: {
+        taskFingerprint,
+        verifierPolicyFingerprint,
+        environmentFingerprint: fingerprintValue({
+          kind: 'harbor-oracle-environment',
+          benchmarkRevision: TERMINAL_BENCH_2_1_REVISION,
+          environment: 'docker',
+          dockerPlatform: 'linux/amd64',
+          taskFingerprint,
+        }),
+        runtimeFingerprint,
+      },
+    };
+  }));
+  const registryUrl = process.env.MAKA_HARNESS_AB_ORACLE_REGISTRY_URL?.trim();
+  const expectedSnapshotFingerprint = process.env.MAKA_HARNESS_AB_ORACLE_REGISTRY_FINGERPRINT?.trim();
+  const warnings = [];
+  let snapshot = null;
+  if (registryUrl && expectedSnapshotFingerprint) {
+    try {
+      snapshot = await loadHarnessOracleRegistrySnapshot({
+        url: registryUrl,
+        expectedFingerprint: expectedSnapshotFingerprint,
+      });
+    } catch {
+      warnings.push('Oracle registry could not be downloaded or validated; A/B continues without it');
+    }
+  } else {
+    warnings.push('Oracle registry URL and fingerprint are not both configured; A/B continues without it');
+  }
+  const annotations = resolveHarnessOracleAnnotations(auditTasks, snapshot);
+  for (const state of ['missing', 'stale', 'failed', 'timed_out', 'infra_failed']) {
+    const taskIds = annotations.filter((annotation) => annotation.state === state).map((annotation) => annotation.taskId);
+    if (taskIds.length > 0) warnings.push(`Oracle evidence ${state} for ${taskIds.length} task(s): ${previewIds(taskIds)}`);
+  }
+  return {
+    ...(registryUrl ? { registryUrl } : {}),
+    ...(expectedSnapshotFingerprint ? { expectedSnapshotFingerprint } : {}),
+    ...(snapshot ? { resolvedSnapshotFingerprint: snapshot.fingerprint } : {}),
+    annotations,
+    warnings,
+  };
+}
+
+function fingerprintValue(value) {
+  return `sha256:${createHash('sha256').update(JSON.stringify(value)).digest('hex')}`;
+}
+
+function previewIds(taskIds) {
+  return taskIds.length <= 5 ? taskIds.join(', ') : `${taskIds.slice(0, 5).join(', ')}, …`;
 }
 
 function backgroundJournal(runRoot) {

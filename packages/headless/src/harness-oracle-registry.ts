@@ -57,6 +57,12 @@ export interface HarnessOracleAuditResult {
   executedTaskIds: string[];
 }
 
+export interface LoadHarnessOracleRegistrySnapshotInput {
+  url: string;
+  expectedFingerprint: string;
+  fetch?: (url: string | URL) => Promise<Pick<Response, 'ok' | 'status' | 'json'>>;
+}
+
 export type HarnessOracleAnnotationState =
   | 'missing'
   | 'stale'
@@ -140,6 +146,29 @@ export function resolveHarnessOracleAnnotations(
   });
 }
 
+export async function loadHarnessOracleRegistrySnapshot(
+  input: LoadHarnessOracleRegistrySnapshotInput,
+): Promise<HarnessOracleRegistrySnapshot> {
+  const response = await (input.fetch ?? globalThis.fetch)(input.url);
+  if (!response.ok) {
+    throw new Error(`Oracle registry download failed with HTTP ${response.status}`);
+  }
+  const snapshot = parseHarnessOracleRegistrySnapshot(await response.json());
+  if (snapshot.fingerprint !== input.expectedFingerprint) {
+    throw new Error('Oracle registry snapshot fingerprint does not match the pinned profile');
+  }
+  return snapshot;
+}
+
+export function parseHarnessOracleRegistrySnapshot(value: unknown): HarnessOracleRegistrySnapshot {
+  if (!registrySnapshotShapeIsValid(value)) {
+    throw new Error('Oracle registry snapshot is malformed');
+  }
+  const snapshot = value as unknown as HarnessOracleRegistrySnapshot;
+  assertSnapshotFingerprint(snapshot);
+  return snapshot;
+}
+
 function annotationState(entry: HarnessOracleRegistryEntry): HarnessOracleAnnotationState {
   if (entry.execution.status === 'timed_out') return 'timed_out';
   if (entry.execution.status === 'infra_failed') return 'infra_failed';
@@ -165,6 +194,41 @@ function assertSnapshotFingerprint(snapshot: HarnessOracleRegistrySnapshot): voi
   ) {
     throw new Error('Oracle registry entry is malformed');
   }
+}
+
+function registrySnapshotShapeIsValid(value: unknown): boolean {
+  if (
+    !isRecord(value)
+    || value.schemaVersion !== 1
+    || typeof value.fingerprint !== 'string'
+    || !Array.isArray(value.taskIds)
+    || value.taskIds.some((taskId) => typeof taskId !== 'string')
+    || !Array.isArray(value.entries)
+    || !isRecord(value.provenance)
+    || value.provenance.issuer !== 'github-actions'
+    || typeof value.provenance.repository !== 'string'
+    || typeof value.provenance.runId !== 'string'
+  ) return false;
+  return value.entries.every((entry) => (
+    isRecord(entry)
+    && entry.schemaVersion === 1
+    && typeof entry.taskId === 'string'
+    && typeof entry.qualificationKey === 'string'
+    && typeof entry.fingerprint === 'string'
+    && isRecord(entry.identity)
+    && typeof entry.identity.taskFingerprint === 'string'
+    && typeof entry.identity.verifierPolicyFingerprint === 'string'
+    && typeof entry.identity.environmentFingerprint === 'string'
+    && typeof entry.identity.runtimeFingerprint === 'string'
+    && isRecord(entry.execution)
+    && typeof entry.execution.status === 'string'
+    && (entry.oracle === null || (
+      isRecord(entry.oracle)
+      && typeof entry.oracle.outcome === 'string'
+      && typeof entry.oracle.reward === 'number'
+      && typeof entry.oracle.attempts === 'number'
+    ))
+  ));
 }
 
 function registryEntryIsValid(entry: HarnessOracleRegistryEntry, expectedTaskId: string | undefined): boolean {

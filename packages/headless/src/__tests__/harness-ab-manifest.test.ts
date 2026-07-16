@@ -108,6 +108,37 @@ describe('harness A/B manifest', () => {
     assert.notEqual(changed.fingerprint, original.fingerprint);
   });
 
+  test('records advisory Oracle annotations without changing frozen A/B selection', () => {
+    const oracleEvidence = {
+      registryUrl: 'https://github.com/maka-agent/maka-agent/releases/download/oracle-evidence/snapshot.json',
+      expectedSnapshotFingerprint: `sha256:${'a'.repeat(64)}`,
+      resolvedSnapshotFingerprint: `sha256:${'a'.repeat(64)}`,
+      annotations: [{
+        taskId: 'a',
+        state: 'passed' as const,
+        qualificationKey: `sha256:${'b'.repeat(64)}`,
+        evidenceFingerprint: `sha256:${'c'.repeat(64)}`,
+      }],
+      warnings: [] as string[],
+    };
+    const passed = buildHarnessAbRunManifest({
+      ...manifestInput(['a', 'b', 'c']),
+      oracleEvidence,
+    });
+    const failed = buildHarnessAbRunManifest({
+      ...manifestInput(['a', 'b', 'c']),
+      oracleEvidence: {
+        ...oracleEvidence,
+        annotations: [{ ...oracleEvidence.annotations[0]!, state: 'failed' as const }],
+        warnings: ['Oracle evidence failed for task a'],
+      },
+    });
+
+    assert.deepEqual(failed.evaluationTaskIds, passed.evaluationTaskIds);
+    assert.deepEqual(passed.metadata.oracleEvidence?.annotations, oracleEvidence.annotations);
+    assert.notEqual(failed.fingerprint, passed.fingerprint);
+  });
+
   test('rejects duplicate tasks and a pilot longer than the full run', () => {
     assert.throws(
       () => deterministicHarnessTaskOrder(['a', 'a'], 'seed'),

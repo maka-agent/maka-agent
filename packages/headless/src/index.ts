@@ -7,6 +7,8 @@ export { runPromptOptimizationRun } from './prompt-optimization-run.js';
 export {
   auditHarnessOracleRegistry,
   HarnessOracleAuditExecutionError,
+  loadHarnessOracleRegistrySnapshot,
+  parseHarnessOracleRegistrySnapshot,
   resolveHarnessOracleAnnotations,
 } from './harness-oracle-registry.js';
 export type {
@@ -18,6 +20,7 @@ export type {
   HarnessOracleQualificationIdentity,
   HarnessOracleRegistryEntry,
   HarnessOracleRegistrySnapshot,
+  LoadHarnessOracleRegistrySnapshotInput,
 } from './harness-oracle-registry.js';
 export type { MakaChangeAuditRecord } from './change-audit.js';
 export type {

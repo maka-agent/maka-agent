@@ -1,4 +1,5 @@
 import type { AbComparisonSummary, AbTokenCostSummary } from './ab-types.js';
+import type { HarnessOracleAnnotation, HarnessOracleAnnotationState } from './harness-oracle-registry.js';
 
 export interface HarnessAbArmEffectiveness {
   armId: string;
@@ -51,9 +52,24 @@ export interface HarnessAbReport {
     baseline: HarnessAbArmEconomy;
     candidate: HarnessAbArmEconomy;
   };
+  oracleEvidence?: {
+    snapshotFingerprint?: string;
+    stateCounts: Partial<Record<HarnessOracleAnnotationState, number>>;
+    annotations: HarnessOracleAnnotation[];
+    warnings: string[];
+  };
 }
 
-export function buildHarnessAbReport(summary: AbComparisonSummary): HarnessAbReport {
+export interface HarnessAbOracleEvidenceReportInput {
+  snapshotFingerprint?: string;
+  annotations: readonly HarnessOracleAnnotation[];
+  warnings: readonly string[];
+}
+
+export function buildHarnessAbReport(
+  summary: AbComparisonSummary,
+  oracleEvidence?: HarnessAbOracleEvidenceReportInput,
+): HarnessAbReport {
   const coverage = {
     scheduledCells: summary.baseline.attempts + summary.candidate.attempts,
     attemptedCells: summary.baseline.observed + summary.candidate.observed,
@@ -112,6 +128,16 @@ export function buildHarnessAbReport(summary: AbComparisonSummary): HarnessAbRep
         summary.pairedAttempts.candidateMeteredPassed,
       ),
     },
+    ...(oracleEvidence ? {
+      oracleEvidence: {
+        ...(oracleEvidence.snapshotFingerprint
+          ? { snapshotFingerprint: oracleEvidence.snapshotFingerprint }
+          : {}),
+        stateCounts: countOracleStates(oracleEvidence.annotations),
+        annotations: oracleEvidence.annotations.map((annotation) => ({ ...annotation })),
+        warnings: [...oracleEvidence.warnings],
+      },
+    } : {}),
   };
 }
 
@@ -163,6 +189,7 @@ export function renderHarnessAbReportMarkdown(report: HarnessAbReport): string {
     `Run: ${report.runId}; tasks: ${report.taskCount}; paired evaluated: ${report.effectiveness.pairedEvaluated}.`,
     `Cell coverage: ${report.coverage.attemptedCells}/${report.coverage.scheduledCells} attempted; ${report.coverage.modelScoredCells} model-scored; ${report.coverage.unscoredCells} unscored (including ${report.coverage.infraFailedCells} infra-failed); ${report.coverage.missingFinalUsageCells} missing final usage.`,
     `Economy coverage: fully metered pairs: ${report.economy.pairedMetered}; missing usage: ${report.economy.missingUsagePairs}.`,
+    ...oracleEvidenceMarkdown(report),
     '',
     '## Effectiveness',
     '',
@@ -188,6 +215,34 @@ export function renderHarnessAbReportMarkdown(report: HarnessAbReport): string {
     'No composite score: effectiveness and economy are reported as separate axes. Cost is a cache-aware API-equivalent estimate from the frozen public price snapshot, not the fixed-plan bill.',
     '',
   ].join('\n');
+}
+
+function countOracleStates(
+  annotations: readonly HarnessOracleAnnotation[],
+): Partial<Record<HarnessOracleAnnotationState, number>> {
+  const counts: Partial<Record<HarnessOracleAnnotationState, number>> = {};
+  for (const annotation of annotations) counts[annotation.state] = (counts[annotation.state] ?? 0) + 1;
+  return counts;
+}
+
+function oracleEvidenceMarkdown(report: HarnessAbReport): string[] {
+  if (!report.oracleEvidence) return [];
+  const order: readonly HarnessOracleAnnotationState[] = [
+    'passed',
+    'failed',
+    'timed_out',
+    'infra_failed',
+    'stale',
+    'missing',
+  ];
+  const summary = order
+    .filter((state) => report.oracleEvidence?.stateCounts[state] !== undefined)
+    .map((state) => `${state} ${report.oracleEvidence?.stateCounts[state]}`)
+    .join(', ');
+  return [
+    `Oracle evidence: ${summary || 'none'}.`,
+    ...report.oracleEvidence.warnings.map((warning) => `Warning: ${warning}`),
+  ];
 }
 
 export function assertHarnessAbReportCompleted(report: HarnessAbReport): void {
