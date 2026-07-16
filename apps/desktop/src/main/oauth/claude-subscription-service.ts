@@ -45,7 +45,7 @@ import {
   type SubscriptionActionResult,
 } from '@maka/core';
 import {
-  refreshOAuthSubscriptionTokens,
+  refreshAndPersistOAuthSubscriptionTokens,
 } from '@maka/runtime';
 import {
   deleteSharedOAuthTokens,
@@ -191,13 +191,6 @@ export class ClaudeSubscriptionService {
   private lastStorageFailedMessage: string | null = null;
   private authorizing = false;
   private refreshing = false;
-  /**
-   * Bumped by logout. A refresh that started before the bump discards
-   * its result instead of writing tokens back after the user logged
-   * out — in this process, logout is terminal even against an
-   * in-flight refresh's read→network→write window.
-   */
-  private credentialEpoch = 0;
 
   constructor(deps: ClaudeSubscriptionServiceDeps) {
     this.legacyTokenFilePath = join(deps.userDataDir, '.claude_subscription_token');
@@ -408,44 +401,34 @@ export class ClaudeSubscriptionService {
    * "重新登录".
    */
   async refreshTokens(): Promise<SubscriptionActionResult> {
-    const tokens = await this.loadTokens();
-    if (!tokens) return { ok: false, reason: 'refresh_failed', message: '当前未登录。' };
-    const epoch = this.credentialEpoch;
     this.refreshing = true;
     try {
-      const next = await refreshOAuthSubscriptionTokens({
+      const result = await refreshAndPersistOAuthSubscriptionTokens({
         providerType: 'claude-subscription',
-        tokens,
+        slug: 'claude-subscription',
+        credentialStore: this.credentialStore,
         now: this.now,
         fetchFn: this.fetchFn,
       });
-      if (epoch !== this.credentialEpoch) {
-        // Logout landed while the refresh was in flight: drop the
-        // result instead of resurrecting the deleted credential.
-        this.refreshing = false;
-        return { ok: false, reason: 'refresh_failed', message: '登录状态已变更，本次刷新结果已丢弃。' };
+      if (result.outcome === 'refreshed' || result.outcome === 'superseded') {
+        this.lastRefreshFailedMessage = null;
+        this.lastStorageFailedMessage = null;
+        return { ok: true };
       }
-      try {
-        await this.saveTokens({
-          access_token: next.access_token,
-          refresh_token: next.refresh_token,
-          expires_at: next.expires_at,
-          token_type: next.token_type ?? tokens.token_type,
-          scope: next.scope ?? tokens.scope,
-          account_uuid: next.account_uuid ?? tokens.account_uuid,
-        });
-      } catch {
-        this.refreshing = false;
-        return { ok: false, reason: 'storage_failed', message: this.lastStorageFailedMessage ?? '写入共享凭据失败，请检查 credentials.json 权限后重试。' };
+      if (result.outcome === 'storage-failed') {
+        const message = '访问 Claude OAuth 共享凭据失败，请检查 credentials.json 权限后重试。';
+        this.lastRefreshFailedMessage = null;
+        this.lastStorageFailedMessage = message;
+        return { ok: false, reason: 'storage_failed', message };
       }
-      this.lastRefreshFailedMessage = null;
-      this.refreshing = false;
-      return { ok: true };
-    } catch (err) {
-      this.refreshing = false;
-      const message = err instanceof Error ? err.message : '刷新失败，请重新登录。';
+      this.lastStorageFailedMessage = null;
+      const message = result.outcome === 'logged-out'
+        ? '登录状态已变更，本次刷新结果已丢弃。'
+        : result.error instanceof Error ? result.error.message : '刷新失败，请重新登录。';
       this.lastRefreshFailedMessage = message;
       return { ok: false, reason: 'refresh_failed', message };
+    } finally {
+      this.refreshing = false;
     }
   }
 
@@ -515,7 +498,6 @@ export class ClaudeSubscriptionService {
    *   - Clear runtime diagnostic flags.
    */
   async logout(): Promise<SubscriptionActionResult> {
-    this.credentialEpoch += 1;
     this.cachedQuota = null;
     this.cachedProfile = null;
     this.lastRefreshFailedMessage = null;

@@ -20,6 +20,8 @@ const OAUTH_DIR = resolve(DESKTOP_ROOT, 'src', 'main', 'oauth');
 const STORE_AUTHORITY_SERVICES = [
   ['Claude', 'claude-subscription-service.ts', 'claude-subscription'],
   ['Codex', 'openai-codex-service.ts', 'codex-subscription'],
+  ['Cursor', 'cursor-subscription-service.ts', 'cursor-subscription'],
+  ['Antigravity', 'antigravity-subscription-service.ts', 'antigravity-subscription'],
 ] as const;
 
 describe('OAuth subscription token authority (shared CredentialStore)', () => {
@@ -67,44 +69,26 @@ describe('OAuth subscription token authority (shared CredentialStore)', () => {
       );
     });
 
-    it(`${name} service maps store write failures to storage_failed, not exchange/refresh failures`, async () => {
+    it(`${name} delegates refresh persistence and races to the runtime transaction`, async () => {
       const src = await readFile(resolve(OAUTH_DIR, file), 'utf8');
-      // Both the login save and the refresh save must have their own
-      // catch that surfaces storage_failed: a consumed one-time code or
-      // a successfully rotated token with a failed write is a storage
-      // problem, not a provider problem.
-      const saveCatches = src.match(/await this\.saveTokens\([\s\S]{0,500}?reason: 'storage_failed'/g) ?? [];
-      assert.ok(
-        saveCatches.length >= 2,
-        `${name} must map save failures to storage_failed in both completeAuthorization and refreshTokens; found ${saveCatches.length}`,
-      );
-    });
-
-    it(`${name} logout stays terminal against an in-flight refresh`, async () => {
-      const src = await readFile(resolve(OAUTH_DIR, file), 'utf8');
+      const refreshStart = src.indexOf('async refreshTokens()');
+      const refreshEnd = src.indexOf('\n  async logout()', refreshStart);
+      assert.ok(refreshStart > 0 && refreshEnd > refreshStart, `${name} refreshTokens body must exist`);
+      const refreshBody = src.slice(refreshStart, refreshEnd);
       assert.match(
-        src,
-        /this\.credentialEpoch \+= 1/,
-        `${name} logout must bump the credential epoch`,
+        refreshBody,
+        /refreshAndPersistOAuthSubscriptionTokens\(\{/,
+        `${name} refresh must delegate read/network/CAS persistence to the runtime transaction`,
       );
-      assert.match(
-        src,
-        /epoch !== this\.credentialEpoch/,
-        `${name} refresh must discard its result when the epoch moved (logout during the network window)`,
-      );
-    });
-
-    it(`${name} service refreshes through the runtime's shared refresher`, async () => {
-      const src = await readFile(resolve(OAUTH_DIR, file), 'utf8');
-      assert.match(
-        src,
-        /refreshOAuthSubscriptionTokens\(\{/,
-        `${name} service must reuse the runtime refresh implementation, not a private duplicate`,
+      assert.doesNotMatch(
+        refreshBody,
+        /this\.saveTokens\(/,
+        `${name} refresh must not persist outside the runtime transaction`,
       );
       assert.doesNotMatch(
         src,
-        /private async requestRefresh/,
-        `${name} service must not keep a parallel refresh implementation`,
+        /credentialEpoch/,
+        `${name} must not keep the in-process epoch guard superseded by cross-process CAS`,
       );
     });
   }

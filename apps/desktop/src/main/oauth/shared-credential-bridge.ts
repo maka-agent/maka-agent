@@ -22,7 +22,10 @@ import {
 } from '@maka/runtime';
 import type { CredentialStore } from '@maka/storage';
 
-export type SharedOAuthCredentialStore = Pick<CredentialStore, 'getSecret' | 'setSecret' | 'deleteSecret'>;
+export type SharedOAuthCredentialStore = Pick<
+  CredentialStore,
+  'getSecret' | 'setSecret' | 'deleteSecret' | 'compareAndSetSecret'
+>;
 
 export type SharedOAuthTokensReadResult =
   | { status: 'ok'; tokens: OAuthSubscriptionTokens }

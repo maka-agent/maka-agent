@@ -32,6 +32,7 @@ import {
   type SubscriptionActionFailureReason,
   type SubscriptionActionResult,
 } from '@maka/core';
+import { refreshAndPersistOAuthSubscriptionTokens } from '@maka/runtime';
 import {
   CURSOR_OAUTH_CONFIG,
   buildCursorLoginUrl,
@@ -264,20 +265,30 @@ export class CursorSubscriptionService {
    * refresh token pair.
    */
   async refreshTokens(): Promise<SubscriptionActionResult> {
-    const tokens = await this.loadTokens();
-    if (!tokens) return { ok: false, reason: 'refresh_failed', message: '当前未登录。' };
     this.refreshing = true;
     try {
-      const next = await this.requestRefresh(tokens.refresh_token);
-      await this.saveTokens(next);
-      this.lastRefreshFailedMessage = null;
-      this.refreshing = false;
-      return { ok: true };
-    } catch (err) {
-      this.refreshing = false;
-      const message = err instanceof Error ? err.message : '刷新失败，请重新登录。';
+      const result = await refreshAndPersistOAuthSubscriptionTokens({
+        slug: 'cursor-subscription',
+        credentialStore: this.credentialStore,
+        refreshTokens: (tokens) => this.requestRefresh(tokens.refresh_token),
+      });
+      if (result.outcome === 'refreshed' || result.outcome === 'superseded') {
+        this.lastRefreshFailedMessage = null;
+        return { ok: true };
+      }
+      const message = result.outcome === 'logged-out'
+        ? '登录状态已变更，本次刷新结果已丢弃。'
+        : result.outcome === 'storage-failed'
+          ? '访问 Cursor OAuth 共享凭据失败，请检查 credentials.json 权限后重试。'
+          : result.error instanceof Error ? result.error.message : '刷新失败，请重新登录。';
       this.lastRefreshFailedMessage = message;
-      return { ok: false, reason: 'refresh_failed', message };
+      return {
+        ok: false,
+        reason: result.outcome === 'storage-failed' ? 'storage_failed' : 'refresh_failed',
+        message,
+      };
+    } finally {
+      this.refreshing = false;
     }
   }
 
