@@ -156,6 +156,9 @@ async function refreshAndPersistOAuthSubscriptionTokensFromRaw(
   if (!tokens) {
     return { outcome: 'storage-failed', error: new Error('Stored OAuth token is invalid.') };
   }
+  if (!input.credentialStore.compareAndSetSecret && !input.credentialStore.setSecret) {
+    return { outcome: 'storage-failed', error: new Error('Credential store is read-only.') };
+  }
 
   let refreshed: OAuthSubscriptionTokens;
   try {
@@ -189,10 +192,7 @@ async function refreshAndPersistOAuthSubscriptionTokensFromRaw(
         return { outcome: 'superseded', tokens: current };
       }
     } else {
-      if (!input.credentialStore.setSecret) {
-        return { outcome: 'storage-failed', error: new Error('Credential store is read-only.') };
-      }
-      await input.credentialStore.setSecret(input.slug, 'oauth_token', serialized);
+      await input.credentialStore.setSecret!(input.slug, 'oauth_token', serialized);
     }
   } catch (error) {
     return { outcome: 'storage-failed', error };

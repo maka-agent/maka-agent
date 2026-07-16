@@ -123,6 +123,31 @@ describe('OAuth refresh response validation', () => {
 });
 
 describe('OAuth refresh persistence transaction', () => {
+  test('a read-only store fails before starting a remote refresh', async () => {
+    const stored = JSON.stringify({
+      access_token: 'old-access',
+      refresh_token: 'old-refresh',
+      expires_at: 1_000,
+    });
+    let refreshCalls = 0;
+
+    const result = await refreshAndPersistOAuthSubscriptionTokens({
+      slug: 'claude-subscription',
+      credentialStore: { getSecret: async () => stored },
+      refreshTokens: async () => {
+        refreshCalls += 1;
+        return {
+          access_token: 'discarded-access',
+          refresh_token: 'discarded-refresh',
+          expires_at: 20_000_000,
+        };
+      },
+    });
+
+    assert.equal(result.outcome, 'storage-failed');
+    assert.equal(refreshCalls, 0, 'a refresh must not rotate tokens that cannot be persisted');
+  });
+
   test('resolve accepts a store whose only write capability is compare-and-set', async () => {
     const stored = JSON.stringify({
       access_token: 'old-access',
