@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
@@ -162,6 +162,61 @@ describe('runHarnessAbComparison', () => {
 
       await runHarnessAbComparison(input);
       assert.equal(failingAttempts, 1);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('continues the frozen schedule after a terminal cell infrastructure failure', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'maka-harness-ab-resilient-schedule-'));
+    try {
+      const promptPath = join(dir, 'empty-system-prompt.txt');
+      const resultsPath = join(dir, 'results.jsonl');
+      await writeFile(promptPath, '', 'utf8');
+      const calls: string[] = [];
+      let failingAttempts = 0;
+      const maka = harnessArm('maka', calls);
+      const successfulMakaRunner = maka.harborRunner;
+      maka.harborRunner = async (input) => {
+        calls.push(`${input.task.id}:maka`);
+        if (input.task.id === 'b') {
+          failingAttempts += 1;
+          throw new HarborInfraError('provider network failed after launch');
+        }
+        calls.pop();
+        return successfulMakaRunner(input);
+      };
+      const input = {
+        runId: 'glm-harness-ab',
+        runRoot: dir,
+        resultsJsonlPath: resultsPath,
+        systemPromptPath: promptPath,
+        resumeFingerprint: 'sha256:manifest',
+        evaluationTasks: ['a', 'b', 'c'].map((id) => ({ id, path: `/tasks/${id}` })),
+        arms: [maka, harnessArm('opencode', calls)] as const,
+      };
+
+      const first = await runHarnessAbComparison(input);
+
+      assert.equal(first.baseline.observed, 3);
+      assert.equal(first.candidate.observed, 3);
+      assert.equal(first.baseline.infraFailed, 1);
+      assert.equal(failingAttempts, 1);
+      assert.deepEqual(
+        new Set(calls),
+        new Set(['a:maka', 'a:opencode', 'b:maka', 'b:opencode', 'c:maka', 'c:opencode']),
+      );
+      const terminalEvents = (await readFile(resultsPath, 'utf8')).trim().split('\n').map((line) => JSON.parse(line) as {
+        taskId: string;
+        type: string;
+      });
+      assert.equal(terminalEvents.find((event) => event.taskId === 'b' && event.type === 'task_infra_failed')?.type, 'task_infra_failed');
+      assert.equal(terminalEvents.filter((event) => event.taskId === 'c' && event.type === 'task_completed').length, 2);
+      assert.equal((await readFile(`${resultsPath}.attempts.jsonl`, 'utf8')).trim().split('\n').length, 6);
+
+      await runHarnessAbComparison(input);
+      assert.equal(failingAttempts, 1);
+      assert.equal(calls.length, 6);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
