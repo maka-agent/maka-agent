@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
-import { describe, test } from 'node:test';
+import { before, describe, test } from 'node:test';
 import { visibleWidth } from '@earendil-works/pi-tui';
+import { _setColorLevelForTesting } from '../tui-ansi.js';
 import type { PipeShellOutput, PtyShellOutput, ShellRunToolResult } from '@maka/core';
 import type { SessionEvent, ToolResultContent } from '@maka/core/events';
 import type { StoredMessage } from '@maka/core/session';
@@ -21,6 +22,13 @@ import {
   toggleAllToolExpansion,
   togglePendingPermissionDetails,
 } from '../pi-transcript.js';
+
+// Pin the color level so ANSI-escape assertions are hermetic. Detection reads
+// process.env.TERM/COLORTERM at module load, so ambient terminal capability
+// (truecolor locally, unset/dumb on CI runners) would otherwise decide whether
+// color escapes appear. Level 3 (truecolor) is the development default these
+// tests lock (#1064/#1066); matches tui-ansi.test.ts's reset convention.
+before(() => _setColorLevelForTesting(3));
 
 describe('Maka Pi TUI transcript', () => {
   test('greets on a fresh empty session and drops the welcome once a prompt lands', () => {
