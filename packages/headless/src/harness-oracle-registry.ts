@@ -76,14 +76,12 @@ export interface HarnessOracleResolvedBaseImage {
 
 export interface AuditHarnessOracleRegistryInput {
   tasks: readonly HarnessOracleAuditTask[];
-  existingSnapshot?: HarnessOracleRegistrySnapshot;
   provenance: HarnessOracleExecutionProvenance;
   runOracle: (task: FixedPromptTask) => Promise<HarnessOracleTaskResult>;
 }
 
 export interface HarnessOracleAuditResult {
   snapshot: HarnessOracleRegistrySnapshot;
-  executedTaskIds: string[];
 }
 
 export interface HarnessOracleAuditPlan {
@@ -92,7 +90,10 @@ export interface HarnessOracleAuditPlan {
 }
 
 export interface BuildHarnessOracleRegistrySnapshotInput {
-  tasks: readonly HarnessOracleAuditTask[];
+  tasks: readonly {
+    taskId: string;
+    identity: HarnessOracleQualificationIdentity;
+  }[];
   entries: readonly HarnessOracleRegistryEntry[];
   provenance: HarnessOracleRegistrySnapshot['provenance'];
 }
@@ -142,20 +143,9 @@ export interface HarnessOracleAnnotation {
 export async function auditHarnessOracleRegistry(
   input: AuditHarnessOracleRegistryInput,
 ): Promise<HarnessOracleAuditResult> {
-  if (input.existingSnapshot) assertSnapshotFingerprint(input.existingSnapshot);
-  const existingByKey = new Map(
-    (input.existingSnapshot?.entries ?? []).map((entry) => [entry.qualificationKey, entry]),
-  );
   const entries: HarnessOracleRegistryEntry[] = [];
-  const executedTaskIds: string[] = [];
   for (const { task, identity } of input.tasks) {
     const qualificationKey = qualificationKeyFor(task.id, identity);
-    const existing = existingByKey.get(qualificationKey);
-    if (existing) {
-      entries.push(existing);
-      continue;
-    }
-    executedTaskIds.push(task.id);
     let execution: HarnessOracleRegistryEntry['execution'];
     let oracle: HarnessOracleTaskResult | null;
     try {
@@ -177,19 +167,19 @@ export async function auditHarnessOracleRegistry(
     }));
   }
   const snapshot = buildHarnessOracleRegistrySnapshot({
-    tasks: input.tasks,
+    tasks: input.tasks.map(({ task, identity }) => ({ taskId: task.id, identity })),
     entries,
     provenance: input.provenance,
   });
-  return { snapshot, executedTaskIds };
+  return { snapshot };
 }
 
 export function buildHarnessOracleRegistrySnapshot(
   input: BuildHarnessOracleRegistrySnapshotInput,
 ): HarnessOracleRegistrySnapshot {
   const entriesByTaskId = new Map(input.entries.map((entry) => [entry.taskId, entry]));
-  const taskIds = input.tasks.map(({ task }) => task.id);
-  const entries = input.tasks.map(({ task }) => entriesByTaskId.get(task.id));
+  const taskIds = input.tasks.map(({ taskId }) => taskId);
+  const entries = input.tasks.map(({ taskId }) => entriesByTaskId.get(taskId));
   if (
     new Set(taskIds).size !== taskIds.length
     || entriesByTaskId.size !== input.entries.length
@@ -357,6 +347,10 @@ export function parseHarnessOracleRegistrySnapshot(value: unknown): HarnessOracl
   const snapshot = value as unknown as HarnessOracleRegistrySnapshot;
   assertSnapshotFingerprint(snapshot);
   return snapshot;
+}
+
+export function fingerprintHarnessOracleDocument(value: unknown): string {
+  return fingerprintValue(value);
 }
 
 function annotationState(entry: HarnessOracleRegistryEntry): HarnessOracleAnnotationState {

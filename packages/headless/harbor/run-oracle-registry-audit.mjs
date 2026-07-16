@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 
-import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
@@ -22,6 +21,7 @@ import {
   auditHarnessOracleRegistry,
   buildHarnessOracleAuditTasks,
   buildHarnessOracleRegistrySnapshot,
+  fingerprintHarnessOracleDocument,
   HarnessOracleAuditExecutionError,
   parseHarnessOracleRegistrySnapshot,
   pinHarnessOracleTaskEnvironment,
@@ -59,7 +59,6 @@ async function planCommand(args) {
     schemaVersion: AUDIT_PLAN_SCHEMA_VERSION,
     tasks: auditTasks.map(({ task, identity }) => ({ taskId: task.id, identity })),
     reusedEntries: plan.reusedEntries,
-    previousSnapshotFingerprint: previous?.fingerprint ?? null,
   });
   await writeJson(requiredArg(args, 'out'), document);
   await writeJson(requiredArg(args, 'matrix-out'), {
@@ -76,7 +75,11 @@ async function taskCommand(args) {
   const tasks = await discoverCachedHarborTasks(requiredArg(args, 'tasks-root'), new Set([taskId]));
   if (tasks.length !== 1) throw new Error(`Oracle audit expected exactly one task source for ${taskId}`);
   const [auditTask] = await currentAuditTasks(repoRoot, tasks);
-  if (!auditTask || canonicalJson(auditTask.identity) !== canonicalJson(planned.identity)) {
+  if (
+    !auditTask
+    || fingerprintHarnessOracleDocument(auditTask.identity)
+      !== fingerprintHarnessOracleDocument(planned.identity)
+  ) {
     throw new Error(`Oracle audit identity changed after planning for task ${taskId}`);
   }
   if (!auditTask.resolvedEnvironment) {
@@ -114,12 +117,8 @@ async function mergeCommand(args) {
   const partialEntries = args['entries-dir']
     ? await readJsonFilesRecursively(args['entries-dir'])
     : [];
-  const tasks = plan.tasks.map(({ taskId, identity }) => ({
-    task: { id: taskId, path: '' },
-    identity,
-  }));
   const snapshot = buildHarnessOracleRegistrySnapshot({
-    tasks,
+    tasks: plan.tasks,
     entries: [...plan.reusedEntries, ...partialEntries],
     provenance: workflowProvenance(),
   });
@@ -169,7 +168,9 @@ async function readPlan(path) {
     || typeof value.fingerprint !== 'string'
   ) throw new Error('Oracle audit plan is malformed');
   const { fingerprint, ...body } = value;
-  if (fingerprint !== fingerprintValue(body)) throw new Error('Oracle audit plan fingerprint is invalid');
+  if (fingerprint !== fingerprintHarnessOracleDocument(body)) {
+    throw new Error('Oracle audit plan fingerprint is invalid');
+  }
   return value;
 }
 
@@ -262,19 +263,7 @@ async function writeJson(path, value) {
 }
 
 function withFingerprint(body) {
-  return { ...body, fingerprint: fingerprintValue(body) };
-}
-
-function fingerprintValue(value) {
-  return `sha256:${createHash('sha256').update(canonicalJson(value)).digest('hex')}`;
-}
-
-function canonicalJson(value) {
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
-  if (value && typeof value === 'object') {
-    return `{${Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`).join(',')}}`;
-  }
-  return JSON.stringify(value);
+  return { ...body, fingerprint: fingerprintHarnessOracleDocument(body) };
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

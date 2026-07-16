@@ -37,7 +37,7 @@ describe('harness Oracle evidence registry', () => {
     assert.notEqual(changedVerifier, original);
   });
 
-  test('audits the complete corpus once and reuses every unchanged per-task result', async () => {
+  test('audits the complete corpus and builds one matching snapshot entry per task', async () => {
     const calls: string[] = [];
     const tasks = ['a', 'b', 'c'].map((taskId) => ({
       task: { id: taskId, path: `/tasks/${taskId}` },
@@ -61,7 +61,6 @@ describe('harness Oracle evidence registry', () => {
 
     const baseline = await auditHarnessOracleRegistry(input);
     assert.deepEqual(calls, ['a', 'b', 'c']);
-    assert.deepEqual(baseline.executedTaskIds, ['a', 'b', 'c']);
     assert.deepEqual(baseline.snapshot.entries[0]?.executionProvenance, provenance);
     assert.deepEqual(
       baseline.snapshot.entries.map(({ taskId, oracle }) => ({ taskId, outcome: oracle?.outcome })),
@@ -72,21 +71,15 @@ describe('harness Oracle evidence registry', () => {
       ],
     );
 
-    calls.length = 0;
-    const repeated = await auditHarnessOracleRegistry({ ...input, existingSnapshot: baseline.snapshot });
-    assert.deepEqual(calls, []);
-    assert.deepEqual(repeated.executedTaskIds, []);
-    assert.deepEqual(repeated.snapshot.entries, baseline.snapshot.entries);
-
     const merged = buildHarnessOracleRegistrySnapshot({
-      tasks,
+      tasks: tasks.map(({ task, identity }) => ({ taskId: task.id, identity })),
       entries: [...baseline.snapshot.entries].reverse(),
       provenance: { ...input.provenance, runId: '124' },
     });
     assert.deepEqual(merged.entries.map((entry) => entry.taskId), ['a', 'b', 'c']);
     assert.throws(
       () => buildHarnessOracleRegistrySnapshot({
-        tasks,
+        tasks: tasks.map(({ task, identity }) => ({ taskId: task.id, identity })),
         entries: baseline.snapshot.entries.slice(0, 2),
         provenance: input.provenance,
       }),
@@ -94,9 +87,12 @@ describe('harness Oracle evidence registry', () => {
     );
     assert.throws(
       () => buildHarnessOracleRegistrySnapshot({
-        tasks: tasks.map((item) => item.task.id === 'b'
-          ? { ...item, identity: { ...item.identity, executionPolicyFingerprint: 'sha256:runtime-v2' } }
-          : item),
+        tasks: tasks.map(({ task, identity }) => ({
+          taskId: task.id,
+          identity: task.id === 'b'
+            ? { ...identity, executionPolicyFingerprint: 'sha256:runtime-v2' }
+            : identity,
+        })),
         entries: baseline.snapshot.entries,
         provenance: input.provenance,
       }),
@@ -104,7 +100,7 @@ describe('harness Oracle evidence registry', () => {
     );
   });
 
-  test('reruns only the task whose qualification identity changed', async () => {
+  test('plans only the task whose qualification identity changed', async () => {
     const calls: string[] = [];
     const tasks = ['a', 'b'].map((taskId) => ({
       task: { id: taskId, path: `/tasks/${taskId}` },
@@ -121,24 +117,9 @@ describe('harness Oracle evidence registry', () => {
     const provenance = oracleExecutionProvenance('123');
     const baseline = await auditHarnessOracleRegistry({ tasks, provenance, runOracle });
 
-    calls.length = 0;
     const changedTasks = tasks.map((item) => item.task.id === 'b'
       ? { ...item, identity: { ...item.identity, environmentFingerprint: 'sha256:environment-v2' } }
       : item);
-    const incremental = await auditHarnessOracleRegistry({
-      tasks: changedTasks,
-      existingSnapshot: baseline.snapshot,
-      provenance: { ...provenance, runId: '124' },
-      runOracle,
-    });
-
-    assert.deepEqual(calls, ['b']);
-    assert.deepEqual(incremental.executedTaskIds, ['b']);
-    assert.equal(incremental.snapshot.entries[0]?.fingerprint, baseline.snapshot.entries[0]?.fingerprint);
-    assert.notEqual(incremental.snapshot.entries[1]?.fingerprint, baseline.snapshot.entries[1]?.fingerprint);
-    assert.equal(incremental.snapshot.entries[0]?.executionProvenance.runId, '123');
-    assert.equal(incremental.snapshot.entries[1]?.executionProvenance.runId, '124');
-    assert.equal(incremental.snapshot.provenance.runId, '124');
 
     const plan = planHarnessOracleRegistryAudit(changedTasks, baseline.snapshot);
     assert.deepEqual(plan.missingTaskIds, ['b']);
@@ -163,13 +144,8 @@ describe('harness Oracle evidence registry', () => {
     const tampered = structuredClone(baseline.snapshot);
     tampered.entries[0]!.oracle!.reward = 0;
 
-    await assert.rejects(
-      auditHarnessOracleRegistry({
-        tasks,
-        existingSnapshot: tampered,
-        provenance,
-        runOracle: async () => ({ outcome: 'passed', reward: 1, attempts: 1 }),
-      }),
+    assert.throws(
+      () => planHarnessOracleRegistryAudit(tasks, tampered),
       /registry snapshot fingerprint is invalid/,
     );
   });
@@ -262,13 +238,8 @@ describe('harness Oracle evidence registry', () => {
     invalid.entries[0]!.fingerprint = fingerprintFixture(withoutFingerprint(invalid.entries[0]!));
     invalid.fingerprint = fingerprintFixture(withoutFingerprint(invalid));
 
-    await assert.rejects(
-      auditHarnessOracleRegistry({
-        tasks,
-        existingSnapshot: invalid,
-        provenance,
-        runOracle: async () => ({ outcome: 'passed', reward: 1, attempts: 1 }),
-      }),
+    assert.throws(
+      () => planHarnessOracleRegistryAudit(tasks, invalid),
       /registry entry is malformed/,
     );
 
@@ -276,13 +247,8 @@ describe('harness Oracle evidence registry', () => {
     excessiveAttempts.entries[0]!.oracle!.attempts = 3;
     excessiveAttempts.entries[0]!.fingerprint = fingerprintFixture(withoutFingerprint(excessiveAttempts.entries[0]!));
     excessiveAttempts.fingerprint = fingerprintFixture(withoutFingerprint(excessiveAttempts));
-    await assert.rejects(
-      auditHarnessOracleRegistry({
-        tasks,
-        existingSnapshot: excessiveAttempts,
-        provenance,
-        runOracle: async () => ({ outcome: 'passed', reward: 1, attempts: 1 }),
-      }),
+    assert.throws(
+      () => planHarnessOracleRegistryAudit(tasks, excessiveAttempts),
       /registry entry is malformed/,
     );
   });
