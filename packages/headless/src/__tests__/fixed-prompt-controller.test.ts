@@ -2035,6 +2035,35 @@ describe('fixed prompt controller', () => {
     });
   });
 
+  test('accepts zero cost with tokens for an explicitly attested account plan', async () => {
+    await withDir(async (dir) => {
+      const systemPromptPath = join(dir, 'system_prompt.md');
+      await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
+
+      const result = await runFixedPromptController({
+        runId: 'run-1',
+        roundId: 'round-1',
+        config,
+        systemPromptPath,
+        resultsJsonlPath: join(dir, 'results.jsonl'),
+        tasks: [{ id: 'task-a', path: '/bench/task-a' }],
+        billingMode: 'account-plan',
+        harborRunner: async () =>
+          harborOutput({
+            taskId: 'task-a',
+            tokenSummary: tokenSummary({ input: 2, output: 1, reasoning: 0, total: 3, costUsd: 0 }),
+          }),
+        now: () => 100,
+        newId: idFactory(),
+      });
+
+      assert.equal(result.events[0]?.type, 'task_completed');
+      assert.equal(result.events[0]?.scored, true);
+      assert.equal(result.totalTokens, 3);
+      assert.equal(result.totalCostUsd, 0);
+    });
+  });
+
   test('keeps an attested completed result eligible when usage is unavailable', async () => {
     await withDir(async (dir) => {
       const systemPromptPath = join(dir, 'system_prompt.md');

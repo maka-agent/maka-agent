@@ -129,6 +129,7 @@ export async function runRuntimePolicyAbComparisonUnlocked(
         tasks: [task],
         requireExecutionIdentity: true,
         expectedPricingProfile: input.executionProfile.id,
+        ...(input.executionProfile.billingMode ? { billingMode: input.executionProfile.billingMode } : {}),
         resumeFingerprint,
         harborRunner: (runnerInput) => input.harborRunner({ ...runnerInput, agentEnv }),
         ...(input.now ? { now: input.now } : {}),

@@ -5,6 +5,7 @@
   "provider": "ollama-cloud",
   "baseUrl": "https://ollama.com/v1",
   "model": "ollama-cloud/glm-5.2",
+  "billingMode": "account-plan",
   "pricing": {
     "inputUsdPer1M": 0,
     "outputUsdPer1M": 0,

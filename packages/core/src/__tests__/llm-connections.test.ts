@@ -623,6 +623,7 @@ describe('provider compatibility contract', () => {
     assert.deepEqual(cloud.runtimeAdapter, {
       kind: 'openai-compatible',
       name: 'provider',
+      includeUsage: true,
       replayAssistantReasoningAs: 'reasoning',
     });
     assert.deepEqual(cloud.modelDiscovery, { kind: 'protocol' });

@@ -1,4 +1,4 @@
-import type { HarborTaskPricing } from './harbor-task-runner.js';
+import type { HarborBillingMode, HarborTaskPricing } from './harbor-task-runner.js';
 
 export interface RuntimePolicyAbExecutionProfile {
   schemaVersion: 1;
@@ -7,6 +7,7 @@ export interface RuntimePolicyAbExecutionProfile {
   provider: string;
   baseUrl: string;
   model: string;
+  billingMode?: HarborBillingMode;
   pricing: HarborTaskPricing & { source: string };
   taskBudgetSec: number;
   harborTimeoutMs: number;
@@ -21,6 +22,9 @@ export function parseRuntimePolicyAbExecutionProfile(value: unknown): RuntimePol
   }
   if (!String(value.model).startsWith(`${String(value.provider)}/`)) {
     throw new Error('runtime policy A/B execution profile model must be qualified by its provider');
+  }
+  if (value.billingMode !== undefined && value.billingMode !== 'metered' && value.billingMode !== 'account-plan') {
+    throw new Error('runtime policy A/B execution profile billingMode must be metered or account-plan');
   }
   if (!isRecord(value.pricing) || typeof value.pricing.source !== 'string' || value.pricing.source.length === 0) {
     throw new Error('runtime policy A/B execution profile pricing.source must be a non-empty string');

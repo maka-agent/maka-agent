@@ -3,6 +3,7 @@ import { runAbComparison } from './ab-run.js';
 import { withAbRunLock } from './ab-run-lock.js';
 import type { AbComparisonSummary } from './ab-types.js';
 import type { Config } from './contracts.js';
+import type { HarborBillingMode } from './harbor-task-runner.js';
 import {
   runFixedPromptController,
   type FixedPromptTask,
@@ -17,6 +18,7 @@ export interface HarnessAbRuntimeArm {
   id: HarnessAbArmId;
   config: Config;
   expectedPricingProfile: string;
+  billingMode?: HarborBillingMode;
   harborRunner: HarborTaskRunner;
 }
 
@@ -53,6 +55,7 @@ export async function runHarnessAbComparisonUnlocked(
       fingerprint: buildRunManifestFingerprint({
         config: arm.config,
         expectedPricingProfile: arm.expectedPricingProfile,
+        ...(arm.billingMode ? { billingMode: arm.billingMode } : {}),
       }),
     })) as unknown as [
       { id: HarnessAbArmId; kind: 'harness'; fingerprint: string },
@@ -76,6 +79,7 @@ export async function runHarnessAbComparisonUnlocked(
         protectPassAtOne: true,
         requireExecutionIdentity: true,
         expectedPricingProfile: runtimeArm.expectedPricingProfile,
+        ...(runtimeArm.billingMode ? { billingMode: runtimeArm.billingMode } : {}),
         resumeFingerprint: input.resumeFingerprint,
         harborRunner: runtimeArm.harborRunner,
         ...(input.now ? { now: input.now } : {}),

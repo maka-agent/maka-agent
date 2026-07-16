@@ -397,6 +397,7 @@ async function runBatch({ parentRoot, batchId, taskIds, tasksById, common }) {
           id: 'maka-semantic-off',
           config: config('off'),
           expectedPricingProfile: profile.pricing.source,
+          ...(profile.billingMode ? { billingMode: profile.billingMode } : {}),
           harborRunner: createHarborTaskRunner({
             ...runnerOptions,
             agentEnv: { ...runnerOptions.agentEnv, ...contextBudgetEnv(OFF_PROFILE) },
@@ -406,6 +407,7 @@ async function runBatch({ parentRoot, batchId, taskIds, tasksById, common }) {
           id: 'maka-semantic-compact-replace',
           config: config('replace'),
           expectedPricingProfile: profile.pricing.source,
+          ...(profile.billingMode ? { billingMode: profile.billingMode } : {}),
           harborRunner: createHarborTaskRunner({
             ...runnerOptions,
             agentEnv: { ...runnerOptions.agentEnv, ...contextBudgetEnv(COMPACT_PROFILE) },

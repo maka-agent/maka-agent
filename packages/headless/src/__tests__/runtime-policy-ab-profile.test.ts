@@ -23,6 +23,22 @@ test('checked-in attention A/B profile pins GLM 5.2 identity and public pricing'
   assert.equal(profile.maxConcurrentAttempts, 2);
 });
 
+test('checked-in Ollama Cloud profile declares account-plan billing', async () => {
+  const path = new URL('../../harbor/runtime-policy-ab-profiles/ollama-cloud-glm-5.2.json', import.meta.url);
+  const profile = parseRuntimePolicyAbExecutionProfile(JSON.parse(await readFile(path, 'utf8')));
+
+  assert.equal(profile.provider, 'ollama-cloud');
+  assert.equal(profile.model, 'ollama-cloud/glm-5.2');
+  assert.equal(profile.billingMode, 'account-plan');
+  assert.deepEqual(profile.pricing, {
+    inputUsdPer1M: 0,
+    outputUsdPer1M: 0,
+    cacheReadUsdPer1M: 0,
+    cacheWriteUsdPer1M: 0,
+    source: 'ollama-cloud-account-plan-2026-07-17',
+  });
+});
+
 test('profile parser rejects the old ambiguous attempt concurrency', () => {
   assert.throws(
     () => parseRuntimePolicyAbExecutionProfile({

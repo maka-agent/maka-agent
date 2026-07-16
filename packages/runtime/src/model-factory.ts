@@ -108,6 +108,7 @@ export function getAIModel(input: ModelFactoryInput): LanguageModelV3 {
         name,
         apiKey,
         baseURL,
+        includeUsage: adapter.includeUsage,
         ...(adapter.passFetch ? { fetch } : {}),
         ...(adapter.replayAssistantReasoningDetails
           ? { metadataExtractor: reasoningDetailsMetadataExtractor() }

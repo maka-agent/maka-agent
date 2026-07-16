@@ -75,6 +75,8 @@ export interface HarborTaskPricing {
   source?: string;
 }
 
+export type HarborBillingMode = 'metered' | 'account-plan';
+
 export interface HarborTaskRunnerOptions {
   /** Host path to the maka repo, mounted read-only at /opt/maka-agent. */
   makaRepoPath: string;

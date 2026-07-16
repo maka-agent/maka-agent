@@ -19,6 +19,7 @@ export type ProviderRuntimeAdapter =
   | {
       kind: 'openai-compatible';
       name: 'provider' | 'connection';
+      includeUsage?: boolean;
       passFetch?: boolean;
       requireBaseUrl?: boolean;
       replayAssistantReasoningAs?: 'reasoning';
@@ -1396,6 +1397,7 @@ const providerRegistry = {
     runtimeAdapter: {
       kind: 'openai-compatible',
       name: 'provider',
+      includeUsage: true,
       replayAssistantReasoningAs: 'reasoning',
     },
     modelDiscovery: { kind: 'protocol' },

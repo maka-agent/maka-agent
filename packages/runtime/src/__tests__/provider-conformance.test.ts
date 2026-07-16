@@ -2,12 +2,18 @@ import assert from 'node:assert/strict';
 import type { IncomingMessage } from 'node:http';
 import { after, describe, test } from 'node:test';
 import type { LlmConnection } from '@maka/core';
-import { generateText, stepCountIs, tool } from 'ai';
+import { generateText, stepCountIs, streamText, tool } from 'ai';
 import { z } from 'zod';
 import { fetchProviderModels } from '../model-fetcher.js';
 import { buildProviderOptions, getAIModel } from '../model-factory.js';
 import { testConnection } from '../test-connection.js';
-import { closeAllJsonServers, readBody, respondJson, startJsonServer } from './conformance-harness.js';
+import {
+  closeAllJsonServers,
+  readBody,
+  respondJson,
+  respondOpenAIStream,
+  startJsonServer,
+} from './conformance-harness.js';
 
 after(closeAllJsonServers);
 
@@ -573,6 +579,45 @@ describe('models.dev provider conformance', () => {
       { role: 'tool', content: '{"echoed":"hello"}', tool_call_id: 'call_ollama_cloud_echo' },
     );
     assert.equal(result.text, 'Echoed hello.');
+  });
+
+  test('Ollama Cloud requests usage in streamed chat completions', async () => {
+    let requestBody: Record<string, unknown> | undefined;
+    const server = await startJsonServer(async (request, response) => {
+      assert.equal(request.method, 'POST');
+      assert.equal(request.url, '/v1/chat/completions');
+      requestBody = JSON.parse(await readBody(request)) as Record<string, unknown>;
+      respondOpenAIStream(response, [{
+        id: 'chatcmpl-ollama-cloud-stream',
+        object: 'chat.completion.chunk',
+        created: 1,
+        model: 'glm-5.2',
+        choices: [{ index: 0, delta: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 8, completion_tokens: 1, total_tokens: 9 },
+      }]);
+    });
+    const connection: LlmConnection = {
+      slug: 'ollama-cloud',
+      name: 'Ollama Cloud',
+      providerType: 'ollama-cloud',
+      baseUrl: `${server.url}/v1`,
+      defaultModel: 'glm-5.2',
+      enabled: true,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+
+    const result = streamText({
+      model: getAIModel({ connection, apiKey: 'ollama-cloud-test-key', modelId: 'glm-5.2' }),
+      prompt: 'Reply ok.',
+    });
+
+    assert.equal(await result.text, 'ok');
+    assert.deepEqual(requestBody?.stream_options, { include_usage: true });
+    const usage = await result.usage;
+    assert.equal(usage.inputTokens, 8);
+    assert.equal(usage.outputTokens, 1);
+    assert.equal(usage.totalTokens, 9);
   });
 
   test('DeepInfra discovers exact model ids and completes its documented two-stage tool-call loop', async () => {
