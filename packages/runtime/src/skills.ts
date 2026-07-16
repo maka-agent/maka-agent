@@ -508,8 +508,18 @@ export async function buildSkillsPromptFragment(
 }
 
 export async function loadSkillInstructions(source: SkillSource, name: string, host?: HostCapabilities): Promise<LoadSkillInstructionsResult> {
+  return loadSkillInstructionsFromScan(await scanSkills(source), name, host);
+}
+
+/**
+ * Resolve one skill's full instructions against an already-computed scan.
+ * Identical semantics to {@link loadSkillInstructions} — enabled filter, host
+ * gate, id-then-name match, body cleaning/truncation — but skips the
+ * per-call rescan, so explicit-invocation paths (TUI `/skill:` tokens,
+ * desktop chips) can resolve several skills against one scan.
+ */
+export function loadSkillInstructionsFromScan(skills: ScannedSkill[], name: string, host?: HostCapabilities): LoadSkillInstructionsResult {
   const raw = typeof name === 'string' ? name.trim() : '';
-  const skills = await scanSkills(source);
   const enabledSkills = skills.filter((skill) => skill.enabled);
   // Gate eligible skills before exposing them as available or loading them.
   // `host === undefined` keeps the legacy no-gating behavior (desktop call

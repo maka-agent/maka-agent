@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { before, describe, test } from 'node:test';
 import { visibleWidth } from '@earendil-works/pi-tui';
@@ -1859,10 +1862,13 @@ describe('Maka Pi TUI runner', () => {
     const afterLines = plainTerminalOutput(terminal.screenOutput()).split(/\r?\n/);
     const afterRows = inputSurfaceRows(afterLines);
     const afterSessionRow = afterLines.findIndex((line) => line.includes('/session'));
+    const afterSkillRow = afterLines.findIndex((line) => line.includes('/skill'));
 
     assert.ok(beforeSessionRow >= 0);
     assert.deepEqual(afterRows, beforeRows);
-    assert.equal(afterSessionRow, afterRows[0] - 1);
+    // The 's' filter matches two commands — /session then /skill — bottom-aligned.
+    assert.equal(afterSkillRow, afterRows[0] - 1);
+    assert.equal(afterSessionRow, afterRows[0] - 2);
 
     exitMaka(terminal);
     await Promise.race([
@@ -1908,10 +1914,12 @@ describe('Maka Pi TUI runner', () => {
     const afterLines = plainTerminalOutput(terminal.screenOutput()).split(/\r?\n/);
     const afterRows = inputSurfaceRows(afterLines);
     const afterSessionRow = afterLines.findIndex((line) => line.includes('/session'));
+    const afterSkillRow = afterLines.findIndex((line) => line.includes('/skill'));
 
     assert.deepEqual(afterRows, beforeRows);
     assert.equal(afterRows[1], terminal.rows - 2);
-    assert.equal(afterSessionRow, afterRows[0] - 1);
+    assert.equal(afterSkillRow, afterRows[0] - 1);
+    assert.equal(afterSessionRow, afterRows[0] - 2);
 
     exitMaka(terminal);
     await Promise.race([
@@ -4101,6 +4109,130 @@ describe('Maka Pi TUI runner', () => {
     assert.equal(terminal.titles.at(-1), 'Maka');
   });
 
+  // #1148: explicit skill invocation — tokens are resolved by the CLI at
+  // submit, the runtime receives the composed message, and the transcript
+  // keeps showing what the user actually typed.
+  test('injects invoked skill instructions at submit while showing the typed prompt', async () => {
+    await withSkillWorkspace(async (workspaceRoot) => {
+      const terminal = new FakeTerminal();
+      const driver = new SlashCommandDriver();
+      const run = runMakaPiTui({
+        title: 'Maka',
+        driver,
+        cwd: '/repo',
+        model: 'claude-sonnet-4-5',
+        connectionSlug: 'claude-subscription',
+        permissionMode: 'ask',
+        terminal,
+        skills: { source: () => workspaceRoot, host: { toolNames: new Set<string>() } },
+      });
+
+      terminal.input('/skill:alpha 帮我整理');
+      terminal.input('\r');
+      await waitFor(() => driver.prompts.length === 1);
+
+      const sent = driver.prompts[0];
+      assert.match(sent, /<invoked-skill id="alpha" name="Alpha">/);
+      assert.match(sent, /# Alpha\nAlpha body\./);
+      assert.ok(
+        sent.endsWith('<user-message>\n帮我整理\n</user-message>'),
+        `composed message carries the stripped user text: ${sent}`,
+      );
+
+      // The transcript render trails the send by a tick — wait for it.
+      await waitFor(() => plainTerminalOutput(terminal.output()).includes('/skill:alpha 帮我整理'));
+      await waitFor(() => plainTerminalOutput(terminal.output()).includes('已加载技能：Alpha'));
+
+      exitMaka(terminal);
+      await Promise.race([
+        run,
+        delay(50).then(() => {
+          throw new Error('TUI did not close during test cleanup');
+        }),
+      ]);
+    });
+  });
+
+  // #1148: a token that fails to resolve must never block the send — the raw
+  // prompt goes out untouched and a non-blocking notice explains the skip.
+  test('sends the raw prompt with a notice when a skill token fails to resolve', async () => {
+    await withSkillWorkspace(async (workspaceRoot) => {
+      const terminal = new FakeTerminal();
+      const driver = new SlashCommandDriver();
+      const run = runMakaPiTui({
+        title: 'Maka',
+        driver,
+        cwd: '/repo',
+        model: 'claude-sonnet-4-5',
+        connectionSlug: 'claude-subscription',
+        permissionMode: 'ask',
+        terminal,
+        skills: { source: () => workspaceRoot, host: { toolNames: new Set<string>() } },
+      });
+
+      terminal.input('/skill:nope hi');
+      terminal.input('\r');
+      await waitFor(() => driver.prompts.length === 1);
+
+      assert.equal(driver.prompts[0], '/skill:nope hi', 'failed token degrades to the untouched prompt');
+      await waitFor(
+        () => plainTerminalOutput(terminal.output()).includes('未能加载技能 /skill:nope（未找到），已按原文发送。'),
+      );
+
+      exitMaka(terminal);
+      await Promise.race([
+        run,
+        delay(50).then(() => {
+          throw new Error('TUI did not close during test cleanup');
+        }),
+      ]);
+    });
+  });
+
+  // #1148: `/skill` opens the picker; picking inserts the token into the
+  // draft without sending, so the user keeps composing before submitting.
+  test('/skill picker inserts a token that a later submit injects', async () => {
+    await withSkillWorkspace(async (workspaceRoot) => {
+      const terminal = new FakeTerminal();
+      const driver = new SlashCommandDriver();
+      const run = runMakaPiTui({
+        title: 'Maka',
+        driver,
+        cwd: '/repo',
+        model: 'claude-sonnet-4-5',
+        connectionSlug: 'claude-subscription',
+        permissionMode: 'ask',
+        terminal,
+        skills: { source: () => workspaceRoot, host: { toolNames: new Set<string>() } },
+      });
+
+      terminal.input('/skill');
+      terminal.input('\r');
+      await waitFor(() => terminal.output().includes('Invoke Skill'));
+      assert.equal(driver.prompts.length, 0, 'the picker command itself sends nothing');
+
+      terminal.input('\r');
+      terminal.input('整理一下');
+      terminal.input('\r');
+      await waitFor(() => driver.prompts.length === 1);
+
+      const sent = driver.prompts[0];
+      assert.match(sent, /<invoked-skill id="alpha" name="Alpha">/);
+      assert.ok(
+        sent.endsWith('<user-message>\n整理一下\n</user-message>'),
+        `picker-inserted token composes on submit: ${sent}`,
+      );
+
+      exitMaka(terminal);
+      await Promise.race([
+        run,
+        delay(50).then(() => {
+          throw new Error('TUI did not close during test cleanup');
+        }),
+      ]);
+    });
+  });
+
 });
 
 /** Count the standalone BEL bytes the attention layer wrote. */
@@ -5545,8 +5677,22 @@ class RewindDriver extends SlashCommandDriver {
   }
 }
 
-function switchResult(summary: SessionSummary, messages: StoredMessage[] = []): MakaSessionSwitchResult {
-  return { summary, messages };
+// #1148: a throwaway workspace seeded with one invocable skill (`alpha`).
+// The runner's skill surface points at it in single-root mode, so no real
+// user- or project-level skills leak into the tests.
+async function withSkillWorkspace(fn: (workspaceRoot: string) => Promise<void>): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-cli-skill-invocation-'));
+  try {
+    const skillDir = join(workspaceRoot, 'skills', 'alpha');
+    await mkdir(skillDir, { recursive: true });
+    await writeFile(join(skillDir, 'SKILL.md'), '---\nname: Alpha\ndescription: First.\n---\n# Alpha\nAlpha body.', 'utf8');
+    await fn(workspaceRoot);
+  } finally {
+    await rm(workspaceRoot, { recursive: true, force: true });
+  }
+}
+
+function switchResult(summary: SessionSummary, messages: StoredMessage[] = []): MakaSessionSwitchResult {  return { summary, messages };
 }
 
 function fakeSessionSummary(sessionId: string, cwd = '/repo', name = 'Existing chat'): SessionSummary {

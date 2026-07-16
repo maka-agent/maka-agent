@@ -416,6 +416,13 @@ export async function submitPromptToTranscript(input: {
   state: MakaPiTranscriptState;
   driver: Pick<MakaSessionDriver, 'sendPrompt'>;
   prompt: string;
+  /**
+   * Text actually sent to the runtime when it differs from the displayed
+   * prompt — used by explicit skill invocation (#1148), where the transcript
+   * shows what the user typed (`/skill:` tokens and all) while the runtime
+   * receives the composed message with skill instructions injected.
+   */
+  sendText?: string;
   onChange?: () => void;
   /**
    * An error surfaced during the turn — either a stream `error` event or a
@@ -432,7 +439,7 @@ export async function submitPromptToTranscript(input: {
   // events; well-formed runtime streams emit exactly one.
   let outcome: TurnOutcome | undefined;
   try {
-    for await (const event of input.driver.sendPrompt(input.prompt)) {
+    for await (const event of input.driver.sendPrompt(input.sendText ?? input.prompt)) {
       const failed = event.type === 'complete'
         && failureClassFromCompleteStopReason(event.stopReason) !== undefined;
       if (event.type === 'error' || failed) {

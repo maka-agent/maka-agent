@@ -34,6 +34,7 @@ import {
   type MakaTool,
   type InvocationResult,
   type ShellRunUpdate,
+  type SkillSource,
 } from '@maka/runtime';
 import {
   createAgentRunStore,
@@ -60,6 +61,13 @@ export interface MakaCliRuntimeContext {
   modelChoices: ModelChoice[];
   /** Tools passed to the backend (builtins + automation + goals + Skill). */
   tools: MakaTool[];
+  /**
+   * Explicit skill invocation surface (issue #1148): the discovery source +
+   * host gate shared with the Skill tool and the system-prompt catalog, so
+   * `/skill:<name>` autocomplete, highlight, and submit-time injection all
+   * resolve against exactly what the host can load.
+   */
+  skills: MakaCliSkillSurface;
   automationManager: AutomationManager;
   automationScheduler: AutomationScheduler;
   subscribeShellRunUpdates(listener: (update: ShellRunUpdate) => void): () => void;
@@ -91,6 +99,13 @@ export interface CreateMakaCliRuntimeContextInput {
 
 export interface GetOrCreateCliClaudeDeviceIdDeps {
   newId?: () => string;
+}
+
+export interface MakaCliSkillSurface {
+  /** Five-path discovery source for a session cwd (project-level paths are cwd-relative). */
+  source(cwd: string): SkillSource;
+  /** This host's capability surface — the same gate the Skill tool loads through. */
+  host: HostCapabilities;
 }
 
 export function isMakaClaudeSubscriptionCloakEnabled(
@@ -449,6 +464,10 @@ export async function createMakaCliRuntimeContext(
     target,
     modelChoices,
     tools: allTools,
+    skills: {
+      source: (cwd) => resolveSkillDiscoveryPaths(cwd, input.workspaceRoot),
+      host,
+    },
     automationManager,
     automationScheduler,
     subscribeShellRunUpdates: (listener) => {

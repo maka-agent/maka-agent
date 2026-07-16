@@ -18,16 +18,24 @@ import {
 import type { UserQuestionOption } from '@maka/core';
 import { PERMISSION_MODES, type PermissionMode } from '@maka/core/permission';
 import type { ThinkingLevel } from '@maka/core/model-thinking';
+import type { InvocableSkillEntry } from '@maka/runtime';
 import type { ModelChoice } from './connection-target.js';
+import { skillInvocationPrefixAt } from './skill-token.js';
 import { ansi, editorTheme, stripAnsi } from './tui-ansi.js';
 
 export class MakaAutocompleteProvider implements AutocompleteProvider {
   private readonly fileProvider: CombinedAutocompleteProvider;
   private readonly slashCommands: readonly MakaSlashCommandMetadata[];
+  private readonly listSkills?: () => Promise<readonly InvocableSkillEntry[]>;
 
-  constructor(basePath: string, slashCommands: readonly MakaSlashCommandMetadata[]) {
+  constructor(
+    basePath: string,
+    slashCommands: readonly MakaSlashCommandMetadata[],
+    listSkills?: () => Promise<readonly InvocableSkillEntry[]>,
+  ) {
     this.fileProvider = new CombinedAutocompleteProvider([], basePath);
     this.slashCommands = slashCommands;
+    this.listSkills = listSkills;
   }
 
   async getSuggestions(
@@ -36,6 +44,29 @@ export class MakaAutocompleteProvider implements AutocompleteProvider {
     cursorCol: number,
     options: { signal: AbortSignal; force?: boolean },
   ): Promise<AutocompleteSuggestions | null> {
+    // `/skill:<query>` takes precedence everywhere — including at line start,
+    // where it would otherwise parse as a (non-matching) slash command — and
+    // it suppresses file completion: the token charset looks path-like.
+    const skillPrefix = skillInvocationPrefixAt(lines, cursorLine, cursorCol);
+    if (skillPrefix !== null && this.listSkills && !options.force) {
+      const query = skillPrefix.query.toLowerCase();
+      const skills = await this.listSkills();
+      if (options.signal.aborted) return null;
+      const items = skills
+        .filter((skill) =>
+          skill.id.toLowerCase().startsWith(query)
+          || skill.name.toLowerCase().includes(query))
+        .map((skill) => ({
+          value: skill.id,
+          label: `/skill:${skill.id}`,
+          description: skill.description ? `${skill.name} · ${skill.description}` : skill.name,
+        }));
+      return items.length > 0 ? { items, prefix: skillPrefix.prefix } : null;
+    }
+    if (skillPrefix !== null && !options.force) {
+      // Inside a token but no skill surface: never fall through to path completion.
+      return null;
+    }
     const slashPrefix = slashCommandPrefix(lines, cursorLine, cursorCol);
     if (slashPrefix !== null && !options.force) {
       const query = slashPrefix.slice(1).toLowerCase();
@@ -60,6 +91,15 @@ export class MakaAutocompleteProvider implements AutocompleteProvider {
   ): { lines: string[]; cursorLine: number; cursorCol: number } {
     const currentLine = lines[cursorLine] || '';
     const beforePrefix = currentLine.slice(0, cursorCol - prefix.length);
+    if (prefix.startsWith('/skill:')) {
+      const nextLines = [...lines];
+      nextLines[cursorLine] = `${beforePrefix}/skill:${item.value} ${currentLine.slice(cursorCol)}`;
+      return {
+        lines: nextLines,
+        cursorLine,
+        cursorCol: beforePrefix.length + item.value.length + 8,
+      };
+    }
     if (prefix.startsWith('/') && beforePrefix.trim() === '') {
       const nextLines = [...lines];
       nextLines[cursorLine] = `${beforePrefix}/${item.value} ${currentLine.slice(cursorCol)}`;
@@ -73,6 +113,7 @@ export class MakaAutocompleteProvider implements AutocompleteProvider {
   }
 
   shouldTriggerFileCompletion(lines: string[], cursorLine: number, cursorCol: number): boolean {
+    if (skillInvocationPrefixAt(lines, cursorLine, cursorCol) !== null) return false;
     return this.fileProvider.shouldTriggerFileCompletion(lines, cursorLine, cursorCol);
   }
 }
@@ -307,6 +348,19 @@ export function permissionModePickerItems(currentMode: PermissionMode): SelectIt
     value: mode,
     label: mode,
     ...(mode === currentMode ? { description: 'current' } : {}),
+  }));
+}
+
+/**
+ * `/skill` picker items (issue #1148). The value is the skill id (that's what
+ * the inserted `/skill:<id>` token resolves by); the description carries the
+ * id too, since CJK display names alone don't tell the user what to type.
+ */
+export function skillPickerItems(skills: readonly InvocableSkillEntry[]): SelectItem[] {
+  return skills.map((skill) => ({
+    value: skill.id,
+    label: skill.name,
+    description: skill.description ? `${skill.id} · ${skill.description}` : skill.id,
   }));
 }
 

@@ -152,6 +152,7 @@ export async function runMakaCli(argv: string[] = process.argv.slice(2)): Promis
           permissionMode: 'ask',
           subscribeShellRunUpdates: context.subscribeShellRunUpdates,
           listShellRunUpdates: context.listShellRunUpdates,
+          skills: context.skills,
           onProcessExit: handleMakaCliProcessExit,
           onTurnComplete: (turnId, injectTurn) => {
             const sessionId = driver.getSessionId();

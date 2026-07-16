@@ -1015,6 +1015,7 @@ export {
   resolveSkillDiscoveryPaths,
   buildSkillsPromptFragment,
   loadSkillInstructions,
+  loadSkillInstructionsFromScan,
   buildSkillAgentTool,
   gateSkillsByHostCapabilities,
   parseSkillFrontMatter,
@@ -1026,6 +1027,15 @@ export {
   writeContainedRegularTextFile,
   isRecord,
 } from './skills.js';
+export {
+  listInvocableSkills,
+  resolveSkillInvocations,
+  composeSkillInvocationMessage,
+} from './skill-invocation.js';
+export type {
+  InvocableSkillEntry,
+  SkillInvocationResolution,
+} from './skill-invocation.js';
 export {
   isContainedPath,
   isSafeSkillId,

@@ -1,6 +1,5 @@
 import { basename } from 'node:path';
 import {
-  Editor,
   Key,
   ProcessTerminal,
   SelectList,
@@ -23,6 +22,16 @@ import {
   type ShellRunUpdate,
 } from '@maka/core';
 import type { ModelChoice } from './connection-target.js';
+import type { MakaCliSkillSurface } from './runtime-bootstrap.js';
+import {
+  composeSkillInvocationMessage,
+  listInvocableSkills,
+  resolveSkillInvocations,
+  type InvocableSkillEntry,
+  type LoadedSkillInstructions,
+} from '@maka/runtime';
+import { MakaSkillHighlightEditor } from './skill-highlight-editor.js';
+import { parseSkillInvocationTokens, stripSkillInvocationTokens } from './skill-token.js';
 import {
   inspectSessionResumeAvailability,
   type MakaSessionDriver,
@@ -67,6 +76,7 @@ import {
   modelChoicePickerItems,
   modelPickerItems,
   permissionModePickerItems,
+  skillPickerItems,
   thinkingLevelPickerItems,
   type MakaSlashCommand,
 } from './pi-tui-pickers.js';
@@ -106,6 +116,13 @@ export interface MakaPiTuiInput {
    * continuation turns are visible and chain correctly.
    */
   onTurnComplete?: (turnId: string, injectTurn: (text: string) => void) => void;
+  /**
+   * Explicit skill invocation surface (issue #1148). When present, `/skill:<name>`
+   * tokens are highlighted in the editor, completed by autocomplete, listed by
+   * `/skill`, and resolved + injected by the CLI at submit time. Omitting it
+   * disables the whole feature (tests, minimal hosts).
+   */
+  skills?: MakaCliSkillSurface;
 }
 
 export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
@@ -169,7 +186,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   const statusLine = new MakaStatusLineComponent(metadata);
   // Show the whole slash-command set at once — discoverability is the point of
   // the menu. Keep a little headroom above the current command count.
-  const editor = new Editor(tui, editorTheme(), { paddingX: 1, autocompleteMaxVisible: EDITOR_AUTOCOMPLETE_MAX_VISIBLE });
+  const editor = new MakaSkillHighlightEditor(tui, editorTheme(), { paddingX: 1, autocompleteMaxVisible: EDITOR_AUTOCOMPLETE_MAX_VISIBLE });
   let refreshEditorCwd: ((cwd: string) => void) | undefined;
   const editorSurface = new MakaAutocompleteAboveEditorComponent(editor);
   const layout = new MakaPiLayoutComponent(state, transcript, activityStrip, pendingQueue, editorSurface, statusLine, terminal);
@@ -188,6 +205,104 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     state,
     onTick: requestRender,
   });
+
+  // ── Explicit skill invocation (#1148) ────────────────────────────────────
+  // One cached list feeds autocomplete, the `/skill` picker, and the editor's
+  // sync highlight validator. The cache is keyed by cwd (project-level skill
+  // paths move with it) and short-lived; submit-time injection never uses it —
+  // it does an authoritative scan via prepareSkillInvocation.
+  const SKILL_LIST_CACHE_MS = 5_000;
+  let skillListCache: { cacheCwd: string; at: number; entries: InvocableSkillEntry[] } | undefined;
+  const listSkillsCached = async (forceRefresh = false): Promise<readonly InvocableSkillEntry[]> => {
+    if (!input.skills) return [];
+    if (!forceRefresh
+      && skillListCache
+      && skillListCache.cacheCwd === cwd
+      && Date.now() - skillListCache.at < SKILL_LIST_CACHE_MS) {
+      return skillListCache.entries;
+    }
+    try {
+      const entries = await listInvocableSkills(input.skills.source(cwd), input.skills.host);
+      skillListCache = { cacheCwd: cwd, at: Date.now(), entries };
+      // The highlight validator must be sync and cheap (one lookup per token
+      // per render): a flat Set over lowercase ids AND display names, since a
+      // token resolves by either.
+      const invocable = new Set<string>();
+      for (const entry of entries) {
+        invocable.add(entry.id.toLowerCase());
+        invocable.add(entry.name.toLowerCase());
+      }
+      editor.setSkillTokenValidator((name) => invocable.has(name.toLowerCase()));
+      requestRender();
+      return entries;
+    } catch {
+      // Listing is best-effort: autocomplete/picker/highlight degrade to
+      // nothing, and submit-time resolution does its own authoritative scan.
+      return skillListCache?.cacheCwd === cwd ? skillListCache.entries : [];
+    }
+  };
+  // Warm the highlight validator so tokens light up before the first
+  // autocomplete or picker open.
+  void listSkillsCached(true);
+
+  const SKILL_INVOCATION_FAILURE_REASON_LABEL: Record<string, string> = {
+    not_found: '未找到',
+    disabled: '已禁用',
+    host_incompatible: '当前主机缺少其依赖的工具',
+    invalid_name: '名称无效',
+  };
+
+  interface PreparedSkillPrompt {
+    displayText: string;
+    sendText: string;
+    loadedNames: string[];
+    warnings: string[];
+  }
+
+  // Resolve `/skill:<name>` tokens and compose the injectable message. Fully
+  // fail-soft: zero resolved tokens or any thrown error returns the untouched
+  // prompt — skill resolution must never block a send (issue decision: warn at
+  // most; failed tokens stay as literal text).
+  const prepareSkillInvocation = async (prompt: string): Promise<PreparedSkillPrompt> => {
+    const passthrough: PreparedSkillPrompt = { displayText: prompt, sendText: prompt, loadedNames: [], warnings: [] };
+    if (!input.skills) return passthrough;
+    const tokens = parseSkillInvocationTokens(prompt);
+    if (tokens.length === 0) return passthrough;
+    try {
+      const resolved = await resolveSkillInvocations(
+        input.skills.source(cwd),
+        input.skills.host,
+        tokens.map((token) => token.name),
+      );
+      const loaded: LoadedSkillInstructions[] = [];
+      const okRequests: string[] = [];
+      const failed: Array<{ request: string; reason: string }> = [];
+      for (const entry of resolved) {
+        if (entry.result.ok) {
+          loaded.push(entry.result.skill);
+          okRequests.push(entry.request);
+        } else {
+          failed.push({ request: entry.request, reason: entry.result.reason });
+        }
+      }
+      const warnings = failed.length > 0
+        ? [`未能加载技能 ${failed.map((entry) => `/skill:${entry.request}（${SKILL_INVOCATION_FAILURE_REASON_LABEL[entry.reason] ?? entry.reason}）`).join('、')}，已按原文发送。`]
+        : [];
+      if (loaded.length === 0) {
+        return { ...passthrough, warnings };
+      }
+      const stripped = stripSkillInvocationTokens(prompt, new Set(okRequests.map((request) => request.toLowerCase())));
+      return {
+        displayText: prompt,
+        sendText: composeSkillInvocationMessage({ userText: stripped, skills: loaded }),
+        loadedNames: loaded.map((skill) => skill.name),
+        warnings,
+      };
+    } catch {
+      return passthrough;
+    }
+  };
+
   // 1-second heartbeat that re-renders the activity strip's elapsed counter
   // while a turn runs. Stopped on turn end and disposed on teardown.
   let turnElapsedInterval: ReturnType<typeof setInterval> | undefined;
@@ -467,7 +582,32 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     }
     editor.addToHistory(prompt);
     if (handleSlashCommand(prompt)) return;
-    runAgentTurn(prompt);
+    void submitPreparedUserPrompt(prompt);
+  };
+
+  // Resolve skill-invocation tokens, then open the turn. The async prep holds
+  // `busy` so a second submit can't race it; runAgentTurn re-asserts the flag
+  // for the turn itself.
+  const submitPreparedUserPrompt = async (prompt: string) => {
+    busy = true;
+    try {
+      const prepared = await prepareSkillInvocation(prompt);
+      for (const warning of prepared.warnings) {
+        state.entries.push({ kind: 'notice', level: 'info', text: warning });
+      }
+      if (prepared.loadedNames.length > 0) {
+        state.entries.push({
+          kind: 'notice',
+          level: 'info',
+          text: `已加载技能：${prepared.loadedNames.join('、')}`,
+        });
+      }
+      busy = false;
+      runAgentTurn(prompt, prepared.sendText === prompt ? undefined : { sendText: prepared.sendText });
+    } catch (error) {
+      busy = false;
+      reportError(error);
+    }
   };
 
   // Fallback handoff owner. A `fallback` outcome while the turn is running
@@ -587,7 +727,9 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
 
   // Runs one agent turn rendered in the transcript, then lets the host decide
   // whether to auto-continue (goal). Shared by user submits and goal injections.
-  function runAgentTurn(prompt: string): void {
+  // `options.sendText` differs from `prompt` only when skill invocation
+  // composed an injectable message: the transcript shows what the user typed.
+  function runAgentTurn(prompt: string, options?: { sendText?: string }): void {
     busy = true;
     turnRunning = true;
     turnStartedAt = Date.now();
@@ -606,6 +748,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       state,
       driver: input.driver,
       prompt,
+      ...(options?.sendText !== undefined ? { sendText: options.sendText } : {}),
       // A turn failing is worth pulling the user back, regardless of how long it
       // ran — a quick failure in a background tab would otherwise stay silent.
       onError: () => attention.attentionNeeded(),
@@ -1056,9 +1199,35 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     );
   };
 
-  const showThinkingLevelList = () => {
-    const items = thinkingLevelPickerItems(thinkingLevels, thinkingLevel);
+  // `/skill` with no arguments: pick from everything the host can invoke right
+  // now. Picking only inserts the token into the draft — never sends — so the
+  // user keeps composing (and can add more tokens) before submitting.
+  const showSkillList = async () => {
+    const entries = await listSkillsCached(true);
+    if (closed) return;
+    if (entries.length === 0) {
+      state.entries.push({
+        kind: 'notice',
+        level: 'info',
+        text: '当前没有可调用的技能。',
+      });
+      requestRender();
+      return;
+    }
     showSelectPicker(
+      'Invoke Skill',
+      String(entries.length),
+      skillPickerItems(entries),
+      (item) => {
+        editor.insertTextAtCursor(`/skill:${item.value} `);
+        requestRender();
+      },
+      { minPrimaryColumnWidth: 16, maxPrimaryColumnWidth: 40 },
+    );
+  };
+
+  const showThinkingLevelList = () => {
+    const items = thinkingLevelPickerItems(thinkingLevels, thinkingLevel);    showSelectPicker(
       'Select Thinking Level',
       thinkingLevel ?? 'default',
       items,
@@ -1141,6 +1310,22 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       description: 'Start a new session',
       run: () => {
         void runControl(async () => newSession());
+      },
+    },
+    {
+      name: 'skill',
+      description: 'Invoke a skill (or type /skill:<name> inline)',
+      run: (parts: string[]) => {
+        if (parts.length !== 1) {
+          state.entries.push({
+            kind: 'notice',
+            level: 'error',
+            text: 'Usage: /skill，或直接在消息中输入 /skill:<name>',
+          });
+          requestRender();
+          return;
+        }
+        void showSkillList();
       },
     },
     {
@@ -1287,7 +1472,9 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   };
 
   refreshEditorCwd = (nextCwd) => {
-    editor.setAutocompleteProvider(new MakaAutocompleteProvider(nextCwd, slashCommands));
+    editor.setAutocompleteProvider(
+      new MakaAutocompleteProvider(nextCwd, slashCommands, () => listSkillsCached()),
+    );
   };
   refreshEditorCwd(cwd);
 
