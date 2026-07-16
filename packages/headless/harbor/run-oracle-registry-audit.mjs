@@ -9,30 +9,30 @@ import {
   fingerprintFixedPromptTaskTree,
 } from '#fixed-prompt-task-source';
 import {
-  buildHarborVerifierPolicyFingerprint,
   createHarborOracleQualifier,
   HarborInfraError,
 } from '#harbor-task-runner';
+import {
+  buildHarnessOracleExecutionPolicyFingerprint,
+  HARBOR_ORACLE_DOCKER_PLATFORM,
+} from '#harness-oracle-policy';
 import {
   auditHarnessOracleRegistry,
   buildHarnessOracleAuditTasks,
   buildHarnessOracleRegistrySnapshot,
   HarnessOracleAuditExecutionError,
   parseHarnessOracleRegistrySnapshot,
+  pinHarnessOracleTaskEnvironment,
   planHarnessOracleRegistryAudit,
 } from '#harness-oracle-registry';
 import {
   assertTerminalBench21TaskSet,
   assertTerminalBench21TaskTreeFingerprint,
 } from '#harness-ab-manifest';
-import { buildToolchainFingerprint } from './run-prompt-ab.mjs';
-import {
-  resolveHarnessOracleBaseImageDigest,
-  resolveHarnessOracleRuntimeFingerprint,
-} from './run-harness-ab.mjs';
+import { resolveHarnessOracleBaseImageDigest } from './run-harness-ab.mjs';
 
 const AUDIT_PLAN_SCHEMA_VERSION = 1;
-const DOCKER_PLATFORM = 'linux/amd64';
+const DOCKER_PLATFORM = HARBOR_ORACLE_DOCKER_PLATFORM;
 
 export async function main(argv = process.argv.slice(2)) {
   const [command, ...rawArgs] = argv;
@@ -76,13 +76,22 @@ async function taskCommand(args) {
   if (!auditTask || canonicalJson(auditTask.identity) !== canonicalJson(planned.identity)) {
     throw new Error(`Oracle audit identity changed after planning for task ${taskId}`);
   }
+  if (!auditTask.resolvedEnvironment) {
+    throw new Error(`Oracle audit resolved no execution environment for task ${taskId}`);
+  }
+  const jobsDir = requiredArg(args, 'jobs-dir');
+  const pinnedTask = await pinHarnessOracleTaskEnvironment(
+    auditTask.task,
+    auditTask.resolvedEnvironment.baseImages,
+    join(jobsDir, 'pinned-tasks'),
+  );
   const qualifier = createHarborOracleQualifier({
     makaRepoPath: repoRoot,
-    jobsDir: requiredArg(args, 'jobs-dir'),
+    jobsDir,
     dockerPlatform: DOCKER_PLATFORM,
   });
   const audit = await auditHarnessOracleRegistry({
-    tasks: [auditTask],
+    tasks: [{ ...auditTask, task: pinnedTask }],
     provenance: workflowProvenance(),
     runOracle: async (task) => {
       try {
@@ -123,21 +132,18 @@ async function mergeCommand(args) {
 }
 
 async function currentAuditTasks(repoRoot, tasks) {
-  const hostToolchainFingerprint = await buildToolchainFingerprint(
-    process.env.MAKA_ORACLE_AUDIT_TOOLCHAIN_FINGERPRINT,
-    undefined,
-    repoRoot,
-  );
-  const runtimeFingerprint = await resolveHarnessOracleRuntimeFingerprint(hostToolchainFingerprint);
-  const verifierPolicyFingerprint = buildHarborVerifierPolicyFingerprint({
-    implementationSource: await readFile(join(repoRoot, 'packages/headless/harbor/maka_verifier.py')),
-    toolchainFingerprint: runtimeFingerprint,
+  const [verifierImplementationSource, composeImplementationSource] = await Promise.all([
+    readFile(join(repoRoot, 'packages/headless/harbor/maka_verifier.py')),
+    readFile(join(repoRoot, 'packages/headless/harbor/docker-compose-linux-amd64.yaml')),
+  ]);
+  const executionPolicyFingerprint = buildHarnessOracleExecutionPolicyFingerprint({
+    verifierImplementationSource,
+    composeImplementationSource,
   });
   const digestCache = new Map();
   return buildHarnessOracleAuditTasks({
     tasks,
-    verifierPolicyFingerprint,
-    runtimeFingerprint,
+    executionPolicyFingerprint,
     environment: 'docker',
     platform: DOCKER_PLATFORM,
     resolveBaseImageDigest: (reference, platform) => (

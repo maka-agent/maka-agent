@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
@@ -10,23 +10,41 @@ import {
   buildHarnessOracleEnvironmentFingerprint,
   buildHarnessOracleAuditTasks,
   buildHarnessOracleRegistrySnapshot,
-  buildHarnessOracleRuntimeFingerprint,
   discoverHarnessOracleBaseImages,
   loadHarnessOracleRegistrySnapshot,
+  pinHarnessOracleTaskEnvironment,
   planHarnessOracleRegistryAudit,
   resolveHarnessOracleAnnotations,
 } from '../harness-oracle-registry.js';
+import { buildHarnessOracleExecutionPolicyFingerprint } from '../harness-oracle-policy.js';
 
 describe('harness Oracle evidence registry', () => {
+  test('binds qualification to controlled Oracle policy sources instead of host runtime versions', () => {
+    const original = buildHarnessOracleExecutionPolicyFingerprint({
+      verifierImplementationSource: 'verifier-v1',
+      composeImplementationSource: 'services:\n  main:\n    platform: linux/amd64\n',
+    });
+    const sameOnAnotherHost = buildHarnessOracleExecutionPolicyFingerprint({
+      verifierImplementationSource: 'verifier-v1',
+      composeImplementationSource: 'services:\n  main:\n    platform: linux/amd64\n',
+    });
+    const changedVerifier = buildHarnessOracleExecutionPolicyFingerprint({
+      verifierImplementationSource: 'verifier-v2',
+      composeImplementationSource: 'services:\n  main:\n    platform: linux/amd64\n',
+    });
+
+    assert.equal(sameOnAnotherHost, original);
+    assert.notEqual(changedVerifier, original);
+  });
+
   test('audits the complete corpus once and reuses every unchanged per-task result', async () => {
     const calls: string[] = [];
     const tasks = ['a', 'b', 'c'].map((taskId) => ({
       task: { id: taskId, path: `/tasks/${taskId}` },
       identity: {
         taskFingerprint: `sha256:task-${taskId}`,
-        verifierPolicyFingerprint: 'sha256:verifier',
+        executionPolicyFingerprint: 'sha256:verifier',
         environmentFingerprint: 'sha256:environment',
-        runtimeFingerprint: 'sha256:runtime',
       },
     }));
     const input = {
@@ -75,7 +93,7 @@ describe('harness Oracle evidence registry', () => {
     assert.throws(
       () => buildHarnessOracleRegistrySnapshot({
         tasks: tasks.map((item) => item.task.id === 'b'
-          ? { ...item, identity: { ...item.identity, runtimeFingerprint: 'sha256:runtime-v2' } }
+          ? { ...item, identity: { ...item.identity, executionPolicyFingerprint: 'sha256:runtime-v2' } }
           : item),
         entries: baseline.snapshot.entries,
         provenance: input.provenance,
@@ -90,9 +108,8 @@ describe('harness Oracle evidence registry', () => {
       task: { id: taskId, path: `/tasks/${taskId}` },
       identity: {
         taskFingerprint: `sha256:task-${taskId}`,
-        verifierPolicyFingerprint: 'sha256:verifier',
+        executionPolicyFingerprint: 'sha256:verifier',
         environmentFingerprint: 'sha256:environment',
-        runtimeFingerprint: 'sha256:runtime',
       },
     }));
     const runOracle = async (task: { id: string }) => {
@@ -128,9 +145,8 @@ describe('harness Oracle evidence registry', () => {
       task: { id: 'a', path: '/tasks/a' },
       identity: {
         taskFingerprint: 'sha256:task-a',
-        verifierPolicyFingerprint: 'sha256:verifier',
+        executionPolicyFingerprint: 'sha256:verifier',
         environmentFingerprint: 'sha256:environment',
-        runtimeFingerprint: 'sha256:runtime',
       },
     }];
     const provenance = { issuer: 'github-actions' as const, repository: 'maka-agent/maka-agent', runId: '123' };
@@ -159,9 +175,8 @@ describe('harness Oracle evidence registry', () => {
       task: { id: taskId, path: `/tasks/${taskId}` },
       identity: {
         taskFingerprint: `sha256:task-${taskId}`,
-        verifierPolicyFingerprint: 'sha256:verifier',
+        executionPolicyFingerprint: 'sha256:verifier',
         environmentFingerprint: 'sha256:environment',
-        runtimeFingerprint: 'sha256:runtime',
       },
     }));
 
@@ -190,9 +205,8 @@ describe('harness Oracle evidence registry', () => {
         task: { id: 'a', path: '/tasks/a' },
         identity: {
           taskFingerprint: 'sha256:task-a',
-          verifierPolicyFingerprint: 'sha256:verifier',
+          executionPolicyFingerprint: 'sha256:verifier',
           environmentFingerprint: 'sha256:environment',
-          runtimeFingerprint: 'sha256:runtime',
         },
       }],
       provenance: { issuer: 'github-actions', repository: 'maka-agent/maka-agent', runId: '123' },
@@ -208,9 +222,8 @@ describe('harness Oracle evidence registry', () => {
       task: { id: 'a', path: '/tasks/a' },
       identity: {
         taskFingerprint: 'sha256:task-a',
-        verifierPolicyFingerprint: 'sha256:verifier',
+        executionPolicyFingerprint: 'sha256:verifier',
         environmentFingerprint: 'sha256:environment',
-        runtimeFingerprint: 'sha256:runtime',
       },
     }];
     const provenance = { issuer: 'github-actions' as const, repository: 'maka-agent/maka-agent', runId: '123' };
@@ -240,9 +253,8 @@ describe('harness Oracle evidence registry', () => {
       task: { id: taskId, path: `/tasks/${taskId}` },
       identity: {
         taskFingerprint: `sha256:task-${taskId}`,
-        verifierPolicyFingerprint: 'sha256:verifier',
+        executionPolicyFingerprint: 'sha256:verifier',
         environmentFingerprint: 'sha256:environment',
-        runtimeFingerprint: 'sha256:runtime',
       },
     }));
     const baseline = await auditHarnessOracleRegistry({
@@ -256,7 +268,7 @@ describe('harness Oracle evidence registry', () => {
       },
     });
     const currentTasks = tasks.map((item) => item.task.id === 'stale'
-      ? { ...item, identity: { ...item.identity, runtimeFingerprint: 'sha256:runtime-v2' } }
+      ? { ...item, identity: { ...item.identity, executionPolicyFingerprint: 'sha256:runtime-v2' } }
       : item);
 
     const annotations = resolveHarnessOracleAnnotations(currentTasks, baseline.snapshot);
@@ -278,9 +290,8 @@ describe('harness Oracle evidence registry', () => {
         task: { id: 'a', path: '/tasks/a' },
         identity: {
           taskFingerprint: 'sha256:task-a',
-          verifierPolicyFingerprint: 'sha256:verifier',
+          executionPolicyFingerprint: 'sha256:verifier',
           environmentFingerprint: 'sha256:environment',
-          runtimeFingerprint: 'sha256:runtime',
         },
       }],
       provenance: { issuer: 'github-actions', repository: 'maka-agent/maka-agent', runId: '123' },
@@ -312,7 +323,6 @@ describe('harness Oracle evidence registry', () => {
 
   test('binds resolved container image digests and platform into environment identity', () => {
     const input = {
-      taskFingerprint: `sha256:${'a'.repeat(64)}`,
       environment: 'docker',
       platform: 'linux/amd64',
       baseImages: [
@@ -331,18 +341,6 @@ describe('harness Oracle evidence registry', () => {
     assert.match(original, /^sha256:[a-f0-9]{64}$/);
     assert.notEqual(changedDigest, original);
     assert.notEqual(changedPlatform, original);
-    assert.notEqual(
-      buildHarnessOracleRuntimeFingerprint({
-        hostToolchainFingerprint: `sha256:${'e'.repeat(64)}`,
-        dockerVersion: 'Docker version 28.0.0',
-        dockerBuildxVersion: 'github.com/docker/buildx v0.22.0',
-      }),
-      buildHarnessOracleRuntimeFingerprint({
-        hostToolchainFingerprint: `sha256:${'e'.repeat(64)}`,
-        dockerVersion: 'Docker version 29.0.0',
-        dockerBuildxVersion: 'github.com/docker/buildx v0.22.0',
-      }),
-    );
   });
 
   test('discovers unique base images from a task environment Dockerfile', async () => {
@@ -366,8 +364,7 @@ describe('harness Oracle evidence registry', () => {
       const resolvedReferences: string[] = [];
       const [auditTask] = await buildHarnessOracleAuditTasks({
         tasks: [{ id: 'a', path: root }],
-        verifierPolicyFingerprint: `sha256:${'d'.repeat(64)}`,
-        runtimeFingerprint: `sha256:${'e'.repeat(64)}`,
+        executionPolicyFingerprint: `sha256:${'d'.repeat(64)}`,
         environment: 'docker',
         platform: 'linux/amd64',
         resolveBaseImageDigest: async (reference) => {
@@ -379,7 +376,47 @@ describe('harness Oracle evidence registry', () => {
       });
       assert.deepEqual(resolvedReferences, ['python:3.13-slim-bookworm', 'ubuntu:24.04']);
       assert.match(auditTask?.identity.taskFingerprint ?? '', /^sha256:[a-f0-9]{64}$/);
+      assert.equal(auditTask?.identity.executionPolicyFingerprint, `sha256:${'d'.repeat(64)}`);
+      assert.equal('runtimeFingerprint' in (auditTask?.identity ?? {}), false);
       assert.match(auditTask?.identity.environmentFingerprint ?? '', /^sha256:[a-f0-9]{64}$/);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('executes Oracle against a task copy whose base images are pinned by digest', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-oracle-pinned-task-'));
+    try {
+      const taskRoot = join(root, 'source');
+      await mkdir(join(taskRoot, 'environment'), { recursive: true });
+      await writeFile(join(taskRoot, 'environment', 'Dockerfile'), [
+        'FROM ubuntu:24.04 AS build',
+        'RUN true',
+        'FROM python:3.13-slim-bookworm',
+        '',
+      ].join('\n'), 'utf8');
+
+      const pinned = await pinHarnessOracleTaskEnvironment(
+        { id: 'task-a', path: taskRoot },
+        [
+          { reference: 'ubuntu:24.04', digest: `sha256:${'a'.repeat(64)}` },
+          { reference: 'python:3.13-slim-bookworm', digest: `sha256:${'b'.repeat(64)}` },
+        ],
+        join(root, 'pinned'),
+      );
+
+      assert.equal(await readFile(join(taskRoot, 'environment', 'Dockerfile'), 'utf8'), [
+        'FROM ubuntu:24.04 AS build',
+        'RUN true',
+        'FROM python:3.13-slim-bookworm',
+        '',
+      ].join('\n'));
+      assert.equal(await readFile(join(pinned.path, 'environment', 'Dockerfile'), 'utf8'), [
+        `FROM ubuntu:24.04@sha256:${'a'.repeat(64)} AS build`,
+        'RUN true',
+        `FROM python:3.13-slim-bookworm@sha256:${'b'.repeat(64)}`,
+        '',
+      ].join('\n'));
     } finally {
       await rm(root, { recursive: true, force: true });
     }

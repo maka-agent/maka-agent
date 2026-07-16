@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { basename, join } from 'node:path';
 import type { FixedPromptTask } from './fixed-prompt-controller.js';
 import { fingerprintFixedPromptTask } from './fixed-prompt-task-source.js';
 import type { HarnessOracleTaskResult } from './harness-qualification.js';
@@ -14,9 +14,8 @@ export class HarnessOracleAuditExecutionError extends Error {
 
 export interface HarnessOracleQualificationIdentity {
   taskFingerprint: string;
-  verifierPolicyFingerprint: string;
+  executionPolicyFingerprint: string;
   environmentFingerprint: string;
-  runtimeFingerprint: string;
 }
 
 export interface HarnessOracleRegistryEntry {
@@ -46,6 +45,15 @@ export interface HarnessOracleRegistrySnapshot {
 export interface HarnessOracleAuditTask {
   task: FixedPromptTask;
   identity: HarnessOracleQualificationIdentity;
+  resolvedEnvironment?: {
+    platform: string;
+    baseImages: HarnessOracleResolvedBaseImage[];
+  };
+}
+
+export interface HarnessOracleResolvedBaseImage {
+  reference: string;
+  digest: string;
 }
 
 export interface AuditHarnessOracleRegistryInput {
@@ -78,7 +86,6 @@ export interface LoadHarnessOracleRegistrySnapshotInput {
 }
 
 export interface HarnessOracleEnvironmentIdentityInput {
-  taskFingerprint: string;
   environment: 'docker';
   platform: string;
   baseImages: readonly {
@@ -89,17 +96,10 @@ export interface HarnessOracleEnvironmentIdentityInput {
 
 export interface BuildHarnessOracleAuditTasksInput {
   tasks: readonly FixedPromptTask[];
-  verifierPolicyFingerprint: string;
-  runtimeFingerprint: string;
+  executionPolicyFingerprint: string;
   environment: 'docker';
   platform: string;
   resolveBaseImageDigest: (reference: string, platform: string) => Promise<string>;
-}
-
-export interface HarnessOracleRuntimeIdentityInput {
-  hostToolchainFingerprint: string;
-  dockerVersion: string;
-  dockerBuildxVersion: string;
 }
 
 export type HarnessOracleAnnotationState =
@@ -113,7 +113,7 @@ export type HarnessOracleAnnotationState =
 export interface HarnessOracleAnnotation {
   taskId: string;
   state: HarnessOracleAnnotationState;
-  qualificationKey: string;
+  qualificationKey?: string;
   evidenceFingerprint?: string;
 }
 
@@ -216,22 +216,10 @@ export function buildHarnessOracleEnvironmentFingerprint(
   ) throw new Error('Oracle environment identity is malformed');
   return fingerprintValue({
     schemaVersion: 1,
-    taskFingerprint: input.taskFingerprint,
     environment: input.environment,
     platform: input.platform,
     baseImages,
   });
-}
-
-export function buildHarnessOracleRuntimeFingerprint(
-  input: HarnessOracleRuntimeIdentityInput,
-): string {
-  if (
-    input.hostToolchainFingerprint.length === 0
-    || input.dockerVersion.length === 0
-    || input.dockerBuildxVersion.length === 0
-  ) throw new Error('Oracle runtime identity is malformed');
-  return fingerprintValue({ schemaVersion: 1, ...input });
 }
 
 export async function buildHarnessOracleAuditTasks(
@@ -246,19 +234,48 @@ export async function buildHarnessOracleAuditTasks(
     })));
     return {
       task,
+      resolvedEnvironment: {
+        platform: input.platform,
+        baseImages,
+      },
       identity: {
         taskFingerprint,
-        verifierPolicyFingerprint: input.verifierPolicyFingerprint,
+        executionPolicyFingerprint: input.executionPolicyFingerprint,
         environmentFingerprint: buildHarnessOracleEnvironmentFingerprint({
-          taskFingerprint,
           environment: input.environment,
           platform: input.platform,
           baseImages,
         }),
-        runtimeFingerprint: input.runtimeFingerprint,
       },
     };
   }));
+}
+
+export async function pinHarnessOracleTaskEnvironment(
+  task: FixedPromptTask,
+  baseImages: readonly HarnessOracleResolvedBaseImage[],
+  destinationRoot: string,
+): Promise<FixedPromptTask> {
+  if (basename(task.id) !== task.id) throw new Error(`Oracle task id is unsafe: ${task.id}`);
+  const destination = join(destinationRoot, task.id);
+  await mkdir(destinationRoot, { recursive: true });
+  await rm(destination, { recursive: true, force: true });
+  await cp(task.path, destination, { recursive: true, errorOnExist: true });
+  const dockerfilePath = join(destination, 'environment', 'Dockerfile');
+  const dockerfile = await readFile(dockerfilePath, 'utf8');
+  const digestsByReference = new Map(baseImages.map((image) => [image.reference, image.digest]));
+  const pinnedDockerfile = dockerfile.replace(
+    /^(\s*FROM\s+(?:--platform=\S+\s+)?)(\S+)(.*)$/gim,
+    (line, prefix: string, reference: string, suffix: string) => {
+      if (reference === 'scratch') return line;
+      const digest = digestsByReference.get(reference);
+      if (!digest) throw new Error(`Oracle environment has no resolved digest for ${reference}`);
+      const image = reference.split('@', 1)[0];
+      return `${prefix}${image}@${digest}${suffix}`;
+    },
+  );
+  await writeFile(dockerfilePath, pinnedDockerfile, 'utf8');
+  return { ...task, path: destination };
 }
 
 export async function discoverHarnessOracleBaseImages(task: FixedPromptTask): Promise<string[]> {
@@ -368,9 +385,8 @@ function registrySnapshotShapeIsValid(value: unknown): boolean {
     && typeof entry.fingerprint === 'string'
     && isRecord(entry.identity)
     && typeof entry.identity.taskFingerprint === 'string'
-    && typeof entry.identity.verifierPolicyFingerprint === 'string'
+    && typeof entry.identity.executionPolicyFingerprint === 'string'
     && typeof entry.identity.environmentFingerprint === 'string'
-    && typeof entry.identity.runtimeFingerprint === 'string'
     && isRecord(entry.execution)
     && typeof entry.execution.status === 'string'
     && (entry.oracle === null || (
@@ -408,9 +424,8 @@ function registryEntryIsValid(entry: HarnessOracleRegistryEntry, expectedTaskId:
 function qualificationIdentityIsValid(identity: HarnessOracleQualificationIdentity): boolean {
   return [
     identity.taskFingerprint,
-    identity.verifierPolicyFingerprint,
+    identity.executionPolicyFingerprint,
     identity.environmentFingerprint,
-    identity.runtimeFingerprint,
   ].every((value) => typeof value === 'string' && value.length > 0);
 }
 

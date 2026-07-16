@@ -14,12 +14,14 @@ import {
   resolveFixedPromptRunRoot,
 } from '#fixed-prompt-task-source';
 import {
-  buildHarborVerifierPolicyFingerprint,
   createHarborTaskRunner,
 } from '#harbor-task-runner';
 import {
+  buildHarnessOracleExecutionPolicyFingerprint,
+  HARBOR_ORACLE_DOCKER_PLATFORM,
+} from '#harness-oracle-policy';
+import {
   buildHarnessOracleAuditTasks,
-  buildHarnessOracleRuntimeFingerprint,
   loadHarnessOracleRegistrySnapshot,
   resolveHarnessOracleAnnotations,
 } from '#harness-oracle-registry';
@@ -222,10 +224,13 @@ async function runLocked({ repoRoot, makaRepoPath, tasksRoot, runId, limit, runR
     undefined,
     makaRepoPath,
   );
-  const oracleRuntimeFingerprint = await resolveHarnessOracleRuntimeFingerprint(hostToolchainFingerprint);
-  const verifierPolicyFingerprint = buildHarborVerifierPolicyFingerprint({
-    implementationSource: await readFile(join(makaRepoPath, 'packages/headless/harbor/maka_verifier.py')),
-    toolchainFingerprint: oracleRuntimeFingerprint,
+  const [verifierImplementationSource, composeImplementationSource] = await Promise.all([
+    readFile(join(makaRepoPath, 'packages/headless/harbor/maka_verifier.py')),
+    readFile(join(makaRepoPath, 'packages/headless/harbor/docker-compose-linux-amd64.yaml')),
+  ]);
+  const executionPolicyFingerprint = buildHarnessOracleExecutionPolicyFingerprint({
+    verifierImplementationSource,
+    composeImplementationSource,
   });
 
   const tasksById = new Map(allTasks.map((task) => [task.id, task]));
@@ -233,8 +238,7 @@ async function runLocked({ repoRoot, makaRepoPath, tasksRoot, runId, limit, runR
   const oracleEvidence = await resolveHarnessOracleEvidenceForRun(manifestPath, () => (
     resolveAdvisoryOracleEvidence({
       allTasks,
-      verifierPolicyFingerprint,
-      runtimeFingerprint: oracleRuntimeFingerprint,
+      executionPolicyFingerprint,
     })
   ));
   for (const warning of oracleEvidence.warnings) console.warn(`warning: ${warning}`);
@@ -344,8 +348,7 @@ async function runLocked({ repoRoot, makaRepoPath, tasksRoot, runId, limit, runR
 
 export async function resolveAdvisoryOracleEvidence({
   allTasks,
-  verifierPolicyFingerprint,
-  runtimeFingerprint,
+  executionPolicyFingerprint,
   registryUrl = process.env.MAKA_HARNESS_AB_ORACLE_REGISTRY_URL?.trim(),
   expectedSnapshotFingerprint = process.env.MAKA_HARNESS_AB_ORACLE_REGISTRY_FINGERPRINT?.trim(),
   loadSnapshot = loadHarnessOracleRegistrySnapshot,
@@ -364,10 +367,9 @@ export async function resolveAdvisoryOracleEvidence({
       const digestCache = new Map();
       const auditTasks = await buildAuditTasks({
         tasks: allTasks,
-        verifierPolicyFingerprint,
-        runtimeFingerprint,
+        executionPolicyFingerprint,
         environment: 'docker',
-        platform: 'linux/amd64',
+        platform: HARBOR_ORACLE_DOCKER_PLATFORM,
         resolveBaseImageDigest: (reference, platform) => (
           resolveBaseImageDigest(reference, platform, digestCache)
         ),
@@ -415,18 +417,6 @@ export async function resolveHarnessOracleBaseImageDigest(reference, platform, c
     ]).then(({ stdout }) => resolvedImageDigestFromInspect(stdout, platform)));
   }
   return cache.get(key);
-}
-
-export async function resolveHarnessOracleRuntimeFingerprint(hostToolchainFingerprint) {
-  const [{ stdout: dockerVersion }, { stdout: dockerBuildxVersion }] = await Promise.all([
-    execFileAsync('docker', ['--version']),
-    execFileAsync('docker', ['buildx', 'version']),
-  ]);
-  return buildHarnessOracleRuntimeFingerprint({
-    hostToolchainFingerprint,
-    dockerVersion: dockerVersion.trim(),
-    dockerBuildxVersion: dockerBuildxVersion.trim(),
-  });
 }
 
 export function resolvedImageDigestFromInspect(raw, platform) {

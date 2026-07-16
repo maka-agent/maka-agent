@@ -23,6 +23,7 @@ import {
   type HarborVerifierOutcome,
 } from './fixed-prompt-controller.js';
 import type { HarnessOracleTaskResult } from './harness-qualification.js';
+import { HARBOR_ORACLE_MAX_ATTEMPTS } from './harness-oracle-policy.js';
 import { startProviderAuthProxy } from './provider-auth-proxy.js';
 import {
   providerBaseUrlFromEnv,
@@ -128,7 +129,7 @@ export interface HarborRunRequest {
 const DEFAULT_HARBOR_TIMEOUT_MS = 45 * 60_000;
 const HARBOR_SETUP_TEARDOWN_GRACE_MS = 15 * 60_000;
 const DEFAULT_VERIFIER_TIMEOUT_SEC = 600;
-export const HARBOR_VERIFIER_MAX_ATTEMPTS = 2;
+export const HARBOR_VERIFIER_MAX_ATTEMPTS = HARBOR_ORACLE_MAX_ATTEMPTS;
 const VERIFIER_RETRY_GRACE_SEC = 120;
 
 export function buildHarborVerifierPolicyFingerprint(input: {

@@ -65,7 +65,7 @@ test('harness A/B degrades identity resolution failures to missing advisory evid
   );
   const evidence = await resolveAdvisoryOracleEvidence({
     allTasks: [{ id: 'task-a', path: '/tasks/task-a' }],
-    verifierPolicyFingerprint: `sha256:${'a'.repeat(64)}`,
+    executionPolicyFingerprint: `sha256:${'a'.repeat(64)}`,
     registryUrl: 'https://example.invalid/oracle-registry.json',
     expectedSnapshotFingerprint: `sha256:${'b'.repeat(64)}`,
     loadSnapshot: async () => ({ fingerprint: `sha256:${'b'.repeat(64)}` }),
