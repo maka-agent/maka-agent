@@ -177,11 +177,21 @@ export function refreshRunningShellRunElapsed(
 export function applyShellRunViewUpdateToTranscript(
   state: MakaPiTranscriptState,
   update: ShellRunUpdate,
+  options?: {
+    /**
+     * Whether a running → settled flip appends a transcript-tail notice.
+     * Default true for live updates. Hydration catch-up (`listShellRunUpdates`)
+     * passes false: replaying durable state is not a live event, and the notice
+     * is never persisted, so announcing catch-up would re-announce on every
+     * session attach.
+     */
+    announceSettle?: boolean;
+  },
 ): boolean {
   const tool = findToolEntry(state, update.sourceToolCallId);
   const wasLive = isLiveShellRunCard(tool);
   const applied = applyShellRunUpdateToTranscript(state, update.sourceToolCallId, update.result);
-  if (tool && wasLive && isSettledShellRunCard(tool)) {
+  if (tool && wasLive && isSettledShellRunCard(tool) && options?.announceSettle !== false) {
     pushShellRunSettledNotice(state, tool);
   }
   if (!tool
@@ -417,7 +427,9 @@ export function applyMakaSessionEventToTranscript(
         const parent = shellRun
           ? findShellRunParent(state, shellRun.ref, event.toolUseId)
           : undefined;
-        if (parent && shellRun) {
+        // isError is the call-level authoritative status: a failed call never
+        // folds, even when it carries a well-formed shell_run payload.
+        if (parent && shellRun && !event.isError) {
           applyLiveShellRunResultToParent(state, parent, shellRun);
           break;
         }
@@ -437,7 +449,7 @@ export function applyMakaSessionEventToTranscript(
           durationMs: event.durationMs,
           status: event.isError ? 'error' : 'done',
         };
-        if (shellRun) applyOwnShellRunResult(entry, shellRun, event.durationMs);
+        if (shellRun && !event.isError) applyOwnShellRunResult(entry, shellRun, event.durationMs);
         state.entries.push(entry);
         break;
       }
@@ -446,7 +458,7 @@ export function applyMakaSessionEventToTranscript(
       const parent = shellRun
         ? findShellRunParent(state, shellRun.ref, event.toolUseId)
         : undefined;
-      if (tool && parent && shellRun) {
+      if (tool && parent && shellRun && !event.isError) {
         applyLiveShellRunResultToParent(state, parent, shellRun);
         if (tool.toolName === 'Read' || tool.toolName === 'StopBackgroundTask') {
           state.entries.splice(state.entries.indexOf(tool), 1);
@@ -462,6 +474,9 @@ export function applyMakaSessionEventToTranscript(
           } else {
             applyOwnShellRunResult(tool, shellRun, event.durationMs);
           }
+          // isError is the call-level authoritative status: a failed call shows
+          // error even when its payload is a well-formed (still running) run.
+          if (event.isError) tool.status = 'error';
         } else {
           tool.status = event.isError ? 'error' : 'done';
           tool.result = event.content;
@@ -559,6 +574,7 @@ export function applyMakaSessionEventToTranscript(
 
     case 'error':
       clearPendingInteractions(state);
+      state.pendingShellRunPolls.clear();
       state.entries.push({
         kind: 'notice',
         level: 'error',
@@ -568,6 +584,7 @@ export function applyMakaSessionEventToTranscript(
 
     case 'abort':
       clearPendingInteractions(state);
+      state.pendingShellRunPolls.clear();
       state.entries.push({
         kind: 'notice',
         level: 'info',
@@ -1206,7 +1223,8 @@ function pushShellRunSettledNotice(state: MakaPiTranscriptState, entry: MakaPiTo
     || result.status === 'timed_out'
     || result.status === 'orphaned';
   const verb = result.status === 'completed' ? 'completed'
-    : result.status === 'cancelled' ? 'stopped' : result.status;
+    : result.status === 'cancelled' ? 'stopped'
+      : result.status === 'timed_out' ? 'timed out' : result.status;
   const parts: string[] = [];
   if (result.exitCode !== undefined) parts.push(`exit ${result.exitCode}`);
   const secs = Math.round((entry.durationMs ?? 0) / 1000);

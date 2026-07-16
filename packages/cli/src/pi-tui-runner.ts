@@ -205,7 +205,10 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   let shellRunHydrationEpoch = 0;
   let shellRunHydrationRetryTimer: ReturnType<typeof setTimeout> | undefined;
   const pendingShellRunUpdates = new ShellRunUpdateBuffer('cli.pi-tui-hydration-buffer');
-  const applyShellRunViewUpdate = (candidate: ShellRunUpdate): boolean => {
+  const applyShellRunViewUpdate = (
+    candidate: ShellRunUpdate,
+    options?: { announceSettle?: boolean },
+  ): boolean => {
     const index = shellRunOwnerMappings.findIndex((update) => (
       update.sessionId === candidate.sessionId
       && update.sourceToolCallId === candidate.sourceToolCallId
@@ -220,7 +223,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     if (index >= 0 && retainOwnerMapping) shellRunOwnerMappings[index] = merged.update;
     else if (index >= 0) shellRunOwnerMappings.splice(index, 1);
     else if (retainOwnerMapping) shellRunOwnerMappings.push(merged.update);
-    return applyShellRunViewUpdateToTranscript(state, merged.update);
+    return applyShellRunViewUpdateToTranscript(state, merged.update, options);
   };
   const replayPendingShellRunUpdates = (sessionId: string): boolean => {
     const buffered = pendingShellRunUpdates.drain();
@@ -246,7 +249,10 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     try {
       const updates = await input.listShellRunUpdates?.(sessionId);
       if (closed || epoch !== shellRunHydrationEpoch || input.driver.getSessionId() !== sessionId) return;
-      for (const update of updates ?? []) applyShellRunViewUpdate(update);
+      // Catch-up replays durable state, not a live event: flip cards silently.
+      // Updates buffered from the live subscription during the await are
+      // genuinely live and stay announceable in the drain below.
+      for (const update of updates ?? []) applyShellRunViewUpdate(update, { announceSettle: false });
       const overflowed = replayPendingShellRunUpdates(sessionId);
       shellRunElapsedTicker.sync();
       requestRender();

@@ -1275,6 +1275,73 @@ describe('Maka Pi TUI transcript', () => {
     assert.doesNotMatch(settled, /● Read/);
   });
 
+  test('surfaces an errored poll carrying shell_run content instead of folding it', () => {
+    const state = createMakaPiTranscriptState();
+    const ref = 'maka://runtime/background-tasks/bg-1';
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'bash-bg', toolName: 'Bash',
+      args: { command: 'npm test' },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result', toolUseId: 'bash-bg', isError: false,
+      content: shellRun({ ref, status: 'running', stdout: 'starting\n', updatedAt: 2_000 }),
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'read-bg', toolName: 'Read', args: { ref },
+    }));
+    // isError is the call-level authoritative status: even with a well-formed
+    // shell_run payload, the failed call must not fold into the parent.
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result', toolUseId: 'read-bg', isError: true,
+      content: shellRun({ ref, status: 'running', stdout: 'starting\nnewer\n', updatedAt: 5_000 }),
+    }));
+
+    const tools = state.entries.filter((entry) => entry.kind === 'tool');
+    assert.deepEqual(tools.map((tool) => tool.toolUseId), ['bash-bg', 'read-bg']);
+    assert.equal(tools[1]?.status, 'error');
+    // The parent keeps its pre-error revision — the failed call changes nothing.
+    assert.equal(
+      tools[0]?.result?.kind === 'shell_run' && tools[0].result.output?.mode === 'pipes'
+        ? tools[0].result.output.stdout
+        : '',
+      'starting\n',
+    );
+    const rendered = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
+    assert.match(rendered, /● Read/);
+  });
+
+  test('keeps an errored non-folded poll card instead of splicing it into the parent', () => {
+    const state = createMakaPiTranscriptState();
+    const ref = 'maka://runtime/background-tasks/bg-1';
+    // The Read starts before the parent carries its shell_run result, so it is
+    // not folded at tool_start.
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'bash-bg', toolName: 'Bash',
+      args: { command: 'npm test' },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'read-bg', toolName: 'Read', args: { ref },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result', toolUseId: 'bash-bg', isError: false,
+      content: shellRun({ ref, status: 'running', stdout: 'starting\n', updatedAt: 2_000 }),
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result', toolUseId: 'read-bg', isError: true,
+      content: shellRun({ ref, status: 'running', stdout: 'starting\nnewer\n', updatedAt: 5_000 }),
+    }));
+
+    const tools = state.entries.filter((entry) => entry.kind === 'tool');
+    assert.deepEqual(tools.map((tool) => tool.toolUseId), ['bash-bg', 'read-bg']);
+    assert.equal(tools[1]?.status, 'error');
+    assert.equal(
+      tools[0]?.result?.kind === 'shell_run' && tools[0].result.output?.mode === 'pipes'
+        ? tools[0].result.output.stdout
+        : '',
+      'starting\n',
+    );
+  });
+
   test('surfaces an errored background-task poll as a card instead of swallowing it', () => {
     const state = createMakaPiTranscriptState();
     const ref = 'maka://runtime/background-tasks/bg-1';
@@ -1357,6 +1424,39 @@ describe('Maka Pi TUI transcript', () => {
     const tools = state.entries.filter((entry) => entry.kind === 'tool');
     assert.deepEqual(tools.map((tool) => tool.toolUseId), ['bash-bg', 'stdin-bg']);
     assert.equal(tools[1]?.status, 'running');
+  });
+
+  test('stays silent for a hydration catch-up update that settles a resumed card', () => {
+    const state = createMakaPiTranscriptState();
+    const ref = 'maka://runtime/background-tasks/bg-1';
+
+    // A resumed session: stored history still records the run as running.
+    replaceTranscriptWithStoredMessages(state, [
+      {
+        type: 'tool_call', id: 'bash-bg', turnId: 'turn-1', ts: 1,
+        toolName: 'Bash', args: { command: 'npm test' },
+      },
+      {
+        type: 'tool_result', id: 'bash-result', turnId: 'turn-1', ts: 2,
+        toolUseId: 'bash-bg', isError: false,
+        content: shellRun({ ref, status: 'running', stdout: 'starting\n', updatedAt: 2_000 }),
+      },
+    ] satisfies StoredMessage[]);
+
+    // Durable state says the run settled while away: the card flips, but
+    // catch-up replay is not a live event, so no notice fires.
+    const applied = applyShellRunViewUpdateToTranscript(state, {
+      sessionId: 'session-1',
+      ownership: { kind: 'local' },
+      sourceTurnId: 'turn-1',
+      sourceToolCallId: 'bash-bg',
+      result: shellRun({ ref, status: 'completed', stdout: 'starting\ndone\n', completedAt: 48_000, exitCode: 0 }),
+    }, { announceSettle: false });
+
+    assert.equal(applied, true);
+    const tools = state.entries.filter((entry) => entry.kind === 'tool');
+    assert.equal(tools[0]?.status, 'done');
+    assert.equal(state.entries.some((entry) => entry.kind === 'notice'), false);
   });
 
   test('announces at the transcript tail when a running background task completes', () => {
@@ -1502,6 +1602,55 @@ describe('Maka Pi TUI transcript', () => {
     ] satisfies StoredMessage[]);
 
     assert.equal(state.entries.some((entry) => entry.kind === 'notice'), false);
+  });
+
+  test('announces a timed-out background task with human-readable text', () => {
+    const state = createMakaPiTranscriptState();
+    const ref = 'maka://runtime/background-tasks/bg-1';
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'bash-bg', toolName: 'Bash',
+      args: { command: 'npm test' },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result', toolUseId: 'bash-bg', isError: false,
+      content: shellRun({ ref, status: 'running' }),
+    }));
+
+    applyShellRunViewUpdateToTranscript(state, {
+      sessionId: 'session-1',
+      ownership: { kind: 'local' },
+      sourceTurnId: 'turn-1',
+      sourceToolCallId: 'bash-bg',
+      result: shellRun({ ref, status: 'timed_out', completedAt: 60_000 }),
+    });
+
+    const notice = state.entries[state.entries.length - 1];
+    assert.equal(notice?.kind, 'notice');
+    assert.equal(notice?.kind === 'notice' ? notice.level : '', 'error');
+    const text = notice?.kind === 'notice' ? notice.text : '';
+    assert.match(text, /Background task timed out: npm test/);
+    assert.doesNotMatch(text, /timed_out/);
+  });
+
+  test('drops a folded poll when the turn aborts mid-flight', () => {
+    const state = createMakaPiTranscriptState();
+    const ref = 'maka://runtime/background-tasks/bg-1';
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'bash-bg', toolName: 'Bash',
+      args: { command: 'npm test' },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result', toolUseId: 'bash-bg', isError: false,
+      content: shellRun({ ref, status: 'running' }),
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'read-bg', toolName: 'Read', args: { ref },
+    }));
+    assert.equal(state.pendingShellRunPolls.size, 1);
+
+    applyMakaSessionEventToTranscript(state, event({ type: 'abort', reason: 'user_stop' }));
+
+    assert.equal(state.pendingShellRunPolls.size, 0);
   });
 
   test('folds a background-task Read result into its parent Bash card', () => {

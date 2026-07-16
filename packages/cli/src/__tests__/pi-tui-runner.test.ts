@@ -2151,6 +2151,88 @@ describe('Maka Pi TUI runner', () => {
 
     await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('(4s · 2 lines)'));
     assert.deepEqual(reads, ['session-2']);
+    // Hydration is catch-up replay of durable state, not a live settle: the
+    // card flips silently, with no Background task notice at the tail.
+    assert.equal(plainTerminalOutput(terminal.output()).includes('Background task'), false);
+
+    exitMaka(terminal);
+    await run;
+  });
+
+  test('announces a live settle that arrives after hydration completes', async () => {
+    const terminal = new FakeTerminal();
+    const ref = 'maka://runtime/background-tasks/bg-1';
+    const driver = new SlashCommandDriver(
+      [fakeSessionSummary('session-2', '/repo')],
+      new Map([
+        ['session-2', [
+          {
+            type: 'tool_call', id: 'tool-bg', turnId: 'turn-1', ts: 1,
+            toolName: 'Bash', args: { command: 'build' },
+          },
+          {
+            type: 'tool_result', id: 'result-bg', turnId: 'turn-1', ts: 2,
+            toolUseId: 'tool-bg', isError: false,
+            content: {
+              kind: 'shell_run', ref, mode: 'pipes', status: 'running', cwd: '/repo', cmd: 'build',
+              startedAt: 1_000, updatedAt: 2_000,
+              revision: 2_000,
+              output: pipeOutput('starting\n'),
+            },
+          },
+        ] satisfies StoredMessage[]],
+      ]),
+    );
+    let listener: ((update: ShellRunUpdate) => void) | undefined;
+    const run = runMakaPiTui({
+      title: 'Maka', driver, cwd: '/repo', model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription', permissionMode: 'ask', terminal,
+      subscribeShellRunUpdates: (next) => {
+        listener = next;
+        return () => { listener = undefined; };
+      },
+      // The run is still live at attach time, so catch-up only refreshes output.
+      listShellRunUpdates: async (sessionId) => [{
+        sessionId,
+        ownership: { kind: 'local' },
+        sourceTurnId: 'turn-1',
+        sourceToolCallId: 'tool-bg',
+        result: {
+          kind: 'shell_run', ref, mode: 'pipes', status: 'running', cwd: '/repo', cmd: 'build',
+          startedAt: 1_000, updatedAt: 3_000,
+          revision: 3_000,
+          output: pipeOutput('starting\nstill running\n'),
+        },
+      }],
+    });
+
+    terminal.input('/session session-2');
+    terminal.input('\r');
+
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('running'));
+    assert.equal(plainTerminalOutput(terminal.output()).includes('Background task'), false);
+
+    // The settle lands through the live subscription after hydration: exactly
+    // one notice fires.
+    await waitFor(() => listener !== undefined);
+    assert.ok(listener);
+    listener({
+      sessionId: 'session-2',
+      ownership: { kind: 'local' },
+      sourceTurnId: 'turn-1',
+      sourceToolCallId: 'tool-bg',
+      result: {
+        kind: 'shell_run', ref, mode: 'pipes', status: 'completed', cwd: '/repo', cmd: 'build',
+        startedAt: 1_000, updatedAt: 5_000, completedAt: 5_000, exitCode: 0,
+        revision: 5_000,
+        output: pipeOutput('starting\nstill running\ndone\n'),
+      },
+    });
+
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('Background task completed: build'));
+    await delay(50);
+    const announcements = plainTerminalOutput(terminal.output()).split('Background task completed').length - 1;
+    assert.equal(announcements, 1);
 
     exitMaka(terminal);
     await run;
