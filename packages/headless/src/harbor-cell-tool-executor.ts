@@ -10,7 +10,6 @@ import {
   runShellWithBoundedTail,
   type MakaTool,
 } from '@maka/runtime';
-import { isRecord } from './harbor-cell-context-budget-env.js';
 import { numericEnv, type RunHarborCellEnv } from './headless-run-env.js';
 import type { IsolatedToolExecutor } from './isolation.js';
 import { ISOLATED_HEADLESS_TOOL_NAMES } from './isolation.js';
@@ -169,4 +168,8 @@ function shellErrorText(error: unknown, field: 'stdout' | 'stderr'): string {
 
 function shellErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
 }

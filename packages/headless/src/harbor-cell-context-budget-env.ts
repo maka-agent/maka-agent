@@ -724,8 +724,6 @@ function isHarborCellToolResultArchiveRecord(value: unknown): value is HarborCel
   );
 }
 
-/** Shared plain-object type guard. Lives in this light module so the tool executor
- * leaf can reuse it without either leaf importing the heavy orchestration module. */
-export function isRecord(value: unknown): value is Record<string, unknown> {
+function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
