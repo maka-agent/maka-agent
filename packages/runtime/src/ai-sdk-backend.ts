@@ -1103,6 +1103,12 @@ export class AiSdkBackend implements AgentBackend {
     // fails the whole fallback closed (#972: incomplete usage is no usage).
     let completedStepUsage: NormalizedAiSdkUsage | undefined;
     let sawUnusableStepUsage = false;
+    // Input tokens from the last completed step — the actual prompt token count
+    // of the final API request. Used to compute contextRemaining for the TUI
+    // statusline ctx segment (#1067): contextRemaining = contextWindow - this.
+    // totalUsage.inputTokens is cumulative across steps and would produce
+    // misleading >100% percentages, so the per-step value is captured here.
+    let lastStepInputTokens: number | undefined;
     let streamStatus: LlmCallRecord['status'] = 'success';
     let streamErrorClass: string | undefined;
     let rawFinishReason: string | undefined;
@@ -1525,6 +1531,7 @@ export class AiSdkBackend implements AgentBackend {
                 const stepUsage = normalizeAiSdkUsage(chunk.usage, { rawFinishReason: chunk.finishReason });
                 if (!stepUsage) sawUnusableStepUsage = true;
                 if (stepUsage) {
+                  lastStepInputTokens = stepUsage.inputTokens;
                   completedStepUsage = mergeNormalizedUsage(completedStepUsage, stepUsage);
                   this.cumulativeUsageCheckpoint = mergeNormalizedUsage(this.cumulativeUsageCheckpoint, stepUsage);
                   await this.input.recordUsageCheckpoint?.({
@@ -1784,6 +1791,13 @@ export class AiSdkBackend implements AgentBackend {
               requestShapeChangeReason: turnDiagnostics.requestShape.requestShapeChangeReason,
               promptSegments: turnDiagnostics.promptSegments,
               ...(contextBudgetForUsage ? { contextBudget: contextBudgetForUsage } : {}),
+              ...(() => {
+                const contextWindow = resolveSelectedModelContextWindow(this.input.connection, this.input.modelId);
+                if (lastStepInputTokens !== undefined && contextWindow !== undefined) {
+                  return { contextRemaining: Math.max(0, contextWindow - lastStepInputTokens) };
+                }
+                return {};
+              })(),
             } satisfies TokenUsageEvent);
           }
         } catch {
