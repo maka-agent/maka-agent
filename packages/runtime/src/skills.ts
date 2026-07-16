@@ -1,9 +1,10 @@
 import { createHash } from 'node:crypto';
 import { homedir } from 'node:os';
 import { lstat, mkdir, readdir, readFile, realpath, rename, unlink, writeFile } from 'node:fs/promises';
-import { isAbsolute, join, relative } from 'node:path';
+import { join, relative } from 'node:path';
 import { parseDocument } from 'yaml';
 import { z } from 'zod';
+import { isContainedPath, isSafeSkillId } from './path-containment.js';
 import type { MakaTool, MakaToolContext } from './tool-runtime.js';
 
 /**
@@ -907,15 +908,6 @@ export async function writeContainedRegularTextFile(rootDir: string, filePath: s
     await unlink(tempPath).catch(() => {});
     return false;
   }
-}
-
-export function isContainedPath(root: string, child: string): boolean {
-  const rel = relative(root, child);
-  return rel === '' || (!!rel && !rel.startsWith('..') && !isAbsolute(rel));
-}
-
-export function isSafeSkillId(value: string): boolean {
-  return /^[A-Za-z0-9][A-Za-z0-9._-]{0,80}$/.test(value);
 }
 
 export function isRecord(value: unknown): value is Record<string, unknown> {

@@ -1,7 +1,7 @@
 import { lstat, readdir, readFile, realpath, stat } from 'node:fs/promises';
-import { basename, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { basename, extname, join, resolve } from 'node:path';
 import { z } from 'zod';
-import type { MakaTool } from '@maka/runtime';
+import { isInside, toRelative, type MakaTool } from '@maka/runtime';
 
 export const EXPLORE_AGENT_TOOL_NAME = 'ExploreAgent';
 
@@ -957,16 +957,6 @@ function capSnippet(line: string): string {
 
 function looksBinary(text: string): boolean {
   return text.includes('\u0000');
-}
-
-function isInside(root: string, target: string): boolean {
-  const rel = relative(root, target);
-  return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
-}
-
-function toRelative(root: string, target: string): string {
-  const rel = relative(root, target);
-  return rel === '' ? '.' : rel.split(sep).join('/');
 }
 
 function failure(

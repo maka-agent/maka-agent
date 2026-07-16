@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto';
 import { homedir } from 'node:os';
-import { basename, dirname, extname, isAbsolute, join, relative } from 'node:path';
+import { basename, dirname, extname, isAbsolute, join } from 'node:path';
 import { lstat, mkdir, readdir, readFile, realpath, rename, unlink, writeFile } from 'node:fs/promises';
-import { validateSkillMetadata, type SkillValidationIssue } from '@maka/runtime';
+import { isContainedPath, isSafeSkillId, validateSkillMetadata, type SkillValidationIssue } from '@maka/runtime';
 
 /**
  * Fixed marketplace taxonomy. A source's `category:` front-matter is
@@ -311,13 +311,4 @@ function parseSkillFrontMatterForSource(text: string): { name?: string; descript
 
 function sha256(bytes: Buffer): string {
   return createHash('sha256').update(bytes).digest('hex');
-}
-
-function isSafeSkillId(value: string): boolean {
-  return /^[A-Za-z0-9][A-Za-z0-9._-]{0,80}$/.test(value);
-}
-
-function isContainedPath(root: string, child: string): boolean {
-  const rel = relative(root, child);
-  return rel === '' || (!!rel && !rel.startsWith('..') && !isAbsolute(rel));
 }

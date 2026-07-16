@@ -1024,10 +1024,14 @@ export {
   readContainedRegularFile,
   readContainedRegularTextFile,
   writeContainedRegularTextFile,
-  isContainedPath,
-  isSafeSkillId,
   isRecord,
 } from './skills.js';
+export {
+  isContainedPath,
+  isSafeSkillId,
+  isInside,
+  toRelative,
+} from './path-containment.js';
 export type {
   SkillRuntimeStatus,
   SkillManifest,
