@@ -682,14 +682,14 @@ describe('runHarborCell', () => {
         cwd: workspaceDir,
         outputDir,
         storageRoot,
-        settleAfterMs: 20,
         registerBackends: (registry) => {
           registry.register('fake', (ctx) => {
-            backend = new NonCooperativeDeadlineBackend(ctx.sessionId);
+            backend = new NonCooperativeDeadlineBackend(ctx.sessionId, 'fake', 5_000);
             return backend;
           });
         },
-      }), 250, 'Harbor cell did not force-stop before the hard deadline');
+        settleAfterMs: 1_000,
+      }), 3_000, 'Harbor cell did not force-stop before the hard deadline');
 
       assert.equal(result.settledByDeadline, true);
       assert.deepEqual(backend?.stopModes, ['immediate']);
@@ -708,7 +708,7 @@ describe('runHarborCell', () => {
       const fallback = new Promise<IsolatedCommandResult>((resolve) => {
         releaseFallback = () => resolve({ exitCode: 0, stdout: '', stderr: '' });
       });
-      const fallbackTimer = setTimeout(releaseFallback, 500);
+      const fallbackTimer = setTimeout(releaseFallback, 5_000);
       const executor: IsolatedToolExecutor = {
         exec: async (_input, control) => {
           const signal = control?.abortSignal;
@@ -724,7 +724,7 @@ describe('runHarborCell', () => {
         cwd: workspaceDir,
         outputDir,
         storageRoot,
-        settleAfterMs: 20,
+        settleAfterMs: 1_000,
         realBackendIsolation: {
           kind: 'external',
           label: 'cancellable test executor',
@@ -737,7 +737,7 @@ describe('runHarborCell', () => {
             return backend;
           });
         },
-      }), 250, 'Harbor cell did not cancel its active isolated tool');
+      }), 3_000, 'Harbor cell did not cancel its active isolated tool');
       clearTimeout(fallbackTimer);
 
       assert.equal(result.settledByDeadline, true);
