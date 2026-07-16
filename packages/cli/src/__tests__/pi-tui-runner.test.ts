@@ -2853,6 +2853,15 @@ describe('Maka Pi TUI runner', () => {
     await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('3 lines'));
     assert.equal(plainTerminalOutput(terminal.screenOutput()).includes('detached'), false);
 
+    // The detached card's run resource was still `running`, so the owner's live
+    // settle announces exactly once at the transcript tail — the `detached`
+    // presentation status must not swallow the transition.
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('Background task completed: build'));
+    assert.equal(
+      plainTerminalOutput(terminal.screenOutput()).split('Background task completed: build').length - 1,
+      1,
+    );
+
     exitMaka(terminal);
     await run;
   });

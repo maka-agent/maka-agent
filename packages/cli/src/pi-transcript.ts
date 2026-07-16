@@ -1190,10 +1190,15 @@ function readArgsRef(args: unknown): string | undefined {
   return typeof ref === 'string' && ref.length > 0 ? ref : undefined;
 }
 
-/** A card tracking a live local run: still `running` with a running shell_run result. */
+/**
+ * A card whose run resource is still `running`. The transition is keyed on the
+ * resource status, not the presentation status: an inherited run is shown as
+ * `detached` while its resource keeps running, and its settle must still
+ * announce. Replay stays silent via the `announceSettle: false` hydration option
+ * and because stored replay never routes through the notice path.
+ */
 function isLiveShellRunCard(entry: MakaPiToolEntry | undefined): boolean {
-  return entry?.status === 'running'
-    && entry.result?.kind === 'shell_run'
+  return entry?.result?.kind === 'shell_run'
     && entry.result.status === 'running';
 }
 

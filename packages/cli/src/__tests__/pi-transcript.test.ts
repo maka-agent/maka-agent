@@ -1604,6 +1604,114 @@ describe('Maka Pi TUI transcript', () => {
     assert.equal(notices.length, 1);
   });
 
+  test('announces a detached background task settle exactly once when its owner completes it', () => {
+    const state = createMakaPiTranscriptState();
+    const ref = 'maka://runtime/background-tasks/bg-1';
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'bash-bg', toolName: 'Bash', args: { command: 'build' },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result', toolUseId: 'bash-bg', isError: false,
+      content: shellRun({ ref, status: 'running', cmd: 'build', stdout: 'starting\n', updatedAt: 2_000 }),
+    }));
+
+    // An inherited run is presented as `detached` while its resource keeps
+    // running; this must not silence its later settle.
+    applyShellRunViewUpdateToTranscript(state, {
+      sessionId: 'session-branch',
+      ownership: { kind: 'source_owned', sourceSessionId: 'session-1', ownerSessionId: 'session-1' },
+      sourceTurnId: 'turn-1',
+      sourceToolCallId: 'bash-bg',
+      result: shellRun({ ref, status: 'running', cmd: 'build', stdout: 'starting\n', updatedAt: 3_000, revision: 3_000 }),
+    });
+    const detached = state.entries.find((entry) => entry.kind === 'tool');
+    assert.equal(detached?.kind === 'tool' ? detached.status : '', 'detached');
+    assert.equal(state.entries.some((entry) => entry.kind === 'notice'), false);
+
+    // The owner's live subscription settles the run: the detached card still
+    // announces exactly once.
+    applyShellRunViewUpdateToTranscript(state, {
+      sessionId: 'session-1',
+      ownership: { kind: 'local' },
+      sourceTurnId: 'turn-1',
+      sourceToolCallId: 'bash-bg',
+      result: shellRun({ ref, status: 'completed', cmd: 'build', stdout: 'starting\ndone\n', completedAt: 48_000, exitCode: 0, revision: 48_000 }),
+    });
+    const notices = state.entries.filter((entry) => entry.kind === 'notice');
+    assert.equal(notices.length, 1);
+    assert.equal(notices[0]?.kind === 'notice' ? notices[0].level : '', 'info');
+    assert.match(notices[0]?.kind === 'notice' ? notices[0].text : '', /Background task completed: build/);
+  });
+
+  test('announces a detached background task orphaned settle as an error exactly once', () => {
+    const state = createMakaPiTranscriptState();
+    const ref = 'maka://runtime/background-tasks/bg-1';
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'bash-bg', toolName: 'Bash', args: { command: 'build' },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result', toolUseId: 'bash-bg', isError: false,
+      content: shellRun({ ref, status: 'running', cmd: 'build', stdout: 'starting\n', updatedAt: 2_000 }),
+    }));
+    applyShellRunViewUpdateToTranscript(state, {
+      sessionId: 'session-branch',
+      ownership: { kind: 'source_owned', sourceSessionId: 'session-1', ownerSessionId: 'session-1' },
+      sourceTurnId: 'turn-1',
+      sourceToolCallId: 'bash-bg',
+      result: shellRun({ ref, status: 'running', cmd: 'build', stdout: 'starting\n', updatedAt: 3_000, revision: 3_000 }),
+    });
+    assert.equal(state.entries.some((entry) => entry.kind === 'notice'), false);
+
+    // The owner reports the run orphaned: an error-level notice with the
+    // `orphaned` verb, fired exactly once from the detached card.
+    applyShellRunViewUpdateToTranscript(state, {
+      sessionId: 'session-1',
+      ownership: { kind: 'local' },
+      sourceTurnId: 'turn-1',
+      sourceToolCallId: 'bash-bg',
+      result: shellRun({ ref, status: 'orphaned', cmd: 'build', completedAt: 20_000, exitCode: 1, revision: 20_000 }),
+    });
+    const notices = state.entries.filter((entry) => entry.kind === 'notice');
+    assert.equal(notices.length, 1);
+    assert.equal(notices[0]?.kind === 'notice' ? notices[0].level : '', 'error');
+    assert.match(notices[0]?.kind === 'notice' ? notices[0].text : '', /Background task orphaned: build/);
+  });
+
+  test('notifies a settle exactly once when the live update precedes the folded poll', () => {
+    const state = createMakaPiTranscriptState();
+    const ref = 'maka://runtime/background-tasks/bg-1';
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'bash-bg', toolName: 'Bash', args: { command: 'npm test' },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result', toolUseId: 'bash-bg', isError: false,
+      content: shellRun({ ref, status: 'running', stdout: 'starting\n', updatedAt: 2_000 }),
+    }));
+
+    // The event-driven update reports the settle first: exactly one notice.
+    applyShellRunViewUpdateToTranscript(state, {
+      sessionId: 'session-1',
+      ownership: { kind: 'local' },
+      sourceTurnId: 'turn-1',
+      sourceToolCallId: 'bash-bg',
+      result: shellRun({ ref, status: 'completed', stdout: 'starting\ndone\n', completedAt: 48_000, exitCode: 0 }),
+    });
+    let notices = state.entries.filter((entry) => entry.kind === 'notice');
+    assert.equal(notices.length, 1);
+    assert.match(notices[0]?.kind === 'notice' ? notices[0].text : '', /Background task completed: npm test/);
+
+    // A folded poll observing the same settle afterward must not re-notify.
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'read-bg', toolName: 'Read', args: { ref },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result', toolUseId: 'read-bg', isError: false,
+      content: shellRun({ ref, status: 'completed', stdout: 'starting\ndone\n', completedAt: 48_000, exitCode: 0 }),
+    }));
+    notices = state.entries.filter((entry) => entry.kind === 'notice');
+    assert.equal(notices.length, 1);
+  });
+
   test('announces a failed background task as an error with its exit and message', () => {
     const state = createMakaPiTranscriptState();
     const ref = 'maka://runtime/background-tasks/bg-1';
