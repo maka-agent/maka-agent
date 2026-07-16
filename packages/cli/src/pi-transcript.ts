@@ -652,14 +652,22 @@ function toolActivityToTranscriptEntry(item: ToolActivityItem): MakaPiToolEntry 
     ...(item.durationMs !== undefined ? { durationMs: item.durationMs } : {}),
     status: transcriptToolStatus(item.status),
   };
-  if (item.result?.kind === 'shell_run') applyOwnShellRunResult(entry, item.result);
+  // A failed call keeps its error status and raw payload: applying the shell_run
+  // as the card's own result would let a still-running or settled payload
+  // overwrite the error and swallow the failure on replay. This mirrors the live
+  // tool_result path, which forces `error` for any errored shell_run result, and
+  // is what lets the stored fold below recognize an errored poll by its status.
+  if (item.result?.kind === 'shell_run' && !item.isError) applyOwnShellRunResult(entry, item.result);
   return entry;
 }
 
 function foldStoredShellRunChildren(entries: MakaPiTranscriptEntry[]): MakaPiTranscriptEntry[] {
   const folded: MakaPiTranscriptEntry[] = [];
   for (const entry of entries) {
-    if (entry.kind === 'tool' && entry.result?.kind === 'shell_run') {
+    // An errored poll never folds: its failed payload must not mutate the parent
+    // and its error card must survive replay, mirroring the live path's "failure
+    // is never swallowed" invariant.
+    if (entry.kind === 'tool' && entry.result?.kind === 'shell_run' && entry.status !== 'error') {
       const shellRun = entry.result;
       const parent = [...folded]
         .reverse()

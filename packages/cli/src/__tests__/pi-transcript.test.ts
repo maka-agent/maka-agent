@@ -399,6 +399,85 @@ describe('Maka Pi TUI transcript', () => {
     );
   });
 
+  test('keeps a stored errored Read poll as a card without folding it into the parent Bash card', () => {
+    const state = createMakaPiTranscriptState();
+    const ref = 'maka://runtime/background-tasks/bg-1';
+
+    replaceTranscriptWithStoredMessages(state, [
+      {
+        type: 'tool_call', id: 'bash-bg', turnId: 'turn-1', ts: 1,
+        toolName: 'Bash', args: { command: 'npm test' },
+      },
+      {
+        type: 'tool_result', id: 'bash-result', turnId: 'turn-1', ts: 2,
+        toolUseId: 'bash-bg', isError: false,
+        content: shellRun({ ref, status: 'running', stdout: 'starting\n', revision: 1, updatedAt: 2_000 }),
+      },
+      {
+        type: 'tool_call', id: 'read-bg', turnId: 'turn-1', ts: 3,
+        toolName: 'Read', args: { ref },
+      },
+      // isError is the call-level authoritative status: even with a well-formed
+      // shell_run payload, a failed poll must survive replay as its own error
+      // card and must not mutate the parent.
+      {
+        type: 'tool_result', id: 'read-result', turnId: 'turn-1', ts: 4,
+        toolUseId: 'read-bg', isError: true,
+        content: shellRun({ ref, status: 'running', stdout: 'starting\nnewer\n', revision: 2, updatedAt: 5_000 }),
+      },
+    ] satisfies StoredMessage[]);
+
+    const tools = state.entries.filter((entry) => entry.kind === 'tool');
+    assert.deepEqual(tools.map((tool) => tool.toolUseId), ['bash-bg', 'read-bg']);
+    assert.equal(tools[1]?.status, 'error');
+    // The parent keeps its own revision, output, and status — the failed poll
+    // changes nothing.
+    assert.equal(tools[0]?.status, 'running');
+    assert.equal(tools[0]?.result?.kind === 'shell_run' ? tools[0].result.revision : undefined, 1);
+    assert.equal(
+      tools[0]?.result?.kind === 'shell_run' && tools[0].result.output?.mode === 'pipes'
+        ? tools[0].result.output.stdout
+        : '',
+      'starting\n',
+    );
+    const rendered = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
+    assert.match(rendered, /● Read/);
+  });
+
+  test('keeps a stored errored StopBackgroundTask poll as a card without folding it into the parent', () => {
+    const state = createMakaPiTranscriptState();
+    const ref = 'maka://runtime/background-tasks/bg-1';
+
+    replaceTranscriptWithStoredMessages(state, [
+      {
+        type: 'tool_call', id: 'bash-bg', turnId: 'turn-1', ts: 1,
+        toolName: 'Bash', args: { command: 'sleep 30' },
+      },
+      {
+        type: 'tool_result', id: 'bash-result', turnId: 'turn-1', ts: 2,
+        toolUseId: 'bash-bg', isError: false,
+        content: shellRun({ ref, status: 'running', stdout: 'starting\n', revision: 1, updatedAt: 2_000 }),
+      },
+      {
+        type: 'tool_call', id: 'stop-bg', turnId: 'turn-1', ts: 3,
+        toolName: 'StopBackgroundTask', args: { ref },
+      },
+      {
+        type: 'tool_result', id: 'stop-result', turnId: 'turn-1', ts: 4,
+        toolUseId: 'stop-bg', isError: true,
+        content: shellRun({ ref, status: 'cancelled', stdout: 'starting\n', revision: 2, completedAt: 5_000, exitCode: 130 }),
+      },
+    ] satisfies StoredMessage[]);
+
+    const tools = state.entries.filter((entry) => entry.kind === 'tool');
+    assert.deepEqual(tools.map((tool) => tool.toolUseId), ['bash-bg', 'stop-bg']);
+    assert.equal(tools[1]?.status, 'error');
+    assert.equal(tools[0]?.status, 'running');
+    assert.equal(tools[0]?.result?.kind === 'shell_run' ? tools[0].result.revision : undefined, 1);
+    const rendered = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
+    assert.match(rendered, /● StopBackgroundTask/);
+  });
+
   test('renders a PTY around the cursor when compact and as three head plus three tail rows when expanded', () => {
     const state = createMakaPiTranscriptState();
     const screen = Array.from({ length: 8 }, (_, index) => `pty-row-${index + 1}`).join('\n');
