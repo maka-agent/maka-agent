@@ -144,6 +144,11 @@ describe('provider conformance matrix — wire (exact-model-id + tool-loop + rea
     test(`${row.providerType} · ${wire} · ${wireDims.join(' + ')}`, async () => {
       await runGeneratedWire(row, wireDims);
     });
+    for (const edge of row.edgeWireSamples) {
+      test(`${row.providerType} · ${edge.wire} · edge sample "${edge.modelId}"`, async () => {
+        await runEdgeWireSample(row, edge);
+      });
+    }
   }
 });
 
@@ -367,28 +372,38 @@ function wireOfRow(row: ProviderContractRow): ProviderContractWire {
 }
 
 /**
- * The credential a generated wire run drives and expects on every request,
- * derived from the registry `authKind`:
+ * The credential cases a generated wire run expands into, derived from the
+ * registry `authKind` — mirroring {@link discoveryCredentialCases}:
  *
- *   - `none`     the product sends no credential — the wire must carry no
- *                Authorization (or protocol credential) header at all.
- *   - otherwise  the provider credential must reach every inference request in
- *                the protocol's credential carrier (Bearer for the OpenAI and
- *                Cohere wires, x-api-key for Anthropic, x-goog-api-key for
- *                Google). `optional_api_key` runs the configured-key branch
- *                here; its absent-key request shape equals the `none` rows'
- *                (same shared adapter), which the matrix already executes.
+ *   - `none`             one run with no credential: the wire must carry no
+ *                        credential header at all.
+ *   - `optional_api_key` two runs: a configured key must reach the wire in the
+ *                        protocol's carrier, and an absent key must leave every
+ *                        request credential-free (no dummy value).
+ *   - otherwise          one run: the provider credential must reach every
+ *                        inference request in the protocol's carrier (Bearer for
+ *                        the OpenAI and Cohere wires, x-api-key — or Bearer for
+ *                        `auth: 'bearer'` adapters — for Anthropic,
+ *                        x-goog-api-key for Google).
  */
 interface WireCredentialCase {
+  label: 'provider-auth' | 'no-auth' | 'optional-with-key' | 'optional-without-key';
   apiKey: string;
   expectCredential: boolean;
 }
 
-function wireCredentialCase(row: ProviderContractRow): WireCredentialCase {
-  const authKind = PROVIDER_DEFAULTS[row.providerType].authKind;
-  return authKind === 'none'
-    ? { apiKey: '', expectCredential: false }
-    : { apiKey: API_KEY, expectCredential: true };
+function wireCredentialCases(row: ProviderContractRow): WireCredentialCase[] {
+  switch (PROVIDER_DEFAULTS[row.providerType].authKind) {
+    case 'none':
+      return [{ label: 'no-auth', apiKey: '', expectCredential: false }];
+    case 'optional_api_key':
+      return [
+        { label: 'optional-with-key', apiKey: API_KEY, expectCredential: true },
+        { label: 'optional-without-key', apiKey: '', expectCredential: false },
+      ];
+    default:
+      return [{ label: 'provider-auth', apiKey: API_KEY, expectCredential: true }];
+  }
 }
 
 async function runGeneratedWire(
@@ -401,42 +416,83 @@ async function runGeneratedWire(
   const replayField = replayCell.state === 'generated' && replayCell.reasoningReplay
     ? replayCell.reasoningReplay.replayField
     : undefined;
-  switch (wire) {
-    case 'openai-chat':
-      return runOpenAiChatWire(row, wantsReasoning, replayField);
-    case 'anthropic-messages':
-      return runAnthropicMessagesWire(row);
-    case 'google-generate':
-      return runGoogleGenerateWire(row);
-    case 'cohere-v2':
-      return runCohereV2Wire(row);
+  for (const credential of wireCredentialCases(row)) {
+    await runWireOnce(row, wire, row.sampleModelId, credential, wantsReasoning, replayField);
   }
 }
 
+/**
+ * Declared edge-shaped ids run the same executor end-to-end (exact-model-id +
+ * tool-loop) on the wire the plan resolved for that id; reasoning replay stays
+ * owned by the primary sample run.
+ */
+async function runEdgeWireSample(
+  row: ProviderContractRow,
+  edge: { modelId: string; wire: ProviderContractWire },
+): Promise<void> {
+  for (const credential of wireCredentialCases(row)) {
+    await runWireOnce(row, edge.wire, edge.modelId, credential, false, undefined);
+  }
+}
+
+async function runWireOnce(
+  row: ProviderContractRow,
+  wire: ProviderContractWire,
+  modelId: string,
+  credential: WireCredentialCase,
+  wantsReasoning: boolean,
+  replayField: 'reasoning' | 'reasoning_content' | undefined,
+): Promise<void> {
+  switch (wire) {
+    case 'openai-chat':
+      return runOpenAiChatWire(row, modelId, credential, wantsReasoning, replayField);
+    case 'anthropic-messages':
+      return runAnthropicMessagesWire(row, modelId, credential);
+    case 'google-generate':
+      return runGoogleGenerateWire(row, modelId, credential);
+    case 'cohere-v2':
+      return runCohereV2Wire(row, modelId, credential);
+  }
+}
+
+/** Every credential header a maka wire could carry; all but the expected carrier must be absent. */
+const WIRE_CREDENTIAL_HEADERS = ['authorization', 'x-api-key', 'api-key', 'x-goog-api-key'] as const;
+
+const WIRE_CARRIER_HEADER = {
+  'authorization-bearer': 'authorization',
+  'x-api-key': 'x-api-key',
+  'x-goog-api-key': 'x-goog-api-key',
+} as const;
+
+/**
+ * Assert the request carries exactly the expected credential: credential-free
+ * cases must send no credential header at all (no dummy value), and
+ * credentialed cases must send the credential in the protocol's carrier and in
+ * no other credential header.
+ */
 function assertWireCredential(
   row: ProviderContractRow,
   credential: WireCredentialCase,
   request: IncomingMessage,
-  carrier: 'authorization-bearer' | 'x-api-key' | 'x-goog-api-key',
+  carrier: keyof typeof WIRE_CARRIER_HEADER,
 ): void {
-  const where = `${row.providerType} · wire`;
-  if (!credential.expectCredential) {
-    assert.equal(request.headers.authorization, undefined, `${where} must not send an Authorization header`);
-    assert.equal(request.headers['x-api-key'], undefined, `${where} must not send an x-api-key header`);
-    assert.equal(request.headers['x-goog-api-key'], undefined, `${where} must not send an x-goog-api-key header`);
-    return;
+  const where = `${row.providerType} · wire (${credential.label})`;
+  const expectedHeader = credential.expectCredential ? WIRE_CARRIER_HEADER[carrier] : undefined;
+  for (const header of WIRE_CREDENTIAL_HEADERS) {
+    if (header !== expectedHeader) {
+      assert.equal(
+        request.headers[header],
+        undefined,
+        `${where} must not send a ${header} credential header`,
+      );
+    }
   }
-  switch (carrier) {
-    case 'authorization-bearer':
-      assert.equal(request.headers.authorization, `Bearer ${API_KEY}`, `${where} must send its Bearer credential`);
-      break;
-    case 'x-api-key':
-      assert.equal(request.headers['x-api-key'], API_KEY, `${where} must send its x-api-key credential`);
-      break;
-    case 'x-goog-api-key':
-      assert.equal(request.headers['x-goog-api-key'], API_KEY, `${where} must send its x-goog-api-key credential`);
-      break;
-  }
+  if (!expectedHeader) return;
+  assert.equal(
+    request.headers[expectedHeader],
+    carrier === 'authorization-bearer' ? `Bearer ${API_KEY}` : API_KEY,
+    `${where} must send its credential as ${carrier}`,
+  );
 }
 
 const echoTool = tool({
@@ -445,17 +501,45 @@ const echoTool = tool({
   execute: async ({ text }) => ({ echoed: text }),
 });
 
+/**
+ * Opaque provider-shaped tool-call id, deliberately without the `call_`
+ * prefix: the loop must replay whatever id the provider issued verbatim, not
+ * an id that merely looks OpenAI-shaped.
+ */
+const OPAQUE_TOOL_CALL_ID = 'D681PevKs9';
+
+/**
+ * Sentinel pathname on every stub base URL. The runners assert the final
+ * request path is exactly this prefix plus the protocol suffix, proving the
+ * runtime preserves a configured base URL's pathname instead of collapsing it
+ * to the origin.
+ */
+const WIRE_BASE_PATH = '/contract-base';
+
 async function runOpenAiChatWire(
   row: ProviderContractRow,
+  modelId: string,
+  credential: WireCredentialCase,
   wantsReasoning: boolean,
   replayField: 'reasoning' | 'reasoning_content' | undefined,
 ): Promise<void> {
-  const sample = row.sampleModelId;
-  const credential = wireCredentialCase(row);
   const requestBodies: Array<Record<string, unknown>> = [];
+  // Request-contract violations (method, path, credential) are recorded and
+  // rethrown after the call so the test fails with the contract message
+  // instead of a destroyed-socket error.
+  const handlerErrors: unknown[] = [];
   const server = await startJsonServer(async (request, response) => {
-    assert.equal(request.method, 'POST');
-    assertWireCredential(row, credential, request, 'authorization-bearer');
+    try {
+      assert.equal(request.method, 'POST');
+      assert.equal(
+        new URL(request.url ?? '', 'http://contract.test').pathname,
+        `${WIRE_BASE_PATH}/v1/chat/completions`,
+        `${row.providerType} must preserve the configured base URL pathname`,
+      );
+      assertWireCredential(row, credential, request, 'authorization-bearer');
+    } catch (error) {
+      handlerErrors.push(error);
+    }
     const body = JSON.parse(await readBody(request)) as Record<string, unknown>;
     requestBodies.push(body);
     if (requestBodies.length === 1) {
@@ -463,7 +547,7 @@ async function runOpenAiChatWire(
         id: 'chatcmpl-tool',
         object: 'chat.completion',
         created: 1,
-        model: sample,
+        model: modelId,
         choices: [{
           index: 0,
           message: {
@@ -471,7 +555,7 @@ async function runOpenAiChatWire(
             content: null,
             ...(wantsReasoning ? { reasoning_content: REASONING_TEXT } : {}),
             tool_calls: [{
-              id: 'call_echo',
+              id: OPAQUE_TOOL_CALL_ID,
               type: 'function',
               function: { name: 'echo', arguments: '{"text":"hello"}' },
             }],
@@ -486,23 +570,24 @@ async function runOpenAiChatWire(
       id: 'chatcmpl-final',
       object: 'chat.completion',
       created: 2,
-      model: sample,
+      model: modelId,
       choices: [{ index: 0, message: { role: 'assistant', content: FINAL_TEXT }, finish_reason: 'stop' }],
       usage: { prompt_tokens: 12, completion_tokens: 3, total_tokens: 15 },
     });
   });
-  const connection = baseConnection(row, server.url);
+  const connection = baseConnection(row, `${server.url}${WIRE_BASE_PATH}/v1`);
   const result = await generateText({
-    model: getAIModel({ connection, apiKey: credential.apiKey, modelId: sample }),
+    model: getAIModel({ connection, apiKey: credential.apiKey, modelId }),
     prompt: 'Call echo with hello.',
     stopWhen: stepCountIs(2),
     tools: { echo: echoTool },
   });
 
+  if (handlerErrors.length > 0) throw handlerErrors[0];
   assert.equal(requestBodies.length, 2, `${row.providerType} should make two chat requests`);
   assert.deepEqual(
     requestBodies.map((body) => body.model),
-    [sample, sample],
+    [modelId, modelId],
     `${row.providerType} must send the exact model id on both requests`,
   );
   assert.deepEqual(
@@ -511,8 +596,8 @@ async function runOpenAiChatWire(
   );
   assert.deepEqual(
     (requestBodies[1].messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
-    { role: 'tool', content: '{"echoed":"hello"}', tool_call_id: 'call_echo' },
-    `${row.providerType} must replay the tool result`,
+    { role: 'tool', content: '{"echoed":"hello"}', tool_call_id: OPAQUE_TOOL_CALL_ID },
+    `${row.providerType} must replay the tool result against the provider's opaque call id`,
   );
   assert.deepEqual(result.steps[0]?.toolResults[0]?.output, { echoed: 'hello' });
   assert.equal(result.text, FINAL_TEXT);
@@ -528,9 +613,12 @@ async function runOpenAiChatWire(
   }
 }
 
-async function runAnthropicMessagesWire(row: ProviderContractRow): Promise<void> {
-  const sample = row.sampleModelId;
-  const credential = wireCredentialCase(row);
+async function runAnthropicMessagesWire(
+  row: ProviderContractRow,
+  modelId: string,
+  credential: WireCredentialCase,
+): Promise<void> {
+  const sample = modelId;
   // The native Anthropic adapter carries the credential as x-api-key by
   // default; providers declaring `auth: 'bearer'` carry an Authorization
   // Bearer token instead (getAIModel passes authToken).
@@ -544,9 +632,17 @@ async function runAnthropicMessagesWire(row: ProviderContractRow): Promise<void>
   // with the wire-contract message instead of a destroyed-socket error.
   const handlerErrors: unknown[] = [];
   const server = await startJsonServer(async (request, response) => {
-    assert.equal(request.method, 'POST');
-    assert.ok(request.url?.endsWith('/messages'), `unexpected anthropic path ${request.url}`);
-    assertWireCredential(row, credential, request, carrier);
+    try {
+      assert.equal(request.method, 'POST');
+      assert.equal(
+        new URL(request.url ?? '', 'http://contract.test').pathname,
+        `${WIRE_BASE_PATH}/v1/messages`,
+        `${row.providerType} must preserve the configured base URL pathname`,
+      );
+      assertWireCredential(row, credential, request, carrier);
+    } catch (error) {
+      handlerErrors.push(error);
+    }
     const body = JSON.parse(await readBody(request)) as Record<string, unknown>;
     requestBodies.push(body);
     if (requestBodies.length === 1) {
@@ -597,7 +693,7 @@ async function runAnthropicMessagesWire(row: ProviderContractRow): Promise<void>
       usage: { input_tokens: 12, output_tokens: 3 },
     });
   });
-  const connection = baseConnection(row, server.url);
+  const connection = baseConnection(row, `${server.url}${WIRE_BASE_PATH}/v1`);
   const result = await generateText({
     model: getAIModel({ connection, apiKey: credential.apiKey, modelId: sample }),
     prompt: 'Call echo with hello.',
@@ -621,15 +717,27 @@ async function runAnthropicMessagesWire(row: ProviderContractRow): Promise<void>
   assert.equal(result.text, FINAL_TEXT);
 }
 
-async function runGoogleGenerateWire(row: ProviderContractRow): Promise<void> {
-  const sample = row.sampleModelId;
-  const credential = wireCredentialCase(row);
+async function runGoogleGenerateWire(
+  row: ProviderContractRow,
+  modelId: string,
+  credential: WireCredentialCase,
+): Promise<void> {
+  const sample = modelId;
   const requestUrls: string[] = [];
   // See runAnthropicMessagesWire for why second-turn violations are recorded.
   const handlerErrors: unknown[] = [];
   const server = await startJsonServer(async (request, response) => {
-    assert.equal(request.method, 'POST');
-    assertWireCredential(row, credential, request, 'x-goog-api-key');
+    try {
+      assert.equal(request.method, 'POST');
+      assert.equal(
+        new URL(request.url ?? '', 'http://contract.test').pathname,
+        `${WIRE_BASE_PATH}/v1beta/models/${sample}:generateContent`,
+        `${row.providerType} must preserve the configured base URL pathname`,
+      );
+      assertWireCredential(row, credential, request, 'x-goog-api-key');
+    } catch (error) {
+      handlerErrors.push(error);
+    }
     requestUrls.push(request.url ?? '');
     const body = JSON.parse(await readBody(request)) as Record<string, unknown>;
     if (requestUrls.length === 1) {
@@ -680,7 +788,7 @@ async function runGoogleGenerateWire(row: ProviderContractRow): Promise<void> {
       usageMetadata: { promptTokenCount: 12, candidatesTokenCount: 3, totalTokenCount: 15 },
     });
   });
-  const connection = baseConnection(row, server.url);
+  const connection = baseConnection(row, `${server.url}${WIRE_BASE_PATH}`);
   const result = await generateText({
     model: getAIModel({ connection, apiKey: credential.apiKey, modelId: sample }),
     prompt: 'Call echo with hello.',
@@ -699,16 +807,27 @@ async function runGoogleGenerateWire(row: ProviderContractRow): Promise<void> {
   assert.equal(result.text, FINAL_TEXT);
 }
 
-async function runCohereV2Wire(row: ProviderContractRow): Promise<void> {
-  const sample = row.sampleModelId;
-  const credential = wireCredentialCase(row);
+async function runCohereV2Wire(
+  row: ProviderContractRow,
+  modelId: string,
+  credential: WireCredentialCase,
+): Promise<void> {
+  const sample = modelId;
   const requestBodies: Array<Record<string, unknown>> = [];
   // See runAnthropicMessagesWire for why second-turn violations are recorded.
   const handlerErrors: unknown[] = [];
   const server = await startJsonServer(async (request, response) => {
-    assert.equal(request.method, 'POST');
-    assert.ok(request.url?.endsWith('/chat'), `unexpected cohere path ${request.url}`);
-    assertWireCredential(row, credential, request, 'authorization-bearer');
+    try {
+      assert.equal(request.method, 'POST');
+      assert.equal(
+        new URL(request.url ?? '', 'http://contract.test').pathname,
+        `${WIRE_BASE_PATH}/v2/chat`,
+        `${row.providerType} must preserve the configured base URL pathname`,
+      );
+      assertWireCredential(row, credential, request, 'authorization-bearer');
+    } catch (error) {
+      handlerErrors.push(error);
+    }
     const body = JSON.parse(await readBody(request)) as Record<string, unknown>;
     requestBodies.push(body);
     if (requestBodies.length === 1) {
@@ -755,7 +874,7 @@ async function runCohereV2Wire(row: ProviderContractRow): Promise<void> {
       usage: { billed_units: { input_tokens: 12, output_tokens: 3 }, tokens: { input_tokens: 12, output_tokens: 3 } },
     });
   });
-  const connection = baseConnection(row, `${server.url}/v2`);
+  const connection = baseConnection(row, `${server.url}${WIRE_BASE_PATH}/v2`);
   const result = await generateText({
     model: getAIModel({ connection, apiKey: credential.apiKey, modelId: sample }),
     prompt: 'Call echo with hello.',

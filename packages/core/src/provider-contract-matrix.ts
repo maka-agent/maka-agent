@@ -119,6 +119,17 @@ export type ProviderContractCell =
   | ProviderContractOverrideCell
   | ProviderContractNotApplicableCell;
 
+/**
+ * A declared edge-shaped model id the generated wire must also carry verbatim
+ * (exact-model-id + tool-loop), with the wire resolved per id through the same
+ * seams the runtime uses (per-model provider overrides, then the adapter's
+ * declared protocol).
+ */
+export interface ProviderContractEdgeWireSample {
+  modelId: string;
+  wire: ProviderContractWire;
+}
+
 export interface ProviderContractRow {
   providerType: ProviderType;
   protocol: ProviderDefaults['protocol'];
@@ -126,6 +137,8 @@ export interface ProviderContractRow {
   discoveryKind: ProviderModelDiscovery['kind'];
   /** Deterministic model id generated cells drive through discovery and the wire. */
   sampleModelId: string;
+  /** Declared edge-shaped ids the wire executor drives in addition to {@link sampleModelId}. */
+  edgeWireSamples: readonly ProviderContractEdgeWireSample[];
   cells: Record<ProviderContractDimension, ProviderContractCell>;
 }
 
@@ -174,6 +187,58 @@ function sampleModelIdFor(providerType: ProviderType, def: ProviderDefaults): st
     return true;
   };
   return def.fallbackModels.find(usesDefaultWire) ?? SYNTHETIC_SAMPLE_MODEL_ID;
+}
+
+/**
+ * Edge-shaped model ids each provider's account surface can really serve —
+ * slashes, dots, colon-suffixed quantization/cloud tags, vendor casing — that
+ * the plain first-fallback sample does not exercise. The generated wire
+ * executor drives every declared id end-to-end (exact-model-id + tool-loop) on
+ * the wire resolved for that id, proving exact-id preservation is not an
+ * artifact of simple ids. Future providers enter by declaration alone.
+ */
+const EDGE_WIRE_SAMPLE_MODEL_IDS: Partial<Record<ProviderType, readonly string[]>> = {
+  'opencode-go': ['kimi-k2.7-code'],
+  localai: ['localai/Qwen3-8B-Instruct-GGUF:Q4_K_M'],
+  'lm-studio': ['lmstudio-community/Qwen3-Coder-30B-A3B-Instruct-GGUF'],
+  'minimax-coding-plan': ['MiniMax-M2.7-highspeed'],
+  'tencent-tokenhub': ['hy3-preview'],
+};
+
+/**
+ * Resolve the wire a declared edge id executes on, mirroring the runtime's
+ * per-model resolution order: a models.dev per-model override wins, then the
+ * native OpenAI adapter's declared per-id protocol, then the provider's
+ * default protocol wire. Ids that resolve outside the four executable wires
+ * (e.g. OpenAI Responses) must be owned by a named override instead of an edge
+ * declaration; declaring one here is a plan-construction error.
+ */
+function edgeWireSamplesFor(providerType: ProviderType, def: ProviderDefaults): ProviderContractEdgeWireSample[] {
+  return (EDGE_WIRE_SAMPLE_MODEL_IDS[providerType] ?? []).map((modelId) => {
+    const override = lookupModelProviderOverride(providerType, modelId);
+    if (override) {
+      switch (override.npm) {
+        case '@ai-sdk/anthropic':
+          return { modelId, wire: 'anthropic-messages' as const };
+        case '@ai-sdk/google':
+          return { modelId, wire: 'google-generate' as const };
+        case '@ai-sdk/openai-compatible':
+          return { modelId, wire: 'openai-chat' as const };
+        default:
+          throw new Error(
+            `edge wire sample ${providerType}/${modelId} resolves to ${override.npm}, which has no `
+            + 'generated wire; own it with a named override binding instead of an edge declaration',
+          );
+      }
+    }
+    if (def.runtimeAdapter.kind === 'openai' && openAiAdapterApiProtocol(modelId) === 'openai-responses') {
+      throw new Error(
+        `edge wire sample ${providerType}/${modelId} routes to the OpenAI Responses wire, which has no `
+        + 'generated executor; own it with a named override binding instead of an edge declaration',
+      );
+    }
+    return { modelId, wire: wireForProtocol(def.protocol) };
+  });
 }
 
 function discoveryCell(providerType: ProviderType, def: ProviderDefaults): ProviderContractCell {
@@ -303,6 +368,7 @@ export function buildProviderContractRow(
     adapterKind: def.runtimeAdapter.kind,
     discoveryKind: def.modelDiscovery.kind,
     sampleModelId: sampleModelIdFor(providerType, def),
+    edgeWireSamples: edgeWireSamplesFor(providerType, def),
     cells: {
       discovery: discoveryCell(providerType, def),
       'exact-model-id': wireDimensionCell('exact-model-id', providerType, def),

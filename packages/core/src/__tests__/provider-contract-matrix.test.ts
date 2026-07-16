@@ -203,6 +203,25 @@ describe('provider contract matrix — sample model id derivation', () => {
     assert.equal(rowFor('lm-studio').sampleModelId, 'conformance-sample-model');
     assert.equal(rowFor('openai-compatible').sampleModelId, 'conformance-sample-model');
   });
+
+  it('derives the declared edge wire samples with per-id wire resolution', () => {
+    assert.deepEqual(rowFor('opencode-go').edgeWireSamples, [
+      { modelId: 'kimi-k2.7-code', wire: 'openai-chat' },
+    ]);
+    assert.deepEqual(rowFor('localai').edgeWireSamples, [
+      { modelId: 'localai/Qwen3-8B-Instruct-GGUF:Q4_K_M', wire: 'openai-chat' },
+    ]);
+    assert.deepEqual(rowFor('lm-studio').edgeWireSamples, [
+      { modelId: 'lmstudio-community/Qwen3-Coder-30B-A3B-Instruct-GGUF', wire: 'openai-chat' },
+    ]);
+    assert.deepEqual(rowFor('minimax-coding-plan').edgeWireSamples, [
+      { modelId: 'MiniMax-M2.7-highspeed', wire: 'anthropic-messages' },
+    ]);
+    assert.deepEqual(rowFor('tencent-tokenhub').edgeWireSamples, [
+      { modelId: 'hy3-preview', wire: 'openai-chat' },
+    ]);
+    assert.deepEqual(rowFor('openai').edgeWireSamples, []);
+  });
 });
 
 describe('provider contract matrix — derivation is a total function over a fixture registry', () => {

@@ -934,6 +934,7 @@ export type {
   ProviderContractCellState,
   ProviderContractDimension,
   ProviderContractDiscoveryPlan,
+  ProviderContractEdgeWireSample,
   ProviderContractGeneratedCell,
   ProviderContractMatrixPlan,
   ProviderContractNotApplicableCell,
