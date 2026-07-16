@@ -539,7 +539,7 @@ describe('Maka Pi TUI transcript', () => {
     // Scroll state as MakaPiLayoutComponent records it: the live viewport
     // starts exactly where the late card begins, leaving the early card in
     // scrollback above it.
-    const viewportTop = state.renderGeometry.entryFirstLine.get(late);
+    const viewportTop = state.renderGeometry.entryFirstLine?.get(late);
     assert.ok(viewportTop !== undefined && viewportTop > 0);
     state.renderGeometry.viewportTop = viewportTop;
 
@@ -614,7 +614,7 @@ describe('Maka Pi TUI transcript', () => {
       (entry): entry is Extract<typeof entry, { kind: 'thinking' }> => entry.kind === 'thinking' && entry.messageId === 'message-2',
     );
     assert.ok(late);
-    const viewportTop = state.renderGeometry.entryFirstLine.get(late);
+    const viewportTop = state.renderGeometry.entryFirstLine?.get(late);
     assert.ok(viewportTop !== undefined && viewportTop > 0);
     state.renderGeometry.viewportTop = viewportTop;
 

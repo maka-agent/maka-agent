@@ -98,8 +98,13 @@ export interface MakaPiTranscriptState {
 export type MakaPiPendingInteraction = AnyPermissionRequestEvent | UserQuestionRequestEvent;
 
 export interface MakaPiRenderGeometry {
-  /** First rendered transcript-line index per entry, from the latest render. */
-  entryFirstLine: Map<MakaPiTranscriptEntry, number>;
+  /**
+   * First rendered transcript-line index per entry, from the latest render.
+   * `undefined` means no entry position is known — the transcript was just
+   * replaced wholesale and has not rendered since — which the toggles must
+   * treat as "nothing safely reachable" while the viewport has scrolled.
+   */
+  entryFirstLine: Map<MakaPiTranscriptEntry, number> | undefined;
   /**
    * pi-tui's live-viewport top in transcript-line coordinates (the transcript
    * is the first layout child, so transcript line i is composed line i). Held
@@ -177,7 +182,7 @@ export function createMakaPiTranscriptState(): MakaPiTranscriptState {
     queuedInteractions: [],
     expandAllTools: false,
     expandAllThinking: false,
-    renderGeometry: { entryFirstLine: new Map(), viewportTop: 0 },
+    renderGeometry: { entryFirstLine: undefined, viewportTop: 0 },
     pendingShellRunPolls: new Map(),
     usage: { costUsd: 0, cacheHitInput: 0, cacheMissInput: 0 },
     steering: [],
@@ -278,12 +283,14 @@ export function replaceTranscriptWithStoredMessages(
   state.pendingShellRunPolls.clear();
   state.expandAllTools = false;
   state.expandAllThinking = false;
-  // The old entries are gone; drop their recorded positions. viewportTop is
-  // left to the next layout render: when the replacement changes lines above
-  // it, pi-tui full-redraws and the layout's shadow diff resets the estimate
-  // to match; when the replacement is a pure truncation or identical content,
-  // pi-tui keeps its viewport and so does the estimate.
-  state.renderGeometry.entryFirstLine = new Map();
+  // The old entries are gone; no position is known until the next render, and
+  // until then the toggles must not touch anything (a replacement entry could
+  // render above the still-scrolled viewport). viewportTop is left to the next
+  // layout render: when the replacement changes lines above it, pi-tui
+  // full-redraws and the layout's shadow diff resets the estimate to match;
+  // when the replacement is a pure truncation or identical content, pi-tui
+  // keeps its viewport and so does the estimate.
+  state.renderGeometry.entryFirstLine = undefined;
   state.usage = { costUsd: 0, cacheHitInput: 0, cacheMissInput: 0 };
   // Queues are per-active-run; a switched/reset session has none pending.
   state.steering = [];
@@ -303,8 +310,12 @@ export function replaceTranscriptWithStoredMessages(
  * position (#1097), so the global toggles leave them untouched.
  */
 function entryInLiveViewport(state: MakaPiTranscriptState, entry: MakaPiTranscriptEntry): boolean {
-  const firstLine = state.renderGeometry.entryFirstLine.get(entry);
-  return firstLine === undefined || firstLine >= state.renderGeometry.viewportTop;
+  const geometry = state.renderGeometry;
+  // No positions at all (fresh state, or replaced and not yet rendered): safe
+  // only while the viewport has never scrolled.
+  if (geometry.entryFirstLine === undefined) return geometry.viewportTop === 0;
+  const firstLine = geometry.entryFirstLine.get(entry);
+  return firstLine === undefined || firstLine >= geometry.viewportTop;
 }
 
 /** Toggle every tool card in the live viewport at once; false when there is none. */

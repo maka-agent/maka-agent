@@ -1,4 +1,8 @@
 import { Container, type Component, type Terminal } from '@earendil-works/pi-tui';
+// Deep import (pi-tui does not re-export it): the viewport shadow diff must
+// compare the same canonical lines pi-tui diffs, and pi-tui normalizes Thai/Lao
+// AM sequences before its diff. Pinned to pi-tui 0.80.3.
+import { normalizeTerminalOutput } from '@earendil-works/pi-tui/dist/utils.js';
 import {
   renderMakaPiActivityStrip,
   renderMakaPiPendingQueue,
@@ -120,33 +124,54 @@ export class MakaPiLayoutComponent extends Container {
     //
     // Shadow pi-tui's own viewport rule rather than guessing: its viewport
     // never scrolls back up (monotonic max) except when it full-redraws and
-    // re-anchors to the document tail. It full-redraws exactly when the
-    // terminal width or height changed, when a line above the current
-    // viewport top changed (wholesale replacement), or when the document
-    // shrank below the viewport top (deep rewind) — those cases reset the
-    // estimate; anything else (appends, in-viewport edits, shallow
-    // truncation) keeps it monotonic.
-    this.state.renderGeometry.viewportTop = this.nextViewportTop(lines, width);
-    this.previousLines = lines;
+    // re-anchors to the document tail. Each branch of nextViewportTop mirrors
+    // one decision in pi-tui's doRender (tui.js, pinned 0.80.3); the estimate
+    // may exceed the real viewport top (which only makes the toggles more
+    // conservative) but must never fall below it. An upstream viewport getter
+    // would collapse all of this to one line.
+    const normalized = lines.map(normalizeTerminalOutput);
+    this.state.renderGeometry.viewportTop = this.nextViewportTop(normalized, width);
+    this.previousLines = normalized;
     this.previousRows = this.terminal.rows;
     this.previousWidth = width;
     return lines;
   }
 
+  /** `lines` are normalized, matching what pi-tui's differential renderer diffs. */
   private nextViewportTop(lines: string[], width: number): number {
-    const tailTop = Math.max(0, lines.length - this.terminal.rows);
-    if (
-      this.previousLines === undefined
-      || this.previousRows !== this.terminal.rows
-      || this.previousWidth !== width
-    ) {
-      return tailTop;
-    }
+    const rows = this.terminal.rows;
+    const tailTop = Math.max(0, lines.length - rows);
+    const previous = this.previousLines;
+    // First render; width changes full-redraw unconditionally (tui.js ~1061),
+    // even when no line ends up wrapping differently.
+    if (previous === undefined || this.previousWidth !== width) return tailTop;
     const current = this.state.renderGeometry.viewportTop;
-    if (lines.length < current) return tailTop;
-    const overlap = Math.min(this.previousLines.length, lines.length, current);
-    for (let i = 0; i < overlap; i += 1) {
-      if (this.previousLines[i] !== lines[i]) return tailTop;
+    if (this.previousRows !== rows) {
+      // Height changes full-redraw (tui.js ~1069) except under Termux, where
+      // the software keyboard resizes constantly and pi-tui instead keeps the
+      // buffer and recomputes its top from it (tui.js ~983).
+      return Boolean(process.env.TERMUX_VERSION)
+        ? Math.max(tailTop, current + (this.previousRows ?? rows) - rows)
+        : tailTop;
+    }
+    // Any change above the viewport top forces a full redraw (tui.js ~1169).
+    const scan = Math.min(previous.length, lines.length);
+    let firstChanged = -1;
+    for (let i = 0; i < scan; i += 1) {
+      if (previous[i] !== lines[i]) {
+        firstChanged = i;
+        break;
+      }
+    }
+    if (firstChanged !== -1 && firstChanged < current) return tailTop;
+    if (lines.length < previous.length) {
+      // Pure truncation: pi-tui's deleted-lines path full-redraws when the
+      // new document ends at or above the viewport top (tui.js ~1122,
+      // `targetRow < prevViewportTop`) or when more than a screenful of rows
+      // must be cleared (tui.js ~1136); a shallower truncation keeps the
+      // viewport where it was.
+      if (lines.length <= current) return tailTop;
+      if (firstChanged === -1 && previous.length - lines.length > rows) return tailTop;
     }
     return Math.max(current, tailTop);
   }
