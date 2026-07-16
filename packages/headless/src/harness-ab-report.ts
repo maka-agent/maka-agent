@@ -161,7 +161,7 @@ export function renderHarnessAbReportMarkdown(report: HarnessAbReport): string {
     `Status: ${report.runStatus}${report.stopReason ? ` (${report.stopReason})` : ''}.`,
     '',
     `Run: ${report.runId}; tasks: ${report.taskCount}; paired evaluated: ${report.effectiveness.pairedEvaluated}.`,
-    `Cell coverage: ${report.coverage.attemptedCells}/${report.coverage.scheduledCells} attempted; ${report.coverage.modelScoredCells} model-scored; ${report.coverage.infraFailedCells} infra-failed; ${report.coverage.unscoredCells} unscored; ${report.coverage.missingFinalUsageCells} missing final usage.`,
+    `Cell coverage: ${report.coverage.attemptedCells}/${report.coverage.scheduledCells} attempted; ${report.coverage.modelScoredCells} model-scored; ${report.coverage.unscoredCells} unscored (including ${report.coverage.infraFailedCells} infra-failed); ${report.coverage.missingFinalUsageCells} missing final usage.`,
     `Economy coverage: fully metered pairs: ${report.economy.pairedMetered}; missing usage: ${report.economy.missingUsagePairs}.`,
     '',
     '## Effectiveness',

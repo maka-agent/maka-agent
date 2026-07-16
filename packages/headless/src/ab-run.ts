@@ -34,11 +34,19 @@ export async function runAbComparison(input: RunAbComparisonInput): Promise<AbCo
   let observedCostUsd = 0;
   let stopReason: AbComparisonSummary['stopReason'];
   const active = new Map<number, Promise<ActivePairResult>>();
+  const observeArmEvent = (event: FixedPromptTaskWalEvent) => {
+    observedCostUsd += eventCostUsd(event);
+    if (isSystemicProviderFailure(event)) {
+      stopReason = 'systemic_provider_failure';
+    } else if (!stopReason && input.observedCostStopUsd !== undefined && observedCostUsd >= input.observedCostStopUsd) {
+      stopReason = 'observed_cost_stop_reached';
+    }
+  };
   const launchReadyPairs = () => {
     while (!stopReason && active.size < maxConcurrency && nextPairIndex < pairs.length) {
       const pairIndex = nextPairIndex;
       const pair = pairs[nextPairIndex++]!;
-      active.set(pairIndex, runComparisonPair(input, pair).then((result) => ({ pairIndex, ...result })));
+      active.set(pairIndex, runComparisonPair(input, pair, observeArmEvent).then((result) => ({ pairIndex, ...result })));
     }
   };
 
@@ -54,12 +62,6 @@ export async function runAbComparison(input: RunAbComparisonInput): Promise<AbCo
     active.delete(result.pairIndex);
     baselineRuns[result.rep]!.push(result.baseline);
     candidateRuns[result.rep]!.push(result.candidate);
-    observedCostUsd += eventCostUsd(result.baseline) + eventCostUsd(result.candidate);
-    if (isSystemicProviderFailure(result.baseline) || isSystemicProviderFailure(result.candidate)) {
-      stopReason = 'systemic_provider_failure';
-    } else if (input.observedCostStopUsd !== undefined && observedCostUsd >= input.observedCostStopUsd) {
-      stopReason = 'observed_cost_stop_reached';
-    }
     launchReadyPairs();
   }
   const taskOrder = new Map(input.evaluationTasks.map((task, index) => [task.id, index]));
@@ -97,27 +99,28 @@ function isSystemicProviderFailure(event: FixedPromptTaskWalEvent): boolean {
 async function runComparisonPair(
   input: RunAbComparisonInput,
   pair: { rep: number; taskIndex: number; task: FixedPromptTask },
+  onArmEvent: (event: FixedPromptTaskWalEvent) => void,
 ): Promise<{ rep: number; baseline: FixedPromptTaskWalEvent; candidate: FixedPromptTaskWalEvent }> {
   if (input.armExecution === 'sequential') {
     if ((pair.rep + pair.taskIndex) % 2 === 0) {
-      const baseline = await runComparisonTaskArm(input, input.arms[0], pair);
-      const candidate = await runComparisonTaskArm(input, input.arms[1], pair);
+      const baseline = await runComparisonTaskArm(input, input.arms[0], pair, onArmEvent);
+      const candidate = await runComparisonTaskArm(input, input.arms[1], pair, onArmEvent);
       return { rep: pair.rep, baseline, candidate };
     }
-    const candidate = await runComparisonTaskArm(input, input.arms[1], pair);
-    const baseline = await runComparisonTaskArm(input, input.arms[0], pair);
+    const candidate = await runComparisonTaskArm(input, input.arms[1], pair, onArmEvent);
+    const baseline = await runComparisonTaskArm(input, input.arms[0], pair, onArmEvent);
     return { rep: pair.rep, baseline, candidate };
   }
   if ((pair.rep + pair.taskIndex) % 2 === 0) {
     const [baseline, candidate] = await drainParallelArmRuns([
-      runComparisonTaskArm(input, input.arms[0], pair),
-      runComparisonTaskArm(input, input.arms[1], pair),
+      runComparisonTaskArm(input, input.arms[0], pair, onArmEvent),
+      runComparisonTaskArm(input, input.arms[1], pair, onArmEvent),
     ]);
     return { rep: pair.rep, baseline, candidate };
   }
   const [candidate, baseline] = await drainParallelArmRuns([
-    runComparisonTaskArm(input, input.arms[1], pair),
-    runComparisonTaskArm(input, input.arms[0], pair),
+    runComparisonTaskArm(input, input.arms[1], pair, onArmEvent),
+    runComparisonTaskArm(input, input.arms[0], pair, onArmEvent),
   ]);
   return { rep: pair.rep, baseline, candidate };
 }
@@ -146,6 +149,7 @@ async function runComparisonTaskArm(
   input: RunAbComparisonInput,
   arm: AbArmSpec,
   pair: { rep: number; task: FixedPromptTask },
+  onArmEvent: (event: FixedPromptTaskWalEvent) => void,
 ): Promise<FixedPromptTaskWalEvent> {
   const roundId = buildAbRoundId(input.roundIdPrefix, arm.id, pair.rep, pair.task.id);
   const event = await input.runArm({
@@ -156,6 +160,7 @@ async function runComparisonTaskArm(
     rep: pair.rep,
   });
   if (event.taskId !== pair.task.id) throw new Error(`A/B arm ${roundId} produced event for ${event.taskId}, expected ${pair.task.id}`);
+  onArmEvent(event);
   return event;
 }
 

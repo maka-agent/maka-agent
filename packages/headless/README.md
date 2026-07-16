@@ -180,7 +180,7 @@ For a live run, remove `MAKA_HARNESS_AB_DRY_RUN` and set `MAKA_HARNESS_AB_KEY_FI
 
 For an unattended run, invoke `node packages/headless/harbor/run-harness-ab-detached.mjs` with the same environment. It detaches the worker from the terminal and atomically journals `running`, `completed`, or `failed` in `background-run.json`; stdout and stderr go to `background-run.log`.
 
-Outputs are `harness-ab-report.json`, `.csv`, and `.md`. Report schema v2 records scheduled, attempted, model-scored, infrastructure-failed, unscored, and missing-final-usage cell coverage while keeping paired Pass@1 and fully metered cache-aware API-equivalent cost on separate denominators. A fully attempted schedule with honest evidence gaps finishes as `completed_with_gaps`; an unattempted suffix remains `incomplete`. Reports do not claim fixed-plan spend or publish results.
+Outputs are `harness-ab-report.json`, `.csv`, and `.md`. Report schema v2 records scheduled, attempted, model-scored, unscored (including the infrastructure-failed subset), and missing-final-usage cell coverage while keeping paired Pass@1 and fully metered cache-aware API-equivalent cost on separate denominators. A fully attempted schedule with honest evidence gaps finishes as `completed_with_gaps`; an unattempted suffix remains `incomplete`. Reports do not claim fixed-plan spend or publish results.
 
 ## Attention semantic-compaction A/B
 

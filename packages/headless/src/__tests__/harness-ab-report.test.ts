@@ -58,7 +58,7 @@ describe('harness A/B report', () => {
     assert.match(markdown, /# Maka vs OpenCode — GLM-5\.2 Harness Comparison/);
     assert.match(markdown, /Pass@1/);
     assert.match(markdown, /API-equivalent cost/);
-    assert.match(markdown, /Cell coverage: 4\/4 attempted; 4 model-scored; 0 infra-failed; 0 unscored; 0 missing final usage\./);
+    assert.match(markdown, /Cell coverage: 4\/4 attempted; 4 model-scored; 0 unscored \(including 0 infra-failed\); 0 missing final usage\./);
     assert.match(markdown, /No composite score/);
   });
 

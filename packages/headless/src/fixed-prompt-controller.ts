@@ -623,33 +623,31 @@ async function runTaskAndBuildEvent(input: {
   newId: () => string;
   now: () => number;
 }): Promise<FixedPromptTaskWalEvent> {
-  const runHarbor = async () => {
-    if (input.input.protectPassAtOne) {
-      const attemptStarted: FixedPromptTaskAttemptStartedEvent = {
-        schemaVersion: FIXED_PROMPT_WAL_SCHEMA_VERSION,
-        type: 'task_attempt_started',
-        id: input.newId(),
-        ts: input.now(),
-        runId: input.input.runId,
-        roundId: input.input.roundId,
-        ...(input.resumeFingerprint ? { resumeFingerprint: input.resumeFingerprint } : {}),
-        taskId: input.task.id,
-        promptHash: input.expectedPromptHash,
-      };
-      await appendFixedPromptWalEvent(
-        attemptWalPath(input.input.resultsJsonlPath),
-        attemptStarted,
-        { flush: true },
-      );
-    }
-    return input.input.harborRunner({
+  if (input.input.protectPassAtOne) {
+    const attemptStarted: FixedPromptTaskAttemptStartedEvent = {
+      schemaVersion: FIXED_PROMPT_WAL_SCHEMA_VERSION,
+      type: 'task_attempt_started',
+      id: input.newId(),
+      ts: input.now(),
       runId: input.input.runId,
       roundId: input.input.roundId,
-      task: input.task,
-      config: input.config,
-      systemPrompt: input.systemPrompt,
-    });
-  };
+      ...(input.resumeFingerprint ? { resumeFingerprint: input.resumeFingerprint } : {}),
+      taskId: input.task.id,
+      promptHash: input.expectedPromptHash,
+    };
+    await appendFixedPromptWalEvent(
+      attemptWalPath(input.input.resultsJsonlPath),
+      attemptStarted,
+      { flush: true },
+    );
+  }
+  const runHarbor = () => input.input.harborRunner({
+    runId: input.input.runId,
+    roundId: input.input.roundId,
+    task: input.task,
+    config: input.config,
+    systemPrompt: input.systemPrompt,
+  });
   let output;
   try {
     output = await runHarbor();

@@ -61,6 +61,13 @@ test('harness A/B manifest uses the pinned OpenCode toolchain version', async ()
   );
 });
 
+test('harness A/B completion log preserves the report status', async () => {
+  const scriptPath = new URL('../../harbor/run-harness-ab.mjs', import.meta.url);
+  const source = await readFile(scriptPath, 'utf8');
+
+  assert.match(source, /console\.log\(`\$\{report\.runStatus\}:/);
+});
+
 test('detached harness launcher persists a terminal failed journal after the worker exits', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'maka-harness-ab-detached-'));
   try {

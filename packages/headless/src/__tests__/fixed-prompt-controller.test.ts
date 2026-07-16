@@ -553,6 +553,51 @@ describe('fixed prompt controller', () => {
     });
   });
 
+  test('fails loud when durable Pass@1 admission cannot be persisted', async () => {
+    await withDir(async (dir) => {
+      const systemPromptPath = join(dir, 'system_prompt.md');
+      const resultsJsonlPath = join(dir, 'results.jsonl');
+      await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
+      const originalAppendFile = fs.promises.appendFile;
+      fs.promises.appendFile = async (...args) => {
+        if (String(args[0]).endsWith('.attempts.jsonl')) {
+          throw new Error('attempt WAL unavailable');
+        }
+        return originalAppendFile(...args);
+      };
+      syncBuiltinESMExports();
+      let harborCalls = 0;
+
+      try {
+        await assert.rejects(
+          runFixedPromptController({
+            runId: 'run-1',
+            roundId: 'round-1',
+            config,
+            systemPromptPath,
+            resultsJsonlPath,
+            tasks: [{ id: 'task-a', path: '/bench/task-a' }],
+            infraFailurePolicy: 'terminal',
+            protectPassAtOne: true,
+            harborRunner: async ({ task }) => {
+              harborCalls += 1;
+              return harborOutput({ taskId: task.id });
+            },
+            now: () => 100,
+            newId: idFactory(),
+          }),
+          /attempt WAL unavailable/,
+        );
+      } finally {
+        fs.promises.appendFile = originalAppendFile;
+        syncBuiltinESMExports();
+      }
+
+      assert.equal(harborCalls, 0);
+      await assert.rejects(readFile(resultsJsonlPath, 'utf8'), { code: 'ENOENT' });
+    });
+  });
+
   test('protectPassAtOne never retries a full Harbor attempt after runner failure', async () => {
     await withDir(async (dir) => {
       const systemPromptPath = join(dir, 'system_prompt.md');
