@@ -116,6 +116,10 @@ function overridesFor(opts) {
     ...(opts.agentTimeoutSec !== undefined ? { agentTimeoutSec: opts.agentTimeoutSec } : {}),
     ...(opts.datasetName !== undefined ? { datasetName: opts.datasetName } : {}),
     ...(opts.datasetVersion !== undefined ? { datasetVersion: opts.datasetVersion } : {}),
+    // Match the retired shell runner: MAKA_BENCHMARK_DATASET in the environment
+    // overrides the dataset-name default that maka-* profiles forward to the
+    // adapter (an explicit value wins over the datasetName default).
+    ...(process.env.MAKA_BENCHMARK_DATASET ? { benchmarkDataset: process.env.MAKA_BENCHMARK_DATASET } : {}),
   };
 }
 

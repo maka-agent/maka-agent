@@ -1201,6 +1201,8 @@ def _normalize_cli_env(env: dict[str, str]) -> None:
         env.setdefault("MAKA_STORAGE_ROOT", str(Path(env["MAKA_TASK_RUN_OUT_DIR"]) / "runs"))
     if env.get("MAKA_HARBOR_MAX_ATTEMPTS"):
         env.setdefault("MAKA_MAX_ATTEMPTS", env["MAKA_HARBOR_MAX_ATTEMPTS"])
+    if env.get("MAKA_AUTONOMOUS_MAX_ATTEMPTS"):
+        env.setdefault("MAKA_MAX_ATTEMPTS", env["MAKA_AUTONOMOUS_MAX_ATTEMPTS"])
     if env.get("MAKA_AUTONOMOUS_MAX_RUNTIME_STEPS"):
         env.setdefault("MAKA_MAX_RUNTIME_STEPS", env["MAKA_AUTONOMOUS_MAX_RUNTIME_STEPS"])
     if env.get("MAKA_AUTONOMOUS_MAX_WALL_TIME_SEC"):
