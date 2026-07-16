@@ -89,8 +89,8 @@
 
 .settingsFormGrid select:focus,
 .settingsUsageFilters select:focus {
-  border-color: oklch(from var(--accent) l c h / 0.42);
-  box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.12);
+  border-color: oklch(from var(--focus-ring) l c h / 0.42);
+  box-shadow: 0 0 0 var(--focus-glow-width) oklch(from var(--focus-ring) l c h / 0.12);
 }
 
 .settingsNotice {
