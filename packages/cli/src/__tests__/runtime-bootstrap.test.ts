@@ -480,8 +480,8 @@ describe('Maka CLI runtime bootstrap', () => {
         assert.equal(backendInput.contextBudget?.historyCompact?.enabled, true);
         assert.equal(backendInput.contextBudget?.historyCompact?.mode, 'read_write');
         assert.equal(backendInput.contextBudget?.historyCompact?.highWaterRatio, 1);
-        assert.equal(backendInput.contextBudget?.historyCompact?.tailEstimatedTokens, undefined);
-        assert.equal(backendInput.contextBudget?.historyCompact?.minRecentTurns, undefined);
+        assert.equal(backendInput.contextBudget?.historyCompact?.tailEstimatedTokens, 16_384);
+        assert.equal(backendInput.contextBudget?.historyCompact?.minRecentTurns, 3);
       });
     });
   });
@@ -569,7 +569,7 @@ describe('Maka CLI runtime bootstrap', () => {
         assert.equal(backendInput.contextBudget?.maxHistoryEstimatedTokens, undefined);
         assert.equal(backendInput.contextBudget?.historyCompact?.mode, 'read_write');
         assert.equal(backendInput.contextBudget?.historyCompact?.highWaterRatio, 1);
-        assert.equal(backendInput.contextBudget?.historyCompact?.tailEstimatedTokens, undefined);
+        assert.equal(backendInput.contextBudget?.historyCompact?.tailEstimatedTokens, 16_384);
       });
     });
   });

@@ -77,6 +77,8 @@ export interface HistoryCompactReplayOptions {
   charsPerToken?: number;
   maxHistoryEstimatedTokens?: number;
   sourceReplayEvents?: readonly RuntimeEvent[];
+  /** Selects the continuation seam without changing the shared compaction implementation. */
+  historyCompactProtocol?: 'legacy_v1' | 'checkpoint_v2';
 }
 
 /** The single current-policy gate for every checkpoint entering model replay. */
@@ -284,11 +286,11 @@ export interface HistoryCompactPolicy {
   highWaterRatio?: number;
   /** Diagnostic high-water ratio reserved for future forced compaction. Defaults to 0.9. */
   forceRatio?: number;
-  /** @deprecated Ignored. History compaction keeps the latest structural continuation seam. */
+  /** Legacy V1 tail target. Ignored by the V2 checkpoint protocol. */
   targetRatio?: number;
-  /** @deprecated Ignored. History compaction keeps the latest structural continuation seam. */
+  /** Legacy V1 explicit tail budget. Ignored by the V2 checkpoint protocol. */
   tailEstimatedTokens?: number;
-  /** @deprecated Ignored. History compaction keeps exactly the latest complete turn at turn boundaries. */
+  /** Legacy V1 recent-turn request. V2 keeps exactly the latest complete turn at turn boundaries. */
   minRecentTurns?: number;
   /** Legacy V1 deterministic-summary estimate. Defaults to 768. */
   maxSummaryEstimatedTokens?: number;
@@ -532,6 +534,7 @@ export interface PromptSegmentInput {
 export function applyRuntimeEventContextBudget(
   events: readonly RuntimeEvent[],
   policy: ContextBudgetPolicy | undefined,
+  options: Pick<HistoryCompactReplayOptions, 'historyCompactProtocol'> = {},
 ): BudgetedRuntimeContext | undefined {
   const prunePolicy = policy?.staleToolResultPrune;
   const pruneEnabled = prunePolicy?.enabled === true;
@@ -561,7 +564,11 @@ export function applyRuntimeEventContextBudget(
   const compacted = applyRuntimeEventHistoryCompact(
     pruned.events,
     policy,
-    { charsPerToken, maxHistoryEstimatedTokens: maxTokens },
+    {
+      charsPerToken,
+      maxHistoryEstimatedTokens: maxTokens,
+      ...(options.historyCompactProtocol ? { historyCompactProtocol: options.historyCompactProtocol } : {}),
+    },
   );
   const hasCompactedReplay = compacted.blocks.length > 0 || compacted.checkpoint !== undefined;
   const budgetEvents = hasCompactedReplay ? compacted.events : pruned.events;
@@ -765,27 +772,20 @@ export function applyRuntimeEventHistoryCompact(
     };
   }
 
-  const tailSelection = selectHistoryCompactTailEvents(turnGroups);
+  const usesCheckpointV2Seam = options.historyCompactProtocol === 'checkpoint_v2'
+    || compactPolicy.checkpoint !== undefined;
+  const tailSelection = usesCheckpointV2Seam
+    ? selectLatestCompleteTurnEvents(turnGroups)
+    : selectLegacyHistoryCompactTailEvents(turnGroups, {
+        tailBudget: finitePositive(compactPolicy.tailEstimatedTokens)
+          ?? Math.max(1, Math.floor(maxTokens * finiteRatio(compactPolicy.targetRatio, 0.5))),
+      });
   const retainedEventIds = tailSelection.eventIds;
   const tailTurnIds = tailSelection.turnIds;
   const foldedEvents = compactableEvents.filter((event) => !retainedEventIds.has(event.id));
   const retainedEvents = compactableEvents.filter((event) => retainedEventIds.has(event.id));
   if (foldedEvents.length === 0) {
     increment(skippedReasonCounts, 'no_foldable_turns');
-    return {
-      events: [...events],
-      blocks: [],
-      diagnosticPatch: {
-        ...basePatch,
-        historyCompactSkipped: 1,
-        historyCompactSkippedReasonCounts: skippedReasonCounts,
-        ...historyCompactSkippedDecisionPatch(skippedReasonCounts),
-      },
-    };
-  }
-
-  if (foldedEvents.length === 0) {
-    increment(skippedReasonCounts, 'no_foldable_events');
     return {
       events: [...events],
       blocks: [],
@@ -1696,7 +1696,7 @@ function groupEventsByTurn(events: readonly RuntimeEvent[], charsPerToken: numbe
   }));
 }
 
-function selectHistoryCompactTailEvents(
+function selectLatestCompleteTurnEvents(
   turnGroups: ReadonlyArray<{ turnId: string; estimatedTokens: number; events: readonly RuntimeEvent[] }>,
 ): { eventIds: Set<string>; turnIds: Set<string> } {
   const eventIds = new Set<string>();
@@ -1706,6 +1706,45 @@ function selectHistoryCompactTailEvents(
   turnIds.add(latest.turnId);
   for (const event of latest.events) eventIds.add(event.id);
   return { eventIds, turnIds };
+}
+
+function selectLegacyHistoryCompactTailEvents(
+  turnGroups: ReadonlyArray<{ turnId: string; estimatedTokens: number; events: readonly RuntimeEvent[] }>,
+  options: { tailBudget: number },
+): { eventIds: Set<string>; turnIds: Set<string> } {
+  const eventIds = new Set<string>();
+  const turnIds = new Set<string>();
+  let selectedTokens = 0;
+  for (let index = turnGroups.length - 1; index >= 0; index -= 1) {
+    const group = turnGroups[index]!;
+    if (selectedTokens + group.estimatedTokens > options.tailBudget) {
+      if (eventIds.size === 0) {
+        const fallbackIds = latestCompleteStepEventIds(group.events);
+        for (const id of fallbackIds) eventIds.add(id);
+        if (fallbackIds.length > 0) turnIds.add(group.turnId);
+      }
+      break;
+    }
+    turnIds.add(group.turnId);
+    for (const event of group.events) eventIds.add(event.id);
+    selectedTokens += group.estimatedTokens;
+  }
+  return { eventIds, turnIds };
+}
+
+function latestCompleteStepEventIds(events: readonly RuntimeEvent[]): string[] {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index]!;
+    if (event.content?.kind !== 'function_response') continue;
+    for (let callIndex = index - 1; callIndex >= 0; callIndex -= 1) {
+      const call = events[callIndex]!;
+      if (call.content?.kind === 'function_call' && call.content.id === event.content.id) {
+        return [call.id, event.id];
+      }
+    }
+  }
+  const latest = events.at(-1);
+  return latest ? [latest.id] : [];
 }
 
 function selectLoadedHistoryCompactBlock(

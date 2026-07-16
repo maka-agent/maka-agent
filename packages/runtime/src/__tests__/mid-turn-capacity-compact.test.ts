@@ -9,6 +9,7 @@ import {
   selectMidTurnSafeBoundary,
   type PlanMidTurnCapacityCompactionInput,
 } from '../mid-turn-capacity-compact.js';
+import { HistoryCompactSummarizerError } from '../history-compact-summarizer.js';
 import { applyRuntimeEventHistoryCompact } from '../context-budget.js';
 import { matchHistoryCompactCheckpointPrefix } from '../history-compact-checkpoint.js';
 
@@ -213,6 +214,17 @@ describe('plan mid-turn capacity compaction', () => {
       summarize: () => { throw new Error('summarizer down'); },
     }));
     assert.deepEqual(result, { decision: 'fail_open', reason: 'summarizer_failed' });
+  });
+
+  test('preserves a typed summarizer failure as the mid-turn diagnostic reason', async () => {
+    const result = await planMidTurnCapacityCompaction(planInput({
+      summarize: () => { throw new HistoryCompactSummarizerError('provider_error'); },
+    }));
+    assert.deepEqual(result, {
+      decision: 'fail_open',
+      reason: 'summarizer_failed',
+      diagnosticReason: 'provider_error',
+    });
   });
 
   test('fails open (never terminates) above the window when the summarizer fails', async () => {

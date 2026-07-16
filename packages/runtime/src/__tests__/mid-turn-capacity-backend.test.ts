@@ -16,6 +16,7 @@ import { PermissionEngine } from '../permission-engine.js';
 import { applyRuntimeEventContextBudget, evaluateHistoryCompactCheckpointReplay } from '../context-budget.js';
 import type { HistoryCompactCheckpoint } from '../history-compact-checkpoint.js';
 import type { ContextBudgetDiagnostic } from '@maka/core/usage-stats/types';
+import { HistoryCompactSummarizerError } from '../history-compact-error.js';
 
 const RAW_SPAN_ONE = 'RAW_SPAN_ONE_'.repeat(24);
 const RAW_SPAN_TWO = 'RAW_SPAN_TWO_'.repeat(160);
@@ -556,6 +557,20 @@ function defineMidTurnSuite(consumer: ConsumerMode): void {
       | undefined;
     assert.equal(usageEvent?.contextBudget?.historyCompactWritesAttempted, undefined);
     assert.equal(usageEvent?.contextBudget?.historyCompactWriteFailures, undefined);
+  });
+
+  test('preserves the typed summarizer failure in mid-turn diagnostics', async () => {
+    const fixture = buildFixture({
+      summarize: () => { throw new HistoryCompactSummarizerError('provider_error'); },
+    });
+    await runFixtureTurn(fixture, consumer);
+
+    assert.equal(fixture.recorded.length, 0);
+    const failedOpen = compactionDecisions(fixture).find(
+      (decision) => decision.phase === 'mid_turn' && decision.decision === 'failedOpen',
+    );
+    assert.equal(failedOpen?.failOpenReason, 'provider_error');
+    assert.equal(failedOpen?.skippedReasonCounts?.provider_error, 1);
   });
 
   test('fails open with write_failed diagnostics when the checkpoint write fails under the window', async () => {

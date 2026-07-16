@@ -186,7 +186,7 @@ import {
   type ToolResultArchiveReader,
   type ToolResultArchiveRef,
 } from './context-budget.js';
-import { HistoryCompactSummarizerError } from './history-compact-summarizer.js';
+import { HistoryCompactSummarizerError } from './history-compact-error.js';
 import {
   buildHistoryCompactCheckpoint,
   historyCompactCheckpointToRuntimeEvent,
@@ -971,7 +971,9 @@ export class AiSdkBackend implements AgentBackend {
       if (!policy) return {};
 
       const contextBudget = policy;
-      const budgeted = applyRuntimeEventContextBudget(runtimeContext, contextBudget);
+      const budgeted = applyRuntimeEventContextBudget(runtimeContext, contextBudget, {
+        historyCompactProtocol: this.hasHistoryCompactCheckpointWriter() ? 'checkpoint_v2' : 'legacy_v1',
+      });
       let contextBudgetDiagnostic = budgeted?.diagnostic;
 
       if (
@@ -1061,6 +1063,9 @@ export class AiSdkBackend implements AgentBackend {
         enabled: true,
         mode: 'read_write',
         highWaterRatio: 0.000001,
+        targetRatio: current?.targetRatio ?? 0.2,
+        tailEstimatedTokens: 1,
+        minRecentTurns: current?.minRecentTurns ?? base.minRecentTurns ?? 1,
         maxBlocks: current?.maxBlocks ?? 1,
         maxEstimatedTokens: current?.maxEstimatedTokens ?? 2048,
         maxBlockEstimatedTokens: current?.maxBlockEstimatedTokens ?? current?.maxSummaryEstimatedTokens ?? 1024,
@@ -1074,6 +1079,10 @@ export class AiSdkBackend implements AgentBackend {
       this.input.writeHistoryCompact
       || (this.input.summarizeHistoryCompact && this.input.recordHistoryCompactCheckpoint),
     );
+  }
+
+  private hasHistoryCompactCheckpointWriter(): boolean {
+    return Boolean(this.input.summarizeHistoryCompact && this.input.recordHistoryCompactCheckpoint);
   }
 
   // --------------------------------------------------------------------------
@@ -2139,7 +2148,11 @@ export class AiSdkBackend implements AgentBackend {
     const priorRuntimeContext = input.runtimeContext.filter((event) => event.turnId !== input.turnId);
     const preparedContextBudget = await this.prepareContextBudgetPolicy(priorRuntimeContext);
     const contextBudget = preparedContextBudget.policy;
-    const budgeted = applyRuntimeEventContextBudget(priorRuntimeContext, contextBudget);
+    const budgeted = applyRuntimeEventContextBudget(priorRuntimeContext, contextBudget, {
+      historyCompactProtocol: contextBudget?.historyCompact?.checkpoint || this.hasHistoryCompactCheckpointWriter()
+        ? 'checkpoint_v2'
+        : 'legacy_v1',
+    });
     let runtimeContext = budgeted?.events
       ?? priorRuntimeContext;
     let contextBudgetDiagnostic = budgeted?.diagnostic;
@@ -2772,6 +2785,7 @@ export class AiSdkBackend implements AgentBackend {
             boundaryKind: 'historyCompact',
             reason: 'context_limit',
             failOpenReason,
+            skippedReasonCounts: { [failOpenReason]: 1 },
           }),
         });
         return keepProjection();
@@ -2962,7 +2976,11 @@ export class AiSdkBackend implements AgentBackend {
 
     if (plan.decision === 'skip') return { decision: 'skip' };
     if (plan.decision === 'fail_open') {
-      return { decision: 'fail', detail: plan.reason, diagnosticReason: plan.reason };
+      return {
+        decision: 'fail',
+        detail: plan.reason,
+        diagnosticReason: plan.diagnosticReason ?? plan.reason,
+      };
     }
 
     // Lifecycle order is validate → persist → apply, where validate =
@@ -3011,11 +3029,9 @@ export class AiSdkBackend implements AgentBackend {
     if (replacedPayloadChars >= input.referencePayloadChars) {
       return { decision: 'fail', detail: 'summarizer_failed', diagnosticReason: 'replacement_not_smaller' };
     }
-    // Replay admissibility, through the SAME single gate the recovery path
-    // runs (max block / max total / prefix budget) with the same policy —
-    // one acceptance standard, not two. A checkpoint accepted here but
-    // rejected at replay would still become the session's latest checkpoint
-    // and poison recovery.
+    // Replay admissibility uses the same complete-prefix capacity gate as
+    // recovery. Actual payload shrinkage was already checked above because
+    // only this owner can measure the fully materialized provider request.
     const replayFit = evaluateHistoryCompactCheckpointReplay(
       plan.checkpoint,
       plan.replacementEvents.slice(1),
@@ -3024,7 +3040,7 @@ export class AiSdkBackend implements AgentBackend {
     if (!replayFit.fits) {
       return {
         decision: 'fail',
-        detail: replayFit.reason === 'prefix_over_budget' ? 'head_anchor_exceeds_capacity' : 'summarizer_failed',
+        detail: 'head_anchor_exceeds_capacity',
         diagnosticReason: `replay_rejected_${replayFit.reason}`,
       };
     }
@@ -3126,7 +3142,12 @@ export class AiSdkBackend implements AgentBackend {
           phase: 'mid_turn',
           boundaryKind: 'historyCompact',
           reason: 'overflow',
-          ...(outcome.decision === 'fail' ? { failOpenReason: outcome.diagnosticReason } : {}),
+          ...(outcome.decision === 'fail'
+            ? {
+                failOpenReason: outcome.diagnosticReason,
+                skippedReasonCounts: { [outcome.diagnosticReason]: 1 },
+              }
+            : {}),
         }),
       });
       return undefined;

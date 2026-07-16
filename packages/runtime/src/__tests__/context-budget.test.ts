@@ -993,10 +993,10 @@ describe('context-budget history compact', () => {
     assert.equal(result.diagnostic.highWaterReason, 'history_compact');
     assert.equal(result.diagnostic.highWaterName, 'reasonix-lowfreq-v1');
     assert.equal(result.diagnostic.historyCompactMode, 'deterministic');
-    assert.equal(result.diagnostic.historyCompactedTurns, 4);
-    assert.equal(result.diagnostic.historyCompactedEvents, 5);
-    assert.equal(result.diagnostic.droppedTurns, 4);
-    assert.equal(result.diagnostic.droppedEvents, 4);
+    assert.equal(result.diagnostic.historyCompactedTurns, 3);
+    assert.equal(result.diagnostic.historyCompactedEvents, 4);
+    assert.equal(result.diagnostic.droppedTurns, 3);
+    assert.equal(result.diagnostic.droppedEvents, 3);
     assert.equal(result.diagnostic.historyCompactBlockIds?.length, 1);
     assert.deepEqual(result.diagnostic.compactionDecisions, [
       {
@@ -1005,8 +1005,8 @@ describe('context-budget history compact', () => {
         decision: 'replaced',
         boundaryKind: 'historyCompact',
         boundaryIds: result.diagnostic.historyCompactBlockIds,
-        coveredTurns: 4,
-        coveredRuntimeEvents: 5,
+        coveredTurns: 3,
+        coveredRuntimeEvents: 4,
         coverageHashes: result.diagnostic.historyCompactCoverageHashes,
         estimatedTokensBefore: result.diagnostic.historyCompactedEstimatedTokensBefore,
         estimatedTokensAfter: result.diagnostic.historyCompactedEstimatedTokensAfter,
@@ -1019,7 +1019,7 @@ describe('context-budget history compact', () => {
     ]);
     assert.equal(result.events.some((event) => event.id === 'old-1'), false);
     assert.equal(result.events.some((event) => event.id === 'old-result'), false);
-    assert.equal(result.events.some((event) => event.id === 'recent-1'), false);
+    assert.equal(result.events.some((event) => event.id === 'recent-1'), true);
     assert.equal(result.events.some((event) => event.id === 'recent-2'), true);
 
     const synthetic = result.events.find((event) => event.id.startsWith('history-compact:'));
@@ -1027,7 +1027,7 @@ describe('context-budget history compact', () => {
     assert.equal(synthetic?.author, 'system');
     const compactText = synthetic?.content?.kind === 'text' ? synthetic.content.text : '';
     assert.match(compactText, /<maka_history_compact_block/);
-    assert.match(compactText, /coverage: 5 runtime events across 4 turns/);
+    assert.match(compactText, /coverage: 4 runtime events across 3 turns/);
     assert.doesNotMatch(compactText, /runtimeEventIds=\[/);
     assert.equal(events.some((event) => event.id === 'old-1'), true, 'input events remain unchanged');
   });
@@ -1128,7 +1128,7 @@ describe('context-budget history compact', () => {
     assert.equal(result.diagnostic.historyCompactedTurns, 4);
   });
 
-  test('retains only the latest complete turn regardless of the legacy token tail cap', () => {
+  test('preserves the legacy V1 token-tail selection contract', () => {
     const events = [
       textEvent('old-1', 'turn-1', 'old context '.repeat(40)),
       textEvent('tail-2', 'turn-2', 'tail two'),
@@ -1152,10 +1152,39 @@ describe('context-budget history compact', () => {
 
     assert.ok(result);
     assert.equal(result.events.some((event) => event.id === 'old-1'), false);
-    assert.equal(result.events.some((event) => event.id === 'tail-2'), false);
-    assert.equal(result.events.some((event) => event.id === 'tail-3'), false);
-    assert.equal(result.events.some((event) => event.id === 'tail-4'), false);
+    assert.equal(result.events.some((event) => event.id === 'tail-2'), true);
+    assert.equal(result.events.some((event) => event.id === 'tail-3'), true);
+    assert.equal(result.events.some((event) => event.id === 'tail-4'), true);
     assert.equal(result.events.some((event) => event.id === 'tail-5'), true);
+    assert.equal(result.diagnostic.historyCompactedTurns, 1);
+  });
+
+  test('V2 checkpoint compaction retains only the latest complete turn', () => {
+    const events = [
+      textEvent('old-1', 'turn-1', 'old context '.repeat(40)),
+      textEvent('tail-2', 'turn-2', 'tail two'),
+      textEvent('tail-3', 'turn-3', 'tail three'),
+      textEvent('tail-4', 'turn-4', 'tail four'),
+      textEvent('tail-5', 'turn-5', 'tail five'),
+    ];
+
+    const result = applyRuntimeEventContextBudget(events, {
+      maxHistoryEstimatedTokens: 2000,
+      minRecentTurns: 2,
+      charsPerToken: 1,
+      historyCompact: {
+        enabled: true,
+        highWaterRatio: 0.1,
+        minRecentTurns: 2,
+        tailEstimatedTokens: 100,
+        maxSummaryEstimatedTokens: 120,
+      },
+    }, { historyCompactProtocol: 'checkpoint_v2' });
+
+    assert.ok(result);
+    assert.deepEqual(result.events.filter((event) => !event.id.startsWith('history-compact:')).map((event) => event.id), [
+      'tail-5',
+    ]);
     assert.equal(result.diagnostic.historyCompactedTurns, 4);
   });
 
@@ -1179,7 +1208,7 @@ describe('context-budget history compact', () => {
         tailEstimatedTokens: 10,
         maxSummaryEstimatedTokens: 120,
       },
-    });
+    }, { historyCompactProtocol: 'checkpoint_v2' });
 
     assert.ok(result);
     assert.equal(result.events.some((event) => event.id === 'old-1'), false);

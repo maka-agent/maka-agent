@@ -1,6 +1,10 @@
 import type { RuntimeEvent } from '@maka/core/runtime-event';
 import { estimateRuntimeEventsTokens } from './context-budget.js';
 import {
+  HistoryCompactSummarizerError,
+  type HistoryCompactSummarizerFailureReason,
+} from './history-compact-error.js';
+import {
   buildHistoryCompactCheckpoint,
   historyCompactCheckpointToRuntimeEvent,
   matchHistoryCompactCheckpointPrefix,
@@ -204,7 +208,11 @@ export interface PlanMidTurnCapacityCompactionInput {
 
 export type PlanMidTurnCapacityCompactionResult =
   | { decision: 'skip'; reason: 'below_high_water' }
-  | { decision: 'fail_open'; reason: MidTurnFailReason }
+  | {
+      decision: 'fail_open';
+      reason: MidTurnFailReason;
+      diagnosticReason?: HistoryCompactSummarizerFailureReason;
+    }
   | {
       decision: 'compacted';
       checkpoint: HistoryCompactCheckpoint;
@@ -275,7 +283,14 @@ export async function planMidTurnCapacityCompaction(
       newlyFoldedRuntimeEvents,
       ...(previousCheckpoint ? { previousCheckpoint } : {}),
     })))?.trim();
-  } catch {
+  } catch (error) {
+    if (error instanceof HistoryCompactSummarizerError) {
+      return {
+        decision: 'fail_open',
+        reason: 'summarizer_failed',
+        diagnosticReason: error.reason,
+      };
+    }
     summary = undefined;
   }
   if (!summary) {

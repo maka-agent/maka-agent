@@ -2,6 +2,9 @@ import type { ModelMessage } from 'ai';
 import { buildRuntimeEventModelReplayPlan } from './model-history.js';
 import { toolResultOutput } from './ai-sdk-tool-output.js';
 import type { HistoryCompactSummaryInput } from './ai-sdk-backend.js';
+import { HistoryCompactSummarizerError } from './history-compact-error.js';
+
+export { HistoryCompactSummarizerError } from './history-compact-error.js';
 
 export interface AiSdkGenerateTextOptions {
   model: unknown;
@@ -15,16 +18,6 @@ export interface AiSdkGenerateTextOptions {
 export type AiSdkGenerateTextLike = (
   options: AiSdkGenerateTextOptions,
 ) => Promise<{ text: string; finishReason?: string }>;
-
-export class HistoryCompactSummarizerError extends Error {
-  constructor(
-    readonly reason: 'output_length' | 'provider_error',
-    options?: ErrorOptions,
-  ) {
-    super(`History compact summarizer failed: ${reason}`, options);
-    this.name = 'HistoryCompactSummarizerError';
-  }
-}
 
 export interface BuildLlmHistorySummarizerOptions {
   /** Resolve the AI SDK model used for summarization. Reuses the session model. */
@@ -91,7 +84,7 @@ export function buildLlmHistorySummarizer(options: BuildLlmHistorySummarizerOpti
         ...(options.providerOptions !== undefined ? { providerOptions: options.providerOptions } : {}),
         ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
       });
-      if (!result.text.trim() && result.finishReason === 'length') {
+      if (result.finishReason === 'length') {
         throw new HistoryCompactSummarizerError('output_length');
       }
       return result.text;

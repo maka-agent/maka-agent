@@ -152,6 +152,17 @@ describe('buildLlmHistorySummarizer', () => {
     ), /output_length/);
   });
 
+  test('rejects non-empty partial text when the provider exhausted its output budget', async () => {
+    const summarize = buildLlmHistorySummarizer({
+      resolveModel: () => 'fake-model',
+      generateText: async () => ({ text: '## Goal\npartial summary', finishReason: 'length' }),
+    });
+
+    await assert.rejects(summarize(
+      inputWith([ev({ role: 'user', author: 'user', content: { kind: 'text', text: 'hi' } })]),
+    ), /output_length/);
+  });
+
   test('returns undefined without calling generateText when there are no events to summarize', async () => {
     let called = false;
     const generateText: AiSdkGenerateTextLike = async () => {
