@@ -6,6 +6,7 @@
 // Bash / Write / Edit go through PermissionEngine.
 
 import { z } from 'zod';
+import { jsonSchema, zodSchema } from 'ai';
 import { realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { isAbsolute } from 'node:path';
@@ -106,13 +107,24 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
   const runtimeResourceReadParameters = z.object({
     ref: z.string().describe('A runtime resource ref returned by another tool'),
   }).strict();
+  const strictReadParameters = z.union([fileReadParameters, runtimeResourceReadParameters])
+    .describe('Read a file with path, or a whole runtime resource with ref; provide exactly one');
+  const strictReadProviderSchema = zodSchema(strictReadParameters);
   const readParameters = options.runtimeResources
-    ? z.object({
-        ...fileReadParameters.shape,
-        ...runtimeResourceReadParameters.shape,
-      }).partial().strict()
-        .describe('Read a file with path, or a whole runtime resource with ref; provide exactly one')
-        .pipe(z.union([fileReadParameters, runtimeResourceReadParameters]))
+    ? jsonSchema(
+        async () => ({
+          ...await strictReadProviderSchema.jsonSchema,
+          type: 'object',
+        }),
+        {
+          validate: async (value) => {
+            const result = await strictReadParameters.safeParseAsync(value);
+            return result.success
+              ? { success: true, value: result.data }
+              : { success: false, error: result.error };
+          },
+        },
+      )
     : fileReadParameters;
   const shell = options.shell ?? defaultShellPlan();
   const sandboxPlatform = options.sandboxPlatform ?? process.platform;

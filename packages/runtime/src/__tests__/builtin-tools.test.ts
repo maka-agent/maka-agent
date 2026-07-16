@@ -640,19 +640,25 @@ describe('builtin Bash streaming output', () => {
     } satisfies RuntimeResourceReader;
     const read = buildBuiltinTools({ runtimeResources }).find((tool) => tool.name === 'Read');
     if (!read) throw new Error('Read tool missing');
-    const parameters = read.parameters as z.ZodTypeAny;
-    expect(zodSchema(parameters).jsonSchema.type).toBe('object');
-    expect(parameters.safeParse({ path: 'README.md', offset: 2, limit: 10 }).success).toBe(true);
-    expect(parameters.safeParse({ ref: 'maka://runtime/background-tasks/shell-run-1' }).success).toBe(true);
-    expect(parameters.safeParse({}).success).toBe(false);
-    expect(parameters.safeParse({
+    const parameters = read.parameters as {
+      jsonSchema: PromiseLike<Record<string, unknown>> | Record<string, unknown>;
+      validate(value: unknown): PromiseLike<{ success: boolean }> | { success: boolean };
+    };
+    const providerSchema = await parameters.jsonSchema;
+    expect(providerSchema.type).toBe('object');
+    expect(Array.isArray(providerSchema.anyOf)).toBe(true);
+    expect((providerSchema.anyOf as unknown[]).length).toBe(2);
+    expect((await parameters.validate({ path: 'README.md', offset: 2, limit: 10 })).success).toBe(true);
+    expect((await parameters.validate({ ref: 'maka://runtime/background-tasks/shell-run-1' })).success).toBe(true);
+    expect((await parameters.validate({})).success).toBe(false);
+    expect((await parameters.validate({
       ref: 'maka://runtime/background-tasks/shell-run-1',
       offset: 2,
-    }).success).toBe(false);
-    expect(parameters.safeParse({
+    })).success).toBe(false);
+    expect((await parameters.validate({
       path: 'README.md',
       ref: 'maka://runtime/background-tasks/shell-run-1',
-    }).success).toBe(false);
+    })).success).toBe(false);
     const context = {
       sessionId: 'session-1',
       runId: 'run-1',
