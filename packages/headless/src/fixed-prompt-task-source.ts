@@ -58,6 +58,13 @@ export async function fingerprintFixedPromptTaskTree(tasks: readonly FixedPrompt
   return `sha256:${createHash('sha256').update(JSON.stringify({ schemaVersion: 1, tasks: taskEntries })).digest('hex')}`;
 }
 
+export async function fingerprintFixedPromptTask(task: FixedPromptTask): Promise<string> {
+  return `sha256:${createHash('sha256').update(JSON.stringify({
+    schemaVersion: 1,
+    task: { id: task.id, entries: await taskDirectoryEntries(task.path) },
+  })).digest('hex')}`;
+}
+
 async function taskDirectoryEntries(taskPath: string): Promise<Array<Record<string, string | boolean>>> {
   const root = resolve(taskPath);
   const entries: Array<Record<string, string | boolean>> = [];

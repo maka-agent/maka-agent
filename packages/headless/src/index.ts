@@ -4,6 +4,21 @@
 // package-local entrypoints, not the root API. Minimal usage is
 // `runExperiment(config, task, { storageRoot })`.
 export { runPromptOptimizationRun } from './prompt-optimization-run.js';
+export {
+  auditHarnessOracleRegistry,
+  HarnessOracleAuditExecutionError,
+  resolveHarnessOracleAnnotations,
+} from './harness-oracle-registry.js';
+export type {
+  AuditHarnessOracleRegistryInput,
+  HarnessOracleAnnotation,
+  HarnessOracleAnnotationState,
+  HarnessOracleAuditResult,
+  HarnessOracleAuditTask,
+  HarnessOracleQualificationIdentity,
+  HarnessOracleRegistryEntry,
+  HarnessOracleRegistrySnapshot,
+} from './harness-oracle-registry.js';
 export type { MakaChangeAuditRecord } from './change-audit.js';
 export type {
   PromptOptimizationRunInput,

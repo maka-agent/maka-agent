@@ -3,7 +3,10 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { fingerprintFixedPromptTaskTree } from '../fixed-prompt-task-source.js';
+import {
+  fingerprintFixedPromptTask,
+  fingerprintFixedPromptTaskTree,
+} from '../fixed-prompt-task-source.js';
 
 test('task tree fingerprint is root-independent and content-sensitive', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'maka-task-tree-'));
@@ -24,6 +27,26 @@ test('task tree fingerprint is root-independent and content-sensitive', async ()
       await fingerprintFixedPromptTaskTree([{ id: 'task-a', path: right }]),
       leftFingerprint,
     );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('per-task fingerprint is unaffected by another task changing', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'maka-task-identity-'));
+  try {
+    const taskA = { id: 'task-a', path: join(dir, 'task-a') };
+    const taskB = { id: 'task-b', path: join(dir, 'task-b') };
+    await mkdir(taskA.path, { recursive: true });
+    await mkdir(taskB.path, { recursive: true });
+    await writeFile(join(taskA.path, 'task.toml'), 'a-v1\n', 'utf8');
+    await writeFile(join(taskB.path, 'task.toml'), 'b-v1\n', 'utf8');
+    const before = await fingerprintFixedPromptTask(taskA);
+
+    await writeFile(join(taskB.path, 'task.toml'), 'b-v2\n', 'utf8');
+
+    assert.equal(await fingerprintFixedPromptTask(taskA), before);
+    assert.notEqual(await fingerprintFixedPromptTask(taskB), before);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

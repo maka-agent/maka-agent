@@ -44,6 +44,7 @@
     "#runtime-policy-ab-lifecycle": "./dist/runtime-policy-ab-lifecycle.js",
     "#harness-ab-manifest": "./dist/harness-ab-manifest.js",
     "#harness-qualification": "./dist/harness-qualification.js",
+    "#harness-oracle-registry": "./dist/harness-oracle-registry.js",
     "#harness-ab-run": "./dist/harness-ab-run.js",
     "#harness-ab-report": "./dist/harness-ab-report.js",
     "#prompt-structural-smoke": "./dist/prompt-structural-smoke.js"
