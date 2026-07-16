@@ -82,8 +82,8 @@ describe('desktop activeToolResultPrune policy', () => {
     assert.equal(policy?.historyCompact?.enabled, true);
     assert.equal(policy?.historyCompact?.mode, 'read_write');
     assert.equal(policy?.historyCompact?.highWaterRatio, 1);
-    assert.equal(policy?.historyCompact?.minRecentTurns, 3);
-    assert.equal(policy?.historyCompact?.tailEstimatedTokens, 16_384);
+    assert.equal(policy?.historyCompact?.minRecentTurns, undefined);
+    assert.equal(policy?.historyCompact?.tailEstimatedTokens, undefined);
   });
 
   test('enables mid-turn capacity compaction by default with the shared reserve (runtime-owned)', () => {

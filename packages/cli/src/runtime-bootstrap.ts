@@ -275,7 +275,7 @@ export async function createMakaCliRuntimeContext(
             modelId: ready.model,
             fetch: modelFetch,
           }),
-        maxOutputTokens: 4096,
+        providerOptions: buildProviderOptions(ready.connection, ready.model, header.thinkingLevel),
       }),
       recordHistoryCompactCheckpoint: ctx.recordHistoryCompactCheckpoint,
       loadTurnRuntimeEvents: ctx.loadTurnRuntimeEvents,

@@ -81,6 +81,24 @@ describe('history compact checkpoint', () => {
     }), /non-empty summary/);
   });
 
+  test('preserves the complete model-produced summary instead of truncating it after generation', () => {
+    const summary = [
+      '## Goal',
+      'Keep every section intact.',
+      '## Critical Context',
+      'LAST_REQUIRED_FACT',
+    ].join('\n').repeat(80);
+
+    const checkpoint = buildHistoryCompactCheckpoint({
+      sessionId: 'session-1',
+      coveredRuntimeEvents: [textEvent(0)],
+      summary,
+    });
+
+    assert.equal(checkpoint.summary, summary);
+    assert.ok(checkpoint.summary.endsWith('LAST_REQUIRED_FACT'));
+  });
+
   test('rejects a source projection assembled from more than one session', () => {
     assert.throws(() => buildHistoryCompactCheckpoint({
       sessionId: 'session-1',
@@ -342,7 +360,10 @@ describe('history compact checkpoint', () => {
   });
 
   test('replays a matching checkpoint with only the uncovered raw tail', () => {
-    const events = Array.from({ length: 8 }, (_, index) => textEvent(index));
+    const events = Array.from({ length: 8 }, (_, index) => ({
+      ...textEvent(index),
+      content: { kind: 'text' as const, text: `source-payload-${index} `.repeat(index < 4 ? 40 : 1) },
+    }));
     const checkpoint = buildHistoryCompactCheckpoint({
       sessionId: 'session-1',
       coveredRuntimeEvents: events.slice(0, 4),
@@ -370,8 +391,11 @@ describe('history compact checkpoint', () => {
     assert.equal(replay.checkpoint?.checkpointId, checkpoint.checkpointId);
   });
 
-  test('does not replay a checkpoint above the total compact budget', () => {
-    const events = Array.from({ length: 8 }, (_, index) => textEvent(index));
+  test('accepts a complete checkpoint above legacy block limits when the full replay fits', () => {
+    const events = Array.from({ length: 8 }, (_, index) => ({
+      ...textEvent(index),
+      content: { kind: 'text' as const, text: `source-payload-${index} `.repeat(index < 4 ? 80 : 1) },
+    }));
     const checkpoint = buildHistoryCompactCheckpoint({
       sessionId: 'session-1',
       coveredRuntimeEvents: events.slice(0, 4),
@@ -394,8 +418,8 @@ describe('history compact checkpoint', () => {
       },
     });
 
-    assert.equal(replay.checkpoint, undefined);
-    assert.equal(replay.events.some((event) => event.id === `history-compact:${checkpoint.checkpointId}`), false);
+    assert.equal(replay.checkpoint?.checkpointId, checkpoint.checkpointId);
+    assert.equal(replay.events.some((event) => event.id === `history-compact:${checkpoint.checkpointId}`), true);
   });
 
   test('applies max-history overrides to checkpoint replay validation', () => {

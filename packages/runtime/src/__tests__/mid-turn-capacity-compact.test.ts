@@ -131,8 +131,8 @@ describe('plan mid-turn capacity compaction', () => {
   // turn's head anchor and several completed steps.
   function longTurnEvents(): RuntimeEvent[] {
     return [
-      model('prior-0', 'turn-0'),
-      model('prior-1', 'turn-0'),
+      model('prior-0', 'turn-0', 'prior context zero '.repeat(80)),
+      model('prior-1', 'turn-0', 'prior context one '.repeat(80)),
       user('anchor', 'turn-1'),
       call('call-a', 'ca', 'turn-1'),
       result('res-a', 'ca', 'turn-1'),

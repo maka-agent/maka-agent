@@ -261,7 +261,7 @@ describe('Maka Pi TUI transcript', () => {
             sourceKind: 'runtimeEvents',
             decision: 'failedOpen',
             boundaryKind: 'historyCompact',
-            failOpenReason: 'write_failed',
+            failOpenReason: 'output_length',
           }],
         },
       }),
@@ -270,7 +270,7 @@ describe('Maka Pi TUI transcript', () => {
 
     await submitCompactToTranscript({ state, driver });
 
-    assert.ok(state.entries.some((entry) => entry.kind === 'notice' && entry.level === 'error' && entry.text === 'Context compaction skipped: write_failed.'));
+    assert.ok(state.entries.some((entry) => entry.kind === 'notice' && entry.level === 'error' && entry.text === 'Context compaction skipped: output_length.'));
     assert.equal(state.entries.some((entry) => entry.kind === 'notice' && entry.text === 'Nothing to compact.'), false);
   });
 

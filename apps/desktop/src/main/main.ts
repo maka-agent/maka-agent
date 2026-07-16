@@ -977,7 +977,7 @@ backends.register('ai-sdk', async (ctx) => {
       // summary stays consistent with the model that will consume it.
       resolveModel: () =>
         getAIModel({ connection, apiKey: apiKey ?? '', modelId: model, fetch: modelFetch }),
-      maxOutputTokens: 4096,
+      providerOptions: buildProviderOptions(connection, model, ctx.header.thinkingLevel),
     }),
     loadSynthesisCache: (event) => loadSynthesisCacheBlocksFromArtifacts(artifactStore, event),
     writeSynthesisCache: (event) => persistSynthesisCacheBlocksToArtifacts(artifactStore, event, {

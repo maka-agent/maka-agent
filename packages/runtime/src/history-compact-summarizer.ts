@@ -7,19 +7,30 @@ export interface AiSdkGenerateTextOptions {
   model: unknown;
   system: string;
   messages: ModelMessage[];
+  providerOptions?: Record<string, unknown>;
   maxOutputTokens?: number;
   abortSignal?: AbortSignal;
 }
 
 export type AiSdkGenerateTextLike = (
   options: AiSdkGenerateTextOptions,
-) => Promise<{ text: string }>;
+) => Promise<{ text: string; finishReason?: string }>;
+
+export class HistoryCompactSummarizerError extends Error {
+  constructor(
+    readonly reason: 'output_length' | 'provider_error',
+    options?: ErrorOptions,
+  ) {
+    super(`History compact summarizer failed: ${reason}`, options);
+    this.name = 'HistoryCompactSummarizerError';
+  }
+}
 
 export interface BuildLlmHistorySummarizerOptions {
   /** Resolve the AI SDK model used for summarization. Reuses the session model. */
   resolveModel: () => unknown;
-  /** Optional cap on the generated summary length. */
-  maxOutputTokens?: number;
+  /** Session provider settings, including the selected reasoning level. */
+  providerOptions?: Record<string, unknown>;
   /** Injectable `generateText` for tests; defaults to the real AI SDK export. */
   generateText?: AiSdkGenerateTextLike;
 }
@@ -77,13 +88,16 @@ export function buildLlmHistorySummarizer(options: BuildLlmHistorySummarizerOpti
         model: options.resolveModel(),
         system: SUMMARIZATION_SYSTEM_PROMPT,
         messages,
-        ...(options.maxOutputTokens !== undefined ? { maxOutputTokens: options.maxOutputTokens } : {}),
+        ...(options.providerOptions !== undefined ? { providerOptions: options.providerOptions } : {}),
         ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
       });
+      if (!result.text.trim() && result.finishReason === 'length') {
+        throw new HistoryCompactSummarizerError('output_length');
+      }
       return result.text;
-    } catch {
-      // Fail-open: the caller chooses the safe fallback for an initial or rolling summary failure.
-      return undefined;
+    } catch (error) {
+      if (error instanceof HistoryCompactSummarizerError) throw error;
+      throw new HistoryCompactSummarizerError('provider_error', { cause: error });
     }
   };
 }

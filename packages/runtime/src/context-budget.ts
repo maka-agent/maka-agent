@@ -70,12 +70,13 @@ export type HistoryCompactCheckpointReplayFit =
       fits: false;
       checkpointTokens: number;
       replayTokens: number;
-      reason: 'max_block_tokens' | 'max_total_tokens' | 'prefix_over_budget';
+      reason: 'prefix_over_budget' | 'replacement_not_smaller';
     };
 
 export interface HistoryCompactReplayOptions {
   charsPerToken?: number;
   maxHistoryEstimatedTokens?: number;
+  sourceReplayEvents?: readonly RuntimeEvent[];
 }
 
 /** The single current-policy gate for every checkpoint entering model replay. */
@@ -89,22 +90,17 @@ export function evaluateHistoryCompactCheckpointReplay(
   const checkpointEvent = historyCompactCheckpointToRuntimeEvent(checkpoint);
   const checkpointTokens = estimateRuntimeEventsTokens([checkpointEvent], charsPerToken);
   const replayTokens = estimateRuntimeEventsTokens([checkpointEvent, ...replayTail], charsPerToken);
-  const compactPolicy = policy.historyCompact;
-  const maxBlockTokens = finitePositive(compactPolicy?.maxBlockEstimatedTokens)
-    ?? finitePositive(compactPolicy?.maxSummaryEstimatedTokens)
-    ?? 1_024;
-  if (checkpointTokens > maxBlockTokens) {
-    return { fits: false, checkpointTokens, replayTokens, reason: 'max_block_tokens' };
-  }
-  const maxTotalTokens = finitePositive(compactPolicy?.maxEstimatedTokens) ?? 2_048;
-  if (checkpointTokens > maxTotalTokens) {
-    return { fits: false, checkpointTokens, replayTokens, reason: 'max_total_tokens' };
-  }
   const maxHistoryTokens = finitePositive(
     options.maxHistoryEstimatedTokens ?? policy.maxHistoryEstimatedTokens,
   );
   if (maxHistoryTokens !== undefined && replayTokens > maxHistoryTokens) {
     return { fits: false, checkpointTokens, replayTokens, reason: 'prefix_over_budget' };
+  }
+  if (options.sourceReplayEvents) {
+    const sourceReplayTokens = estimateRuntimeEventsTokens(options.sourceReplayEvents, charsPerToken);
+    if (replayTokens >= sourceReplayTokens) {
+      return { fits: false, checkpointTokens, replayTokens, reason: 'replacement_not_smaller' };
+    }
   }
   return { fits: true, checkpointTokens, replayTokens };
 }
@@ -278,23 +274,23 @@ export interface HistoryCompactPolicy {
   blocks?: readonly HistoryCompactBlock[];
   /** V2 checkpoint loaded from the run ledger. Preferred over legacy V1 blocks. */
   checkpoint?: HistoryCompactCheckpoint;
-  /** Defaults to 1 to keep replay bounded and deterministic. */
+  /** Legacy V1 deterministic-block limit. V2 LLM checkpoints are validated as a complete replay. */
   maxBlocks?: number;
-  /** Defaults to 2048 to keep replay bounded and deterministic. */
+  /** Legacy V1 deterministic-block token limit. V2 LLM checkpoints use the history capacity. */
   maxEstimatedTokens?: number;
-  /** Defaults to maxSummaryEstimatedTokens, then 1024, to reject a single over-large compact block. */
+  /** Legacy V1 per-block token limit. V2 LLM checkpoints are not truncated to this size. */
   maxBlockEstimatedTokens?: number;
   /** Compact once prior history exceeds this ratio of maxHistoryEstimatedTokens. Defaults to 0.8. */
   highWaterRatio?: number;
   /** Diagnostic high-water ratio reserved for future forced compaction. Defaults to 0.9. */
   forceRatio?: number;
-  /** Try to keep the retained tail under this ratio of maxHistoryEstimatedTokens. Defaults to 0.5. */
+  /** @deprecated Ignored. History compaction keeps the latest structural continuation seam. */
   targetRatio?: number;
-  /** Explicit retained-tail token budget. Overrides targetRatio when provided. */
+  /** @deprecated Ignored. History compaction keeps the latest structural continuation seam. */
   tailEstimatedTokens?: number;
-  /** Requested recent turns after compaction; history compact tail selection is token-cap first and may keep fewer. */
+  /** @deprecated Ignored. History compaction keeps exactly the latest complete turn at turn boundaries. */
   minRecentTurns?: number;
-  /** Maximum deterministic summary estimate. Defaults to 768. */
+  /** Legacy V1 deterministic-summary estimate. Defaults to 768. */
   maxSummaryEstimatedTokens?: number;
   /** Current block schema version. Defaults to 1. */
   summarySchemaVersion?: 1;
@@ -698,6 +694,7 @@ export function applyRuntimeEventHistoryCompact(
       const fit = evaluateHistoryCompactCheckpointReplay(midTurnCheckpoint, replayTail, policy!, {
         charsPerToken,
         maxHistoryEstimatedTokens: maxTokens,
+        sourceReplayEvents: [...match.coveredRuntimeEvents, ...match.successorRuntimeEvents],
       });
       if (!fit.fits) {
         increment(skippedReasonCounts, fit.reason);
@@ -768,13 +765,7 @@ export function applyRuntimeEventHistoryCompact(
     };
   }
 
-  const targetRatio = finiteRatio(compactPolicy.targetRatio, 0.5);
-  const tailBudget =
-    finitePositive(compactPolicy.tailEstimatedTokens)
-    ?? Math.max(1, Math.floor(maxTokens * targetRatio));
-  const tailSelection = selectHistoryCompactTailEvents(turnGroups, {
-    tailBudget,
-  });
+  const tailSelection = selectHistoryCompactTailEvents(turnGroups);
   const retainedEventIds = tailSelection.eventIds;
   const tailTurnIds = tailSelection.turnIds;
   const foldedEvents = compactableEvents.filter((event) => !retainedEventIds.has(event.id));
@@ -818,6 +809,7 @@ export function applyRuntimeEventHistoryCompact(
       const fit = evaluateHistoryCompactCheckpointReplay(checkpoint, replayTail, policy!, {
         charsPerToken,
         maxHistoryEstimatedTokens: maxTokens,
+        sourceReplayEvents: [...match.coveredRuntimeEvents, ...replayTail],
       });
       if (!fit.fits) {
         increment(skippedReasonCounts, fit.reason);
@@ -1706,43 +1698,14 @@ function groupEventsByTurn(events: readonly RuntimeEvent[], charsPerToken: numbe
 
 function selectHistoryCompactTailEvents(
   turnGroups: ReadonlyArray<{ turnId: string; estimatedTokens: number; events: readonly RuntimeEvent[] }>,
-  options: { tailBudget: number },
 ): { eventIds: Set<string>; turnIds: Set<string> } {
   const eventIds = new Set<string>();
   const turnIds = new Set<string>();
-  let selectedTokens = 0;
-  for (let index = turnGroups.length - 1; index >= 0; index -= 1) {
-    const group = turnGroups[index]!;
-    const wouldExceedBudget = selectedTokens + group.estimatedTokens > options.tailBudget;
-    if (wouldExceedBudget) {
-      if (eventIds.size === 0) {
-        const fallbackIds = latestCompleteStepEventIds(group.events);
-        for (const id of fallbackIds) eventIds.add(id);
-        if (fallbackIds.length > 0) turnIds.add(group.turnId);
-      }
-      break;
-    }
-    turnIds.add(group.turnId);
-    for (const event of group.events) eventIds.add(event.id);
-    selectedTokens += group.estimatedTokens;
-  }
+  const latest = turnGroups.at(-1);
+  if (!latest) return { eventIds, turnIds };
+  turnIds.add(latest.turnId);
+  for (const event of latest.events) eventIds.add(event.id);
   return { eventIds, turnIds };
-}
-
-function latestCompleteStepEventIds(events: readonly RuntimeEvent[]): string[] {
-  for (let index = events.length - 1; index >= 0; index -= 1) {
-    const event = events[index]!;
-    if (event.content?.kind !== 'function_response') continue;
-    const responseId = event.content.id;
-    for (let callIndex = index - 1; callIndex >= 0; callIndex -= 1) {
-      const call = events[callIndex]!;
-      if (call.content?.kind === 'function_call' && call.content.id === responseId) {
-        return [call.id, event.id];
-      }
-    }
-  }
-  const latest = events.at(-1);
-  return latest ? [latest.id] : [];
 }
 
 function selectLoadedHistoryCompactBlock(

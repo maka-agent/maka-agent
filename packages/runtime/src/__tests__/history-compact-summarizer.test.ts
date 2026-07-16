@@ -5,9 +5,10 @@
  * Run: `npm --workspace @maka/runtime run test`
  */
 import { describe, test } from 'node:test';
+import assert from 'node:assert/strict';
 import { expect } from '../test-helpers.js';
 import type { RuntimeEvent, RuntimeEventContent } from '@maka/core/runtime-event';
-import type { HistoryCompactWriteInput } from '../ai-sdk-backend.js';
+import type { HistoryCompactSummaryInput } from '../ai-sdk-backend.js';
 import { buildLlmHistorySummarizer, type AiSdkGenerateTextLike } from '../history-compact-summarizer.js';
 import { buildHistoryCompactCheckpoint } from '../history-compact-checkpoint.js';
 
@@ -27,20 +28,11 @@ function ev(overrides: Partial<RuntimeEvent> & { content?: RuntimeEventContent }
   } as RuntimeEvent;
 }
 
-function inputWith(events: RuntimeEvent[], abortSignal?: AbortSignal): HistoryCompactWriteInput {
+function inputWith(events: RuntimeEvent[], abortSignal?: AbortSignal): HistoryCompactSummaryInput {
   return {
     sessionId: 'sess-1',
     turnId: 'turn-1',
-    source: {
-      draftBlock: {} as HistoryCompactWriteInput['source']['draftBlock'],
-      foldedRuntimeEvents: events,
-    },
-    limits: {
-      maxBlocks: 1,
-      maxBlockEstimatedTokens: 2048,
-      maxEstimatedTokens: 4096,
-      charsPerToken: 4,
-    },
+    source: { foldedRuntimeEvents: events },
     ...(abortSignal ? { abortSignal } : {}),
   };
 }
@@ -78,6 +70,26 @@ describe('buildLlmHistorySummarizer', () => {
     // summarizer 收到的是模型可见的含 tool 对话，而不是纯文本摘要
     expect(serialized).toContain('package.json');
     expect(serialized).toContain('maka');
+  });
+
+  test('inherits the session provider options without imposing a compaction-only output cap', async () => {
+    let seen: Parameters<AiSdkGenerateTextLike>[0] | undefined;
+    const providerOptions = { openaiCompatible: { reasoningEffort: 'high' } };
+    const summarize = buildLlmHistorySummarizer({
+      resolveModel: () => 'fake-model',
+      providerOptions,
+      generateText: async (options) => {
+        seen = options;
+        return { text: '## Goal\nX' };
+      },
+    });
+
+    await summarize(inputWith([
+      ev({ role: 'user', author: 'user', content: { kind: 'text', text: 'hi' } }),
+    ]));
+
+    expect(seen?.providerOptions).toBe(providerOptions);
+    expect(seen?.maxOutputTokens).toBe(undefined);
   });
 
   test('produces schema-valid tool-result messages (toolName + wrapped output) and does not fall back', async () => {
@@ -118,17 +130,26 @@ describe('buildLlmHistorySummarizer', () => {
     expect(toolPart.output).toEqual({ type: 'json', value: { name: 'maka' } });
   });
 
-  test('fail-open: returns undefined when generateText throws, so runtime falls back to the draft', async () => {
+  test('surfaces provider failures so the runtime can report the real compact reason', async () => {
     const generateText: AiSdkGenerateTextLike = async () => {
       throw new Error('model down');
     };
     const summarize = buildLlmHistorySummarizer({ resolveModel: () => 'fake-model', generateText });
 
-    const result = await summarize(
+    await assert.rejects(summarize(
       inputWith([ev({ role: 'user', author: 'user', content: { kind: 'text', text: 'hi' } })]),
-    );
+    ), /provider_error/);
+  });
 
-    expect(result).toBe(undefined);
+  test('surfaces an exhausted output budget instead of reporting a generic empty summary', async () => {
+    const summarize = buildLlmHistorySummarizer({
+      resolveModel: () => 'fake-model',
+      generateText: async () => ({ text: '', finishReason: 'length' }),
+    });
+
+    await assert.rejects(summarize(
+      inputWith([ev({ role: 'user', author: 'user', content: { kind: 'text', text: 'hi' } })]),
+    ), /output_length/);
   });
 
   test('returns undefined without calling generateText when there are no events to summarize', async () => {

@@ -186,6 +186,7 @@ import {
   type ToolResultArchiveReader,
   type ToolResultArchiveRef,
 } from './context-budget.js';
+import { HistoryCompactSummarizerError } from './history-compact-summarizer.js';
 import {
   buildHistoryCompactCheckpoint,
   historyCompactCheckpointToRuntimeEvent,
@@ -668,9 +669,14 @@ export type HistoryCompactLoader = (
 export type HistoryCompactWriter = (
   input: HistoryCompactWriteInput,
 ) => Promise<HistoryCompactWriteResult | void> | HistoryCompactWriteResult | void;
-export interface HistoryCompactSummaryInput extends HistoryCompactWriteInput {
+export interface HistoryCompactSummaryInput {
+  sessionId: string;
+  turnId: string;
+  source: { foldedRuntimeEvents: RuntimeEvent[] };
   previousCheckpoint?: HistoryCompactCheckpoint;
   newlyFoldedRuntimeEvents?: RuntimeEvent[];
+  requestShapeHashBefore?: string;
+  abortSignal?: AbortSignal;
 }
 export type HistoryCompactSummarizer = (
   input: HistoryCompactSummaryInput,
@@ -1055,9 +1061,6 @@ export class AiSdkBackend implements AgentBackend {
         enabled: true,
         mode: 'read_write',
         highWaterRatio: 0.000001,
-        targetRatio: current?.targetRatio ?? 0.2,
-        tailEstimatedTokens: 1,
-        minRecentTurns: current?.minRecentTurns ?? base.minRecentTurns ?? 1,
         maxBlocks: current?.maxBlocks ?? 1,
         maxEstimatedTokens: current?.maxEstimatedTokens ?? 2048,
         maxBlockEstimatedTokens: current?.maxBlockEstimatedTokens ?? current?.maxSummaryEstimatedTokens ?? 1024,
@@ -2882,9 +2885,6 @@ export class AiSdkBackend implements AgentBackend {
     const midTurn = compactPolicy.midTurn!;
     const charsPerToken = policy.charsPerToken ?? 4;
     const reserveTokens = midTurn.reserveTokens ?? 16_384;
-    const maxSummaryEstimatedTokens = compactPolicy.maxBlockEstimatedTokens
-      ?? compactPolicy.maxSummaryEstimatedTokens
-      ?? 1_024;
 
     // Coverage pool = the durable run ledger, read through the injected
     // seam. Covered events are persisted by construction (no crash window
@@ -2947,28 +2947,12 @@ export class AiSdkBackend implements AgentBackend {
       charsPerToken,
       now: this.now(),
       ...(compactPolicy.highWaterName !== undefined ? { highWaterName: compactPolicy.highWaterName } : {}),
-      maxSummaryEstimatedTokens,
       ...(state.previousCheckpoint ? { previousCheckpoint: state.previousCheckpoint } : {}),
       summarize: async ({ coveredRuntimeEvents, newlyFoldedRuntimeEvents, previousCheckpoint }) => {
-        const draftBlock = buildHistoryCompactBlockFromSummary({
-          sessionId: this.sessionId,
-          foldedRuntimeEvents: coveredRuntimeEvents,
-          summary: 'Mid-turn capacity compaction draft.',
-          ...(compactPolicy.highWaterName !== undefined ? { highWaterName: compactPolicy.highWaterName } : {}),
-          maxSummaryEstimatedTokens,
-          charsPerToken,
-          now: this.now(),
-        });
         return await Promise.resolve(summarizer({
           sessionId: this.sessionId,
           turnId,
-          source: { draftBlock, foldedRuntimeEvents: [...coveredRuntimeEvents] },
-          limits: {
-            maxBlocks: 1,
-            maxBlockEstimatedTokens: maxSummaryEstimatedTokens,
-            maxEstimatedTokens: compactPolicy.maxEstimatedTokens ?? 2_048,
-            charsPerToken,
-          },
+          source: { foldedRuntimeEvents: [...coveredRuntimeEvents] },
           ...(previousCheckpoint ? { previousCheckpoint } : {}),
           newlyFoldedRuntimeEvents: [...newlyFoldedRuntimeEvents],
           ...(this.abortController?.signal ? { abortSignal: this.abortController.signal } : {}),
@@ -3599,6 +3583,7 @@ export class AiSdkBackend implements AgentBackend {
         previousCheckpoint,
         retainedRuntimeEvents,
         input.contextBudget,
+        { sourceReplayEvents: [...foldedRuntimeEvents, ...retainedRuntimeEvents] },
       ).fits;
     if (previousCheckpoint && newlyFoldedRuntimeEvents.length === 0 && previousCheckpointFitsCurrentLimits) {
       return {
@@ -3631,16 +3616,7 @@ export class AiSdkBackend implements AgentBackend {
       const summary = await Promise.resolve(summarizer({
         sessionId: this.sessionId,
         turnId: input.turnId,
-        source: { draftBlock: input.draftBlock, foldedRuntimeEvents },
-        limits: {
-          maxBlocks: 1,
-          maxBlockEstimatedTokens:
-            input.contextBudget.historyCompact?.maxBlockEstimatedTokens
-            ?? input.contextBudget.historyCompact?.maxSummaryEstimatedTokens
-            ?? 1_024,
-          maxEstimatedTokens: input.contextBudget.historyCompact?.maxEstimatedTokens ?? 2_048,
-          charsPerToken: input.contextBudget.charsPerToken ?? 4,
-        },
+        source: { foldedRuntimeEvents },
         ...(previousCheckpoint ? { previousCheckpoint } : {}),
         newlyFoldedRuntimeEvents,
         requestShapeHashBefore: this.priorRequestShape?.requestShapeHash,
@@ -3668,18 +3644,34 @@ export class AiSdkBackend implements AgentBackend {
         summary,
         highWaterName: input.draftBlock.highWaterName,
         highWaterSeq: input.draftBlock.highWaterSeq,
-        maxSummaryEstimatedTokens: input.contextBudget.historyCompact?.maxBlockEstimatedTokens
-          ?? input.contextBudget.historyCompact?.maxSummaryEstimatedTokens,
         ...(previousCheckpoint ? { previousCheckpointId: previousCheckpoint.checkpointId } : {}),
         charsPerToken: input.contextBudget.charsPerToken,
         now: this.now(),
       });
-      if (!evaluateHistoryCompactCheckpointReplay(
+      const replayFit = evaluateHistoryCompactCheckpointReplay(
         checkpoint,
         retainedRuntimeEvents,
         input.contextBudget,
-      ).fits) {
-        throw new Error('History compact checkpoint exceeds current replay limits');
+        { sourceReplayEvents: [...foldedRuntimeEvents, ...retainedRuntimeEvents] },
+      );
+      const rejectedReason = !replayFit.fits
+        ? replayFit.reason
+        : undefined;
+      if (rejectedReason) {
+        return {
+          ...(previousCheckpoint ? { fallbackCheckpoint: previousCheckpoint } : {}),
+          diagnosticPatch: {
+            historyCompactEnabled: true,
+            historyCompactMode: 'read_write',
+            historyCompactWritesAttempted: 1,
+            historyCompactWriteFailures: 1,
+            historyCompactWriteSkippedReasonCounts: { [rejectedReason]: 1 },
+            ...compactionDecisionDiagnosticPatch({
+              stage: 'priorReplay', sourceKind: 'runtimeEvents', decision: 'failedOpen',
+              boundaryKind: 'historyCompact', failOpenReason: rejectedReason,
+            }),
+          },
+        };
       }
       await Promise.resolve(recorder(checkpoint, input.turnId));
       return {
@@ -3698,7 +3690,10 @@ export class AiSdkBackend implements AgentBackend {
           highWaterReason: 'history_compact',
         },
       };
-    } catch {
+    } catch (error) {
+      const failureReason = error instanceof HistoryCompactSummarizerError
+        ? error.reason
+        : 'write_failed';
       return {
         ...(previousCheckpoint ? { fallbackCheckpoint: previousCheckpoint } : {}),
         diagnosticPatch: {
@@ -3706,9 +3701,10 @@ export class AiSdkBackend implements AgentBackend {
           historyCompactMode: 'read_write',
           historyCompactWritesAttempted: 1,
           historyCompactWriteFailures: 1,
+          historyCompactWriteSkippedReasonCounts: { [failureReason]: 1 },
           ...compactionDecisionDiagnosticPatch({
             stage: 'priorReplay', sourceKind: 'runtimeEvents', decision: 'failedOpen',
-            boundaryKind: 'historyCompact', failOpenReason: 'write_failed',
+            boundaryKind: 'historyCompact', failOpenReason: failureReason,
           }),
         },
       };
@@ -4366,7 +4362,9 @@ function buildHistoryCompactCheckpointFailOpenContext(
     selectedTokens += groupTokens;
   }
   const replayTail = selectedGroups.flat();
-  return evaluateHistoryCompactCheckpointReplay(checkpoint, replayTail, policy).fits
+  return evaluateHistoryCompactCheckpointReplay(checkpoint, replayTail, policy, {
+    sourceReplayEvents: [...match.coveredRuntimeEvents, ...replayTail],
+  }).fits
     ? [checkpointEvent, ...replayTail]
     : [...retainedCandidates];
 }

@@ -72,7 +72,6 @@ export interface BuildHistoryCompactCheckpointInput {
   summary: string;
   highWaterName?: string;
   highWaterSeq?: number;
-  maxSummaryEstimatedTokens?: number;
   previousCheckpointId?: string;
   now?: number;
   charsPerToken?: number;
@@ -145,10 +144,6 @@ export function buildHistoryCompactCheckpoint(
     headAnchor = { runtimeEventId: input.headAnchor.runtimeEventId, turnId: input.headAnchor.turnId };
   }
   const charsPerToken = input.charsPerToken ?? 4;
-  const maxSummaryChars = Math.max(80, (input.maxSummaryEstimatedTokens ?? 1_024) * Math.max(1, charsPerToken));
-  const boundedSummary = summary.length <= maxSummaryChars
-    ? summary
-    : `${summary.slice(0, Math.max(0, maxSummaryChars - 1)).trimEnd()}…`;
   const lastEvent = input.coveredRuntimeEvents.at(-1)!;
   const createdAt = input.coveredRuntimeEvents.reduce(
     (latest, event) => Math.max(latest, event.ts),
@@ -174,7 +169,7 @@ export function buildHistoryCompactCheckpoint(
     highWaterSeq,
     source,
     coverage,
-    summary: boundedSummary,
+    summary,
     previousCheckpointId: input.previousCheckpointId,
     // Only hash the phase/anchor when set so pre_turn checkpoint ids stay stable.
     ...(phase ? { phase, headAnchor } : {}),
@@ -191,7 +186,7 @@ export function buildHistoryCompactCheckpoint(
     coverage,
     ...(phase ? { phase } : {}),
     ...(headAnchor ? { headAnchor } : {}),
-    summary: boundedSummary,
+    summary,
     limitations: [
       'Replay-time summary of the covered RuntimeEvent prefix.',
       'RuntimeEvent ledger remains the source of truth when exact wording matters.',

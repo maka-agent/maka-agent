@@ -84,8 +84,6 @@ export function buildManualCompactLookupPolicy(
       enabled: true,
       mode: 'lookup',
       highWaterRatio: 0.000001,
-      tailEstimatedTokens: 1,
-      minRecentTurns: current?.minRecentTurns ?? budgetedPolicy.minRecentTurns ?? 1,
       maxBlocks: current?.maxBlocks ?? 1,
       maxEstimatedTokens: current?.maxEstimatedTokens ?? 2_048,
       maxBlockEstimatedTokens: current?.maxBlockEstimatedTokens ?? 1_024,
@@ -184,9 +182,6 @@ function buildHistoryCompactPolicy(
   if (enabled === false) return undefined;
   const highWaterRatio = parseOptionalRatio(env.MAKA_CONTEXT_HISTORY_COMPACT_HIGH_WATER_RATIO);
   const forceRatio = parseOptionalRatio(env.MAKA_CONTEXT_HISTORY_COMPACT_FORCE_RATIO);
-  const targetRatio = parseOptionalRatio(env.MAKA_CONTEXT_HISTORY_COMPACT_TARGET_RATIO);
-  const tailEstimatedTokens = parseOptionalPositiveInt(env.MAKA_CONTEXT_HISTORY_COMPACT_TAIL_TOKENS);
-  const minRecentTurns = parseOptionalPositiveInt(env.MAKA_CONTEXT_HISTORY_COMPACT_MIN_RECENT_TURNS);
   const maxSummaryEstimatedTokens = parseOptionalPositiveInt(env.MAKA_CONTEXT_HISTORY_COMPACT_MAX_SUMMARY_TOKENS);
   const midTurn = buildHistoryCompactMidTurnPolicy(env, reserveTokens);
   return {
@@ -194,9 +189,6 @@ function buildHistoryCompactPolicy(
     mode: parseHistoryCompactMode(env.MAKA_CONTEXT_HISTORY_COMPACT_MODE),
     highWaterRatio: highWaterRatio ?? 1,
     ...(forceRatio !== undefined ? { forceRatio } : {}),
-    ...(targetRatio !== undefined ? { targetRatio } : {}),
-    tailEstimatedTokens: tailEstimatedTokens ?? 16_384,
-    minRecentTurns: minRecentTurns ?? 3,
     ...(maxSummaryEstimatedTokens !== undefined ? { maxSummaryEstimatedTokens } : {}),
     maxBlocks: parsePositiveInt(env.MAKA_CONTEXT_HISTORY_COMPACT_MAX_BLOCKS, 1),
     maxEstimatedTokens: parsePositiveInt(env.MAKA_CONTEXT_HISTORY_COMPACT_MAX_TOKENS, 2048),

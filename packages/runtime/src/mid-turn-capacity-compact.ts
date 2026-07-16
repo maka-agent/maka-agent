@@ -198,7 +198,6 @@ export interface PlanMidTurnCapacityCompactionInput {
   now?: number;
   highWaterName?: string;
   highWaterSeq?: number;
-  maxSummaryEstimatedTokens?: number;
   previousCheckpoint?: HistoryCompactCheckpoint;
   summarize: MidTurnSummarizer;
 }
@@ -291,9 +290,6 @@ export async function planMidTurnCapacityCompaction(
     headAnchor: input.headAnchor,
     ...(input.highWaterName !== undefined ? { highWaterName: input.highWaterName } : {}),
     ...(input.highWaterSeq !== undefined ? { highWaterSeq: input.highWaterSeq } : {}),
-    ...(input.maxSummaryEstimatedTokens !== undefined
-      ? { maxSummaryEstimatedTokens: input.maxSummaryEstimatedTokens }
-      : {}),
     ...(previousCheckpoint ? { previousCheckpointId: previousCheckpoint.checkpointId } : {}),
     charsPerToken,
     ...(input.now !== undefined ? { now: input.now } : {}),

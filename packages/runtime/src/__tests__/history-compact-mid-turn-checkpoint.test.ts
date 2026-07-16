@@ -14,8 +14,8 @@ describe('mid-turn history compact checkpoint', () => {
   test('builds a mid_turn checkpoint that re-renders the covered head anchor verbatim', () => {
     // [prior turn user, prior turn model, head anchor user, current step model]
     const events = [
-      textEvent('prior-user', 'turn-0', 'user'),
-      textEvent('prior-model', 'turn-0', 'model'),
+      textEvent('prior-user', 'turn-0', 'user', 'prior user context '.repeat(80)),
+      textEvent('prior-model', 'turn-0', 'model', 'prior model context '.repeat(80)),
       textEvent('anchor', 'turn-1', 'user'),
       textEvent('step-model', 'turn-1', 'model'),
     ];
@@ -179,8 +179,8 @@ describe('mid-turn history compact checkpoint', () => {
 
   test('replays a mid_turn checkpoint as [block, verbatim head anchor, uncovered tail]', () => {
     const events = [
-      textEvent('prior-user', 'turn-0', 'user'),
-      textEvent('prior-model', 'turn-0', 'model'),
+      textEvent('prior-user', 'turn-0', 'user', 'prior user context '.repeat(80)),
+      textEvent('prior-model', 'turn-0', 'model', 'prior model context '.repeat(80)),
       textEvent('anchor', 'turn-1', 'user'),
       textEvent('step-model', 'turn-1', 'model'),
       textEvent('step-tool', 'turn-1', 'model'),
@@ -197,7 +197,7 @@ describe('mid-turn history compact checkpoint', () => {
     // water, and the accepted mid_turn checkpoint must STILL replay — the
     // covered raw span may never be re-injected on recovery.
     const replay = applyRuntimeEventHistoryCompact(events, {
-      maxHistoryEstimatedTokens: 1_000,
+      maxHistoryEstimatedTokens: 10_000,
       charsPerToken: 1,
       historyCompact: { enabled: true, mode: 'read_write', checkpoint },
     });
@@ -214,7 +214,7 @@ describe('mid-turn history compact checkpoint', () => {
   });
 });
 
-function textEvent(id: string, turnId: string, role: 'user' | 'model'): RuntimeEvent {
+function textEvent(id: string, turnId: string, role: 'user' | 'model', text = `payload-${id}`): RuntimeEvent {
   return {
     id,
     sessionId: 'session-1',
@@ -225,6 +225,6 @@ function textEvent(id: string, turnId: string, role: 'user' | 'model'): RuntimeE
     partial: false,
     role,
     author: role === 'user' ? 'user' : 'agent',
-    content: { kind: 'text', text: `payload-${id}` },
+    content: { kind: 'text', text },
   };
 }

@@ -50,6 +50,7 @@ import { memoryArtifactStore } from './memory-artifact-store.js';
 import { buildRuntimeEventModelReplayPlan } from '../model-history.js';
 import type { ActiveFullCompactBlock } from '../active-full-compact.js';
 import type { SemanticCompactBlock } from '../semantic-compact.js';
+import { HistoryCompactSummarizerError } from '../history-compact-summarizer.js';
 
 describe('AiSdkBackend model history', () => {
   test('prefers RuntimeEvent prior messages and appends current user once', async () => {
@@ -1709,14 +1710,14 @@ describe('AiSdkBackend model history', () => {
           turnId: 'turn-old-1',
           role: 'user',
           author: 'user',
-          text: 'manual v2 old alpha '.repeat(12),
+          text: 'manual v2 old alpha '.repeat(100),
         }),
         runtimeTextEvent({
           id: 'manual-v2-old-2',
           turnId: 'turn-old-2',
           role: 'model',
           author: 'agent',
-          text: 'manual v2 old beta '.repeat(12),
+          text: 'manual v2 old beta '.repeat(100),
         }),
         runtimeTextEvent({
           id: 'manual-v2-recent',
@@ -2002,6 +2003,71 @@ describe('AiSdkBackend model history', () => {
 
     assert.equal(recordCalls, 0);
     assert.equal(result.contextBudget?.historyCompactWriteFailures, 1);
+  });
+
+  test('manual compactHistory rejects a complete summary that makes the full replay larger', async () => {
+    let recordCalls = 0;
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1', header: header(), appendMessage: async () => {},
+      connection: connection(), apiKey: 'sk-test', modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => completionModel(), tools: [], newId: idGenerator(), now: monotonicClock(),
+      contextBudget: {
+        name: 'manual-v2-larger-replacement-test', maxHistoryEstimatedTokens: 10_000,
+        minRecentTurns: 1, charsPerToken: 1,
+        historyCompact: { enabled: true },
+      },
+      summarizeHistoryCompact: async () => 'LARGER_SUMMARY '.repeat(100),
+      recordHistoryCompactCheckpoint: () => { recordCalls += 1; },
+    });
+
+    const result = await backend.compactHistory({
+      turnId: 'turn-compact',
+      runtimeContext: [
+        runtimeTextEvent({
+          id: 'manual-v2-larger-old-1', turnId: 'manual-v2-larger-turn-1',
+          role: 'user', author: 'user', text: 'old alpha',
+        }),
+        runtimeTextEvent({
+          id: 'manual-v2-larger-old-2', turnId: 'manual-v2-larger-turn-2',
+          role: 'model', author: 'agent', text: 'old beta',
+        }),
+        runtimeTextEvent({
+          id: 'manual-v2-larger-recent', turnId: 'manual-v2-larger-recent-turn',
+          role: 'user', author: 'user', text: 'recent tail',
+        }),
+      ],
+    });
+
+    assert.equal(recordCalls, 0);
+    assert.equal(result.contextBudget?.historyCompactWriteFailures, 1);
+    assert.equal(result.contextBudget?.compactionDecisions?.[0]?.failOpenReason, 'replacement_not_smaller');
+  });
+
+  test('manual compactHistory reports output-length exhaustion instead of empty_summary', async () => {
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1', header: header(), appendMessage: async () => {},
+      connection: connection(), apiKey: 'sk-test', modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => completionModel(), tools: [], newId: idGenerator(), now: monotonicClock(),
+      contextBudget: {
+        name: 'manual-v2-output-length-test', maxHistoryEstimatedTokens: 10_000,
+        charsPerToken: 1, historyCompact: { enabled: true },
+      },
+      summarizeHistoryCompact: async () => { throw new HistoryCompactSummarizerError('output_length'); },
+      recordHistoryCompactCheckpoint: () => { throw new Error('must not persist'); },
+    });
+
+    const result = await backend.compactHistory({
+      turnId: 'turn-compact',
+      runtimeContext: [
+        runtimeTextEvent({ id: 'output-length-old', turnId: 'old', role: 'user', author: 'user', text: 'old '.repeat(100) }),
+        runtimeTextEvent({ id: 'output-length-recent', turnId: 'recent', role: 'user', author: 'user', text: 'recent' }),
+      ],
+    });
+
+    assert.equal(result.contextBudget?.compactionDecisions?.[0]?.failOpenReason, 'output_length');
+    assert.deepEqual(result.contextBudget?.historyCompactWriteSkippedReasonCounts, { output_length: 1 });
   });
 
   test('manual compactHistory writes the current fold instead of reusing a loaded prefix block', async () => {
