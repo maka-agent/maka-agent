@@ -67,6 +67,8 @@
 
 `PASS`：当前证据直接覆盖；`PARTIAL`：组件证据存在但 production 闭环不足；`FAIL`：当前实现违反合同；`UNKNOWN`：缺少足够证据。
 
+本矩阵记录 #857 拆分链建立时的基线状态，用于界定各 stacked PR 的验证责任。拆分链合入后，各领域当前状态以源码与合同测试为准。
+
 | Contract area | 状态 | 当前证据 | 拆分链需要的证据 |
 |---|---|---|---|
 | Frame/window binding、duplicate rejection | PASS | frame state、bound-action、stale/duplicate tests | 在 Runtime slice 保留 focused tests |

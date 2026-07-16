@@ -1089,7 +1089,7 @@ describe('AiSdkBackend model history', () => {
     // is the synthesis cache's replay-token saving — no live model or network,
     // so the number is reproducible in CI. (Live Terminal-Bench runs can't drive
     // this: their single-long-turn shape never archives-then-retrieves a turn, so
-    // the write path stays source_missing — see docs/economic-mechanisms-benchmark.md.)
+    // the write path stays source_missing — see docs/archive/economic-mechanisms-benchmark.md.)
     const CHARS_PER_TOKEN = 1; // 1:1 so prompt chars are directly the token estimate
     const archivedResult = { body: 'RAW_SYNTHESIS_ARCHIVE_PAYLOAD '.repeat(80).trim() };
     const serialized = JSON.stringify(archivedResult);

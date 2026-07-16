@@ -45,3 +45,23 @@ The dated runtime and sandbox files are completed execution plans. Each file rec
 `runtime-v2-implementation-notes.md` records the initial Phase 1–4 runtime skeleton and is superseded by the backend architecture chapters and current source.
 
 `agent-runtime-codex-sandbox-alignment.md` and `agent-runtime-codex-sandbox-todo.md` preserve the original sandbox discussion and phased checklist. Stable boundaries now live beside the runtime implementation; remaining work is tracked in issue #843.
+
+## Computer use follow-up records
+
+The computer-use follow-up files are per-PR follow-up records, incident investigations, and run logs from the #857–#985 delivery chain. Current computer-use authority lives in the contracts listed in `../README.md` and in source and contract tests.
+
+- `computer-use-delivery-state.md` — `outcome_unknown` delivery-state follow-up; postcondition semantics are owned by the foundation contract and runtime tests.
+- `computer-use-evidence-hardening.md` — fail-closed report hardening; the current boundary is owned by the provider evidence contract and evidence classes.
+- `computer-use-executor-hardening.md` — post-merge review record of PR #893; durable decisions are folded into the foundation contract and the model-loop foundation, remaining work belongs in issues.
+- `computer-use-runtime-hardening.md` — lifecycle fix record of PR #892; current fencing is owned by runtime source and tests.
+- `computer-use-physical-input-guard.md` — physical-input interference incident and the guard policy it produced.
+- `computer-use-process-restart-e2e.md` — process-restart soak goal, investigation, and run logs; the PID-reuse non-claim is restated in the host events contract.
+- `computer-use-real-ax-model-e2e.md` — real-model AppKit AX harness record and provider run logs; current evidence classes and operator commands live in `../computer-use-evidence-classes.md`.
+
+## Reverse-engineering records
+
+- `expert-team-plan.md` and `expert-team-implementation.md` — WorkBuddy and QoderWork reverse-engineering and mapping notes behind the expert-teams feature. The shipped design contract is `../expert-team-runtime.md` (#971).
+
+## Benchmark logs
+
+- `economic-mechanisms-benchmark.md` — the first synthesis-cache benchmark entry for economic-mechanisms tracking issue #481 and slice #578. Current progress belongs in those issues.

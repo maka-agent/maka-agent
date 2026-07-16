@@ -3,7 +3,7 @@
 Expert teams let a **lead** persona fan a task out to specialist **member** experts,
 each running as a tool-scoped child agent, then synthesize their results. It is the
 star topology reverse-engineered from WorkBuddy's `team` experts and QoderWork's
-sub-agent pipelines (see [expert-team-implementation.md](expert-team-implementation.md)),
+sub-agent pipelines (see [expert-team-implementation.md](archive/expert-team-implementation.md)),
 rebuilt entirely on Maka's existing child-agent machinery — no new orchestration
 engine, no mesh mailbox, no shared task board.
 
