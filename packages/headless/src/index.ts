@@ -6,17 +6,28 @@
 export { runPromptOptimizationRun } from './prompt-optimization-run.js';
 export {
   auditHarnessOracleRegistry,
+  buildHarnessOracleEnvironmentFingerprint,
+  buildHarnessOracleAuditTasks,
+  buildHarnessOracleRegistrySnapshot,
+  buildHarnessOracleRuntimeFingerprint,
+  discoverHarnessOracleBaseImages,
   HarnessOracleAuditExecutionError,
   loadHarnessOracleRegistrySnapshot,
   parseHarnessOracleRegistrySnapshot,
+  planHarnessOracleRegistryAudit,
   resolveHarnessOracleAnnotations,
 } from './harness-oracle-registry.js';
 export type {
   AuditHarnessOracleRegistryInput,
+  BuildHarnessOracleRegistrySnapshotInput,
+  BuildHarnessOracleAuditTasksInput,
   HarnessOracleAnnotation,
   HarnessOracleAnnotationState,
   HarnessOracleAuditResult,
+  HarnessOracleAuditPlan,
   HarnessOracleAuditTask,
+  HarnessOracleEnvironmentIdentityInput,
+  HarnessOracleRuntimeIdentityInput,
   HarnessOracleQualificationIdentity,
   HarnessOracleRegistryEntry,
   HarnessOracleRegistrySnapshot,

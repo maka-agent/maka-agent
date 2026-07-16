@@ -1,10 +1,19 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, test } from 'node:test';
 import {
   auditHarnessOracleRegistry,
   HarnessOracleAuditExecutionError,
+  buildHarnessOracleEnvironmentFingerprint,
+  buildHarnessOracleAuditTasks,
+  buildHarnessOracleRegistrySnapshot,
+  buildHarnessOracleRuntimeFingerprint,
+  discoverHarnessOracleBaseImages,
   loadHarnessOracleRegistrySnapshot,
+  planHarnessOracleRegistryAudit,
   resolveHarnessOracleAnnotations,
 } from '../harness-oracle-registry.js';
 
@@ -48,6 +57,31 @@ describe('harness Oracle evidence registry', () => {
     assert.deepEqual(calls, []);
     assert.deepEqual(repeated.executedTaskIds, []);
     assert.deepEqual(repeated.snapshot.entries, baseline.snapshot.entries);
+
+    const merged = buildHarnessOracleRegistrySnapshot({
+      tasks,
+      entries: [...baseline.snapshot.entries].reverse(),
+      provenance: { ...input.provenance, runId: '124' },
+    });
+    assert.deepEqual(merged.entries.map((entry) => entry.taskId), ['a', 'b', 'c']);
+    assert.throws(
+      () => buildHarnessOracleRegistrySnapshot({
+        tasks,
+        entries: baseline.snapshot.entries.slice(0, 2),
+        provenance: input.provenance,
+      }),
+      /exactly one matching entry per task/,
+    );
+    assert.throws(
+      () => buildHarnessOracleRegistrySnapshot({
+        tasks: tasks.map((item) => item.task.id === 'b'
+          ? { ...item, identity: { ...item.identity, runtimeFingerprint: 'sha256:runtime-v2' } }
+          : item),
+        entries: baseline.snapshot.entries,
+        provenance: input.provenance,
+      }),
+      /exactly one matching entry per task/,
+    );
   });
 
   test('reruns only the task whose qualification identity changed', async () => {
@@ -83,6 +117,10 @@ describe('harness Oracle evidence registry', () => {
     assert.deepEqual(incremental.executedTaskIds, ['b']);
     assert.equal(incremental.snapshot.entries[0]?.fingerprint, baseline.snapshot.entries[0]?.fingerprint);
     assert.notEqual(incremental.snapshot.entries[1]?.fingerprint, baseline.snapshot.entries[1]?.fingerprint);
+
+    const plan = planHarnessOracleRegistryAudit(changedTasks, baseline.snapshot);
+    assert.deepEqual(plan.missingTaskIds, ['b']);
+    assert.deepEqual(plan.reusedEntries.map((entry) => entry.taskId), ['a']);
   });
 
   test('rejects a tampered snapshot before reusing its entries', async () => {
@@ -270,6 +308,81 @@ describe('harness Oracle evidence registry', () => {
       }),
       /registry snapshot fingerprint does not match the pinned profile/,
     );
+  });
+
+  test('binds resolved container image digests and platform into environment identity', () => {
+    const input = {
+      taskFingerprint: `sha256:${'a'.repeat(64)}`,
+      environment: 'docker',
+      platform: 'linux/amd64',
+      baseImages: [
+        { reference: 'python:3.13-slim-bookworm', digest: `sha256:${'b'.repeat(64)}` },
+        { reference: 'ubuntu:24.04', digest: `sha256:${'c'.repeat(64)}` },
+      ],
+    } as const;
+
+    const original = buildHarnessOracleEnvironmentFingerprint(input);
+    const changedDigest = buildHarnessOracleEnvironmentFingerprint({
+      ...input,
+      baseImages: [input.baseImages[0]!, { ...input.baseImages[1]!, digest: `sha256:${'d'.repeat(64)}` }],
+    });
+    const changedPlatform = buildHarnessOracleEnvironmentFingerprint({ ...input, platform: 'linux/arm64' });
+
+    assert.match(original, /^sha256:[a-f0-9]{64}$/);
+    assert.notEqual(changedDigest, original);
+    assert.notEqual(changedPlatform, original);
+    assert.notEqual(
+      buildHarnessOracleRuntimeFingerprint({
+        hostToolchainFingerprint: `sha256:${'e'.repeat(64)}`,
+        dockerVersion: 'Docker version 28.0.0',
+        dockerBuildxVersion: 'github.com/docker/buildx v0.22.0',
+      }),
+      buildHarnessOracleRuntimeFingerprint({
+        hostToolchainFingerprint: `sha256:${'e'.repeat(64)}`,
+        dockerVersion: 'Docker version 29.0.0',
+        dockerBuildxVersion: 'github.com/docker/buildx v0.22.0',
+      }),
+    );
+  });
+
+  test('discovers unique base images from a task environment Dockerfile', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-oracle-images-'));
+    try {
+      const environment = join(root, 'environment');
+      await mkdir(environment, { recursive: true });
+      await writeFile(join(environment, 'Dockerfile'), [
+        'FROM ubuntu:24.04 AS build',
+        'RUN true',
+        'FROM python:3.13-slim-bookworm',
+        'COPY --from=build /tmp/x /tmp/x',
+        'FROM ubuntu:24.04 AS duplicate',
+        '',
+      ].join('\n'), 'utf8');
+
+      assert.deepEqual(
+        await discoverHarnessOracleBaseImages({ id: 'a', path: root }),
+        ['python:3.13-slim-bookworm', 'ubuntu:24.04'],
+      );
+      const resolvedReferences: string[] = [];
+      const [auditTask] = await buildHarnessOracleAuditTasks({
+        tasks: [{ id: 'a', path: root }],
+        verifierPolicyFingerprint: `sha256:${'d'.repeat(64)}`,
+        runtimeFingerprint: `sha256:${'e'.repeat(64)}`,
+        environment: 'docker',
+        platform: 'linux/amd64',
+        resolveBaseImageDigest: async (reference) => {
+          resolvedReferences.push(reference);
+          return reference.startsWith('python')
+            ? `sha256:${'f'.repeat(64)}`
+            : `sha256:${'1'.repeat(64)}`;
+        },
+      });
+      assert.deepEqual(resolvedReferences, ['python:3.13-slim-bookworm', 'ubuntu:24.04']);
+      assert.match(auditTask?.identity.taskFingerprint ?? '', /^sha256:[a-f0-9]{64}$/);
+      assert.match(auditTask?.identity.environmentFingerprint ?? '', /^sha256:[a-f0-9]{64}$/);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });
 

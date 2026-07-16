@@ -1026,6 +1026,27 @@ describe('createHarborOracleQualifier', () => {
       assert.equal(HARBOR_VERIFIER_MAX_ATTEMPTS, 2);
     });
   });
+
+  test('types the outer Oracle watchdog separately from a scored candidate timeout', async () => {
+    await withRun(async ({ jobsDir, repo }) => {
+      const qualify = createHarborOracleQualifier({
+        makaRepoPath: repo,
+        jobsDir,
+        runHarbor: async () => ({
+          exitCode: 1,
+          stdout: '',
+          stderr: 'watchdog expired',
+          timedOut: true,
+          signal: 'SIGKILL',
+        }),
+      });
+
+      await assert.rejects(
+        qualify({ id: 'task-1', path: '/tasks/cobol-modernization' }),
+        (error: unknown) => error instanceof HarborInfraError && error.kind === 'timed_out',
+      );
+    });
+  });
 });
 
 describe('buildHarborJobConfig', () => {

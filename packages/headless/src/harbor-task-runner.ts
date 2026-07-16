@@ -52,7 +52,11 @@ const TRIAL_TRACE_EVENTS_ROOT = 'agent/maka-storage/sessions';
  * result. The controller turns a thrown error into an infra_failed event so it is
  * excluded from scoring instead of polluting the KEEP/DISCARD decision as reward 0. */
 export class HarborInfraError extends Error {
-  constructor(message: string, readonly detail?: string) {
+  constructor(
+    message: string,
+    readonly detail?: string,
+    readonly kind: 'infra_failed' | 'timed_out' = 'infra_failed',
+  ) {
     super(message);
     this.name = 'HarborInfraError';
   }
@@ -372,6 +376,7 @@ export function createHarborOracleQualifier(options: HarborOracleQualifierOption
       throw new HarborInfraError(
         `Harbor Oracle qualification ${result.timedOut ? 'timed out' : `exited ${result.exitCode}`} for task ${task.id}`,
         tail(result.stderr || result.stdout),
+        result.timedOut ? 'timed_out' : 'infra_failed',
       );
     }
     const trialDir = await findTrialDir(jobDir, basename(task.path));

@@ -1,5 +1,8 @@
 import { createHash } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import type { FixedPromptTask } from './fixed-prompt-controller.js';
+import { fingerprintFixedPromptTask } from './fixed-prompt-task-source.js';
 import type { HarnessOracleTaskResult } from './harness-qualification.js';
 
 export class HarnessOracleAuditExecutionError extends Error {
@@ -57,10 +60,46 @@ export interface HarnessOracleAuditResult {
   executedTaskIds: string[];
 }
 
+export interface HarnessOracleAuditPlan {
+  missingTaskIds: string[];
+  reusedEntries: HarnessOracleRegistryEntry[];
+}
+
+export interface BuildHarnessOracleRegistrySnapshotInput {
+  tasks: readonly HarnessOracleAuditTask[];
+  entries: readonly HarnessOracleRegistryEntry[];
+  provenance: HarnessOracleRegistrySnapshot['provenance'];
+}
+
 export interface LoadHarnessOracleRegistrySnapshotInput {
   url: string;
   expectedFingerprint: string;
   fetch?: (url: string | URL) => Promise<Pick<Response, 'ok' | 'status' | 'json'>>;
+}
+
+export interface HarnessOracleEnvironmentIdentityInput {
+  taskFingerprint: string;
+  environment: 'docker';
+  platform: string;
+  baseImages: readonly {
+    reference: string;
+    digest: string;
+  }[];
+}
+
+export interface BuildHarnessOracleAuditTasksInput {
+  tasks: readonly FixedPromptTask[];
+  verifierPolicyFingerprint: string;
+  runtimeFingerprint: string;
+  environment: 'docker';
+  platform: string;
+  resolveBaseImageDigest: (reference: string, platform: string) => Promise<string>;
+}
+
+export interface HarnessOracleRuntimeIdentityInput {
+  hostToolchainFingerprint: string;
+  dockerVersion: string;
+  dockerBuildxVersion: string;
 }
 
 export type HarnessOracleAnnotationState =
@@ -115,13 +154,125 @@ export async function auditHarnessOracleRegistry(
       oracle,
     }));
   }
-  const snapshot = withFingerprint({
-    schemaVersion: 1 as const,
-    taskIds: input.tasks.map(({ task }) => task.id),
+  const snapshot = buildHarnessOracleRegistrySnapshot({
+    tasks: input.tasks,
     entries,
-    provenance: { ...input.provenance },
+    provenance: input.provenance,
   });
   return { snapshot, executedTaskIds };
+}
+
+export function buildHarnessOracleRegistrySnapshot(
+  input: BuildHarnessOracleRegistrySnapshotInput,
+): HarnessOracleRegistrySnapshot {
+  const entriesByTaskId = new Map(input.entries.map((entry) => [entry.taskId, entry]));
+  const taskIds = input.tasks.map(({ task }) => task.id);
+  const entries = input.tasks.map(({ task }) => entriesByTaskId.get(task.id));
+  if (
+    new Set(taskIds).size !== taskIds.length
+    || entriesByTaskId.size !== input.entries.length
+    || entries.some((entry, index) => (
+      !entry
+      || !registryEntryIsValid(entry, taskIds[index])
+      || entry.qualificationKey !== qualificationKeyFor(taskIds[index]!, input.tasks[index]!.identity)
+    ))
+  ) throw new Error('Oracle registry snapshot requires exactly one matching entry per task');
+  return withFingerprint({
+    schemaVersion: 1 as const,
+    taskIds,
+    entries: entries as HarnessOracleRegistryEntry[],
+    provenance: { ...input.provenance },
+  });
+}
+
+export function planHarnessOracleRegistryAudit(
+  tasks: readonly HarnessOracleAuditTask[],
+  existingSnapshot: HarnessOracleRegistrySnapshot | null,
+): HarnessOracleAuditPlan {
+  if (existingSnapshot) assertSnapshotFingerprint(existingSnapshot);
+  const existingByKey = new Map(
+    (existingSnapshot?.entries ?? []).map((entry) => [entry.qualificationKey, entry]),
+  );
+  const missingTaskIds: string[] = [];
+  const reusedEntries: HarnessOracleRegistryEntry[] = [];
+  for (const { task, identity } of tasks) {
+    const existing = existingByKey.get(qualificationKeyFor(task.id, identity));
+    if (existing) reusedEntries.push(existing);
+    else missingTaskIds.push(task.id);
+  }
+  return { missingTaskIds, reusedEntries };
+}
+
+export function buildHarnessOracleEnvironmentFingerprint(
+  input: HarnessOracleEnvironmentIdentityInput,
+): string {
+  const baseImages = [...input.baseImages]
+    .map((image) => ({ ...image }))
+    .sort((left, right) => left.reference.localeCompare(right.reference));
+  if (
+    input.platform.length === 0
+    || new Set(baseImages.map((image) => image.reference)).size !== baseImages.length
+    || baseImages.some((image) => image.reference.length === 0 || image.digest.length === 0)
+  ) throw new Error('Oracle environment identity is malformed');
+  return fingerprintValue({
+    schemaVersion: 1,
+    taskFingerprint: input.taskFingerprint,
+    environment: input.environment,
+    platform: input.platform,
+    baseImages,
+  });
+}
+
+export function buildHarnessOracleRuntimeFingerprint(
+  input: HarnessOracleRuntimeIdentityInput,
+): string {
+  if (
+    input.hostToolchainFingerprint.length === 0
+    || input.dockerVersion.length === 0
+    || input.dockerBuildxVersion.length === 0
+  ) throw new Error('Oracle runtime identity is malformed');
+  return fingerprintValue({ schemaVersion: 1, ...input });
+}
+
+export async function buildHarnessOracleAuditTasks(
+  input: BuildHarnessOracleAuditTasksInput,
+): Promise<HarnessOracleAuditTask[]> {
+  return Promise.all(input.tasks.map(async (task) => {
+    const taskFingerprint = await fingerprintFixedPromptTask(task);
+    const references = await discoverHarnessOracleBaseImages(task);
+    const baseImages = await Promise.all(references.map(async (reference) => ({
+      reference,
+      digest: await input.resolveBaseImageDigest(reference, input.platform),
+    })));
+    return {
+      task,
+      identity: {
+        taskFingerprint,
+        verifierPolicyFingerprint: input.verifierPolicyFingerprint,
+        environmentFingerprint: buildHarnessOracleEnvironmentFingerprint({
+          taskFingerprint,
+          environment: input.environment,
+          platform: input.platform,
+          baseImages,
+        }),
+        runtimeFingerprint: input.runtimeFingerprint,
+      },
+    };
+  }));
+}
+
+export async function discoverHarnessOracleBaseImages(task: FixedPromptTask): Promise<string[]> {
+  const dockerfile = await readFile(join(task.path, 'environment', 'Dockerfile'), 'utf8');
+  const references = new Set<string>();
+  for (const line of dockerfile.split(/\r?\n/)) {
+    const reference = line.match(/^\s*FROM\s+(?:--platform=\S+\s+)?(\S+)/i)?.[1];
+    if (!reference) continue;
+    if (reference.includes('$')) {
+      throw new Error(`Oracle environment identity cannot resolve variable base image for task ${task.id}`);
+    }
+    if (reference !== 'scratch') references.add(reference);
+  }
+  return [...references].sort();
 }
 
 export function resolveHarnessOracleAnnotations(

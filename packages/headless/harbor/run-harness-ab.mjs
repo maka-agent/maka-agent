@@ -2,9 +2,11 @@
 
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
+import { execFile } from 'node:child_process';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 import { ensureAbRunManifest } from '#ab-manifest';
 import {
   discoverCachedHarborTasks,
@@ -17,6 +19,8 @@ import {
   createHarborTaskRunner,
 } from '#harbor-task-runner';
 import {
+  buildHarnessOracleAuditTasks,
+  buildHarnessOracleRuntimeFingerprint,
   loadHarnessOracleRegistrySnapshot,
   resolveHarnessOracleAnnotations,
 } from '#harness-oracle-registry';
@@ -47,6 +51,8 @@ import {
   buildSubjectFingerprint,
   buildToolchainFingerprint,
 } from './run-prompt-ab.mjs';
+
+const execFileAsync = promisify(execFile);
 
 const EXPECTED_SOURCE_TASKS = TERMINAL_BENCH_2_1_TASK_IDS.length;
 export const DEFAULT_HARNESS_AB_RUN_ID = 'glm-5.2-maka-vs-opencode-tbench-2.1-full-v2';
@@ -216,16 +222,17 @@ async function runLocked({ repoRoot, makaRepoPath, tasksRoot, runId, limit, runR
     undefined,
     makaRepoPath,
   );
+  const oracleRuntimeFingerprint = await resolveHarnessOracleRuntimeFingerprint(hostToolchainFingerprint);
   const verifierPolicyFingerprint = buildHarborVerifierPolicyFingerprint({
     implementationSource: await readFile(join(makaRepoPath, 'packages/headless/harbor/maka_verifier.py')),
-    toolchainFingerprint: hostToolchainFingerprint,
+    toolchainFingerprint: oracleRuntimeFingerprint,
   });
 
   const tasksById = new Map(allTasks.map((task) => [task.id, task]));
   const oracleEvidence = await resolveAdvisoryOracleEvidence({
     allTasks,
     verifierPolicyFingerprint,
-    runtimeFingerprint: hostToolchainFingerprint,
+    runtimeFingerprint: oracleRuntimeFingerprint,
   });
   for (const warning of oracleEvidence.warnings) console.warn(`warning: ${warning}`);
 
@@ -334,24 +341,6 @@ async function runLocked({ repoRoot, makaRepoPath, tasksRoot, runId, limit, runR
 }
 
 async function resolveAdvisoryOracleEvidence({ allTasks, verifierPolicyFingerprint, runtimeFingerprint }) {
-  const auditTasks = await Promise.all(allTasks.map(async (task) => {
-    const taskFingerprint = await fingerprintFixedPromptTask(task);
-    return {
-      task,
-      identity: {
-        taskFingerprint,
-        verifierPolicyFingerprint,
-        environmentFingerprint: fingerprintValue({
-          kind: 'harbor-oracle-environment',
-          benchmarkRevision: TERMINAL_BENCH_2_1_REVISION,
-          environment: 'docker',
-          dockerPlatform: 'linux/amd64',
-          taskFingerprint,
-        }),
-        runtimeFingerprint,
-      },
-    };
-  }));
   const registryUrl = process.env.MAKA_HARNESS_AB_ORACLE_REGISTRY_URL?.trim();
   const expectedSnapshotFingerprint = process.env.MAKA_HARNESS_AB_ORACLE_REGISTRY_FINGERPRINT?.trim();
   const warnings = [];
@@ -368,6 +357,36 @@ async function resolveAdvisoryOracleEvidence({ allTasks, verifierPolicyFingerpri
   } else {
     warnings.push('Oracle registry URL and fingerprint are not both configured; A/B continues without it');
   }
+  const digestCache = new Map();
+  const auditTasks = snapshot
+    ? await buildHarnessOracleAuditTasks({
+        tasks: allTasks,
+        verifierPolicyFingerprint,
+        runtimeFingerprint,
+        environment: 'docker',
+        platform: 'linux/amd64',
+        resolveBaseImageDigest: (reference, platform) => (
+          resolveHarnessOracleBaseImageDigest(reference, platform, digestCache)
+        ),
+      })
+    : await Promise.all(allTasks.map(async (task) => {
+        const taskFingerprint = await fingerprintFixedPromptTask(task);
+        return {
+          task,
+          identity: {
+            taskFingerprint,
+            verifierPolicyFingerprint,
+            environmentFingerprint: fingerprintValue({
+              kind: 'unresolved-harbor-oracle-environment',
+              benchmarkRevision: TERMINAL_BENCH_2_1_REVISION,
+              environment: 'docker',
+              dockerPlatform: 'linux/amd64',
+              taskFingerprint,
+            }),
+            runtimeFingerprint,
+          },
+        };
+      }));
   const annotations = resolveHarnessOracleAnnotations(auditTasks, snapshot);
   for (const state of ['missing', 'stale', 'failed', 'timed_out', 'infra_failed']) {
     const taskIds = annotations.filter((annotation) => annotation.state === state).map((annotation) => annotation.taskId);
@@ -380,6 +399,48 @@ async function resolveAdvisoryOracleEvidence({ allTasks, verifierPolicyFingerpri
     annotations,
     warnings,
   };
+}
+
+export async function resolveHarnessOracleBaseImageDigest(reference, platform, cache = new Map()) {
+  const key = `${platform}:${reference}`;
+  if (!cache.has(key)) {
+    cache.set(key, execFileAsync('docker', [
+      'buildx',
+      'imagetools',
+      'inspect',
+      reference,
+      '--format',
+      '{{json .Manifest}}',
+    ]).then(({ stdout }) => resolvedImageDigestFromInspect(stdout, platform)));
+  }
+  return cache.get(key);
+}
+
+export async function resolveHarnessOracleRuntimeFingerprint(hostToolchainFingerprint) {
+  const [{ stdout: dockerVersion }, { stdout: dockerBuildxVersion }] = await Promise.all([
+    execFileAsync('docker', ['--version']),
+    execFileAsync('docker', ['buildx', 'version']),
+  ]);
+  return buildHarnessOracleRuntimeFingerprint({
+    hostToolchainFingerprint,
+    dockerVersion: dockerVersion.trim(),
+    dockerBuildxVersion: dockerBuildxVersion.trim(),
+  });
+}
+
+export function resolvedImageDigestFromInspect(raw, platform) {
+  const value = JSON.parse(raw);
+  const [os, architecture] = platform.split('/');
+  const selected = Array.isArray(value.manifests)
+    ? value.manifests.find((manifest) => (
+        manifest?.platform?.os === os
+        && manifest?.platform?.architecture === architecture
+      ))?.digest
+    : value.digest;
+  if (typeof selected !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(selected)) {
+    throw new Error(`Docker image manifest has no ${platform} digest`);
+  }
+  return selected;
 }
 
 function fingerprintValue(value) {

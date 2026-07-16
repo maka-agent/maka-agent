@@ -44,6 +44,21 @@ test('harness A/B runtime keeps pruning enabled and semantic compact disabled', 
   });
 });
 
+test('harness Oracle environment selects the linux/amd64 image manifest digest', async () => {
+  const { resolvedImageDigestFromInspect } = await import(
+    new URL('../../harbor/run-harness-ab.mjs', import.meta.url).href
+  );
+  const digest = resolvedImageDigestFromInspect(JSON.stringify({
+    digest: `sha256:${'0'.repeat(64)}`,
+    manifests: [
+      { digest: `sha256:${'a'.repeat(64)}`, platform: { os: 'linux', architecture: 'arm64' } },
+      { digest: `sha256:${'b'.repeat(64)}`, platform: { os: 'linux', architecture: 'amd64' } },
+    ],
+  }), 'linux/amd64');
+
+  assert.equal(digest, `sha256:${'b'.repeat(64)}`);
+});
+
 test('harness A/B manifest uses the pinned OpenCode toolchain version', async () => {
   const { buildHarnessAbManifest } = await import(
     new URL('../../harbor/run-harness-ab.mjs', import.meta.url).href

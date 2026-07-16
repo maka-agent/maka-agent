@@ -163,9 +163,9 @@ embed environment variables, credentials, or hidden harness configuration.
 
 ## GLM-5.2 harness comparison
 
-`harbor/run-harness-ab.mjs` compares Maka and OpenCode 1.17.18 on the same Terminal-Bench 2.1 tasks with GLM-5.2 Max. The task root must match the 89 task ids and canonical task-tree fingerprint of the frozen official revision; a matching Harbor export with one task directory per id is accepted directly. Before model sampling, Harbor's Oracle inspects tasks in the frozen seeded order under the same verifier policy and selects the first 30 that pass. The immutable qualification evidence and selected task ids are bound into the run manifest. Maka keeps active and stale tool-result pruning enabled while semantic compact is explicitly disabled in both the manifest and runtime environment.
+`harbor/run-harness-ab.mjs` compares Maka and OpenCode 1.17.18 on the same Terminal-Bench 2.1 tasks with GLM-5.2 Max. The task root must match the 89 task ids and canonical task-tree fingerprint of the frozen official revision; a matching Harbor export with one task directory per id is accepted directly. The A/B task order is frozen independently of Oracle evidence. Maka keeps active and stale tool-result pruning enabled while semantic compact is explicitly disabled in both the manifest and runtime environment.
 
-Validate the frozen task source and preview the qualification plan without reading a key or starting Harbor:
+Validate the frozen task source and preview the A/B plan without reading a key or starting Harbor:
 
 ```sh
 MAKA_HARNESS_AB_OUT_DIR=/path/to/out \
@@ -176,7 +176,11 @@ MAKA_HARNESS_AB_DRY_RUN=1 \
 node packages/headless/harbor/run-harness-ab.mjs
 ```
 
-For a live run, remove `MAKA_HARNESS_AB_DRY_RUN` and set `MAKA_HARNESS_AB_KEY_FILE` to a credential file outside git. Maka reads it in its host-side cell; OpenCode receives only a short-lived host proxy capability, never the provider key or key-file path. Qualification always produces the same 30-task evaluation set for a run and is cached in `oracle-qualification.json`; `MAKA_HARNESS_AB_LIMIT=2` runs an operational canary over its first two tasks, then the same output directory and run id can resume at `30`. Only missing cells run. The 89 frozen tasks are the qualification candidate pool, not a supported evaluation limit. The immutable manifest rejects other configuration changes.
+For a live run, remove `MAKA_HARNESS_AB_DRY_RUN` and set `MAKA_HARNESS_AB_KEY_FILE` to a credential file outside git. Maka reads it in its host-side cell; OpenCode receives only a short-lived host proxy capability, never the provider key or key-file path. `MAKA_HARNESS_AB_LIMIT=2` runs an operational canary, `30` runs the deterministic pilot prefix, and `89` runs the complete frozen profile. Only missing cells run. The immutable manifest rejects configuration changes.
+
+Oracle evidence is advisory. To consume a CI-issued registry snapshot, set both `MAKA_HARNESS_AB_ORACLE_REGISTRY_URL` and `MAKA_HARNESS_AB_ORACLE_REGISTRY_FINGERPRINT`. The runner downloads the lightweight pinned snapshot, validates its content and per-task identities, and records `passed`, `failed`, `timed_out`, `infra_failed`, `stale`, or `missing` annotations in the manifest and report. Missing, stale, failed, unavailable, or invalid evidence emits warnings but never invokes Oracle, changes task selection, blocks new A/B execution, or changes statistical inclusion. Legacy manifests retain their historical Oracle-gated `qualification` metadata.
+
+The manual `.github/workflows/oracle-evidence-audit.yml` workflow is the only CI path that invokes Oracle. Its prepare job resolves task contents, verifier policy, Harbor/Node dependencies, Docker platform, and current `linux/amd64` base-image manifest digests into per-task qualification keys. It downloads the newest prior registry release by default, runs only missing or changed tasks in a bounded GitHub-hosted matrix, and publishes a new content-addressed prerelease containing `oracle-registry.json` and immutable per-task `oracle-evidence.jsonl`. Ordinary CI and A/B runs do not trigger this workflow.
 
 For an unattended run, invoke `node packages/headless/harbor/run-harness-ab-detached.mjs` with the same environment. It detaches the worker from the terminal and atomically journals `running`, `completed`, or `failed` in `background-run.json`; stdout and stderr go to `background-run.log`.
 
