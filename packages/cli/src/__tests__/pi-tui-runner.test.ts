@@ -436,7 +436,7 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
-  test('answers sequential questions with a choice, Escape, and Other input', async () => {
+  test('answers sequential questions inline with a choice, Escape, and type-to-jump Other', async () => {
     const terminal = new FakeTerminal();
     const driver = new UserQuestionPromptDriver();
     const run = runMakaPiTui({
@@ -452,24 +452,152 @@ describe('Maka Pi TUI runner', () => {
       'Choose an approach',
       'Maka · ask · claude-sonnet-4-5 · claude-subscription · /repo',
     );
-    assert.ok(plainTerminalOutput(terminal.screenOutput()).includes('Ctrl+C stop'));
+    // The preset options and the free-text "Other" row are on screen together —
+    // the option list is no longer swapped out for a separate text overlay.
+    const firstScreen = plainTerminalOutput(terminal.screenOutput());
+    assert.ok(firstScreen.includes('Extend'));
+    assert.ok(firstScreen.includes('Separate'));
+    assert.ok(firstScreen.includes('Other: type your answer'));
+    assert.ok(firstScreen.includes('Ctrl+C stop'));
 
+    // Q1: Enter selects the highlighted first option (Extend).
     terminal.input('\r');
     await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('Keep the default'));
+    // Q2: Escape leaves the question unanswered.
     terminal.input('\x1b');
     await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('Anything else'));
-    terminal.input('\x1b[B');
-    terminal.input('\x1b[B');
-    terminal.input('\r');
-    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('Type another answer'));
-    assert.ok(plainTerminalOutput(terminal.screenOutput()).includes('Ctrl+C stop'));
+    // Q3: typing while an option is highlighted jumps straight into the Other
+    // row and seeds it with the typed text — options stay visible throughout.
     terminal.input('Use the existing seam');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('Use the existing seam'));
+    assert.ok(plainTerminalOutput(terminal.screenOutput()).includes('Nothing'));
     terminal.input('\r');
 
     await waitFor(() => driver.responses.length === 1);
     assert.deepEqual(driver.responses, [{
       requestId: 'question-1',
       answers: ['Extend', null, 'Use the existing seam'],
+    }]);
+
+    exitMaka(terminal);
+    await run;
+  });
+
+  test('navigates the inline option list and Other row with the arrow keys', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new UserQuestionPromptDriver();
+    const run = runMakaPiTui({
+      title: 'Maka', driver, cwd: '/repo', model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription', permissionMode: 'ask', terminal,
+    });
+
+    terminal.input('choose');
+    terminal.input('\r');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('Choose an approach'));
+
+    // Q1: ↓ moves the highlight to the second option, Enter selects it.
+    terminal.input('\x1b[B');
+    terminal.input('\r');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('Keep the default'));
+
+    // Q2: ↓ past both options lands on the Other row; typed text submits on Enter.
+    terminal.input('\x1b[B');
+    terminal.input('\x1b[B');
+    terminal.input('typed answer');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('typed answer'));
+    terminal.input('\r');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('Anything else'));
+
+    // Q3: ↑ from the first option wraps to the (empty) Other row; Enter there is a
+    // no-op, so the question stays open until Escape leaves it unanswered.
+    terminal.input('\x1b[A');
+    terminal.input('\r');
+    await delay(20);
+    assert.equal(driver.responses.length, 0);
+    assert.ok(plainTerminalOutput(terminal.screenOutput()).includes('Anything else'));
+    terminal.input('\x1b');
+
+    await waitFor(() => driver.responses.length === 1);
+    assert.deepEqual(driver.responses, [{
+      requestId: 'question-1',
+      answers: ['Separate', 'typed answer', null],
+    }]);
+
+    exitMaka(terminal);
+    await run;
+  });
+
+  test('submits a large pasted Other answer expanded, not as a paste marker', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new UserQuestionPromptDriver();
+    const run = runMakaPiTui({
+      title: 'Maka', driver, cwd: '/repo', model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription', permissionMode: 'ask', terminal,
+    });
+
+    terminal.input('choose');
+    terminal.input('\r');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('Choose an approach'));
+
+    // ↑ from the first option wraps onto the Other row; a >1000-char bracketed
+    // paste is stored as a `[paste #N …]` placeholder inside the editor.
+    const pasted = 'x'.repeat(1001);
+    terminal.input('\x1b[A');
+    terminal.input(`\x1b[200~${pasted}\x1b[201~`);
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('[paste #1 1001 chars]'));
+
+    // Enter must submit through the Editor's own path, which expands the
+    // placeholder back into the full pasted text before answering.
+    terminal.input('\r');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('Keep the default'));
+    terminal.input('\x1b');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('Anything else'));
+    terminal.input('\x1b');
+
+    await waitFor(() => driver.responses.length === 1);
+    assert.deepEqual(driver.responses, [{
+      requestId: 'question-1',
+      answers: [pasted, null, null],
+    }]);
+
+    exitMaka(terminal);
+    await run;
+  });
+
+  test('treats LF in the Other row as a newline, not a submit', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new UserQuestionPromptDriver();
+    const run = runMakaPiTui({
+      title: 'Maka', driver, cwd: '/repo', model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription', permissionMode: 'ask', terminal,
+    });
+
+    terminal.input('choose');
+    terminal.input('\r');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('Choose an approach'));
+
+    // Type into the Other row, then send a legacy LF (Ctrl-J). The Editor owns
+    // Enter-key classification: LF is a newline, so the question must stay open
+    // with a second line started instead of submitting the answer.
+    terminal.input('line one');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('line one'));
+    terminal.input('\n');
+    terminal.input('line two');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('line two'));
+    assert.equal(driver.responses.length, 0);
+    assert.ok(plainTerminalOutput(terminal.screenOutput()).includes('Choose an approach'));
+
+    // CR submits: the answer carries the newline the LF inserted.
+    terminal.input('\r');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('Keep the default'));
+    terminal.input('\x1b');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('Anything else'));
+    terminal.input('\x1b');
+
+    await waitFor(() => driver.responses.length === 1);
+    assert.deepEqual(driver.responses, [{
+      requestId: 'question-1',
+      answers: ['line one\nline two', null, null],
     }]);
 
     exitMaka(terminal);

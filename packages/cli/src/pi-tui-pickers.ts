@@ -3,6 +3,8 @@ import {
   Editor,
   Key,
   SelectList,
+  decodeKittyPrintable,
+  isKeyRepeat,
   matchesKey,
   truncateToWidth,
   visibleWidth,
@@ -13,6 +15,7 @@ import {
   type SelectItem,
   type TUI,
 } from '@earendil-works/pi-tui';
+import type { UserQuestionOption } from '@maka/core';
 import { PERMISSION_MODES, type PermissionMode } from '@maka/core/permission';
 import type { ThinkingLevel } from '@maka/core/model-thinking';
 import type { ModelChoice } from './connection-target.js';
@@ -121,23 +124,54 @@ export class PickerOverlay implements Component {
   }
 }
 
-export class UserQuestionTextOverlay implements Component {
+const USER_QUESTION_ROW_PREFIX_WIDTH = 2;
+
+/**
+ * A single question's overlay: the preset options and a free-text "Other" row on
+ * one screen. The free-text row is the list's last line — an inline {@link Editor}
+ * that activates when the highlight lands on it. ↑↓ move the highlight through the
+ * options and the input row as one ring; typing a printable character while on an
+ * option jumps to the input row and starts the answer there (gemini-cli's
+ * type-to-jump). Enter selects the highlighted option, or submits non-empty input
+ * text; Esc leaves the whole question unanswered. Replaces the old two-step design
+ * that swapped the option list out for a separate text overlay.
+ */
+export class UserQuestionOverlay implements Component {
   private readonly editor: Editor;
+  // Highlight index over [0, options.length]. `options.length` is the input row.
+  private activeIndex = 0;
 
   constructor(
     tui: TUI,
     private readonly input: {
       title: string;
       rightLabel: string;
-      onSubmit(value: string): void;
+      hint: string;
+      placeholder: string;
+      options: readonly UserQuestionOption[];
+      onSelectOption(index: number): void;
+      onSubmitText(value: string): void;
       onSkip(): void;
     },
   ) {
-    this.editor = new Editor(tui, editorTheme(), { paddingX: 1 });
+    // paddingX 0 so the inline row aligns under the `  `/`→ ` option prefix
+    // instead of the editor's own gutter.
+    this.editor = new Editor(tui, editorTheme(), { paddingX: 0 });
+    // Submit through the Editor's own submitValue() path: it expands paste
+    // markers (a large paste is stored as a `[paste #N …]` placeholder until
+    // then) and trims, so the answer is the real pasted/typed text. An empty
+    // submission is a no-op so Enter on the blank row can't send a blank answer.
     this.editor.onSubmit = (value) => {
-      const answer = value.trim();
-      if (answer) this.input.onSubmit(answer);
+      if (value) this.input.onSubmitText(value);
     };
+  }
+
+  private get inputRowIndex(): number {
+    return this.input.options.length;
+  }
+
+  private get onInputRow(): boolean {
+    return this.activeIndex === this.inputRowIndex;
   }
 
   invalidate(): void {
@@ -145,26 +179,91 @@ export class UserQuestionTextOverlay implements Component {
   }
 
   handleInput(data: string): void {
+    // Esc always abandons the whole question (advance unanswered), even with
+    // text typed — one Esc level, matching the pre-inline behavior.
     if (matchesKey(data, Key.escape)) {
       this.input.onSkip();
       return;
     }
-    this.editor.handleInput(data);
+    if (matchesKey(data, Key.up)) {
+      this.activeIndex = this.activeIndex === 0 ? this.inputRowIndex : this.activeIndex - 1;
+      return;
+    }
+    if (matchesKey(data, Key.down)) {
+      this.activeIndex = this.activeIndex === this.inputRowIndex ? 0 : this.activeIndex + 1;
+      return;
+    }
+    if (matchesKey(data, Key.enter) || matchesKey(data, Key.return)) {
+      // A held-key repeat must not double-advance onto the next question.
+      if (isKeyRepeat(data)) return;
+      if (!this.onInputRow) {
+        this.input.onSelectOption(this.activeIndex);
+        return;
+      }
+      // Fall through: on the input row even Enter goes to the Editor, whose own
+      // key classification decides newline (LF/Ctrl-J, Shift+Enter, `\`+Enter)
+      // vs submit — submitValue() then feeds the wired onSubmit above.
+    }
+    if (this.onInputRow) {
+      this.editor.handleInput(data);
+      return;
+    }
+    // Type-to-jump: a printable key (or an IME/legacy multi-byte sequence) while
+    // an option is highlighted moves to the input row and starts the answer with
+    // that key. Mirror the editor's own printable test — a Kitty CSI-u printable,
+    // or a legacy sequence whose first byte is a non-control character — so
+    // navigation/control keys (arrows, Enter, Esc, Ctrl/Alt combos) never trigger
+    // the jump. The raw sequence is handed to the editor so its IME and paste
+    // handling stay intact.
+    const printable = decodeKittyPrintable(data) ?? (data.charCodeAt(0) >= 32 ? data : undefined);
+    if (printable !== undefined) {
+      this.activeIndex = this.inputRowIndex;
+      this.editor.handleInput(data);
+    }
   }
 
   render(width: number): string[] {
     const safeWidth = Math.max(1, width);
-    // #1064: emit the hardware-cursor marker so IME candidate windows position
-    // correctly inside this overlay editor. Without this, CJK input methods
-    // anchor at the terminal bottom instead of the editor's cursor location.
-    // Reference: ~/.pi/agent/extensions/question.ts.
-    this.editor.focused = true;
-    return [
+    const lines: string[] = [
       padLine(`${this.input.title} ${ansi.accent(this.input.rightLabel)}`, safeWidth),
-      padLine(ansi.dim('Type another answer · Enter submit · Esc unanswered · Ctrl+C stop'), safeWidth),
-      ...this.editor.render(safeWidth).map((line) => padLine(line, safeWidth)),
-      padLine(ansi.accent('-'.repeat(safeWidth)), safeWidth),
+      padLine(ansi.dim(this.input.hint), safeWidth),
+      padLine('', safeWidth),
     ];
+    this.input.options.forEach((option, index) => {
+      lines.push(this.renderOptionRow(option, index === this.activeIndex, safeWidth));
+    });
+    lines.push(...this.renderInputRow(safeWidth));
+    lines.push(padLine(ansi.accent('-'.repeat(safeWidth)), safeWidth));
+    return lines;
+  }
+
+  private renderOptionRow(option: UserQuestionOption, active: boolean, width: number): string {
+    const prefix = active ? '→ ' : '  ';
+    const body = option.description
+      ? `${option.label}  ${active ? option.description : ansi.dim(option.description)}`
+      : option.label;
+    return formatPickerItemLine(`${prefix}${body}`, width);
+  }
+
+  private renderInputRow(width: number): string[] {
+    const prefix = this.onInputRow ? '→ ' : '  ';
+    const contentWidth = Math.max(1, width - USER_QUESTION_ROW_PREFIX_WIDTH);
+    // Focused only while the input row is highlighted: that both shows the block
+    // cursor and emits the hardware-cursor marker (#1064) so IME candidate windows
+    // anchor to the edited text instead of the terminal bottom.
+    this.editor.focused = this.onInputRow;
+    if (!this.onInputRow && this.editor.getText().length === 0) {
+      return [padLine(`${prefix}${ansi.dim(this.input.placeholder)}`, width)];
+    }
+    // Drop the editor's own top/bottom border rows; keep just its content lines
+    // so the answer reads as one row of the list.
+    const editorLines = this.editor.render(contentWidth).slice(1, -1);
+    if (editorLines.length === 0) {
+      return [padLine(`${prefix}${ansi.dim(this.input.placeholder)}`, width)];
+    }
+    return editorLines.map((line, index) => (
+      padLine(`${index === 0 ? prefix : '  '}${line}`, width)
+    ));
   }
 }
 

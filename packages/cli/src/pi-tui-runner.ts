@@ -62,7 +62,7 @@ import {
 import {
   MakaAutocompleteProvider,
   PickerOverlay,
-  UserQuestionTextOverlay,
+  UserQuestionOverlay,
   modelChoicePickerItems,
   modelPickerItems,
   permissionModePickerItems,
@@ -652,42 +652,20 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       return;
     }
     closeUserQuestionOverlay();
-    const items: SelectItem[] = [
-      ...question.options.map((option, index) => ({
-        value: `option:${index}`,
-        label: option.label,
-        ...(option.description ? { description: option.description } : {}),
-      })),
-      { value: 'other', label: 'Other…', description: 'Type another answer.' },
-    ];
-    const list = new SelectList(items, 10, selectListTheme(), {
-      minPrimaryColumnWidth: 12,
-      maxPrimaryColumnWidth: 48,
-    });
     const advance = (answer: string | null): void => {
       progress.answers[progress.index] = answer;
       progress.index += 1;
       showUserQuestion();
     };
-    list.onSelect = (item) => {
-      if (item.value === 'other') {
-        closeUserQuestionOverlay();
-        userQuestionOverlay = showBottomPicker(new UserQuestionTextOverlay(tui, {
-          title: question.question,
-          rightLabel: `${progress.index + 1} / ${request.questions.length}`,
-          onSubmit: advance,
-          onSkip: () => advance(null),
-        }));
-        return;
-      }
-      const optionIndex = Number(item.value.slice('option:'.length));
-      advance(question.options[optionIndex]?.label ?? null);
-    };
-    list.onCancel = () => advance(null);
-    userQuestionOverlay = showBottomPicker(new PickerOverlay(list, {
+    userQuestionOverlay = showBottomPicker(new UserQuestionOverlay(tui, {
       title: question.question,
       rightLabel: `${progress.index + 1} / ${request.questions.length}`,
-      hint: '↑↓ move · Enter select · Esc unanswered · Ctrl+C stop',
+      hint: '↑↓ move · type to answer · Enter select · Esc unanswered · Ctrl+C stop',
+      placeholder: 'Other: type your answer…',
+      options: question.options,
+      onSelectOption: (index) => advance(question.options[index]?.label ?? null),
+      onSubmitText: (value) => advance(value),
+      onSkip: () => advance(null),
     }));
   };
 
