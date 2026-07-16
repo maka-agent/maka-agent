@@ -1233,6 +1233,38 @@ describe('buildModelHistoryFromRuntimeEvents', () => {
     expect(plan.items.map((item) => item.kind)).toEqual(['text', 'tool_call', 'tool_result']);
     expect(plan.hasProviderNativeSemantics).toBe(true);
   });
+
+  test('drops a tool call whose result never landed in the ledger', () => {
+    // A crash during tool execution persists the function_call but never its
+    // function_response (recovery then appends a terminal error event). A
+    // replayed tool_use with no tool_result is a provider 400, so the planner
+    // must drop the dangling call — mirroring the deliberately non-blocking
+    // unmatched_tool_result handling — instead of replaying or blocking.
+    const events: RuntimeEvent[] = [
+      ev({ role: 'user', author: 'user', content: { kind: 'text', text: 'q' } }),
+      ev({
+        role: 'model',
+        author: 'agent',
+        content: { kind: 'function_call', id: 'tool-1', name: 'Bash', args: { command: 'sleep 999' } },
+      }),
+      ev({
+        role: 'system',
+        author: 'system',
+        status: 'failed',
+        content: { kind: 'error', code: 'app_restarted', reason: 'app_restarted', message: 'app_restarted' },
+        actions: { endInvocation: true },
+      }),
+    ];
+
+    const plan = buildRuntimeEventModelReplayPlan(events);
+
+    expect(plan.items.map((item) => item.kind)).toEqual(['text']);
+    expect(plan.semanticKinds).not.toContain('tool_call');
+    expect(plan.hasProviderNativeSemantics).toBe(false);
+    const codes = plan.diagnostics.map((diagnostic) => diagnostic.code);
+    expect(codes).toContain('unmatched_tool_call');
+    expect(codes).not.toContain('unsupported_content');
+  });
 });
 
 // ============================================================================

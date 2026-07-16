@@ -144,6 +144,64 @@ describe('AiSdkBackend model history', () => {
     ]);
   });
 
+  test('drops a dangling tool call from replay after a crash during tool execution', async () => {
+    // The app died between persisting the function_call and its
+    // function_response; recovery appended the terminal error event. Replaying
+    // the dangling tool_use without a tool_result is a provider 400, so the
+    // request must carry the surviving history without the orphan call.
+    const model = completionModel();
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    await drain(backend.send({
+      turnId: 'turn-current',
+      text: 'current user',
+      context: [
+        { type: 'user', id: 'projection-u', turnId: 'turn-prev', ts: 1, text: 'runtime user' },
+      ],
+      runtimeContext: [
+        runtimeTextEvent({ id: 'rt-u', turnId: 'turn-prev', role: 'user', author: 'user', text: 'runtime user' }),
+        runtimeEvent({
+          id: 'rt-dangling-call',
+          turnId: 'turn-prev',
+          role: 'model',
+          author: 'agent',
+          content: { kind: 'function_call', id: 'tool-1', name: 'Bash', args: { command: 'sleep 999' } },
+        }),
+        {
+          id: 'rt-terminal-error',
+          invocationId: 'inv-1',
+          runId: 'run-prev',
+          sessionId: 'session-1',
+          turnId: 'turn-prev',
+          ts: 3,
+          partial: false,
+          role: 'system',
+          author: 'system',
+          status: 'failed',
+          content: { kind: 'error', code: 'app_restarted', reason: 'app_restarted', message: 'app_restarted' },
+          actions: { endInvocation: true },
+        },
+      ],
+    }));
+
+    assert.deepEqual(compactPrompt(model), [
+      { role: 'user', content: [{ type: 'text', text: 'runtime user' }] },
+      { role: 'user', content: [{ type: 'text', text: 'current user' }] },
+    ]);
+  });
+
   test('uses StoredMessage projection when RuntimeEvent replay is empty', async () => {
     const model = completionModel();
     const backend = new AiSdkBackend({

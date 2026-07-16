@@ -89,6 +89,7 @@ export type RuntimeEventReplayDiagnosticCode =
   | 'unsigned_thinking_skipped'
   | 'signed_thinking_in_tool_turn_skipped'
   | 'unmatched_tool_result'
+  | 'unmatched_tool_call'
   | 'tool_id_mismatch';
 
 export interface RuntimeEventReplayDiagnostic {
@@ -559,6 +560,22 @@ export function buildRuntimeEventModelReplayPlan(
         ));
         break;
     }
+  }
+
+  // A call whose result never landed (the app died during tool execution;
+  // recovery appends the terminal error but cannot invent the result) must not
+  // replay: a tool_use with no tool_result is a provider 400. Drop it — the
+  // deliberately non-blocking mirror of unmatched_tool_result — so consumers
+  // that read `items` directly (materializer, compact summarizer) stay valid.
+  for (const [toolCallId, call] of callsById) {
+    const index = items.indexOf(call.item);
+    if (index >= 0) items.splice(index, 1);
+    diagnostics.push({
+      code: 'unmatched_tool_call',
+      message: 'function_call has no matching function_response; dropped from model replay',
+      eventId: call.eventId,
+      detail: { toolCallId },
+    });
   }
 
   const textMessages = items
