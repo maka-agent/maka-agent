@@ -18,6 +18,7 @@ import type {
   AbortEvent,
   PermissionDecisionAckEvent,
   PermissionRequestEvent,
+  QueueEnqueueOutcome,
   ShellRunUpdate,
 } from '@maka/core/events';
 import type {
@@ -700,6 +701,26 @@ export class SessionManager {
 
   async stopSession(sessionId: string, input: StopSessionInput = {}): Promise<void> {
     await this.runtimeKernel.stopSession(sessionId, input);
+  }
+
+  /** Queue a user message for mid-turn injection at the next step boundary. */
+  steer(sessionId: string, text: string): QueueEnqueueOutcome {
+    return this.runtimeKernel.steer(sessionId, text);
+  }
+
+  /** Queue a user message to open the turn after the current one finishes. */
+  queueMessage(sessionId: string, text: string): QueueEnqueueOutcome {
+    return this.runtimeKernel.queueMessage(sessionId, text);
+  }
+
+  /** Drain the followup queue into one `\n\n`-joined prompt, or null if empty. */
+  drainFollowup(sessionId: string): string | null {
+    return this.runtimeKernel.drainFollowup(sessionId);
+  }
+
+  /** Take back every queued message (both queues) as one `\n\n`-joined string. */
+  retractQueue(sessionId: string): string {
+    return this.runtimeKernel.retractQueue(sessionId);
   }
 
   async *regenerateTurn(

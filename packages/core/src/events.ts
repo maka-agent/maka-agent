@@ -90,6 +90,8 @@ export type SessionEvent =
   | UserQuestionRequestEvent
   | PlanSubmittedEvent
   | TokenUsageEvent
+  | SteeringMessageEvent
+  | QueueUpdateEvent
   | ErrorEvent
   | CompleteEvent
   | AbortEvent;
@@ -491,6 +493,39 @@ export interface TokenUsageEvent extends BaseEvent {
   requestShapeChangeReason?: PrefixChangeReason;
   promptSegments?: PromptSegmentEstimate[];
   contextBudget?: ContextBudgetDiagnostic;
+}
+
+/**
+ * A user message injected into a running turn at a step boundary (steering).
+ * The runtime persists it as a user event in the ledger and echoes it through
+ * the stream so the transcript renders the interjection in place. `text` is the
+ * raw user text; the backend wraps it in a steering envelope for the model.
+ */
+export interface SteeringMessageEvent extends BaseEvent {
+  type: 'steering_message';
+  messageId: string;
+  text: string;
+}
+
+/**
+ * Result of enqueuing a steering / followup message. `fallback` means there was
+ * no active run to attach to (the turn just ended) and the caller should open a
+ * fresh turn with the text instead, so a message is never silently dropped.
+ * Queue contents travel on ONE path only: the `queue_update` event.
+ */
+export type QueueEnqueueOutcome =
+  | { kind: 'queued' }
+  | { kind: 'fallback' };
+
+/**
+ * Authoritative queue snapshot pushed into the active turn's event stream
+ * whenever either pending queue changes (enqueue, step-boundary consumption, or
+ * interrupt clear). UI observers mirror it; the runtime owns the source of truth.
+ */
+export interface QueueUpdateEvent extends BaseEvent {
+  type: 'queue_update';
+  steering: string[];
+  followup: string[];
 }
 
 export interface ErrorEvent extends BaseEvent {

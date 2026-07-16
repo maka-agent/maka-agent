@@ -41,6 +41,30 @@ export interface BackendSendInput {
    * compatibility projection.
    */
   runtimeContext?: RuntimeEvent[];
+  /**
+   * Steering pull — a LEASE, and the single atomic commit point of delivery.
+   * Backends that support mid-turn steering call this at every step boundary;
+   * each returned message moves to the caller's in-flight set, where it still
+   * counts as pending but is past the user-retract point: it settles only by
+   * durability — `ackSteering` when the echoed `steering_message` event is
+   * durably persisted AND in the injection set, `nackSteering` when it
+   * provably never persisted (never pushed, or the consumer detached first);
+   * the dying request never carries a nacked message. Each acked message is
+   * injected into the model context wrapped in a steering envelope,
+   * continuing the same turn. Absent for callers that do not steer (child
+   * agents, benchmarks).
+   */
+  pullSteering?: () => readonly SteeringLease[];
+  /** Confirm delivery of leased steering messages (see pullSteering). */
+  ackSteering?: (leaseIds: readonly string[]) => void;
+  /** Return undelivered leased steering messages to the queue (see pullSteering). */
+  nackSteering?: (leaseIds: readonly string[]) => void;
+}
+
+/** One leased steering message: queue identity + user text. */
+export interface SteeringLease {
+  id: string;
+  text: string;
 }
 
 /** Alias for clarity at the backend boundary. */
@@ -56,6 +80,16 @@ export interface BackendCompactHistoryResult {
 }
 
 export type BackendStopMode = 'immediate' | 'after_step';
+
+/**
+ * The session-event vocabulary a backend may produce. `queue_update` has
+ * exactly one legal producer — the runtime kernel, which pushes it directly
+ * into the turn stream, never through a backend — so a backend-yielded one is
+ * forged queue state and the flow drops it at the ingress (not mapped, not
+ * forwarded, not persisted). `send` stays typed as `SessionEvent` for
+ * implementation ergonomics; the ingress drop enforces the vocabulary.
+ */
+export type BackendSessionEvent = Exclude<SessionEvent, Extract<SessionEvent, { type: 'queue_update' }>>;
 
 export interface AgentBackend {
   readonly kind: BackendKind;

@@ -4,6 +4,7 @@ import { DEEP_RESEARCH_SESSION_LABEL, deriveTurnRecords, isTerminalRuntimeEvent 
 import type {
   CreateSessionInput,
   PermissionMode,
+  QueueEnqueueOutcome,
   AgentRunEvent,
   AgentRunHeader,
   AgentRunStore,
@@ -19,6 +20,12 @@ import type {
 } from '@maka/core';
 import type { BackendSendInput, BackendStopMode, PermissionDecision } from '@maka/core/backend-types';
 import { expect } from '../test-helpers.js';
+import { MockLanguageModelV3, simulateReadableStream } from 'ai/test';
+import type { LanguageModelV3StreamPart } from '@ai-sdk/provider';
+import { z } from 'zod';
+import type { LlmConnection } from '@maka/core';
+import { AiSdkBackend } from '../ai-sdk-backend.js';
+import { PermissionEngine } from '../permission-engine.js';
 import {
   BackendRegistry,
   SessionManager,
@@ -27,6 +34,7 @@ import {
   type SessionStore,
 } from '../session-manager.js';
 import type { RuntimeKernelLike } from '../runtime-kernel.js';
+import { FakeBackend } from '../fake-backend.js';
 import { RuntimeReadModel } from '../runtime-read-model.js';
 import type { AgentBackend } from '@maka/core/backend-types';
 import type { MakaTool } from '../tool-runtime.js';
@@ -5741,6 +5749,771 @@ describe('SessionManager permission mode updates', () => {
   });
 });
 
+describe('SessionManager steering and followup queues', () => {
+  function steeringManager() {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new FakeBackend(ctx));
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      newId: nextId(),
+      now: nextNow(1_000),
+    });
+    return { manager, store };
+  }
+
+  // Run a turn and invoke `duringFirstDelta` synchronously the first time the
+  // turn streams text — the point at which a real user would type while the
+  // agent works. Returns every streamed event.
+  async function runTurnWith(
+    manager: SessionManager,
+    sessionId: string,
+    turnId: string,
+    duringFirstDelta: () => void,
+  ): Promise<SessionEvent[]> {
+    const events: SessionEvent[] = [];
+    let fired = false;
+    for await (const event of manager.sendMessage(sessionId, { turnId, text: 'hello' })) {
+      events.push(event);
+      if (!fired && event.type === 'text_delta') {
+        fired = true;
+        duringFirstDelta();
+      }
+    }
+    return events;
+  }
+
+  test('steer injects a user message mid-turn and emits queue snapshots', async () => {
+    const { manager } = steeringManager();
+    const session = await manager.createSession(makeInput({ backend: 'fake', permissionMode: 'bypass' }));
+
+    let steerOutcome: unknown;
+    const events = await runTurnWith(manager, session.id, 'turn-1', () => {
+      steerOutcome = manager.steer(session.id, 'also do X');
+    });
+
+    expect(steerOutcome).toEqual({ kind: 'queued' });
+    // The interjection is echoed as a first-class user event…
+    expect(events.some((event) => event.type === 'steering_message' && event.text === 'also do X')).toBe(true);
+    // …the enqueue and the step-boundary consumption both push a queue snapshot…
+    const queueUpdates = events.filter((event): event is Extract<SessionEvent, { type: 'queue_update' }> => event.type === 'queue_update');
+    expect(queueUpdates.some((event) => event.steering.length === 1)).toBe(true);
+    expect(queueUpdates.at(-1)?.steering).toEqual([]);
+    // …and it lands in the durable ledger as a user message, in this turn.
+    const messages = await manager.getMessages(session.id);
+    expect(messages.some((message) => message.type === 'user' && message.text === 'also do X')).toBe(true);
+    // The queues are drained by turn end.
+    expect(manager.drainFollowup(session.id)).toBe(null);
+  });
+
+  test('queued followups drain at turn end joined with blank lines', async () => {
+    const { manager } = steeringManager();
+    const session = await manager.createSession(makeInput({ backend: 'fake', permissionMode: 'bypass' }));
+
+    await runTurnWith(manager, session.id, 'turn-1', () => {
+      expect(manager.queueMessage(session.id, 'first').kind).toBe('queued');
+      const second = manager.queueMessage(session.id, 'second');
+      expect(second).toEqual({ kind: 'queued' });
+    });
+
+    // Followups are never injected mid-turn; they wait for the drain.
+    expect(manager.drainFollowup(session.id)).toBe('first\n\nsecond');
+    expect(manager.drainFollowup(session.id)).toBe(null);
+  });
+
+  test('retract returns and clears both queues', async () => {
+    const { manager } = steeringManager();
+    const session = await manager.createSession(makeInput({ backend: 'fake', permissionMode: 'bypass' }));
+
+    let retracted: string | undefined;
+    await runTurnWith(manager, session.id, 'turn-1', () => {
+      manager.steer(session.id, 'steer me');
+      manager.queueMessage(session.id, 'queue me');
+      retracted = manager.retractQueue(session.id);
+    });
+
+    expect(retracted).toBe('steer me\n\nqueue me');
+    expect(manager.drainFollowup(session.id)).toBe(null);
+  });
+
+  test('interrupt clears both queues', async () => {
+    const { manager } = steeringManager();
+    const session = await manager.createSession(makeInput({ backend: 'fake', permissionMode: 'bypass' }));
+
+    await runTurnWith(manager, session.id, 'turn-1', () => {
+      manager.steer(session.id, 'steer me');
+      manager.queueMessage(session.id, 'queue me');
+      void manager.stopSession(session.id, { source: 'stop_button' });
+    });
+
+    expect(manager.drainFollowup(session.id)).toBe(null);
+    expect(manager.retractQueue(session.id)).toBe('');
+  });
+
+  test('steer with no active run falls back so nothing is dropped', async () => {
+    const { manager } = steeringManager();
+    const session = await manager.createSession(makeInput({ backend: 'fake', permissionMode: 'bypass' }));
+
+    // No turn is running — the caller is told to open a fresh turn instead.
+    expect(manager.steer(session.id, 'x')).toEqual({ kind: 'fallback' });
+    expect(manager.queueMessage(session.id, 'y')).toEqual({ kind: 'fallback' });
+  });
+
+  test('a failed turn begin never leaks a steering owner', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    let failBuilds = 1;
+    backends.register('fake', (ctx) => {
+      if (failBuilds > 0) {
+        failBuilds -= 1;
+        throw new Error('backend build failed');
+      }
+      return new FakeBackend(ctx);
+    });
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      newId: nextId(),
+      now: nextNow(1_000),
+    });
+    const session = await manager.createSession(makeInput({ backend: 'fake', permissionMode: 'bypass' }));
+
+    let failed: unknown;
+    try {
+      for await (const _event of manager.sendMessage(session.id, { turnId: 'turn-fail', text: 'hello' })) {
+        // drain
+      }
+    } catch (error) {
+      failed = error;
+    }
+    expect((failed as Error).message).toBe('backend build failed');
+
+    // The failed begin must not have left a live owner: steering falls back
+    // instead of queueing a message no run will ever consume.
+    expect(manager.steer(session.id, 'orphaned')).toEqual({ kind: 'fallback' });
+    expect(manager.queueMessage(session.id, 'orphaned too')).toEqual({ kind: 'fallback' });
+
+    // A later successful turn establishes ownership normally.
+    let outcome: QueueEnqueueOutcome | undefined;
+    const events = await runTurnWith(manager, session.id, 'turn-2', () => {
+      outcome = manager.steer(session.id, 'now consumed');
+    });
+    expect(outcome?.kind).toBe('queued');
+    expect(events.some((event) => event.type === 'steering_message' && event.text === 'now consumed')).toBe(true);
+  });
+
+  test('an overlapping turn cannot drain steering queued for the current owner', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    let backend: GatedSteeringBackend | undefined;
+    backends.register('fake', (ctx) => {
+      backend = new GatedSteeringBackend(ctx);
+      return backend;
+    });
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      newId: nextId(),
+      now: nextNow(1_000),
+    });
+    const session = await manager.createSession(makeInput({ backend: 'fake', permissionMode: 'bypass' }));
+
+    const first = drainAll(manager.sendMessage(session.id, { turnId: 'turn-a', text: 'first' }));
+    await waitUntil(() => backend?.gates.has('turn-a') === true);
+    const second = drainAll(manager.sendMessage(session.id, { turnId: 'turn-b', text: 'second' }));
+    await waitUntil(() => backend?.gates.has('turn-b') === true);
+
+    // turn-b established ownership last, so the steer targets it.
+    expect(manager.steer(session.id, 'for the owner').kind).toBe('queued');
+
+    // The stale turn's pull hook fails the identity check and drains nothing.
+    backend?.release('turn-a');
+    const firstEvents = await first;
+    expect(backend?.pulls.get('turn-a')).toEqual([[]]);
+    expect(firstEvents.some((event) => event.type === 'steering_message')).toBe(false);
+
+    // The owner drains exactly the queued message.
+    backend?.release('turn-b');
+    const secondEvents = await second;
+    expect(backend?.pulls.get('turn-b')).toEqual([['for the owner']]);
+    expect(secondEvents.some((event) => event.type === 'steering_message' && event.text === 'for the owner')).toBe(true);
+  });
+
+  test('a pulled lease is past the retract point: retract excludes it and it delivers exactly once', async () => {
+    // Round-5 F1/D1: pull() is the single atomic commit point. Once leased,
+    // the message belongs to this turn's delivery — a retract during the
+    // (slow) durable append returns only still-queued text, never the
+    // in-flight lease; otherwise the retracted text would ALSO be executed by
+    // the provider once the append lands (refill + execute = two copies).
+    const gate = makeGate();
+    const parked = makeGate();
+    class GatedRuntimeEventStore extends MemoryAgentRunStore {
+      override async appendRuntimeEvent(sessionId: string, runId: string, event: RuntimeEvent): Promise<void> {
+        if (event.content?.kind === 'text' && (event.content as { steering?: boolean }).steering === true) {
+          parked.release();
+          await gate.promise;
+        }
+        return super.appendRuntimeEvent(sessionId, runId, event);
+      }
+    }
+    const runStore = new GatedRuntimeEventStore();
+    const model = steeringToolThenDoneModel();
+    const { manager, session } = await steeringDeliverySession(runStore, model, (manager, sessionId) => {
+      expect(manager.steer(sessionId, 'urgent steer').kind).toBe('queued');
+    });
+
+    const turnEvents: SessionEvent[] = [];
+    const turn = (async () => {
+      for await (const event of manager.sendMessage(session.id, { turnId: 'turn-1', text: 'go' })) {
+        turnEvents.push(event);
+      }
+    })();
+    await parked.promise;
+    // The steering append has not committed: the next provider request must
+    // not have started while the message is not durable.
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    expect(model.doStreamCalls.length).toBe(1);
+    // Pulled means committed to this turn: retract returns nothing.
+    expect(manager.retractQueue(session.id)).toBe('');
+    gate.release();
+    await turn;
+    // The message delivered exactly once: in the next provider request…
+    expect(model.doStreamCalls.length).toBe(2);
+    expect(JSON.stringify(model.doStreamCalls[1]?.prompt).includes('urgent steer')).toBe(true);
+    // …echoed once in the stream/ledger…
+    expect(turnEvents.filter((event) => event.type === 'steering_message').length).toBe(1);
+    // …and owned by no queue afterwards.
+    expect(manager.drainFollowup(session.id)).toBe(null);
+    expect(manager.retractQueue(session.id)).toBe('');
+  });
+
+  test('an abort never converts a durably appended steering message into a redelivery', async () => {
+    // Round-5 F1/D3: abort does not settle a pushed lease — settlement is
+    // decided only by the persistence fact. Here the append is parked when
+    // the stop arrives; once it commits, the message belongs to the ledger
+    // (history replay presents it to the next turn) and must NOT also be
+    // nacked into the followup queue, which would put the same directive in
+    // the account twice.
+    const gate = makeGate();
+    const parked = makeGate();
+    class GatedRuntimeEventStore extends MemoryAgentRunStore {
+      override async appendRuntimeEvent(sessionId: string, runId: string, event: RuntimeEvent): Promise<void> {
+        if (event.content?.kind === 'text' && (event.content as { steering?: boolean }).steering === true) {
+          parked.release();
+          await gate.promise;
+        }
+        return super.appendRuntimeEvent(sessionId, runId, event);
+      }
+    }
+    const runStore = new GatedRuntimeEventStore();
+    const model = steeringToolThenDoneModel();
+    const { manager, session } = await steeringDeliverySession(runStore, model, (manager, sessionId) => {
+      expect(manager.steer(sessionId, 'urgent steer').kind).toBe('queued');
+    });
+
+    const turn = (async () => {
+      try {
+        for await (const _event of manager.sendMessage(session.id, { turnId: 'turn-1', text: 'go' })) {
+          // drain
+        }
+      } catch {
+        // the abort may end the stream abruptly
+      }
+    })();
+    await parked.promise;
+    void manager.stopSession(session.id, { source: 'stop_button' });
+    // Let the abort reach the backend's durability wait while the append is
+    // still parked — the exact window where an abort-settles-the-lease bug
+    // nacks a message that then also commits to the ledger.
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    gate.release();
+    // Teardown converges: the parked append commits, the lease settles, and
+    // the aborted send terminates without hanging.
+    await turn;
+
+    // The dying request was never sent…
+    expect(model.doStreamCalls.length).toBe(1);
+    // …the ledger owns the message (exactly one durable steering event)…
+    const runs = await runStore.listSessionRuns(session.id);
+    const steeringEvents: RuntimeEvent[] = [];
+    for (const run of runs) {
+      const events = await runStore.readRuntimeEvents(session.id, run.runId);
+      steeringEvents.push(...events.filter(
+        (event) => event.content?.kind === 'text' && (event.content as { steering?: boolean }).steering === true,
+      ));
+    }
+    expect(steeringEvents.length).toBe(1);
+    // …and no queue redelivers it.
+    expect(manager.drainFollowup(session.id)).toBe(null);
+    expect(manager.retractQueue(session.id)).toBe('');
+  });
+
+  test('a nack that lands after the owner released folds into the followup queue, not an ownerless steering queue', async () => {
+    // Round-5 F3: turn A's append fails only after turn B took over and
+    // released. A's nack can no longer target A (it will never pull again) —
+    // the text's only safe home is the followup queue, exactly where a
+    // release-time fold would have put it.
+    const gate = makeGate();
+    const parked = makeGate();
+    class ParkThenFailStore extends MemoryAgentRunStore {
+      override async appendRuntimeEvent(sessionId: string, runId: string, event: RuntimeEvent): Promise<void> {
+        if (event.content?.kind === 'text' && (event.content as { steering?: boolean }).steering === true) {
+          parked.release();
+          await gate.promise;
+          throw new Error('steering append failed');
+        }
+        return super.appendRuntimeEvent(sessionId, runId, event);
+      }
+    }
+    const runStore = new ParkThenFailStore();
+    const model = steeringToolThenDoneModel();
+    const { manager, session } = await steeringDeliverySession(runStore, model, (manager, sessionId) => {
+      manager.steer(sessionId, 'urgent steer');
+    });
+
+    const turnA = (async () => {
+      try {
+        for await (const _event of manager.sendMessage(session.id, { turnId: 'turn-1', text: 'go' })) {
+          // drain
+        }
+      } catch {
+        // the failed append ends the stream abruptly
+      }
+    })();
+    await parked.promise;
+    // Turn B takes ownership and releases it while A is parked.
+    for await (const _event of manager.sendMessage(session.id, { turnId: 'turn-2', text: 'second' })) {
+      // drain
+    }
+    gate.release();
+    await turnA;
+
+    // The failed message is redeliverable exactly once, via followup.
+    expect(manager.drainFollowup(session.id)).toBe('urgent steer');
+    expect(manager.retractQueue(session.id)).toBe('');
+  });
+
+  test('steer falls back when no RuntimeEventStore is configured', async () => {
+    // Round-5 F4: without a runtime event ledger, the steering durability ack
+    // has nothing to anchor to — the fail-closed persist contract cannot be
+    // honored. The fallback path opens a fresh turn whose user message is
+    // persisted by the SessionStore, keeping the same durability guarantee.
+    const store = new MemorySessionStore();
+    const backends = new BackendRegistry();
+    let backend: GatedSteeringBackend | undefined;
+    backends.register('fake', (ctx) => {
+      backend = new GatedSteeringBackend(ctx);
+      return backend;
+    });
+    const manager = new SessionManager({
+      store,
+      backends,
+      newId: nextId(),
+      now: nextNow(1_000),
+    });
+    const session = await manager.createSession(makeInput({ backend: 'fake', permissionMode: 'bypass' }));
+
+    const turn = drainAll(manager.sendMessage(session.id, { turnId: 'turn-1', text: 'go' }));
+    await waitUntil(() => backend?.gates.has('turn-1') === true);
+    // A live turn exists, but steering cannot be made durable: fall back.
+    expect(manager.steer(session.id, 'no ledger')).toEqual({ kind: 'fallback' });
+    // Followups are unaffected — they open a normal turn anyway.
+    expect(manager.queueMessage(session.id, 'later').kind).toBe('queued');
+    backend?.gates.get('turn-1')?.release();
+    backend?.pullDone.get('turn-1')?.release();
+    await turn;
+  });
+
+  test('a failed steering append nacks the lease back to the queue and the request never carries it', async () => {
+    // Fail-CLOSED persistence: the steering append throws, the ack judgment
+    // propagates the failure (no fail-open swallow), the lease is nacked back
+    // to the queue (folded into followup at release), and neither the ledger
+    // nor the projection carries the undelivered message.
+    class FailingSteeringStore extends MemoryAgentRunStore {
+      override async appendRuntimeEvent(sessionId: string, runId: string, event: RuntimeEvent): Promise<void> {
+        if (event.content?.kind === 'text' && (event.content as { steering?: boolean }).steering === true) {
+          throw new Error('steering append failed');
+        }
+        return super.appendRuntimeEvent(sessionId, runId, event);
+      }
+    }
+    const runStore = new FailingSteeringStore();
+    const model = steeringToolThenDoneModel();
+    const { manager, session } = await steeringDeliverySession(runStore, model, (manager, sessionId) => {
+      expect(manager.steer(sessionId, 'urgent steer').kind).toBe('queued');
+    });
+
+    let failed: unknown;
+    try {
+      for await (const _event of manager.sendMessage(session.id, { turnId: 'turn-1', text: 'go' })) {
+        // drain
+      }
+    } catch (error) {
+      failed = error;
+    }
+    expect(failed instanceof Error).toBe(true);
+    // The dying request never carried the steering: no second provider call.
+    expect(model.doStreamCalls.length).toBe(1);
+    // Nacked back to the queue and folded into followup at release — the
+    // text is redeliverable, not lost.
+    expect(manager.drainFollowup(session.id)).toBe('urgent steer');
+    // Ledger and projection agree: the message was never persisted.
+    const messages = await manager.getMessages(session.id);
+    expect(messages.some((message) => message.type === 'user' && message.text === 'urgent steer')).toBe(false);
+  });
+
+  test('an overlapping turn cannot turn a delivered lease into a followup redelivery', async () => {
+    // Round-4 V1: turn A leases the steer and parks in the (gated) durable
+    // append; turn B starts meanwhile and takes the owner slot. A's append
+    // then commits and A's provider request carries the message — so A's ack
+    // MUST still settle the lease (it is keyed by issuer, not by the current
+    // owner), and B's teardown must not fold A's in-flight lease into the
+    // followup queue, which would redeliver an already-executed directive.
+    const gate = makeGate();
+    const parked = makeGate();
+    class GatedRuntimeEventStore extends MemoryAgentRunStore {
+      override async appendRuntimeEvent(sessionId: string, runId: string, event: RuntimeEvent): Promise<void> {
+        if (event.content?.kind === 'text' && (event.content as { steering?: boolean }).steering === true) {
+          parked.release();
+          await gate.promise;
+        }
+        return super.appendRuntimeEvent(sessionId, runId, event);
+      }
+    }
+    const runStore = new GatedRuntimeEventStore();
+    const model = steeringToolThenDoneModel();
+    const { manager, session } = await steeringDeliverySession(runStore, model, (manager, sessionId) => {
+      manager.steer(sessionId, 'urgent steer');
+    });
+
+    const turnAEvents: SessionEvent[] = [];
+    const turnA = (async () => {
+      try {
+        for await (const event of manager.sendMessage(session.id, { turnId: 'turn-1', text: 'go' })) {
+          turnAEvents.push(event);
+        }
+      } catch {
+        // A gated teardown may end the stream abruptly.
+      }
+    })();
+    await parked.promise;
+
+    // Turn B runs to completion while A is parked mid-lease.
+    for await (const _event of manager.sendMessage(session.id, { turnId: 'turn-2', text: 'second' })) {
+      // drain
+    }
+    expect(model.doStreamCalls.length).toBe(2);
+
+    gate.release();
+    await turnA;
+
+    // A's post-steer request went out carrying the directive exactly once…
+    expect(model.doStreamCalls.length).toBe(3);
+    expect(JSON.stringify(model.doStreamCalls[2]?.prompt).includes('urgent steer')).toBe(true);
+    // …B's request never did…
+    expect(JSON.stringify(model.doStreamCalls[1]?.prompt).includes('urgent steer')).toBe(false);
+    // …the ledger echoes it exactly once…
+    expect(turnAEvents.filter((event) => event.type === 'steering_message').length).toBe(1);
+    // …and NOTHING redelivers it: the delivered lease was acked by its
+    // issuer, so no queue still holds the text.
+    expect(manager.drainFollowup(session.id)).toBe(null);
+    expect(manager.retractQueue(session.id)).toBe('');
+  });
+
+  test('a backend-forged queue_update never reaches the ledger or observers', async () => {
+    // Round-6 R3: the kernel is the only legal producer of queue_update (it
+    // pushes them directly into the turn stream). A backend that yields one
+    // is forging authoritative queue state; the flow drops it at the ingress
+    // — not mapped, not forwarded, not persisted.
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new ForgingQueueBackend(ctx));
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      newId: nextId(),
+      now: nextNow(1_000),
+    });
+    const session = await manager.createSession(makeInput({ backend: 'fake', permissionMode: 'bypass' }));
+
+    const events = await drainAll(manager.sendMessage(session.id, { turnId: 'turn-1', text: 'go' }));
+    // Nothing was enqueued in this turn, so ANY queue_update in the stream
+    // is the forged one leaking through.
+    expect(events.some((event) => event.type === 'queue_update')).toBe(false);
+    const runs = await runStore.listSessionRuns(session.id);
+    const runtimeEvents = (await Promise.all(
+      runs.map((run) => runStore.readRuntimeEvents(session.id, run.runId)),
+    )).flat();
+    expect(runtimeEvents.some(
+      (event) => (event.actions?.stateDelta as { queueUpdate?: unknown } | undefined)?.queueUpdate !== undefined,
+    )).toBe(false);
+  });
+
+  test('an append error after the write landed settles by the ledger read-back, not a duplicate nack', async () => {
+    // Round-6 R5: appendRuntimeEvent can fail AFTER the bytes landed (e.g. a
+    // close error). Treating every append error as not-durable would nack a
+    // message the ledger already owns — history replay plus the followup
+    // redelivery equals a double. The ambiguous failure is settled by reading
+    // the ledger back: present ⇒ durable ⇒ ack path.
+    class WriteThenThrowStore extends MemoryAgentRunStore {
+      override async appendRuntimeEvent(sessionId: string, runId: string, event: RuntimeEvent): Promise<void> {
+        if (event.content?.kind === 'text' && (event.content as { steering?: boolean }).steering === true) {
+          await super.appendRuntimeEvent(sessionId, runId, event);
+          throw new Error('close failed after the write landed');
+        }
+        return super.appendRuntimeEvent(sessionId, runId, event);
+      }
+    }
+    const runStore = new WriteThenThrowStore();
+    const model = steeringToolThenDoneModel();
+    const { manager, session } = await steeringDeliverySession(runStore, model, (manager, sessionId) => {
+      manager.steer(sessionId, 'urgent steer');
+    });
+
+    const turnEvents: SessionEvent[] = [];
+    for await (const event of manager.sendMessage(session.id, { turnId: 'turn-1', text: 'go' })) {
+      turnEvents.push(event);
+    }
+
+    // Delivered exactly once: the next request carries it…
+    expect(model.doStreamCalls.length).toBe(2);
+    expect(JSON.stringify(model.doStreamCalls[1]?.prompt).includes('urgent steer')).toBe(true);
+    // …the ledger owns exactly one copy…
+    const runs = await runStore.listSessionRuns(session.id);
+    const steeringEvents: RuntimeEvent[] = [];
+    for (const run of runs) {
+      const events = await runStore.readRuntimeEvents(session.id, run.runId);
+      steeringEvents.push(...events.filter(
+        (event) => event.content?.kind === 'text' && (event.content as { steering?: boolean }).steering === true,
+      ));
+    }
+    expect(steeringEvents.length).toBe(1);
+    // …and no queue redelivers it.
+    expect(manager.drainFollowup(session.id)).toBe(null);
+    expect(manager.retractQueue(session.id)).toBe('');
+  });
+
+  test('stranded steering emits a final queue snapshot when it folds into the followup queue', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    let backend: GatedSteeringBackend | undefined;
+    backends.register('fake', (ctx) => {
+      backend = new GatedSteeringBackend(ctx);
+      return backend;
+    });
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      newId: nextId(),
+      now: nextNow(1_000),
+    });
+    const session = await manager.createSession(makeInput({ backend: 'fake', permissionMode: 'bypass' }));
+
+    const turn = drainAll(manager.sendMessage(session.id, { turnId: 'turn-1', text: 'go' }));
+    await waitUntil(() => backend?.gates.has('turn-1') === true);
+    backend?.gates.get('turn-1')?.release();
+    // The turn's only step boundary has already pulled (empty)…
+    await waitUntil(() => backend?.pulls.has('turn-1') === true);
+    // …so this steer is stranded: no step is left to consume it.
+    expect(manager.steer(session.id, 'late').kind).toBe('queued');
+    backend?.pullDone.get('turn-1')?.release();
+    const events = await turn;
+
+    // The stranded → followup migration is a queue change; the LAST snapshot
+    // in the stream reflects it, not the stale pre-fold state.
+    const updates = events.filter(
+      (event): event is Extract<SessionEvent, { type: 'queue_update' }> => event.type === 'queue_update',
+    );
+    expect(updates.at(-1)?.steering).toEqual([]);
+    expect(updates.at(-1)?.followup).toEqual(['late']);
+    // And the followup queue is the authoritative owner of the text.
+    expect(manager.drainFollowup(session.id)).toBe('late');
+  });
+});
+
+async function drainAll(iterable: AsyncIterable<SessionEvent>): Promise<SessionEvent[]> {
+  const events: SessionEvent[] = [];
+  for await (const event of iterable) events.push(event);
+  return events;
+}
+
+async function waitUntil(predicate: () => boolean): Promise<void> {
+  for (let i = 0; i < 500 && !predicate(); i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 2));
+  }
+  expect(predicate()).toBe(true);
+}
+
+/** Mock model: first request calls the Probe tool, second finishes with text. */
+function steeringToolThenDoneModel(): MockLanguageModelV3 {
+  const usage = {
+    inputTokens: { total: 100, noCache: 100, cacheRead: 0, cacheWrite: 0 },
+    outputTokens: { total: 10, text: 10, reasoning: 0 },
+  };
+  const model: MockLanguageModelV3 = new MockLanguageModelV3({
+    doStream: async () => {
+      const call = model.doStreamCalls.length;
+      const chunks: LanguageModelV3StreamPart[] = call === 1
+        ? [
+            { type: 'stream-start', warnings: [] },
+            { type: 'tool-call', toolCallId: 'tool-1', toolName: 'Probe', input: JSON.stringify({ q: 'x' }) },
+            { type: 'finish', finishReason: { unified: 'tool-calls', raw: 'tool_calls' }, usage },
+          ]
+        : [
+            { type: 'stream-start', warnings: [] },
+            { type: 'text-start', id: 'text-1' },
+            { type: 'text-delta', id: 'text-1', delta: 'done' },
+            { type: 'text-end', id: 'text-1' },
+            { type: 'finish', finishReason: { unified: 'stop', raw: 'stop' }, usage },
+          ];
+      return { stream: simulateReadableStream({ chunks, initialDelayInMs: null, chunkDelayInMs: null }) };
+    },
+  });
+  return model;
+}
+
+/**
+ * A SessionManager wired to a REAL AiSdkBackend over a mock model, so the
+ * full steering delivery chain (kernel lease -> backend durability wait ->
+ * AgentRun fail-closed persist) is exercised. `duringTool` runs inside the
+ * first step's tool execution — the moment a real user steers.
+ */
+async function steeringDeliverySession(
+  runStore: MemoryAgentRunStore,
+  model: MockLanguageModelV3,
+  duringTool: (manager: SessionManager, sessionId: string) => void,
+) {
+  const store = new MemorySessionStore();
+  const backends = new BackendRegistry();
+  let manager!: SessionManager;
+  let sessionId = '';
+  backends.register('fake', (ctx) => new AiSdkBackend({
+    sessionId: ctx.sessionId,
+    header: ctx.header,
+    appendMessage: async () => {},
+    connection: {
+      slug: 'mock-main',
+      name: 'Mock',
+      providerType: 'anthropic',
+      defaultModel: 'mock-model-id',
+      enabled: true,
+      createdAt: 1,
+      updatedAt: 1,
+    } satisfies LlmConnection,
+    apiKey: 'sk-test',
+    modelId: 'mock-model-id',
+    permissionEngine: new PermissionEngine({ newId: () => 'perm-1', now: () => 1 }),
+    modelFactory: () => model,
+    tools: [{
+      name: 'Probe',
+      description: 'Probe description',
+      parameters: z.object({ q: z.string() }),
+      permissionRequired: false,
+      impl: async () => {
+        duringTool(manager, sessionId);
+        return { ok: true };
+      },
+    }],
+    newId: nextId(),
+    now: nextNow(1),
+  }));
+  manager = new SessionManager({
+    store,
+    runStore,
+    runtimeEventStore: runStore,
+    backends,
+    newId: nextId(),
+    now: nextNow(1_000),
+  });
+  const session = await manager.createSession(makeInput({ backend: 'fake', permissionMode: 'bypass' }));
+  sessionId = session.id;
+  return { manager, session };
+}
+
+/**
+ * Parks each send behind a per-turn gate, pulls steering exactly once after
+ * release, then parks again behind a post-pull gate before finishing — a
+ * deterministic harness for the owner-identity rule and for enqueues that
+ * land after the final step boundary (stranded steering).
+ */
+class GatedSteeringBackend implements AgentBackend {
+  readonly kind = 'fake' as const;
+  readonly sessionId: string;
+  readonly gates = new Map<string, Gate>();
+  readonly pullDone = new Map<string, Gate>();
+  readonly pulls = new Map<string, string[][]>();
+
+  constructor(ctx: BackendFactoryContext) {
+    this.sessionId = ctx.sessionId;
+  }
+
+  async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    const gate = makeGate();
+    const afterPull = makeGate();
+    this.gates.set(input.turnId, gate);
+    this.pullDone.set(input.turnId, afterPull);
+    await gate.promise;
+    const leases = input.pullSteering?.() ?? [];
+    const record = this.pulls.get(input.turnId) ?? [];
+    record.push(leases.map((lease) => lease.text));
+    this.pulls.set(input.turnId, record);
+    let seq = 0;
+    for (const lease of leases) {
+      seq += 1;
+      yield {
+        type: 'steering_message',
+        id: `${input.turnId}-steer-${seq}`,
+        turnId: input.turnId,
+        ts: seq,
+        messageId: `${input.turnId}-steer-m-${seq}`,
+        text: lease.text,
+      };
+    }
+    // Delivery for this fake is the echo itself; ack the leases.
+    input.ackSteering?.(leases.map((lease) => lease.id));
+    await afterPull.promise;
+    yield {
+      type: 'text_complete',
+      id: `${input.turnId}-final`,
+      turnId: input.turnId,
+      ts: 10,
+      messageId: `${input.turnId}-m`,
+      text: 'ok',
+    };
+    yield { type: 'complete', id: `${input.turnId}-complete`, turnId: input.turnId, ts: 11, stopReason: 'end_turn' };
+  }
+
+  /** Release both of a turn's gates (start + post-pull). */
+  release(turnId: string): void {
+    this.gates.get(turnId)?.release();
+    this.pullDone.get(turnId)?.release();
+  }
+
+  async stop(): Promise<void> {
+    for (const turnId of this.gates.keys()) this.release(turnId);
+  }
+
+  async respondToPermission(_decision: PermissionDecision): Promise<void> {}
+
+  async dispose(): Promise<void> {}
+}
+
 class DelegatingRuntimeKernel implements RuntimeKernelLike {
   readonly starts: Array<{ sessionId: string; input: Parameters<RuntimeKernelLike['startTurn']>[1] }> = [];
   readonly stopped: string[] = [];
@@ -5798,6 +6571,22 @@ class DelegatingRuntimeKernel implements RuntimeKernelLike {
     _response: Parameters<RuntimeKernelLike['respondToPermission']>[1],
   ): Promise<void> {
     this.permissionResponses.push(sessionId);
+  }
+
+  steer(): QueueEnqueueOutcome {
+    return { kind: 'fallback' };
+  }
+
+  queueMessage(): QueueEnqueueOutcome {
+    return { kind: 'fallback' };
+  }
+
+  drainFollowup(): string | null {
+    return null;
+  }
+
+  retractQueue(): string {
+    return '';
   }
 
   hasActiveRuns(): boolean {
@@ -6956,6 +7745,13 @@ class MemoryAgentRunStore implements AgentRunStore, RuntimeEventStore {
     return (this.runtimeEvents.get(key(sessionId, runId)) ?? []).map(copyRuntimeEvent);
   }
 
+  async readImmutableRuntimeEvents(sessionId: string, runId: string): Promise<RuntimeEvent[]> {
+    if (this.options.failRuntimeEventReads) throw new Error('runtime event read failed');
+    return (this.runtimeEvents.get(key(sessionId, runId)) ?? [])
+      .filter((event) => event.partial !== true)
+      .map(copyRuntimeEvent);
+  }
+
   async readSessionRuntimeEvents(sessionId: string): Promise<RuntimeEvent[]> {
     const ordered: Array<{ event: RuntimeEvent; runId: string; eventIndex: number }> = [];
     for (const [eventKey, events] of this.runtimeEvents.entries()) {
@@ -6971,6 +7767,42 @@ class MemoryAgentRunStore implements AgentRunStore, RuntimeEventStore {
     );
     return ordered.map((item) => item.event);
   }
+}
+
+/** Yields a forged queue_update before completing — round-6 R3's attacker. */
+class ForgingQueueBackend implements AgentBackend {
+  readonly kind = 'fake' as const;
+  readonly sessionId: string;
+
+  constructor(ctx: BackendFactoryContext) {
+    this.sessionId = ctx.sessionId;
+  }
+
+  async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    yield {
+      type: 'queue_update',
+      id: 'forged-queue-update',
+      turnId: input.turnId,
+      ts: 1,
+      steering: ['forged pending message'],
+      followup: [],
+    };
+    yield {
+      type: 'text_complete',
+      id: `${input.turnId}-final`,
+      turnId: input.turnId,
+      ts: 2,
+      messageId: `${input.turnId}-m`,
+      text: 'ok',
+    };
+    yield { type: 'complete', id: `${input.turnId}-complete`, turnId: input.turnId, ts: 3, stopReason: 'end_turn' };
+  }
+
+  async stop(): Promise<void> {}
+
+  async respondToPermission(_decision: PermissionDecision): Promise<void> {}
+
+  async dispose(): Promise<void> {}
 }
 
 class OrderingAgentRunStore extends MemoryAgentRunStore {

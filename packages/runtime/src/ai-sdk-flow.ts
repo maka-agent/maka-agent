@@ -46,7 +46,7 @@ import type {
 import type { UserQuestionResponse } from '@maka/core/user-question';
 import { isTerminalRuntimeEvent, type RuntimeEvent, type RuntimeEventStatus } from '@maka/core/runtime-event';
 
-import type { AgentBackend } from '@maka/core/backend-types';
+import type { AgentBackend, BackendSessionEvent } from '@maka/core/backend-types';
 import {
   type AgentFlow,
   type AgentFlowControl,
@@ -269,6 +269,22 @@ export function mapSessionEventToRuntimeEvent(
   ctx: InvocationContext,
   memory: SessionEventMapMemory = createSessionEventMapMemory(),
 ): RuntimeEvent {
+  if (event.type === 'queue_update') {
+    // Not backend-mappable by design: the kernel is queue_update's only
+    // legal producer and pushes it directly into the turn stream. The flow
+    // drops a backend-yielded one at the ingress (see run()), so reaching
+    // this line means a caller bypassed that authority boundary.
+    throw new Error('queue_update is not a backend event: the kernel is its only legal producer');
+  }
+  const narrowed: BackendSessionEvent = event;
+  return mapBackendSessionEvent(narrowed, ctx, memory);
+}
+
+function mapBackendSessionEvent(
+  event: BackendSessionEvent,
+  ctx: InvocationContext,
+  memory: SessionEventMapMemory,
+): RuntimeEvent {
   const base = resolveBase(event, ctx);
 
   switch (event.type) {
@@ -423,6 +439,25 @@ export function mapSessionEventToRuntimeEvent(
         },
         refs: { toolCallId: event.toolUseId },
       };
+
+    // ── Steering: a user message injected mid-turn at a step boundary ─────
+    // Persisted as a first-class user event so the ledger, transcript, and
+    // future-turn context all carry the interjection in place.
+    case 'steering_message':
+      return {
+        ...base,
+        role: 'user',
+        author: 'user',
+        // Raw text + steering marker: read models render the text as-is,
+        // model replay wraps it in the canonical steering envelope.
+        content: { kind: 'text', text: event.text, steering: true },
+        refs: { providerEventId: event.messageId },
+      };
+
+    // (queue_update is deliberately NOT mappable: the kernel is its only
+    // legal producer and pushes it directly into the turn stream. The flow
+    // drops a backend-yielded one at the ingress — see run() — so it is
+    // excluded from this function's input vocabulary.)
 
     // ── Plan handoff (placeholder; Phase 5/7 refines) ─────────────────────
     case 'plan_submitted':
@@ -660,8 +695,17 @@ export class AiSdkFlow implements AgentFlow, AgentFlowControl {
         ...(input.attachments !== undefined ? { attachments: input.attachments } : {}),
         context: input.context,
         ...(input.runtimeContext !== undefined ? { runtimeContext: input.runtimeContext } : {}),
+        ...(input.pullSteering !== undefined ? { pullSteering: input.pullSteering } : {}),
+        ...(input.ackSteering !== undefined ? { ackSteering: input.ackSteering } : {}),
+        ...(input.nackSteering !== undefined ? { nackSteering: input.nackSteering } : {}),
       })) {
         if (terminalEmitted) continue;
+        // Ingress authority check: queue_update has exactly one legal
+        // producer — the kernel, which pushes it directly into the turn
+        // stream, never through this flow. A backend yielding one is forging
+        // authoritative queue state: drop it here — not mapped, not
+        // forwarded to observers, not persisted.
+        if (sessionEvent.type === 'queue_update') continue;
         const runtimeEvent = mapSessionEventToRuntimeEvent(sessionEvent, ctx, memory);
         if (sessionEvent.type === 'error') errorEmitted = true;
         if (isTerminalRuntimeEvent(runtimeEvent)) {

@@ -367,6 +367,9 @@ function buildFlowInput(request: InvocationRequest): FlowInput {
     context: request.context ?? [],
     ...(request.runtimeContext !== undefined ? { runtimeContext: request.runtimeContext } : {}),
     ...(request.attachments !== undefined ? { attachments: request.attachments } : {}),
+    ...(request.pullSteering !== undefined ? { pullSteering: request.pullSteering } : {}),
+    ...(request.ackSteering !== undefined ? { ackSteering: request.ackSteering } : {}),
+    ...(request.nackSteering !== undefined ? { nackSteering: request.nackSteering } : {}),
     ...(request.abortSignal ? { abortSignal: request.abortSignal } : {}),
   };
 }

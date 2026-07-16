@@ -47,7 +47,7 @@ import {
 } from '../history-compact-artifacts.js';
 import { buildDefaultContextBudgetPolicy } from '../context-budget-policy.js';
 import { memoryArtifactStore } from './memory-artifact-store.js';
-import { buildRuntimeEventModelReplayPlan } from '../model-history.js';
+import { buildRuntimeEventModelReplayPlan, buildSteeringEnvelope } from '../model-history.js';
 import type { ActiveFullCompactBlock } from '../active-full-compact.js';
 import type { SemanticCompactBlock } from '../semantic-compact.js';
 import { HistoryCompactSummarizerError } from '../history-compact-summarizer.js';
@@ -7645,6 +7645,323 @@ function archiveGatedTurnEvents(
     }),
   ];
 }
+
+describe('AiSdkBackend steering durability and identity', () => {
+  const steeringBackend = (model: MockLanguageModelV3): AiSdkBackend =>
+    new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+  const pullOnce = (text: string): (() => Array<{ id: string; text: string }>) => {
+    let pulled = false;
+    return () => {
+      if (pulled) return [];
+      pulled = true;
+      return [{ id: `lease-${text}`, text }];
+    };
+  };
+
+  const nextSteeringEvent = async (iterator: AsyncIterator<SessionEvent>): Promise<SessionEvent> => {
+    for (;;) {
+      const next = await iterator.next();
+      assert.equal(next.done, false, 'stream ended before the steering echo');
+      const event = next.value as SessionEvent;
+      if (event.type === 'steering_message') return event;
+    }
+  };
+
+  test('holds the provider request until the steering event is durably consumed', async () => {
+    // Persist-before-include: the initial user message is durable before the
+    // backend is invoked, and a steered message holds the same line via the
+    // seq-ack boundary — the consumer's pull is the ack, and AgentRun persists
+    // each event before pulling the next.
+    const model = textCompletionModel('done');
+    const backend = steeringBackend(model);
+    const iterator = backend
+      .send({ turnId: 'turn-1', text: 'start', context: [], pullSteering: pullOnce('persist me first') })
+      [Symbol.asyncIterator]();
+
+    // The generator suspends at the steering yield: the event is delivered
+    // but not yet acked, so the persist boundary has not been crossed.
+    await nextSteeringEvent(iterator);
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    assert.equal(model.doStreamCalls.length, 0);
+
+    // Resuming consumption acks the steering event; only now may the provider
+    // request start, and it carries the steered directive.
+    const events: SessionEvent[] = [];
+    for (let next = await iterator.next(); next.done !== true; next = await iterator.next()) {
+      events.push(next.value as SessionEvent);
+    }
+    assert.equal(model.doStreamCalls.length, 1);
+    assert.equal(JSON.stringify(model.doStreamCalls[0]?.prompt).includes('persist me first'), true);
+    assert.equal(
+      events.some((event) => event.type === 'complete' && event.stopReason === 'end_turn'),
+      true,
+    );
+  });
+
+  test('a steering message never reaches the provider when the consumer detaches before the ack', async () => {
+    // The persist path failed or the turn is being torn down: the consumer
+    // walks away without acking the steering event. The dying request must
+    // never be sent carrying a directive the ledger does not have, and the
+    // lease is nacked so the queue reclaims the message.
+    const model = textCompletionModel('done');
+    const backend = steeringBackend(model);
+    const acked: string[] = [];
+    const nacked: string[] = [];
+    const iterator = backend
+      .send({
+        turnId: 'turn-1',
+        text: 'start',
+        context: [],
+        pullSteering: pullOnce('abandoned steer'),
+        ackSteering: (leaseIds) => acked.push(...leaseIds),
+        nackSteering: (leaseIds) => nacked.push(...leaseIds),
+      })
+      [Symbol.asyncIterator]();
+
+    await nextSteeringEvent(iterator);
+    await iterator.return?.(undefined);
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    assert.equal(model.doStreamCalls.length, 0);
+    assert.deepEqual(acked, []);
+    assert.deepEqual(nacked, ['lease-abandoned steer']);
+  });
+
+  test('a user prompt that equals the envelope text never cancels a real steer', async () => {
+    // Identity, not text: the dedupe key is the structured steering marker,
+    // so a user message that happens to BE the envelope text verbatim cannot
+    // forge (or absorb) a steering message.
+    const model = textCompletionModel('done');
+    const backend = steeringBackend(model);
+    const forged = buildSteeringEnvelope('fake');
+    await drain(backend.send({
+      turnId: 'turn-1',
+      text: forged,
+      context: [],
+      pullSteering: pullOnce('fake'),
+    }));
+
+    assert.deepEqual(compactPrompt(model), [
+      { role: 'user', content: [{ type: 'text', text: forged }] },
+      { role: 'user', content: [{ type: 'text', text: buildSteeringEnvelope('fake') }] },
+    ]);
+  });
+
+  test('a degraded stored-message projection presents prior steering exactly once, in envelope form', async () => {
+    // A blocking replay diagnostic (here: a tool-role text event) degrades the
+    // whole ledger to the StoredMessage projection, which cannot carry the
+    // RuntimeEvent steering marker. The sidecar (keyed by the projection's
+    // stable ids) restores the canonical envelope + structured identity, so
+    // the steering appears exactly once and dedupe still works by id.
+    const model = textCompletionModel('done');
+    const backend = steeringBackend(model);
+    const steeredEvent = runtimeTextEvent({
+      id: 'rt-steer', turnId: 'turn-prev', role: 'user', author: 'user', text: 'steered earlier',
+    });
+    (steeredEvent.content as { steering?: true }).steering = true;
+    const degradingEvent = runtimeTextEvent({
+      id: 'rt-bad', turnId: 'turn-prev', role: 'user', author: 'user', text: 'boom',
+    });
+    (degradingEvent as { role: string }).role = 'tool';
+    await drain(backend.send({
+      turnId: 'turn-current',
+      text: 'continue',
+      context: [
+        { type: 'user', id: 'rt-u', turnId: 'turn-prev', ts: 1, text: 'original ask' },
+        { type: 'user', id: 'rt-steer', turnId: 'turn-prev', ts: 2, text: 'steered earlier' },
+        { type: 'assistant', id: 'rt-a', turnId: 'turn-prev', ts: 3, text: 'ok', modelId: 'm' },
+      ],
+      runtimeContext: [
+        runtimeTextEvent({ id: 'rt-u', turnId: 'turn-prev', role: 'user', author: 'user', text: 'original ask' }),
+        steeredEvent,
+        degradingEvent,
+        runtimeTextEvent({ id: 'rt-a', turnId: 'turn-prev', role: 'model', author: 'agent', text: 'ok' }),
+      ],
+    }));
+
+    assert.deepEqual(compactPrompt(model), [
+      { role: 'user', content: [{ type: 'text', text: 'original ask' }] },
+      { role: 'user', content: [{ type: 'text', text: buildSteeringEnvelope('steered earlier') }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'ok' }] },
+      { role: 'user', content: [{ type: 'text', text: 'continue' }] },
+    ]);
+  });
+
+  test('the degraded-projection sidecar restores steering keyed by providerEventId', async () => {
+    // A StoredMessage projection may carry the provider's event id, not the
+    // runtime event id, as the message's stable id. The sidecar must match on
+    // that key too, or the degraded replay silently loses the steering
+    // identity (bare text, no envelope, no dedupe id).
+    const model = textCompletionModel('done');
+    const backend = steeringBackend(model);
+    const steeredEvent = runtimeTextEvent({
+      id: 'rt-steer', turnId: 'turn-prev', role: 'user', author: 'user', text: 'steered earlier',
+    });
+    (steeredEvent.content as { steering?: true }).steering = true;
+    steeredEvent.refs = { providerEventId: 'prov-steer' };
+    const degradingEvent = runtimeTextEvent({
+      id: 'rt-bad', turnId: 'turn-prev', role: 'user', author: 'user', text: 'boom',
+    });
+    (degradingEvent as { role: string }).role = 'tool';
+    await drain(backend.send({
+      turnId: 'turn-current',
+      text: 'continue',
+      context: [
+        { type: 'user', id: 'prov-steer', turnId: 'turn-prev', ts: 1, text: 'steered earlier' },
+        { type: 'assistant', id: 'prov-a', turnId: 'turn-prev', ts: 2, text: 'ok', modelId: 'm' },
+      ],
+      runtimeContext: [
+        steeredEvent,
+        degradingEvent,
+        runtimeTextEvent({ id: 'rt-a', turnId: 'turn-prev', role: 'model', author: 'agent', text: 'ok' }),
+      ],
+    }));
+
+    assert.deepEqual(compactPrompt(model), [
+      { role: 'user', content: [{ type: 'text', text: buildSteeringEnvelope('steered earlier') }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'ok' }] },
+      { role: 'user', content: [{ type: 'text', text: 'continue' }] },
+    ]);
+  });
+
+  test('the degraded-projection sidecar restores steering keyed by storedMessageId', async () => {
+    const model = textCompletionModel('done');
+    const backend = steeringBackend(model);
+    const steeredEvent = runtimeTextEvent({
+      id: 'rt-steer', turnId: 'turn-prev', role: 'user', author: 'user', text: 'steered earlier',
+    });
+    (steeredEvent.content as { steering?: true }).steering = true;
+    steeredEvent.refs = { storedMessageId: 'sm-steer' };
+    const degradingEvent = runtimeTextEvent({
+      id: 'rt-bad', turnId: 'turn-prev', role: 'user', author: 'user', text: 'boom',
+    });
+    (degradingEvent as { role: string }).role = 'tool';
+    await drain(backend.send({
+      turnId: 'turn-current',
+      text: 'continue',
+      context: [
+        { type: 'user', id: 'sm-steer', turnId: 'turn-prev', ts: 1, text: 'steered earlier' },
+        { type: 'assistant', id: 'sm-a', turnId: 'turn-prev', ts: 2, text: 'ok', modelId: 'm' },
+      ],
+      runtimeContext: [
+        steeredEvent,
+        degradingEvent,
+        runtimeTextEvent({ id: 'rt-a', turnId: 'turn-prev', role: 'model', author: 'agent', text: 'ok' }),
+      ],
+    }));
+
+    assert.deepEqual(compactPrompt(model), [
+      { role: 'user', content: [{ type: 'text', text: buildSteeringEnvelope('steered earlier') }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'ok' }] },
+      { role: 'user', content: [{ type: 'text', text: 'continue' }] },
+    ]);
+  });
+
+  test('a steer that equals the current prompt still injects its envelope', async () => {
+    // Bare text is not an identity: deducting the steer against the verbatim
+    // user prompt would drop the directive from the provider request entirely
+    // while the ledger still records a steering_message. The envelope is the
+    // identity, and it never collides with plain user text.
+    const model = textCompletionModel('done');
+    const backend = steeringBackend(model);
+    await drain(backend.send({
+      turnId: 'turn-1',
+      text: 'repeat this',
+      context: [],
+      pullSteering: pullOnce('repeat this'),
+    }));
+
+    assert.deepEqual(compactPrompt(model), [
+      { role: 'user', content: [{ type: 'text', text: 'repeat this' }] },
+      { role: 'user', content: [{ type: 'text', text: buildSteeringEnvelope('repeat this') }] },
+    ]);
+  });
+
+  test('a steer that equals a historical user message still injects its envelope', async () => {
+    const model = textCompletionModel('done');
+    const backend = steeringBackend(model);
+    await drain(backend.send({
+      turnId: 'turn-current',
+      text: 'now do something else',
+      context: [],
+      runtimeContext: [
+        runtimeTextEvent({ id: 'rt-u', turnId: 'turn-prev', role: 'user', author: 'user', text: 'repeat this' }),
+        runtimeTextEvent({ id: 'rt-a', turnId: 'turn-prev', role: 'model', author: 'agent', text: 'done before' }),
+      ],
+      pullSteering: pullOnce('repeat this'),
+    }));
+
+    assert.deepEqual(compactPrompt(model), [
+      { role: 'user', content: [{ type: 'text', text: 'repeat this' }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'done before' }] },
+      { role: 'user', content: [{ type: 'text', text: 'now do something else' }] },
+      { role: 'user', content: [{ type: 'text', text: buildSteeringEnvelope('repeat this') }] },
+    ]);
+  });
+
+  test('two identical steers inject two envelopes', async () => {
+    const model = textCompletionModel('done');
+    const backend = steeringBackend(model);
+    let pulled = false;
+    await drain(backend.send({
+      turnId: 'turn-1',
+      text: 'start',
+      context: [],
+      pullSteering: () => {
+        if (pulled) return [];
+        pulled = true;
+        return [{ id: 'lease-1', text: 'do it' }, { id: 'lease-2', text: 'do it' }];
+      },
+    }));
+
+    assert.deepEqual(compactPrompt(model), [
+      { role: 'user', content: [{ type: 'text', text: 'start' }] },
+      { role: 'user', content: [{ type: 'text', text: buildSteeringEnvelope('do it') }] },
+      { role: 'user', content: [{ type: 'text', text: buildSteeringEnvelope('do it') }] },
+    ]);
+  });
+
+  test('a prior-turn steering event replays in its canonical envelope form', async () => {
+    // The persisted steering event carries raw text for the UI; every model
+    // projection wraps it. A future turn's history must show the model the
+    // same form the original request used — one canonical provider projection.
+    const model = textCompletionModel('done');
+    const backend = steeringBackend(model);
+    const steeredEvent = runtimeTextEvent({
+      id: 'rt-steer', turnId: 'turn-prev', role: 'user', author: 'user', text: 'steered earlier',
+    });
+    (steeredEvent.content as { steering?: true }).steering = true;
+    await drain(backend.send({
+      turnId: 'turn-current',
+      text: 'continue',
+      context: [],
+      runtimeContext: [
+        runtimeTextEvent({ id: 'rt-u', turnId: 'turn-prev', role: 'user', author: 'user', text: 'original ask' }),
+        steeredEvent,
+        runtimeTextEvent({ id: 'rt-a', turnId: 'turn-prev', role: 'model', author: 'agent', text: 'ok' }),
+      ],
+    }));
+
+    assert.deepEqual(compactPrompt(model), [
+      { role: 'user', content: [{ type: 'text', text: 'original ask' }] },
+      { role: 'user', content: [{ type: 'text', text: buildSteeringEnvelope('steered earlier') }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'ok' }] },
+      { role: 'user', content: [{ type: 'text', text: 'continue' }] },
+    ]);
+  });
+});
 
 function textCompletionModel(text: string): MockLanguageModelV3 {
   const chunks: LanguageModelV3StreamPart[] = [

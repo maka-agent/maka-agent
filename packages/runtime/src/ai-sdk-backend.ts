@@ -136,8 +136,13 @@ import { computeCost } from './telemetry/cost.js';
 import { getBuiltinPricing } from './telemetry/builtin-pricing.js';
 import {
   buildRuntimeEventModelReplayPlan,
+  buildSteeringEnvelope,
   collectToolActivityTurnIds,
   formatTextWithAttachmentRefs,
+  steeringMessagesMissingFromBase,
+  steeringModelMessage,
+  steeringProviderOptions,
+  stripSteeringMessages,
   type RuntimeEventModelReplayItem,
   type RuntimeEventModelReplayPlan,
   type RuntimeEventReplayFallbackGate,
@@ -864,6 +869,18 @@ export class AiSdkBackend implements AgentBackend {
   private historyCompactAbortController: AbortController | null = null;
   private currentTurnId: string | null = null;
   private stopAfterStepRequested = false;
+  /**
+   * User messages steered into the running turn, drained from the caller's
+   * queue at step boundaries. Each entry is the canonical envelope-wrapped
+   * user ModelMessage — the SAME form the replay plan projects the persisted
+   * steering event as, so the envelope text is the message's identity when
+   * deduping against ledger-derived request bases (bare text is not an
+   * identity: a steer can equal the current prompt verbatim). Entries are
+   * added only AFTER the echoed steering_message event is durably consumed
+   * (seq-ack), so a provider request never carries an unpersisted steering
+   * directive. Reset per turn.
+   */
+  private injectedSteeringMessages: ModelMessage[] = [];
   private currentRunId: string | null = null;
   /** Side-channel for tool.execute() callbacks to push events into the iterator. */
   private currentQueue: AsyncEventQueue<SessionEvent> | null = null;
@@ -1103,6 +1120,7 @@ export class AiSdkBackend implements AgentBackend {
     const midTurnState = this.buildMidTurnCapacityCompactState(input);
     const queue = new AsyncEventQueue<SessionEvent>();
     this.currentQueue = queue;
+    this.injectedSteeringMessages = [];
 
     // One AssistantMessage is flushed per AI SDK step (not per turn), so the
     // ledger records the text↔tool timeline at step granularity and each step's
@@ -1552,15 +1570,47 @@ export class AiSdkBackend implements AgentBackend {
           // boundary even when no shaping hook is configured: a transient
           // transport retry can resend it without replaying completed tools.
           attemptObservedSteps = options.steps;
+          // Step boundary: lease the caller's queued steering, echo each as a
+          // user event, ack only after it is durably persisted AND in the
+          // injection set (nack on any failure so the queue reclaims it).
+          await this.drainSteeringInto(input, turnId, queue);
+          // Steering joins the request BEFORE shaping so the capacity owner's
+          // verdict measures the payload the provider will actually receive
+          // (steering re-applied every step because prepareStep transforms are
+          // per-request, not persisted by the SDK). Dedupe is by structured
+          // identity — the ledger event id carried on every injected and every
+          // ledger-derived steering message — never by text, which a verbatim
+          // user message could forge or cancel.
+          const missingInBase = steeringMessagesMissingFromBase(
+            this.injectedSteeringMessages,
+            options.messages,
+          );
+          const baseWithSteering = missingInBase.length === 0
+            ? options.messages
+            : [...options.messages, ...missingInBase];
           const shaped = prepareStep
             ? await prepareStep({
                 ...options,
+                messages: baseWithSteering,
                 stepNumber: attemptStepBase + options.stepNumber,
                 steps: [...completedAttemptSteps, ...options.steps],
               })
             : undefined;
-          attemptRequestMessages = shaped?.messages ?? options.messages;
-          return shaped;
+          // No re-append after shaping: every shaper preserves the injected
+          // steering — ledger-derived replacements replay it with its marker,
+          // and the mid-turn fold PINS the current turn's steering events out
+          // of the covered span — so the verdict inside `prepareStep` always
+          // measured the steering-inclusive payload that actually goes out.
+          const finalMessages = shaped?.messages ?? baseWithSteering;
+          // Steering-free request boundary (single authority rule): a transport
+          // retry resends `attemptRequestMessages` as the next attempt's base,
+          // and that attempt's own prepareStep re-appends the accumulator, so
+          // storing the injected steering here would double-inject on retry.
+          // ONLY the injected set is stripped — a historical ledger-replayed
+          // steering message carries the same marker but belongs to the base.
+          attemptRequestMessages = stripSteeringMessages(finalMessages, this.injectedSteeringMessages);
+          if (finalMessages === options.messages) return shaped;
+          return shaped ? { ...shaped, messages: finalMessages } : { messages: finalMessages };
         };
         let attemptMessages: ModelMessage[] = messages;
         let overflowRetryUsed = false;
@@ -2140,13 +2190,15 @@ export class AiSdkBackend implements AgentBackend {
     /** Latest durable checkpoint (loaded or written this turn) for mid-turn roll-forward. */
     latestHistoryCompactCheckpoint?: HistoryCompactCheckpoint;
   }> {
-    const projectedMessages = await this.materializePriorMessages(
-      input.context.filter((message) => message.turnId !== input.turnId),
-    );
+    const priorStored = input.context.filter((message) => message.turnId !== input.turnId);
     if (!input.runtimeContext) {
-      return { messages: projectedMessages, gate: 'stored_message_projection', diagnostics: [] };
+      return { messages: await this.materializePriorMessages(priorStored), gate: 'stored_message_projection', diagnostics: [] };
     }
     const priorRuntimeContext = input.runtimeContext.filter((event) => event.turnId !== input.turnId);
+    const projectedMessages = await this.materializePriorMessages(
+      priorStored,
+      buildSteeringSidecar(priorRuntimeContext),
+    );
     const preparedContextBudget = await this.prepareContextBudgetPolicy(priorRuntimeContext);
     const contextBudget = preparedContextBudget.policy;
     const budgeted = applyRuntimeEventContextBudget(priorRuntimeContext, contextBudget, {
@@ -4023,6 +4075,15 @@ export class AiSdkBackend implements AgentBackend {
     switch (item.kind) {
       case 'text':
         if (item.role === 'user') {
+          if (item.steering) {
+            // Already envelope-wrapped by the plan; carry the structured
+            // identity so injection dedupe recognizes the replayed message.
+            return {
+              role: 'user',
+              content: item.content,
+              providerOptions: steeringProviderOptions(item.steering.eventId),
+            };
+          }
           return { role: 'user', content: await this.appendImageParts(item.content, item.attachments) } as ModelMessage;
         }
         return { role: item.role, content: item.content };
@@ -4060,10 +4121,22 @@ export class AiSdkBackend implements AgentBackend {
     }
   }
 
-  private async materializePriorMessages(stored: readonly StoredMessage[]): Promise<ModelMessage[]> {
+  private async materializePriorMessages(
+    stored: readonly StoredMessage[],
+    steeringSidecar?: ReadonlyMap<string, { eventId: string }>,
+  ): Promise<ModelMessage[]> {
     const out: ModelMessage[] = [];
     for (const m of stored) {
       if (m.type === 'user') {
+        // Degraded projections lose the RuntimeEvent steering marker; the
+        // sidecar (keyed by the projection's stable message ids) restores the
+        // canonical envelope + structured identity so a fallback-gated turn
+        // still presents steering exactly once, in its one provider form.
+        const sidecar = steeringSidecar?.get(m.id);
+        if (sidecar) {
+          out.push(steeringModelMessage(sidecar.eventId, formatTextWithAttachmentRefs(m.text, m.attachments)));
+          continue;
+        }
         out.push({ role: 'user', content: await this.appendImageParts(formatTextWithAttachmentRefs(m.text, m.attachments), m.attachments) } as ModelMessage);
       }
       else if (m.type === 'assistant') out.push({ role: 'assistant', content: m.text });
@@ -4174,9 +4247,111 @@ export class AiSdkBackend implements AgentBackend {
     this.currentUserIntent = undefined;
     this.currentStepMessageId = null;
     this.stopAfterStepRequested = false;
+    this.injectedSteeringMessages = [];
     this.toolRuntime.endTurn(turnId, this.aborted ? 'aborted' : 'completed');
     this.aborted = false;
   }
+
+  /**
+   * Drain the caller's pending steering at a step boundary. Each message is
+   * echoed as a `steering_message` event (so the ledger + transcript render the
+   * interjection in place) and accumulated as an envelope-wrapped user message
+   * for injection into subsequent provider requests.
+   *
+   * Persist-before-include invariant: the initial user message is durable
+   * before the backend is invoked, and a steered message must hold the same
+   * line — the provider must never start executing a directive the ledger does
+   * not carry. The seq-ack boundary provides that without a second write path:
+   * the consumer's pull is the ack, and AgentRun persists each mapped event
+   * before continuing (see drain()), so once everything enqueued up to the
+   * steering event is consumed, the event is durable. If the consumer detaches
+   * (the persist path failed or the turn is being torn down) before that, the
+   * message is nacked and NOT included in any request; an abort after the push
+   * waits for that same convergence — durable ⇒ ack (history owns it), detach
+   * ⇒ nack — and only then throws so the dying request is never sent.
+   */
+  private async drainSteeringInto(
+    input: BackendSendInput,
+    turnId: string,
+    queue: AsyncEventQueue<SessionEvent>,
+  ): Promise<void> {
+    const pull = input.pullSteering;
+    if (!pull) return;
+    const leases = pull();
+    if (leases.length === 0) return;
+    const abortSignal = this.abortController?.signal;
+    // Binary settlement: every pulled lease settles exactly once, decided
+    // ONLY by the persistence fact — durably consumed ⇒ ack + injection set;
+    // provably never persisted (never pushed, or the consumer detached
+    // without consuming it) ⇒ nack. An abort does NOT settle a pushed lease:
+    // it only stops new pushes and the dying request; the wait continues
+    // until the teardown converges it (the flow drains after terminal events
+    // or detaches on failure), because nacking a durably appended event
+    // would put the same directive in the account twice — once via history
+    // replay, once via the reclaimed queue.
+    const undelivered = [...leases];
+    try {
+      for (const lease of leases) {
+        if (this.aborted || abortSignal?.aborted) {
+          // Never pushed: settles as undelivered.
+          throw Object.assign(new Error('aborted before steering was pushed'), { name: 'AbortError' });
+        }
+        if (queue.consumerDetached) {
+          throw new Error('steering message was not durably consumed: event consumer detached');
+        }
+        const eventId = this.newId();
+        queue.push({
+          type: 'steering_message',
+          id: eventId,
+          turnId,
+          ts: this.now(),
+          messageId: this.newId(),
+          text: lease.text,
+        } satisfies SessionEvent);
+        const pushedThrough = queue.pushedCount;
+        for (;;) {
+          if (queue.consumedCount >= pushedThrough) break;
+          if (queue.consumerDetached) {
+            throw new Error('steering message was not durably consumed: event consumer detached');
+          }
+          await queue.waitForProgress();
+        }
+        // The mapped RuntimeEvent inherits this session event's id, so the
+        // injected message and its future ledger replay share one identity.
+        this.injectedSteeringMessages.push(steeringModelMessage(eventId, lease.text));
+        input.ackSteering?.([lease.id]);
+        undelivered.shift();
+        if (this.aborted || abortSignal?.aborted) {
+          // Settled (the ledger owns the message; the next turn replays it),
+          // but the send is dying: stop before any request is built with it.
+          throw Object.assign(new Error('aborted after steering was durable'), { name: 'AbortError' });
+        }
+      }
+    } catch (error) {
+      if (undelivered.length > 0) {
+        input.nackSteering?.(undelivered.map((lease) => lease.id));
+      }
+      throw error;
+    }
+  }
+}
+
+/**
+ * Steering identities for degraded StoredMessage projections, keyed by every
+ * stable id the projection may have used for the message (event id,
+ * providerEventId, storedMessageId), so the sidecar restore is exact.
+ */
+function buildSteeringSidecar(events: readonly RuntimeEvent[]): Map<string, { eventId: string }> {
+  const sidecar = new Map<string, { eventId: string }>();
+  for (const event of events) {
+    if (event.partial === true) continue;
+    if (event.content?.kind !== 'text' || event.content.steering !== true) continue;
+    const identity = { eventId: event.id };
+    sidecar.set(event.id, identity);
+    if (event.refs?.providerEventId) sidecar.set(event.refs.providerEventId, identity);
+    if (event.refs?.storedMessageId) sidecar.set(event.refs.storedMessageId, identity);
+  }
+  return sidecar;
 }
 
 function providerToolError(output: unknown): string | undefined {

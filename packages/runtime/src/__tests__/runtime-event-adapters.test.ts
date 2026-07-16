@@ -36,9 +36,13 @@ import {
 import {
   buildModelHistoryFromRuntimeEvents,
   buildRuntimeEventModelReplayPlan,
+  buildSteeringEnvelope,
   buildTextModelMessagesFromRuntimeEvents,
   collectToolActivityTurnIds,
   type ModelHistoryEntry,
+  steeringMessagesMissingFromBase,
+  steeringModelMessage,
+  steeringProviderOptions,
 } from '../model-history.js';
 
 // ---------- StoredMessage fixtures ----------
@@ -835,6 +839,45 @@ describe('buildModelHistoryFromRuntimeEvents', () => {
       },
       { role: 'assistant', content: 'final answer' },
     ]);
+  });
+
+  test('text-only projections keep the steering structured identity', () => {
+    // Round-6 R4: the text-only projections (plan.textMessages and
+    // buildTextModelMessagesFromRuntimeEvents) must carry the same
+    // providerOptions steering marker as the full replay — a base that drops
+    // the event id makes id-based dedupe blind, and a live injection of the
+    // same message doubles it.
+    const steered = ev({
+      role: 'user',
+      author: 'user',
+      content: { kind: 'text', text: 'steer it', steering: true },
+    });
+    const events: RuntimeEvent[] = [
+      ev({ role: 'user', author: 'user', content: { kind: 'text', text: 'ask' } }),
+      steered,
+    ];
+
+    const textMessages = buildTextModelMessagesFromRuntimeEvents(events);
+    expect(textMessages).toEqual([
+      { role: 'user', content: 'ask' },
+      {
+        role: 'user',
+        content: buildSteeringEnvelope('steer it'),
+        providerOptions: steeringProviderOptions(steered.id),
+      },
+    ]);
+
+    const plan = buildRuntimeEventModelReplayPlan(events);
+    expect(plan.textMessages.at(-1)).toEqual({
+      role: 'user',
+      content: buildSteeringEnvelope('steer it'),
+      providerOptions: steeringProviderOptions(steered.id),
+    });
+
+    // Id-based dedupe holds when this projection is the request base.
+    const injected = steeringModelMessage(steered.id, 'steer it');
+    expect(steeringMessagesMissingFromBase([injected], textMessages)).toEqual([]);
+    expect(steeringMessagesMissingFromBase([injected], plan.textMessages)).toEqual([]);
   });
 
   test('runtime replay plan preserves structured tool calls and results', () => {

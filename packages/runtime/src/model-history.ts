@@ -44,6 +44,7 @@ import {
 } from '@maka/core/runtime-event';
 import { normalizeShellToolResultContent } from '@maka/core';
 import type { AttachmentRef } from '@maka/core/events';
+import type { ModelMessage } from 'ai';
 
 // ============================================================================
 // Output type
@@ -64,6 +65,12 @@ export interface ModelHistoryEntry {
 export interface TextModelMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
+  /**
+   * Structured steering identity (see steeringProviderOptions): a steering
+   * message keeps its ledger event id even in the text-only projection, so
+   * id-based dedupe against the live injection set holds on every base.
+   */
+  providerOptions?: NonNullable<ModelMessage['providerOptions']>;
 }
 
 export type RuntimeEventReplayFallbackGate =
@@ -106,6 +113,13 @@ export type RuntimeEventModelReplayItem =
       attachments?: AttachmentRef[];
       /** Assistant step id (model-role text only); groups a step's parts. */
       stepId?: string;
+      /**
+       * Set when this user text replays a steered mid-turn message. `content`
+       * is already envelope-wrapped; materializers MUST carry the structured
+       * steering marker (see steeringModelMessage) onto the ModelMessage so
+       * dedupe works on identity, never on text.
+       */
+      steering?: { eventId: string };
       eventId: string;
       ts: number;
     }
@@ -385,10 +399,16 @@ export function buildRuntimeEventModelReplayPlan(
           }));
           continue;
         }
+        const steeringReplay = event.content.steering === true && role === 'user';
         items.push({
           kind: 'text',
           role,
-          content: formatTextWithAttachmentRefs(event.content),
+          // A steered user event replays in its canonical provider form (the
+          // envelope); the raw text is a UI/transcript projection only.
+          content: steeringReplay
+            ? buildSteeringEnvelope(formatTextWithAttachmentRefs(event.content))
+            : formatTextWithAttachmentRefs(event.content),
+          ...(steeringReplay ? { steering: { eventId: event.id } } : {}),
           ...(event.content.attachments ? { attachments: event.content.attachments } : {}),
           // Model text carries its step id (the message id) so the materializer
           // can close a step and group its reasoning + tool calls.
@@ -528,7 +548,9 @@ export function buildRuntimeEventModelReplayPlan(
 
   const textMessages = items
     .filter((item): item is Extract<RuntimeEventModelReplayItem, { kind: 'text' }> => item.kind === 'text')
-    .map((item) => ({ role: item.role, content: item.content }));
+    .map((item) => (item.steering
+      ? { role: item.role, content: item.content, providerOptions: steeringProviderOptions(item.steering.eventId) }
+      : { role: item.role, content: item.content }));
   const semanticKinds = [...new Set(items.map((item) => item.kind))];
   return {
     items,
@@ -567,9 +589,15 @@ export function buildTextModelMessagesFromRuntimeEvents(
           ? 'system'
           : undefined;
     if (!role) continue;
+    const steering = entry.content.steering === true && role === 'user';
     out.push({
       role,
-      content: formatTextWithAttachmentRefs(entry.content),
+      content: steering
+        ? buildSteeringEnvelope(formatTextWithAttachmentRefs(entry.content))
+        : formatTextWithAttachmentRefs(entry.content),
+      // Keep the structured identity even in the text-only shape: dedupe
+      // against the live injection set works by ledger event id.
+      ...(steering ? { providerOptions: steeringProviderOptions(entry.eventId) } : {}),
     });
   }
   return out;
@@ -601,6 +629,98 @@ function diagnostic(
     turnId: event.turnId,
     ...(detail ? { detail } : {}),
   };
+}
+
+/**
+ * Wrap a steered user message so the model does not confuse a mid-turn
+ * interjection with a tool result (mirrors the grok-build steering envelope).
+ * This is THE canonical provider projection of a steering event: replay
+ * plans and the live injection both emit this exact form, so a steering
+ * message has one identity in every provider request — the envelope text —
+ * and dedupe never has to guess against bare user text.
+ */
+export function buildSteeringEnvelope(text: string): string {
+  return `The user sent a message while you were working:\n<user_query>\n${text}\n</user_query>`;
+}
+
+/**
+ * Structured steering identity on a provider message. Carried in a
+ * Maka-namespaced providerOptions entry — provider adapters only read their
+ * own namespace, so it never reaches a provider request body — keyed by the
+ * ledger event id. Identity, not text: user text can equal the envelope
+ * verbatim and must never be mistaken for (or cancel) a real steering
+ * message.
+ */
+const STEERING_PROVIDER_OPTIONS_NAMESPACE = 'maka';
+
+/** The structured steering marker for a provider message. */
+export function steeringProviderOptions(eventId: string): NonNullable<ModelMessage['providerOptions']> {
+  return { [STEERING_PROVIDER_OPTIONS_NAMESPACE]: { steeringEventId: eventId } };
+}
+
+/** The canonical injected/replayed form of one steered user message. */
+export function steeringModelMessage(eventId: string, text: string): ModelMessage {
+  return {
+    role: 'user',
+    content: buildSteeringEnvelope(text),
+    providerOptions: steeringProviderOptions(eventId),
+  };
+}
+
+/** The ledger event id of a steering-marked message, else undefined. */
+export function steeringEventIdOf(message: ModelMessage): string | undefined {
+  if (message.role !== 'user') return undefined;
+  const namespace = (message.providerOptions as Record<string, unknown> | undefined)
+    ?.[STEERING_PROVIDER_OPTIONS_NAMESPACE];
+  if (!namespace || typeof namespace !== 'object') return undefined;
+  const eventId = (namespace as Record<string, unknown>).steeringEventId;
+  return typeof eventId === 'string' ? eventId : undefined;
+}
+
+/**
+ * The injected steering messages whose ledger event id is not already present
+ * in the request base. Ledger-derived bases (mid-turn capacity replacement,
+ * overflow rebuild, degraded-projection fallbacks) carry the same structured
+ * marker, so membership is exact — by id, never by text.
+ */
+export function steeringMessagesMissingFromBase(
+  injected: readonly ModelMessage[],
+  baseMessages: readonly ModelMessage[],
+): ModelMessage[] {
+  if (injected.length === 0) return [];
+  const present = new Set<string>();
+  for (const message of baseMessages) {
+    const eventId = steeringEventIdOf(message);
+    if (eventId !== undefined) present.add(eventId);
+  }
+  return injected.filter((message) => {
+    const eventId = steeringEventIdOf(message);
+    return eventId === undefined || !present.has(eventId);
+  });
+}
+
+/**
+ * The messages with THIS TURN'S injected steering removed (transport-retry
+ * base). Only the injected set may be stripped: the retry attempt's own
+ * prepareStep re-appends exactly that accumulator, while a historical,
+ * ledger-replayed steering message (same marker, different event id) is part
+ * of the base that nothing re-appends — stripping it would erase it from
+ * every post-retry request.
+ */
+export function stripSteeringMessages(
+  messages: readonly ModelMessage[],
+  injected: readonly ModelMessage[],
+): ModelMessage[] {
+  const ids = new Set<string>();
+  for (const message of injected) {
+    const eventId = steeringEventIdOf(message);
+    if (eventId !== undefined) ids.add(eventId);
+  }
+  if (ids.size === 0) return [...messages];
+  return messages.filter((message) => {
+    const eventId = steeringEventIdOf(message);
+    return eventId === undefined || !ids.has(eventId);
+  });
 }
 
 export function formatTextWithAttachmentRefs(

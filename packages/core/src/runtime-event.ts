@@ -104,6 +104,14 @@ export interface RuntimeEventTextContent {
    * into plain text.
    */
   attachments?: AttachmentRef[];
+  /**
+   * Marks a user message steered into a running turn at a step boundary.
+   * `text` stays raw for UI/transcript projections; model-replay projections
+   * MUST wrap it in the steering envelope so the provider request has exactly
+   * one canonical form — bare text is not an identity (a steer can equal the
+   * current prompt or any historical user message verbatim).
+   */
+  steering?: true;
 }
 
 export interface RuntimeEventThinkingContent {

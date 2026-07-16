@@ -349,7 +349,11 @@ function buildReactiveFixture(options: ReactiveFixtureOptions): ReactiveFixture 
   };
 }
 
-async function runTurn(fixture: ReactiveFixture, consumer: 'immediate' | 'slow' = 'immediate'): Promise<void> {
+async function runTurn(
+  fixture: ReactiveFixture,
+  consumer: 'immediate' | 'slow' = 'immediate',
+  pullSteering?: () => Array<{ id: string; text: string }>,
+): Promise<void> {
   for await (const event of fixture.backend.send({
     runId: 'run-1',
     turnId: 'turn-1',
@@ -357,6 +361,7 @@ async function runTurn(fixture: ReactiveFixture, consumer: 'immediate' | 'slow' 
     text: ANCHOR_TEXT,
     context: [],
     runtimeContext: [...fixture.priorEvents],
+    ...(pullSteering ? { pullSteering } : {}),
   })) {
     if (consumer === 'slow') {
       // Scheduling perturbation (same as the mid-turn suite): hold the durable
@@ -737,7 +742,177 @@ describe('reactive overflow recovery in the streaming backend', () => {
     assert.equal(fixture.events.some((event) => event.type === 'error'), true);
     assert.equal(fixture.recorded.length, 0);
   });
+
+  test('a steering message survives a transport retry exactly once per request', async () => {
+    // The retry base is `attemptRequestMessages`; if it stored the request
+    // WITH steering, the retry attempt's own prepareStep would append the
+    // accumulator again and double the directive. Invariant: each steering
+    // message appears at most once per provider request, 1:1 with its ledger
+    // event.
+    const fixture = buildReactiveFixture({ script: ['terminated', 'done'] });
+    let pulled = false;
+    await runTurn(fixture, 'immediate', () => {
+      if (pulled) return [];
+      pulled = true;
+      return [{ id: 'lease-1', text: STEER_SENTINEL }];
+    });
+
+    assert.equal(fixture.model.doStreamCalls.length, 2);
+    assert.equal(complete(fixture)?.stopReason, 'end_turn');
+    for (const call of fixture.model.doStreamCalls) {
+      const prompt = JSON.stringify(call.prompt);
+      assert.equal(countOccurrences(prompt, STEER_SENTINEL), 1);
+      assert.equal(countOccurrences(prompt, STEERING_ENVELOPE_PREFIX), 1);
+    }
+    // Exactly one ledger echo for the one steer.
+    assert.equal(fixture.events.filter((event) => event.type === 'steering_message').length, 1);
+  });
+
+  test('a transport retry keeps a historical ledger-replayed steering message in the base', async () => {
+    // Round-4 V2: the steering-free retry base may strip ONLY this turn's
+    // injected set — that is exactly what the retry attempt's own prepareStep
+    // re-appends. A historical steering message replayed from the ledger
+    // carries the same structured marker but a prior turn's event id; nothing
+    // re-appends it, so stripping it erased it from every post-retry request.
+    const fixture = buildReactiveFixture({ script: ['terminated', 'done'] });
+    const historical = runtimeTextEvent('prior-steer', 'turn-0', 'user', HISTORICAL_STEER_SENTINEL);
+    (historical.content as { steering?: true }).steering = true;
+    fixture.priorEvents.push(historical);
+    let pulled = false;
+    await runTurn(fixture, 'immediate', () => {
+      if (pulled) return [];
+      pulled = true;
+      return [{ id: 'lease-1', text: STEER_SENTINEL }];
+    });
+
+    assert.equal(fixture.model.doStreamCalls.length, 2);
+    assert.equal(complete(fixture)?.stopReason, 'end_turn');
+    // Both the failed attempt and the retry carry the historical steering
+    // exactly once AND this turn's steering exactly once.
+    for (const call of fixture.model.doStreamCalls) {
+      const prompt = JSON.stringify(call.prompt);
+      assert.equal(countOccurrences(prompt, HISTORICAL_STEER_SENTINEL), 1);
+      assert.equal(countOccurrences(prompt, STEER_SENTINEL), 1);
+      assert.equal(countOccurrences(prompt, STEERING_ENVELOPE_PREFIX), 2);
+    }
+    assert.equal(fixture.events.filter((event) => event.type === 'steering_message').length, 1);
+  });
+
+  test('a persisted steering message appears exactly once in an overflow-rebuilt request', async () => {
+    // Reactive recovery rebuilds the projection from the durable ledger, which
+    // already carries the steering event — replayed in its canonical envelope
+    // form; re-appending the accumulator on top would double it. Whether the
+    // fold keeps the event verbatim in the tail or folds it into the summary
+    // (envelope re-injected), the directive appears exactly once per request.
+    const fixture = buildReactiveFixture({ script: ['tool', 'overflow', 'done'], bigPriors: true });
+    let pulled = false;
+    await runTurn(fixture, 'immediate', () => {
+      if (pulled) return [];
+      pulled = true;
+      return [{ id: 'lease-1', text: STEER_SENTINEL }];
+    });
+
+    assert.equal(fixture.model.doStreamCalls.length, 3);
+    assert.equal(complete(fixture)?.stopReason, 'end_turn');
+    assert.equal(fixture.recorded.length, 1);
+    for (const call of fixture.model.doStreamCalls) {
+      const prompt = JSON.stringify(call.prompt);
+      assert.equal(countOccurrences(prompt, STEER_SENTINEL), 1);
+      assert.equal(countOccurrences(prompt, STEERING_ENVELOPE_PREFIX), 1);
+    }
+    assert.equal(fixture.events.filter((event) => event.type === 'steering_message').length, 1);
+  });
+
+  test('a checkpoint fold never sneaks an injected steering message past the capacity verdict', async () => {
+    // Round-5 F2: injected steering is PINNED out of the foldable span. If a
+    // mid-turn fold could cover it, the verdict would credit the fold with
+    // chars the request never actually sheds (the accumulator re-appends the
+    // directive), passing a request whose real payload it never measured.
+    //
+    // Scenario: steer once at step 1 (6k chars — folds fine, stays in the
+    // tail, measured). At step 2 a second, window-breaking steer (12k chars)
+    // arrives and the fold's cut can now reach PAST the first steering
+    // event. Unpinned, the fold covers it, the verdict sees a shrunken
+    // payload and passes, and the post-verdict re-append ships an unmeasured
+    // over-window request to a happy end_turn. Pinned, the fold cannot cover
+    // it, the honest estimate exceeds the window, and the verdict terminates
+    // explicitly BEFORE the request goes out.
+    const fixture = buildReactiveFixture({
+      script: ['tool', 'tool', 'done'],
+      contextWindow: 2_000,
+      bigPriors: true,
+    });
+    let pullCount = 0;
+    await runTurn(fixture, 'immediate', () => {
+      pullCount += 1;
+      if (pullCount === 2) return [{ id: 'lease-pin-1', text: `PIN_STEER_ONE ${'A'.repeat(6_000)}` }];
+      if (pullCount === 3) return [{ id: 'lease-pin-2', text: `PIN_STEER_TWO ${'B'.repeat(12_000)}` }];
+      return [];
+    });
+
+    // The verdict measured the pinned, steering-inclusive payload and refused
+    // it explicitly instead of completing on an unmeasured over-window request
+    // (unpinned, the fold hides the first steer from the measurement and the
+    // turn ends happily on end_turn). The third doStream invocation is the
+    // verdict's own abort landing before the stream starts — the mock counts
+    // the call, but no request chunk was ever produced.
+    assert.equal(complete(fixture)?.stopReason, 'context_budget_exhausted');
+    assert.equal(fixture.model.doStreamCalls.length, 3);
+    // Both steers were durably delivered to the ledger before the verdict —
+    // they are owned by history, not lost.
+    assert.equal(fixture.events.filter((event) => event.type === 'steering_message').length, 2);
+  });
+
+  test('the capacity verdict measures the steering payload the provider will actually receive', async () => {
+    // The base request (priors + one tool step) fits the window; the injected
+    // steering alone pushes the REAL request over it. Steering joins the
+    // request BEFORE shaping, so the single final-request verdict measures
+    // the payload the provider will receive and rescues it (one capacity
+    // fold) instead of silently sending an over-window request. The old
+    // order — append after the verdict — made the verdict blind to steering:
+    // no fold, no exhaustion, an unmeasured over-window request.
+    const bulkSteer = `CAPACITY_STEER_SENTINEL ${'S'.repeat(20_000)}`;
+    const fixture = buildReactiveFixture({
+      script: ['tool', 'done'],
+      contextWindow: 5_000,
+      bigPriors: true,
+    });
+    let pullCount = 0;
+    await runTurn(fixture, 'immediate', () => {
+      pullCount += 1;
+      // Steer at the SECOND step boundary, after the tool step: the verdict
+      // owner (step >= 1) must see the grown payload, not the step-0 baseline.
+      return pullCount === 2 ? [{ id: 'lease-bulk', text: bulkSteer }] : [];
+    });
+
+    const outcome = complete(fixture);
+    if (outcome?.stopReason === 'end_turn') {
+      // Rescued: the capacity owner reacted to the steering-inclusive payload
+      // with a mid-turn fold, and the delivered request still carries the
+      // steering exactly once.
+      assert.equal(fixture.recorded.length >= 1 || fixture.summarizerCalls() >= 1, true);
+      const finalPrompt = JSON.stringify(fixture.model.doStreamCalls.at(-1)?.prompt);
+      assert.equal(countOccurrences(finalPrompt, 'CAPACITY_STEER_SENTINEL'), 1);
+    } else {
+      // Not rescuable: the verdict terminates explicitly instead of sending
+      // an unmeasured over-window request.
+      assert.equal(outcome?.stopReason, 'error');
+    }
+    assert.equal(fixture.events.filter((event) => event.type === 'steering_message').length, 1);
+  });
 });
+
+const STEER_SENTINEL = 'STEER_ONCE_SENTINEL directive';
+const HISTORICAL_STEER_SENTINEL = 'HISTORICAL_STEER_SENTINEL directive';
+const STEERING_ENVELOPE_PREFIX = 'The user sent a message while you were working:';
+
+function countOccurrences(haystack: string, needle: string): number {
+  let count = 0;
+  for (let index = haystack.indexOf(needle); index !== -1; index = haystack.indexOf(needle, index + needle.length)) {
+    count += 1;
+  }
+  return count;
+}
 
 function runtimeTextEvent(id: string, turnId: string, role: 'user' | 'model', text: string): RuntimeEvent {
   return {

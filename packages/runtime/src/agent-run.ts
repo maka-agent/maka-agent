@@ -335,7 +335,12 @@ export class AgentRun {
     }
     await this.recordSessionEvent(sessionEvent);
     if (!isNonTerminalErrorRuntimeEvent(runtimeEvent)) {
-      await this.recordRuntimeEvents([runtimeEvent]);
+      // A steered user message is fail-CLOSED: the backend's delivery ack
+      // waits on this consume, and the provider must never execute a
+      // directive the ledger does not carry. Every other non-terminal event
+      // stays fail-open (a trace gap, not a correctness gap).
+      const steering = runtimeEvent.content?.kind === 'text' && runtimeEvent.content.steering === true;
+      await this.recordRuntimeEvents([runtimeEvent], steering ? { requireDurableWrite: true } : {});
     }
   }
 
@@ -500,7 +505,7 @@ export class AgentRun {
 
   async recordRuntimeEvents(
     events: readonly RuntimeEvent[],
-    options: { requireTerminalWrite?: boolean } = {},
+    options: { requireTerminalWrite?: boolean; requireDurableWrite?: boolean } = {},
   ): Promise<void> {
     if (events.length === 0) return;
     for (const event of events) {
@@ -511,12 +516,38 @@ export class AgentRun {
         if (terminal && options.requireTerminalWrite) {
           throw new Error('terminal RuntimeEvent store is unavailable');
         }
+        if (options.requireDurableWrite && this.input.runtimeEventStore) {
+          // The store exists but earlier writes failed: a durability-required
+          // event (steering) must not silently skip the ledger.
+          throw new Error('RuntimeEvent store is unavailable for a durability-required event');
+        }
         continue;
       }
       const write = this.enqueueRuntimeEventStore('append runtime event', async () => {
         await this.input.runtimeEventStore?.appendRuntimeEvent(this.sessionId, this.runId, eventForStore);
-      }, { rethrow: terminal || options.requireTerminalWrite });
+      }, { rethrow: terminal || options.requireTerminalWrite || options.requireDurableWrite });
       if (terminal && this.terminalClaim) this.terminalClaim.write = write;
+      if (options.requireDurableWrite && !terminal) {
+        // An append error is AMBIGUOUS: the bytes may have landed before the
+        // failure (e.g. a close error after the write). For a
+        // durability-required event the caller settles a delivery lease on
+        // this outcome, so a false "not durable" would redeliver a message
+        // the ledger already owns. Read the ledger back to disambiguate:
+        // present ⇒ durable (continue on the ack path); absent or read-back
+        // also failing ⇒ fail closed (rethrow ⇒ nack).
+        try {
+          await write;
+        } catch (error) {
+          if (!(await this.eventLandedInLedger(eventForStore.id))) throw error;
+          // The write landed and the ledger answered a fresh read — the
+          // failure was in the reporting, not the store. Lift the
+          // unavailability latch so the rest of the turn (including its
+          // required terminal write) keeps persisting; a genuinely broken
+          // store re-latches on its next write.
+          this.runtimeEventStoreAvailable = true;
+        }
+        continue;
+      }
       await write;
       if (terminal) {
         if (this.terminalClaim) this.terminalClaim.persisted = true;
@@ -990,6 +1021,23 @@ export class AgentRun {
     });
     this.traceQueue = next.catch(() => {});
     return next;
+  }
+
+  /**
+   * Read-back disambiguation for a failed durability-required append: true
+   * only when the ledger demonstrably contains the event. Any doubt (no
+   * read-back capability, read failure, event absent) reports false so the
+   * caller stays fail-closed.
+   */
+  private async eventLandedInLedger(eventId: string): Promise<boolean> {
+    const store = this.input.runtimeEventStore;
+    if (!store?.readImmutableRuntimeEvents) return false;
+    try {
+      const events = await store.readImmutableRuntimeEvents(this.sessionId, this.runId);
+      return events.some((event) => event.id === eventId);
+    } catch {
+      return false;
+    }
   }
 
   private enqueueRuntimeEventStore(
