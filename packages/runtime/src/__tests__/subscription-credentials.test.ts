@@ -153,6 +153,52 @@ describe('OAuth refresh persistence transaction', () => {
     assert.equal(parseOAuthSubscriptionTokens(committed ?? '')?.access_token, 'new-access');
   });
 
+  test('near-expiry resolve keeps its first read as the refresh commit basis', async () => {
+    const initial = JSON.stringify({
+      access_token: 'old-access',
+      refresh_token: 'old-refresh',
+      expires_at: 1_000,
+    });
+    const winner = JSON.stringify({
+      access_token: 'winner-access',
+      refresh_token: 'winner-refresh',
+      expires_at: 20_000_000,
+    });
+    let current = initial;
+    let reads = 0;
+    let commits = 0;
+    const tokens = await resolveOAuthSubscriptionTokens({
+      providerType: 'claude-subscription',
+      slug: 'claude-subscription',
+      credentialStore: {
+        getSecret: async () => {
+          reads += 1;
+          if (reads === 2) current = winner;
+          return current;
+        },
+        compareAndSetSecret: async (_slug, _kind, expected, value) => {
+          if (expected !== current) return { committed: false, current };
+          commits += 1;
+          current = value;
+          return { committed: true };
+        },
+      },
+      now: () => 10_000_000,
+      fetchFn: async () => {
+        current = winner;
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ access_token: 'redundant-access', refresh_token: 'redundant-refresh', expires_in: 3600 }),
+        } as unknown as Response;
+      },
+    });
+
+    assert.equal(tokens?.access_token, 'winner-access');
+    assert.equal(commits, 0, 'a resolve triggered by the old basis must not commit over the winner');
+    assert.equal(current, winner);
+  });
+
   test('a logout from another store stays terminal while refresh is in flight', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'maka-oauth-refresh-'));
     try {

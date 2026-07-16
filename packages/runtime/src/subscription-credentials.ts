@@ -119,13 +119,16 @@ export async function resolveOAuthSubscriptionTokens(
   if (tokens.expires_at - now() > TOKEN_REFRESH_SKEW_MS) return tokens;
   if (!input.credentialStore.compareAndSetSecret && !input.credentialStore.setSecret) return null;
 
-  const result = await refreshAndPersistOAuthSubscriptionTokens({
-    providerType: input.providerType,
-    slug: input.slug,
-    credentialStore: input.credentialStore,
-    now,
-    fetchFn: input.fetchFn ?? fetch,
-  });
+  const result = await refreshAndPersistOAuthSubscriptionTokensFromRaw(
+    {
+      providerType: input.providerType,
+      slug: input.slug,
+      credentialStore: input.credentialStore,
+      now,
+      fetchFn: input.fetchFn ?? fetch,
+    },
+    raw,
+  );
   return result.outcome === 'refreshed' || result.outcome === 'superseded'
     ? result.tokens
     : null;
@@ -142,6 +145,13 @@ export async function refreshAndPersistOAuthSubscriptionTokens(
   }
   if (raw === null) return { outcome: 'logged-out' };
 
+  return refreshAndPersistOAuthSubscriptionTokensFromRaw(input, raw);
+}
+
+async function refreshAndPersistOAuthSubscriptionTokensFromRaw(
+  input: RefreshAndPersistOAuthSubscriptionTokensInput,
+  raw: string,
+): Promise<OAuthSubscriptionRefreshAndPersistOutcome> {
   const tokens = parseOAuthSubscriptionTokens(raw);
   if (!tokens) {
     return { outcome: 'storage-failed', error: new Error('Stored OAuth token is invalid.') };
