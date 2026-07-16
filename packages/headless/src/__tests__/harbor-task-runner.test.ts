@@ -7,15 +7,14 @@ import { tokenSummary } from './helpers/cell-output-fixtures.js';
 import type { HarborCellExecutionIdentity, HarborCellOutput } from '../cell-output.js';
 import { FixedPromptBudgetExhaustedError, type HarborTaskRunInput } from '../fixed-prompt-controller.js';
 import {
-  buildHarborVerifierPolicyFingerprint,
   buildHarborJobConfig,
   createHarborOracleQualifier,
   createHarborTaskRunner,
-  HARBOR_VERIFIER_MAX_ATTEMPTS,
   HarborInfraError,
   type HarborProcessRunner,
   type HarborRunResult,
 } from '../harbor-task-runner.js';
+import { HARBOR_ORACLE_EXECUTION_POLICY } from '../harness-oracle-policy.js';
 
 function cellOutput(overrides: Partial<HarborCellOutput> = {}): HarborCellOutput {
   return {
@@ -985,7 +984,6 @@ describe('createHarborOracleQualifier', () => {
       const qualify = createHarborOracleQualifier({
         makaRepoPath: repo,
         jobsDir,
-        dockerPlatform: 'linux/amd64',
         runHarbor: fakeRunner({
           captured,
           reward: '1\n',
@@ -1003,27 +1001,26 @@ describe('createHarborOracleQualifier', () => {
       const verifier = config.verifier as Record<string, unknown>;
       assert.deepEqual(result, { outcome: 'passed', reward: 1, attempts: 1 });
       assert.deepEqual(config.agents, [{ name: 'oracle' }]);
+      assert.equal(config.n_attempts, HARBOR_ORACLE_EXECUTION_POLICY.job.attempts);
+      assert.equal(config.n_concurrent_trials, HARBOR_ORACLE_EXECUTION_POLICY.job.concurrentTrials);
+      assert.equal(config.timeout_multiplier, HARBOR_ORACLE_EXECUTION_POLICY.job.timeoutMultiplier);
+      assert.equal(
+        (config.environment as Record<string, unknown>).force_build,
+        HARBOR_ORACLE_EXECUTION_POLICY.environment.forceBuild,
+      );
+      assert.equal(
+        (config.environment as Record<string, unknown>).delete,
+        HARBOR_ORACLE_EXECUTION_POLICY.environment.delete,
+      );
       assert.equal(verifier.import_path, 'maka_verifier:MakaVerifier');
-      const fingerprint = buildHarborVerifierPolicyFingerprint({
-        implementationSource: 'verifier source v1',
-        toolchainFingerprint: 'sha256:toolchain-v1',
-      });
-      assert.match(fingerprint, /^sha256:[a-f0-9]{64}$/);
-      assert.notEqual(
-        fingerprint,
-        buildHarborVerifierPolicyFingerprint({
-          implementationSource: 'verifier source v2',
-          toolchainFingerprint: 'sha256:toolchain-v1',
-        }),
+      assert.equal(
+        (verifier.kwargs as Record<string, unknown>).attempt_timeout_sec,
+        HARBOR_ORACLE_EXECUTION_POLICY.verifier.defaultAttemptTimeoutSec,
       );
-      assert.notEqual(
-        fingerprint,
-        buildHarborVerifierPolicyFingerprint({
-          implementationSource: 'verifier source v1',
-          toolchainFingerprint: 'sha256:toolchain-v2',
-        }),
+      assert.equal(
+        (verifier.kwargs as Record<string, unknown>).max_attempts,
+        HARBOR_ORACLE_EXECUTION_POLICY.verifier.maxAttempts,
       );
-      assert.equal(HARBOR_VERIFIER_MAX_ATTEMPTS, 2);
     });
   });
 
@@ -1044,6 +1041,25 @@ describe('createHarborOracleQualifier', () => {
       await assert.rejects(
         qualify({ id: 'task-1', path: '/tasks/cobol-modernization' }),
         (error: unknown) => error instanceof HarborInfraError && error.kind === 'timed_out',
+      );
+    });
+  });
+
+  test('does not classify an unknown Oracle process failure as reusable infrastructure evidence', async () => {
+    await withRun(async ({ jobsDir, repo }) => {
+      const qualify = createHarborOracleQualifier({
+        makaRepoPath: repo,
+        jobsDir,
+        runHarbor: async () => ({
+          exitCode: 1,
+          stdout: '',
+          stderr: 'Traceback: generated JobConfig parser bug',
+        }),
+      });
+
+      await assert.rejects(
+        qualify({ id: 'task-1', path: '/tasks/cobol-modernization' }),
+        (error: unknown) => error instanceof Error && !(error instanceof HarborInfraError),
       );
     });
   });

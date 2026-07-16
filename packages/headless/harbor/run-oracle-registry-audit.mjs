@@ -91,7 +91,6 @@ async function taskCommand(args) {
   const qualifier = createHarborOracleQualifier({
     makaRepoPath: repoRoot,
     jobsDir,
-    dockerPlatform: DOCKER_PLATFORM,
   });
   const audit = await auditHarnessOracleRegistry({
     tasks: [{ ...auditTask, task: pinnedTask }],

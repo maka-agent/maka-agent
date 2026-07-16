@@ -1,5 +1,4 @@
 import { execFile } from 'node:child_process';
-import { createHash } from 'node:crypto';
 import { mkdir, readFile, readdir, rm } from 'node:fs/promises';
 import { writeFile } from 'node:fs/promises';
 import { basename, delimiter, join } from 'node:path';
@@ -23,6 +22,7 @@ import {
   type HarborVerifierOutcome,
 } from './fixed-prompt-controller.js';
 import {
+  HARBOR_ORACLE_EXECUTION_POLICY,
   HARBOR_ORACLE_MAX_ATTEMPTS,
   type HarnessOracleTaskResult,
 } from './harness-oracle-policy.js';
@@ -130,26 +130,6 @@ export interface HarborRunRequest {
 
 const DEFAULT_HARBOR_TIMEOUT_MS = 45 * 60_000;
 const HARBOR_SETUP_TEARDOWN_GRACE_MS = 15 * 60_000;
-const DEFAULT_VERIFIER_TIMEOUT_SEC = 600;
-export const HARBOR_VERIFIER_MAX_ATTEMPTS = HARBOR_ORACLE_MAX_ATTEMPTS;
-const VERIFIER_RETRY_GRACE_SEC = 120;
-
-export function buildHarborVerifierPolicyFingerprint(input: {
-  implementationSource: string | Uint8Array;
-  toolchainFingerprint: string;
-}): string {
-  const implementationSha256 = createHash('sha256').update(input.implementationSource).digest('hex');
-  return `sha256:${createHash('sha256').update(JSON.stringify({
-    importPath: 'maka_verifier:MakaVerifier',
-    implementationSha256,
-    toolchainFingerprint: input.toolchainFingerprint,
-    maxAttempts: HARBOR_VERIFIER_MAX_ATTEMPTS,
-    defaultAttemptTimeoutSec: DEFAULT_VERIFIER_TIMEOUT_SEC,
-    retryGraceSec: VERIFIER_RETRY_GRACE_SEC,
-    timeoutPolicy: 'candidate_timeout_without_replay',
-  })).digest('hex')}`;
-}
-
 export interface HarborRunResult {
   exitCode: number;
   stdout: string;
@@ -164,9 +144,6 @@ export interface HarborOracleQualifierOptions {
   makaRepoPath: string;
   jobsDir: string;
   harborBin?: string;
-  environment?: string;
-  timeoutMultiplier?: number;
-  dockerPlatform?: 'linux/amd64';
   harborTimeoutMs?: number;
   runHarbor?: HarborProcessRunner;
 }
@@ -336,22 +313,20 @@ export function createHarborOracleQualifier(options: HarborOracleQualifierOption
     await writeFile(configPath, `${JSON.stringify({
       job_name: jobName,
       jobs_dir: jobsDir,
-      n_attempts: 1,
-      n_concurrent_trials: 1,
-      timeout_multiplier: options.timeoutMultiplier ?? 1,
+      n_attempts: HARBOR_ORACLE_EXECUTION_POLICY.job.attempts,
+      n_concurrent_trials: HARBOR_ORACLE_EXECUTION_POLICY.job.concurrentTrials,
+      timeout_multiplier: HARBOR_ORACLE_EXECUTION_POLICY.job.timeoutMultiplier,
       quiet: true,
       environment: {
-        type: options.environment ?? 'docker',
-        force_build: false,
-        delete: true,
-        ...(options.dockerPlatform === 'linux/amd64'
-          ? { extra_docker_compose: [join(options.makaRepoPath, 'packages/headless/harbor/docker-compose-linux-amd64.yaml')] }
-          : {}),
+        type: HARBOR_ORACLE_EXECUTION_POLICY.environment.type,
+        force_build: HARBOR_ORACLE_EXECUTION_POLICY.environment.forceBuild,
+        delete: HARBOR_ORACLE_EXECUTION_POLICY.environment.delete,
+        extra_docker_compose: [join(options.makaRepoPath, 'packages/headless/harbor/docker-compose-linux-amd64.yaml')],
       },
       verifier: harborVerifierConfig(verifier),
       metrics: [{ type: 'mean', kwargs: {} }],
       agents: [{
-        name: 'oracle',
+        name: HARBOR_ORACLE_EXECUTION_POLICY.job.agent,
         ...(task.metadata?.agentTimeoutSec !== undefined ? { max_timeout_sec: task.metadata.agentTimeoutSec } : {}),
       }],
       datasets: [],
@@ -360,26 +335,28 @@ export function createHarborOracleQualifier(options: HarborOracleQualifierOption
       extra_instruction_paths: [],
       plugins: [],
     }, null, 2)}\n`, 'utf8');
-    let result: HarborRunResult;
-    try {
-      result = await runHarbor({
-        harborBin,
-        configPath,
-        jobName,
-        jobsDir,
-        args: ['run', '--config', configPath, '--yes'],
-        cwd: options.makaRepoPath,
-        timeoutMs: options.harborTimeoutMs ?? resolveNativeHarborTimeoutMs(options, task),
-        env: { PYTHONPATH: pythonPath },
-      });
-    } catch (error) {
-      throw new HarborInfraError(`Harbor Oracle qualification failed to launch for task ${task.id}`, errorText(error));
-    }
-    if (result.timedOut || result.exitCode !== 0) {
+    const result = await runHarbor({
+      harborBin,
+      configPath,
+      jobName,
+      jobsDir,
+      args: ['run', '--config', configPath, '--yes'],
+      cwd: options.makaRepoPath,
+      timeoutMs: options.harborTimeoutMs ?? resolveNativeHarborTimeoutMs({
+        timeoutMultiplier: HARBOR_ORACLE_EXECUTION_POLICY.job.timeoutMultiplier,
+      }, task),
+      env: { PYTHONPATH: pythonPath },
+    });
+    if (result.timedOut) {
       throw new HarborInfraError(
-        `Harbor Oracle qualification ${result.timedOut ? 'timed out' : `exited ${result.exitCode}`} for task ${task.id}`,
+        `Harbor Oracle qualification timed out for task ${task.id}`,
         tail(result.stderr || result.stdout),
-        result.timedOut ? 'timed_out' : 'infra_failed',
+        'timed_out',
+      );
+    }
+    if (result.exitCode !== 0) {
+      throw new Error(
+        `Harbor Oracle qualification exited ${result.exitCode} for task ${task.id}: ${tail(result.stderr || result.stdout)}`,
       );
     }
     const trialDir = await findTrialDir(jobDir, basename(task.path));
@@ -707,10 +684,10 @@ function harborVerifierConfig(verifier: ReturnType<typeof verifierPolicy>) {
   return {
     env: {},
     disable: false,
-    import_path: 'maka_verifier:MakaVerifier',
+    import_path: HARBOR_ORACLE_EXECUTION_POLICY.verifier.importPath,
     kwargs: {
       attempt_timeout_sec: verifier.attemptTimeoutSec,
-      max_attempts: HARBOR_VERIFIER_MAX_ATTEMPTS,
+      max_attempts: HARBOR_ORACLE_MAX_ATTEMPTS,
     },
     override_timeout_sec: verifier.outerTimeoutSec,
   };
@@ -720,10 +697,12 @@ function verifierPolicy(task: HarborTaskRunInput['task']): {
   attemptTimeoutSec: number;
   outerTimeoutSec: number;
 } {
-  const attemptTimeoutSec = task.metadata?.verifierTimeoutSec ?? DEFAULT_VERIFIER_TIMEOUT_SEC;
+  const attemptTimeoutSec = task.metadata?.verifierTimeoutSec
+    ?? HARBOR_ORACLE_EXECUTION_POLICY.verifier.defaultAttemptTimeoutSec;
   return {
     attemptTimeoutSec,
-    outerTimeoutSec: attemptTimeoutSec * HARBOR_VERIFIER_MAX_ATTEMPTS + VERIFIER_RETRY_GRACE_SEC,
+    outerTimeoutSec: attemptTimeoutSec * HARBOR_ORACLE_MAX_ATTEMPTS
+      + HARBOR_ORACLE_EXECUTION_POLICY.verifier.retryGraceSec,
   };
 }
 
