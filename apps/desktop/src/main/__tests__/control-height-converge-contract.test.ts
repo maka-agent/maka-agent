@@ -91,9 +91,10 @@ const CONTROL_HEIGHT: ControlHeightCheck[] = [
   { selector: '.maka-list-row-menu-trigger', props: ['width', 'height'], token: '--h-control-lg' },
   // Search close and clear actions are shared quiet icon-sm Buttons, sized by
   // buttonVariants rather than search-modal-specific CSS.
-  // 设置 nav / triggers
-  { selector: '.settingsBackButton', props: ['height', 'min-height'], token: '--h-control-xl' },
-  { selector: '.settingsNavItem', props: ['height', 'min-height'], token: '--h-control-xl' },
+  // 设置 nav / triggers — same lg tier as the session-list rows so the two
+  // sidebars share one row rhythm (PR settings-rows-convergence).
+  { selector: '.settingsBackButton', props: ['height', 'min-height'], token: '--h-control-lg' },
+  { selector: '.settingsNavItem', props: ['height', 'min-height'], token: '--h-control-lg' },
   { selector: '.settingsSelectTrigger', props: ['height'], token: '--h-control-lg' },
   { selector: '.settingsSelectMenuPopup [role="option"]', props: ['min-height'], token: '--h-control-lg' },
   { selector: '.maka-model-switcher-trigger', props: ['height'], token: '--h-control-sm' },
