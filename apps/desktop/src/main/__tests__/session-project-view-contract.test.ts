@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import { deriveProjectGroups } from '../../renderer/session-project-grouping.js';
+import { readRendererContractCss } from './contract-css-helpers.js';
 import { makeSessionSummary, renderSessionListPanel } from './session-list-render-helpers.js';
 
 const REPO_ROOT = resolve(process.cwd(), '..', '..');
@@ -45,7 +46,7 @@ describe('sidebar project view mode', () => {
   });
 
   it('renders the status/project view mode controls as a pressed segmented control', () => {
-    // #571 routes the toggle through the shared SettingsSegmented primitive,
+    // #571 routes the toggle through the shared Segmented primitive,
     // whose <button> carries aria-pressed and puts the label inline (no <span>).
     const statusMarkup = renderSessionListPanel({ viewMode: 'status' });
     assert.match(statusMarkup, /<button[^>]*aria-pressed="true"[^>]*>按状态/);
@@ -54,6 +55,22 @@ describe('sidebar project view mode', () => {
     const projectMarkup = renderSessionListPanel({ viewMode: 'project' });
     assert.match(projectMarkup, /<button[^>]*aria-pressed="false"[^>]*>按状态/);
     assert.match(projectMarkup, /<button[^>]*aria-pressed="true"[^>]*>按项目/);
+  });
+
+  it('segmented chrome is governed: one shared recipe with hover/focus/pressed states', async () => {
+    // The `.maka-segmented` recipe (shared by the sidebar view-mode
+    // toggle, daily-review range tabs, and settings pages) lives in
+    // styles/segmented.css — not in a settings subpage file that other
+    // surfaces reach by cascade accident. The control must give hover
+    // and keyboard-focus feedback, which the original chrome lacked.
+    const css = await readRendererContractCss();
+    assert.match(css, /\.maka-segmented button:enabled:hover:not\(\[data-pressed\]\)/);
+    assert.match(css, /\.maka-segmented button:focus-visible/);
+    assert.match(css, /\.maka-segmented button\[data-pressed\]/);
+    assert.doesNotMatch(css, /\.settingsSegmented/);
+
+    const botCss = await readRepo('apps/desktop/src/renderer/styles/settings/bot.css');
+    assert.doesNotMatch(botCss, /\.maka-segmented\s*\{/, 'segmented recipe must not move back into a settings subpage file');
   });
 
   it('renders project groups as folder headers with an initial four-session preview', () => {

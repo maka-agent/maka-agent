@@ -227,17 +227,17 @@ describe('issue #499 P0-3 tab spec contract', () => {
     );
   });
 
-  it('daily-review range uses SettingsSegmented (Base UI ToggleGroup), not hand-rolled buttons; active is neutral', async () => {
+  it('daily-review range uses Segmented (Base UI ToggleGroup), not hand-rolled buttons; active is neutral', async () => {
     // daily-review range (今日/本周/本月) switches a time-window parameter —
     // the report re-fetches for the chosen range, it is not 3 distinct views.
-    // So it is a segmented control, not tabs: SettingsSegmented (Base UI
+    // So it is a segmented control, not tabs: Segmented (Base UI
     // ToggleGroup, single-select, roving tabindex + arrow keys + data-pressed)
     // is the a11y-correct primitive, not Tabs/TabsPanel.
     const panel = await readFile(DAILY_REVIEW_PANEL_FILE, 'utf8');
     assert.match(
       panel,
-      /SettingsSegmented/,
-      'daily-review range must use SettingsSegmented (Base UI ToggleGroup), not hand-rolled buttons',
+      /Segmented/,
+      'daily-review range must use Segmented (Base UI ToggleGroup), not hand-rolled buttons',
     );
     assert.doesNotMatch(
       panel,
@@ -253,7 +253,7 @@ describe('issue #499 P0-3 tab spec contract', () => {
     assert.doesNotMatch(
       css,
       /\.maka-daily-review-range-tab\[data-active/,
-      'daily-review hand-written .maka-daily-review-range-tab[data-active] (brand --nav-active) must be removed (active is neutral via .settingsSegmented button[data-pressed])',
+      'daily-review hand-written .maka-daily-review-range-tab[data-active] (brand --nav-active) must be removed (active is neutral via .maka-segmented button[data-pressed])',
     );
   });
 });

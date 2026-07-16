@@ -96,7 +96,7 @@ describe('Daily Review copy feedback contract', () => {
     const panelBlock = extractFunctionBlock(ui, 'DailyReviewPanel');
 
     assert.match(panelBlock, /<UiButton[\s\S]*?variant="ghost"[\s\S]*?size="icon-sm"[\s\S]*?className="maka-daily-review-stepper"/);
-    assert.match(panelBlock, /<SettingsSegmented[\s\S]*?className="maka-daily-review-range-tabs"/);
+    assert.match(panelBlock, /<Segmented[\s\S]*?className="maka-daily-review-range-tabs"/);
     // PR3 (#527) added min-w-[Nrem] utilities to the copy/append/save buttons
     // (text-swap width lock for 复制/已复制 feedback). Match each semantic
     // class as a whole word in the class list — same form as the negative

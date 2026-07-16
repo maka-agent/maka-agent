@@ -55,7 +55,7 @@ type AccountSecretProbeResult =
 // Palette, and Segmented radiogroups. Theme + Palette migrated to the
 // Base UI `RadioGroup`-backed `ChoiceCard` primitive in PR #263;
 // Segmented migrated to the Base UI `ToggleGroup`-backed
-// `SettingsSegmented` primitive in PR yuejing/settings-segmented-primitive.
+// `Segmented` primitive in PR yuejing/settings-segmented-primitive.
 // Both primitives now provide the same keyboard contract for free, so
 // these helpers are gone. The provider detail dialog also dropped its
 // hand-rolled default-model radiogroup in favor of a native enabled-model list.

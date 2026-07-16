@@ -22,7 +22,7 @@ import {
 import { Button as UiButton } from './ui.js';
 import { Item, ItemContent } from './primitives/item.js';
 import { Chip, type ChipProps } from './primitives/chip.js';
-import { SettingsSegmented } from './primitives/settings-segmented.js';
+import { Segmented } from './primitives/segmented.js';
 import { Alert, AlertAction, AlertDescription } from './primitives/alert.js';
 import { EmptyState } from './empty-state.js';
 import { StatTile } from './primitives/stat-tile.js';
@@ -294,7 +294,7 @@ export function DailyReviewPanel(props: {
           unrelated widgets. They now form ONE cluster: pick the range,
           then step through it; the stepper steps by the selected span. */}
       <header className="maka-daily-review-header">
-        <SettingsSegmented
+        <Segmented
           value={String(range)}
           options={[['1', '今日'], ['7', '本周'], ['30', '本月']]}
           onChange={(v) => {

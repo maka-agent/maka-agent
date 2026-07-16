@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { AppSettings, UpdateAppSettingsResult, UsageRange, UsageStats } from '@maka/core';
-import { Button, Input, SettingsSegmented as Segmented, SettingsSelect, SettingsSwitch as Switch, useMountedRef, useToast } from '@maka/ui';
+import { Button, Input, Segmented, SettingsSelect, SettingsSwitch as Switch, useMountedRef, useToast } from '@maka/ui';
 import { RefreshCcw } from '@maka/ui/icons';
 import { MetricCard } from './settings-metric-card';
 import { settingsActionErrorMessage } from './settings-error-copy';
