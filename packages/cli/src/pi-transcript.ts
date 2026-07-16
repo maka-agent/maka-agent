@@ -155,6 +155,13 @@ export type MakaPiTranscriptEntry =
       status: 'running' | 'done' | 'error' | 'failed' | 'aborted' | 'detached' | 'unavailable';
       /** Expanded card view; stamped from expandAllTools, retargeted by Ctrl+O. */
       expanded: boolean;
+      /**
+       * Set when a successful shell-run poll is folded into its parent while
+       * off-screen: the entry cannot be spliced (that would shift line numbers
+       * and clear scrollback), but it must not render as an independent card
+       * on a future full redraw. A hidden entry contributes zero lines.
+       */
+      hidden?: boolean;
     }
   | { kind: 'notice'; level: 'info' | 'error'; text: string };
 
@@ -551,18 +558,14 @@ export function applyMakaSessionEventToTranscript(
           // Splicing an off-screen entry shifts subsequent entries' line
           // numbers, which changes the composed buffer above the viewport and
           // forces a scrollback-clearing full redraw (#1135). Leave it in
-          // place but mark it done so a future full redraw (width change,
-          // session switch) renders it correctly rather than as a stale
-          // running card. The stale entry is fully cleaned on the next
+          // place but mark it hidden so it contributes zero lines: a future
+          // full redraw (width change, session switch) will not render it as
+          // a duplicate card. The stale entry is fully cleaned on the next
           // session switch / replaceTranscriptWithStoredMessages.
           if (entryInLiveViewport(state, tool)) {
             state.entries.splice(state.entries.indexOf(tool), 1);
           } else {
-            tool.status = 'done';
-            tool.result = event.content;
-            tool.output = formatToolResultContent(event.content);
-            tool.durationMs = event.durationMs;
-            tool.resultVersion += 1;
+            tool.hidden = true;
           }
         } else {
           applyOwnShellRunResult(tool, shellRun, event.durationMs);
@@ -959,6 +962,10 @@ export function renderMakaPiTranscript(
   const viewportTop = state.renderGeometry.viewportTop;
   for (let i = 0; i < state.entries.length; i += 1) {
     const entry = state.entries[i]!;
+    if (entry.kind === 'tool' && entry.hidden) {
+      entryFirstLine.set(entry, lines.length);
+      continue;
+    }
     const prev = state.entries[i - 1];
     // A blank gap separates human-facing boundaries (user/assistant/thinking/
     // notice) and the edges of a tool stack; only consecutive tool entries (the
@@ -973,10 +980,13 @@ export function renderMakaPiTranscript(
     // the boundary (first line in scrollback, tail still visible) must still
     // re-render: append-only entries (assistant text, tool deltas) only change
     // the visible tail, and pi-tui's `firstChanged` will be inside the
-    // viewport, so no full redraw is triggered.
+    // viewport, so no full redraw is triggered. An entry with a zero-line
+    // cache (e.g. blank thinking) is still off-screen if its first line is
+    // above the viewport — it must not suddenly produce lines in scrollback.
     const cachedLines = transcriptEntryRenderCache.get(entry);
     const entryHeight = cachedLines?.lines.length ?? 0;
-    const fullyOffScreen = entryHeight > 0 && lines.length + entryHeight <= viewportTop;
+    const fullyOffScreen = lines.length < viewportTop
+      && (entryHeight === 0 || lines.length + entryHeight <= viewportTop);
     lines.push(...renderTranscriptEntryMemoized(entry, safeWidth, fullyOffScreen));
   }
   state.renderGeometry.entryFirstLine = entryFirstLine;
