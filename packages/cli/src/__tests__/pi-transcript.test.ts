@@ -573,7 +573,7 @@ describe('Maka Pi TUI transcript', () => {
     assert.ok(lines.every((line) => visibleWidth(line) <= 12));
   });
 
-  test('labels assistant messages as maka', () => {
+  test('renders assistant messages as bare text without a speaker label', () => {
     const state = createMakaPiTranscriptState();
     applyMakaSessionEventToTranscript(state, event({
       type: 'text_delta',
@@ -589,28 +589,25 @@ describe('Maka Pi TUI transcript', () => {
       permissionMode: 'bypass',
     }, 80).map(stripAnsi);
 
-    assert.ok(visibleLines.includes('maka'));
-    assert.ok(!visibleLines.includes('Assistant'));
+    assert.ok(visibleLines.some((line) => line.trim() === 'hello'));
+    assert.ok(!visibleLines.some((line) => line.includes('maka')));
+    assert.ok(!visibleLines.some((line) => line.includes('Assistant')));
   });
 
-  test('uses logo blue instead of green for assistant headings', () => {
+  test('renders user messages with a > quote prefix instead of a speaker label', () => {
     const state = createMakaPiTranscriptState();
-    applyMakaSessionEventToTranscript(state, event({
-      type: 'text_delta',
-      messageId: 'message-1',
-      text: 'hello',
-    }));
+    appendUserPrompt(state, 'hello world');
 
-    const rawOutput = renderMakaPiTranscript(state, {
+    const visibleLines = renderMakaPiTranscript(state, {
       title: 'Maka',
       cwd: '/tmp/project',
       model: 'deepseek-v4-flash',
       connectionSlug: 'deepseek',
       permissionMode: 'bypass',
-    }, 80).join('\n');
+    }, 80).map(stripAnsi);
 
-    assert.match(rawOutput, /\x1b\[38;2;87;163;239mmaka\x1b\[39m/);
-    assert.doesNotMatch(rawOutput, /\x1b\[32mmaka/);
+    assert.ok(visibleLines.some((line) => line.startsWith('> ')), 'user row should start with >');
+    assert.ok(!visibleLines.some((line) => line.includes('User')), 'no User speaker label');
   });
 
   test('surfaces context compaction diagnostics as transcript notes', () => {

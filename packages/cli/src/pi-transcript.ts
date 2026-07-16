@@ -738,9 +738,15 @@ export function renderMakaPiTranscript(
     return renderWelcomeBlock(metadata, safeWidth);
   }
 
-  for (const entry of state.entries) {
-    // A blank spacer above every entry, then its (memoized) rendered block.
-    lines.push('');
+  for (let i = 0; i < state.entries.length; i += 1) {
+    const entry = state.entries[i]!;
+    const prev = state.entries[i - 1];
+    // A blank gap separates human-facing boundaries (user/assistant/notice)
+    // and the edges of an agent-work stack; consecutive thinking/tool entries
+    // (the agent-work stack) have no blank line between them.
+    const continuesStack = (entry.kind === 'thinking' || entry.kind === 'tool')
+      && (prev?.kind === 'thinking' || prev?.kind === 'tool');
+    if (!continuesStack) lines.push('');
     lines.push(...renderTranscriptEntryMemoized(entry, safeWidth, state.expandAllTools, state.expandAllThinking));
   }
 
@@ -862,9 +868,9 @@ function renderTranscriptEntryBlock(
 ): string[] {
   switch (entry.kind) {
     case 'user':
-      return renderTextBlock('User', entry.text, width, { markdown: false, heading: ansi.accent });
+      return renderUserBlock(entry.text, width);
     case 'assistant':
-      return renderTextBlock('maka', entry.text, width, { markdown: true, heading: ansi.accent });
+      return renderAssistantBlock(entry.text, width);
     case 'thinking':
       return renderThinkingBlock(entry, width, expandAllThinking);
     case 'tool':
@@ -1044,20 +1050,21 @@ function findShellRunParent(
       && entry.result.ref === ref);
 }
 
-function renderTextBlock(
-  label: string,
-  text: string,
-  width: number,
-  options: { markdown: boolean; heading: (text: string) => string },
-): string[] {
-  const lines = [fitLine(options.heading(label), width)];
-  if (!text.trim()) return lines;
+/** A user turn: a dim `>` quote prefix per line, no speaker label. */
+function renderUserBlock(text: string, width: number): string[] {
+  if (!text.trim()) return [];
+  const prefix = ansi.dim('>');
+  // renderIndented reserves a 2-column gutter; reuse it and swap the two
+  // leading spaces for `> ` so wrapped lines stay aligned under the prefix.
+  return renderIndented(text, width, 2).map((line) => fitLine(`${prefix} ${line.slice(2)}`, width));
+}
 
-  const bodyLines = options.markdown
-    ? new Markdown(text, 2, 0, markdownTheme, undefined, { preserveOrderedListMarkers: true }).render(width)
-    : renderIndented(text, width, 2);
-  lines.push(...bodyLines.map((line) => fitLine(line, width)));
-  return lines;
+/** An assistant turn: bare markdown prose, no speaker label or indent. */
+function renderAssistantBlock(text: string, width: number): string[] {
+  if (!text.trim()) return [];
+  return new Markdown(text, 0, 0, markdownTheme, undefined, { preserveOrderedListMarkers: true })
+    .render(width)
+    .map((line) => fitLine(line, width));
 }
 
 function renderNotice(entry: MakaPiNoticeEntry, width: number): string[] {
