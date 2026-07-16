@@ -1,6 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { isDeepStrictEqual } from 'node:util';
 import type { RuntimeEvent, RuntimeEventStore } from '@maka/core';
 import {
   configureSqliteRuntimeDatabase,
@@ -124,7 +125,10 @@ export class SqliteRuntimeStore implements RuntimeEventStore {
     this.db.close();
   }
 
-  async appendRuntimeEvent(_sessionId: string, _runId: string, event: RuntimeEvent): Promise<void> {
+  async appendRuntimeEvent(sessionId: string, runId: string, event: RuntimeEvent): Promise<void> {
+    if (sessionId !== event.sessionId || runId !== event.runId) {
+      throw new Error(`RuntimeEvent store identity does not match event ${event.id}`);
+    }
     this.transaction(() => {
       this.insertRuntimeEvent(event, event.ts, true);
     });
@@ -470,7 +474,8 @@ function assertRuntimeEventIdentity(event: RuntimeEvent): void {
 
 function assertStoredRuntimeEventEquals(event: RuntimeEvent, storedJson: string | undefined): void {
   if (storedJson === undefined) return;
-  if (storedJson !== JSON.stringify(event)) {
+  const stored = JSON.parse(storedJson) as RuntimeEvent;
+  if (!isDeepStrictEqual(stored, event)) {
     throw new Error(`RuntimeEvent identity conflict for ${event.id}`);
   }
 }

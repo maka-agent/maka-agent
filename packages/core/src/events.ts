@@ -124,6 +124,8 @@ export interface ToolStartEvent extends BaseEvent {
   type: 'tool_start';
   toolUseId: string;
   toolName: string;
+  /** Runtime-owned durable tool-operation identity (Phase 2). */
+  operationId?: string;
   /** Stable semantic category for presentation; absent on legacy events. */
   activityKind?: ToolActivityKind;
   args: unknown;
@@ -171,6 +173,8 @@ export interface ToolProgressEvent extends BaseEvent {
 export interface ToolResultEvent extends BaseEvent {
   type: 'tool_result';
   toolUseId: string;
+  /** Runtime-owned durable tool-operation identity (Phase 2). */
+  operationId?: string;
   isError: boolean;
   content: ToolResultContent;
   durationMs?: number;

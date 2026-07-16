@@ -244,6 +244,8 @@ export interface RuntimeEventRefs {
   toolCallId?: string;
   providerEventId?: string;
   artifactId?: string;
+  /** Runtime-owned durable identity for one tool side-effect boundary. */
+  operationId?: string;
   /**
    * Assistant step id for a function_call event: the id of the step's
    * text/thinking messages (their `providerEventId`). Model replay pairs a

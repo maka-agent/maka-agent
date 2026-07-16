@@ -96,6 +96,7 @@ import {
   type MakaTool,
   type MakaToolContext,
 } from './tool-runtime.js';
+import type { RuntimeCommitSink } from './runtime-commit-sink.js';
 import {
   ModelAdapter,
   normalizeAiSdkUsage,
@@ -753,6 +754,8 @@ export interface AiSdkBackendInput {
   /** Optional fire-and-forget telemetry hooks. Tool implementations remain unaware. */
   recordLlmCall?: LlmTelemetryRecorder;
   recordToolInvocation?: ToolTelemetryRecorder;
+  /** Optional Phase 2 SQLite T1/T2 boundary for real tool execution. */
+  runtimeCommitSink?: RuntimeCommitSink;
   /** Durable session-lifetime cumulative usage checkpoint after each completed provider step. */
   recordUsageCheckpoint?: (
     usage: NormalizedAiSdkUsage & { costUsd?: number },
@@ -924,6 +927,7 @@ export class AiSdkBackend implements AgentBackend {
       getRunTrace: () => this.currentRunTrace,
       permissionTimeoutMs: input.permissionTimeoutMs,
       recordToolInvocation: input.recordToolInvocation,
+      runtimeCommitSink: input.runtimeCommitSink,
       recordToolArtifacts: input.recordToolArtifacts,
       approvalCoordinator: new ApprovalCoordinator({
         autoReviewer: autoApprovalReviewer,

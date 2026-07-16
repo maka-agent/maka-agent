@@ -920,6 +920,20 @@ export type {
 export { createLocalContinuationSafetyInspector } from './continuation-safety.js';
 export type { LocalContinuationSafetyInspectorDeps } from './continuation-safety.js';
 
+export {
+  buildToolOperationId,
+  canonicalToolArgsHash,
+  executeDurableToolBoundary,
+} from './runtime-commit-sink.js';
+export type {
+  RuntimeCommitResult,
+  RuntimeCommitSink,
+  ToolOperationIdInput,
+  ToolOutcomeCommit,
+  ToolPreparedCommit,
+  ToolRecoveryMode,
+} from './runtime-commit-sink.js';
+
 // agent-flow.ts — formal Flow seam.
 export type {
   AgentFlow,

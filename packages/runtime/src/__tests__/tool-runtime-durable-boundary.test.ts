@@ -1,0 +1,187 @@
+import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
+import type { LlmConnection, SessionEvent, SessionHeader, StoredMessage } from '@maka/core';
+import { PermissionEngine } from '../permission-engine.js';
+import type {
+  RuntimeCommitSink,
+  ToolOutcomeCommit,
+  ToolPreparedCommit,
+} from '../runtime-commit-sink.js';
+import { ToolRuntime, type MakaTool } from '../tool-runtime.js';
+
+describe('ToolRuntime durable boundary', () => {
+  it('does not invoke the tool or publish a result when T1 fails', async () => {
+    let implementationCalls = 0;
+    const harness = makeHarness({
+      commitToolPrepared: async () => { throw new Error('T1 unavailable'); },
+      commitToolOutcome: async () => { throw new Error('must not reach T2'); },
+    });
+
+    await assert.rejects(
+      harness.execute(tool(() => { implementationCalls += 1; return { ok: true }; })),
+      /T1 unavailable/,
+    );
+
+    assert.equal(implementationCalls, 0);
+    assert.equal(harness.events.some((event) => event.type === 'tool_result'), false);
+    assert.equal(harness.messages.some((message) => message.type === 'tool_result'), false);
+  });
+
+  it('commits T1 before implementation and T2 before publishing the result', async () => {
+    const order: string[] = [];
+    const prepared: ToolPreparedCommit[] = [];
+    const outcomes: ToolOutcomeCommit[] = [];
+    const harness = makeHarness({
+      commitToolPrepared: async (input) => {
+        prepared.push(input);
+        order.push('t1');
+        return { created: true, runtimeEventSeq: 1 };
+      },
+      commitToolOutcome: async (input) => {
+        outcomes.push(input);
+        order.push('t2');
+        return { created: true, runtimeEventSeq: 2 };
+      },
+    }, order);
+
+    const result = await harness.execute(tool(() => {
+      order.push('impl');
+      return { ok: true, text: 'done' };
+    }));
+
+    assert.deepEqual(result, { ok: true, text: 'done' });
+    assert.deepEqual(order, ['t1', 'impl', 't2', 'published-result']);
+    assert.equal(prepared[0]?.runtimeEvent.content?.kind, 'function_call');
+    assert.equal(outcomes[0]?.runtimeEvent.content?.kind, 'function_response');
+    assert.equal(prepared[0]?.operationId, outcomes[0]?.operationId);
+    assert.equal(prepared[0]?.runtimeEvent.refs?.operationId, prepared[0]?.operationId);
+    assert.equal(outcomes[0]?.runtimeEvent.refs?.operationId, prepared[0]?.operationId);
+  });
+
+  it('does not publish an implementation result when T2 fails', async () => {
+    let implementationCalls = 0;
+    const harness = makeHarness({
+      commitToolPrepared: async () => ({ created: true, runtimeEventSeq: 1 }),
+      commitToolOutcome: async () => { throw new Error('T2 unavailable'); },
+    });
+
+    await assert.rejects(
+      harness.execute(tool(() => {
+        implementationCalls += 1;
+        return { ok: true };
+      })),
+      /T2 unavailable/,
+    );
+
+    assert.equal(implementationCalls, 1);
+    assert.equal(harness.events.some((event) => event.type === 'tool_result'), false);
+    assert.equal(harness.messages.some((message) => message.type === 'tool_result'), false);
+  });
+
+  it('commits a normalized error outcome before returning a thrown tool failure to the model', async () => {
+    const outcomes: ToolOutcomeCommit[] = [];
+    const harness = makeHarness({
+      commitToolPrepared: async () => ({ created: true, runtimeEventSeq: 1 }),
+      commitToolOutcome: async (input) => {
+        outcomes.push(input);
+        return { created: true, runtimeEventSeq: 2 };
+      },
+    });
+
+    await harness.execute(tool(() => { throw new Error('tool exploded'); }));
+
+    const response = outcomes[0]?.runtimeEvent.content;
+    assert.equal(response?.kind, 'function_response');
+    assert.equal(response?.kind === 'function_response' && response.isError, true);
+    assert.equal(harness.events.some((event) => event.type === 'tool_result' && event.isError), true);
+  });
+});
+
+function makeHarness(sink: RuntimeCommitSink, order?: string[]) {
+  const messages: StoredMessage[] = [];
+  const events: SessionEvent[] = [];
+  const permissionEngine = new PermissionEngine({ newId: nextId(), now: () => 1 });
+  permissionEngine.beginTurn('turn-1');
+  const runtime = new ToolRuntime({
+    sessionId: 'session-1',
+    header: header(),
+    connection: connection(),
+    modelId: 'model-1',
+    appendMessage: async (message) => { messages.push(message); },
+    permissionEngine,
+    newId: nextId(),
+    now: nextNow(),
+    getPermissionPauseTarget: () => null,
+    getCurrentRunId: () => 'run-1',
+    runtimeCommitSink: sink,
+  });
+  return {
+    messages,
+    events,
+    execute: async (target: MakaTool) => runtime.wrapToolExecute(target, 'turn-1', {
+      push: (event) => {
+        events.push(event);
+        if (event.type === 'tool_result') order?.push('published-result');
+      },
+    })({}, {
+      toolCallId: 'provider-call-1',
+      abortSignal: new AbortController().signal,
+    }),
+  };
+}
+
+function tool(impl: MakaTool['impl']): MakaTool {
+  return {
+    name: 'Read',
+    description: 'read',
+    parameters: {},
+    permissionRequired: false,
+    recoveryMode: 'replay_safe',
+    impl,
+  };
+}
+
+function header(): SessionHeader {
+  return {
+    id: 'session-1',
+    workspaceRoot: '/workspace/repo',
+    cwd: '/workspace/repo',
+    createdAt: 1,
+    lastUsedAt: 1,
+    name: 'test',
+    isFlagged: false,
+    labels: [],
+    isArchived: false,
+    status: 'active',
+    statusUpdatedAt: 1,
+    hasUnread: false,
+    backend: 'ai-sdk',
+    llmConnectionSlug: 'connection-1',
+    connectionLocked: true,
+    model: 'model-1',
+    permissionMode: 'ask',
+    schemaVersion: 1,
+  };
+}
+
+function connection(): LlmConnection {
+  return {
+    slug: 'connection-1',
+    name: 'test',
+    providerType: 'openai',
+    defaultModel: 'model-1',
+    enabled: true,
+    createdAt: 1,
+    updatedAt: 1,
+  };
+}
+
+function nextId(): () => string {
+  let value = 0;
+  return () => `id-${++value}`;
+}
+
+function nextNow(): () => number {
+  let value = 0;
+  return () => ++value;
+}

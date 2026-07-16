@@ -329,6 +329,7 @@ export function mapSessionEventToRuntimeEvent(
         },
         refs: {
           toolCallId: event.toolUseId,
+          ...(event.operationId !== undefined ? { operationId: event.operationId } : {}),
           ...(event.stepId !== undefined ? { stepId: event.stepId } : {}),
         },
       };
@@ -373,7 +374,10 @@ export function mapSessionEventToRuntimeEvent(
           result: event.content,
           ...(event.isError ? { isError: true } : {}),
         },
-        refs: { toolCallId: event.toolUseId },
+        refs: {
+          toolCallId: event.toolUseId,
+          ...(event.operationId !== undefined ? { operationId: event.operationId } : {}),
+        },
       };
       if (event.durationMs !== undefined) {
         ev.actions = { stateDelta: { durationMs: event.durationMs } };
