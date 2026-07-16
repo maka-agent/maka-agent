@@ -39,10 +39,9 @@ function sanitizeSegment(value: unknown): string | null {
 
 export function registerAppIpc(deps: AppIpcDeps): void {
   const { mainWindowController, projectRoot, workspaceRoot, buildInfo, visualSmokeFixture } = deps;
-  // Local bindings to the shared project-root authority, keeping the read/
-  // resolve call sites identical to the pre-split inline closures.
+  // Call-time read of the shared project-root authority: every handler must
+  // observe the latest selection, not a snapshot taken at registration.
   const currentProjectRoot = (): Promise<string> => projectRoot.current();
-  const resolveExplicitProjectRoot = projectRoot.resolveExplicit;
 
   ipcMain.handle('window:setTitlebarControlsVisible', (event, visible: unknown): void => {
     mainWindowController.setTitlebarControlsVisible(event.sender, visible);
@@ -113,7 +112,7 @@ export function registerAppIpc(deps: AppIpcDeps): void {
       | { ok: true; projectPath: string; projectGit: Awaited<ReturnType<typeof resolveProjectGitInfo>> }
       | { ok: false; reason: 'invalid-path' | 'not-found' }
     > => {
-      const explicitRoot = await resolveExplicitProjectRoot(projectPath);
+      const explicitRoot = await projectRoot.resolveExplicit(projectPath);
       if (!explicitRoot.ok) return explicitRoot;
       const resolved = explicitRoot.projectPath;
       projectRoot.setSelected(resolved);
@@ -134,7 +133,7 @@ export function registerAppIpc(deps: AppIpcDeps): void {
       | { ok: false; reason: 'invalid-path' | 'not-found' }
     > => {
       if (projectPath !== undefined) {
-        const explicitRoot = await resolveExplicitProjectRoot(projectPath);
+        const explicitRoot = await projectRoot.resolveExplicit(projectPath);
         if (!explicitRoot.ok) return explicitRoot;
         const resolved = explicitRoot.projectPath;
         return { ok: true, projectPath: resolved, projectGit: await resolveProjectGitInfo(resolved) };
