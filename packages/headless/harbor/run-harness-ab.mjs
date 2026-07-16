@@ -340,7 +340,7 @@ async function runLocked({ repoRoot, makaRepoPath, tasksRoot, runId, limit, runR
   await writeFile(join(runRoot, 'harness-ab-report.csv'), renderHarnessAbReportCsv(report), 'utf8');
   await writeFile(join(runRoot, 'harness-ab-report.md'), renderHarnessAbReportMarkdown(report), 'utf8');
   assertHarnessAbReportCompleted(report);
-  console.log(`completed: ${report.effectiveness.pairedEvaluated}/${report.completeness.expectedPerArm} paired Pass@1 cells -> ${runRoot}`);
+  console.log(`completed: ${report.coverage.attemptedCells}/${report.coverage.scheduledCells} cells attempted; ${report.effectiveness.pairedEvaluated} paired Pass@1 outcomes -> ${runRoot}`);
 }
 
 function backgroundJournal(runRoot) {

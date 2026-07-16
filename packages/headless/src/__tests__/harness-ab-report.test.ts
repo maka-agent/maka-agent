@@ -30,7 +30,7 @@ describe('harness A/B report', () => {
 
     const report = buildHarnessAbReport(summary);
 
-    assert.equal(report.schemaVersion, 'maka.harness_ab.report.v1');
+    assert.equal(report.schemaVersion, 'maka.harness_ab.report.v2');
     assert.deepEqual(report.effectiveness, {
       metric: 'pass@1',
       pairedEvaluated: 2,
@@ -50,18 +50,19 @@ describe('harness A/B report', () => {
     assert.equal('score' in report, false);
 
     const csv = renderHarnessAbReportCsv(report);
-    assert.match(csv, /^run_status,stop_reason,paired_expected,paired_evaluated,excluded_pairs,missing_pairs,paired_metered,missing_usage_pairs,axis,metric,baseline_arm,baseline_value,candidate_arm,candidate_value,candidate_minus_baseline\n/);
-    assert.match(csv, /completed,,2,2,0,0,2,0,effectiveness,pass_rate,maka,1,opencode,0.5,-0.5/);
-    assert.match(csv, /completed,,2,2,0,0,2,0,economy,total_tokens,maka,240,opencode,360,120/);
+    assert.match(csv, /^run_status,stop_reason,scheduled_cells,attempted_cells,model_scored_cells,infra_failed_cells,unscored_cells,missing_final_usage_cells,paired_evaluated,paired_metered,missing_usage_pairs,axis,metric,baseline_arm,baseline_value,candidate_arm,candidate_value,candidate_minus_baseline\n/);
+    assert.match(csv, /completed,,4,4,4,0,0,0,2,2,0,effectiveness,pass_rate,maka,1,opencode,0.5,-0.5/);
+    assert.match(csv, /completed,,4,4,4,0,0,0,2,2,0,economy,total_tokens,maka,240,opencode,360,120/);
 
     const markdown = renderHarnessAbReportMarkdown(report);
     assert.match(markdown, /# Maka vs OpenCode — GLM-5\.2 Harness Comparison/);
     assert.match(markdown, /Pass@1/);
     assert.match(markdown, /API-equivalent cost/);
+    assert.match(markdown, /Cell coverage: 4\/4 attempted; 4 model-scored; 0 infra-failed; 0 unscored; 0 missing final usage\./);
     assert.match(markdown, /No composite score/);
   });
 
-  test('stays incomplete when an infrastructure pair is excluded', () => {
+  test('completes with explicit cell coverage when every cell is attempted but one fails in infrastructure', () => {
     const summary = summarizeAbComparison({
       runId: 'glm-harness-ab',
       roundId: 'ab-summary',
@@ -69,13 +70,24 @@ describe('harness A/B report', () => {
       candidateArmId: 'opencode',
       evaluationTaskIds: ['a', 'b'],
       baselineRuns: [[completed('a', true), completed('b', true)]],
-      candidateRuns: [[completed('a', false), providerBilling('b')]],
+      candidateRuns: [[completed('a', false), infraFailure('b')]],
     });
 
     const report = buildHarnessAbReport(summary);
 
-    assert.equal(report.runStatus, 'incomplete');
-    assert.throws(() => assertHarnessAbReportCompleted(report), /1 excluded/);
+    assert.equal(report.schemaVersion, 'maka.harness_ab.report.v2');
+    assert.equal(report.runStatus, 'completed_with_gaps');
+    assert.deepEqual(report.coverage, {
+      scheduledCells: 4,
+      attemptedCells: 4,
+      modelScoredCells: 3,
+      infraFailedCells: 1,
+      unscoredCells: 1,
+      missingFinalUsageCells: 0,
+    });
+    assert.doesNotThrow(() => assertHarnessAbReportCompleted(report));
+    assert.match(renderHarnessAbReportCsv(report), /completed_with_gaps,,4,4,3,1,1,0,1,1,0,effectiveness,pass_rate/);
+    assert.match(renderHarnessAbReportMarkdown(report), /Status: completed_with_gaps\./);
     assert.deepEqual(report.effectiveness.baseline, {
       armId: 'maka',
       passed: 1,
@@ -89,6 +101,31 @@ describe('harness A/B report', () => {
       passRate: 0,
     });
     assert.equal(report.effectiveness.candidateMinusBaseline, -1);
+  });
+
+  test('stays incomplete when scheduled cells were never attempted', () => {
+    const summary = summarizeAbComparison({
+      runId: 'glm-harness-ab',
+      roundId: 'ab-summary',
+      baselineArmId: 'maka',
+      candidateArmId: 'opencode',
+      evaluationTaskIds: ['a', 'b'],
+      baselineRuns: [[usage('a', true, 100, 40, 20, 0.1)]],
+      candidateRuns: [[usage('a', false, 120, 50, 30, 0.2)]],
+    });
+
+    const report = buildHarnessAbReport(summary);
+
+    assert.equal(report.runStatus, 'incomplete');
+    assert.deepEqual(report.coverage, {
+      scheduledCells: 4,
+      attemptedCells: 2,
+      modelScoredCells: 2,
+      infraFailedCells: 0,
+      unscoredCells: 0,
+      missingFinalUsageCells: 0,
+    });
+    assert.throws(() => assertHarnessAbReportCompleted(report), /2\/4 scheduled cells attempted/);
   });
 
   test('reports economy over the same evaluated pairs as effectiveness', () => {
@@ -141,7 +178,8 @@ describe('harness A/B report', () => {
     };
 
     assert.equal(report.effectiveness.pairedEvaluated, 2);
-    assert.equal(report.runStatus, 'incomplete');
+    assert.equal(report.runStatus, 'completed_with_gaps');
+    assert.equal(report.coverage.missingFinalUsageCells, 1);
     assert.equal(economy.pairedMetered, 1);
     assert.equal(economy.missingUsagePairs, 1);
     assert.equal(report.economy.baseline.totalTokens, 120);
@@ -149,10 +187,10 @@ describe('harness A/B report', () => {
     assert.equal(report.economy.baseline.costPerPassUsd, 0.1);
     assert.equal(report.economy.candidate.costPerPassUsd, 0.2);
     assert.match(renderHarnessAbReportMarkdown(report), /fully metered pairs: 1; missing usage: 1/);
-    assert.throws(() => assertHarnessAbReportCompleted(report), /missing usage for 1 pair/);
+    assert.doesNotThrow(() => assertHarnessAbReportCompleted(report));
   });
 
-  test('treats timeout usage checkpoints as incomplete metering', () => {
+  test('keeps timeout usage checkpoints out of final metering without making execution incomplete', () => {
     const checkpointOnlyTimeout = {
       ...budgetExhausted('a'),
       tokenSummary: usage('checkpoint', false, 100, 40, 20, 0.1).tokenSummary,
@@ -172,7 +210,8 @@ describe('harness A/B report', () => {
 
     assert.equal(summary.pairedAttempts.fullyMeteredPairs, 0);
     assert.deepEqual(summary.pairedAttempts.missingUsagePairIds, ['a#r0']);
-    assert.equal(report.runStatus, 'incomplete');
+    assert.equal(report.runStatus, 'completed_with_gaps');
+    assert.equal(report.coverage.missingFinalUsageCells, 1);
   });
 
   test('preserves an early stop in every report format and rejects completion', () => {
@@ -192,8 +231,8 @@ describe('harness A/B report', () => {
 
     assert.equal(report.runStatus, 'stopped');
     assert.equal(report.stopReason, 'systemic_provider_failure');
-    assert.match(renderHarnessAbReportCsv(report), /^run_status,stop_reason,paired_expected,paired_evaluated,excluded_pairs,missing_pairs,paired_metered,missing_usage_pairs,axis,metric,/);
-    assert.match(renderHarnessAbReportCsv(report), /stopped,systemic_provider_failure,1,0,1,0,0,0,effectiveness,pass_rate/);
+    assert.match(renderHarnessAbReportCsv(report), /^run_status,stop_reason,scheduled_cells,attempted_cells,model_scored_cells,infra_failed_cells,unscored_cells,missing_final_usage_cells,paired_evaluated,paired_metered,missing_usage_pairs,axis,metric,/);
+    assert.match(renderHarnessAbReportCsv(report), /stopped,systemic_provider_failure,2,2,1,1,1,0,0,0,0,effectiveness,pass_rate/);
     assert.match(renderHarnessAbReportMarkdown(report), /Status: stopped \(systemic_provider_failure\)\./);
     assert.throws(
       () => assertHarnessAbReportCompleted(report),
@@ -238,5 +277,13 @@ function providerBilling(taskId: string): FixedPromptTaskInfraFailedEvent {
     eligible: false,
     errorClass: 'provider_billing',
     error: 'provider billing failure',
+  };
+}
+
+function infraFailure(taskId: string): FixedPromptTaskInfraFailedEvent {
+  return {
+    ...providerBilling(taskId),
+    errorClass: 'network',
+    error: 'provider network failure',
   };
 }

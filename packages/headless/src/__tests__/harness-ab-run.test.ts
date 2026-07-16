@@ -222,7 +222,7 @@ describe('runHarnessAbComparison', () => {
     }
   });
 
-  test('keeps the report incomplete when OpenCode usage output is missing', async () => {
+  test('completes with gaps when one attempted cell has no usable output', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'maka-harness-ab-missing-usage-'));
     try {
       const promptPath = join(dir, 'empty-system-prompt.txt');
@@ -245,7 +245,15 @@ describe('runHarnessAbComparison', () => {
       const report = buildHarnessAbReport(summary);
 
       assert.equal(summary.pairedAttempts.excludedPairIds.length, 1);
-      assert.equal(report.runStatus, 'incomplete');
+      assert.equal(report.runStatus, 'completed_with_gaps');
+      assert.deepEqual(report.coverage, {
+        scheduledCells: 2,
+        attemptedCells: 2,
+        modelScoredCells: 1,
+        infraFailedCells: 1,
+        unscoredCells: 1,
+        missingFinalUsageCells: 0,
+      });
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

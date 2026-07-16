@@ -114,6 +114,7 @@ function summarizeArm(
     budgetExhausted: observed.filter((event) => abOutcomeCategory(event) === 'budget').length,
     infraFailed: observed.filter((event) => abOutcomeCategory(event) === 'infra').length,
     plumbingFailed: observed.filter((event) => abOutcomeCategory(event) === 'plumbing').length,
+    missingFinalUsage: valid.filter((event) => !hasCompleteTokenSummary(event)).length,
     attestationWarnings: observed.filter(isMissingExecutionIdentityTimeout).length,
     missing: attempts - observed.length,
     coverageRate: attempts > 0 ? valid.length / attempts : 1,

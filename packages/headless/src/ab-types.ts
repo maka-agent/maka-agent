@@ -63,6 +63,7 @@ export interface AbArmSummary {
   budgetExhausted: number;
   infraFailed: number;
   plumbingFailed: number;
+  missingFinalUsage: number;
   attestationWarnings: number;
   missing: number;
   coverageRate: number;

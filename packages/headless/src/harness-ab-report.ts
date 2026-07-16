@@ -21,17 +21,18 @@ export interface HarnessAbArmEconomy {
 }
 
 export interface HarnessAbReport {
-  schemaVersion: 'maka.harness_ab.report.v1';
+  schemaVersion: 'maka.harness_ab.report.v2';
   runId: string;
-  runStatus: 'completed' | 'incomplete' | 'stopped';
+  runStatus: 'completed' | 'completed_with_gaps' | 'incomplete' | 'stopped';
   stopReason?: NonNullable<AbComparisonSummary['stopReason']>;
   taskCount: number;
-  completeness: {
-    baselineObserved: number;
-    candidateObserved: number;
-    expectedPerArm: number;
-    excludedPairs: number;
-    missingPairs: number;
+  coverage: {
+    scheduledCells: number;
+    attemptedCells: number;
+    modelScoredCells: number;
+    infraFailedCells: number;
+    unscoredCells: number;
+    missingFinalUsageCells: number;
   };
   effectiveness: {
     metric: 'pass@1';
@@ -53,26 +54,29 @@ export interface HarnessAbReport {
 }
 
 export function buildHarnessAbReport(summary: AbComparisonSummary): HarnessAbReport {
+  const coverage = {
+    scheduledCells: summary.baseline.attempts + summary.candidate.attempts,
+    attemptedCells: summary.baseline.observed + summary.candidate.observed,
+    modelScoredCells: summary.baseline.valid + summary.candidate.valid,
+    infraFailedCells: summary.baseline.infraFailed + summary.candidate.infraFailed,
+    unscoredCells: summary.baseline.observed + summary.candidate.observed
+      - summary.baseline.valid - summary.candidate.valid,
+    missingFinalUsageCells: summary.baseline.missingFinalUsage + summary.candidate.missingFinalUsage,
+  };
   const runStatus = summary.stopReason
     ? 'stopped'
-    : summary.pairedAttempts.missingPairIds.length === 0
-        && summary.pairedAttempts.missingUsagePairIds.length === 0
-        && summary.pairedAttempts.excludedPairIds.length === 0
-      ? 'completed'
-      : 'incomplete';
+    : coverage.attemptedCells < coverage.scheduledCells
+      ? 'incomplete'
+      : coverage.unscoredCells > 0 || coverage.missingFinalUsageCells > 0
+        ? 'completed_with_gaps'
+        : 'completed';
   return {
-    schemaVersion: 'maka.harness_ab.report.v1',
+    schemaVersion: 'maka.harness_ab.report.v2',
     runId: summary.runId,
     runStatus,
     ...(summary.stopReason ? { stopReason: summary.stopReason } : {}),
     taskCount: summary.taskCount,
-    completeness: {
-      baselineObserved: summary.baseline.observed,
-      candidateObserved: summary.candidate.observed,
-      expectedPerArm: summary.baseline.attempts,
-      excludedPairs: summary.pairedAttempts.excludedPairIds.length,
-      missingPairs: summary.pairedAttempts.missingPairIds.length,
-    },
+    coverage,
     effectiveness: {
       metric: 'pass@1',
       pairedEvaluated: summary.pairedAttempts.evaluatedPairs,
@@ -130,14 +134,17 @@ export function renderHarnessAbReportCsv(report: HarnessAbReport): string {
     ['economy', 'cost_per_pass_usd', baselineEconomy.armId, baselineEconomy.costPerPassUsd, candidateEconomy.armId, candidateEconomy.costPerPassUsd, nullableDelta(candidateEconomy.costPerPassUsd, baselineEconomy.costPerPassUsd)],
   ];
   return [
-    'run_status,stop_reason,paired_expected,paired_evaluated,excluded_pairs,missing_pairs,paired_metered,missing_usage_pairs,axis,metric,baseline_arm,baseline_value,candidate_arm,candidate_value,candidate_minus_baseline',
+    'run_status,stop_reason,scheduled_cells,attempted_cells,model_scored_cells,infra_failed_cells,unscored_cells,missing_final_usage_cells,paired_evaluated,paired_metered,missing_usage_pairs,axis,metric,baseline_arm,baseline_value,candidate_arm,candidate_value,candidate_minus_baseline',
     ...rows.map((row) => [
       report.runStatus,
       report.stopReason ?? '',
-      report.completeness.expectedPerArm,
+      report.coverage.scheduledCells,
+      report.coverage.attemptedCells,
+      report.coverage.modelScoredCells,
+      report.coverage.infraFailedCells,
+      report.coverage.unscoredCells,
+      report.coverage.missingFinalUsageCells,
       report.effectiveness.pairedEvaluated,
-      report.completeness.excludedPairs,
-      report.completeness.missingPairs,
       report.economy.pairedMetered,
       report.economy.missingUsagePairs,
       ...row,
@@ -153,7 +160,8 @@ export function renderHarnessAbReportMarkdown(report: HarnessAbReport): string {
     '',
     `Status: ${report.runStatus}${report.stopReason ? ` (${report.stopReason})` : ''}.`,
     '',
-    `Run: ${report.runId}; tasks: ${report.taskCount}; paired evaluated: ${report.effectiveness.pairedEvaluated}; excluded: ${report.completeness.excludedPairs}; missing: ${report.completeness.missingPairs}.`,
+    `Run: ${report.runId}; tasks: ${report.taskCount}; paired evaluated: ${report.effectiveness.pairedEvaluated}.`,
+    `Cell coverage: ${report.coverage.attemptedCells}/${report.coverage.scheduledCells} attempted; ${report.coverage.modelScoredCells} model-scored; ${report.coverage.infraFailedCells} infra-failed; ${report.coverage.unscoredCells} unscored; ${report.coverage.missingFinalUsageCells} missing final usage.`,
     `Economy coverage: fully metered pairs: ${report.economy.pairedMetered}; missing usage: ${report.economy.missingUsagePairs}.`,
     '',
     '## Effectiveness',
@@ -187,14 +195,7 @@ export function assertHarnessAbReportCompleted(report: HarnessAbReport): void {
     throw new Error(`harness A/B stopped: ${report.stopReason ?? 'unknown_reason'}`);
   }
   if (report.runStatus === 'incomplete') {
-    if (report.economy.missingUsagePairs > 0) {
-      throw new Error(
-        `harness A/B incomplete: missing usage for ${report.economy.missingUsagePairs} pair(s)`,
-      );
-    }
-    throw new Error(
-      `harness A/B incomplete: ${report.effectiveness.pairedEvaluated}/${report.completeness.expectedPerArm} paired attempts evaluated (${report.completeness.excludedPairs} excluded, ${report.completeness.missingPairs} missing)`,
-    );
+    throw new Error(`harness A/B incomplete: ${report.coverage.attemptedCells}/${report.coverage.scheduledCells} scheduled cells attempted`);
   }
 }
 
