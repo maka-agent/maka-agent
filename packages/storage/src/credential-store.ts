@@ -49,12 +49,53 @@ interface CredentialFile {
   values: Record<string, string>;
 }
 
+/**
+ * Outcome of a compare-and-set write.
+ *
+ * `committed: true` — the basis was still the stored authority, so the new
+ * value was persisted (this caller is the winner).
+ *
+ * `committed: false` — the basis was stale; someone committed first. `current`
+ * is what the store holds instead, and it distinguishes the two loser cases the
+ * refresh lifecycle must tell apart:
+ *   - `current === null`: the entry is gone. A terminal delete (e.g. a logout)
+ *     happened after the caller read its basis; the caller must NOT resurrect it.
+ *   - `current` is a string: the entry was changed by a concurrent winner. The
+ *     caller adopts `current` instead of overwriting it.
+ */
+export type CredentialCasResult =
+  | { committed: true }
+  | { committed: false; current: string | null };
+
 export interface CredentialStore {
   getSecret(slug: string, kind: CredentialKind): Promise<string | null>;
   setSecret(slug: string, kind: CredentialKind, value: string): Promise<void>;
   /** Delete one kind, or — with no kind — every kind for the slug (e.g. a
    *  connection being removed). */
   deleteSecret(slug: string, kind?: CredentialKind): Promise<void>;
+  /**
+   * Optional compare-and-set write. Persist `value` for `(slug, kind)` only
+   * while the stored entry still equals `expected` — the basis the caller read
+   * before deciding to write. `expected: null` asserts the entry is absent, for
+   * a write-if-not-present (e.g. the one-shot legacy import deciding "store
+   * already has a token" and writing inside one serialized step).
+   *
+   * The basis check and the write run together under the same cross-process
+   * lock as `setSecret`, so no concurrent writer can slip in between them; the
+   * check is a specialization of the current read-modify-write, not a lease held
+   * across any external I/O.
+   *
+   * Optional capability: third-party `CredentialStore` implementations and the
+   * future `credential_provider` backends stay source-compatible without it.
+   * When it is absent, callers fall back to an unconditional `setSecret`
+   * (today's behavior).
+   */
+  compareAndSetSecret?(
+    slug: string,
+    kind: CredentialKind,
+    expected: string | null,
+    value: string,
+  ): Promise<CredentialCasResult>;
 }
 
 export function createFileCredentialStore(workspaceRoot: string): CredentialStore {
@@ -203,6 +244,33 @@ class FileCredentialStore implements CredentialStore {
   private set(slug: string, kind: StoredCredentialKind, value: string): Promise<void> {
     return this.mutate((values) => {
       values[this.key(slug, kind)] = value;
+    });
+  }
+
+  /**
+   * Compare-and-set specialization of the read-modify-write: read under the
+   * lock, verify the stored entry still equals the caller's basis, and only then
+   * write. A mismatch commits nothing and reports what the store holds so the
+   * loser can distinguish a terminal delete (`current === null`) from a
+   * concurrent winner it must adopt (`current` is a string).
+   */
+  compareAndSetSecret(
+    slug: string,
+    kind: CredentialKind,
+    expected: string | null,
+    value: string,
+  ): Promise<CredentialCasResult> {
+    const key = this.key(slug, toStoredKind(kind));
+    return withCredentialFileLock(this.path, async () => {
+      const file = await this.readUnlocked();
+      const stored = file.values[key];
+      const current = stored === undefined ? null : stored;
+      if (current !== expected) {
+        return { committed: false, current };
+      }
+      file.values[key] = value;
+      await this.write(file);
+      return { committed: true };
     });
   }
 
