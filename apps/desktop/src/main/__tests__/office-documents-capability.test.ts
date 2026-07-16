@@ -4,6 +4,7 @@ import { describe, it } from 'node:test';
 import { join, resolve } from 'node:path';
 import { readAllRendererCss } from './css-test-helpers.js';
 import { readSettingsCombinedSource } from './settings-contract-source-helpers.js';
+import { readMainProcessCombinedSource } from './main-process-contract-source-helpers.js';
 
 const REPO_ROOT = resolve(process.cwd(), '..', '..');
 const CAPABILITY_SNAPSHOT = join(REPO_ROOT, 'apps', 'desktop', 'src', 'main', 'capability-snapshot.ts');
@@ -24,7 +25,7 @@ describe('Office document capability contract', () => {
   it('surfaces Office 文档 as a capability backed by officecli probe', async () => {
     const [snapshot, main] = await Promise.all([
       readFile(CAPABILITY_SNAPSHOT, 'utf8'),
-      readFile(MAIN, 'utf8'),
+      readMainProcessCombinedSource(),
     ]);
 
     assert.match(snapshot, /officeDocumentsCapability\(input\.officeCliProbe, now\)/);

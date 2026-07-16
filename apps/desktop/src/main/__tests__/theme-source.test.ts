@@ -11,6 +11,7 @@ import { describe, it } from 'node:test';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { isThemePreference, toNativeThemeSource } from '../theme-source.js';
+import { readMainProcessCombinedSource } from './main-process-contract-source-helpers.js';
 
 // Anchored at the repo root, not relative to this test file's own location --
 // `npm test` runs the compiled dist/main/__tests__/*.test.js, so a plain
@@ -128,7 +129,7 @@ describe('theme-source', () => {
     });
 
     it('window:setTitleBarOverlayTheme forwards the sender to the guarded main-window controller', async () => {
-      const src = await readFile(MAIN_TS, 'utf8');
+      const src = await readMainProcessCombinedSource();
       assert.match(
         src,
         /ipcMain\.handle\('window:setTitleBarOverlayTheme', \(event, theme: unknown\): void => \{\s*mainWindowController\.setTitleBarOverlayTheme\(event\.sender, theme\);\s*\}\);/,

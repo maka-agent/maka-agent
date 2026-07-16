@@ -4,12 +4,14 @@ import { describe, it } from 'node:test';
 import { join } from 'node:path';
 import { readRendererContractCss } from './contract-css-helpers.js';
 import { readSettingsCombinedSource } from './settings-contract-source-helpers.js';
+import { readMainProcessCombinedSource } from './main-process-contract-source-helpers.js';
 
 const repoRoot = process.cwd().endsWith('apps/desktop')
   ? join(process.cwd(), '..', '..')
   : process.cwd();
 
 async function readRepo(path: string): Promise<string> {
+  if (path === 'apps/desktop/src/main/main.ts') return readMainProcessCombinedSource();
   return readFile(join(repoRoot, path), 'utf8');
 }
 

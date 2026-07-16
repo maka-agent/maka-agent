@@ -3,12 +3,10 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { readSettingsCombinedSourceSync } from './settings-contract-source-helpers.js';
+import { readMainProcessCombinedSourceSync } from './main-process-contract-source-helpers.js';
 
 const settingsSource = readSettingsCombinedSourceSync();
-const mainSource = readFileSync(
-  join(process.cwd(), 'src/main/main.ts'),
-  'utf8',
-);
+const mainSource = readMainProcessCombinedSourceSync();
 
 function blockBetween(start: string, end: string): string {
   return settingsSource.match(new RegExp(`${start}[\\s\\S]*?${end}`))?.[0] ?? '';

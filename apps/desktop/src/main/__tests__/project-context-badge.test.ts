@@ -59,7 +59,7 @@ describe('project context workspace picker', () => {
     const preload = await readRepo('apps/desktop/src/preload/preload.ts');
     const globalTypes = await readRepo('apps/desktop/src/global.d.ts');
 
-    assert.match(main, /resolveProjectRoot\(\[process\.cwd\(\), app\.getAppPath\(\)\]\)/);
+    assert.match(main, /fallbackRoots: \(\) => \[process\.cwd\(\), app\.getAppPath\(\)\]/);
     assert.match(main, /projectGit:\s*await resolveProjectGitInfo\(projectPath\)/);
     assert.match(main, /function registerIpc\(\): void/);
     assert.match(main, /const persistedProjectRootPromise = loadPersistedProjectRoot\(\)/);
@@ -80,7 +80,7 @@ describe('project context workspace picker', () => {
 
     assert.match(main, /let selectedProjectRoot: string \| null = null;/);
     assert.match(main, /if \(selectedProjectRoot\) return selectedProjectRoot;/);
-    assert.match(main, /async function resolveExplicitProjectRoot\(projectPath: unknown\): Promise</);
+    assert.match(main, /async function resolveExplicit\(projectPath: unknown\): Promise</);
     assert.match(main, /ipcMain\.handle\(\s*'app:selectProjectDirectory'/);
     assert.match(main, /mainWindowController\.showOpenDialog\(\{[\s\S]*title:\s*'选择工作目录'[\s\S]*properties:\s*\['openDirectory'\]/);
     assert.match(main, /dialog\.showOpenDialog\(mainWindow,\s*options\)/);
