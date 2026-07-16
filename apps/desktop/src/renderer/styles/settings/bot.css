@@ -329,42 +329,12 @@
    SimpleStatsTable in usage-settings-page.tsx (inline Tailwind classes,
    no public primitive — a single HTML <table> consumer did not justify one). */
 
-.settingsRow {
-  display: grid;
-  grid-template-columns: minmax(150px, 0.36fr) minmax(0, 1fr);
-  align-items: center;
-  gap: var(--space-4);
-  padding: var(--space-4) var(--space-5);
-  border: 0;
-  border-bottom: var(--border-width-hairline) solid oklch(from var(--foreground) l c h / 0.06);
-  border-radius: 0;
-  background: transparent;
-  transition: background var(--duration-base) var(--ease-out-strong);
-}
-
-/* Detail audit + alignment-governance round: bare Switch controls sat at
-   the value column's START (x≈mid-page) while inputs/selects hug the right
-   rail. The original fix tag-qualified the selector with a button prefix, but
-   Base UI renders the Switch root as a SPAN — the selector matched nothing
-   and rotted silently. Tag-AGNOSTIC by rule: role is the contract, the
-   rendered tag never is. */
-.settingsRow > [role="switch"] {
-  justify-self: end;
-}
+/* .settingsRow / .settingsRows moved to rows.css — the single style home
+   for the settings-rows.tsx primitives (PR-SETTINGS-ROWS-CONVERGENCE-0). */
 
 /* #520 PR9: .settingsBadge retired onto the Chip primitive variant="neutral"
    (packages/ui/src/primitives/chip.tsx, size="sm"). Generic settings labels
    stay squared (radius-control), not pill Badge. */
-
-/* PR-SETTINGS-GROUPED-CARD-0 (WAWQAQ msg `1abecd66`): same grouped-
-   card pattern as `.settingsStructuredPage` — outer card + hairline
-   dividers, no per-row chrome. */
-.settingsRows {
-  display: grid;
-  gap: 0;
-  border: var(--border-width-hairline) solid oklch(from var(--foreground) l c h / 0.08);
-  overflow: hidden;
-}
 
 /* Per-connection card on AccountSettingsPage. Status badge tone derives
  * from the closed-form ConnectionUiStatus enum:

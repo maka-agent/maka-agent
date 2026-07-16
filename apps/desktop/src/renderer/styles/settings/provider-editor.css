@@ -395,39 +395,8 @@
   color: var(--destructive-text);
 }
 
-/* PR-SETTINGS-PAGE-BODY-0: label / value typography aligned with the
-   reference recipe (text-sm font-medium for label; quaternary tone for
-   the right-side value text). */
-.settingsRow strong {
-  color: var(--foreground);
-  font-size: var(--font-size-ui);
-  font-weight: var(--font-weight-medium);
-  white-space: nowrap;
-}
-
-.settingsRow > span {
-  /* PR-SETTINGS-MOTION-TYPO-TOKENS-0 (round 15/15): `tabular-nums` so
-     numeric values (version strings, model IDs, counts) align cleanly
-     when stacked vertically. baseline-ui + /typeset both require this
-     for any numeric data. */
-  min-width: 0;
-  color: var(--foreground-secondary);
-  font-size: var(--font-size-ui);
-  font-variant-numeric: tabular-nums;
-  overflow-wrap: anywhere;
-  text-align: right;
-}
-
-/* Long machine values (workspace path): right-aligned proportional text
-   wraps into a ragged multi-line block. Mono + left-aligned + caption
-   size reads as the file path it is. */
-.settingsRow > span[data-mono="true"] {
-  font-family: var(--font-mono);
-  font-size: var(--font-size-caption);
-  text-align: left;
-  line-height: var(--leading-normal);
-  word-break: break-all;
-}
+/* .settingsRow label/value typography moved to rows.css
+   (PR-SETTINGS-ROWS-CONVERGENCE-0). */
 
 @media (max-width: 980px) {
   .app {
