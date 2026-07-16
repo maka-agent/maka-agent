@@ -225,10 +225,13 @@ describe('ModelAdapter stream and error normalization', () => {
     assert.equal(JSON.stringify(event).includes('sk-live-secret-token-value'), false);
   });
 
-  test('retains network classification for Node connection errors', () => {
-    const event = newAdapter().makeErrorEvent('turn-1', new Error('connect ECONNREFUSED 127.0.0.1:443'));
+  test('retains Node connection copy without promoting retry classification', () => {
+    const adapter = newAdapter();
+    const error = new Error('connect ECONNREFUSED 127.0.0.1:443');
+    const event = adapter.makeErrorEvent('turn-1', error);
 
-    assert.equal(event.reason, 'network');
+    assert.equal(adapter.classifyError(error), 'Error');
+    assert.equal(event.reason, undefined);
     assert.equal(event.message, 'Network error');
   });
 

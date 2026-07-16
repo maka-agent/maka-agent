@@ -1642,52 +1642,32 @@ export function classifyError(error: unknown): string {
   if (
     text.includes('network')
     || text.includes('fetch')
-    || text.includes('econn')
-    || text.includes('enotfound')
     || /\btypeerror\b.*\bterminated\b/.test(text)
   ) return 'Network';
   return error instanceof Error ? (error.name || 'Other') : 'Other';
 }
 
-export function errorReasonFromClass(errorClass: string): string | undefined {
+export function errorPresentationFromClass(errorClass: string): {
+  reason?: string;
+  message?: string;
+} {
   switch (errorClass) {
     case 'ContextLength':
-      return 'context_overflow';
+      return { reason: 'context_overflow', message: 'Context window exceeded' };
     case 'Timeout':
-      return 'timeout';
+      return { reason: 'timeout', message: 'Request timed out' };
     case 'Auth':
-      return 'auth';
+      return { reason: 'auth', message: 'Authentication failed' };
     case 'ProviderBilling':
-      return 'provider_billing';
+      return { reason: 'provider_billing', message: 'Provider billing required' };
     case 'ProviderUnavailable':
-      return 'provider_unavailable';
+      return { reason: 'provider_unavailable', message: 'Provider returned an error' };
     case 'RateLimit':
-      return 'rate_limit';
+      return { reason: 'rate_limit', message: 'Rate limit exceeded' };
     case 'Network':
-      return 'network';
+      return { reason: 'network', message: 'Network error' };
     default:
-      return undefined;
-  }
-}
-
-export function errorMessageFromClass(errorClass: string): string {
-  switch (errorClass) {
-    case 'ContextLength':
-      return 'Context window exceeded';
-    case 'Timeout':
-      return 'Request timed out';
-    case 'Auth':
-      return 'Authentication failed';
-    case 'ProviderBilling':
-      return 'Provider billing required';
-    case 'ProviderUnavailable':
-      return 'Provider returned an error';
-    case 'RateLimit':
-      return 'Rate limit exceeded';
-    case 'Network':
-      return 'Network error';
-    default:
-      return 'Operation failed';
+      return {};
   }
 }
 

@@ -6,12 +6,13 @@ import type {
   CompleteEvent,
 } from '@maka/core/events';
 import { providerAuthRequiresSecret, type LlmConnection } from '@maka/core/llm-connections';
+import { generalizedErrorMessage } from '@maka/core/redaction';
 import type { CacheMissInputSource } from '@maka/core/usage-stats/types';
 import type { ModelMessage } from 'ai';
 
 import type { AsyncEventQueue } from './async-queue.js';
 import { resolveModelRuntime } from './model-runtime.js';
-import { classifyError, errorMessageFromClass, errorReasonFromClass } from './tool-runtime.js';
+import { classifyError, errorPresentationFromClass } from './tool-runtime.js';
 
 /**
  * Build an ai-sdk LanguageModel from a single input object.
@@ -301,8 +302,8 @@ export class ModelAdapter {
 
   makeErrorEvent(turnId: string, err: unknown): ErrorEvent {
     const errorClass = classifyError(err);
-    const message = errorMessageFromClass(errorClass);
-    const reason = errorReasonFromClass(errorClass);
+    const presentation = errorPresentationFromClass(errorClass);
+    const message = presentation.message ?? generalizedErrorMessage(err);
     const code = err instanceof Error && 'code' in err
       ? String((err as { code?: unknown }).code)
       : undefined;
@@ -313,7 +314,7 @@ export class ModelAdapter {
       ts: this.input.now(),
       recoverable: false,
       ...(code !== undefined ? { code } : {}),
-      ...(reason !== undefined ? { reason } : {}),
+      ...(presentation.reason !== undefined ? { reason: presentation.reason } : {}),
       message,
     };
   }
