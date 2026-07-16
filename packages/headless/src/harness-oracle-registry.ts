@@ -3,7 +3,10 @@ import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import type { FixedPromptTask } from './fixed-prompt-controller.js';
 import { fingerprintFixedPromptTask } from './fixed-prompt-task-source.js';
-import type { HarnessOracleTaskResult } from './harness-qualification.js';
+import {
+  HARBOR_ORACLE_MAX_ATTEMPTS,
+  type HarnessOracleTaskResult,
+} from './harness-oracle-policy.js';
 
 export class HarnessOracleAuditExecutionError extends Error {
   constructor(readonly status: 'timed_out' | 'infra_failed') {
@@ -27,18 +30,33 @@ export interface HarnessOracleRegistryEntry {
     status: 'completed' | 'timed_out' | 'infra_failed';
   };
   oracle: HarnessOracleTaskResult | null;
+  executionProvenance: HarnessOracleExecutionProvenance;
   fingerprint: string;
+}
+
+export interface HarnessOracleWorkflowProvenance {
+  issuer: 'github-actions';
+  repository: string;
+  workflow: string;
+  commitSha: string;
+  runId: string;
+  runAttempt: string;
+}
+
+export interface HarnessOracleExecutionProvenance extends HarnessOracleWorkflowProvenance {
+  runtime: {
+    nodeVersion: string;
+    harborVersion: string;
+    dockerVersion: string;
+    dockerBuildxVersion: string;
+  };
 }
 
 export interface HarnessOracleRegistrySnapshot {
   schemaVersion: 1;
   taskIds: string[];
   entries: HarnessOracleRegistryEntry[];
-  provenance: {
-    issuer: 'github-actions';
-    repository: string;
-    runId: string;
-  };
+  provenance: HarnessOracleWorkflowProvenance;
   fingerprint: string;
 }
 
@@ -59,7 +77,7 @@ export interface HarnessOracleResolvedBaseImage {
 export interface AuditHarnessOracleRegistryInput {
   tasks: readonly HarnessOracleAuditTask[];
   existingSnapshot?: HarnessOracleRegistrySnapshot;
-  provenance: HarnessOracleRegistrySnapshot['provenance'];
+  provenance: HarnessOracleExecutionProvenance;
   runOracle: (task: FixedPromptTask) => Promise<HarnessOracleTaskResult>;
 }
 
@@ -140,10 +158,9 @@ export async function auditHarnessOracleRegistry(
       oracle = await input.runOracle(task);
       execution = { status: 'completed' };
     } catch (error) {
+      if (!(error instanceof HarnessOracleAuditExecutionError)) throw error;
       oracle = null;
-      execution = {
-        status: error instanceof HarnessOracleAuditExecutionError ? error.status : 'infra_failed',
-      };
+      execution = { status: error.status };
     }
     entries.push(withFingerprint({
       schemaVersion: 1 as const,
@@ -152,6 +169,7 @@ export async function auditHarnessOracleRegistry(
       identity: { ...identity },
       execution,
       oracle,
+      executionProvenance: cloneExecutionProvenance(input.provenance),
     }));
   }
   const snapshot = buildHarnessOracleRegistrySnapshot({
@@ -181,7 +199,7 @@ export function buildHarnessOracleRegistrySnapshot(
     schemaVersion: 1 as const,
     taskIds,
     entries: entries as HarnessOracleRegistryEntry[],
-    provenance: { ...input.provenance },
+    provenance: cloneWorkflowProvenance(input.provenance),
   });
 }
 
@@ -373,9 +391,7 @@ function registrySnapshotShapeIsValid(value: unknown): boolean {
     || value.taskIds.some((taskId) => typeof taskId !== 'string')
     || !Array.isArray(value.entries)
     || !isRecord(value.provenance)
-    || value.provenance.issuer !== 'github-actions'
-    || typeof value.provenance.repository !== 'string'
-    || typeof value.provenance.runId !== 'string'
+    || !workflowProvenanceIsValid(value.provenance)
   ) return false;
   return value.entries.every((entry) => (
     isRecord(entry)
@@ -389,6 +405,8 @@ function registrySnapshotShapeIsValid(value: unknown): boolean {
     && typeof entry.identity.environmentFingerprint === 'string'
     && isRecord(entry.execution)
     && typeof entry.execution.status === 'string'
+    && isRecord(entry.executionProvenance)
+    && executionProvenanceIsValid(entry.executionProvenance)
     && (entry.oracle === null || (
       isRecord(entry.oracle)
       && typeof entry.oracle.outcome === 'string'
@@ -405,6 +423,7 @@ function registryEntryIsValid(entry: HarnessOracleRegistryEntry, expectedTaskId:
     || entry.fingerprint !== fingerprintValue(withoutFingerprint(entry))
     || entry.qualificationKey !== qualificationKeyFor(entry.taskId, entry.identity)
     || !qualificationIdentityIsValid(entry.identity)
+    || !executionProvenanceIsValid(entry.executionProvenance)
   ) return false;
   if (entry.execution.status !== 'completed') {
     return (entry.execution.status === 'timed_out' || entry.execution.status === 'infra_failed')
@@ -415,6 +434,7 @@ function registryEntryIsValid(entry: HarnessOracleRegistryEntry, expectedTaskId:
     oracle === null
     || !Number.isSafeInteger(oracle.attempts)
     || oracle.attempts < 1
+    || oracle.attempts > HARBOR_ORACLE_MAX_ATTEMPTS
     || !Number.isFinite(oracle.reward)
   ) return false;
   if (oracle.outcome === 'passed') return oracle.reward > 0;
@@ -427,6 +447,42 @@ function qualificationIdentityIsValid(identity: HarnessOracleQualificationIdenti
     identity.executionPolicyFingerprint,
     identity.environmentFingerprint,
   ].every((value) => typeof value === 'string' && value.length > 0);
+}
+
+function workflowProvenanceIsValid(value: Record<string, unknown>): boolean {
+  return value.issuer === 'github-actions'
+    && typeof value.repository === 'string'
+    && typeof value.workflow === 'string'
+    && typeof value.commitSha === 'string'
+    && typeof value.runId === 'string'
+    && typeof value.runAttempt === 'string';
+}
+
+function executionProvenanceIsValid(value: HarnessOracleExecutionProvenance | Record<string, unknown>): boolean {
+  if (!workflowProvenanceIsValid(value as Record<string, unknown>) || !isRecord(value.runtime)) return false;
+  return typeof value.runtime.nodeVersion === 'string'
+    && typeof value.runtime.harborVersion === 'string'
+    && typeof value.runtime.dockerVersion === 'string'
+    && typeof value.runtime.dockerBuildxVersion === 'string';
+}
+
+function cloneWorkflowProvenance(
+  value: HarnessOracleWorkflowProvenance,
+): HarnessOracleWorkflowProvenance {
+  return {
+    issuer: value.issuer,
+    repository: value.repository,
+    workflow: value.workflow,
+    commitSha: value.commitSha,
+    runId: value.runId,
+    runAttempt: value.runAttempt,
+  };
+}
+
+function cloneExecutionProvenance(
+  value: HarnessOracleExecutionProvenance,
+): HarnessOracleExecutionProvenance {
+  return { ...cloneWorkflowProvenance(value), runtime: { ...value.runtime } };
 }
 
 function withoutFingerprint<T extends { fingerprint: string }>(value: T): Omit<T, 'fingerprint'> {

@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 
 import { createHash } from 'node:crypto';
+import { execFile } from 'node:child_process';
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 import {
   discoverCachedHarborTasks,
   fingerprintFixedPromptTaskTree,
@@ -33,6 +35,7 @@ import { resolveHarnessOracleBaseImageDigest } from './run-harness-ab.mjs';
 
 const AUDIT_PLAN_SCHEMA_VERSION = 1;
 const DOCKER_PLATFORM = HARBOR_ORACLE_DOCKER_PLATFORM;
+const execFileAsync = promisify(execFile);
 
 export async function main(argv = process.argv.slice(2)) {
   const [command, ...rawArgs] = argv;
@@ -92,7 +95,7 @@ async function taskCommand(args) {
   });
   const audit = await auditHarnessOracleRegistry({
     tasks: [{ ...auditTask, task: pinnedTask }],
-    provenance: workflowProvenance(),
+    provenance: await workflowExecutionProvenance(),
     runOracle: async (task) => {
       try {
         return await qualifier(task);
@@ -202,6 +205,26 @@ function workflowProvenance(env = process.env) {
     commitSha: requiredEnv(env, 'GITHUB_SHA'),
     runId: requiredEnv(env, 'GITHUB_RUN_ID'),
     runAttempt: requiredEnv(env, 'GITHUB_RUN_ATTEMPT'),
+  };
+}
+
+export async function workflowExecutionProvenance({
+  env = process.env,
+  readToolVersion = async (command, args) => (await execFileAsync(command, args)).stdout.trim(),
+} = {}) {
+  const [harborVersion, dockerVersion, dockerBuildxVersion] = await Promise.all([
+    readToolVersion('harbor', ['--version']),
+    readToolVersion('docker', ['--version']),
+    readToolVersion('docker', ['buildx', 'version']),
+  ]);
+  return {
+    ...workflowProvenance(env),
+    runtime: {
+      nodeVersion: process.version,
+      harborVersion,
+      dockerVersion,
+      dockerBuildxVersion,
+    },
   };
 }
 

@@ -18,3 +18,34 @@ test('Oracle registry audit is manual, incremental, bounded, and append-only', a
   assert.match(workflow, /gh release create/);
   assert.doesNotMatch(workflow, /--clobber/);
 });
+
+test('Oracle task evidence records the workflow and observed runner runtime', async () => {
+  const { workflowExecutionProvenance } = await import(
+    new URL('../../harbor/run-oracle-registry-audit.mjs', import.meta.url).href
+  );
+  const provenance = await workflowExecutionProvenance({
+    env: {
+      GITHUB_REPOSITORY: 'maka-agent/maka-agent',
+      GITHUB_WORKFLOW: 'Oracle evidence audit',
+      GITHUB_SHA: 'abc123',
+      GITHUB_RUN_ID: '456',
+      GITHUB_RUN_ATTEMPT: '2',
+    },
+    readToolVersion: async (command: string, args: string[]) => `${command} ${args.join(' ')}`,
+  });
+
+  assert.deepEqual(provenance, {
+    issuer: 'github-actions',
+    repository: 'maka-agent/maka-agent',
+    workflow: 'Oracle evidence audit',
+    commitSha: 'abc123',
+    runId: '456',
+    runAttempt: '2',
+    runtime: {
+      nodeVersion: process.version,
+      harborVersion: 'harbor --version',
+      dockerVersion: 'docker --version',
+      dockerBuildxVersion: 'docker buildx version',
+    },
+  });
+});

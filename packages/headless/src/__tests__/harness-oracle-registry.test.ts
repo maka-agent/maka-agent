@@ -47,9 +47,10 @@ describe('harness Oracle evidence registry', () => {
         environmentFingerprint: 'sha256:environment',
       },
     }));
+    const provenance = oracleExecutionProvenance('123');
     const input = {
       tasks,
-      provenance: { issuer: 'github-actions' as const, repository: 'maka-agent/maka-agent', runId: '123' },
+      provenance,
       runOracle: async (task: { id: string }) => {
         calls.push(task.id);
         return task.id === 'b'
@@ -61,6 +62,7 @@ describe('harness Oracle evidence registry', () => {
     const baseline = await auditHarnessOracleRegistry(input);
     assert.deepEqual(calls, ['a', 'b', 'c']);
     assert.deepEqual(baseline.executedTaskIds, ['a', 'b', 'c']);
+    assert.deepEqual(baseline.snapshot.entries[0]?.executionProvenance, provenance);
     assert.deepEqual(
       baseline.snapshot.entries.map(({ taskId, oracle }) => ({ taskId, outcome: oracle?.outcome })),
       [
@@ -116,7 +118,7 @@ describe('harness Oracle evidence registry', () => {
       calls.push(task.id);
       return { outcome: 'passed' as const, reward: 1, attempts: 1 };
     };
-    const provenance = { issuer: 'github-actions' as const, repository: 'maka-agent/maka-agent', runId: '123' };
+    const provenance = oracleExecutionProvenance('123');
     const baseline = await auditHarnessOracleRegistry({ tasks, provenance, runOracle });
 
     calls.length = 0;
@@ -134,6 +136,9 @@ describe('harness Oracle evidence registry', () => {
     assert.deepEqual(incremental.executedTaskIds, ['b']);
     assert.equal(incremental.snapshot.entries[0]?.fingerprint, baseline.snapshot.entries[0]?.fingerprint);
     assert.notEqual(incremental.snapshot.entries[1]?.fingerprint, baseline.snapshot.entries[1]?.fingerprint);
+    assert.equal(incremental.snapshot.entries[0]?.executionProvenance.runId, '123');
+    assert.equal(incremental.snapshot.entries[1]?.executionProvenance.runId, '124');
+    assert.equal(incremental.snapshot.provenance.runId, '124');
 
     const plan = planHarnessOracleRegistryAudit(changedTasks, baseline.snapshot);
     assert.deepEqual(plan.missingTaskIds, ['b']);
@@ -149,7 +154,7 @@ describe('harness Oracle evidence registry', () => {
         environmentFingerprint: 'sha256:environment',
       },
     }];
-    const provenance = { issuer: 'github-actions' as const, repository: 'maka-agent/maka-agent', runId: '123' };
+    const provenance = oracleExecutionProvenance('123');
     const baseline = await auditHarnessOracleRegistry({
       tasks,
       provenance,
@@ -182,10 +187,10 @@ describe('harness Oracle evidence registry', () => {
 
     const audit = await auditHarnessOracleRegistry({
       tasks,
-      provenance: { issuer: 'github-actions', repository: 'maka-agent/maka-agent', runId: '123' },
+      provenance: oracleExecutionProvenance('123'),
       runOracle: async (task) => {
         calls.push(task.id);
-        if (task.id === 'b') throw new Error('docker daemon stopped');
+        if (task.id === 'b') throw new HarnessOracleAuditExecutionError('infra_failed');
         return { outcome: 'passed', reward: 1, attempts: 1 };
       },
     });
@@ -199,6 +204,26 @@ describe('harness Oracle evidence registry', () => {
     assert.equal(audit.snapshot.entries[1]?.oracle, null);
   });
 
+  test('does not publish an infra entry for an unexpected audit implementation error', async () => {
+    await assert.rejects(
+      auditHarnessOracleRegistry({
+        tasks: [{
+          task: { id: 'a', path: '/tasks/a' },
+          identity: {
+            taskFingerprint: 'sha256:task-a',
+            executionPolicyFingerprint: 'sha256:verifier',
+            environmentFingerprint: 'sha256:environment',
+          },
+        }],
+        provenance: oracleExecutionProvenance('123'),
+        runOracle: async () => {
+          throw new Error('result parser bug');
+        },
+      }),
+      /result parser bug/,
+    );
+  });
+
   test('records a typed execution timeout without treating it as an Oracle failure', async () => {
     const audit = await auditHarnessOracleRegistry({
       tasks: [{
@@ -209,7 +234,7 @@ describe('harness Oracle evidence registry', () => {
           environmentFingerprint: 'sha256:environment',
         },
       }],
-      provenance: { issuer: 'github-actions', repository: 'maka-agent/maka-agent', runId: '123' },
+      provenance: oracleExecutionProvenance('123'),
       runOracle: async () => { throw new HarnessOracleAuditExecutionError('timed_out'); },
     });
 
@@ -226,7 +251,7 @@ describe('harness Oracle evidence registry', () => {
         environmentFingerprint: 'sha256:environment',
       },
     }];
-    const provenance = { issuer: 'github-actions' as const, repository: 'maka-agent/maka-agent', runId: '123' };
+    const provenance = oracleExecutionProvenance('123');
     const baseline = await auditHarnessOracleRegistry({
       tasks,
       provenance,
@@ -246,6 +271,20 @@ describe('harness Oracle evidence registry', () => {
       }),
       /registry entry is malformed/,
     );
+
+    const excessiveAttempts = structuredClone(baseline.snapshot);
+    excessiveAttempts.entries[0]!.oracle!.attempts = 3;
+    excessiveAttempts.entries[0]!.fingerprint = fingerprintFixture(withoutFingerprint(excessiveAttempts.entries[0]!));
+    excessiveAttempts.fingerprint = fingerprintFixture(withoutFingerprint(excessiveAttempts));
+    await assert.rejects(
+      auditHarnessOracleRegistry({
+        tasks,
+        existingSnapshot: excessiveAttempts,
+        provenance,
+        runOracle: async () => ({ outcome: 'passed', reward: 1, attempts: 1 }),
+      }),
+      /registry entry is malformed/,
+    );
   });
 
   test('resolves advisory states without returning a task-selection decision', async () => {
@@ -259,11 +298,11 @@ describe('harness Oracle evidence registry', () => {
     }));
     const baseline = await auditHarnessOracleRegistry({
       tasks: tasks.slice(0, 5),
-      provenance: { issuer: 'github-actions', repository: 'maka-agent/maka-agent', runId: '123' },
+      provenance: oracleExecutionProvenance('123'),
       runOracle: async (task) => {
         if (task.id === 'failed') return { outcome: 'failed', reward: 0, attempts: 1 };
         if (task.id === 'timed') return { outcome: 'candidate_timeout', reward: 0, attempts: 1 };
-        if (task.id === 'infra') throw new Error('docker failed');
+        if (task.id === 'infra') throw new HarnessOracleAuditExecutionError('infra_failed');
         return { outcome: 'passed', reward: 1, attempts: 1 };
       },
     });
@@ -294,7 +333,7 @@ describe('harness Oracle evidence registry', () => {
           environmentFingerprint: 'sha256:environment',
         },
       }],
-      provenance: { issuer: 'github-actions', repository: 'maka-agent/maka-agent', runId: '123' },
+      provenance: oracleExecutionProvenance('123'),
       runOracle: async () => ({ outcome: 'passed', reward: 1, attempts: 1 }),
     });
     const urls: string[] = [];
@@ -426,6 +465,23 @@ describe('harness Oracle evidence registry', () => {
 function withoutFingerprint<T extends { fingerprint: string }>(value: T): Omit<T, 'fingerprint'> {
   const { fingerprint: _fingerprint, ...body } = value;
   return body;
+}
+
+function oracleExecutionProvenance(runId: string) {
+  return {
+    issuer: 'github-actions' as const,
+    repository: 'maka-agent/maka-agent',
+    workflow: 'Oracle evidence audit',
+    commitSha: 'abc123',
+    runId,
+    runAttempt: '1',
+    runtime: {
+      nodeVersion: 'v22.0.0',
+      harborVersion: 'harbor 0.13.2',
+      dockerVersion: 'Docker version 28.0.0',
+      dockerBuildxVersion: 'github.com/docker/buildx v0.22.0',
+    },
+  };
 }
 
 function fingerprintFixture(value: unknown): string {

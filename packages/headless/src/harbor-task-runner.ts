@@ -22,8 +22,10 @@ import {
   type HarborVerifierAttempt,
   type HarborVerifierOutcome,
 } from './fixed-prompt-controller.js';
-import type { HarnessOracleTaskResult } from './harness-qualification.js';
-import { HARBOR_ORACLE_MAX_ATTEMPTS } from './harness-oracle-policy.js';
+import {
+  HARBOR_ORACLE_MAX_ATTEMPTS,
+  type HarnessOracleTaskResult,
+} from './harness-oracle-policy.js';
 import { startProviderAuthProxy } from './provider-auth-proxy.js';
 import {
   providerBaseUrlFromEnv,
