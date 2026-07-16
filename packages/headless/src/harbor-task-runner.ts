@@ -33,7 +33,7 @@ import {
   providerCredentialEnv,
   requireProviderCredentialEnv,
 } from './provider-env.js';
-import { positiveIntEnv } from './headless-run-env.js';
+import { lenientPositiveIntEnv } from './headless-run-env.js';
 import {
   OPENCODE_TOOLCHAIN_CONTAINER_PATH,
   OPENCODE_TOOLCHAIN_FINGERPRINT,
@@ -641,7 +641,9 @@ export function buildHarborJobConfig(
   }
 
   Object.assign(agentEnv, attemptAgentEnv ?? {});
-  const cellTimeoutSec = positiveIntEnv(agentEnv.MAKA_CELL_TIMEOUT_SEC, 'MAKA_CELL_TIMEOUT_SEC')
+  // Lenient by shared contract with the Python adapter: a malformed value must
+  // fall back (metadata, then the adapter's default) rather than fail the run.
+  const cellTimeoutSec = lenientPositiveIntEnv(agentEnv.MAKA_CELL_TIMEOUT_SEC)
     ?? input.task.metadata?.agentTimeoutSec;
   if (cellTimeoutSec !== undefined) agentEnv.MAKA_CELL_TIMEOUT_SEC = String(cellTimeoutSec);
   const verifier = verifierPolicy(input.task);

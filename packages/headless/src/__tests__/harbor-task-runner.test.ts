@@ -1211,6 +1211,40 @@ describe('buildHarborJobConfig', () => {
     assert.equal(agent.max_timeout_sec, 1800);
   });
 
+  test('a malformed cell timeout falls back instead of failing the run', () => {
+    // Shared contract with the Python adapter (maka_agent.py _cell_timeout_sec):
+    // a malformed MAKA_CELL_TIMEOUT_SEC falls back to the task metadata timeout,
+    // or passes through for the adapter to apply its default.
+    const withMetadata = buildHarborJobConfig(runInput({
+      task: {
+        id: 'task-1',
+        path: '/tasks/task-1',
+        metadata: { agentTimeoutSec: 1234 },
+      },
+      agentEnv: { MAKA_CELL_TIMEOUT_SEC: 'oops' },
+    }), {
+      makaRepoPath: '/repo',
+      jobsDir: '/jobs/x',
+      jobName: 'trial',
+      model: 'deepseek/deepseek-v4-flash',
+    });
+    const metadataAgent = (withMetadata.agents as Array<{ env: Record<string, string>; max_timeout_sec?: number }>)[0]!;
+    assert.equal(metadataAgent.env.MAKA_CELL_TIMEOUT_SEC, '1234');
+    assert.equal(metadataAgent.max_timeout_sec, 1234);
+
+    const withoutMetadata = buildHarborJobConfig(runInput({
+      agentEnv: { MAKA_CELL_TIMEOUT_SEC: 'oops' },
+    }), {
+      makaRepoPath: '/repo',
+      jobsDir: '/jobs/x',
+      jobName: 'trial',
+      model: 'deepseek/deepseek-v4-flash',
+    });
+    const passthroughAgent = (withoutMetadata.agents as Array<{ env: Record<string, string>; max_timeout_sec?: number }>)[0]!;
+    assert.equal(passthroughAgent.env.MAKA_CELL_TIMEOUT_SEC, 'oops');
+    assert.equal(passthroughAgent.max_timeout_sec, undefined);
+  });
+
   test('uses each Terminal-Bench task native agent timeout when no override is set', () => {
     const config = buildHarborJobConfig(runInput({
       task: {

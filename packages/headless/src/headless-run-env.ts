@@ -116,6 +116,21 @@ export function positiveIntEnv(raw: string | undefined, name: string): number | 
 }
 
 /**
+ * Lenient positive-integer parse: returns `undefined` for unset, malformed, or
+ * non-positive values instead of throwing. Reserved for env vars whose contract
+ * is shared with the Harbor Python adapter, which documents that "a malformed
+ * value falls back to the default" (`maka_agent.py` `_cell_timeout_sec`): the TS
+ * runner must not fail loudly where the adapter recovers, or the same variable
+ * would diverge in semantics between the two sides. New TS-only env vars should
+ * use the throwing `positiveIntEnv` instead.
+ */
+export function lenientPositiveIntEnv(raw: string | undefined): number | undefined {
+  if (raw === undefined) return undefined;
+  const value = Number(raw);
+  return Number.isInteger(value) && value > 0 ? value : undefined;
+}
+
+/**
  * Parse a boolean flag from a raw env string; throws with `name` on an
  * unrecognized value. Returns `undefined` when unset/blank so callers can apply
  * their own default.
