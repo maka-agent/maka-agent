@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { before, describe, test } from 'node:test';
+import { after, before, describe, test } from 'node:test';
 import { visibleWidth } from '@earendil-works/pi-tui';
 import {
   SHELL_RUN_UPDATE_BUFFER_MAX_ENTRIES,
@@ -23,6 +26,7 @@ import type {
   RewindTarget,
   SessionResumeAvailability,
 } from '../session-driver.js';
+import { MakaAutocompleteProvider } from '../pi-tui-pickers.js';
 import { runMakaPiTui } from '../pi-tui-runner.js';
 import { _setColorLevelForTesting } from '../tui-ansi.js';
 import { BUSY_SPINNER_FRAMES } from '../tui-attention.js';
@@ -3951,6 +3955,81 @@ describe('Maka Pi TUI runner', () => {
     assert.equal(terminal.titles.at(-1), 'Maka');
   });
 
+});
+
+describe('MakaAutocompleteProvider slash-token completion', () => {
+  const commands = [
+    { name: 'compact', description: 'compact the transcript' },
+    { name: 'config', description: 'open config' },
+    { name: 'model', description: 'switch model' },
+  ];
+  const signal = new AbortController().signal;
+
+  // A hermetic base path with one known file so the file-provider fall-through
+  // is deterministic instead of reading the machine's real /Users tree.
+  let baseDir: string;
+  before(() => {
+    baseDir = mkdtempSync(join(tmpdir(), 'maka-slash-'));
+    writeFileSync(join(baseDir, 'findings.txt'), '');
+  });
+  after(() => rmSync(baseDir, { recursive: true, force: true }));
+
+  function suggest(line: string) {
+    const provider = new MakaAutocompleteProvider(baseDir, commands);
+    return provider.getSuggestions([line], 0, line.length, { signal });
+  }
+
+  const values = (result: { items: { value: string }[] } | null) =>
+    (result?.items ?? []).map((item) => item.value);
+
+  test('completes a `/` token that begins mid-message', async () => {
+    const result = await suggest('see /co');
+    assert.equal(result?.prefix, '/co');
+    assert.deepEqual(values(result), ['compact', 'config']);
+  });
+
+  test('leaves line-start command completion unchanged', async () => {
+    const bare = await suggest('/');
+    assert.equal(bare?.prefix, '/');
+    assert.deepEqual(values(bare), ['compact', 'config', 'model']);
+
+    const filtered = await suggest('/co');
+    assert.equal(filtered?.prefix, '/co');
+    assert.deepEqual(values(filtered), ['compact', 'config']);
+  });
+
+  test('does not treat an absolute path token as a command (falls through to files)', async () => {
+    const result = await suggest(`see ${baseDir}/fi`);
+    // The token is a path, no command matches, so the file provider answers with
+    // the path prefix and the matching file — never the command items.
+    assert.equal(result?.prefix, `${baseDir}/fi`);
+    assert.deepEqual(values(result), [`${baseDir}/findings.txt`]);
+    assert.equal(values(result).some((value) => commands.some((c) => c.name === value)), false);
+  });
+
+  test('applies a mid-message command completion as a `/name ` token', () => {
+    const provider = new MakaAutocompleteProvider(baseDir, commands);
+    const line = 'see /co';
+    const applied = provider.applyCompletion([line], 0, line.length, { value: 'compact', label: '/compact' }, '/co');
+    assert.deepEqual(applied.lines, ['see /compact ']);
+    assert.equal(applied.cursorLine, 0);
+    assert.equal(applied.cursorCol, 'see /compact '.length);
+  });
+
+  test('applies a path completion through the file provider, not as a command', () => {
+    const provider = new MakaAutocompleteProvider(baseDir, commands);
+    const prefix = `${baseDir}/fi`;
+    const line = `see ${prefix}`;
+    const applied = provider.applyCompletion(
+      [line],
+      0,
+      line.length,
+      { value: `${baseDir}/findings.txt`, label: 'findings.txt' },
+      prefix,
+    );
+    // The chosen path is inserted verbatim; it is never rewritten to `/findings.txt `.
+    assert.deepEqual(applied.lines, [`see ${baseDir}/findings.txt`]);
+  });
 });
 
 /** Count the standalone BEL bytes the attention layer wrote. */

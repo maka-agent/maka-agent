@@ -46,7 +46,10 @@ export class MakaAutocompleteProvider implements AutocompleteProvider {
           label: `/${command.name}`,
           description: command.description,
         }));
-      return items.length > 0 ? { items, prefix: slashPrefix } : null;
+      // Only claim the token when a command actually matches; otherwise fall
+      // through so a `/`-token that is really a path (e.g. `/Users/…`) still
+      // reaches the file provider instead of being swallowed as a dead command.
+      if (items.length > 0) return { items, prefix: slashPrefix };
     }
     return this.fileProvider.getSuggestions(lines, cursorLine, cursorCol, options);
   }
@@ -60,7 +63,13 @@ export class MakaAutocompleteProvider implements AutocompleteProvider {
   ): { lines: string[]; cursorLine: number; cursorCol: number } {
     const currentLine = lines[cursorLine] || '';
     const beforePrefix = currentLine.slice(0, cursorCol - prefix.length);
-    if (prefix.startsWith('/') && beforePrefix.trim() === '') {
+    // Identify a command completion by the chosen item being a real command
+    // rather than by position: the token can now start mid-message, and a
+    // path item (value = a filesystem path) never equals a bare command name,
+    // so a `/Users/…` completion still routes to the file provider below.
+    const isSlashCommand =
+      prefix.startsWith('/') && this.slashCommands.some((command) => command.name === item.value);
+    if (isSlashCommand) {
       const nextLines = [...lines];
       nextLines[cursorLine] = `${beforePrefix}/${item.value} ${currentLine.slice(cursorCol)}`;
       return {
@@ -86,10 +95,17 @@ export interface MakaSlashCommand extends MakaSlashCommandMetadata {
   run(parts: string[]): void;
 }
 
+// The `/`-token under the cursor: a `/` that begins a token — at line start or
+// immediately after whitespace — followed by the run of non-whitespace up to the
+// cursor. This lets command completion fire mid-message, not only at column 0.
+// A non-command token (e.g. `/Users/x`) is returned too; the caller falls back
+// to the file provider when no command matches, so paths are never hijacked.
+const SLASH_TOKEN = /(?:^|\s)(\/\S*)$/;
+
 function slashCommandPrefix(lines: string[], cursorLine: number, cursorCol: number): string | null {
   const currentLine = lines[cursorLine] || '';
   const textBeforeCursor = currentLine.slice(0, cursorCol);
-  return textBeforeCursor.startsWith('/') && !textBeforeCursor.includes(' ') ? textBeforeCursor : null;
+  return SLASH_TOKEN.exec(textBeforeCursor)?.[1] ?? null;
 }
 
 export class PickerOverlay implements Component {
