@@ -376,6 +376,8 @@ export function ProviderBrandMark({ type }: { type: ProviderType }): ReactElemen
     case 'alibaba':
     case 'alibaba-coding-plan-cn':
     case 'alibaba-coding-plan':
+    case 'alibaba-token-plan-cn':
+    case 'alibaba-token-plan':
       return <img src={alibabaBrandMark} alt="" />;
     case 'cloudflare-workers-ai':
       return <img src={cloudflareMarkUrl} alt="" />;

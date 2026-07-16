@@ -210,6 +210,16 @@ test('Alibaba Coding Plan (global) is unavailable to non-interactive headless cr
   );
 });
 
+test('Alibaba Token Plan variants are unavailable to non-interactive headless credential loading', () => {
+  for (const providerType of ['alibaba-token-plan-cn', 'alibaba-token-plan'] as const) {
+    assert.equal(providerCredentialEnv(providerType), undefined);
+    assert.throws(
+      () => requireProviderCredentialEnv(providerType),
+      new RegExp(`provider does not support API key files: ${providerType}`),
+    );
+  }
+});
+
 test('StepFun China keeps direct API credentials separate from global and plan identities', () => {
   assert.deepEqual(providerCredentialEnv('stepfun'), {
     apiKeys: ['STEPFUN_API_KEY'],

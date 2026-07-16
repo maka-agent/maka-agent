@@ -353,6 +353,48 @@ for (const id of alibabaCodingPlanModelIds) {
     throw new Error(`models.dev Alibaba Coding Plan snapshot is missing tool-capable model ${id}`);
   }
 }
+const alibabaTokenPlanCn = GENERATED_MODELS_DEV_PROVIDER_FACTS['alibaba-token-plan-cn'];
+if (alibabaTokenPlanCn.id !== 'alibaba-token-plan-cn') {
+  throw new Error('models.dev Alibaba Token Plan (China) provider facts are missing stable id alibaba-token-plan-cn');
+}
+if (!alibabaTokenPlanCn.api) {
+  throw new Error('models.dev Alibaba Token Plan (China) provider facts are missing api');
+}
+const alibabaTokenPlanGlobal = GENERATED_MODELS_DEV_PROVIDER_FACTS['alibaba-token-plan'];
+if (alibabaTokenPlanGlobal.id !== 'alibaba-token-plan') {
+  throw new Error('models.dev Alibaba Token Plan provider facts are missing stable id alibaba-token-plan');
+}
+if (!alibabaTokenPlanGlobal.api) {
+  throw new Error('models.dev Alibaba Token Plan provider facts are missing api');
+}
+// Alibaba's Token Plan (Team Edition) docs are authoritative for this access-path
+// allowlist. The subscription endpoint publishes no /models discovery contract, and
+// the plan's image models (qwen-image / wan) are not tool-callable, so only the
+// tool-calling text models are pinned here. China and global share one model list.
+const alibabaTokenPlanModelIds = [
+  'qwen3.7-max',
+  'qwen3.7-plus',
+  'qwen3.6-plus',
+  'qwen3.6-flash',
+  'deepseek-v4-pro',
+  'deepseek-v4-flash',
+  'deepseek-v3.2',
+  'kimi-k2.7-code',
+  'kimi-k2.6',
+  'kimi-k2.5',
+  'glm-5.2',
+  'glm-5.1',
+  'glm-5',
+  'MiniMax-M2.5',
+] as const;
+for (const id of alibabaTokenPlanModelIds) {
+  if (!GENERATED_MODELS_DEV_METADATA['alibaba-token-plan-cn'][id]?.capabilities?.functionCalling) {
+    throw new Error(`models.dev Alibaba Token Plan (China) snapshot is missing tool-capable model ${id}`);
+  }
+  if (!GENERATED_MODELS_DEV_METADATA['alibaba-token-plan'][id]?.capabilities?.functionCalling) {
+    throw new Error(`models.dev Alibaba Token Plan snapshot is missing tool-capable model ${id}`);
+  }
+}
 const vercel = GENERATED_MODELS_DEV_PROVIDER_FACTS.vercel;
 if (vercel.id !== 'vercel') {
   throw new Error('models.dev Vercel AI Gateway provider facts are missing stable id vercel');
@@ -1197,6 +1239,44 @@ const providerRegistry = {
     modelsDevId: alibabaCodingPlanGlobal.id,
     readyOrder: 41.2,
     catalogOrder: 41.2,
+  },
+  'alibaba-token-plan-cn': {
+    label: alibabaTokenPlanCn.name,
+    description: 'Alibaba Cloud Model Studio Token Plan (Team Edition) for interactive agents and coding tools, Beijing region.',
+    baseUrl: alibabaTokenPlanCn.api,
+    authKind: 'api_key',
+    backendKind: 'ai-sdk',
+    fallbackModels: [...alibabaTokenPlanModelIds],
+    status: 'ready',
+    protocol: 'openai',
+    runtimeAdapter: { kind: 'openai-compatible', name: 'provider' },
+    modelDiscovery: { kind: 'fallback' },
+    category: 'domestic',
+    catalogGroup: 'plans',
+    catalogBadge: 'Token',
+    signupUrl: 'https://bailian.console.aliyun.com/',
+    modelsDevId: alibabaTokenPlanCn.id,
+    readyOrder: 41.3,
+    catalogOrder: 41.3,
+  },
+  'alibaba-token-plan': {
+    label: alibabaTokenPlanGlobal.name,
+    description: 'Alibaba Cloud Model Studio Token Plan (Team Edition) for interactive agents and coding tools, Singapore region.',
+    baseUrl: alibabaTokenPlanGlobal.api,
+    authKind: 'api_key',
+    backendKind: 'ai-sdk',
+    fallbackModels: [...alibabaTokenPlanModelIds],
+    status: 'ready',
+    protocol: 'openai',
+    runtimeAdapter: { kind: 'openai-compatible', name: 'provider' },
+    modelDiscovery: { kind: 'fallback' },
+    category: 'overseas',
+    catalogGroup: 'plans',
+    catalogBadge: 'Token',
+    signupUrl: 'https://modelstudio.console.alibabacloud.com/',
+    modelsDevId: alibabaTokenPlanGlobal.id,
+    readyOrder: 41.4,
+    catalogOrder: 41.4,
   },
   'cloudflare-workers-ai': {
     label: cloudflareWorkersAi.name,

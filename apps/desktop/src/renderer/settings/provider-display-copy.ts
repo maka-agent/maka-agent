@@ -211,6 +211,14 @@ export const PROVIDER_DISPLAY_COPY = {
     zh: { name: 'Alibaba Coding Plan 国际站', description: '阿里云百炼 Coding Plan 订阅 · 国际站', badge: 'Plan' },
     en: { name: 'Alibaba Coding Plan', description: 'Alibaba Cloud Model Studio Coding Plan for interactive coding tools.', badge: 'Plan' },
   },
+  'alibaba-token-plan-cn': {
+    zh: { name: 'Alibaba Token Plan（团队版）', description: '阿里云百炼 Token Plan 订阅，交互式智能体与编码工具 · 北京', badge: 'Token' },
+    en: { name: 'Alibaba Token Plan (China)', description: 'Alibaba Cloud Model Studio Token Plan for interactive agents and coding tools, Beijing region.', badge: 'Token' },
+  },
+  'alibaba-token-plan': {
+    zh: { name: 'Alibaba Token Plan（团队版）', description: '阿里云百炼 Token Plan 订阅，交互式智能体与编码工具 · 新加坡', badge: 'Token' },
+    en: { name: 'Alibaba Token Plan', description: 'Alibaba Cloud Model Studio Token Plan for interactive agents and coding tools, Singapore region.', badge: 'Token' },
+  },
   // OAuth account providers (not in CATALOG_PROVIDER_TYPES; shown in the
   // accounts section and on connection rows).
   'github-copilot': {

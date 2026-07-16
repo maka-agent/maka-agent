@@ -74,6 +74,8 @@ describe('provider compatibility contract', () => {
       'alibaba',
       'alibaba-coding-plan-cn',
       'alibaba-coding-plan',
+      'alibaba-token-plan-cn',
+      'alibaba-token-plan',
       'cloudflare-workers-ai',
       'ollama-cloud',
       'ollama',
@@ -132,6 +134,8 @@ describe('provider compatibility contract', () => {
       'alibaba',
       'alibaba-coding-plan-cn',
       'alibaba-coding-plan',
+      'alibaba-token-plan-cn',
+      'alibaba-token-plan',
     ]);
     assert.deepEqual(CATALOG_PROVIDER_TYPES, [
       'kimi-coding-plan',
@@ -180,6 +184,8 @@ describe('provider compatibility contract', () => {
       'alibaba',
       'alibaba-coding-plan-cn',
       'alibaba-coding-plan',
+      'alibaba-token-plan-cn',
+      'alibaba-token-plan',
     ]);
 
     for (const orderField of ['readyOrder', 'catalogOrder', 'recommendedOrder'] as const) {
@@ -840,6 +846,66 @@ describe('provider compatibility contract', () => {
     assert.equal(direct.catalogGroup, 'api');
     assert.equal(cn.catalogGroup, 'plans');
     assert.equal(global.catalogGroup, 'plans');
+  });
+
+  const alibabaTokenPlanModels = [
+    'qwen3.7-max',
+    'qwen3.7-plus',
+    'qwen3.6-plus',
+    'qwen3.6-flash',
+    'deepseek-v4-pro',
+    'deepseek-v4-flash',
+    'deepseek-v3.2',
+    'kimi-k2.7-code',
+    'kimi-k2.6',
+    'kimi-k2.5',
+    'glm-5.2',
+    'glm-5.1',
+    'glm-5',
+    'MiniMax-M2.5',
+  ];
+
+  it('owns Alibaba Token Plan China behavior under its independent persisted id', () => {
+    const plan = (PROVIDER_REGISTRY as Partial<Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>>)['alibaba-token-plan-cn'];
+
+    assert.ok(plan, 'Alibaba Token Plan (China) must be available through the shared provider registry');
+    assert.equal(plan.label, 'Alibaba Token Plan (China)');
+    assert.equal(plan.baseUrl, 'https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1');
+    assert.equal(plan.authKind, 'api_key');
+    assert.equal(plan.protocol, 'openai');
+    assert.deepEqual(plan.runtimeAdapter, { kind: 'openai-compatible', name: 'provider' });
+    assert.deepEqual(plan.modelDiscovery, { kind: 'fallback' });
+    assert.equal(plan.category, 'domestic');
+    assert.equal(plan.catalogGroup, 'plans');
+    assert.equal(plan.catalogBadge, 'Token');
+    assert.equal(plan.modelsDevId, 'alibaba-token-plan-cn');
+    assert.deepEqual(plan.fallbackModels, alibabaTokenPlanModels);
+    // Interactive-only allowlist: the plan's image models are never tool-callable.
+    for (const imageModel of ['qwen-image-2.0', 'qwen-image-2.0-pro', 'wan2.7-image', 'wan2.7-image-pro']) {
+      assert.ok(!plan.fallbackModels.includes(imageModel), `${imageModel} must not be an offered chat model`);
+    }
+  });
+
+  it('owns Alibaba Token Plan global behavior under its independent persisted id', () => {
+    const plan = (PROVIDER_REGISTRY as Partial<Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>>)['alibaba-token-plan'];
+
+    assert.ok(plan, 'Alibaba Token Plan (global) must be available through the shared provider registry');
+    assert.equal(plan.label, 'Alibaba Token Plan');
+    assert.equal(plan.baseUrl, 'https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1');
+    assert.equal(plan.authKind, 'api_key');
+    assert.equal(plan.protocol, 'openai');
+    assert.deepEqual(plan.runtimeAdapter, { kind: 'openai-compatible', name: 'provider' });
+    assert.deepEqual(plan.modelDiscovery, { kind: 'fallback' });
+    assert.equal(plan.category, 'overseas');
+    assert.equal(plan.catalogGroup, 'plans');
+    assert.equal(plan.catalogBadge, 'Token');
+    assert.equal(plan.modelsDevId, 'alibaba-token-plan');
+    assert.deepEqual(plan.fallbackModels, alibabaTokenPlanModels);
+    // The China and global variants are distinct persisted ids sharing one model list.
+    const cn = (PROVIDER_REGISTRY as Partial<Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>>)['alibaba-token-plan-cn'];
+    assert.ok(cn);
+    assert.notEqual(plan.baseUrl, cn.baseUrl);
+    assert.deepEqual(plan.fallbackModels, cn.fallbackModels);
   });
 
   it('owns StepFun China direct API behavior under the stable stepfun id', () => {

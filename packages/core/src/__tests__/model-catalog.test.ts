@@ -97,6 +97,46 @@ describe('ModelCatalogEntry', () => {
     }
   });
 
+  it('uses the official Alibaba Token Plan snapshot without inventing live model discovery', () => {
+    const entries = buildConnectionModelCatalogEntries({
+      connection: {
+        slug: 'alibaba-token-plan-cn',
+        providerType: 'alibaba-token-plan-cn',
+        defaultModel: 'qwen3.7-max',
+      },
+    });
+
+    assert.deepEqual(entries.map((entry) => entry.id), [
+      'qwen3.7-max',
+      'qwen3.7-plus',
+      'qwen3.6-plus',
+      'qwen3.6-flash',
+      'deepseek-v4-pro',
+      'deepseek-v4-flash',
+      'deepseek-v3.2',
+      'kimi-k2.7-code',
+      'kimi-k2.6',
+      'kimi-k2.5',
+      'glm-5.2',
+      'glm-5.1',
+      'glm-5',
+      'MiniMax-M2.5',
+    ]);
+    // The plan's image models (qwen-image / wan) are not tool-callable and are absent.
+    for (const imageModel of ['qwen-image-2.0', 'qwen-image-2.0-pro', 'wan2.7-image', 'wan2.7-image-pro']) {
+      assert.ok(!entries.some((entry) => entry.id === imageModel), `${imageModel} must not be catalogued`);
+    }
+    assert.equal(entries[0]?.displayName, 'Qwen3.7 Max');
+    assert.equal(entries[0]?.source, 'static_catalog');
+    assert.equal(entries[0]?.provenance.modelSource, 'fallback');
+    assert.equal(entries[0]?.contextWindow, 1_000_000);
+    assert.equal(entries[0]?.maxOutputTokens, 65_536);
+    assert.deepEqual(entries[0]?.capabilities, {
+      reasoning: true,
+      functionCalling: true,
+    });
+  });
+
   it('uses the checked-in StepFun Global snapshot until account discovery succeeds', () => {
     const entries = buildConnectionModelCatalogEntries({
       connection: {

@@ -286,6 +286,34 @@ describe('default session target resolver', () => {
     }
   });
 
+  test('resolves Alibaba Token Plan credentials without rewriting the selected model id', async () => {
+    for (const [providerType, model] of [
+      ['alibaba-token-plan-cn', 'qwen3.7-max'],
+      ['alibaba-token-plan', 'deepseek-v4-pro'],
+    ] as const) {
+      const connection = makeConnection({
+        slug: providerType,
+        name: 'Alibaba Token Plan',
+        providerType,
+        defaultModel: model,
+      });
+
+      const target = await resolveDefaultSessionTarget({
+        connectionStore: {
+          getDefault: async () => providerType,
+          get: async (slug) => slug === providerType ? connection : null,
+        },
+        credentialStore: {
+          getSecret: async (_slug, kind) => kind === 'api_key' ? `${providerType}-test-key` : null,
+        },
+      });
+
+      assert.equal(target.connection.providerType, providerType);
+      assert.equal(target.apiKey, `${providerType}-test-key`);
+      assert.equal(target.model, model);
+    }
+  });
+
   test('resolves LM Studio without reading a credential or rewriting the selected model id', async () => {
     const connection = makeConnection({
       slug: 'lm-studio',

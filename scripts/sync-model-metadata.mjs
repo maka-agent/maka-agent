@@ -7,6 +7,8 @@ const PROVIDERS = {
   alibaba: 'alibaba',
   'alibaba-coding-plan-cn': 'alibaba-coding-plan-cn',
   'alibaba-coding-plan': 'alibaba-coding-plan',
+  'alibaba-token-plan-cn': 'alibaba-token-plan-cn',
+  'alibaba-token-plan': 'alibaba-token-plan',
   cerebras: 'cerebras',
   cohere: 'cohere',
   'cloudflare-workers-ai': 'cloudflare-workers-ai',

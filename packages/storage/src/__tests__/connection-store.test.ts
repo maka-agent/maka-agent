@@ -427,6 +427,28 @@ describe('FileConnectionStore', () => {
     }
   });
 
+  test('persists both Alibaba Token Plan provider ids and exact default models', async () => {
+    for (const [providerType, defaultModel] of [
+      ['alibaba-token-plan-cn', 'qwen3.7-max'],
+      ['alibaba-token-plan', 'deepseek-v4-pro'],
+    ] as const) {
+      await withConnectionStore(async (store, dir) => {
+        await store.create({
+          slug: providerType,
+          name: 'Alibaba Token Plan',
+          providerType,
+          defaultModel,
+        });
+
+        const persisted = JSON.parse(await readFile(join(dir, 'llm-connections.json'), 'utf8')) as {
+          connections: Array<{ providerType: string; defaultModel: string }>;
+        };
+        assert.equal(persisted.connections[0]?.providerType, providerType);
+        assert.equal(persisted.connections[0]?.defaultModel, defaultModel);
+      });
+    }
+  });
+
   test('persists the LM Studio provider id and exact local model id', async () => {
     await withConnectionStore(async (store, dir) => {
       await store.create({
