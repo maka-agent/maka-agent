@@ -60,7 +60,7 @@
     "typescript": "^7.0.2"
   },
   "allowScripts": {
-    "electron@39.8.10": true,
+    "electron@43.1.1": true,
     "esbuild@0.27.7": true,
     "@jackwener/opencli@1.8.4": true,
     "node-pty@1.2.0-beta.14": true
