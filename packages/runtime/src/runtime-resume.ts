@@ -59,6 +59,53 @@ export interface BuildResumePlanOptions {
   expectedRuntimeEventHighWater?: number;
 }
 
+export type RuntimeResumeFailpointId =
+  | 'P0'
+  | 'P1'
+  | 'P2'
+  | 'P3'
+  | 'P4'
+  | 'P5'
+  | 'P6'
+  | 'P7'
+  | 'P8'
+  | 'P9'
+  | 'P10'
+  | 'P11';
+
+export type RuntimeResumeCommittedPrefix =
+  | 'before_function_call'
+  | 'after_function_call'
+  | 'after_function_response'
+  | 'after_terminal_event';
+
+export interface RuntimeResumeFailpointSpec {
+  id: RuntimeResumeFailpointId;
+  boundary: string;
+  /** Last fully committed RuntimeEvent prefix that Phase 0 may inspect. */
+  committedPrefix: RuntimeResumeCommittedPrefix;
+}
+
+/**
+ * Stable crash-injection catalog shared by the Phase 0 process harness and
+ * later journal-backed recovery phases. Phase 0 only reasons about the last
+ * fully committed RuntimeEvent prefix; it does not emulate future T1/T2 rows.
+ */
+export const RUNTIME_RESUME_FAILPOINTS = [
+  { id: 'P0', boundary: 'before tool preparation (T1)', committedPrefix: 'before_function_call' },
+  { id: 'P1', boundary: 'function_call committed before prepared journal', committedPrefix: 'after_function_call' },
+  { id: 'P2', boundary: 'prepared journal committed before implementation', committedPrefix: 'after_function_call' },
+  { id: 'P3', boundary: 'tool implementation in progress', committedPrefix: 'after_function_call' },
+  { id: 'P4', boundary: 'side effect completed before outcome transaction (T2)', committedPrefix: 'after_function_call' },
+  { id: 'P5', boundary: 'function_response committed before outcome journal', committedPrefix: 'after_function_response' },
+  { id: 'P6', boundary: 'outcome transaction committed before model result delivery', committedPrefix: 'after_function_response' },
+  { id: 'P7', boundary: 'tool result delivered before the next provider step', committedPrefix: 'after_function_response' },
+  { id: 'P8', boundary: 'terminal RuntimeEvent commit', committedPrefix: 'after_function_response' },
+  { id: 'P9', boundary: 'terminal run header commit', committedPrefix: 'after_terminal_event' },
+  { id: 'P10', boundary: 'recovery decision commit', committedPrefix: 'after_terminal_event' },
+  { id: 'P11', boundary: 'continuation run creation', committedPrefix: 'after_terminal_event' },
+] as const satisfies readonly RuntimeResumeFailpointSpec[];
+
 interface MutableToolOperation extends ToolOperation {
   responseRuntimeEventId?: string;
   responseIsError?: boolean;

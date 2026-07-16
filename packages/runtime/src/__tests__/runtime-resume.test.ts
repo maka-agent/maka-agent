@@ -4,12 +4,24 @@ import { describe, test } from 'node:test';
 import type { RuntimeEvent } from '@maka/core/runtime-event';
 
 import {
+  RUNTIME_RESUME_FAILPOINTS,
   buildResumePlanFromRuntimeEvents,
   buildResumeReplayRuntimeEvents,
   projectToolOperationsFromRuntimeEvents,
 } from '../runtime-resume.js';
 
 describe('runtime resume phase 0 projection', () => {
+  test('publishes the stable P0-P11 crash failpoint catalog', () => {
+    assert.deepEqual(
+      RUNTIME_RESUME_FAILPOINTS.map((failpoint) => failpoint.id),
+      ['P0', 'P1', 'P2', 'P3', 'P4', 'P5', 'P6', 'P7', 'P8', 'P9', 'P10', 'P11'],
+    );
+    assert.deepEqual(
+      [...new Set(RUNTIME_RESUME_FAILPOINTS.map((failpoint) => failpoint.committedPrefix))],
+      ['before_function_call', 'after_function_call', 'after_function_response', 'after_terminal_event'],
+    );
+  });
+
   test('projects deterministic tool operations from legal RuntimeEvent prefixes', () => {
     const events = [
       callEvent('call-1', 'tool-1', 'Bash', { command: 'npm test' }),
@@ -110,10 +122,10 @@ function base(overrides: Partial<RuntimeEvent>): RuntimeEvent {
     invocationId: 'invocation-1',
     runId: 'run-1',
     turnId: 'turn-1',
-    timestamp: 1,
+    ts: 1,
+    partial: false,
     author: 'agent',
     role: 'system',
-    kind: 'system',
     ...overrides,
   };
 }
@@ -123,7 +135,6 @@ function callEvent(id: string, toolCallId: string, name: string, args: unknown):
     id,
     author: 'agent',
     role: 'model',
-    kind: 'tool_call',
     content: { kind: 'function_call', id: toolCallId, name, args },
   });
 }
@@ -139,8 +150,7 @@ function responseEvent(
     id,
     author: 'tool',
     role: 'tool',
-    kind: 'tool_result',
-    content: { kind: 'function_response', id: toolCallId, name, response, isError },
+    content: { kind: 'function_response', id: toolCallId, name, result: response, isError },
   });
 }
 
@@ -149,7 +159,6 @@ function textEvent(id: string, role: 'user' | 'system', text: string): RuntimeEv
     id,
     author: role === 'user' ? 'user' : 'system',
     role,
-    kind: role === 'user' ? 'user' : 'system',
     content: { kind: 'text', text },
   });
 }

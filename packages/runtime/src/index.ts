@@ -886,6 +886,7 @@ export type {
 // runtime-resume.ts - Phase 0 replay projection and safety diagnostics.
 export {
   INDETERMINATE_TOOL_RESULT_DIRECTIVE,
+  RUNTIME_RESUME_FAILPOINTS,
   buildResumePlanFromRuntimeEvents,
   buildResumeReplayRuntimeEvents,
   projectToolOperationsFromRuntimeEvents,
@@ -897,6 +898,9 @@ export type {
   ResumePlanDiagnosticCode,
   ResumePlanDisposition,
   ResumeRejectionReason,
+  RuntimeResumeCommittedPrefix,
+  RuntimeResumeFailpointId,
+  RuntimeResumeFailpointSpec,
   ToolOperation,
   ToolOperationStatus,
 } from './runtime-resume.js';
