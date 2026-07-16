@@ -11,6 +11,7 @@ const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');
 const LUCIDE_REACT_PACKAGE = ['lucide', 'react'].join('-');
 
 type SessionHistoryModule = {
+  LocaleProvider(props: { preference: 'zh'; children: ReactElement }): ReactElement;
   SessionHistoryList(props: {
     sessions: SessionSummary[];
     activeId?: string;
@@ -42,7 +43,7 @@ afterEach(() => {
 
 describe('UI render memo boundary contract', () => {
   it('keeps sidebar session rows from rendering on unrelated parent updates with row actions present', async () => {
-    const { SessionHistoryList } = await importSessionHistoryList();
+    const { LocaleProvider, SessionHistoryList } = await importSessionHistoryList();
     const root = installReactRenderer();
     let rowRenderCount = 0;
     const sessions = [
@@ -61,6 +62,7 @@ describe('UI render memo boundary contract', () => {
     resetTimestampCounters(sessions);
     await render(root, createElement(RenderHost, {
       SessionHistoryList,
+      LocaleProvider,
       label: 'first parent render',
       onSelectSession,
       rowActions,
@@ -73,6 +75,7 @@ describe('UI render memo boundary contract', () => {
     resetTimestampCounters(sessions);
     await render(root, createElement(RenderHost, {
       SessionHistoryList,
+      LocaleProvider,
       label: 'unrelated parent render',
       onSelectSession,
       rowActions,
@@ -91,6 +94,7 @@ describe('UI render memo boundary contract', () => {
     resetTimestampCounters(sessions);
     await render(root, createElement(RenderHost, {
       SessionHistoryList,
+      LocaleProvider,
       label: 'streaming session update',
       onSelectSession,
       rowActions,
@@ -108,6 +112,7 @@ describe('UI render memo boundary contract', () => {
 });
 
 function RenderHost(props: {
+  LocaleProvider: SessionHistoryModule['LocaleProvider'];
   SessionHistoryList: SessionHistoryModule['SessionHistoryList'];
   label: string;
   onSelectSession(sessionId: string): void;
@@ -116,19 +121,22 @@ function RenderHost(props: {
   staleSessionIds: Set<string>;
   streamingSessionIds: Set<string>;
 }) {
-  return createElement(
-    'div',
-    null,
-    createElement('p', null, props.label),
-    createElement(props.SessionHistoryList, {
-      sessions: props.sessions,
-      activeId: 'session-a',
-      streamingSessionIds: props.streamingSessionIds,
-      staleSessionIds: props.staleSessionIds,
-      onSelectSession: props.onSelectSession,
-      rowActions: props.rowActions,
-    }),
-  );
+  return createElement(props.LocaleProvider, {
+    preference: 'zh',
+    children: createElement(
+      'div',
+      null,
+      createElement('p', null, props.label),
+      createElement(props.SessionHistoryList, {
+        sessions: props.sessions,
+        activeId: 'session-a',
+        streamingSessionIds: props.streamingSessionIds,
+        staleSessionIds: props.staleSessionIds,
+        onSelectSession: props.onSelectSession,
+        rowActions: props.rowActions,
+      }),
+    ),
+  });
 }
 
 function createSession(id: string, name: string, onRender: () => void): SessionSummary {
@@ -189,7 +197,14 @@ function createRowActions(): NonNullable<Parameters<SessionHistoryModule['Sessio
 async function importSessionHistoryList(): Promise<SessionHistoryModule> {
   const outfile = resolve(REPO_ROOT, 'apps/desktop/dist/main/__tests__/session-history-list.memo-bundle.mjs');
   await build({
-    entryPoints: [resolve(REPO_ROOT, 'packages/ui/dist/session-history-list.js')],
+    stdin: {
+      contents: [
+        "export { SessionHistoryList } from './packages/ui/dist/session-history-list.js';",
+        "export { LocaleProvider } from './packages/ui/dist/locale-context.js';",
+      ].join('\n'),
+      resolveDir: REPO_ROOT,
+      sourcefile: 'session-history-list.memo-entry.mjs',
+    },
     outfile,
     bundle: true,
     external: ['@base-ui/react', '@maka/core', LUCIDE_REACT_PACKAGE, 'react', 'react-dom', 'react-dom/*', 'react/jsx-runtime'],

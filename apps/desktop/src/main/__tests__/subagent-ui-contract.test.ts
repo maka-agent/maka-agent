@@ -2,24 +2,27 @@ import { strict as assert } from 'node:assert';
 import { describe, it } from 'node:test';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { OverlayHost } from '@maka/ui';
+import { LocaleProvider, OverlayHost } from '@maka/ui';
 
 describe('subagent UI contract', () => {
   it('renders a compact subagent card without exposing internal ids', () => {
-    const markup = renderToStaticMarkup(createElement(OverlayHost, {
-      content: {
-        kind: 'subagent',
-        agentName: 'Research Agent',
-        turnId: 'turn-secret-123',
-        runId: 'run-secret-456',
-        status: 'completed',
-        permissionMode: 'explore',
-        summary: 'Mapped the runtime path.',
-        artifactIds: ['artifact-secret-1', 'artifact-secret-2'],
-        durationMs: 14_500,
-        eventCount: 42,
-      },
-      onClose: () => {},
+    const markup = renderToStaticMarkup(createElement(LocaleProvider, {
+      preference: 'zh',
+      children: createElement(OverlayHost, {
+        content: {
+          kind: 'subagent',
+          agentName: 'Research Agent',
+          turnId: 'turn-secret-123',
+          runId: 'run-secret-456',
+          status: 'completed',
+          permissionMode: 'explore',
+          summary: 'Mapped the runtime path.',
+          artifactIds: ['artifact-secret-1', 'artifact-secret-2'],
+          durationMs: 14_500,
+          eventCount: 42,
+        },
+        onClose: () => {},
+      }),
     }));
 
     assert.match(markup, /data-kind="subagent"/);

@@ -27,7 +27,7 @@ describe('tool and permission args redaction', () => {
     const permissionPrompt = permissionSource.match(/export function PermissionPrompt[\s\S]*?function renderPermissionSummary/)?.[0] ?? '';
 
     // Quiet panel: never stringify args; use formatToolInvocationLine / formatQuietJsonValue.
-    assert.match(toolActivity, /formatToolInvocationLine\(item\)/);
+    assert.match(toolActivity, /formatToolInvocationLine\(item, locale\)/);
     assert.match(toolActivity, /formatQuietJsonValue/);
     assert.doesNotMatch(toolActivity, /JSON\.stringify\(item\.args/);
     assert.doesNotMatch(toolActivity, /formatRedactedJson\(item\.args\)/);

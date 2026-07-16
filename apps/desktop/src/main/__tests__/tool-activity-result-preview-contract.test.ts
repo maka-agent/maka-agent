@@ -5,7 +5,7 @@ import { describe, it } from 'node:test';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { ToolResultContent } from '@maka/core';
-import { OverlayHost } from '@maka/ui';
+import { LocaleProvider, OverlayHost } from '@maka/ui';
 
 const SECRET = 'sk-1234567890abcdefghi';
 
@@ -209,7 +209,10 @@ describe('ToolActivity result preview contract', () => {
 });
 
 function renderPreview(content: ToolResultContent): string {
-  return renderToStaticMarkup(createElement(OverlayHost, { content, onClose: () => {} }));
+  return renderToStaticMarkup(createElement(LocaleProvider, {
+    preference: 'zh',
+    children: createElement(OverlayHost, { content, onClose: () => {} }),
+  }));
 }
 
 function numberedLines(prefix: string, count: number): string {

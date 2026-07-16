@@ -1,5 +1,5 @@
 import type { SessionSummary } from '@maka/core';
-import { SessionListPanel } from '@maka/ui';
+import { LocaleProvider, SessionListPanel } from '@maka/ui';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
@@ -36,16 +36,19 @@ export function renderSessionListPanel(options: {
     onDelete() {},
   };
 
-  return renderToStaticMarkup(createElement(SessionListPanel, {
-    selection: { section: 'sessions', filter: 'chats' },
-    sessions: options.sessions ?? [makeSessionSummary(options.session)],
-    statusGroups: options.statusGroups,
-    viewMode: options.viewMode,
-    onViewModeChange: options.viewMode ? () => {} : undefined,
-    onSelectSession() {},
-    onSelect() {},
-    onOpenSettings() {},
-    onNew() {},
-    rowActions,
-  } satisfies Parameters<typeof SessionListPanel>[0]));
+  return renderToStaticMarkup(createElement(LocaleProvider, {
+    preference: 'zh',
+    children: createElement(SessionListPanel, {
+      selection: { section: 'sessions', filter: 'chats' },
+      sessions: options.sessions ?? [makeSessionSummary(options.session)],
+      statusGroups: options.statusGroups,
+      viewMode: options.viewMode,
+      onViewModeChange: options.viewMode ? () => {} : undefined,
+      onSelectSession() {},
+      onSelect() {},
+      onOpenSettings() {},
+      onNew() {},
+      rowActions,
+    } satisfies Parameters<typeof SessionListPanel>[0]),
+  }));
 }
