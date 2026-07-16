@@ -399,10 +399,6 @@ export async function resolveAdvisoryOracleEvidence({
     warnings.push('Oracle registry URL and fingerprint are not both configured; A/B continues without it');
   }
   annotations ??= allTasks.map((task) => ({ taskId: task.id, state: 'missing' }));
-  for (const state of ['missing', 'stale', 'failed', 'timed_out', 'infra_failed']) {
-    const taskIds = annotations.filter((annotation) => annotation.state === state).map((annotation) => annotation.taskId);
-    if (taskIds.length > 0) warnings.push(`Oracle evidence ${state} for ${taskIds.length} task(s): ${previewIds(taskIds)}`);
-  }
   return {
     ...(registryUrl ? { registryUrl } : {}),
     ...(expectedSnapshotFingerprint ? { expectedSnapshotFingerprint } : {}),
@@ -448,10 +444,6 @@ export function resolvedImageDigestFromInspect(raw, platform) {
     throw new Error(`Docker image manifest has no ${platform} digest`);
   }
   return selected;
-}
-
-function previewIds(taskIds) {
-  return taskIds.length <= 5 ? taskIds.join(', ') : `${taskIds.slice(0, 5).join(', ')}, …`;
 }
 
 function backgroundJournal(runRoot) {

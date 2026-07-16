@@ -77,7 +77,29 @@ test('harness A/B degrades identity resolution failures to missing advisory evid
   assert.deepEqual(evidence.annotations, [{ taskId: 'task-a', state: 'missing' }]);
   assert.deepEqual(evidence.warnings, [
     'Oracle registry could not be resolved; A/B continues without it',
-    'Oracle evidence missing for 1 task(s): task-a',
+  ]);
+});
+
+test('harness A/B keeps advisory task states structured instead of duplicating corpus warnings', async () => {
+  const { resolveAdvisoryOracleEvidence } = await import(
+    new URL('../../harbor/run-harness-ab.mjs', import.meta.url).href
+  );
+  const evidence = await resolveAdvisoryOracleEvidence({
+    allTasks: [
+      { id: 'task-a', path: '/tasks/task-a' },
+      { id: 'task-b', path: '/tasks/task-b' },
+    ],
+    executionPolicyFingerprint: `sha256:${'a'.repeat(64)}`,
+    registryUrl: undefined,
+    expectedSnapshotFingerprint: undefined,
+  });
+
+  assert.deepEqual(evidence.annotations, [
+    { taskId: 'task-a', state: 'missing' },
+    { taskId: 'task-b', state: 'missing' },
+  ]);
+  assert.deepEqual(evidence.warnings, [
+    'Oracle registry URL and fingerprint are not both configured; A/B continues without it',
   ]);
 });
 
