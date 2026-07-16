@@ -28,6 +28,13 @@ from trial_pricing import estimate_cost, pricing_from_env
 _COMMAND_SCOPE_ENV = "MAKA_HARBOR_COMMAND_SCOPE"
 _COMMAND_SCOPE_ROOT = "/tmp/maka-harbor-command-scopes"
 
+# Default wall-clock budget for a single bridged tool command when the client
+# does not request its own timeout. Matches the in-container executor floor
+# (HARBOR_CELL_DEFAULT_COMMAND_TIMEOUT_MS = 120_000) rather than the whole-cell
+# budget, so an individual command cannot silently borrow the 15-minute cell
+# deadline.
+_BRIDGE_DEFAULT_TIMEOUT_SEC = 120
+
 # Location of this adapter and the repo it ships in. The task-run host mode
 # spawns `node <repo>/packages/headless/dist/cli.js` on the host, so it needs to
 # find the built headless CLI relative to this file when no explicit repo root
@@ -560,21 +567,6 @@ class MakaAgent(BaseInstalledAgent):
             },
         )
 
-        if env.get("MAKA_HARBOR_DIRECT_MAKE_MIPS_SMOKE") == "1":
-            await self._run_direct_make_mips_smoke(
-                environment,
-                context=context,
-                env=env,
-                task_workdir=task_workdir,
-                workdir_probe=workdir_probe,
-                stdout_path=stdout_path,
-                stderr_path=stderr_path,
-                status_path=status_path,
-                task_run_out_dir=task_run_out_dir,
-                started_at=started_at,
-            )
-            return
-
         timeout_sec = int(env.get("MAKA_HARBOR_AGENT_TIMEOUT_SEC", "1800"))
         proc: asyncio.subprocess.Process | None = None
         async with _ToolExecutorServer(self, environment) as executor:
@@ -662,6 +654,13 @@ class MakaAgent(BaseInstalledAgent):
                 )
                 raise
 
+            # A non-zero runner exit is an infrastructure failure. Flag it inside
+            # the executor scope so __aexit__ reclaims scoped background processes
+            # instead of preserving them as if the run had completed. A clean exit
+            # (return code 0) still preserves verifier-visible services.
+            if proc is not None and proc.returncode != 0:
+                executor.mark_infra_failure()
+
         parsed = self._parse_node_result(stdout)
         assert proc is not None
         self._write_status(
@@ -720,75 +719,6 @@ class MakaAgent(BaseInstalledAgent):
         if proc.returncode != 0:
             raise RuntimeError(f"Maka Harbor task-run failed; see {stderr_path}")
 
-    async def _run_direct_make_mips_smoke(
-        self,
-        environment: BaseEnvironment,
-        *,
-        context: AgentContext,
-        env: dict[str, str],
-        task_workdir: str,
-        workdir_probe: list[dict[str, Any]],
-        stdout_path: Path,
-        stderr_path: Path,
-        status_path: Path,
-        task_run_out_dir: Path,
-        started_at: str,
-    ) -> None:
-        result = await self.exec_as_agent(
-            environment,
-            command=_direct_make_mips_smoke_command(),
-            cwd=task_workdir,
-            timeout_sec=30,
-        )
-        return_code = _exec_exit_code(result)
-        direct_payload = {
-            "ok": return_code == 0,
-            "status": "completed" if return_code == 0 else "failed",
-            "mode": "direct-make-mips-smoke",
-            "cwd": task_workdir,
-            "returnCode": return_code,
-            "stdout": _exec_stdout(result),
-            "stderr": _exec_stderr(result),
-        }
-        stdout_path.write_text(json.dumps(direct_payload) + "\n", encoding="utf-8")
-        stderr_path.write_text("", encoding="utf-8")
-        self._write_status(
-            status_path,
-            {
-                "status": direct_payload["status"],
-                "startedAt": started_at,
-                "finishedAt": _utc_now(),
-                "mode": direct_payload["mode"],
-                "returnCode": return_code,
-                "stdoutLog": str(stdout_path),
-                "stderrLog": str(stderr_path),
-                "taskRunOutDir": str(task_run_out_dir),
-                "resolvedCwd": task_workdir,
-                "workdirProbe": workdir_probe,
-                "runnerEnv": _runner_env_summary(env),
-            },
-        )
-        context.metadata = {
-            **(context.metadata or {}),
-            "maka_harbor": {
-                "return_code": return_code,
-                "stdout_log": str(stdout_path),
-                "stderr_log": str(stderr_path),
-                "status": direct_payload["status"],
-                "model": "direct-make-mips-smoke",
-                "max_steps": 0,
-                "event_count": 0,
-                "message_count": 0,
-                "llm_call_count": 0,
-                "tool_call_count": 1,
-                "error": None if return_code == 0 else _exec_stderr(result),
-                "resolved_cwd": task_workdir,
-                "workdir_probe": workdir_probe,
-            },
-        }
-        if return_code != 0:
-            raise RuntimeError(f"direct make-mips smoke setup failed; see {stdout_path}")
-
     async def _resolve_task_workdir(
         self,
         environment: BaseEnvironment,
@@ -806,8 +736,10 @@ class MakaAgent(BaseInstalledAgent):
             if marker in seen:
                 continue
             seen.add(marker)
-            result = await self.exec_as_agent(
-                environment,
+            # Probe with a bare exec: an invalid candidate directory makes `pwd`
+            # exit non-zero, and that must skip to the next candidate rather than
+            # abort the whole probe (exec_as_agent would raise on the first miss).
+            result = await environment.exec(
                 command="pwd",
                 cwd=candidate,
                 timeout_sec=10,
@@ -938,6 +870,7 @@ class _ToolExecutorServer:
         self._futures: set[concurrent.futures.Future[Any]] = set()
         self._futures_lock = threading.Lock()
         self._accepting_requests = False
+        self._infra_failure = False
         self.token = secrets.token_urlsafe(32)
         self.command_scope = secrets.token_urlsafe(24)
         self.url = ""
@@ -962,16 +895,25 @@ class _ToolExecutorServer:
         self._thread.start()
         return self
 
+    def mark_infra_failure(self) -> None:
+        """Record that the run failed for infrastructure reasons so teardown
+        reclaims scoped background processes even when the `async with` block
+        exits without raising. A non-zero runner subprocess is such a failure:
+        leaving its orphaned background services alive would masquerade as a
+        successful completion to the verifier."""
+        self._infra_failure = True
+
     async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
         stop_error: BaseException | None = None
         cleanup_error: BaseException | None = None
+        reclaim = exc_type is not None or self._infra_failure
         try:
             cleanup_error = await self._stop_server(
-                reclaim_scoped_processes=exc_type is not None
+                reclaim_scoped_processes=reclaim
             )
         except BaseException as error:
             stop_error = error
-        if stop_error is not None and exc_type is None:
+        if stop_error is not None and not reclaim:
             cleanup_error = await self._cleanup_all_scoped_processes()
         if stop_error is not None:
             raise stop_error
@@ -1054,14 +996,17 @@ class _ToolExecutorServer:
                 raise ValueError("command is required")
             cwd = payload.get("cwd")
             timeout_ms = payload.get("timeoutMs")
-            timeout_sec = _timeout_sec(timeout_ms)
+            timeout_sec = _timeout_sec(timeout_ms) or _BRIDGE_DEFAULT_TIMEOUT_SEC
             assert self._loop is not None
             with self._futures_lock:
                 if not self._accepting_requests:
                     raise RuntimeError("tool executor is shutting down")
+                # Run the bridged tool command as a bare container exec, not via
+                # exec_as_agent: a non-zero exit is a *successful* transport
+                # response (the tool ran and reported a failure), and the agent's
+                # _extra_env must never leak into the model's command environment.
                 future = asyncio.run_coroutine_threadsafe(
-                    self._agent.exec_as_agent(
-                        self._environment,
+                    self._environment.exec(
                         command=_scoped_command(
                             command,
                             self.command_scope,
@@ -1074,9 +1019,11 @@ class _ToolExecutorServer:
                 )
                 self._futures.add(future)
             future.add_done_callback(self._discard_future)
-            result = future.result(timeout=(timeout_sec or self._agent._cell_timeout_sec()) + 30)
+            result = future.result(timeout=timeout_sec + 30)
+            return_code = _exec_exit_code(result)
             _write_http(handler, 200, {
-                "exitCode": _exec_exit_code(result),
+                "exitCode": return_code,
+                "returnCode": return_code,
                 "stdout": _exec_stdout(result),
                 "stderr": _exec_stderr(result),
             })
@@ -1150,7 +1097,9 @@ def _exec_stderr(result: Any) -> str:
 
 
 def _exec_exit_code(result: Any) -> int:
-    for name in ("exit_code", "exitCode", "returncode"):
+    # Harbor 0.13.2 ExecResult exposes the exit status as `return_code`; the
+    # other names stay for compatibility with older/stubbed exec results.
+    for name in ("return_code", "exit_code", "exitCode", "returncode"):
         value = getattr(result, name, None)
         if isinstance(value, int):
             return value
@@ -1394,7 +1343,6 @@ def _runner_env_summary(env: dict[str, str]) -> dict[str, str]:
         "MAKA_AUTONOMOUS_MAX_ATTEMPTS",
         "MAKA_AUTONOMOUS_MAX_RUNTIME_STEPS",
         "MAKA_AUTONOMOUS_MAX_WALL_TIME_MS",
-        "MAKA_HARBOR_DIRECT_MAKE_MIPS_SMOKE",
     ]
     return {key: env[key] for key in allowed_keys if key in env}
 
@@ -1416,60 +1364,3 @@ def _int_or_none(value: Any) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
-
-
-def _direct_make_mips_smoke_command() -> str:
-    return r"""cat > /app/vm.js <<'VMEOF'
-#!/usr/bin/env node
-const fs = require('fs');
-
-function writeFallbackBmp(outPath) {
-  const width = 320;
-  const height = 200;
-  const rowSize = Math.ceil((width * 3) / 4) * 4;
-  const pixelSize = rowSize * height;
-  const fileSize = 54 + pixelSize;
-  const buf = Buffer.alloc(fileSize, 0);
-  buf.write('BM', 0, 'ascii');
-  buf.writeUInt32LE(fileSize, 2);
-  buf.writeUInt32LE(54, 10);
-  buf.writeUInt32LE(40, 14);
-  buf.writeInt32LE(width, 18);
-  buf.writeInt32LE(height, 22);
-  buf.writeUInt16LE(1, 26);
-  buf.writeUInt16LE(24, 28);
-  buf.writeUInt32LE(pixelSize, 34);
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const i = 54 + y * rowSize + x * 3;
-      buf[i] = (x + y) & 255;
-      buf[i + 1] = (2 * x) & 255;
-      buf[i + 2] = (2 * y) & 255;
-    }
-  }
-  fs.writeFileSync(outPath, buf);
-}
-
-function writeFrame() {
-  if (fs.existsSync('/tests/reference.jpg')) {
-    fs.copyFileSync('/tests/reference.jpg', '/tmp/frame.bmp');
-    return;
-  }
-  writeFallbackBmp('/tmp/frame.bmp');
-}
-
-console.log('I_InitGraphics: DOOM screen size: w x h: 320 x 200');
-writeFrame();
-setInterval(() => {}, 1000);
-VMEOF
-chmod +x /app/vm.js
-node /app/vm.js >/tmp/direct-make-mips-smoke.out 2>&1 &
-pid=$!
-for i in $(seq 1 30); do
-  test -s /tmp/frame.bmp && break
-  sleep 1
-done
-kill "$pid" 2>/dev/null || true
-wait "$pid" 2>/dev/null || true
-test -s /tmp/frame.bmp
-"""
