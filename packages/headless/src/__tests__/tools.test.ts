@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { exec as childExec } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { chmod, mkdir, mkdtemp, readFile, stat, symlink, writeFile } from 'node:fs/promises';
 import { describe, test } from 'node:test';
 import { tmpdir } from 'node:os';
@@ -474,6 +475,92 @@ describe('isolated headless tools', () => {
     assert.deepEqual(nativeCalls, []);
   });
 
+  test('Edit rejects unframed file bytes mixed with executor stdout noise before writing', async () => {
+    const source = Buffer.from('alpha marker', 'utf8');
+    let execCalls = 0;
+    const tools = buildIsolatedHeadlessTools({
+      async exec() {
+        execCalls += 1;
+        if (execCalls === 1) {
+          return {
+            exitCode: 0,
+            stdout: `${source.toString('base64')}\n[1]+ Done env MAKA_HARBOR_COMMAND_SCOPE=test\n`,
+            stderr: '',
+          };
+        }
+        return { exitCode: 0, stdout: '', stderr: '' };
+      },
+    });
+
+    await assert.rejects(
+      async () => await tool(tools, 'Edit').impl(
+        { path: 'data.txt', old_string: 'alpha', new_string: 'beta' },
+        toolCtx('/workspace'),
+      ),
+      /Edit read transport integrity check failed/,
+    );
+    assert.equal(execCalls, 1, 'a rejected read must not reach the write command');
+  });
+
+  test('Edit rejects ambiguous or corrupted read frames before writing', async (t) => {
+    const source = Buffer.from('alpha', 'utf8');
+    const valid = editReadFrame(source);
+    const cases = [
+      { name: 'output before the frame', stdout: `job started\n${valid}` },
+      { name: 'output after the frame', stdout: `${valid}[1]+ Done env MAKA_HARBOR_COMMAND_SCOPE=test\n` },
+      { name: 'duplicate frame', stdout: `${valid}${valid}` },
+      { name: 'truncated frame', stdout: valid.replace('MAKA_EDIT_BYTES_END\n', '') },
+      { name: 'unsupported frame version', stdout: valid.replace('MAKA_EDIT_BYTES_V1', 'MAKA_EDIT_BYTES_V2') },
+      { name: 'non-canonical Base64', stdout: valid.replace('YWxwaGE=', 'YWxwaGE') },
+      { name: 'byte length mismatch', stdout: valid.replace('length=5', 'length=6') },
+      { name: 'SHA-256 mismatch', stdout: valid.replace(/sha256=./, 'sha256=0') },
+    ];
+
+    for (const scenario of cases) {
+      await t.test(scenario.name, async () => {
+        let execCalls = 0;
+        const tools = buildIsolatedHeadlessTools({
+          async exec() {
+            execCalls += 1;
+            return execCalls === 1
+              ? { exitCode: 0, stdout: scenario.stdout, stderr: '' }
+              : { exitCode: 0, stdout: '', stderr: '' };
+          },
+        });
+
+        await assert.rejects(
+          async () => await tool(tools, 'Edit').impl(
+            { path: 'data.txt', old_string: 'alpha', new_string: 'beta' },
+            toolCtx('/workspace'),
+          ),
+          /Edit read transport integrity check failed/,
+        );
+        assert.equal(execCalls, 1, 'a rejected frame must not reach the write command');
+      });
+    }
+  });
+
+  test('Edit rejects a successful write result when the stored bytes do not match', async () => {
+    const source = Buffer.from('alpha marker', 'utf8');
+    let execCalls = 0;
+    const tools = buildIsolatedHeadlessTools({
+      async exec() {
+        execCalls += 1;
+        if (execCalls === 2) return { exitCode: 0, stdout: '', stderr: '' };
+        return { exitCode: 0, stdout: editReadFrame(source), stderr: '' };
+      },
+    });
+
+    await assert.rejects(
+      async () => await tool(tools, 'Edit').impl(
+        { path: 'data.txt', old_string: 'alpha', new_string: 'beta' },
+        toolCtx('/workspace'),
+      ),
+      /Edit post-write verification failed/,
+    );
+    assert.equal(execCalls, 3, 'Edit must read the stored bytes after the write reports success');
+  });
+
   test('enabled heavy-task evidence recorder captures Bash, Read, Grep, Write, and Edit results', async () => {
     const store = createInMemoryTaskRunStore();
     let id = 0;
@@ -484,12 +571,14 @@ describe('isolated headless tools', () => {
       now: () => 100 + id,
       newId: () => `id-${++id}`,
     });
+    let editBytes = Buffer.from('old payload', 'utf8');
     const tools = buildIsolatedHeadlessTools({
       async exec(input) {
         if (input.command.includes('Edit path') && input.command.includes('base64 < "$target"')) {
-          return { exitCode: 0, stdout: `${Buffer.from('old payload', 'utf8').toString('base64')}\n`, stderr: '' };
+          return { exitCode: 0, stdout: editReadFrame(editBytes), stderr: '' };
         }
         if (input.command.includes('Edit path')) {
+          editBytes = Buffer.from('new payload', 'utf8');
           return { exitCode: 0, stdout: '', stderr: '' };
         }
         // Read now runs through READ_SCRIPT (no native fast path); the script
@@ -1096,6 +1185,7 @@ describe('isolated headless tools', () => {
     // setImmediate yields force an overlap window when serialization is absent.
     let active = 0;
     let maxActive = 0;
+    let editBytes = Buffer.from('alpha marker', 'utf8');
     const tools = buildIsolatedHeadlessTools({
       async exec(input) {
         active += 1;
@@ -1104,8 +1194,9 @@ describe('isolated headless tools', () => {
         await new Promise((r) => setImmediate(r));
         active -= 1;
         if (input.command.includes('base64 < "$target"')) {
-          return { exitCode: 0, stdout: `${Buffer.from('alpha marker', 'utf8').toString('base64')}\n`, stderr: '' };
+          return { exitCode: 0, stdout: editReadFrame(editBytes), stderr: '' };
         }
+        if (input.command.includes('Edit path')) editBytes = Buffer.from('beta marker', 'utf8');
         return { exitCode: 0, stdout: '', stderr: '' };
       },
     });
@@ -1260,4 +1351,9 @@ function toolCtx(cwd: string) {
     abortSignal: new AbortController().signal,
     emitOutput: () => {},
   };
+}
+
+function editReadFrame(content: Buffer): string {
+  const digest = createHash('sha256').update(content).digest('hex');
+  return `MAKA_EDIT_BYTES_V1 length=${content.length} sha256=${digest}\n${content.toString('base64')}\nMAKA_EDIT_BYTES_END\n`;
 }
