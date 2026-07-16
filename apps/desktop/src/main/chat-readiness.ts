@@ -3,6 +3,8 @@ import {
   normalizeOpenAiCodexConnection,
   normalizeRequestedModelForReadiness,
   projectSessionSendOutcome,
+  sessionOwnConnectionBlockReason,
+  shouldRebindSessionToDefault,
   type ChatConfigurationReason,
   type LlmConnection,
   type SessionHeader,
@@ -158,26 +160,62 @@ export async function ensureSessionCanSendOrRebind(
 ): Promise<SessionRebindResult> {
   // #1038: the send/rebind DECISION lives in the core projection so the
   // renderer health notice answers "will the next send fail?" from the
-  // same facts and the same code. Main resolves the async facts
-  // (connections + secret presence), delegates the decision, then owns
-  // the side effects: the rebind mutation and the canonical error copy.
+  // same facts and the same code. Main resolves the async facts,
+  // delegates the decision, then owns the side effects: the rebind
+  // mutation and the canonical error copy.
+  //
+  // Fact resolution stays staged exactly like the pre-projection send
+  // path (#1038 review): phase 1 resolves only the session's OWN
+  // connection, so a healthy session never waits on — and is never
+  // failed by — unrelated connections, the default store, or the
+  // connection list. Phase 2 gathers rebind candidates only when an
+  // unlocked session actually needs the walk.
+  const ownSlug = header.llmConnectionSlug;
+  const ownResolvable = header.backend !== 'fake' && Boolean(ownSlug) && ownSlug !== 'fake';
+  const ownConnection = ownResolvable ? await deps.readyConnectionDeps.getConnection(ownSlug) : null;
+  const ownHasSecret = ownConnection
+    ? await hasUsableSecret(deps.readyConnectionDeps, ownConnection.slug)
+    : false;
+  const ownReason = sessionOwnConnectionBlockReason(header, ownConnection, () => ownHasSecret);
+
+  if (ownReason === undefined) return { rebound: false };
+
+  if (header.connectionLocked || !shouldRebindSessionToDefault(ownReason)) {
+    // Blocked with no rebind walk. Re-run the throwing authority so the
+    // exact historical error copy surfaces unchanged; if the facts
+    // shifted underneath us (e.g. a key was just saved), the send may
+    // proceed after all.
+    await assertSessionCanSend(header, deps.readyConnectionDeps);
+    return { rebound: false };
+  }
+
+  // Phase 2: rebind candidates, resolved in deterministic order
+  // (default first, then persisted order). Each candidate resolves
+  // independently — an unreadable connection is skipped, exactly like
+  // the historical walk's per-candidate catch.
   const [defaultSlug, connectionSlugs] = await Promise.all([
     deps.getDefaultSlug(),
     deps.listConnectionSlugs().catch(() => []),
   ]);
-  // Fact-gathering covers the same universe the rebind walk considers:
-  // the default connection first, then every persisted slug.
   const candidateSlugs = [...new Set([defaultSlug, ...connectionSlugs])]
     .filter((slug): slug is string => typeof slug === 'string' && slug.length > 0);
+  const candidates = await Promise.all(candidateSlugs.map(async (slug) => {
+    try {
+      const connection = await deps.readyConnectionDeps.getConnection(slug);
+      if (!connection) return undefined;
+      const hasSecret = await hasUsableSecret(deps.readyConnectionDeps, connection.slug);
+      return { connection, hasSecret };
+    } catch {
+      return undefined;
+    }
+  }));
   const connections: LlmConnection[] = [];
   const secretPresence = new Map<string, boolean>();
-  await Promise.all(candidateSlugs.map(async (slug) => {
-    const connection = await deps.readyConnectionDeps.getConnection(slug);
-    if (!connection) return;
-    connections.push(connection);
-    const apiKey = await deps.readyConnectionDeps.getApiKey(connection.slug);
-    secretPresence.set(connection.slug, typeof apiKey === 'string' && apiKey.length > 0);
-  }));
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    connections.push(candidate.connection);
+    secretPresence.set(candidate.connection.slug, candidate.hasSecret);
+  }
 
   const outcome = projectSessionSendOutcome({
     session: header,
@@ -186,7 +224,7 @@ export async function ensureSessionCanSendOrRebind(
     hasSecret: (slug) => secretPresence.get(slug) === true,
   });
 
-  if (outcome.kind === 'ready') return { rebound: false };
+  if (outcome.kind === 'ready') return { rebound: false }; // facts shifted mid-flight
 
   if (outcome.kind === 'rebind') {
     await deps.updateSession(sessionId, {
@@ -202,11 +240,14 @@ export async function ensureSessionCanSendOrRebind(
     };
   }
 
-  // Blocked. Re-run the throwing authority so the exact historical
-  // error copy surfaces unchanged; if the facts shifted underneath us
-  // (e.g. a key was just saved), the send may proceed after all.
+  // Blocked: same canonical-error re-run as above.
   await assertSessionCanSend(header, deps.readyConnectionDeps);
   return { rebound: false };
+}
+
+async function hasUsableSecret(deps: ReadyConnectionDeps, slug: string): Promise<boolean> {
+  const apiKey = await deps.getApiKey(slug);
+  return typeof apiKey === 'string' && apiKey.length > 0;
 }
 
 export function chatConfigurationError(message: string, reason: ChatConfigurationReason): Error {

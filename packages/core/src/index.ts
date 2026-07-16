@@ -966,6 +966,7 @@ export type {
 } from './session-send-projection.js';
 export {
   projectSessionSendOutcome,
+  sessionOwnConnectionBlockReason,
   shouldRebindSessionToDefault,
 } from './session-send-projection.js';
 

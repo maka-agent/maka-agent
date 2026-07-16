@@ -609,6 +609,149 @@ function header(patch: Partial<SessionHeader> = {}): Pick<SessionHeader, 'backen
   };
 }
 
+describe('send-gate fact resolution stays staged (#1038 review)', () => {
+  test('healthy session send is not failed by an unrelated connection’s failing secret read', async () => {
+    const secretReads: string[] = [];
+    const result = await ensureSessionCanSendOrRebind(
+      'session-1',
+      header(),
+      {
+        readyConnectionDeps: {
+          async getConnection(slug: string) {
+            return slug === 'anthropic' ? connection() : connection({ slug });
+          },
+          async getApiKey(slug: string) {
+            secretReads.push(slug);
+            if (slug === 'unrelated') throw new Error('credential store blew up');
+            return 'sk-test';
+          },
+        },
+        async getDefaultSlug() {
+          return 'anthropic';
+        },
+        async listConnectionSlugs() {
+          return ['anthropic', 'unrelated'];
+        },
+        async updateSession() {
+          throw new Error('must not rebind');
+        },
+      },
+    );
+
+    assert.deepEqual(result, { rebound: false });
+    assert.deepEqual(secretReads, ['anthropic'], 'only the session’s own connection is probed on the healthy path');
+  });
+
+  test('healthy session send does not consult default/list fallbacks', async () => {
+    const result = await ensureSessionCanSendOrRebind(
+      'session-1',
+      header(),
+      {
+        readyConnectionDeps: keyedDeps({ anthropic: { connection: connection(), apiKey: 'sk-test' } }),
+        async getDefaultSlug() {
+          throw new Error('default store unavailable');
+        },
+        async listConnectionSlugs() {
+          throw new Error('list store unavailable');
+        },
+        async updateSession() {
+          throw new Error('must not rebind');
+        },
+      },
+    );
+
+    assert.deepEqual(result, { rebound: false });
+  });
+
+  test('a failed connection list never rebinds a healthy session away from its connection', async () => {
+    const result = await ensureSessionCanSendOrRebind(
+      'session-1',
+      header(),
+      {
+        readyConnectionDeps: keyedDeps({
+          anthropic: { connection: connection(), apiKey: 'sk-test' },
+          zai: { connection: connection({ slug: 'zai' }), apiKey: 'sk-zai' },
+        }),
+        async getDefaultSlug() {
+          return 'zai';
+        },
+        async listConnectionSlugs() {
+          throw new Error('list read failed');
+        },
+        async updateSession() {
+          throw new Error('must not rebind');
+        },
+      },
+    );
+
+    assert.deepEqual(result, { rebound: false });
+  });
+
+  test('rebind picks the first ready candidate in persisted order, not async completion order', async () => {
+    const delays: Record<string, number> = { 'default-broken': 0, 'slow-first': 30, 'fast-second': 1 };
+    const bySlug = {
+      'default-broken': connection({ slug: 'default-broken', enabled: false }),
+      'slow-first': connection({ slug: 'slow-first' }),
+      'fast-second': connection({ slug: 'fast-second' }),
+    } as Record<string, LlmConnection>;
+    const updates: unknown[] = [];
+    const result = await ensureSessionCanSendOrRebind(
+      'session-1',
+      header({ backend: 'fake', llmConnectionSlug: 'fake', model: 'fake-model' }),
+      {
+        readyConnectionDeps: {
+          async getConnection(slug: string) {
+            await new Promise((resolve) => setTimeout(resolve, delays[slug] ?? 0));
+            return bySlug[slug] ?? null;
+          },
+          async getApiKey() {
+            return 'sk-test';
+          },
+        },
+        async getDefaultSlug() {
+          return 'default-broken';
+        },
+        async listConnectionSlugs() {
+          return ['default-broken', 'slow-first', 'fast-second'];
+        },
+        async updateSession(_id, patch) {
+          updates.push(patch);
+        },
+      },
+    );
+
+    assert.deepEqual(result, { rebound: true, connectionSlug: 'slow-first', modelId: 'claude-3-5-sonnet-20241022' });
+    assert.equal(updates.length, 1);
+  });
+
+  test('rebind walk skips candidates whose facts cannot be read', async () => {
+    const result = await ensureSessionCanSendOrRebind(
+      'session-1',
+      header({ backend: 'fake', llmConnectionSlug: 'fake', model: 'fake-model' }),
+      {
+        readyConnectionDeps: {
+          async getConnection(slug: string) {
+            if (slug === 'flaky') throw new Error('read failed');
+            return slug === 'anthropic' ? connection() : null;
+          },
+          async getApiKey() {
+            return 'sk-test';
+          },
+        },
+        async getDefaultSlug() {
+          return 'flaky';
+        },
+        async listConnectionSlugs() {
+          return ['flaky', 'anthropic'];
+        },
+        async updateSession() {},
+      },
+    );
+
+    assert.deepEqual(result, { rebound: true, connectionSlug: 'anthropic', modelId: 'claude-3-5-sonnet-20241022' });
+  });
+});
+
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
