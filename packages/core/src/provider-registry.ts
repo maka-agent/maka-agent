@@ -320,6 +320,39 @@ const alibabaModelIds = toolCallingModelIds(
   GENERATED_MODELS_DEV_METADATA.alibaba,
   ['qwen3.7-plus'],
 );
+const alibabaCodingPlanCn = GENERATED_MODELS_DEV_PROVIDER_FACTS['alibaba-coding-plan-cn'];
+if (alibabaCodingPlanCn.id !== 'alibaba-coding-plan-cn' || alibabaCodingPlanCn.api !== 'https://coding.dashscope.aliyuncs.com/v1') {
+  throw new Error('models.dev Alibaba Coding Plan (China) provider facts are missing the stable id or API');
+}
+const alibabaCodingPlanGlobal = GENERATED_MODELS_DEV_PROVIDER_FACTS['alibaba-coding-plan'];
+if (alibabaCodingPlanGlobal.id !== 'alibaba-coding-plan' || alibabaCodingPlanGlobal.api !== 'https://coding-intl.dashscope.aliyuncs.com/v1') {
+  throw new Error('models.dev Alibaba Coding Plan provider facts are missing the stable id or API');
+}
+// Alibaba's Coding Plan docs are authoritative for this subscription allowlist; the
+// plan endpoint does not publish a /models discovery contract. China and global share
+// an identical tool-calling text-model snapshot (image models are excluded).
+const alibabaCodingPlanModelIds = [
+  'qwen3.7-plus',
+  'qwen3.7-max',
+  'qwen3.6-plus',
+  'qwen3.6-flash',
+  'qwen3.5-plus',
+  'qwen3-max-2026-01-23',
+  'qwen3-coder-next',
+  'qwen3-coder-plus',
+  'glm-5',
+  'glm-4.7',
+  'kimi-k2.5',
+  'MiniMax-M2.5',
+] as const;
+for (const id of alibabaCodingPlanModelIds) {
+  if (!GENERATED_MODELS_DEV_METADATA['alibaba-coding-plan-cn'][id]?.capabilities?.functionCalling) {
+    throw new Error(`models.dev Alibaba Coding Plan (China) snapshot is missing tool-capable model ${id}`);
+  }
+  if (!GENERATED_MODELS_DEV_METADATA['alibaba-coding-plan'][id]?.capabilities?.functionCalling) {
+    throw new Error(`models.dev Alibaba Coding Plan snapshot is missing tool-capable model ${id}`);
+  }
+}
 const vercel = GENERATED_MODELS_DEV_PROVIDER_FACTS.vercel;
 if (vercel.id !== 'vercel') {
   throw new Error('models.dev Vercel AI Gateway provider facts are missing stable id vercel');
@@ -1126,6 +1159,44 @@ const providerRegistry = {
     modelsDevId: alibaba.id,
     readyOrder: 41,
     catalogOrder: 41,
+  },
+  'alibaba-coding-plan-cn': {
+    label: alibabaCodingPlanCn.name,
+    description: 'Alibaba Cloud Model Studio Coding Plan (China) for interactive AI coding tools.',
+    baseUrl: alibabaCodingPlanCn.api,
+    authKind: 'api_key',
+    backendKind: 'ai-sdk',
+    fallbackModels: [...alibabaCodingPlanModelIds],
+    status: 'ready',
+    protocol: 'openai',
+    runtimeAdapter: { kind: 'openai-compatible', name: 'provider' },
+    modelDiscovery: { kind: 'fallback' },
+    category: 'domestic',
+    catalogGroup: 'plans',
+    catalogBadge: 'Plan',
+    signupUrl: 'https://www.aliyun.com/benefit/scene/codingplan',
+    modelsDevId: alibabaCodingPlanCn.id,
+    readyOrder: 41.1,
+    catalogOrder: 41.1,
+  },
+  'alibaba-coding-plan': {
+    label: alibabaCodingPlanGlobal.name,
+    description: 'Alibaba Cloud Model Studio Coding Plan for interactive AI coding tools.',
+    baseUrl: alibabaCodingPlanGlobal.api,
+    authKind: 'api_key',
+    backendKind: 'ai-sdk',
+    fallbackModels: [...alibabaCodingPlanModelIds],
+    status: 'ready',
+    protocol: 'openai',
+    runtimeAdapter: { kind: 'openai-compatible', name: 'provider' },
+    modelDiscovery: { kind: 'fallback' },
+    category: 'overseas',
+    catalogGroup: 'plans',
+    catalogBadge: 'Plan',
+    signupUrl: 'https://www.alibabacloud.com/help/en/model-studio/coding-plan',
+    modelsDevId: alibabaCodingPlanGlobal.id,
+    readyOrder: 41.2,
+    catalogOrder: 41.2,
   },
   'cloudflare-workers-ai': {
     label: cloudflareWorkersAi.name,

@@ -72,6 +72,8 @@ describe('provider compatibility contract', () => {
       'groq',
       'openrouter',
       'alibaba',
+      'alibaba-coding-plan-cn',
+      'alibaba-coding-plan',
       'cloudflare-workers-ai',
       'ollama-cloud',
       'ollama',
@@ -128,6 +130,8 @@ describe('provider compatibility contract', () => {
       'groq',
       'openrouter',
       'alibaba',
+      'alibaba-coding-plan-cn',
+      'alibaba-coding-plan',
     ]);
     assert.deepEqual(CATALOG_PROVIDER_TYPES, [
       'kimi-coding-plan',
@@ -174,6 +178,8 @@ describe('provider compatibility contract', () => {
       'groq',
       'openrouter',
       'alibaba',
+      'alibaba-coding-plan-cn',
+      'alibaba-coding-plan',
     ]);
 
     for (const orderField of ['readyOrder', 'catalogOrder', 'recommendedOrder'] as const) {
@@ -765,6 +771,75 @@ describe('provider compatibility contract', () => {
       'hy3',
       'hy3-preview',
     ]);
+  });
+
+  const ALIBABA_CODING_PLAN_MODELS = [
+    'qwen3.7-plus',
+    'qwen3.7-max',
+    'qwen3.6-plus',
+    'qwen3.6-flash',
+    'qwen3.5-plus',
+    'qwen3-max-2026-01-23',
+    'qwen3-coder-next',
+    'qwen3-coder-plus',
+    'glm-5',
+    'glm-4.7',
+    'kimi-k2.5',
+    'MiniMax-M2.5',
+  ];
+
+  it('owns Alibaba Coding Plan (China) behavior under its independent persisted id', () => {
+    const plan = (PROVIDER_REGISTRY as Partial<Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>>)['alibaba-coding-plan-cn'];
+
+    assert.ok(plan, 'Alibaba Coding Plan (China) must be available through the shared provider registry');
+    assert.equal(plan.label, 'Alibaba Coding Plan (China)');
+    assert.equal(plan.baseUrl, 'https://coding.dashscope.aliyuncs.com/v1');
+    assert.equal(plan.authKind, 'api_key');
+    assert.equal(plan.backendKind, 'ai-sdk');
+    assert.equal(plan.status, 'ready');
+    assert.equal(plan.protocol, 'openai');
+    assert.deepEqual(plan.runtimeAdapter, { kind: 'openai-compatible', name: 'provider' });
+    assert.deepEqual(plan.modelDiscovery, { kind: 'fallback' });
+    assert.equal(plan.category, 'domestic');
+    assert.equal(plan.catalogGroup, 'plans');
+    assert.equal(plan.catalogBadge, 'Plan');
+    assert.equal(plan.signupUrl, 'https://www.aliyun.com/benefit/scene/codingplan');
+    assert.equal(plan.modelsDevId, 'alibaba-coding-plan-cn');
+    assert.deepEqual(plan.fallbackModels, ALIBABA_CODING_PLAN_MODELS);
+  });
+
+  it('owns Alibaba Coding Plan (global) behavior under its independent persisted id', () => {
+    const plan = (PROVIDER_REGISTRY as Partial<Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>>)['alibaba-coding-plan'];
+
+    assert.ok(plan, 'Alibaba Coding Plan must be available through the shared provider registry');
+    assert.equal(plan.label, 'Alibaba Coding Plan');
+    assert.equal(plan.baseUrl, 'https://coding-intl.dashscope.aliyuncs.com/v1');
+    assert.equal(plan.authKind, 'api_key');
+    assert.equal(plan.backendKind, 'ai-sdk');
+    assert.equal(plan.status, 'ready');
+    assert.equal(plan.protocol, 'openai');
+    assert.deepEqual(plan.runtimeAdapter, { kind: 'openai-compatible', name: 'provider' });
+    assert.deepEqual(plan.modelDiscovery, { kind: 'fallback' });
+    assert.equal(plan.category, 'overseas');
+    assert.equal(plan.catalogGroup, 'plans');
+    assert.equal(plan.catalogBadge, 'Plan');
+    assert.equal(plan.signupUrl, 'https://www.alibabacloud.com/help/en/model-studio/coding-plan');
+    assert.equal(plan.modelsDevId, 'alibaba-coding-plan');
+    assert.deepEqual(plan.fallbackModels, ALIBABA_CODING_PLAN_MODELS);
+  });
+
+  it('separates the two Alibaba Coding Plan regions from the Alibaba direct API path', () => {
+    const registry = PROVIDER_REGISTRY as Partial<Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>>;
+    const cn = registry['alibaba-coding-plan-cn'];
+    const global = registry['alibaba-coding-plan'];
+    const direct = registry.alibaba;
+
+    assert.ok(cn && global && direct);
+    const baseUrls = new Set([cn.baseUrl, global.baseUrl, direct.baseUrl]);
+    assert.equal(baseUrls.size, 3, 'each Alibaba access path must have a distinct endpoint');
+    assert.equal(direct.catalogGroup, 'api');
+    assert.equal(cn.catalogGroup, 'plans');
+    assert.equal(global.catalogGroup, 'plans');
   });
 
   it('owns StepFun China direct API behavior under the stable stepfun id', () => {

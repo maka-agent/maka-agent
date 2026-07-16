@@ -64,6 +64,39 @@ describe('ModelCatalogEntry', () => {
     });
   });
 
+  it('uses the official Alibaba Coding Plan snapshot for both regions without inventing live discovery', () => {
+    const expectedIds = [
+      'qwen3.7-plus',
+      'qwen3.7-max',
+      'qwen3.6-plus',
+      'qwen3.6-flash',
+      'qwen3.5-plus',
+      'qwen3-max-2026-01-23',
+      'qwen3-coder-next',
+      'qwen3-coder-plus',
+      'glm-5',
+      'glm-4.7',
+      'kimi-k2.5',
+      'MiniMax-M2.5',
+    ];
+    for (const providerType of ['alibaba-coding-plan-cn', 'alibaba-coding-plan'] as const) {
+      const entries = buildConnectionModelCatalogEntries({
+        connection: { slug: providerType, providerType, defaultModel: 'qwen3.7-plus' },
+      });
+
+      assert.deepEqual(entries.map((entry) => entry.id), expectedIds);
+      assert.equal(entries[0]?.source, 'static_catalog');
+      assert.equal(entries[0]?.provenance.modelSource, 'fallback');
+      assert.equal(entries[0]?.contextWindow, 1_000_000);
+      assert.equal(entries[0]?.maxOutputTokens, 64_000);
+      assert.deepEqual(entries[0]?.capabilities, {
+        vision: true,
+        reasoning: true,
+        functionCalling: true,
+      });
+    }
+  });
+
   it('uses the checked-in StepFun Global snapshot until account discovery succeeds', () => {
     const entries = buildConnectionModelCatalogEntries({
       connection: {

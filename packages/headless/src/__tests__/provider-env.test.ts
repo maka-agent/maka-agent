@@ -194,6 +194,22 @@ test('Tencent Token Plan is unavailable to non-interactive headless credential l
   );
 });
 
+test('Alibaba Coding Plan (China) is unavailable to non-interactive headless credential loading', () => {
+  assert.equal(providerCredentialEnv('alibaba-coding-plan-cn'), undefined);
+  assert.throws(
+    () => requireProviderCredentialEnv('alibaba-coding-plan-cn'),
+    /provider does not support API key files: alibaba-coding-plan-cn/,
+  );
+});
+
+test('Alibaba Coding Plan (global) is unavailable to non-interactive headless credential loading', () => {
+  assert.equal(providerCredentialEnv('alibaba-coding-plan'), undefined);
+  assert.throws(
+    () => requireProviderCredentialEnv('alibaba-coding-plan'),
+    /provider does not support API key files: alibaba-coding-plan/,
+  );
+});
+
 test('StepFun China keeps direct API credentials separate from global and plan identities', () => {
   assert.deepEqual(providerCredentialEnv('stepfun'), {
     apiKeys: ['STEPFUN_API_KEY'],

@@ -258,6 +258,34 @@ describe('default session target resolver', () => {
     assert.equal(target.model, 'deepseek-v4-pro-202606');
   });
 
+  test('resolves both Alibaba Coding Plan regions without rewriting the selected model id', async () => {
+    for (const [providerType, defaultModel] of [
+      ['alibaba-coding-plan-cn', 'qwen3.7-plus'],
+      ['alibaba-coding-plan', 'qwen3-coder-plus'],
+    ] as const) {
+      const connection = makeConnection({
+        slug: providerType,
+        name: providerType,
+        providerType,
+        defaultModel,
+      });
+
+      const target = await resolveDefaultSessionTarget({
+        connectionStore: {
+          getDefault: async () => providerType,
+          get: async (slug) => slug === providerType ? connection : null,
+        },
+        credentialStore: {
+          getSecret: async (_slug, kind) => kind === 'api_key' ? `${providerType}-test-key` : null,
+        },
+      });
+
+      assert.equal(target.connection.providerType, providerType);
+      assert.equal(target.apiKey, `${providerType}-test-key`);
+      assert.equal(target.model, defaultModel);
+    }
+  });
+
   test('resolves LM Studio without reading a credential or rewriting the selected model id', async () => {
     const connection = makeConnection({
       slug: 'lm-studio',

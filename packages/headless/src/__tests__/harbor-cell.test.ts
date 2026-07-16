@@ -2932,6 +2932,60 @@ setTimeout(() => {
     }
   });
 
+  test('does not load Alibaba Coding Plan (China) credentials in non-interactive Harbor runs', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'maka-cell-alibaba-coding-plan-cn-'));
+    try {
+      const credentialsPath = join(dir, 'credentials.json');
+      await writeFile(credentialsPath, `${JSON.stringify({
+        version: 1,
+        values: { 'alibaba-coding-plan-cn:apiKey': 'must-not-load-in-headless' },
+      })}\n`, 'utf8');
+
+      const resolved = resolveHarborCellAiSdkEnv({
+        provider: 'alibaba-coding-plan-cn',
+        model: 'qwen3.7-plus',
+        env: {
+          MAKA_CREDENTIALS_PATH: credentialsPath,
+          ALIBABA_CODING_PLAN_API_KEY: 'must-also-not-load-in-headless',
+        },
+        ts: 1,
+      });
+
+      assert.equal(resolved.apiKey, '');
+      assert.equal(resolved.connection.providerType, 'alibaba-coding-plan-cn');
+      assert.equal(resolved.connection.defaultModel, 'qwen3.7-plus');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('does not load Alibaba Coding Plan (global) credentials in non-interactive Harbor runs', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'maka-cell-alibaba-coding-plan-'));
+    try {
+      const credentialsPath = join(dir, 'credentials.json');
+      await writeFile(credentialsPath, `${JSON.stringify({
+        version: 1,
+        values: { 'alibaba-coding-plan:apiKey': 'must-not-load-in-headless' },
+      })}\n`, 'utf8');
+
+      const resolved = resolveHarborCellAiSdkEnv({
+        provider: 'alibaba-coding-plan',
+        model: 'qwen3.7-plus',
+        env: {
+          MAKA_CREDENTIALS_PATH: credentialsPath,
+          ALIBABA_CODING_PLAN_API_KEY: 'must-also-not-load-in-headless',
+        },
+        ts: 1,
+      });
+
+      assert.equal(resolved.apiKey, '');
+      assert.equal(resolved.connection.providerType, 'alibaba-coding-plan');
+      assert.equal(resolved.connection.defaultModel, 'qwen3.7-plus');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test('resolves StepFun China only from its direct API credential env', () => {
     const resolved = resolveHarborCellAiSdkEnv({
       provider: 'stepfun',

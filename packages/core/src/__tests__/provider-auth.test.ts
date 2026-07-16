@@ -118,6 +118,32 @@ describe('ProviderAuth contract', () => {
     expect(contract.actionAvailability.fetch_models).toBe('hidden');
   });
 
+  test('Alibaba Coding Plan (China) uses an independent API key and fallback-model flow', () => {
+    const contract = deriveProviderAuthContract({
+      providerType: 'alibaba-coding-plan-cn',
+      hasSecret: true,
+    });
+
+    expect(contract.providerType).toBe('alibaba-coding-plan-cn');
+    expect(contract.setupMode).toBe('api_key');
+    expect(contract.requiresSecret).toBe(true);
+    expect(contract.actionAvailability.test_credentials).toBe('available');
+    expect(contract.actionAvailability.fetch_models).toBe('hidden');
+  });
+
+  test('Alibaba Coding Plan (global) uses an independent API key and fallback-model flow', () => {
+    const contract = deriveProviderAuthContract({
+      providerType: 'alibaba-coding-plan',
+      hasSecret: true,
+    });
+
+    expect(contract.providerType).toBe('alibaba-coding-plan');
+    expect(contract.setupMode).toBe('api_key');
+    expect(contract.requiresSecret).toBe(true);
+    expect(contract.actionAvailability.test_credentials).toBe('available');
+    expect(contract.actionAvailability.fetch_models).toBe('hidden');
+  });
+
   test('StepFun Global uses an independent API-key credential and model-discovery flow', () => {
     const contract = deriveProviderAuthContract({
       providerType: 'stepfun-ai',

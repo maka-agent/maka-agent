@@ -405,6 +405,28 @@ describe('FileConnectionStore', () => {
     });
   });
 
+  test('persists both Alibaba Coding Plan region ids and exact default models', async () => {
+    for (const [slug, providerType, defaultModel] of [
+      ['alibaba-coding-plan-cn', 'alibaba-coding-plan-cn', 'qwen3.7-plus'],
+      ['alibaba-coding-plan', 'alibaba-coding-plan', 'qwen3-coder-plus'],
+    ] as const) {
+      await withConnectionStore(async (store, dir) => {
+        await store.create({
+          slug,
+          name: slug,
+          providerType,
+          defaultModel,
+        });
+
+        const persisted = JSON.parse(await readFile(join(dir, 'llm-connections.json'), 'utf8')) as {
+          connections: Array<{ providerType: string; defaultModel: string }>;
+        };
+        assert.equal(persisted.connections[0]?.providerType, providerType);
+        assert.equal(persisted.connections[0]?.defaultModel, defaultModel);
+      });
+    }
+  });
+
   test('persists the LM Studio provider id and exact local model id', async () => {
     await withConnectionStore(async (store, dir) => {
       await store.create({

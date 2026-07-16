@@ -5,6 +5,8 @@ const DEFAULT_OUTPUT = 'packages/core/src/model-metadata.generated.ts';
 const PROVIDERS = {
   anthropic: 'anthropic',
   alibaba: 'alibaba',
+  'alibaba-coding-plan-cn': 'alibaba-coding-plan-cn',
+  'alibaba-coding-plan': 'alibaba-coding-plan',
   cerebras: 'cerebras',
   cohere: 'cohere',
   'cloudflare-workers-ai': 'cloudflare-workers-ai',

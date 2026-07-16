@@ -363,7 +363,10 @@ describe('icon + typography governance contract', () => {
     assert.match(marks, /license: MIT/);
     assert.match(marks, /73ea97baf919edb3d888a77cd45b21574e190a80124a59e199ea6953a28a959c/);
     assert.match(marks, /import alibabaBrandMark from '\.\.\/assets\/provider-brands\/alibabacloud\.svg';/);
-    assert.match(marks, /case 'alibaba':\s*return <img src=\{alibabaBrandMark\} alt="" \/>/);
+    assert.match(
+      marks,
+      /case 'alibaba':\s*case 'alibaba-coding-plan-cn':\s*case 'alibaba-coding-plan':\s*return <img src=\{alibabaBrandMark\} alt="" \/>/,
+    );
     assert.match(
       notices,
       /apps\/desktop\/src\/renderer\/assets\/provider-brands\/alibabacloud\.svg[\s\S]*e4302041fbb3039608d25f9f618bd462783b875e[\s\S]*packages\/static-svg\/icons\/alibabacloud-color\.svg[\s\S]*73ea97baf919edb3d888a77cd45b21574e190a80124a59e199ea6953a28a959c/,

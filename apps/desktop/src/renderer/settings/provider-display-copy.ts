@@ -207,6 +207,14 @@ export const PROVIDER_DISPLAY_COPY = {
     zh: { name: 'Alibaba', description: '阿里云百炼接入，通义千问 Qwen 模型', badge: 'API' },
     en: { name: 'Alibaba', description: 'Alibaba Cloud API access for Qwen models.', badge: 'API' },
   },
+  'alibaba-coding-plan-cn': {
+    zh: { name: 'Alibaba Coding Plan 中国站', description: '阿里云百炼 Coding Plan 订阅 · 中国站', badge: 'Plan' },
+    en: { name: 'Alibaba Coding Plan (China)', description: 'Alibaba Cloud Model Studio Coding Plan for interactive coding tools · China.', badge: 'Plan' },
+  },
+  'alibaba-coding-plan': {
+    zh: { name: 'Alibaba Coding Plan 国际站', description: '阿里云百炼 Coding Plan 订阅 · 国际站', badge: 'Plan' },
+    en: { name: 'Alibaba Coding Plan', description: 'Alibaba Cloud Model Studio Coding Plan for interactive coding tools.', badge: 'Plan' },
+  },
   // OAuth account providers (not in CATALOG_PROVIDER_TYPES; shown in the
   // accounts section and on connection rows).
   'github-copilot': {
