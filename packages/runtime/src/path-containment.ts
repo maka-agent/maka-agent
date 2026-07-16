@@ -1,30 +1,27 @@
 import { isAbsolute, relative, sep } from 'node:path';
 
 /**
- * Shared filesystem-containment and identifier guards.
+ * Shared filesystem-containment and identifier guards, moved verbatim from
+ * previously duplicated private copies in the runtime skill reader and the
+ * desktop main process. This leaf module imports only `node:path`, so both the
+ * pure-Node runtime and the desktop main process (which already depends on
+ * `@maka/runtime`) can use it without reverse dependencies.
  *
- * This leaf module is the single home for the path-safety primitives that were
- * previously kept as private copies across the runtime skill reader and the
- * desktop main process. Centralizing them means a future fix to a containment
- * check lands in one place instead of drifting between byte-identical copies.
- * It imports only `node:path`, so it has no reverse dependency on any heavier
- * module and can be safely reused by both the pure-Node runtime and the desktop
- * main process (which already depends on `@maka/runtime`).
+ * Two behavior variants live here and are NOT interchangeable — their
+ * `..`-prefix handling diverges on a child entry whose own name begins with
+ * `..` (e.g. `root/..foo`): {@link isContainedPath} rejects it as an escape,
+ * while the separator-aware {@link isInside} correctly treats it as inside.
+ * Reconciling them is a behavior-changing decision, not a mechanical move;
+ * callers must keep the guard they used before.
  *
- * Two distinct containment families live here on purpose; they are NOT
- * interchangeable and were verified byte-for-byte before being moved verbatim:
- *
- * - {@link isContainedPath} treats any relative path whose string starts with
- *   `..` as an escape. It is the guard used by the skill reader
- *   (`skills.ts`) and the managed skill-source store.
- * - {@link isInside} is separator-aware: it rejects only an exact `..` or a
- *   `..<sep>`-prefixed relative path, so a sibling entry whose name literally
- *   begins with `..` (e.g. `..foo`) is correctly treated as inside. It is the
- *   guard used by the read-only explore worker.
- *
- * Their `..`-prefix handling differs, so reconciling the two is a deliberate,
- * behavior-changing decision that must not be folded into a mechanical move.
- * Callers must keep using the same guard they used before.
+ * This module is not yet the single home of containment logic, and function
+ * names elsewhere do not reliably indicate which variant they implement.
+ * Known remaining variants pending a follow-up consolidation:
+ * - `workspace-executor.ts`, `filesystem-worker/operations.ts`, and
+ *   `additional-permissions.ts` each define a local `isInside`-style check
+ *   with bare-`startsWith('..')` ({@link isContainedPath}) semantics.
+ * - `system-prompt/workspace-instructions.ts` exports `isPathInside`, a
+ *   cross-platform-tested equivalent of {@link isInside} under default args.
  */
 
 /**
@@ -45,9 +42,8 @@ export function isSafeSkillId(value: string): boolean {
 /**
  * Separator-aware containment check: true when `target` is inside (or equal to)
  * `root`. Rejects only an exact `..` or a `..<sep>`-prefixed relative path, so
- * a sibling whose name starts with `..` stays inside. Used by the read-only
- * explore worker. See the module note on why this differs from
- * {@link isContainedPath}.
+ * a child entry whose own name starts with `..` stays inside. See the module
+ * note on why this differs from {@link isContainedPath}.
  */
 export function isInside(root: string, target: string): boolean {
   const rel = relative(root, target);
