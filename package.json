@@ -57,7 +57,7 @@
     "@biomejs/biome": "2.5.4",
     "@types/node": "^25.0.0",
     "knip": "^6.26.0",
-    "typescript": "^5.9.3"
+    "typescript": "^7.0.2"
   },
   "allowScripts": {
     "electron@39.8.10": true,
