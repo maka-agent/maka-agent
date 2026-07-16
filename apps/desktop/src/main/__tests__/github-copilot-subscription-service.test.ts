@@ -116,10 +116,14 @@ describe('GitHubCopilotSubscriptionService', () => {
       expires_at: Number.MAX_SAFE_INTEGER,
       base_url: 'https://api.githubcopilot.com',
     });
+    let writes = 0;
     const service = new GitHubCopilotSubscriptionService({
       credentialStore: {
         getSecret: async () => stored,
-        setSecret: async (_slug, _kind, value) => { stored = value; },
+        setSecret: async (_slug, _kind, value) => {
+          writes += 1;
+          stored = value;
+        },
         deleteSecret: async () => { stored = null; },
       },
       now: () => 10_000,
@@ -129,6 +133,7 @@ describe('GitHubCopilotSubscriptionService', () => {
     const result = await service.refreshTokens();
     assert.equal(result.ok, true);
     if (result.ok) assert.deepEqual(result.models.map(({ id }) => id), ['gpt-5.4']);
+    assert.equal(writes, 0, 'validating an unchanged durable token must not rewrite it after network I/O');
     const state = await service.getAccountState();
     assert.deepEqual(state, { provider: 'github-copilot', runtimeState: 'authenticated' });
     assert.equal('access_token' in state, false);
