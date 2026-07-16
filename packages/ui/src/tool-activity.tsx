@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ComponentType, type ReactNode } from 'react';
-import { isShellOutput, type ToolResultContent, type UiLocale } from '@maka/core';
+import type { ToolResultContent } from '@maka/core';
 import {
   AlertOctagon,
   Check,
@@ -35,13 +35,26 @@ import {
   syncToolDisclosureState,
   type ToolActivityPresentation,
 } from './tool-activity/presentation.js';
+import {
+  extractErrorText,
+  isAutomationTool,
+  isCancelledToolResult,
+  isPermissionDeniedToolResult,
+  resultOwnsOwnPanel,
+  toolStatusLabel,
+  withLiveStreamFallback,
+} from './tool-activity/result-projection.js';
 import { Alert, AlertAction, AlertDescription, AlertTitle } from './primitives/alert.js';
 import { Collapsible, CollapsibleTrigger, CollapsiblePanel } from './primitives/collapsible.js';
 import { previewVariants, TextShimmer, toolVariants } from './primitives/chat.js';
 import { redactSecrets } from './redact.js';
 import { Button as UiButton, cn } from './ui.js';
 import { describeLoadToolResult, formatToolIntent } from './tool-format.js';
-import { formatDuration, formatUserVisibleToolText } from './tool-activity/preview-utils.js';
+import {
+  formatDuration,
+  formatUserVisibleToolText,
+  summarizeErrorText,
+} from './tool-activity/preview-utils.js';
 import {
   formatQuietJsonValue,
   formatToolInvocationLine,
@@ -73,15 +86,7 @@ function LoadToolResultPreview(props: { args: unknown; value: unknown }) {
 
 // ── Automation result preview ───────────────────────────────────────────────
 
-// Mirror of runtime's AUTOMATION_TOOL_NAME. @maka/ui must not depend on
-// @maka/runtime, so the unified Automation tool's name is duplicated here as
-// the single hook for its friendly card (same pattern as CONNECTOR_TOOL_NAMES).
-const AUTOMATION_TOOL_NAME = 'Automation';
 const AUTOMATION_RESULT_ICON_CLASS = 'inline align-text-bottom mr-1';
-
-function isAutomationTool(name: string): boolean {
-  return name === AUTOMATION_TOOL_NAME;
-}
 
 /** Icon for one automation description: recurring schedules cycle, one-shots tick. */
 function automationScheduleIcon(text: string): ComponentType<LucideProps> {
@@ -159,15 +164,6 @@ function AutomationResultPreview(props: { text: string }) {
   return <ToolResultPreview content={{ kind: 'text', text }} />;
 }
 
-const STATUS_LABEL: Record<ToolActivityItem['status'], string> = {
-  pending: '排队中',
-  waiting_permission: '等待权限',
-  running: '运行中',
-  completed: '已完成',
-  errored: '失败',
-  interrupted: '已中断',
-};
-
 function useToolDisclosure(presentation: ToolActivityPresentation) {
   const [disclosure, setDisclosure] = useState(() => createToolDisclosureState(presentation));
   useEffect(() => {
@@ -177,149 +173,6 @@ function useToolDisclosure(presentation: ToolActivityPresentation) {
     open: disclosure.open,
     setOpen: (open: boolean) => setDisclosure((current) => setToolDisclosureOpen(current, open)),
   };
-}
-
-function extractErrorText(result: ToolActivityItem['result'], locale: UiLocale): string {
-  if (!result) return '';
-  switch (result.kind) {
-    case 'text':
-      return result.text;
-    case 'json': {
-      // Same quiet formatter as the panel — never dump escaped JSON braces.
-      const quiet = formatQuietJsonValue(result.value, locale);
-      return quiet.headline ? `${quiet.headline}\n${quiet.body}` : quiet.body;
-    }
-    case 'terminal': {
-      const output = isShellOutput(result.output) ? result.output : undefined;
-      return result.failureMessage
-        || (output?.mode === 'pipes'
-          ? output.stderr || output.stdout
-          : output?.screen || output?.scrollback)
-        || (result.exitCode === undefined ? result.status : `exit ${result.exitCode}`);
-    }
-    case 'file_diff':
-      return result.diff;
-    case 'rive_workflow':
-      return result.error
-        ? [result.summary, result.error.reason, result.error.message].filter(Boolean).join('\n')
-        : result.summary;
-    default:
-      return result.kind;
-  }
-}
-
-function isPermissionDeniedToolResult(result: ToolActivityItem['result']): boolean {
-  return result?.kind === 'text' && formatUserVisibleToolText(result.text).trim() === '用户已拒绝权限请求';
-}
-
-/**
- * Result kinds (or tool-specific cards) that already paint their own chrome —
- * never nest them inside the shared quiet well.
- */
-function resultOwnsOwnPanel(item: ToolActivityItem): boolean {
-  const result = item.result;
-  if (!result) return false;
-  if (isAutomationTool(item.toolName) && result.kind === 'text') return true;
-  if (isConnectorTool(item.toolName) && result.kind === 'json') return true;
-  switch (result.kind) {
-    case 'terminal':
-    case 'shell_run':
-    case 'subagent':
-    case 'explore_agent':
-    case 'web_search':
-    case 'web_search_error':
-    case 'file_diff':
-    case 'office_document':
-    case 'rive_workflow':
-      return true;
-    default:
-      return false;
-  }
-}
-
-function isCancelledToolResult(result: ToolActivityItem['result']): boolean {
-  if (!result) return false;
-  if (result.kind === 'terminal' || result.kind === 'shell_run') {
-    return result.status === 'cancelled';
-  }
-  return false;
-}
-
-function resultHasCapturedStreams(result: ToolActivityItem['result']): boolean {
-  if (!result) return false;
-  if (result.kind === 'terminal' || result.kind === 'shell_run') {
-    const output = isShellOutput(result.output) ? result.output : undefined;
-    if (output === undefined) return false;
-    return output.mode === 'pty'
-      ? output.screen.length > 0 || output.scrollback.length > 0 || Boolean(output.lastAlternateScreen)
-      : output.stdout.length > 0 || output.stderr.length > 0;
-  }
-  return true;
-}
-
-/**
- * Background Bash returns an empty shell_run body; keep the live chunks the
- * user already saw by filling empty stdout/stderr from outputChunks. Also
- * forward truncation / redaction hints so settled preview matches live.
- */
-function withLiveStreamFallback(
-  result: NonNullable<ToolActivityItem['result']>,
-  chunks: ToolActivityItem['outputChunks'] | undefined,
-  options?: { truncated?: boolean },
-): NonNullable<ToolActivityItem['result']> {
-  if (result.kind !== 'terminal' && result.kind !== 'shell_run') return result;
-  if (resultHasCapturedStreams(result)) return result;
-  const existing = isShellOutput(result.output) ? result.output : undefined;
-  if (result.kind === 'terminal') {
-    if (existing?.mode !== 'pipes') return result;
-  } else if (result.mode !== 'pipes') {
-    return result;
-  }
-
-  let stdout = '';
-  let stderr = '';
-  let anyRedacted = false;
-  for (const chunk of chunks ?? []) {
-    if (chunk.redacted) anyRedacted = true;
-    if (chunk.stream === 'stderr') stderr += chunk.text;
-    else stdout += chunk.text;
-  }
-  const truncated = existing?.mode === 'pipes' && existing.stdoutTruncated === true
-    || options?.truncated === true;
-  // Empty redacted/truncated live buffer still carries diagnosis — do not
-  // early-return and drop "已脱敏" / "输出已截断".
-  if (!stdout && !stderr && !anyRedacted && !truncated) return result;
-
-  // Match live stream's "[已脱敏]" marker when a chunk was redacted
-  // (including empty bodies that only suppressed secrets).
-  if (anyRedacted) {
-    if (stdout.length > 0) stdout = `${stdout}${stdout.endsWith('\n') ? '' : '\n'}[已脱敏]`;
-    else if (stderr.length > 0) stderr = `${stderr}${stderr.endsWith('\n') ? '' : '\n'}[已脱敏]`;
-    else stdout = '[已脱敏]';
-  }
-  const output = {
-    mode: 'pipes' as const,
-    stdout,
-    stderr,
-    stdoutTruncated: truncated,
-    stderrTruncated: existing?.mode === 'pipes' && existing.stderrTruncated === true,
-    redacted: anyRedacted || (existing?.mode === 'pipes' && existing.redacted),
-  };
-  if (result.kind === 'shell_run') return { ...result, output };
-  return { ...result, output };
-}
-
-function toolStatusLabel(item: ToolActivityItem): string {
-  // Outer label follows call status. Panel notes still show task cancel state.
-  if (item.status === 'interrupted' && isCancelledToolResult(item.result)) return '已取消';
-  if (
-    (item.result?.kind === 'terminal' || item.result?.kind === 'shell_run')
-    && item.result.status === 'timed_out'
-    && item.status !== 'completed'
-  ) {
-    return '已超时';
-  }
-  return STATUS_LABEL[item.status];
 }
 
 export function ToolActivity(props: {
@@ -715,20 +568,6 @@ function ToolOutputStream(props: {
       )}
     </>
   );
-}
-
-/** One concise default summary of a tool failure: cap both characters and
- *  logical lines so a multi-line validation error cannot grow the banner to
- *  the ~2631px the issue tracked (a 240-char slice kept newlines, so 180 lines
- *  still rendered ~161 lines). The full redacted text stays in the disclosure
- *  for copy. */
-function summarizeErrorText(text: string): string {
-  const MAX_CHARS = 240;
-  const MAX_LINES = 4;
-  const lines = text.split('\n');
-  if (text.length <= MAX_CHARS && lines.length <= MAX_LINES) return text;
-  const trimmed = lines.slice(0, MAX_LINES).join('\n').slice(0, MAX_CHARS);
-  return `${trimmed}…`;
 }
 
 // Preserve the retired `.maka-tool-error*` leaf utilities onto Alert (#332 PR3c) —

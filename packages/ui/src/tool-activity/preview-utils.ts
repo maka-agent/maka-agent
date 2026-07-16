@@ -28,3 +28,17 @@ export function formatDuration(ms: number | undefined): string | null {
 export function formatUserVisibleToolText(text: string): string {
   return text.replace(/\bUser denied permission\b/g, '用户已拒绝权限请求');
 }
+
+/** One concise default summary of a tool failure: cap both characters and
+ *  logical lines so a multi-line validation error cannot grow the banner to
+ *  the ~2631px the issue tracked (a 240-char slice kept newlines, so 180 lines
+ *  still rendered ~161 lines). The full redacted text stays in the disclosure
+ *  for copy. */
+export function summarizeErrorText(text: string): string {
+  const MAX_CHARS = 240;
+  const MAX_LINES = 4;
+  const lines = text.split('\n');
+  if (text.length <= MAX_CHARS && lines.length <= MAX_LINES) return text;
+  const trimmed = lines.slice(0, MAX_LINES).join('\n').slice(0, MAX_CHARS);
+  return `${trimmed}…`;
+}
