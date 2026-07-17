@@ -117,22 +117,19 @@ export function positiveIntEnv(raw: string | undefined, name: string): number | 
 
 /**
  * Lenient positive-integer parse: returns `undefined` for unset, malformed, or
- * non-positive values instead of throwing. Byte-equivalent to the pre-split
- * private parser in `harbor-task-runner.ts`, kept lenient because the Harbor
+ * non-positive values instead of throwing. Kept lenient because the Harbor
  * Python adapter recovers from a malformed `MAKA_CELL_TIMEOUT_SEC`
  * (`maka_agent.py` `_cell_timeout_sec`: "a malformed value falls back to the
  * default") and the TS runner must not fail loudly where the adapter would
- * recover. Accepted syntax is wider than Python's `int()`: `Number(raw)` also
- * takes exponent/decimal-looking forms (`"1e3"` → 1000, `"1.0"` → 1) that the
- * adapter would reject — harmless today because the host rewrites the env to
- * the parsed integer before the container sees it; unifying the accepted syntax
- * is deferred to the same fail-loud follow-up noted in PR #1137. New TS-only
- * env vars should use the throwing `positiveIntEnv` instead.
+ * recover. Accepted syntax matches Python `int()` on this variable: a decimal
+ * positive integer literal only (`"1800"`), so `"1e3"` / `"1.0"` / non-numeric
+ * forms are all a parse miss. New TS-only env vars should use the throwing
+ * `positiveIntEnv` instead.
  */
 export function lenientPositiveIntEnv(raw: string | undefined): number | undefined {
   if (raw === undefined) return undefined;
-  const value = Number(raw);
-  return Number.isInteger(value) && value > 0 ? value : undefined;
+  const value = raw.trim();
+  return /^[1-9]\d*$/.test(value) ? Number(value) : undefined;
 }
 
 /**
