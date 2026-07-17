@@ -15,15 +15,16 @@ export interface HarnessAbArmEconomy {
   uncachedInputTokens: number;
   outputTokens: number;
   totalTokens: number;
-  apiEquivalentCostUsd: number;
+  costUsd: number;
   tokensPerMetered: number | null;
   costPerMeteredUsd: number | null;
   costPerPassUsd: number | null;
 }
 
 export interface HarnessAbReport {
-  schemaVersion: 'maka.harness_ab.report.v2';
+  schemaVersion: 'maka.harness_ab.report.v3';
   runId: string;
+  billingMode: 'metered' | 'account-plan';
   runStatus: 'completed' | 'completed_with_gaps' | 'incomplete' | 'stopped';
   stopReason?: NonNullable<AbComparisonSummary['stopReason']>;
   taskCount: number;
@@ -46,7 +47,7 @@ export interface HarnessAbReport {
     ties: number;
   };
   economy: {
-    basis: 'cache-aware-api-equivalent-usd';
+    basis: 'cache-aware-api-equivalent-usd' | 'account-plan-recorded-usd';
     pairedMetered: number;
     missingUsagePairs: number;
     baseline: HarnessAbArmEconomy;
@@ -69,6 +70,7 @@ export interface HarnessAbOracleEvidenceReportInput {
 export function buildHarnessAbReport(
   summary: AbComparisonSummary,
   oracleEvidence?: HarnessAbOracleEvidenceReportInput,
+  billingMode: HarnessAbReport['billingMode'] = 'metered',
 ): HarnessAbReport {
   const coverage = {
     scheduledCells: summary.baseline.attempts + summary.candidate.attempts,
@@ -87,8 +89,9 @@ export function buildHarnessAbReport(
         ? 'completed_with_gaps'
         : 'completed';
   return {
-    schemaVersion: 'maka.harness_ab.report.v2',
+    schemaVersion: 'maka.harness_ab.report.v3',
     runId: summary.runId,
+    billingMode,
     runStatus,
     ...(summary.stopReason ? { stopReason: summary.stopReason } : {}),
     taskCount: summary.taskCount,
@@ -112,7 +115,9 @@ export function buildHarnessAbReport(
       ties: summary.pairedAttempts.ties,
     },
     economy: {
-      basis: 'cache-aware-api-equivalent-usd',
+      basis: billingMode === 'account-plan'
+        ? 'account-plan-recorded-usd'
+        : 'cache-aware-api-equivalent-usd',
       pairedMetered: summary.pairedAttempts.fullyMeteredPairs,
       missingUsagePairs: summary.pairedAttempts.missingUsagePairIds.length,
       baseline: armEconomy(
@@ -154,16 +159,18 @@ export function renderHarnessAbReportCsv(report: HarnessAbReport): string {
     ['economy', 'uncached_input_tokens', baselineEconomy.armId, baselineEconomy.uncachedInputTokens, candidateEconomy.armId, candidateEconomy.uncachedInputTokens, candidateEconomy.uncachedInputTokens - baselineEconomy.uncachedInputTokens],
     ['economy', 'output_tokens', baselineEconomy.armId, baselineEconomy.outputTokens, candidateEconomy.armId, candidateEconomy.outputTokens, candidateEconomy.outputTokens - baselineEconomy.outputTokens],
     ['economy', 'total_tokens', baselineEconomy.armId, baselineEconomy.totalTokens, candidateEconomy.armId, candidateEconomy.totalTokens, candidateEconomy.totalTokens - baselineEconomy.totalTokens],
-    ['economy', 'api_equivalent_cost_usd', baselineEconomy.armId, baselineEconomy.apiEquivalentCostUsd, candidateEconomy.armId, candidateEconomy.apiEquivalentCostUsd, candidateEconomy.apiEquivalentCostUsd - baselineEconomy.apiEquivalentCostUsd],
+    ['economy', 'recorded_cost_usd', baselineEconomy.armId, baselineEconomy.costUsd, candidateEconomy.armId, candidateEconomy.costUsd, candidateEconomy.costUsd - baselineEconomy.costUsd],
     ['economy', 'tokens_per_metered', baselineEconomy.armId, baselineEconomy.tokensPerMetered, candidateEconomy.armId, candidateEconomy.tokensPerMetered, nullableDelta(candidateEconomy.tokensPerMetered, baselineEconomy.tokensPerMetered)],
     ['economy', 'cost_per_metered_usd', baselineEconomy.armId, baselineEconomy.costPerMeteredUsd, candidateEconomy.armId, candidateEconomy.costPerMeteredUsd, nullableDelta(candidateEconomy.costPerMeteredUsd, baselineEconomy.costPerMeteredUsd)],
     ['economy', 'cost_per_pass_usd', baselineEconomy.armId, baselineEconomy.costPerPassUsd, candidateEconomy.armId, candidateEconomy.costPerPassUsd, nullableDelta(candidateEconomy.costPerPassUsd, baselineEconomy.costPerPassUsd)],
   ];
   return [
-    'run_status,stop_reason,scheduled_cells,attempted_cells,model_scored_cells,infra_failed_cells,unscored_cells,missing_final_usage_cells,paired_evaluated,paired_metered,missing_usage_pairs,axis,metric,baseline_arm,baseline_value,candidate_arm,candidate_value,candidate_minus_baseline',
+    'run_status,stop_reason,billing_mode,economy_basis,scheduled_cells,attempted_cells,model_scored_cells,infra_failed_cells,unscored_cells,missing_final_usage_cells,paired_evaluated,paired_metered,missing_usage_pairs,axis,metric,baseline_arm,baseline_value,candidate_arm,candidate_value,candidate_minus_baseline',
     ...rows.map((row) => [
       report.runStatus,
       report.stopReason ?? '',
+      report.billingMode,
+      report.economy.basis,
       report.coverage.scheduledCells,
       report.coverage.attemptedCells,
       report.coverage.modelScoredCells,
@@ -182,7 +189,7 @@ export function renderHarnessAbReportMarkdown(report: HarnessAbReport): string {
   const { baseline: baselineEffectiveness, candidate: candidateEffectiveness } = report.effectiveness;
   const { baseline: baselineEconomy, candidate: candidateEconomy } = report.economy;
   return [
-    '# Maka vs OpenCode — GLM-5.2 Harness Comparison',
+    `# ${baselineEffectiveness.armId} vs ${candidateEffectiveness.armId} — Harness Comparison`,
     '',
     `Status: ${report.runStatus}${report.stopReason ? ` (${report.stopReason})` : ''}.`,
     '',
@@ -206,13 +213,15 @@ export function renderHarnessAbReportMarkdown(report: HarnessAbReport): string {
     `| Cached input tokens | ${baselineEconomy.cachedInputTokens} | ${candidateEconomy.cachedInputTokens} |`,
     `| Uncached input tokens | ${baselineEconomy.uncachedInputTokens} | ${candidateEconomy.uncachedInputTokens} |`,
     `| Output tokens | ${baselineEconomy.outputTokens} | ${candidateEconomy.outputTokens} |`,
-    `| API-equivalent cost (USD) | ${baselineEconomy.apiEquivalentCostUsd} | ${candidateEconomy.apiEquivalentCostUsd} |`,
+    `| Recorded cost (USD) | ${baselineEconomy.costUsd} | ${candidateEconomy.costUsd} |`,
     `| Cost per fully metered task (USD) | ${value(baselineEconomy.costPerMeteredUsd)} | ${value(candidateEconomy.costPerMeteredUsd)} |`,
     `| Cost per pass (USD) | ${value(baselineEconomy.costPerPassUsd)} | ${value(candidateEconomy.costPerPassUsd)} |`,
     '',
     '## Interpretation boundary',
     '',
-    'No composite score: effectiveness and economy are reported as separate axes. Cost is a cache-aware API-equivalent estimate from the frozen public price snapshot, not the fixed-plan bill.',
+    report.billingMode === 'account-plan'
+      ? 'No composite score: effectiveness and economy are reported as separate axes. Recorded cost is zero under the frozen account-plan billing profile; real token usage remains the economy measure.'
+      : 'No composite score: effectiveness and economy are reported as separate axes. Recorded cost is a cache-aware API-equivalent estimate from the frozen pricing profile.',
     '',
   ].join('\n');
 }
@@ -252,6 +261,9 @@ export function assertHarnessAbReportCompleted(report: HarnessAbReport): void {
   if (report.runStatus === 'incomplete') {
     throw new Error(`harness A/B incomplete: ${report.coverage.attemptedCells}/${report.coverage.scheduledCells} scheduled cells attempted`);
   }
+  if (report.runStatus === 'completed_with_gaps') {
+    throw new Error(`harness A/B completed with gaps: ${report.coverage.unscoredCells} unscored cells; ${report.coverage.missingFinalUsageCells} missing final usage`);
+  }
 }
 
 function pairedArmEffectiveness(
@@ -275,7 +287,7 @@ function armEconomy(
     uncachedInputTokens: tokens.cacheMissInput,
     outputTokens: tokens.output,
     totalTokens: tokens.total,
-    apiEquivalentCostUsd: tokens.costUsd,
+    costUsd: tokens.costUsd,
     tokensPerMetered: divide(tokens.total, evaluated),
     costPerMeteredUsd: divide(tokens.costUsd, evaluated),
     costPerPassUsd: divide(tokens.costUsd, passed),

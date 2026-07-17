@@ -2180,6 +2180,27 @@ with tempfile.TemporaryDirectory() as tmp:
     assert cell["runtimeRefs"]["sessionId"] == "session-1", cell
     assert cell["toolSummary"]["actualToolCallCounts"] == {"Shell": 1}, cell
     assert "tokenSummary" not in cell, cell
+
+    def assert_invalid_stream(raw, expected):
+        (logs / "kimi-code.jsonl").write_text(raw, encoding="utf-8")
+        try:
+            agent.populate_context_post_run(object())
+        except ValueError as error:
+            assert expected in str(error), error
+        else:
+            raise AssertionError(f"invalid stream was accepted: {raw!r}")
+
+    assert_invalid_stream("", "assistant message")
+    assert_invalid_stream("{not-json}\n", "valid JSON")
+    assert_invalid_stream('[]\n', "JSON object")
+    assert_invalid_stream(json.dumps({"role": "meta", "type": "session.resume_hint", "session_id": "session-2"}) + '\n', "assistant message")
+
+    agent._failure_class = "auth"
+    (logs / "kimi-code.jsonl").write_text("", encoding="utf-8")
+    agent.populate_context_post_run(object())
+    failed = json.loads((logs / "maka-cell-output.json").read_text(encoding="utf-8"))
+    assert failed["status"] == "failed", failed
+    assert failed["errorClass"] == "auth", failed
     print("kimi-code adapter ok")
 `;
 }

@@ -83,6 +83,7 @@ export async function runHarnessAbComparisonUnlocked(
         infraFailurePolicy: 'terminal',
         protectPassAtOne: true,
         requireExecutionIdentity: true,
+        requireFinalUsage: true,
         expectedPricingProfile: runtimeArm.expectedPricingProfile,
         ...(runtimeArm.billingMode ? { billingMode: runtimeArm.billingMode } : {}),
         resumeFingerprint: input.resumeFingerprint,

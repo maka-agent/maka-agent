@@ -114,25 +114,36 @@ class MakaKimiCodeAgent(BaseInstalledAgent):
             "KIMI_MODEL_THINKING_EFFORT": effort,
         }
 
-    def _events(self) -> list[dict[str, Any]]:
+    def _events(self, *, require_assistant: bool = False) -> list[dict[str, Any]]:
         path = self.logs_dir / _OUTPUT_PATH.name
         if not path.exists():
+            if require_assistant:
+                raise ValueError("Kimi Code stream-json did not contain an assistant message")
             return []
         events = []
-        for line in path.read_text(encoding="utf-8").splitlines():
+        for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+            if not line.strip():
+                continue
             try:
                 value = json.loads(line)
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as error:
+                if require_assistant:
+                    raise ValueError(f"Kimi Code stream-json line {line_number} is not valid JSON") from error
                 continue
-            if isinstance(value, dict):
-                events.append(value)
+            if not isinstance(value, dict):
+                if require_assistant:
+                    raise ValueError(f"Kimi Code stream-json line {line_number} must be a JSON object")
+                continue
+            events.append(value)
+        if require_assistant and not any(event.get("role") == "assistant" for event in events):
+            raise ValueError("Kimi Code stream-json did not contain an assistant message")
         return events
 
     def _write_cell_output(self) -> None:
         started_at = getattr(self, "_started_at_ms", int(time.time() * 1000))
         finished_at = getattr(self, "_finished_at_ms", started_at)
         identity = self._execution_identity()
-        events = self._events()
+        events = self._events(require_assistant=not hasattr(self, "_failure_class"))
         tool_call_counts: dict[str, int] = {}
         session_id = "kimi-code"
         for event in events:

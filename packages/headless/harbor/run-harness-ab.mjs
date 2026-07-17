@@ -396,7 +396,7 @@ async function runLocked({ repoRoot, makaRepoPath, tasksRoot, runId, limit, runR
       : {}),
     annotations: oracleEvidence.annotations.filter((annotation) => evaluatedTaskIds.has(annotation.taskId)),
     warnings: oracleEvidence.warnings,
-  });
+  }, BILLING_MODE);
   await writeFile(join(runRoot, 'harness-ab-report.json'), `${JSON.stringify(report, null, 2)}\n`, 'utf8');
   await writeFile(join(runRoot, 'harness-ab-report.csv'), renderHarnessAbReportCsv(report), 'utf8');
   await writeFile(join(runRoot, 'harness-ab-report.md'), renderHarnessAbReportMarkdown(report), 'utf8');

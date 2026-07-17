@@ -342,6 +342,7 @@ export interface RunFixedPromptControllerInput {
   infraFailurePolicy?: 'retry-once' | 'terminal';
   resumeFingerprint?: string;
   requireExecutionIdentity?: boolean;
+  requireFinalUsage?: boolean;
   expectedPricingProfile?: string;
   billingMode?: HarborBillingMode;
   /** Refuse resume when a model attempt was durably admitted but no terminal
@@ -463,6 +464,7 @@ export async function runFixedPromptController(
         systemPrompt,
         expectedPromptHash,
         requireExecutionIdentity: input.requireExecutionIdentity,
+        requireFinalUsage: input.requireFinalUsage,
         expectedPricingProfile: input.expectedPricingProfile,
         billingMode: input.billingMode,
         resumeFingerprint: input.resumeFingerprint,
@@ -621,6 +623,7 @@ async function runTaskAndBuildEvent(input: {
   systemPrompt: string;
   expectedPromptHash: string;
   requireExecutionIdentity?: boolean;
+  requireFinalUsage?: boolean;
   expectedPricingProfile?: string;
   billingMode?: HarborBillingMode;
   resumeFingerprint?: string;
@@ -667,6 +670,7 @@ async function runTaskAndBuildEvent(input: {
         expectedPromptHash: input.expectedPromptHash,
         expectedConfig: input.config,
         requireExecutionIdentity: input.requireExecutionIdentity,
+        requireFinalUsage: input.requireFinalUsage,
         expectedPricingProfile: input.expectedPricingProfile,
         billingMode: input.billingMode,
         resumeFingerprint: input.resumeFingerprint,
@@ -705,6 +709,7 @@ async function runTaskAndBuildEvent(input: {
           expectedPromptHash: input.expectedPromptHash,
           expectedConfig: input.config,
           requireExecutionIdentity: input.requireExecutionIdentity,
+          requireFinalUsage: input.requireFinalUsage,
           expectedPricingProfile: input.expectedPricingProfile,
           billingMode: input.billingMode,
           resumeFingerprint: input.resumeFingerprint,
@@ -728,6 +733,7 @@ async function runTaskAndBuildEvent(input: {
     expectedConfig: input.config,
     expectedPromptHash: input.expectedPromptHash,
     requireExecutionIdentity: input.requireExecutionIdentity,
+    requireFinalUsage: input.requireFinalUsage,
     expectedPricingProfile: input.expectedPricingProfile,
     billingMode: input.billingMode,
     resumeFingerprint: input.resumeFingerprint,
@@ -744,6 +750,7 @@ function taskEventFromOutput(input: {
   expectedConfig: Config;
   expectedPromptHash: string;
   requireExecutionIdentity?: boolean;
+  requireFinalUsage?: boolean;
   expectedPricingProfile?: string;
   billingMode?: HarborBillingMode;
   resumeFingerprint?: string;
@@ -778,6 +785,7 @@ function taskEventFromOutput(input: {
     input.expectedPromptHash,
     input.expectedConfig,
     input.requireExecutionIdentity ?? false,
+    input.requireFinalUsage ?? false,
     input.expectedPricingProfile,
     input.billingMode,
   );
@@ -902,6 +910,7 @@ function classifyPlumbingFailure(
   expectedPromptHash: string,
   expectedConfig: Config,
   requireExecutionIdentity: boolean,
+  requireFinalUsage: boolean,
   expectedPricingProfile: string | undefined,
   billingMode: HarborBillingMode | undefined,
 ): {
@@ -926,6 +935,12 @@ function classifyPlumbingFailure(
     return {
       errorClass: 'prompt_hash_mismatch',
       error: `Harbor cell prompt hash ${output.cell.promptHash} did not match ${expectedPromptHash}`,
+    };
+  }
+  if (requireFinalUsage && output.cell.status === 'completed' && output.cell.tokenSummary === undefined) {
+    return {
+      errorClass: 'missing_token_usage',
+      error: 'Harbor cell did not report final token usage',
     };
   }
   if (billingMode !== 'account-plan' && output.cell.tokenSummary && output.cell.tokenSummary.total > 0 && output.cell.tokenSummary.costUsd === 0) {
@@ -1023,6 +1038,7 @@ function taskBudgetExhaustedEvent(input: {
   expectedPromptHash: string;
   expectedConfig: Config;
   requireExecutionIdentity?: boolean;
+  requireFinalUsage?: boolean;
   expectedPricingProfile?: string;
   billingMode?: HarborBillingMode;
   resumeFingerprint?: string;
@@ -1057,6 +1073,7 @@ function taskBudgetExhaustedEvent(input: {
             input.expectedPromptHash,
             input.expectedConfig,
             input.requireExecutionIdentity ?? false,
+            input.requireFinalUsage ?? false,
             input.expectedPricingProfile,
             input.billingMode,
           ));

@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { describe, test } from 'node:test';
 import { hashHarborSystemPrompt, type HarborCellOutput } from '../cell-output.js';
 import type { HarborTaskRunner } from '../fixed-prompt-controller.js';
-import { buildHarnessAbReport } from '../harness-ab-report.js';
+import { assertHarnessAbReportCompleted, buildHarnessAbReport } from '../harness-ab-report.js';
 import { runHarnessAbComparison } from '../harness-ab-run.js';
 import { HarborInfraError } from '../harbor-task-runner.js';
 import { tokenSummary } from './helpers/cell-output-fixtures.js';
@@ -258,6 +258,46 @@ describe('runHarnessAbComparison', () => {
         unscoredCells: 1,
         missingFinalUsageCells: 0,
       });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('fails closed when an otherwise completed harness cell has no final usage', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'maka-harness-ab-final-usage-'));
+    try {
+      const promptPath = join(dir, 'empty-system-prompt.txt');
+      const resultsPath = join(dir, 'results.jsonl');
+      await writeFile(promptPath, '', 'utf8');
+      const calls: string[] = [];
+      const maka = harnessArm('maka', calls);
+      const meteredRunner = maka.harborRunner;
+      maka.harborRunner = async (input) => {
+        const output = await meteredRunner(input);
+        const { tokenSummary: _tokenSummary, ...cell } = output.cell;
+        return { ...output, cell };
+      };
+
+      const summary = await runHarnessAbComparison({
+        runId: 'glm-harness-ab',
+        runRoot: dir,
+        resultsJsonlPath: resultsPath,
+        systemPromptPath: promptPath,
+        resumeFingerprint: 'sha256:manifest',
+        evaluationTasks: [{ id: 'a', path: '/tasks/a' }],
+        arms: [maka, harnessArm('opencode', calls)],
+      });
+      const events = (await readFile(resultsPath, 'utf8')).trim().split('\n').map((line) => JSON.parse(line) as {
+        type: string;
+        errorClass?: string;
+      });
+      const report = buildHarnessAbReport(summary);
+
+      assert.ok(events.some((event) => (
+        event.type === 'task_plumbing_failed' && event.errorClass === 'missing_token_usage'
+      )));
+      assert.equal(report.runStatus, 'completed_with_gaps');
+      assert.throws(() => assertHarnessAbReportCompleted(report), /completed with gaps/);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
