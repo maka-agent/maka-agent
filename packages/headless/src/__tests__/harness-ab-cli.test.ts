@@ -116,6 +116,30 @@ test('semantic compact supplement mode creates one isolated batch with source pr
   });
 });
 
+test('semantic compact cell supplement mode preserves the exact requested arms', async () => {
+  const { semanticCompactBatchPlan } = await import(
+    new URL('../../harbor/run-semantic-compact-batched.mjs', import.meta.url).href
+  );
+
+  assert.deepEqual(semanticCompactBatchPlan({
+    MAKA_SEMANTIC_AB_SUPPLEMENT_CELLS: 'mteb-leaderboard:off,mteb-leaderboard:compact,tune-mjcf:off',
+    MAKA_SEMANTIC_AB_RUN_ID: 'semantic-compact-cell-supplement',
+    MAKA_SEMANTIC_AB_SUPPLEMENT_OF_RUN_ID: 'semantic-compact-main-v2',
+  }), {
+    parentRunId: 'semantic-compact-cell-supplement',
+    supplementOfRunId: 'semantic-compact-main-v2',
+    batches: [{
+      id: 'supplement',
+      taskIds: ['mteb-leaderboard', 'tune-mjcf'],
+      cells: [
+        { taskId: 'mteb-leaderboard', armId: 'maka-semantic-off' },
+        { taskId: 'mteb-leaderboard', armId: 'maka-semantic-compact-replace' },
+        { taskId: 'tune-mjcf', armId: 'maka-semantic-off' },
+      ],
+    }],
+  });
+});
+
 test('semantic compact default plan preserves the historical 15 plus 15 batches', async () => {
   const { semanticCompactBatchPlan } = await import(
     new URL('../../harbor/run-semantic-compact-batched.mjs', import.meta.url).href

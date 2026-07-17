@@ -4,7 +4,7 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ensureAbRunManifest } from '#ab-manifest';
+import { buildRunManifestFingerprint, ensureAbRunManifest } from '#ab-manifest';
 import {
   discoverCachedHarborTasks,
   fingerprintFixedPromptTaskTree,
@@ -22,6 +22,7 @@ import {
   TERMINAL_BENCH_2_1_REVISION,
 } from '#harness-ab-manifest';
 import {
+  runHarnessAbCellsUnlocked,
   runHarnessAbComparisonUnlocked,
   withHarnessAbRunLock,
 } from '#harness-ab-run';
@@ -224,9 +225,31 @@ export function semanticCompactSupplementTaskIds(env = process.env) {
   return taskIds;
 }
 
+export function semanticCompactSupplementCells(env = process.env) {
+  const raw = env.MAKA_SEMANTIC_AB_SUPPLEMENT_CELLS;
+  if (!raw) return null;
+  const armIds = {
+    off: 'maka-semantic-off',
+    compact: 'maka-semantic-compact-replace',
+  };
+  const historical = new Set(HISTORICAL_V1_TASK_IDS);
+  return raw.split(',').map((value) => {
+    const [taskId, arm, ...extra] = value.trim().split(':');
+    if (!taskId || !arm || extra.length > 0) throw new Error(`invalid semantic compact supplement cell: ${value.trim()}`);
+    if (!historical.has(taskId)) throw new Error(`unknown historical task: ${taskId}`);
+    const armId = armIds[arm];
+    if (!armId) throw new Error(`unknown semantic compact arm: ${arm}`);
+    return { taskId, armId };
+  });
+}
+
 export function semanticCompactBatchPlan(env = process.env) {
   const supplementTaskIds = semanticCompactSupplementTaskIds(env);
-  if (supplementTaskIds === null) {
+  const supplementCells = semanticCompactSupplementCells(env);
+  if (supplementTaskIds !== null && supplementCells !== null) {
+    throw new Error('semantic compact supplement task pairs and cells are mutually exclusive');
+  }
+  if (supplementTaskIds === null && supplementCells === null) {
     return {
       parentRunId: env.MAKA_SEMANTIC_AB_RUN_ID || 'glm-5.2-semantic-compact-30-local-edit-fix-v1',
       batches: [
@@ -235,9 +258,15 @@ export function semanticCompactBatchPlan(env = process.env) {
       ],
     };
   }
-  if (supplementTaskIds.length === 0) throw new Error('supplement task list must not be empty');
-  if (new Set(supplementTaskIds).size !== supplementTaskIds.length) {
-    throw new Error('supplement task list must contain unique task ids');
+  if (supplementTaskIds !== null) {
+    if (supplementTaskIds.length === 0) throw new Error('supplement task list must not be empty');
+    if (new Set(supplementTaskIds).size !== supplementTaskIds.length) {
+      throw new Error('supplement task list must contain unique task ids');
+    }
+  } else {
+    if (supplementCells.length === 0) throw new Error('supplement cell list must not be empty');
+    const uniqueCells = new Set(supplementCells.map((cell) => `${cell.taskId}\0${cell.armId}`));
+    if (uniqueCells.size !== supplementCells.length) throw new Error('supplement cell list must contain unique cells');
   }
   const parentRunId = env.MAKA_SEMANTIC_AB_RUN_ID;
   const supplementOfRunId = env.MAKA_SEMANTIC_AB_SUPPLEMENT_OF_RUN_ID;
@@ -247,7 +276,13 @@ export function semanticCompactBatchPlan(env = process.env) {
   return {
     parentRunId,
     supplementOfRunId,
-    batches: [{ id: 'supplement', taskIds: supplementTaskIds }],
+    batches: supplementTaskIds !== null
+      ? [{ id: 'supplement', taskIds: supplementTaskIds }]
+      : [{
+          id: 'supplement',
+          taskIds: [...new Set(supplementCells.map((cell) => cell.taskId))],
+          cells: supplementCells,
+        }],
   };
 }
 
@@ -347,13 +382,74 @@ async function writeJsonAtomic(path, value) {
   await rename(pending, path);
 }
 
-async function runBatch({ parentRoot, batchId, taskIds, tasksById, common }) {
+export function buildSemanticCompactCellSupplementReport(runId, result) {
+  const cells = result.cells.map(({ taskId, armId, event }) => ({
+    taskId,
+    armId,
+    roundId: event.roundId,
+    eventType: event.type,
+    status: event.status,
+    passed: event.passed,
+    scored: event.scored,
+    eligible: event.eligible,
+    ...('errorClass' in event ? { errorClass: event.errorClass } : {}),
+    ...('tokenSummary' in event ? { tokenSummary: event.tokenSummary } : {}),
+    ...('executionIdentity' in event ? { executionIdentity: event.executionIdentity } : {}),
+  }));
+  const modelScoredCells = cells.filter((cell) => cell.scored).length;
+  const infraFailedCells = cells.filter((cell) => cell.eventType === 'task_infra_failed').length;
+  const missingFinalUsageCells = cells.filter((cell) => cell.scored && !cell.tokenSummary).length;
+  const validCells = cells.filter((cell) => cell.scored && cell.eligible && cell.tokenSummary).length;
+  return {
+    schemaVersion: 'maka.harness_ab.cell_supplement_report.v1',
+    runId,
+    runStatus: validCells === cells.length ? 'completed' : 'completed_with_gaps',
+    coverage: {
+      scheduledCells: cells.length,
+      attemptedCells: cells.length,
+      modelScoredCells,
+      validCells,
+      infraFailedCells,
+      unscoredCells: cells.length - modelScoredCells,
+      missingFinalUsageCells,
+    },
+    cells,
+  };
+}
+
+function renderSemanticCompactCellSupplementReportMarkdown(report) {
+  const lines = [
+    `# Semantic compact cell supplement: ${report.runId}`,
+    '',
+    `Status: \`${report.runStatus}\``,
+    '',
+    '| Task | Arm | Status | Passed | Scored | Tokens |',
+    '|---|---|---|:---:|:---:|---:|',
+  ];
+  for (const cell of report.cells) {
+    lines.push(`| ${cell.taskId} | ${cell.armId} | ${cell.status} | ${cell.passed ? 'yes' : 'no'} | ${cell.scored ? 'yes' : 'no'} | ${cell.tokenSummary?.total ?? '—'} |`);
+  }
+  return `${lines.join('\n')}\n`;
+}
+
+async function runBatch({ parentRoot, batchId, taskIds, cells, tasksById, common }) {
   const runId = `${common.parentRunId}-${batchId}`;
   const runRoot = resolveFixedPromptRunRoot(parentRoot, runId, 'MAKA_SEMANTIC_AB_RUN_ID');
   return withHarnessAbRunLock(runRoot, async () => {
     const manifest = buildManifest({ taskIds, batchId, ...common });
     await mkdir(runRoot, { recursive: true });
     await ensureAbRunManifest(join(runRoot, 'harness-ab-manifest.json'), manifest);
+    if (cells) {
+      const selection = {
+        schemaVersion: 'maka.harness_ab.cell_selection.v1',
+        runId,
+        cells,
+      };
+      await ensureAbRunManifest(join(runRoot, 'harness-ab-cell-selection.json'), {
+        ...selection,
+        fingerprint: buildRunManifestFingerprint(selection),
+      });
+    }
     const evaluationTasks = manifest.evaluationTaskIds.map((taskId) => tasksById.get(taskId));
     if (evaluationTasks.some((task) => !task)) throw new Error(`${batchId} contains a task absent from source`);
 
@@ -390,36 +486,48 @@ async function runBatch({ parentRoot, batchId, taskIds, tasksById, common }) {
       model: modelId,
       thinkingLevel: REASONING_EFFORT,
     });
-    const summary = await runHarnessAbComparisonUnlocked({
+    const arms = [
+      {
+        id: 'maka-semantic-off',
+        config: config('off'),
+        expectedPricingProfile: profile.pricing.source,
+        ...(profile.billingMode ? { billingMode: profile.billingMode } : {}),
+        harborRunner: createHarborTaskRunner({
+          ...runnerOptions,
+          agentEnv: { ...runnerOptions.agentEnv, ...contextBudgetEnv(OFF_PROFILE) },
+        }),
+      },
+      {
+        id: 'maka-semantic-compact-replace',
+        config: config('replace'),
+        expectedPricingProfile: profile.pricing.source,
+        ...(profile.billingMode ? { billingMode: profile.billingMode } : {}),
+        harborRunner: createHarborTaskRunner({
+          ...runnerOptions,
+          agentEnv: { ...runnerOptions.agentEnv, ...contextBudgetEnv(COMPACT_PROFILE) },
+        }),
+      },
+    ];
+    const harnessInput = {
       runId,
       runRoot,
       resultsJsonlPath: join(controllerDir, 'results.jsonl'),
       systemPromptPath,
       resumeFingerprint: buildHarnessAbResumeFingerprint(manifest),
       evaluationTasks,
-      arms: [
-        {
-          id: 'maka-semantic-off',
-          config: config('off'),
-          expectedPricingProfile: profile.pricing.source,
-          ...(profile.billingMode ? { billingMode: profile.billingMode } : {}),
-          harborRunner: createHarborTaskRunner({
-            ...runnerOptions,
-            agentEnv: { ...runnerOptions.agentEnv, ...contextBudgetEnv(OFF_PROFILE) },
-          }),
-        },
-        {
-          id: 'maka-semantic-compact-replace',
-          config: config('replace'),
-          expectedPricingProfile: profile.pricing.source,
-          ...(profile.billingMode ? { billingMode: profile.billingMode } : {}),
-          harborRunner: createHarborTaskRunner({
-            ...runnerOptions,
-            agentEnv: { ...runnerOptions.agentEnv, ...contextBudgetEnv(COMPACT_PROFILE) },
-          }),
-        },
-      ],
-    });
+      arms,
+    };
+    if (cells) {
+      const result = await runHarnessAbCellsUnlocked({ ...harnessInput, cells });
+      const report = buildSemanticCompactCellSupplementReport(runId, result);
+      await Promise.all([
+        writeFile(join(runRoot, 'harness-ab-cell-report.json'), `${JSON.stringify(report, null, 2)}\n`, 'utf8'),
+        writeFile(join(runRoot, 'harness-ab-cell-report.md'), renderSemanticCompactCellSupplementReportMarkdown(report), 'utf8'),
+      ]);
+      console.log(`${batchId}: ${report.runStatus}; ${report.coverage.attemptedCells}/${report.coverage.scheduledCells} cells`);
+      return { runId, runRoot, report };
+    }
+    const summary = await runHarnessAbComparisonUnlocked(harnessInput);
     const selected = new Set(taskIds);
     const report = buildHarnessAbReport(summary, {
       ...(common.oracleEvidence.resolvedSnapshotFingerprint
@@ -468,7 +576,8 @@ export async function main() {
 
   if (process.env.MAKA_SEMANTIC_AB_DRY_RUN === '1') {
     const taskCount = new Set(batchPlan.batches.flatMap((batch) => batch.taskIds)).size;
-    console.log(`dry-run: ${execution.profile.provider}/${execution.modelId}; ${batchPlan.batches.length} batch(es), ${taskCount} unique tasks, ${taskCount * 2} total cells -> ${parentRoot}`);
+    const cellCount = batchPlan.batches.reduce((sum, batch) => sum + (batch.cells?.length ?? batch.taskIds.length * 2), 0);
+    console.log(`dry-run: ${execution.profile.provider}/${execution.modelId}; ${batchPlan.batches.length} batch(es), ${taskCount} unique tasks, ${cellCount} total cells -> ${parentRoot}`);
     return;
   }
 
@@ -504,7 +613,11 @@ export async function main() {
     taskSourceFingerprint,
     executionProfile: execution.profile,
     batches: [
-      ...batchPlan.batches.map((batch) => ({ id: batch.id, taskCount: batch.taskIds.length })),
+      ...batchPlan.batches.map((batch) => ({
+        id: batch.id,
+        taskCount: batch.taskIds.length,
+        cellCount: batch.cells?.length ?? batch.taskIds.length * 2,
+      })),
     ],
     ...(batchPlan.supplementOfRunId ? { supplementOfRunId: batchPlan.supplementOfRunId } : {}),
   };
@@ -513,6 +626,9 @@ export async function main() {
     parentRunId,
     historicalV1TaskIds: HISTORICAL_V1_TASK_IDS,
     batches: Object.fromEntries(batchPlan.batches.map((batch) => [batch.id, batch.taskIds])),
+    ...(batchPlan.batches.some((batch) => batch.cells)
+      ? { supplementCells: batchPlan.batches.flatMap((batch) => batch.cells ?? []) }
+      : {}),
     ...(batchPlan.supplementOfRunId ? { supplementOfRunId: batchPlan.supplementOfRunId } : {}),
     subjectFingerprint,
     taskSourceFingerprint,
@@ -533,6 +649,7 @@ export async function main() {
         parentRoot,
         batchId: batch.id,
         taskIds: batch.taskIds,
+        cells: batch.cells,
         tasksById,
         common,
       });
@@ -540,11 +657,12 @@ export async function main() {
       reports.push(result.report);
     }
     const uniqueTaskCount = new Set(batchPlan.batches.flatMap((batch) => batch.taskIds)).size;
+    const scheduledCells = batchPlan.batches.reduce((sum, batch) => sum + (batch.cells?.length ?? batch.taskIds.length * 2), 0);
     await writeJsonAtomic(join(parentRoot, 'combined-report.json'), {
       schemaVersion: 1,
       runId: parentRunId,
       uniqueTaskCount,
-      scheduledCells: uniqueTaskCount * 2,
+      scheduledCells,
       ...(batchPlan.supplementOfRunId ? { supplementOfRunId: batchPlan.supplementOfRunId } : {}),
       batches: reports,
     });
