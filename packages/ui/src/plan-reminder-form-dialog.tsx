@@ -27,14 +27,10 @@ import type {
 } from '@maka/core';
 import { BOT_DELIVERY_PROVIDERS, botDisplayLabel } from '@maka/core';
 import {
-  type PlanReminderExampleTemplate,
-  duplicatePlanReminderTitle,
+  type PlanReminderFormSeed,
   formatPlanDeliveryProviderList,
-  planReminderEditableRunAt,
   planReminderFormValidationMessage,
   planReminderPresetRunAt,
-  planReminderRecurrenceValue,
-  planReminderTemplateNextRunAt,
   toPlanReminderDateTimeInputValue,
 } from './plan-reminder-helpers.js';
 import { PlanReminderSelect } from './plan-reminder-select.js';
@@ -50,75 +46,6 @@ import type {
   PlanReminderDraftInput,
   PlanReminderUpdatePatch,
 } from './module-panel-types.js';
-
-/** Initial field values the dialog mounts with (one per open). */
-export interface PlanReminderFormSeed {
-  editingId: string | null;
-  title: string;
-  note: string;
-  runAtLocal: string;
-  recurrence: PlanReminderRecurrence;
-  cronExpression: string;
-  deliveryChannel: PlanReminderDeliveryTarget['channel'];
-  deliveryPlatform: BotProvider;
-  deliveryChatId: string;
-}
-
-/** Blank create-mode seed (one hour from now, no recurrence, local delivery). */
-export function createPlanReminderFormSeed(): PlanReminderFormSeed {
-  return {
-    editingId: null,
-    title: '',
-    note: '',
-    runAtLocal: toPlanReminderDateTimeInputValue(Date.now() + 60 * 60 * 1000),
-    recurrence: 'none',
-    cronExpression: '0 9 * * 1-5',
-    deliveryChannel: 'local',
-    deliveryPlatform: 'telegram',
-    deliveryChatId: '',
-  };
-}
-
-/** Create-mode seed prefilled from an example template. */
-export function planReminderTemplateSeed(template: PlanReminderExampleTemplate): PlanReminderFormSeed {
-  return {
-    ...createPlanReminderFormSeed(),
-    title: template.title,
-    note: template.note,
-    recurrence: template.recurrence,
-    cronExpression: template.cronExpression,
-    runAtLocal: toPlanReminderDateTimeInputValue(planReminderTemplateNextRunAt(template)),
-  };
-}
-
-function planReminderReminderSeed(reminder: PlanReminder): PlanReminderFormSeed {
-  return {
-    editingId: reminder.id,
-    title: reminder.title,
-    note: reminder.note,
-    runAtLocal: toPlanReminderDateTimeInputValue(planReminderEditableRunAt(reminder)),
-    recurrence: planReminderRecurrenceValue(reminder),
-    cronExpression: reminder.schedule.kind === 'cron' ? reminder.schedule.expression : '0 9 * * 1-5',
-    deliveryChannel: reminder.delivery.channel,
-    ...(reminder.delivery.channel === 'bot'
-      ? { deliveryPlatform: reminder.delivery.platform, deliveryChatId: reminder.delivery.chatId }
-      : { deliveryPlatform: 'telegram' as BotProvider, deliveryChatId: '' }),
-  };
-}
-
-/** Edit-mode seed prefilled from an existing reminder. */
-export function planReminderEditSeed(reminder: PlanReminder): PlanReminderFormSeed {
-  return planReminderReminderSeed(reminder);
-}
-
-/** Create-mode seed copying an existing reminder under a 副本 title. */
-export function planReminderDuplicateSeed(reminder: PlanReminder): PlanReminderFormSeed {
-  return {
-    ...planReminderReminderSeed(reminder),
-    editingId: null,
-    title: duplicatePlanReminderTitle(reminder.title),
-  };
-}
 
 export function PlanReminderFormDialog(props: {
   open: boolean;
