@@ -267,12 +267,19 @@ export function createHarborTaskRunner(options: HarborTaskRunnerOptions): Harbor
 
     const trialException = await readTrialException(resultPath);
     if (trialException && isBudgetExhaustedTrialException(trialException)) {
-      const artifactRefs = await readTimedOutTrialArtifacts(trialDir, input.task.id);
-      throw new FixedPromptBudgetExhaustedError(
-        `agent budget exhausted for task ${input.task.id}`,
-        trialException,
-        artifactRefs ?? undefined,
-      );
+      const [rewardArtifact, verifierArtifact, cellArtifact] = await Promise.all([
+        readOptionalText(rewardPath),
+        readOptionalText(join(trialDir, TRIAL_VERIFIER_OUTCOME)),
+        readOptionalText(cellOutputPath),
+      ]);
+      if (rewardArtifact === null || verifierArtifact === null || cellArtifact === null) {
+        const artifactRefs = await readTimedOutTrialArtifacts(trialDir, input.task.id);
+        throw new FixedPromptBudgetExhaustedError(
+          `agent budget exhausted for task ${input.task.id}`,
+          trialException,
+          artifactRefs ?? undefined,
+        );
+      }
     }
     const reward = await readReward(rewardPath, resultPath, input.task.id);
     const rawCell = await readCellOutput(cellOutputPath, input.task.id);
