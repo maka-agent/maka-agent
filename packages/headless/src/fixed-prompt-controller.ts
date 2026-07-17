@@ -810,7 +810,12 @@ function taskCompletedEvent(input: {
 }): FixedPromptTaskCompletedEvent {
   const { output } = input;
   const deadlineSettled = output.cell.deadlineSettlement?.source === 'benchmark.deadline';
-  const verifierGraded = output.cell.status === 'completed' || deadlineSettled;
+  const verifierGraded = output.cell.status === 'completed'
+    || deadlineSettled
+    || (
+      (output.cell.errorClass === 'max_tokens' || output.cell.errorClass === 'tool_step_cap_reached')
+      && output.harbor.verifier !== undefined
+    );
   const passed = verifierGraded && output.harbor.reward > 0;
   const errorClass = output.cell.errorClass ?? (passed ? undefined : 'verification_failed');
   const scored = verifierGraded && !isUnscoredCellFailure(errorClass);
