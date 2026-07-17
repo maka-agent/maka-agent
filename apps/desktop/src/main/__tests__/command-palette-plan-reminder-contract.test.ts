@@ -19,12 +19,14 @@ describe('command palette plan reminder contract', () => {
 
   it('wires the action to the shipped plan panel and focuses the title field', async () => {
     const main = await readRendererShellCombinedSource();
-    const ui = await readFile(resolve(REPO_ROOT, 'packages/ui/src/plan-reminder-panel.tsx'), 'utf8');
+    // Issue #1044: the form (and its title input) lives in the extracted
+    // PlanReminderFormDialog; the focus hook marker moved with it.
+    const dialog = await readFile(resolve(REPO_ROOT, 'packages/ui/src/plan-reminder-form-dialog.tsx'), 'utf8');
 
     assert.match(main, /function\s+openPlanReminderForm\(\)/);
     assert.match(main, /setNavSelection\(\{\s*section:\s*'automations'\s*\}\)/);
     assert.match(main, /onStartPlanReminder:\s*openPlanReminderForm/);
     assert.match(main, /querySelector<HTMLInputElement>\('\[data-maka-plan-title-input="true"\]'\)/);
-    assert.match(ui, /data-maka-plan-title-input="true"/);
+    assert.match(dialog, /data-maka-plan-title-input="true"/);
   });
 });

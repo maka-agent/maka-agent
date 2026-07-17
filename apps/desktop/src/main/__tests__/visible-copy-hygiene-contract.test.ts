@@ -43,6 +43,7 @@ const FILES_TO_SCAN = [
   resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'skills-panel.tsx'),
   resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'daily-review-panel.tsx'),
   resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'plan-reminder-panel.tsx'),
+  resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'plan-reminder-form-dialog.tsx'),
   resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'chat-empty-hero.tsx'),
   ...RENDERER_SHELL_SOURCE_REPO_PATHS.map((repoPath) => resolve(process.cwd(), '..', '..', repoPath)),
   join(process.cwd(), 'src', 'renderer', 'OnboardingHero.tsx'),

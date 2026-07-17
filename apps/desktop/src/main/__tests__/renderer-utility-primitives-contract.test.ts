@@ -311,7 +311,9 @@ describe('renderer utility surfaces use shared UI primitives', () => {
       readFile(join(repoRoot, 'packages/ui/src/search-modal.tsx'), 'utf8'),
       readFile(join(process.cwd(), 'src/renderer/app-shell-chrome-actions.tsx'), 'utf8'),
       readFile(join(process.cwd(), 'src/renderer/browser-panel.tsx'), 'utf8'),
-      readFile(join(repoRoot, 'packages/ui/src/plan-reminder-panel.tsx'), 'utf8'),
+      // Issue #1044: the preset buttons live in the extracted
+      // PlanReminderFormDialog; the governed-variant assertion follows them.
+      readFile(join(repoRoot, 'packages/ui/src/plan-reminder-form-dialog.tsx'), 'utf8'),
       readFile(join(repoRoot, 'packages/ui/stories/interaction-states.stories.tsx'), 'utf8'),
       readRendererContractCss(),
     ]);
