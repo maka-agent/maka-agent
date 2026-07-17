@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import type { ConnectionTestResult, LlmConnection } from '@maka/core';
-import { deriveProviderAuthContractFromConnection, generalizedErrorMessageChinese } from '@maka/core';
+import type { LlmConnection } from '@maka/core';
+import { deriveProviderAuthContractFromConnection } from '@maka/core';
 import { PROVIDER_DEFAULTS, providerAuthRequiresSecret } from '@maka/core/llm-connections';
 import { Button, Chip, RelativeTime, useMountedRef, useToast } from '@maka/ui';
 import {
@@ -15,7 +15,10 @@ import {
 } from '../connection-status';
 import { SettingsRows, SettingRow } from './settings-rows';
 import { settingsActionErrorMessage } from './settings-error-copy';
-import { connectionLastTestMessageDisplay } from './provider-panel-shared';
+import {
+  connectionLastTestMessageDisplay,
+  connectionTestFailureMessage,
+} from './provider-panel-shared';
 import { useActionGuard } from './use-action-guard';
 
 type AccountSecretProbeStatus = boolean | 'loading' | 'error';
@@ -23,24 +26,13 @@ type AccountSecretProbeResult =
   | { slug: string; status: boolean }
   | { slug: string; status: 'error'; message: string };
 
-function accountConnectionTestFailureMessage(result: ConnectionTestResult): string {
-  const fallback = accountConnectionTestFailureFallback(result);
-  if (!result.errorMessage) return fallback;
-  return generalizedErrorMessageChinese(new Error(result.errorMessage), fallback);
-}
-
-function accountConnectionTestFailureFallback(result: ConnectionTestResult): string {
-  if (result.statusCode === 429) return '当前账号或模型服务触发速率限制，请稍后重试。';
-  if (result.errorClass === 'timeout') return '请求超时，请检查网络或代理后重试。';
-  if (result.errorClass === 'auth' || result.statusCode === 401 || result.statusCode === 403) {
-    return '鉴权失败，请检查模型密钥、订阅账号登录或凭据配置后重试。';
-  }
-  if (result.errorClass === 'provider_unavailable' || (result.statusCode !== undefined && result.statusCode >= 500)) {
-    return '模型服务暂时不可用，请稍后重试。';
-  }
-  if (result.errorClass === 'network') return '网络错误，请检查服务地址或代理设置后重试。';
-  return '连接测试失败，请检查模型连接配置后重试。';
-}
+// Account-page troubleshooting copy is broader than the Models sheet: a
+// single list spans API-key and OAuth providers, so auth/recheck guidance
+// cannot mention a specific field like the connection-detail sheet does.
+const ACCOUNT_CONNECTION_TEST_COPY = {
+  auth: '鉴权失败，请检查模型密钥、订阅账号登录或凭据配置后重试。',
+  recheck: '连接测试失败，请检查模型连接配置后重试。',
+} as const;
 
 export function AccountSettingsPage(props: {
   connections: LlmConnection[];
@@ -96,7 +88,7 @@ export function AccountSettingsPage(props: {
       if (result.ok) {
         toast.success('连接已验证', `延迟 ${result.latencyMs ?? '?'} ms${result.modelTested ? ' · ' + result.modelTested : ''}`);
       } else {
-        toast.error('连接测试失败', accountConnectionTestFailureMessage(result));
+        toast.error('连接测试失败', connectionTestFailureMessage(result, ACCOUNT_CONNECTION_TEST_COPY));
       }
     } catch (error) {
       // Main is supposed to return a structured result; if something escapes

@@ -192,9 +192,10 @@ describe('Account settings credential probe UI', () => {
 
   it('sanitizes account-page connection test failures before toast', async () => {
     const source = await readSettingsCombinedSource();
+    const { shared } = await readProviderSettingsSources();
     const page = source.match(/function AccountSettingsPage[\s\S]*?function AccountConnectionRow/)?.[0] ?? '';
-    const helper = source.match(/function accountConnectionTestFailureMessage\(result: ConnectionTestResult\): string \{[\s\S]*?\n\}/)?.[0] ?? '';
-    const fallback = source.match(/function accountConnectionTestFailureFallback\(result: ConnectionTestResult\): string \{[\s\S]*?\n\}/)?.[0] ?? '';
+    const helper = shared.match(/function connectionTestFailureMessage\([\s\S]*?\n\}/)?.[0] ?? '';
+    const fallback = shared.match(/function connectionTestFailureFallback\([\s\S]*?\n\}/)?.[0] ?? '';
 
     assert.match(
       helper,
@@ -202,18 +203,28 @@ describe('Account settings credential probe UI', () => {
       'Account page connection-test failures must classify/redact raw provider messages before toast',
     );
     assert.match(fallback, /statusCode === 429[\s\S]*触发速率限制/);
-    assert.match(fallback, /errorClass === 'auth'[\s\S]*鉴权失败/);
+    assert.match(fallback, /errorClass === 'auth'[\s\S]*copy\.auth/);
     assert.match(fallback, /errorClass === 'network'[\s\S]*网络错误，请检查服务地址或代理设置后重试/);
     assert.doesNotMatch(fallback, /Base URL/);
     assert.match(
+      source,
+      /const ACCOUNT_CONNECTION_TEST_COPY = \{[\s\S]*auth: '鉴权失败，请检查模型密钥、订阅账号登录或凭据配置后重试。',[\s\S]*recheck: '连接测试失败，请检查模型连接配置后重试。',[\s\S]*\} as const;/,
+      'Account page must inject its broader troubleshooting copy into the shared helper',
+    );
+    assert.match(
       page,
-      /toast\.error\('连接测试失败', accountConnectionTestFailureMessage\(result\)\)/,
+      /toast\.error\('连接测试失败', connectionTestFailureMessage\(result, ACCOUNT_CONNECTION_TEST_COPY\)\)/,
       'Account page test failure toast must not use result.errorMessage directly',
     );
     assert.match(
       page,
       /toast\.error\('测试出错', settingsActionErrorMessage\(error\)\)/,
       'Account page thrown test failures must use the shared Settings sanitized error helper',
+    );
+    assert.doesNotMatch(
+      page,
+      /function accountConnectionTestFailure(?:Message|Fallback)\(/,
+      'Account page must not keep a private connection-test failure classifier after sharing',
     );
     assert.doesNotMatch(
       page,

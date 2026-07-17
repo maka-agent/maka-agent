@@ -28,6 +28,41 @@ export function providerPanelActionErrorMessage(error: unknown): string {
   return generalizedErrorMessageChinese(error, '模型连接服务暂时不可用，请稍后重试。');
 }
 
+export interface ConnectionTestTroubleshootingCopy {
+  /** Auth-class failure copy (errorClass 'auth' or HTTP 401/403). */
+  auth: string;
+  /** Final fallback copy when no failure class matched. */
+  recheck: string;
+}
+
+// Shared connection-test failure classification. The Models connection
+// sheet and the Account page used to each hand-copy this table; only the
+// surface-specific troubleshooting copy differs, so callers inject it.
+export function connectionTestFailureFallback(
+  result: ConnectionTestResult,
+  copy: ConnectionTestTroubleshootingCopy,
+): string {
+  if (result.statusCode === 429) return '当前账号或模型服务触发速率限制，请稍后重试。';
+  if (result.errorClass === 'timeout') return '请求超时，请检查网络或代理后重试。';
+  if (result.errorClass === 'auth' || result.statusCode === 401 || result.statusCode === 403) {
+    return copy.auth;
+  }
+  if (result.errorClass === 'provider_unavailable' || (result.statusCode !== undefined && result.statusCode >= 500)) {
+    return '模型服务暂时不可用，请稍后重试。';
+  }
+  if (result.errorClass === 'network') return '网络错误，请检查服务地址或代理设置后重试。';
+  return copy.recheck;
+}
+
+export function connectionTestFailureMessage(
+  result: ConnectionTestResult,
+  copy: ConnectionTestTroubleshootingCopy,
+): string {
+  const fallback = connectionTestFailureFallback(result, copy);
+  if (!result.errorMessage) return fallback;
+  return generalizedErrorMessageChinese(new Error(result.errorMessage), fallback);
+}
+
 export function connectionLastTestMessageDisplay(message: string | undefined): string | undefined {
   if (!message) return undefined;
   const trimmed = message.trim();

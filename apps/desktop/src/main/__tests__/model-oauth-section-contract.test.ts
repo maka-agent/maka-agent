@@ -137,13 +137,23 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       providers,
-      /function connectionTestFailureMessage\(result: ConnectionTestResult, troubleshootingCopy: string\)[\s\S]*generalizedErrorMessageChinese\(new Error\(result\.errorMessage\), fallback\)/,
+      /function connectionTestFailureMessage\(\s*result: ConnectionTestResult,\s*copy: ConnectionTestTroubleshootingCopy,\s*\): string \{[\s\S]*generalizedErrorMessageChinese\(new Error\(result\.errorMessage\), fallback\)/,
       'failed connection tests must not toast raw provider response bodies',
     );
     assert.match(
+      providers,
+      /function connectionTestFailureFallback\(\s*result: ConnectionTestResult,\s*copy: ConnectionTestTroubleshootingCopy,\s*\): string \{[\s\S]*statusCode === 429[\s\S]*errorClass === 'auth'[\s\S]*copy\.auth[\s\S]*copy\.recheck/,
+      'connection-test failure classification must live once in provider-panel-shared with injectable surface copy',
+    );
+    assert.match(
       detail,
-      /toast\.error\([\s\S]*`连接失败 · \$\{connection\.name\}`,[\s\S]*connectionTestFailureMessage\(result, credentialTroubleshootingCopy\)/,
-      'ConnectionDetail test failure toast must use localized sanitized copy',
+      /toast\.error\([\s\S]*`连接失败 · \$\{connection\.name\}`,[\s\S]*connectionTestFailureMessage\(result, \{\s*auth: `鉴权失败，请确认 \$\{credentialTroubleshootingCopy\} 后重试。`,\s*recheck: `检查 \$\{credentialTroubleshootingCopy\} 后重试。`,\s*\}\)/,
+      'ConnectionDetail test failure toast must use shared helper with Models-sheet troubleshooting copy',
+    );
+    assert.doesNotMatch(
+      detail,
+      /function connectionTestFailure(?:Message|Fallback)\(/,
+      'ConnectionDetail must not keep a private connection-test failure classifier after sharing',
     );
     assert.match(
       detail,

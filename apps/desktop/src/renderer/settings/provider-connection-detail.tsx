@@ -36,6 +36,7 @@ import { useActionGuard, useKeyedActionGuard } from './use-action-guard';
 import { useOAuthLoginFlow, type OAuthLoginFlowBridge } from './use-oauth-login-flow';
 import {
   connectionLastTestMessageDisplay,
+  connectionTestFailureMessage,
   providerPanelActionErrorMessage,
   type ConnectionsBridge,
   type CredentialPresenceStatus,
@@ -66,25 +67,6 @@ function oauthLoginServiceFor(providerType: ProviderType): OAuthLoginService | n
     default:
       return null;
   }
-}
-
-function connectionTestFailureMessage(result: ConnectionTestResult, troubleshootingCopy: string): string {
-  const fallback = connectionTestFailureFallback(result, troubleshootingCopy);
-  if (!result.errorMessage) return fallback;
-  return generalizedErrorMessageChinese(new Error(result.errorMessage), fallback);
-}
-
-function connectionTestFailureFallback(result: ConnectionTestResult, troubleshootingCopy: string): string {
-  if (result.statusCode === 429) return '当前账号或模型服务触发速率限制，请稍后重试。';
-  if (result.errorClass === 'timeout') return '请求超时，请检查网络或代理后重试。';
-  if (result.errorClass === 'auth' || result.statusCode === 401 || result.statusCode === 403) {
-    return `鉴权失败，请确认 ${troubleshootingCopy} 后重试。`;
-  }
-  if (result.errorClass === 'provider_unavailable' || (result.statusCode !== undefined && result.statusCode >= 500)) {
-    return '模型服务暂时不可用，请稍后重试。';
-  }
-  if (result.errorClass === 'network') return '网络错误，请检查服务地址或代理设置后重试。';
-  return `检查 ${troubleshootingCopy} 后重试。`;
 }
 
 interface ConnectionDetailProps {
@@ -377,7 +359,10 @@ function ConnectionDetailInner(props: ConnectionDetailProps) {
       } else {
         toast.error(
           `连接失败 · ${connection.name}`,
-          connectionTestFailureMessage(result, credentialTroubleshootingCopy),
+          connectionTestFailureMessage(result, {
+            auth: `鉴权失败，请确认 ${credentialTroubleshootingCopy} 后重试。`,
+            recheck: `检查 ${credentialTroubleshootingCopy} 后重试。`,
+          }),
         );
       }
     } catch (error) {
