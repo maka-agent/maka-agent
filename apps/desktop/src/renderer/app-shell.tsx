@@ -98,6 +98,7 @@ import { createAppShellDailyReviewActions } from './app-shell-daily-review-actio
 import { createAppShellSessionRowActions } from './app-shell-session-row-actions';
 import { createAppShellSessionSettingsActions } from './app-shell-session-settings-actions';
 import { createAppShellStopAction } from './app-shell-stop-action';
+import { useStableActions } from './use-stable-actions';
 import {
   useActiveSessionEvents,
   useAppShellBootstrapSubscriptions,
@@ -299,7 +300,7 @@ export function AppShell({
     appendDailyReviewMarkdown,
     copyDailyReviewMarkdown,
     saveDailyReviewMarkdown,
-  } = createAppShellDailyReviewActions({
+  } = useStableActions(createAppShellDailyReviewActions, {
     composerRef,
     toastApi,
   });
@@ -428,7 +429,7 @@ export function AppShell({
     sessionModelChangeRegistry.keysRef.current.delete(sessionId);
   }
 
-  const sessionRowActionHandlers = createAppShellSessionRowActions({
+  const sessionRowActionHandlers = useStableActions(createAppShellSessionRowActions, {
     activeIdRef,
     clearSessionRendererState,
     pendingSessionRowActionsRef: sessionRowActionRegistry.keysRef,
@@ -438,15 +439,13 @@ export function AppShell({
     setMessages,
     toastApi,
   });
-  const sessionRowActionHandlersRef = useRef(sessionRowActionHandlers);
-  sessionRowActionHandlersRef.current = sessionRowActionHandlers;
   const sessionRowActions = useMemo<NonNullable<Parameters<typeof SessionListPanel>[0]['rowActions']>>(
     () => ({
-      onToggleFlag: (sessionId, next) => sessionRowActionHandlersRef.current.flagSession(sessionId, next),
-      onArchive: (sessionId) => sessionRowActionHandlersRef.current.archiveSession(sessionId),
-      onUnarchive: (sessionId) => sessionRowActionHandlersRef.current.unarchiveSession(sessionId),
-      onRename: (sessionId, name) => sessionRowActionHandlersRef.current.renameSession(sessionId, name),
-      onDelete: (sessionId) => sessionRowActionHandlersRef.current.deleteSession(sessionId),
+      onToggleFlag: (sessionId, next) => sessionRowActionHandlers.flagSession(sessionId, next),
+      onArchive: (sessionId) => sessionRowActionHandlers.archiveSession(sessionId),
+      onUnarchive: (sessionId) => sessionRowActionHandlers.unarchiveSession(sessionId),
+      onRename: (sessionId, name) => sessionRowActionHandlers.renameSession(sessionId, name),
+      onDelete: (sessionId) => sessionRowActionHandlers.deleteSession(sessionId),
     }),
     [],
   );
@@ -455,7 +454,7 @@ export function AppShell({
     setPermissionMode,
     setSessionModel,
     setSessionThinkingLevel,
-  } = createAppShellSessionSettingsActions({
+  } = useStableActions(createAppShellSessionSettingsActions, {
     activeIdRef,
     connections,
     pendingPermissionModeChangesRef: permissionModeChangeRegistry.keysRef,
@@ -612,7 +611,7 @@ export function AppShell({
   const onboarding = useOnboardingSnapshot(initialOnboardingSnapshot);
   const [quickChatPending, setQuickChatPending] = useState(false);
   const quickChatPendingRef = useRef(false);
-  const { handleQuickChatSubmit, handleExpertTeamStart } = createAppShellQuickChatActions({
+  const { handleQuickChatSubmit, handleExpertTeamStart } = useStableActions(createAppShellQuickChatActions, {
     activeIdRef,
     captureComposerImportOwner,
     composerRef,
@@ -703,7 +702,7 @@ export function AppShell({
   const [workbarCollapsed, setWorkbarCollapsed] = useState(() => readSessionWorkbarCollapsed());
   const [workbarWidth, setWorkbarWidth] = useState(() => readSessionWorkbarWidth());
   const [workbarTab, setWorkbarTab] = useState(() => readSessionWorkbarTab());
-  const { startColumnResize, onResizeHandleKeyDown, startWorkbarResize, onWorkbarResizeHandleKeyDown } = createAppShellLayoutActions({
+  const { startColumnResize, onResizeHandleKeyDown, startWorkbarResize, onWorkbarResizeHandleKeyDown } = useStableActions(createAppShellLayoutActions, {
     sessionListCollapsed,
     sessionListWidth,
     setSessionListWidth,
@@ -787,7 +786,7 @@ export function AppShell({
     toastApi,
   });
 
-  const { applyVisualSmokeFixture } = createAppShellVisualSmokeActions({
+  const { applyVisualSmokeFixture } = useStableActions(createAppShellVisualSmokeActions, {
     openPalette,
     openSettingsSection,
     refreshSessions,
@@ -810,7 +809,7 @@ export function AppShell({
     respondToUserQuestion,
     refreshMessages,
     retryMessages,
-  } = createAppShellChatActions({
+  } = useStableActions(createAppShellChatActions, {
     activeIdRef,
     addPendingSessionAction,
     captureComposerImportOwner,
@@ -834,7 +833,7 @@ export function AppShell({
     pendingNewChatThinkingLevel: newChatThinkingLevel ?? null,
   });
 
-  const { handleTurnFooterAction } = createAppShellTurnActions({
+  const { handleTurnFooterAction } = useStableActions(createAppShellTurnActions, {
     activeIdRef,
     addPendingTurnAction: turnActionRegistry.addKey,
     clearPendingTurnAction: turnActionRegistry.clearKey,
@@ -879,7 +878,7 @@ export function AppShell({
     toastApi,
   });
 
-  const { handleEvent, reconcilePersistedMessages, settleAssistantStreaming } = createAppShellSessionEventHandlers({
+  const { handleEvent, reconcilePersistedMessages, settleAssistantStreaming } = useStableActions(createAppShellSessionEventHandlers, {
     activeIdRef,
     liveTurnBySessionRef,
     refreshMessages,
