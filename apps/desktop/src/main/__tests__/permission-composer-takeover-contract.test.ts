@@ -12,12 +12,12 @@ function ruleBody(css: string, selector: string): string {
 
 describe('permission composer takeover', () => {
   it('keeps Composer mounted while the permission surface owns its slot', async () => {
-    const appShell = await readFile(join(rendererRoot, 'app-shell.tsx'), 'utf8');
+    const composerRegion = await readFile(join(rendererRoot, 'chat-composer-region.tsx'), 'utf8');
     const overlays = await readFile(join(rendererRoot, 'app-shell-overlays.tsx'), 'utf8');
-    const composerBlock = appShell.match(/<Composer\s+ref=\{composerRef\}[\s\S]*?\/>/)?.[0] ?? '';
+    const composerBlock = composerRegion.match(/<Composer\s+ref=\{composerRef\}[\s\S]*?\/>/)?.[0] ?? '';
 
     assert.match(
-      appShell,
+      composerRegion,
       /className="maka-composer-interaction-slot"[\s\S]*?<PermissionPrompt/,
       'the permission prompt must render in the stable composer interaction slot',
     );
@@ -50,6 +50,7 @@ describe('permission composer takeover', () => {
 
   it('renders a non-modal permission region with an always-visible Stop action', async () => {
     const appShell = await readFile(join(rendererRoot, 'app-shell.tsx'), 'utf8');
+    const composerRegion = await readFile(join(rendererRoot, 'chat-composer-region.tsx'), 'utf8');
     const permissionSource = await readFile(
       join(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'permission-dialog.tsx'),
       'utf8',
@@ -67,7 +68,7 @@ describe('permission composer takeover', () => {
     assert.match(prompt, /denyButtonRef\.current\?\.focus\(\)/, 'focus must move from the hidden composer to the safe decision');
     assert.match(prompt, /ref=\{denyButtonRef\}[\s\S]*?submit\('deny'\)/);
     assert.match(
-      appShell,
+      composerRegion,
       /<PermissionPrompt[\s\S]*?onStop=\{stop\}[\s\S]*?stopPending=\{activeId \? stopPendingBySession\[activeId\] === true : false\}/,
       'the takeover must use the same stop owner and pending state as Composer',
     );

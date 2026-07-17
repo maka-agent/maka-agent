@@ -247,9 +247,10 @@ describe('permission response IPC boundary', () => {
 
   it('renderer lets either interaction type take over the mounted composer slot', async () => {
     const shell = await readRendererShellSource('app-shell.tsx');
+    const composerRegion = await readRendererShellSource('chat-composer-region.tsx');
     assert.match(shell, /activeQuestion = activeInteraction\?\.type === 'user_question_request'/);
-    assert.match(shell, /<UserQuestionPrompt[\s\S]*request=\{activeQuestion\}/);
-    assert.match(shell, /hidden=\{[^}]*Boolean\(activeInteraction\)[^}]*\}/);
+    assert.match(composerRegion, /<UserQuestionPrompt[\s\S]*request=\{activeQuestion\}/);
+    assert.match(composerRegion, /hidden=\{[^}]*Boolean\(activeInteraction\)[^}]*\}/);
   });
 
   it('renderer clears the permission prompt when a session completes (PR-PERMISSION-UI-CLEANUP-0)', async () => {

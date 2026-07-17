@@ -240,7 +240,9 @@ describe('FIRST_RUN_TASK_SUGGESTIONS', () => {
       /else\s*props\.onOpenSidebarModule\('automations'\);/,
     );
     assert.match(main, /function\s+openPlanReminderForm\(\)/);
-    assert.match(main, /<FirstRunChecklist[\s\S]*onStartPlanReminder=\{openPlanReminderForm\}/);
+    assert.match(main, /<ChatMessageSurface[\s\S]*onStartPlanReminder=\{openPlanReminderForm\}/);
+    assert.match(main, /<OnboardingEmptyState[\s\S]*onStartPlanReminder=\{onStartPlanReminder\}/);
+    assert.match(main, /<FirstRunChecklist[\s\S]*onStartPlanReminder=\{onStartPlanReminder\}/);
   });
 
   it('does not count exploration-only rows as unfinished setup todos', async () => {

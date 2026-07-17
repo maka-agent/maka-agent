@@ -19,12 +19,13 @@ describe('session workbar contract', () => {
   });
 
   it('is the only shell owner of tasks, browser, and files', async () => {
-    const [appShell, chatView] = await Promise.all([
+    const [appShell, chatView, chatWorkbar] = await Promise.all([
       readFile(resolve(REPO_ROOT, 'apps/desktop/src/renderer/app-shell.tsx'), 'utf8'),
       readFile(resolve(REPO_ROOT, 'packages/ui/src/chat-view.tsx'), 'utf8'),
+      readFile(resolve(REPO_ROOT, 'apps/desktop/src/renderer/chat-workbar.tsx'), 'utf8'),
     ]);
 
-    assert.match(appShell, /<SessionWorkbar\b/);
+    assert.match(chatWorkbar, /<SessionWorkbar\b/);
     assert.doesNotMatch(appShell, /<BrowserPanel\b/);
     assert.doesNotMatch(appShell, /<ArtifactPane\b/);
     assert.doesNotMatch(chatView, /<TaskLedgerPanel\b/);
@@ -45,7 +46,7 @@ describe('session workbar contract', () => {
 
     assert.match(
       appShell,
-      /navSelection\.section === 'sessions' && activeId && !workbarCollapsed && \(/,
+      /navSelection\.section === 'sessions' && activeId && !workbarCollapsed/,
       'module pages must not inherit the active session workbar',
     );
   });

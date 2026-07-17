@@ -1,6 +1,4 @@
 import {
-  lazy,
-  Suspense,
   useCallback,
   useEffect,
   useEffectEvent,
@@ -24,15 +22,7 @@ import type {
 } from '@maka/core';
 import { hasSettledInitialOnboarding, resolveUiLocale } from '@maka/core';
 import {
-  Alert,
-  AlertAction,
-  AlertDescription,
-  AlertTitle,
   AutomationsPage,
-  ChatView,
-  Composer,
-  PermissionPrompt,
-  UserQuestionPrompt,
   DailyReviewPage,
   type ComposerHandle,
   type MakaUriDest,
@@ -44,13 +34,13 @@ import {
   type SessionViewMode,
   type TurnFooterActionMeta,
   useToast,
-  useUiLocale,
   activeInteractionFor,
 } from '@maka/ui';
 import { useKeyboardHelp } from './keyboard-help';
 import { useCommandPalette } from './command-palette';
-import { OnboardingHero } from './OnboardingHero';
-import { FirstRunChecklist } from './FirstRunChecklist';
+import { ChatMessageSurface } from './chat-message-surface';
+import { ChatComposerRegion } from './chat-composer-region';
+import { ChatWorkbar } from './chat-workbar';
 import { useOnboardingSnapshot } from './use-onboarding-snapshot';
 import type { OnboardingSnapshot } from '../global';
 import { ProviderLogo } from './settings/provider-display';
@@ -58,21 +48,6 @@ import { ProviderBrandMark } from './settings/provider-brand-marks';
 import { createUiLocaleUpdateGate } from './settings/ui-locale-update-gate';
 import { getShellCopy, localizedShellErrorMessage } from './locales/shell-copy';
 import { ErrorBoundary } from './error-boundary';
-// The session workbar owns the task ledger, embedded browser, and artifact
-// preview. Keep the combined auxiliary surface out of the first chat paint.
-const SessionWorkbar = lazy(() => import('./session-workbar').then((m) => ({ default: m.SessionWorkbar })));
-
-function SessionWorkbarFallback() {
-  const locale = useUiLocale();
-  const copy = getShellCopy(locale).app;
-  return (
-    <aside className="maka-session-workbar" role="status" aria-busy="true" aria-label={copy.loadingWorkbarLabel}>
-      <div className="maka-lazy-fallback" data-surface="panel">
-        {copy.loadingWorkbar}
-      </div>
-    </aside>
-  );
-}
 import { useSessionGoal } from './use-session-goal';
 import { deriveStaleSessionIds } from './stale-sessions';
 import { deriveProjectGroups } from './session-project-grouping';
@@ -87,10 +62,6 @@ import {
   SESSION_LIST_EXPANDED_MAX_WIDTH,
   SESSION_LIST_EXPANDED_MIN_WIDTH,
 } from './session-list-layout';
-import {
-  SESSION_WORKBAR_MAX_WIDTH,
-  SESSION_WORKBAR_MIN_WIDTH,
-} from './session-workbar-layout';
 import { modelSetupToastCopy } from './model-connection-errors';
 import { basenameFromPath } from './app-shell-copy';
 import type { AppShellCommandListOptions } from './app-shell-command-actions';
@@ -1426,7 +1397,7 @@ function AppShellContent({
                   onSaveMarkdown={(input) => saveDailyReviewMarkdown(input, { shouldShowFeedback: isDailyReviewSurfaceActive })}
                 />
               ) : (
-              <ChatView
+              <ChatMessageSurface
                 messages={messages}
                 liveTurn={activeLiveTurn}
                 shellRunUpdates={activeShellRunUpdates}
@@ -1481,115 +1452,52 @@ function AppShellContent({
                 scrollBehavior={readScrollMotionBehavior()}
                 branchBanner={branchBanner}
                 onBranchBannerClick={handleBranchBannerClick}
-                emptyOverride={
-                  showOnboardingHero && onboardingState ? (
-                    <div className="maka-onboarding-stack">
-                      <OnboardingHero
-                        state={onboardingState}
-                        onOpenSettings={(section) => {
-                          if (section) openSettingsSection(section);
-                          else openSettings();
-                        }}
-                        onBrowseProviders={openProviderCatalog}
-                        onQuickChatSubmit={handleQuickChatSubmit}
-                        quickChatPending={quickChatPending}
-                        connections={connections}
-                        onRefreshConnections={refreshConnections}
-                        onSkip={async () => {
-                          try {
-                            await window.maka.onboarding.setMilestone('initial_onboarding', 'skipped');
-                            onboarding.refresh();
-                          } catch (error) {
-                                toastApi.error(
-                                  shellCopy.skipErrorTitle,
-                                  localizedShellErrorMessage(error, shellCopy.tryAgainLater, uiLocale),
-                                );
-                          }
-                        }}
-                      />
-                      {onboardingState.kind === 'ready_empty' && (
-                        <FirstRunChecklist
-                          onOpenSettingsSection={(section) => openSettingsSection(section)}
-                          onOpenSidebarModule={(target) => {
-                            setNavSelection({ section: target });
-                          }}
-                          onStartPlanReminder={openPlanReminderForm}
-                        />
-                      )}
-                    </div>
-                  ) : isOnboardingLoading ? (
-                    // @kenji review: render a no-op skeleton while the
-                    // first snapshot resolves so EmptyChatHero doesn't
-                    // flash. Use an aria-busy live region so screen
-                    // readers know something is loading.
-                    <div
-                      className="maka-onboarding-loading"
-                      role="status"
-                      aria-busy="true"
-                          aria-label={shellCopy.loading}
-                    />
-                  ) : undefined
-                }
                 onNew={createSession}
                 onPromptSuggestion={(prompt) => composerRef.current?.appendText(prompt)}
+                sessionHealthNotice={sessionHealthNotice}
+                showOnboardingHero={showOnboardingHero}
+                onboardingState={onboardingState}
+                isOnboardingLoading={isOnboardingLoading}
+                onOpenSettings={(section) => {
+                  if (section) openSettingsSection(section);
+                  else openSettings();
+                }}
+                onBrowseProviders={openProviderCatalog}
+                onQuickChatSubmit={handleQuickChatSubmit}
+                quickChatPending={quickChatPending}
+                connections={connections}
+                onRefreshConnections={refreshConnections}
+                onSkip={async () => {
+                  try {
+                    await window.maka.onboarding.setMilestone('initial_onboarding', 'skipped');
+                    onboarding.refresh();
+                  } catch (error) {
+                    toastApi.error(
+                      shellCopy.skipErrorTitle,
+                      localizedShellErrorMessage(error, shellCopy.tryAgainLater, uiLocale),
+                    );
+                  }
+                }}
+                onOpenSettingsSection={(section) => openSettingsSection(section)}
+                onOpenSidebarModule={(target) => {
+                  setNavSelection({ section: target });
+                }}
+                onStartPlanReminder={openPlanReminderForm}
               />
               )}
-              {navSelection.section === 'sessions' && sessionHealthNotice && (
-                <div className="maka-session-health-notice">
-                  <Alert
-                    className="maka-session-health-notice-alert"
-                      variant={
-                        sessionHealthNotice.tone === 'destructive'
-                          ? 'error'
-                          : sessionHealthNotice.tone === 'warning'
-                            ? 'warning'
-                            : 'info'
-                      }
-                    role="status"
-                    aria-label={sessionHealthNotice.tooltip ?? sessionHealthNotice.label}
-                    title={sessionHealthNotice.tooltip}
-                  >
-                    <AlertTitle>{sessionHealthNotice.label}</AlertTitle>
-                    {sessionHealthNotice.tooltip ? (
-                      <AlertDescription>{sessionHealthNotice.tooltip}</AlertDescription>
-                    ) : null}
-                    <AlertAction>
-                      <button
-                        type="button"
-                        className="maka-session-health-notice-action"
-                        onClick={sessionHealthNotice.onClick}
-                      >
-                          {sessionHealthNotice.onClickTarget === 'account'
-                            ? shellCopy.goToAccount
-                            : shellCopy.goToModels}
-                      </button>
-                    </AlertAction>
-                  </Alert>
-                </div>
-              )}
-              <div className="maka-composer-interaction-slot">
-                {activePermission && (
-                  <PermissionPrompt
-                    request={activePermission}
-                    onRespond={respondToPermission}
-                    onStop={stop}
-                    stopPending={activeId ? stopPendingBySession[activeId] === true : false}
-                  />
-                )}
-                {activeQuestion && (
-                  <UserQuestionPrompt
-                    request={activeQuestion}
-                    onRespond={respondToUserQuestion}
-                    onStop={stop}
-                    stopPending={activeId ? stopPendingBySession[activeId] === true : false}
-                  />
-                )}
-              </div>
-              <Composer
-                ref={composerRef}
-                hidden={navSelection.section !== 'sessions' || onboardingComposerHidden || Boolean(activeInteraction)}
-                draftKey={activeId ?? 'new-session'}
-                // #646: Stop must be available for the WHOLE turn — the moment the
+              <ChatComposerRegion
+                composerRef={composerRef}
+                active={navSelection.section === 'sessions'}
+                onboardingComposerHidden={onboardingComposerHidden}
+                activeInteraction={activeInteraction}
+                activeId={activeId}
+                stopPendingBySession={stopPendingBySession}
+                activePermission={activePermission}
+                respondToPermission={respondToPermission}
+                activeQuestion={activeQuestion}
+                respondToUserQuestion={respondToUserQuestion}
+                stop={stop}
+                // #646: Stop must be available for the WHOLE turn - the moment the
                 // user most wants to interrupt is a long wait with nothing on
                 // screen (first token, or a slow provider's step-to-step lull).
                 // Drive Stop off `turnInFlight` (armed at send, cleared at the
@@ -1611,7 +1519,6 @@ function AppShellContent({
                 continuing={showContinuingIndicator && !activeStreamingLive}
                 onSend={sendWithAttachments}
                 onStop={stop}
-                stopPending={activeId ? stopPendingBySession[activeId] === true : false}
                 mentionSkills={mentionSkills}
                 onSearchMentionFiles={searchMentionFiles}
                 pendingAttachments={pendingAttachments}
@@ -1687,32 +1594,17 @@ function AppShellContent({
               />
             </div>
             {navSelection.section === 'sessions' && activeId && !workbarCollapsed && (
-              <>
-                <div
-                  className="maka-workbar-resize-handle"
-                  role="separator"
-                    aria-label={shellCopy.resizeWorkbar}
-                  aria-orientation="vertical"
-                  aria-valuemin={SESSION_WORKBAR_MIN_WIDTH}
-                  aria-valuemax={SESSION_WORKBAR_MAX_WIDTH}
-                  aria-valuenow={workbarWidth}
-                  tabIndex={0}
-                  onPointerDown={startWorkbarResize}
-                  onKeyDown={onWorkbarResizeHandleKeyDown}
-                />
-                <Suspense fallback={<SessionWorkbarFallback />}>
-                  <SessionWorkbar
-                    key={activeId}
-                    sessionId={activeId}
-                    browserLive={liveBrowserSessionIds.includes(activeId)}
-                    hidden={hasModalOpen}
-                    width={workbarWidth}
-                    onDismiss={() => setWorkbarCollapsed(true)}
-                    activeTab={workbarTab}
-                    onActiveTabChange={setWorkbarTab}
-                  />
-                </Suspense>
-              </>
+              <ChatWorkbar
+                activeId={activeId}
+                browserLive={liveBrowserSessionIds.includes(activeId)}
+                hidden={hasModalOpen}
+                width={workbarWidth}
+                onDismiss={() => setWorkbarCollapsed(true)}
+                activeTab={workbarTab}
+                onActiveTabChange={setWorkbarTab}
+                startWorkbarResize={startWorkbarResize}
+                onWorkbarResizeHandleKeyDown={onWorkbarResizeHandleKeyDown}
+              />
             )}
           </div>
           </MakaUriContext.Provider>
