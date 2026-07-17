@@ -15,13 +15,15 @@ describe('setupApiKeyConnection', () => {
       slug: 'openai',
       apiKey: 'sk-test',
       connectionStore: {
+        get: async () => null,
         create: async (input) => {
           createdInputs.push({ slug: input.slug, providerType: input.providerType });
           return makeConnection({ slug: input.slug, providerType: input.providerType, defaultModel: 'gpt-5.5' });
         },
+        remove: async () => {},
         getDefault: async () => null,
         setDefault: async () => {},
-      } satisfies Pick<ConnectionStore, 'create' | 'getDefault' | 'setDefault'>,
+      } satisfies Pick<ConnectionStore, 'create' | 'get' | 'remove' | 'getDefault' | 'setDefault'>,
       credentialStore: {
         setSecret: async (slug, kind, value) => {
           storedSecrets.push({ slug, kind, value });
@@ -45,7 +47,9 @@ describe('setupApiKeyConnection', () => {
       slug: 'openai',
       apiKey: 'sk-test',
       connectionStore: {
+        get: async () => null,
         create: async (input) => makeConnection({ slug: input.slug, providerType: input.providerType }),
+        remove: async () => {},
         getDefault: async () => null,
         setDefault: async () => {},
       },
@@ -71,10 +75,12 @@ describe('setupApiKeyConnection', () => {
         slug: 'ollama',
         apiKey: 'unused',
         connectionStore: {
+          get: async () => null,
           create: async () => {
             created = true;
             return makeConnection({});
           },
+          remove: async () => {},
           getDefault: async () => null,
           setDefault: async () => {},
         },
@@ -103,7 +109,9 @@ describe('setupApiKeyConnection', () => {
       slug: 'openai',
       apiKey: 'sk-test',
       connectionStore: {
+        get: async () => null,
         create: async (input) => makeConnection({ slug: input.slug, providerType: input.providerType }),
+        remove: async () => {},
         getDefault: async () => defaultSlug,
         setDefault: async (slug) => {
           if (slug) setDefaultCalls.push(slug);
@@ -128,10 +136,12 @@ describe('setupApiKeyConnection', () => {
         slug: 'openai',
         apiKey: '   ',
         connectionStore: {
+          get: async () => null,
           create: async () => {
             created = true;
             return makeConnection({});
           },
+          remove: async () => {},
           getDefault: async () => null,
           setDefault: async () => {},
         },
@@ -153,10 +163,12 @@ describe('setupApiKeyConnection', () => {
       apiKey: 'sk-test',
       baseUrl: 'https://my-gateway.example/v1',
       connectionStore: {
+        get: async () => null,
         create: async (input) => {
           createdInputs.push(input);
           return makeConnection({ slug: input.slug, providerType: input.providerType });
         },
+        remove: async () => {},
         getDefault: async () => null,
         setDefault: async () => {},
       },
@@ -167,6 +179,98 @@ describe('setupApiKeyConnection', () => {
     });
 
     assert.equal(createdInputs[0]?.baseUrl, 'https://my-gateway.example/v1');
+  });
+
+  test('rotates the key when the slug already exists instead of creating a duplicate (upsert)', async () => {
+    // Re-onboarding the same provider (e.g. fixing a typo'd key) must update the
+    // secret on the existing connection rather than throw "slug already exists".
+    const storedSecrets: Array<{ slug: string; value: string }> = [];
+
+    const result = await setupApiKeyConnection({
+      providerType: 'openai',
+      slug: 'openai',
+      apiKey: 'key-rotated',
+      connectionStore: {
+        get: async () => makeConnection({ slug: 'openai', providerType: 'openai' }),
+        create: async () => {
+          throw new Error('create must not be called when the slug already exists');
+        },
+        remove: async () => {},
+        getDefault: async () => 'openai',
+        setDefault: async () => {},
+      },
+      credentialStore: {
+        setSecret: async (slug, _kind, value) => {
+          storedSecrets.push({ slug, value });
+        },
+      } satisfies Pick<CredentialStore, 'setSecret'>,
+      fetchModels: async () => [],
+    });
+
+    assert.equal(result.connection.slug, 'openai');
+    assert.deepEqual(storedSecrets, [{ slug: 'openai', value: 'key-rotated' }]);
+  });
+
+  test('rolls back a newly created connection when the secret write fails', async () => {
+    // Atomicity: create succeeds, setSecret fails -> the orphan connection is
+    // removed so a half-configured connection never becomes the default.
+    const removedSlugs: string[] = [];
+
+    await assert.rejects(
+      setupApiKeyConnection({
+        providerType: 'openai',
+        slug: 'openai',
+        apiKey: 'sk-test',
+        connectionStore: {
+          get: async () => null,
+          create: async (input) => makeConnection({ slug: input.slug, providerType: input.providerType }),
+          remove: async (slug) => {
+            removedSlugs.push(slug);
+          },
+          getDefault: async () => null,
+          setDefault: async () => {},
+        },
+        credentialStore: {
+          setSecret: async () => { throw new Error('disk full'); },
+        },
+        fetchModels: async () => [],
+      }),
+      /disk full/,
+    );
+
+    assert.deepEqual(removedSlugs, ['openai']);
+  });
+
+  test('leaves an existing connection in place when a key rotation secret write fails', async () => {
+    // Upsert atomicity: an existing connection whose key rotation fails must not
+    // be deleted (its previous secret stands); only newly-created ones roll back.
+    const removedSlugs: string[] = [];
+
+    await assert.rejects(
+      setupApiKeyConnection({
+        providerType: 'openai',
+        slug: 'openai',
+        apiKey: 'sk-test',
+        connectionStore: {
+          get: async () => makeConnection({ slug: 'openai', providerType: 'openai' }),
+          create: async () => {
+            throw new Error('create must not be called');
+          },
+          remove: async (slug) => {
+            removedSlugs.push(slug);
+          },
+          getDefault: async () => 'openai',
+          setDefault: async () => {},
+        },
+        credentialStore: {
+          setSecret: async () => { throw new Error('disk full'); },
+        },
+        fetchModels: async () => [],
+      }),
+      /disk full/,
+    );
+
+    assert.deepEqual(removedSlugs, []);
   });
 });
 

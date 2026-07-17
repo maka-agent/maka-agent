@@ -50,7 +50,7 @@ import {
 } from '@maka/storage';
 import type { ToolPermissionRule } from '@maka/core/permission';
 import { fetchProviderModels } from '@maka/runtime';
-import { setupApiKeyConnection, type MakaOnboardingSurface } from './onboarding.js';
+import { createApiKeyOnboardingSurface, type MakaOnboardingSurface } from './onboarding.js';
 import { resolveModelVisionSupport } from '@maka/core';
 import type { ModelChoice, ReadySessionTarget } from './connection-target.js';
 import { listReadyModelChoices, resolveDefaultSessionTarget, resolveSessionTargetForSlug } from './connection-target.js';
@@ -485,17 +485,7 @@ export async function createMakaCliRuntimeContext(
     listShellRunUpdates: (sessionId) => runtime.listShellRunUpdates(sessionId),
     goalManager,
     goalContinuation,
-    onboarding: {
-      setup: ({ providerType, apiKey, baseUrl }) => setupApiKeyConnection({
-        providerType,
-        slug: providerType,
-        apiKey,
-        ...(baseUrl ? { baseUrl } : {}),
-        connectionStore,
-        credentialStore,
-        fetchModels: fetchProviderModels,
-      }).then(() => undefined),
-    },
+    onboarding: createApiKeyOnboardingSurface({ connectionStore, credentialStore, fetchModels: fetchProviderModels }),
     close: async () => {
       // Stop the automation scheduler's timer (else it keeps the process alive
       // and ticks into a stopped session), then terminate background shell runs.

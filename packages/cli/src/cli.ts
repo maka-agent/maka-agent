@@ -11,7 +11,7 @@ import { createMakaCliRuntimeContext } from './runtime-bootstrap.js';
 import { selectableModelIdsForTarget } from './connection-target.js';
 import { resolveMakaWorkspaceRoot } from './workspace-root.js';
 import { runMakaPiTui, type MakaPiTuiGoalLifecycle } from './pi-tui-runner.js';
-import { setupApiKeyConnection } from './onboarding.js';
+import { createApiKeyOnboardingSurface } from './onboarding.js';
 
 export type MakaCliCommand =
   | { kind: 'tui' }
@@ -210,7 +210,6 @@ export function formatStartupConnectionError(error: unknown, workspaceRoot: stri
 async function runFirstRunOnboarding(workspaceRoot: string): Promise<boolean> {
   const connectionStore = createConnectionStore(workspaceRoot);
   const credentialStore = createFileCredentialStore(workspaceRoot);
-  let configured = false;
   await runMakaPiTui({
     driver: createFirstRunSessionDriver(),
     title: 'Maka',
@@ -224,22 +223,11 @@ async function runFirstRunOnboarding(workspaceRoot: string): Promise<boolean> {
       beginExternalTurn: () => ({ kind: 'registered', settle: async () => {} }),
       bindHost: () => () => {},
     } satisfies MakaPiTuiGoalLifecycle,
-    onboarding: {
-      setup: async ({ providerType, apiKey, baseUrl }) => {
-        await setupApiKeyConnection({
-          providerType,
-          slug: providerType,
-          apiKey,
-          ...(baseUrl ? { baseUrl } : {}),
-          connectionStore,
-          credentialStore,
-          fetchModels: fetchProviderModels,
-        });
-        configured = true;
-      },
-    },
+    onboarding: createApiKeyOnboardingSurface({ connectionStore, credentialStore, fetchModels: fetchProviderModels }),
   });
-  return configured;
+  // Configured iff a connection was actually persisted during the wizard — the
+  // wizard only closes after a verified key (or on cancel; see runner firstRun).
+  return (await connectionStore.getDefault()) !== null;
 }
 
 /** A minimal session driver for the first-run wizard. The wizard never runs an

@@ -8,7 +8,7 @@ export interface SetupApiKeyConnectionInput {
   name?: string;
   baseUrl?: string;
   defaultModel?: string;
-  connectionStore: Pick<ConnectionStore, 'create' | 'getDefault' | 'setDefault'>;
+  connectionStore: Pick<ConnectionStore, 'create' | 'get' | 'remove' | 'getDefault' | 'setDefault'>;
   credentialStore: Pick<CredentialStore, 'setSecret'>;
   fetchModels: (connection: LlmConnection, apiKey: string) => Promise<ModelInfo[]>;
 }
@@ -36,14 +36,28 @@ export async function setupApiKeyConnection(
   if (PROVIDER_DEFAULTS[input.providerType]?.authKind === 'api_key' && !input.apiKey.trim()) {
     throw new Error('API key is required');
   }
-  const connection = await input.connectionStore.create({
-    slug: input.slug,
-    name: input.name ?? input.slug,
-    providerType: input.providerType,
-    ...(input.baseUrl ? { baseUrl: input.baseUrl } : {}),
-    ...(input.defaultModel ? { defaultModel: input.defaultModel } : {}),
-  });
-  await input.credentialStore.setSecret(input.slug, 'api_key', input.apiKey);
+  // Upsert by slug so re-onboarding the same provider (e.g. fixing a typo'd
+  // key) rotates the secret instead of throwing "slug already exists". An
+  // existing connection keeps its endpoint/model; only the key is refreshed.
+  const existing = await input.connectionStore.get(input.slug);
+  const connection = existing
+    ? existing
+    : await input.connectionStore.create({
+        slug: input.slug,
+        name: input.name ?? input.slug,
+        providerType: input.providerType,
+        ...(input.baseUrl ? { baseUrl: input.baseUrl } : {}),
+        ...(input.defaultModel ? { defaultModel: input.defaultModel } : {}),
+      });
+  try {
+    await input.credentialStore.setSecret(input.slug, 'api_key', input.apiKey);
+  } catch (error) {
+    // Atomicity: a newly-created connection is rolled back when the secret write
+    // fails, so no half-configured connection becomes the default. An existing
+    // connection is left in place — its previous secret stands.
+    if (!existing) await input.connectionStore.remove(input.slug);
+    throw error;
+  }
   await input.connectionStore.setDefault(input.slug);
   try {
     const models = await input.fetchModels(connection, input.apiKey);
@@ -65,9 +79,36 @@ export interface OnboardableProvider {
 
 /** Host-supplied onboarding surface. The TUI wizard collects a provider + API
  *  key and calls setup(); the host owns the connection/credential stores and
- *  runs the real setupApiKeyConnection. */
+ *  runs the real setupApiKeyConnection. `setup` resolves with `{ testError }`
+ *  when the connection was saved but the model probe failed, so the wizard can
+ *  re-arm the key prompt instead of claiming success. */
 export interface MakaOnboardingSurface {
-  setup: (input: { providerType: ProviderType; apiKey: string; baseUrl?: string }) => Promise<void>;
+  setup: (input: { providerType: ProviderType; apiKey: string; baseUrl?: string }) => Promise<{ testError?: string }>;
+}
+
+/** Build the onboarding surface the TUI wizard calls, owning the connection and
+ *  credential stores plus the model probe. Centralizes the `slug = providerType`
+ *  policy so the first-run host (cli.ts) and the in-session host
+ *  (runtime-bootstrap) share one write path. */
+export function createApiKeyOnboardingSurface(deps: {
+  connectionStore: Pick<ConnectionStore, 'create' | 'get' | 'remove' | 'getDefault' | 'setDefault'>;
+  credentialStore: Pick<CredentialStore, 'setSecret'>;
+  fetchModels: (connection: LlmConnection, apiKey: string) => Promise<ModelInfo[]>;
+}): MakaOnboardingSurface {
+  return {
+    setup: async ({ providerType, apiKey, baseUrl }) => {
+      const result = await setupApiKeyConnection({
+        providerType,
+        slug: providerType,
+        apiKey,
+        ...(baseUrl ? { baseUrl } : {}),
+        connectionStore: deps.connectionStore,
+        credentialStore: deps.credentialStore,
+        fetchModels: deps.fetchModels,
+      });
+      return result.testError ? { testError: result.testError } : {};
+    },
+  };
 }
 
 /** Catalog providers that can be onboarded with an API key, in catalog order.

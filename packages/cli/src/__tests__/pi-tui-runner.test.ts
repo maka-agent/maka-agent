@@ -307,7 +307,7 @@ describe('Maka Pi TUI runner', () => {
       permissionMode: 'bypass',
       terminal,
       onboarding: {
-        setup: async (req) => { setupCalls.push(req); },
+        setup: async (req) => { setupCalls.push(req); return {}; },
       },
     });
 
@@ -347,6 +347,75 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('/setup re-arms the key prompt when the probe fails so the key can be retried', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const setupCalls: Array<{ apiKey: string }> = [];
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'bypass',
+      terminal,
+      onboarding: {
+        setup: async (req) => {
+          setupCalls.push({ apiKey: req.apiKey });
+          // First attempt fails the probe (wrong key); the retry verifies.
+          return setupCalls.length === 1 ? { testError: 'HTTP 401 Unauthorized' } : {};
+        },
+      },
+    });
+
+    await delay(20);
+    terminal.input('/setup');
+    terminal.input('\r');
+    terminal.input('\r'); // pick the highlighted provider
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), 'API key') !== null;
+      } catch {
+        return false;
+      }
+    });
+
+    // Submit a key that fails the probe.
+    terminal.input('sk-bad');
+    terminal.input('\r');
+    await waitFor(() => setupCalls.length === 1);
+    // The failure is surfaced and the prompt re-arms — not the success notice.
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), '验证失败') !== null;
+      } catch {
+        return false;
+      }
+    });
+
+    // Retrying with a good key succeeds (no testError this time).
+    terminal.input('sk-good');
+    terminal.input('\r');
+    await waitFor(() => setupCalls.length === 2);
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), '已配置') !== null;
+      } catch {
+        return false;
+      }
+    });
+
+    assert.deepEqual(setupCalls.map((c) => c.apiKey), ['sk-bad', 'sk-good']);
+
+    process.emit('SIGTERM');
+    await Promise.race([
+      run,
+      delay(500).then(() => {
+        throw new Error('TUI did not close after SIGTERM');
+      }),
+    ]);
+  });
+
   test('first-run mode auto-opens the provider picker without typing /setup', async () => {
     const terminal = new FakeTerminal();
     const driver = new SlashCommandDriver();
@@ -360,7 +429,7 @@ describe('Maka Pi TUI runner', () => {
       terminal,
       firstRun: true,
       onboarding: {
-        setup: async () => {},
+        setup: async () => ({}),
       },
     });
 

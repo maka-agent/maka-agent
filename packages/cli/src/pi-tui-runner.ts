@@ -799,7 +799,19 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       pendingKeyEntry = undefined;
       const providerLabel = PROVIDER_DEFAULTS[entry.providerType]?.label ?? entry.providerType;
       void input.onboarding?.setup({ providerType: entry.providerType, apiKey: prompt }).then(
-        () => {
+        (result) => {
+          if (result.testError) {
+            // Saved but the probe failed (wrong key / offline). Re-arm the key
+            // prompt so the user retries in place — the upsert rotates the key.
+            state.entries.push({
+              kind: 'notice',
+              level: 'error',
+              text: `API key 验证失败：${result.testError}。请检查后重新输入。`,
+            });
+            pendingKeyEntry = entry;
+            requestRender();
+            return;
+          }
           if (input.firstRun) {
             beginClose();
             return;
@@ -807,7 +819,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
           state.entries.push({
             kind: 'notice',
             level: 'info',
-            text: `已配置 ${providerLabel}。使用 /model 选择模型，或直接开始对话。`,
+            text: `已配置 ${providerLabel}。新连接将在下次启动 maka 时生效。`,
           });
           requestRender();
         },
