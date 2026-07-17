@@ -91,7 +91,7 @@ describe('default permission mode contract', () => {
   });
 
   it('app-shell keeps a display-only mirror, loaded on mount and re-synced when Settings closes', async () => {
-    const src = await readRendererShellSources(['app-shell.tsx']);
+    const src = await readRendererShellSources(['app-shell.tsx', 'use-shell-appearance.ts']);
 
     assert.match(
       src,

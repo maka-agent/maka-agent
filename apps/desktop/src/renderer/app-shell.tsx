@@ -34,7 +34,7 @@ import { useOnboardingSnapshot } from './use-onboarding-snapshot';
 import type { OnboardingSnapshot } from '../global';
 import { ProviderLogo } from './settings/provider-display';
 import { ProviderBrandMark } from './settings/provider-brand-marks';
-import { createUiLocaleUpdateGate } from './settings/ui-locale-update-gate';
+import { useShellAppearance } from './use-shell-appearance';
 import { useSessionGoal } from './use-session-goal';
 import { deriveStaleSessionIds } from './stale-sessions';
 import { deriveProjectGroups } from './session-project-grouping';
@@ -42,7 +42,6 @@ import { deriveSessionStatusGroups } from './session-status-grouping';
 import { deriveAppShellTurnViewModel } from './app-shell-turn-view-model';
 import { readScrollMotionBehavior } from './scroll-motion-policy';
 import { deriveBranchBanner } from './branch-banner';
-import { applyTheme, applyThemePalette } from './theme';
 import { filterSessions, readNavSelection } from './nav-selection';
 import {
   SESSION_LIST_COLLAPSED_WIDTH,
@@ -200,19 +199,22 @@ export function AppShell({
     openSettingsSection,
     openProviderCatalog,
   } = useSettingsModal();
-  const [themePref, setThemePref] = useState<ThemePreference>('auto');
-  const [themePalette, setThemePalette] = useState<ThemePalette>('default');
-  const [uiLocalePreference, setUiLocalePreference] = useState<UiLocalePreference>('auto');
-  const [uiLocaleOverride, setUiLocaleOverride] = useState<UiLocale | null>(null);
-  const [uiLocaleUpdateGate] = useState(createUiLocaleUpdateGate);
-  const [userLabel, setUserLabel] = useState<string>('');
-  // Settings → 通用 → 默认权限模式 — DISPLAY-ONLY mirror. The composer's
-  // picker shows it before the user makes a per-session choice; the actual
-  // authority for a new session's mode is main.ts's sessions:create fallback
-  // (the renderer omits permissionMode unless the user explicitly picked),
-  // so a stale value here can briefly mislabel the chip but never changes
-  // which mode a session is created with.
-  const [defaultPermissionMode, setDefaultPermissionMode] = useState<ChatDefaultPermissionMode>('ask');
+  const {
+    themePref,
+    setThemePref,
+    themePalette,
+    setThemePalette,
+    uiLocalePreference,
+    uiLocaleOverride,
+    setUiLocaleOverride,
+    setUiLocalePreference,
+    uiLocaleUpdateGate,
+    userLabel,
+    setUserLabel,
+    defaultPermissionMode,
+    setDefaultPermissionMode,
+    refreshShellSettings,
+  } = useShellAppearance({ toastApi });
   // Persisted composer defaults seed the empty-state model, project path, and
   // recent workspace history so the home view is populated before the async
   // `app:info` round-trip completes on mount.
@@ -1013,32 +1015,6 @@ export function AppShell({
   function isShellSurfaceOwnerActive(owner: ComposerImportOwner): boolean {
     return navSelectionRef.current.section === owner.navSection
       && activeIdRef.current === owner.sessionId;
-  }
-
-  async function refreshShellSettings() {
-    const uiLocaleHydration = uiLocaleUpdateGate.beginHydration();
-    try {
-      const next = await window.maka.settings.get();
-      const smoke = await window.maka.visualSmoke.getState();
-      const pref = smoke?.theme ?? next.appearance?.theme ?? 'auto';
-      const palette = next.appearance?.palette ?? 'default';
-      const name = next.personalization?.displayName ?? '';
-      const uiLocale = next.personalization?.uiLocale ?? 'auto';
-      setUiLocaleOverride(smoke?.locale ?? null);
-      uiLocaleUpdateGate.commitHydration(
-        uiLocaleHydration,
-        uiLocale,
-        (preference) => setUiLocalePreference(preference),
-      );
-      setThemePref(pref);
-      setThemePalette(palette);
-      setUserLabel(name);
-      setDefaultPermissionMode(next.chatDefaults?.permissionMode ?? 'ask');
-      applyTheme(pref);
-      applyThemePalette(palette);
-    } catch (error) {
-      toastApi.error('载入外观设置失败', generalizedErrorMessageChinese(error, '外观设置暂时无法载入，请稍后重试。'));
-    }
   }
 
   async function bootstrapSessions() {

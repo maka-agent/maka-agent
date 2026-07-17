@@ -44,6 +44,7 @@ const sourcePaths = [
   'chat-message-surface.tsx',
   'chat-composer-region.tsx',
   'chat-workbar.tsx',
+  'use-shell-appearance.ts',
   'app-shell-visual-smoke.ts',
   'cached-theme-bootstrap.ts',
   'chat-model-selection.ts',
