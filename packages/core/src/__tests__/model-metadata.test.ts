@@ -4,6 +4,18 @@ import { lookupModelMetadata, openAiAdapterApiProtocol, resolveModelVisionSuppor
 import { PROVIDER_DEFAULTS, type ModelInfo, type ProviderType } from '../llm-connections.js';
 
 describe('model-metadata vision capability', () => {
+  it('publishes the Kimi K3 Coding Plan limits and sole supported effort', () => {
+    assert.deepEqual(lookupModelMetadata('kimi-coding-plan', 'k3'), {
+      displayName: 'Kimi K3',
+      lifecycle: 'active',
+      docsUrl: 'https://www.kimi.com/code/docs/en/kimi-code/models.html',
+      contextWindow: 1_048_576,
+      maxOutputTokens: 131_072,
+      capabilities: { reasoning: true, functionCalling: true, vision: true },
+      thinkingOptions: { efforts: ['max'] },
+    });
+  });
+
   it('uses Volcengine Coding Plan model facts for its exact fallback allowlist', () => {
     for (const modelId of PROVIDER_DEFAULTS['volcengine-coding-plan'].fallbackModels) {
       assert.equal(

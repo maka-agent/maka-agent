@@ -227,6 +227,13 @@ describe('provider compatibility contract', () => {
     assert.deepEqual(PROVIDER_REGISTRY['openai-codex'].modelDiscovery, { kind: 'protocol', auth: 'openai-codex' });
   });
 
+  it('offers K3 first for Kimi Coding Plan while preserving the existing legacy alias', () => {
+    assert.deepEqual(PROVIDER_REGISTRY['kimi-coding-plan'].fallbackModels, [
+      'k3',
+      'kimi-for-coding',
+    ]);
+  });
+
   it('owns OpenCode Zen and Go as distinct mixed-protocol access paths', () => {
     const providers = PROVIDER_REGISTRY as Partial<Record<string, (typeof PROVIDER_REGISTRY)[keyof typeof PROVIDER_REGISTRY]>>;
     const zen = providers.opencode;

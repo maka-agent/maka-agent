@@ -30,6 +30,15 @@ describe('Anthropic-compatible Computer Use product loops', () => {
       baseSuffix: '/coding',
       expectedPath: '/coding/v1/messages',
       auth: 'x-api-key',
+      expectedThinking: 'enabled',
+    },
+    {
+      providerType: 'kimi-coding-plan',
+      modelId: 'k3',
+      baseSuffix: '/coding',
+      expectedPath: '/coding/v1/messages',
+      auth: 'x-api-key',
+      expectedThinking: 'adaptive',
     },
     {
       providerType: 'minimax-coding-plan',
@@ -37,9 +46,10 @@ describe('Anthropic-compatible Computer Use product loops', () => {
       baseSuffix: '/anthropic',
       expectedPath: '/anthropic/v1/messages',
       auth: 'x-api-key',
+      expectedThinking: undefined,
     },
   ] as const) {
-    test(`${provider.providerType} completes a multi-step semantic model loop`, async () => {
+    test(`${provider.providerType}/${provider.modelId} completes a multi-step semantic model loop`, async () => {
       const requestBodies: Array<Record<string, unknown>> = [];
       const server = await startJsonServer(async (request, response) => {
         assert.equal(request.method, 'POST');
@@ -129,12 +139,12 @@ describe('Anthropic-compatible Computer Use product loops', () => {
         (requestBodies[0].tools as Array<{ name: string }>).map((tool) => tool.name),
         ['maka_computer'],
       );
-      if (provider.providerType === 'kimi-coding-plan') {
+      if (provider.expectedThinking) {
         for (const body of requestBodies) {
           assert.equal(
             (body.thinking as { type?: string } | undefined)?.type,
-            'enabled',
-            'Kimi Coding Plan must enable thinking on every turn',
+            provider.expectedThinking,
+            'Kimi Coding Plan must send its model-specific thinking mode on every turn',
           );
           assert.deepEqual(body.output_config, { effort: 'max' });
         }
@@ -153,7 +163,7 @@ describe('Anthropic-compatible Computer Use product loops', () => {
       );
     });
 
-    test(`${provider.providerType} reinjects a failed semantic action as an error tool result`, async () => {
+    test(`${provider.providerType}/${provider.modelId} reinjects a failed semantic action as an error tool result`, async () => {
       const requestBodies: Array<Record<string, unknown>> = [];
       const server = await startJsonServer(async (request, response) => {
         assert.equal(request.method, 'POST');

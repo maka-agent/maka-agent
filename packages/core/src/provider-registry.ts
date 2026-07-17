@@ -525,7 +525,7 @@ const providerRegistry = {
     baseUrl: 'https://api.kimi.com/coding/v1',
     authKind: 'api_key',
     backendKind: 'ai-sdk',
-    fallbackModels: ['kimi-for-coding'],
+    fallbackModels: ['k3', 'kimi-for-coding'],
     status: 'ready',
     protocol: 'anthropic',
     runtimeAdapter: { kind: 'anthropic', auth: 'api-key', normalizeBaseUrl: true },

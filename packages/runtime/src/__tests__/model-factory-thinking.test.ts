@@ -34,6 +34,13 @@ describe('buildProviderOptions: thinking level', () => {
     assert.deepEqual(buildProviderOptions(conn('anthropic'), 'claude-opus-4-8', 'off'), { anthropic: {} });
   });
 
+  test('Kimi K3 always sends its required adaptive thinking at max effort', () => {
+    assert.deepEqual([...thinkingVariantsForModel('kimi-coding-plan', 'k3')], ['max']);
+    const expected = { anthropic: { thinking: { type: 'adaptive' }, effort: 'max' } };
+    assert.deepEqual(buildProviderOptions(conn('kimi-coding-plan'), 'k3'), expected);
+    assert.deepEqual(buildProviderOptions(conn('kimi-coding-plan'), 'k3', 'max'), expected);
+  });
+
   test('openai gpt-5.5 sends reasoningEffort (none for off, max for max); gpt-4o drops level', () => {
     assert.deepEqual(buildProviderOptions(conn('openai'), 'gpt-4o', 'high'), { openai: { store: false } });
     assert.deepEqual(buildProviderOptions(conn('openai'), 'gpt-5.5', 'medium'), { openai: { store: false, reasoningEffort: 'medium' } });

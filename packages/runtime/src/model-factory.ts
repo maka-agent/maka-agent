@@ -273,7 +273,14 @@ export function buildProviderOptions(
   switch (connection.providerType) {
     case 'kimi-coding-plan':
       return {
-        anthropic: modelId === 'kimi-for-coding'
+        anthropic: modelId === 'k3'
+          ? {
+              // K3 supports adaptive thinking only and currently fixes effort
+              // at max on Kimi Coding Plan.
+              thinking: { type: 'adaptive' as const },
+              effort: 'max',
+            }
+          : modelId === 'kimi-for-coding'
           ? {
               // Kimi's managed coding route requires enabled thinking and max
               // effort. The Anthropic AI SDK also requires a compatibility
