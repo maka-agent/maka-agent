@@ -121,15 +121,20 @@ export function positiveIntEnv(raw: string | undefined, name: string): number | 
  * Python adapter recovers from a malformed `MAKA_CELL_TIMEOUT_SEC`
  * (`maka_agent.py` `_cell_timeout_sec`: "a malformed value falls back to the
  * default") and the TS runner must not fail loudly where the adapter would
- * recover. Accepted syntax matches Python `int()` on this variable: a decimal
- * positive integer literal only (`"1800"`), so `"1e3"` / `"1.0"` / non-numeric
- * forms are all a parse miss. New TS-only env vars should use the throwing
+ * recover. Accepted syntax is a decimal positive integer literal (`"1800"`)
+ * only — the same `[1-9]\d*` form the Python adapter enforces, so `"1e3"`,
+ * `"1.0"`, `"+1800"`, `"01800"`, and non-numeric forms are all a parse miss on
+ * both sides. Values are capped at `Number.isSafeInteger`, so an over-long
+ * digit string (which `Number()` would coerce to `Infinity`) still falls back
+ * rather than slipping through. New TS-only env vars should use the throwing
  * `positiveIntEnv` instead.
  */
 export function lenientPositiveIntEnv(raw: string | undefined): number | undefined {
   if (raw === undefined) return undefined;
   const value = raw.trim();
-  return /^[1-9]\d*$/.test(value) ? Number(value) : undefined;
+  if (!/^[1-9]\d*$/.test(value)) return undefined;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) ? parsed : undefined;
 }
 
 /**

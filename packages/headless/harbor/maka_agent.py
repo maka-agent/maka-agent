@@ -7,6 +7,7 @@ import concurrent.futures
 import contextlib
 import json
 import os
+import re
 import secrets
 import shlex
 import threading
@@ -264,15 +265,19 @@ class MakaAgent(BaseInstalledAgent):
     def _cell_timeout_sec(self) -> int:
         """Wall-clock budget for the in-container cell. A hard-coded value turns
         slow-but-healthy tasks into infra failures, so the operator can raise it
-        via MAKA_CELL_TIMEOUT_SEC; a malformed value falls back to the default."""
+        via MAKA_CELL_TIMEOUT_SEC; a malformed value falls back to the default.
+
+        Accepted syntax is a decimal positive integer literal (no sign, no
+        leading zero, no exponent or decimal form), matching the TS host's
+        lenientPositiveIntEnv so both sides agree on exactly which strings are
+        valid: "1e3", "1.0", "+1800", "01800" all fall back to the default.
+        """
         raw = self._get_env("MAKA_CELL_TIMEOUT_SEC")
         if not raw:
             return self._DEFAULT_CELL_TIMEOUT_SEC
-        try:
-            value = int(raw)
-        except (TypeError, ValueError):
+        if re.fullmatch(r"[1-9]\d*", raw.strip()) is None:
             return self._DEFAULT_CELL_TIMEOUT_SEC
-        return value if value > 0 else self._DEFAULT_CELL_TIMEOUT_SEC
+        return int(raw.strip())
 
     def _cell_settlement_grace_sec(self) -> int:
         raw = self._get_env("MAKA_CELL_SETTLEMENT_GRACE_SEC")

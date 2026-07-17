@@ -1215,8 +1215,9 @@ describe('buildHarborJobConfig', () => {
     // Shared contract with the Python adapter (maka_agent.py _cell_timeout_sec):
     // an unparseable or non-positive MAKA_CELL_TIMEOUT_SEC falls back to the task
     // metadata timeout, or passes through for the adapter to apply its default.
-    // Accepted syntax matches Python int(): a decimal positive integer literal
-    // only, so "1e3" / "1.0" are treated as a miss (unified in #1145).
+    // Both sides accept a decimal positive integer literal only (regex [1-9]\d*),
+    // so "1e3" / "1.0" / "+1800" / "01800" are a miss; the over-long row locks
+    // the JS guard that keeps Number() overflow (Infinity) out (unified in #1145).
     const cases: Array<{ raw: string | undefined; parsed: number | undefined }> = [
       { raw: undefined, parsed: undefined },
       { raw: '', parsed: undefined },
@@ -1227,6 +1228,9 @@ describe('buildHarborJobConfig', () => {
       { raw: '1e3', parsed: undefined },
       { raw: '1.0', parsed: undefined },
       { raw: '1800', parsed: 1800 },
+      { raw: '+1800', parsed: undefined },
+      { raw: '01800', parsed: undefined },
+      { raw: '9'.repeat(400), parsed: undefined },
     ];
     for (const { raw, parsed } of cases) {
       const agentEnv: Record<string, string> = raw === undefined ? {} : { MAKA_CELL_TIMEOUT_SEC: raw };
