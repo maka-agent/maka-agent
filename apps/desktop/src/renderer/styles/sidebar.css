@@ -428,11 +428,12 @@
 
 
 /* View-mode toggle row (按状态 / 按项目) — chrome comes from the shared
-   `.settingsSegmented` primitive (same control family as the daily-review
-   range tabs); this wrapper only owns sidebar spacing. The retired
-   `.maka-view-mode-btn` family referenced tokens that never existed in
-   maka-tokens (--surface-secondary/-primary/-tertiary, --foreground-primary,
-   --shadow-sm), so its chrome rendered invisible. */
+   `.maka-segmented` recipe in styles/segmented.css (same control family
+   as the daily-review range tabs); this wrapper only owns sidebar
+   spacing. The retired `.maka-view-mode-btn` family referenced tokens
+   that never existed in maka-tokens (--surface-secondary/-primary/
+   -tertiary, --foreground-primary, --shadow-sm), so its chrome rendered
+   invisible. */
 .maka-view-mode-toggle {
   display: flex;
   padding: 0 var(--space-2) var(--space-1);

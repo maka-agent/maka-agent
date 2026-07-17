@@ -84,10 +84,12 @@ export type RuntimeEventReplayDiagnosticCode =
   | 'unsupported_content'
   | 'system_runtime_fact_diagnostic_only'
   | 'terminal_fact_diagnostic_only'
+  | 'error_content_diagnostic_only'
   | 'empty_text_skipped'
   | 'unsigned_thinking_skipped'
   | 'signed_thinking_in_tool_turn_skipped'
   | 'unmatched_tool_result'
+  | 'unmatched_tool_call'
   | 'tool_id_mismatch';
 
 export interface RuntimeEventReplayDiagnostic {
@@ -372,6 +374,20 @@ export function buildRuntimeEventModelReplayPlan(
         ));
         continue;
       }
+      // Error content is a run/turn failure fact (a flow error event or a
+      // terminal recovery commit), not model conversation. It must stay
+      // diagnostic-only: `unsupported_content` is a BLOCKING diagnostic (see
+      // hasBlockingReplayDiagnostics), and one persisted failure would
+      // otherwise degrade every later turn of the session to the
+      // stored-message projection.
+      if (event.content.kind === 'error') {
+        diagnostics.push(diagnostic(
+          event,
+          'error_content_diagnostic_only',
+          'error RuntimeEvent content is diagnostic-only for model replay',
+        ));
+        continue;
+      }
       diagnostics.push(diagnostic(
         event,
         'unsupported_content',
@@ -544,6 +560,22 @@ export function buildRuntimeEventModelReplayPlan(
         ));
         break;
     }
+  }
+
+  // A call whose result never landed (the app died during tool execution;
+  // recovery appends the terminal error but cannot invent the result) must not
+  // replay: a tool_use with no tool_result is a provider 400. Drop it — the
+  // deliberately non-blocking mirror of unmatched_tool_result — so consumers
+  // that read `items` directly (materializer, compact summarizer) stay valid.
+  for (const [toolCallId, call] of callsById) {
+    const index = items.indexOf(call.item);
+    if (index >= 0) items.splice(index, 1);
+    diagnostics.push({
+      code: 'unmatched_tool_call',
+      message: 'function_call has no matching function_response; dropped from model replay',
+      eventId: call.eventId,
+      detail: { toolCallId },
+    });
   }
 
   const textMessages = items

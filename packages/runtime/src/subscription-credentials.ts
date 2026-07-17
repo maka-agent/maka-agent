@@ -105,17 +105,25 @@ export async function resolveOAuthSubscriptionTokens(
   return refreshed;
 }
 
-async function refreshOAuthSubscriptionTokens(input: {
+/**
+ * Provider-specific refresh request. Exported so the desktop services
+ * force-refresh through the same HTTP contract the pure-Node resolve
+ * path uses — one refresh implementation per provider, not two.
+ * Throws on a failed refresh; persistence is the caller's concern.
+ */
+export async function refreshOAuthSubscriptionTokens(input: {
   providerType: OAuthSubscriptionProvider;
   tokens: OAuthSubscriptionTokens;
-  now: () => number;
-  fetchFn: typeof fetch;
+  now?: () => number;
+  fetchFn?: typeof fetch;
 }): Promise<OAuthSubscriptionTokens> {
+  const now = input.now ?? (() => Date.now());
+  const fetchFn = input.fetchFn ?? fetch;
   switch (input.providerType) {
     case 'claude-subscription':
-      return refreshClaudeSubscriptionTokens(input.tokens, input.now, input.fetchFn);
+      return refreshClaudeSubscriptionTokens(input.tokens, now, fetchFn);
     case 'openai-codex':
-      return refreshOpenAiCodexTokens(input.tokens, input.now, input.fetchFn);
+      return refreshOpenAiCodexTokens(input.tokens, now, fetchFn);
     case 'github-copilot':
       return input.tokens;
   }
@@ -145,6 +153,30 @@ export function isSupportedGitHubCopilotAccountToken(token: string): boolean {
 }
 
 
+/**
+ * Guard a refresh response before it may replace the stored authority:
+ * a 200 with a missing/empty access token or a non-positive expiry must
+ * surface as a refresh failure, never overwrite a still-working record
+ * with garbage. Returns the validated required fields.
+ */
+function requireRefreshedTokenFields(
+  provider: string,
+  payload: { access_token?: unknown; expires_in?: unknown },
+): { accessToken: string; expiresInMs: number } {
+  const accessToken = payload.access_token;
+  const expiresIn = payload.expires_in;
+  if (typeof accessToken !== 'string' || accessToken.length === 0
+    || typeof expiresIn !== 'number' || !Number.isFinite(expiresIn) || expiresIn <= 0) {
+    throw new Error(`${provider} OAuth token refresh returned an invalid token payload.`);
+  }
+  return { accessToken, expiresInMs: 1000 * expiresIn };
+}
+
+/** A rotated refresh token must be a non-empty string; otherwise keep the previous one. */
+function nextRefreshToken(candidate: unknown, previous: string): string {
+  return typeof candidate === 'string' && candidate.length > 0 ? candidate : previous;
+}
+
 async function refreshClaudeSubscriptionTokens(
   tokens: OAuthSubscriptionTokens,
   now: () => number,
@@ -164,17 +196,18 @@ async function refreshClaudeSubscriptionTokens(
   });
   if (!response.ok) throw new Error(`Claude OAuth token refresh failed (${response.status}).`);
   const payload = await response.json() as {
-    access_token: string;
+    access_token?: string;
     refresh_token?: string;
-    expires_in: number;
+    expires_in?: number;
     token_type?: string;
     scope?: string;
     account?: { uuid?: string };
   };
+  const { accessToken, expiresInMs } = requireRefreshedTokenFields('Claude', payload);
   return {
-    access_token: payload.access_token,
-    refresh_token: payload.refresh_token ?? tokens.refresh_token,
-    expires_at: now() + 1000 * payload.expires_in,
+    access_token: accessToken,
+    refresh_token: nextRefreshToken(payload.refresh_token, tokens.refresh_token),
+    expires_at: now() + expiresInMs,
     token_type: payload.token_type ?? tokens.token_type,
     scope: payload.scope ?? tokens.scope,
     account_uuid: payload.account?.uuid ?? tokens.account_uuid,
@@ -201,16 +234,17 @@ async function refreshOpenAiCodexTokens(
   });
   if (!response.ok) throw new Error(`Codex OAuth token refresh failed (${response.status}).`);
   const payload = await response.json() as {
-    access_token: string;
+    access_token?: string;
     refresh_token?: string;
     id_token?: string;
-    expires_in: number;
+    expires_in?: number;
   };
+  const { accessToken, expiresInMs } = requireRefreshedTokenFields('Codex', payload);
   return {
-    access_token: payload.access_token,
-    refresh_token: payload.refresh_token ?? tokens.refresh_token,
+    access_token: accessToken,
+    refresh_token: nextRefreshToken(payload.refresh_token, tokens.refresh_token),
     id_token: payload.id_token ?? tokens.id_token,
-    expires_at: now() + 1000 * payload.expires_in,
+    expires_at: now() + expiresInMs,
     account_id: tokens.account_id,
   };
 }

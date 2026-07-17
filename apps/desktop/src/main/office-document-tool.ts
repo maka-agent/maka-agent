@@ -1,9 +1,9 @@
 import { execFile } from 'node:child_process';
 import { lstat, realpath } from 'node:fs/promises';
-import { dirname, extname, isAbsolute, relative, resolve, sep } from 'node:path';
+import { dirname, extname, isAbsolute, resolve } from 'node:path';
 import { z } from 'zod';
 import { redactSecrets } from '@maka/core/redaction';
-import type { MakaTool } from '@maka/runtime';
+import { isInside, toRelative, type MakaTool } from '@maka/runtime';
 import { buildOfficeCliEnv } from './officecli-env.js';
 
 export const OFFICE_DOCUMENT_TOOL_NAME = 'OfficeDocument';
@@ -659,14 +659,4 @@ function capOutput(text: string): { text: string; truncated: boolean } {
 
 function displayArgs(args: string[], abs: string, rel: string): string[] {
   return args.map((arg) => arg === abs ? rel : arg);
-}
-
-function isInside(root: string, target: string): boolean {
-  const rel = relative(root, target);
-  return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
-}
-
-function toRelative(root: string, target: string): string {
-  const rel = relative(root, target);
-  return rel === '' ? '.' : rel.split(sep).join('/');
 }

@@ -7,6 +7,7 @@ import {
   readRendererShellSource,
   readRendererShellSources,
 } from './renderer-shell-source-helpers.js';
+import { readMainProcessCombinedSource } from './main-process-contract-source-helpers.js';
 
 import {
   normalizeBranchFromTurnInput,
@@ -31,7 +32,7 @@ describe('permission response IPC boundary', () => {
 
   it('registers AskUserQuestion only on the Desktop root tool surface and routes its response', async () => {
     const mainPath = fileURLToPath(new URL('../../../src/main/main.ts', import.meta.url));
-    const main = await readFile(mainPath, 'utf8');
+    const main = await readMainProcessCombinedSource();
     const rootTools = main.match(/const builtinTools: MakaTool\[\] = \[[\s\S]*?\n\];/)?.[0] ?? '';
     const childTools = main.match(/const childAgentTools = buildChildAgentTools\([\s\S]*?\n\]\);/)?.[0] ?? '';
     const handler = main.match(/ipcMain\.handle\('sessions:respondToUserQuestion'[\s\S]*?\n  \);/)?.[0] ?? '';
@@ -85,7 +86,7 @@ describe('permission response IPC boundary', () => {
 
   it('routes sessions:respondToPermission through the main-process normalizer', async () => {
     const mainPath = fileURLToPath(new URL('../../../src/main/main.ts', import.meta.url));
-    const main = await readFile(mainPath, 'utf8');
+    const main = await readMainProcessCombinedSource();
     const handler = main.match(/ipcMain\.handle\('sessions:respondToPermission'[\s\S]*?\n  \);/)?.[0] ?? '';
 
     assert.match(handler, /normalizePermissionResponse\(response\)/);
@@ -110,7 +111,7 @@ describe('permission response IPC boundary', () => {
 
   it('routes turn actions through main-process normalizers', async () => {
     const mainPath = fileURLToPath(new URL('../../../src/main/main.ts', import.meta.url));
-    const main = await readFile(mainPath, 'utf8');
+    const main = await readMainProcessCombinedSource();
     const regenerateHandler = main.match(/ipcMain\.handle\('sessions:regenerateTurn'[\s\S]*?\n  \);/)?.[0] ?? '';
     const branchHandler = main.match(/ipcMain\.handle\('sessions:branchFromTurn'[\s\S]*?\n  \);/)?.[0] ?? '';
 
@@ -155,7 +156,7 @@ describe('permission response IPC boundary', () => {
 
   it('routes send and stop IPC payloads through main-process normalizers', async () => {
     const mainPath = fileURLToPath(new URL('../../../src/main/main.ts', import.meta.url));
-    const main = await readFile(mainPath, 'utf8');
+    const main = await readMainProcessCombinedSource();
     const stopHandler = main.match(/ipcMain\.handle\('sessions:stop'[\s\S]*?\n  \);/)?.[0] ?? '';
     const sendHandler = main.match(/ipcMain\.handle\('sessions:send'[\s\S]*?\n  \);/)?.[0] ?? '';
 
@@ -310,7 +311,7 @@ describe('permission response IPC boundary', () => {
 
   it('broadcasts the final message-appended refresh only after the runtime iterator drains', async () => {
     const mainPath = fileURLToPath(new URL('../../../src/main/main.ts', import.meta.url));
-    const main = await readFile(mainPath, 'utf8');
+    const main = await readMainProcessCombinedSource();
     const streamEvents = main.match(/async function streamEvents\([\s\S]*?\n\}/)?.[0] ?? '';
     const collectBotReply = main.match(/async function collectBotReply\([\s\S]*?\n\}/)?.[0] ?? '';
 

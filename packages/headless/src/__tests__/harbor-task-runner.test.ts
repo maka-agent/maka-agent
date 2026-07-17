@@ -1211,6 +1211,65 @@ describe('buildHarborJobConfig', () => {
     assert.equal(agent.max_timeout_sec, 1800);
   });
 
+  test('a malformed cell timeout falls back instead of failing the run', () => {
+    // Shared contract with the Python adapter (maka_agent.py _cell_timeout_sec):
+    // an unparseable or non-positive MAKA_CELL_TIMEOUT_SEC falls back to the task
+    // metadata timeout, or passes through for the adapter to apply its default.
+    // The "1e3" / "1.0" rows lock a known divergence from Python int() syntax:
+    // Number(raw) accepts them and the host rewrites the env to the parsed
+    // integer before the container sees it; unifying the accepted syntax is
+    // deferred to the fail-loud follow-up noted in PR #1137.
+    const cases: Array<{ raw: string | undefined; parsed: number | undefined }> = [
+      { raw: undefined, parsed: undefined },
+      { raw: '', parsed: undefined },
+      { raw: '   ', parsed: undefined },
+      { raw: 'oops', parsed: undefined },
+      { raw: '0', parsed: undefined },
+      { raw: '-5', parsed: undefined },
+      { raw: '1e3', parsed: 1000 },
+      { raw: '1.0', parsed: 1 },
+      { raw: '1800', parsed: 1800 },
+    ];
+    for (const { raw, parsed } of cases) {
+      const agentEnv: Record<string, string> = raw === undefined ? {} : { MAKA_CELL_TIMEOUT_SEC: raw };
+      const label = JSON.stringify(raw);
+
+      // A parse miss falls back to the task metadata timeout.
+      const withMetadata = buildHarborJobConfig(runInput({
+        task: {
+          id: 'task-1',
+          path: '/tasks/task-1',
+          metadata: { agentTimeoutSec: 1234 },
+        },
+        agentEnv,
+      }), {
+        makaRepoPath: '/repo',
+        jobsDir: '/jobs/x',
+        jobName: 'trial',
+        model: 'deepseek/deepseek-v4-flash',
+      });
+      const metadataAgent = (withMetadata.agents as Array<{ env: Record<string, string>; max_timeout_sec?: number }>)[0]!;
+      assert.equal(metadataAgent.env.MAKA_CELL_TIMEOUT_SEC, String(parsed ?? 1234), label);
+      assert.equal(metadataAgent.max_timeout_sec, parsed ?? 1234, label);
+
+      // Without metadata, a parsed value is rewritten into the env; a parse
+      // miss passes the raw string through for the adapter's default.
+      const withoutMetadata = buildHarborJobConfig(runInput({ agentEnv }), {
+        makaRepoPath: '/repo',
+        jobsDir: '/jobs/x',
+        jobName: 'trial',
+        model: 'deepseek/deepseek-v4-flash',
+      });
+      const agent = (withoutMetadata.agents as Array<{ env: Record<string, string>; max_timeout_sec?: number }>)[0]!;
+      assert.equal(
+        agent.env.MAKA_CELL_TIMEOUT_SEC,
+        parsed !== undefined ? String(parsed) : raw,
+        label,
+      );
+      assert.equal(agent.max_timeout_sec, parsed, label);
+    }
+  });
+
   test('uses each Terminal-Bench task native agent timeout when no override is set', () => {
     const config = buildHarborJobConfig(runInput({
       task: {

@@ -17,6 +17,18 @@ import { Tooltip, TooltipTrigger, TooltipContent } from './primitives/tooltip.js
 import { ToolTrow } from './tool-activity.js';
 import { useUiLocale } from './locale-context.js';
 
+/**
+ * Injected host capability that reads a session attachment's bytes. @maka/ui is
+ * host-agnostic: it never reaches into the desktop preload or any other host
+ * global. The desktop renderer threads its attachment reader through this prop;
+ * non-desktop hosts (Storybook, tests, a future web shell) can omit it or supply
+ * their own reader,
+ * in which case an image attachment stays in its pending skeleton.
+ */
+export type ReadAttachmentBytes = (
+  sessionId: string,
+  relativePath: string,
+) => Promise<{ ok: true; base64: string; mimeType: string } | { ok: false }>;
 
 /**
  * Renders an individual chat message body.
@@ -32,24 +44,17 @@ import { useUiLocale } from './locale-context.js';
  * Memoized because chat scroll re-renders the whole list on every streaming
  * delta; this keeps already-final bubbles from re-parsing markdown.
  */
-function AttachmentImage(props: { attachment: AttachmentRef }) {
+function AttachmentImage(props: { attachment: AttachmentRef; onReadAttachmentBytes?: ReadAttachmentBytes }) {
   const [src, setSrc] = useState<string | undefined>(undefined);
   const [lightboxOpen, setLightboxOpen] = useState(false);
+  const { onReadAttachmentBytes } = props;
   useEffect(() => {
     if (props.attachment.ref.kind !== 'session_file') return;
-    const reader = (window as unknown as {
-      maka?: {
-        attachments?: {
-          readBytes?: (
-            sessionId: string,
-            relativePath: string,
-          ) => Promise<{ ok: true; base64: string; mimeType: string } | { ok: false }>;
-        };
-      };
-    }).maka?.attachments?.readBytes;
-    if (!reader) return;
+    // No host reader (non-desktop host, or the capability wasn't wired): leave the
+    // thumbnail in its pending skeleton rather than reaching into a host global.
+    if (!onReadAttachmentBytes) return;
     let cancelled = false;
-    reader(props.attachment.ref.sessionId, props.attachment.ref.relativePath)
+    onReadAttachmentBytes(props.attachment.ref.sessionId, props.attachment.ref.relativePath)
       .then((result) => {
         if (cancelled || !result.ok) return;
         setSrc(`data:${result.mimeType};base64,${result.base64}`);
@@ -58,7 +63,7 @@ function AttachmentImage(props: { attachment: AttachmentRef }) {
     return () => {
       cancelled = true;
     };
-  }, [props.attachment]);
+  }, [props.attachment, onReadAttachmentBytes]);
   if (!src) {
     return (
       <span className="maka-user-attachment-thumb-pending h-32 w-32 rounded-md border border-[var(--border)] bg-[var(--foreground-alpha-6)] grid place-items-center text-[color:var(--muted-foreground)]" aria-hidden="true">
@@ -85,7 +90,7 @@ function AttachmentImage(props: { attachment: AttachmentRef }) {
   );
 }
 
-const MessageBody = memo(function MessageBody(props: { role: string; text: string; ts?: number; attachments?: readonly AttachmentRef[] }) {
+const MessageBody = memo(function MessageBody(props: { role: string; text: string; ts?: number; attachments?: readonly AttachmentRef[]; onReadAttachmentBytes?: ReadAttachmentBytes }) {
   const locale = useUiLocale();
   if (props.role === 'user') {
     // User turn: the message sits in a tinted, width-capped block aligned to
@@ -104,7 +109,7 @@ const MessageBody = memo(function MessageBody(props: { role: string; text: strin
             <div className="maka-user-attachments flex flex-wrap gap-1.5 mt-2">
               {props.attachments.map((attachment, index) => (
                 attachment.kind === 'image' ? (
-                  <AttachmentImage key={`${attachment.name}-${index}`} attachment={attachment} />
+                  <AttachmentImage key={`${attachment.name}-${index}`} attachment={attachment} onReadAttachmentBytes={props.onReadAttachmentBytes} />
                 ) : (
                   <AttachmentFileCard
                     key={`${attachment.name}-${index}`}
@@ -284,6 +289,13 @@ export const TurnView = memo(function TurnView(props: {
     processingIndicator?: boolean;
     continuingIndicator?: boolean;
   };
+  /**
+   * Injected host reader for image attachment bytes. Threaded down to the user
+   * message's `AttachmentImage` thumbnails; absent on non-desktop hosts, where
+   * image thumbnails stay in their pending skeleton. Keeps @maka/ui from
+   * reaching into the desktop preload directly.
+   */
+  onReadAttachmentBytes?: ReadAttachmentBytes;
 }) {
   const locale = useUiLocale();
   const { turn } = props;
@@ -347,7 +359,7 @@ export const TurnView = memo(function TurnView(props: {
           title={turn.user.ts ? formatAbsoluteTimestamp(turn.user.ts, locale) : undefined}
           className="group/usermsg"
         >
-          <MessageBody role="user" text={turn.user.text} ts={turn.user.ts} attachments={turn.user.attachments} />
+          <MessageBody role="user" text={turn.user.text} ts={turn.user.ts} attachments={turn.user.attachments} onReadAttachmentBytes={props.onReadAttachmentBytes} />
         </Message>
       )}
       {turn.notes.map((note) => (

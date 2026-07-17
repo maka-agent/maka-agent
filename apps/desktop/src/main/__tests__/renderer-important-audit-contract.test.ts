@@ -67,6 +67,15 @@ const ALLOWLIST: ImportantAllowance[] = [
     reason: 'reduced-motion override',
   },
   {
+    // Settings row primitives (consolidated from nav-sidebar.css). Goes
+    // through the allowlist + `Justified:` path, NOT isA11yOnlyFile: the
+    // file is the style home for every Settings row, so a whole-file skip
+    // would blind the audit to future non-a11y `!important` there.
+    fileSuffix: 'apps/desktop/src/renderer/styles/settings/rows.css',
+    anchor: '@media (prefers-reduced-motion: reduce)',
+    reason: 'reduced-motion override',
+  },
+  {
     fileSuffix: 'apps/desktop/src/renderer/styles/sidebar.css',
     anchor: '.maka-session-panel[data-collapsed="true"] .maka-list-stack',
     reason: 'shared list/empty-state collapse override',

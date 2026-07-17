@@ -291,6 +291,34 @@ describe('Settings form accessibility labels', () => {
     );
   });
 
+  // PR settings-rows-convergence: styles/settings/rows.css is the single
+  // style home for the settings row primitives, and both row kinds share
+  // one typography + padding contract. Before the convergence,
+  // .settingsFormRow titles rendered 15px while adjacent .settingsRow
+  // titles on the SAME page rendered 13px with tighter padding. These
+  // pins match the COMMA-GROUPED shared rules, so both a value drift and
+  // a fork back into per-kind sibling rules fail.
+  it('keeps both settings row kinds on the converged typography and padding contract', async () => {
+    const styles = await readRendererContractCss();
+    const settingsRow = styles.match(/\.settingsRow\s*\{[\s\S]*?\n\}/)?.[0] ?? '';
+    const settingsFormRow = styles.match(/\.settingsFormRow\s*\{[\s\S]*?\n\}/)?.[0] ?? '';
+    const rowTitle = styles.match(/\.settingsRow strong,\s*\.settingsFormRow strong\s*\{[\s\S]*?\n\}/)?.[0] ?? '';
+    const fieldLabel = styles.match(/\.settingsField span,\s*\.settingsFormGrid label span\s*\{[\s\S]*?\n\}/)?.[0] ?? '';
+    const hint = styles.match(/\.settingsRow small,\s*\.settingsFormRow small,\s*\.settingsField small\s*\{[\s\S]*?\n\}/)?.[0] ?? '';
+
+    for (const [name, block] of [['.settingsRow', settingsRow], ['.settingsFormRow', settingsFormRow]] as const) {
+      assert.ok(block, `${name} base rule must exist in the aggregated renderer CSS (rows.css import reachable)`);
+      assert.match(block, /padding:\s*var\(--space-5\)\s+var\(--space-6\);/, `${name} must keep the shared space-5/space-6 row padding`);
+    }
+    assert.ok(rowTitle, 'row titles must stay on ONE comma-grouped rule for both row kinds');
+    assert.match(rowTitle, /font-size:\s*var\(--font-size-heading\);/, 'row titles sit on the heading tier for both row kinds');
+    assert.match(rowTitle, /font-weight:\s*var\(--font-weight-medium\);/, 'row titles are medium weight');
+    assert.ok(fieldLabel, 'field labels must stay on ONE comma-grouped rule');
+    assert.match(fieldLabel, /font-size:\s*var\(--font-size-ui\);/, 'field labels sit one tier BELOW row titles (ui, not heading)');
+    assert.ok(hint, 'hints must stay on ONE comma-grouped rule across row kinds and fields');
+    assert.match(hint, /font-size:\s*var\(--font-size-base\);/, 'hints sit on the body tier');
+  });
+
   // Alignment-governance round (maintainer report: 每日回顾 switches sat
   // mid-page while every other row control hugs the right rail). The
   // original end-align rule was tag-qualified (`button[role="switch"]`)

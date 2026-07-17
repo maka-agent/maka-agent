@@ -50,13 +50,24 @@ export interface MakaPiTranscriptState {
   queuedInteractions: MakaPiPendingInteraction[];
   expandedPermissionRequestId?: string;
   /**
-   * Global expansion toggles: one Ctrl+O press expands every tool card in the
-   * transcript, one Ctrl+T press expands every thinking entry; pressing again
-   * collapses all. In-memory only; never persisted to storage. Resume resets
-   * both to collapsed.
+   * Expansion defaults: entries stamp `expanded` from these at creation, and
+   * one Ctrl+O / Ctrl+T press retargets every tool / thinking entry inside the
+   * live viewport and flips the default for entries created later. Entries
+   * above the viewport keep their state — their rendered lines sit in terminal
+   * scrollback, which cannot be rewritten, so resizing one would force pi-tui
+   * into a scrollback-clearing full redraw (#1097). In-memory only; never
+   * persisted to storage. Resume resets both to collapsed.
    */
   expandAllTools: boolean;
   expandAllThinking: boolean;
+  /**
+   * Geometry of the transcript render pi-tui last diffed against:
+   * renderMakaPiTranscript records each entry's first line and
+   * MakaPiLayoutComponent records the live-viewport top. The expansion toggles
+   * read it to leave entries above the viewport untouched (#1097); see
+   * entryInLiveViewport.
+   */
+  renderGeometry: MakaPiRenderGeometry;
   /**
    * Ref polls folded at `tool_start`, childToolUseId → card facts. A Read /
    * StopBackgroundTask aimed at a ref a visible Bash card owns is internal
@@ -86,6 +97,24 @@ export interface MakaPiTranscriptState {
 
 export type MakaPiPendingInteraction = AnyPermissionRequestEvent | UserQuestionRequestEvent;
 
+export interface MakaPiRenderGeometry {
+  /**
+   * First rendered transcript-line index per entry, from the latest render.
+   * `undefined` means no entry position is known — the transcript was just
+   * replaced wholesale and has not rendered since — which the toggles must
+   * treat as "nothing safely reachable" while the viewport has scrolled.
+   */
+  entryFirstLine: Map<MakaPiTranscriptEntry, number> | undefined;
+  /**
+   * pi-tui's live-viewport top in transcript-line coordinates (the transcript
+   * is the first layout child, so transcript line i is composed line i). Held
+   * as a monotonic max: pi-tui's viewport never scrolls back up short of a
+   * full redraw, and a full redraw has already cleared scrollback, so
+   * overestimating only makes the toggles more conservative.
+   */
+  viewportTop: number;
+}
+
 /** Facts kept from a folded poll's `tool_start` so an errored result can still materialize a proper card. */
 export interface MakaPiPendingShellRunPoll {
   toolName: string;
@@ -107,7 +136,7 @@ const LIVE_TOOL_BUFFER_MAX_CHUNKS = 512;
 export type MakaPiTranscriptEntry =
   | { kind: 'user'; text: string }
   | { kind: 'assistant'; messageId: string; text: string }
-  | { kind: 'thinking'; messageId: string; text: string }
+  | { kind: 'thinking'; messageId: string; text: string; expanded: boolean }
   | {
       kind: 'tool';
       toolUseId: string;
@@ -124,6 +153,15 @@ export type MakaPiTranscriptEntry =
       outputDeltas: BoundedChunkBuffer<MakaPiToolOutputDelta>;
       durationMs?: number;
       status: 'running' | 'done' | 'error' | 'failed' | 'aborted' | 'detached' | 'unavailable';
+      /** Expanded card view; stamped from expandAllTools, retargeted by Ctrl+O. */
+      expanded: boolean;
+      /**
+       * Set when a successful shell-run poll is folded into its parent while
+       * off-screen: the entry cannot be spliced (that would shift line numbers
+       * and clear scrollback), but it must not render as an independent card
+       * on a future full redraw. A hidden entry contributes zero lines.
+       */
+      hidden?: boolean;
     }
   | { kind: 'notice'; level: 'info' | 'error'; text: string };
 
@@ -151,6 +189,7 @@ export function createMakaPiTranscriptState(): MakaPiTranscriptState {
     queuedInteractions: [],
     expandAllTools: false,
     expandAllThinking: false,
+    renderGeometry: { entryFirstLine: undefined, viewportTop: 0 },
     pendingShellRunPolls: new Map(),
     usage: { costUsd: 0, cacheHitInput: 0, cacheMissInput: 0 },
     steering: [],
@@ -251,6 +290,14 @@ export function replaceTranscriptWithStoredMessages(
   state.pendingShellRunPolls.clear();
   state.expandAllTools = false;
   state.expandAllThinking = false;
+  // The old entries are gone; no position is known until the next render, and
+  // until then the toggles must not touch anything (a replacement entry could
+  // render above the still-scrolled viewport). viewportTop is left to the next
+  // layout render: when the replacement changes lines above it, pi-tui
+  // full-redraws and the layout's shadow diff resets the estimate to match;
+  // when the replacement is a pure truncation or identical content, pi-tui
+  // keeps its viewport and so does the estimate.
+  state.renderGeometry.entryFirstLine = undefined;
   state.usage = { costUsd: 0, cacheHitInput: 0, cacheMissInput: 0 };
   // Queues are per-active-run; a switched/reset session has none pending.
   state.steering = [];
@@ -261,21 +308,89 @@ export function replaceTranscriptWithStoredMessages(
   }
 }
 
-/** Toggle expansion of every tool card at once; false when there is none. */
+/**
+ * True when the entry will render inside the live viewport, or has not been
+ * rendered yet (a fresh entry first appears at the tail, inside the viewport).
+ * Entries above the viewport sit in terminal scrollback, which ANSI terminals
+ * cannot rewrite: resizing one forces pi-tui's differential renderer into a
+ * full redraw that clears pre-Maka scrollback and resets the user's scroll
+ * position (#1097), so the global toggles leave them untouched.
+ */
+function entryInLiveViewport(state: MakaPiTranscriptState, entry: MakaPiTranscriptEntry): boolean {
+  const geometry = state.renderGeometry;
+  // No positions at all (fresh state, or replaced and not yet rendered): safe
+  // only while the viewport has never scrolled.
+  if (geometry.entryFirstLine === undefined) return geometry.viewportTop === 0;
+  const firstLine = geometry.entryFirstLine.get(entry);
+  return firstLine === undefined || firstLine >= geometry.viewportTop;
+}
+
+/**
+ * True while entry positions are unknown but the viewport has scrolled (a
+ * wholesale replacement not yet re-rendered): a toggle could rewrite lines
+ * above pi-tui's real viewport, so it must do nothing until the next render.
+ *
+ * Unknown positions with viewportTop === 0 are deliberately NOT inert: while
+ * the viewport has never scrolled, no line sits in scrollback and pi-tui's
+ * differential render (`firstChanged < viewportTop`) can never full-redraw,
+ * so toggling everything — including entries awaiting their first render —
+ * is physically safe.
+ */
+function togglesInert(state: MakaPiTranscriptState): boolean {
+  return state.renderGeometry.entryFirstLine === undefined && state.renderGeometry.viewportTop > 0;
+}
+
+/**
+ * Toggle every tool card in the live viewport at once and flip the default for
+ * future cards; false when the session has no tool card at all or the toggles
+ * are inert pending a render.
+ *
+ * When every card sits above the viewport (e.g. a block whose own expansion
+ * pushed its head into scrollback, #1134), nothing visible can change — those
+ * lines are immutable short of a scrollback-clearing full redraw — so the
+ * toggle still flips the default and appends a notice saying why.
+ */
 export function toggleAllToolExpansion(state: MakaPiTranscriptState): boolean {
-  const hasTool = state.entries.some((entry) => entry.kind === 'tool');
-  if (!hasTool) return false;
+  if (togglesInert(state)) return false;
+  const candidates = state.entries.filter(
+    (entry): entry is MakaPiToolEntry => entry.kind === 'tool',
+  );
+  if (candidates.length === 0) return false;
   state.expandAllTools = !state.expandAllTools;
+  const targets = candidates.filter((entry) => entryInLiveViewport(state, entry));
+  for (const entry of targets) entry.expanded = state.expandAllTools;
+  if (targets.length === 0) {
+    state.entries.push({
+      kind: 'notice',
+      level: 'info',
+      text: `No tool card in view to toggle — cards above stay as rendered in scrollback. New tool output starts ${state.expandAllTools ? 'expanded' : 'collapsed'}.`,
+    });
+  }
   return true;
 }
 
-/** Toggle expansion of every thinking entry at once; false when there is none. */
+/**
+ * Toggle every thinking entry in the live viewport at once and flip the
+ * default for future entries; false when there is no thinking at all or the
+ * toggles are inert pending a render. Same head-scrolled contract as
+ * toggleAllToolExpansion (#1134).
+ */
 export function toggleAllThinkingExpansion(state: MakaPiTranscriptState): boolean {
-  const hasThinking = state.entries.some(
-    (entry) => entry.kind === 'thinking' && Boolean(entry.text.trim()),
+  if (togglesInert(state)) return false;
+  const candidates = state.entries.filter(
+    (entry): entry is MakaPiThinkingEntry => entry.kind === 'thinking' && Boolean(entry.text.trim()),
   );
-  if (!hasThinking) return false;
+  if (candidates.length === 0) return false;
   state.expandAllThinking = !state.expandAllThinking;
+  const targets = candidates.filter((entry) => entryInLiveViewport(state, entry));
+  for (const entry of targets) entry.expanded = state.expandAllThinking;
+  if (targets.length === 0) {
+    state.entries.push({
+      kind: 'notice',
+      level: 'info',
+      text: `No thinking in view to toggle — thinking above stays as rendered in scrollback. New thinking starts ${state.expandAllThinking ? 'expanded' : 'collapsed'}.`,
+    });
+  }
   return true;
 }
 
@@ -436,6 +551,7 @@ export function applyMakaSessionEventToTranscript(
         progress: createProgressBuffer(),
         outputDeltas: createOutputBuffer(),
         status: 'running',
+        expanded: state.expandAllTools,
       });
       break;
     }
@@ -470,6 +586,7 @@ export function applyMakaSessionEventToTranscript(
           resultVersion: 1,
           durationMs: event.durationMs,
           status: event.isError ? 'error' : 'done',
+          expanded: state.expandAllTools,
         };
         if (shellRun && !event.isError) applyOwnShellRunResult(entry, shellRun, event.durationMs);
         state.entries.push(entry);
@@ -483,7 +600,18 @@ export function applyMakaSessionEventToTranscript(
       if (tool && parent && shellRun && !event.isError) {
         applyLiveShellRunResultToParent(state, parent, shellRun);
         if (tool.toolName === 'Read' || tool.toolName === 'StopBackgroundTask') {
-          state.entries.splice(state.entries.indexOf(tool), 1);
+          // Splicing an off-screen entry shifts subsequent entries' line
+          // numbers, which changes the composed buffer above the viewport and
+          // forces a scrollback-clearing full redraw (#1135). Leave it in
+          // place but mark it hidden so it contributes zero lines: a future
+          // full redraw (width change, session switch) will not render it as
+          // a duplicate card. The stale entry is fully cleaned on the next
+          // session switch / replaceTranscriptWithStoredMessages.
+          if (entryInLiveViewport(state, tool)) {
+            state.entries.splice(state.entries.indexOf(tool), 1);
+          } else {
+            tool.hidden = true;
+          }
         } else {
           applyOwnShellRunResult(tool, shellRun, event.durationMs);
         }
@@ -519,6 +647,7 @@ export function applyMakaSessionEventToTranscript(
           resultVersion: 1,
           durationMs: event.durationMs,
           status: event.isError ? 'error' : 'done',
+          expanded: state.expandAllTools,
         });
       }
       break;
@@ -651,7 +780,9 @@ function chatItemToTranscriptEntries(item: ChatItem): MakaPiTranscriptEntry[] {
       // Stored thinking happened before the reply text, so it resumes above it.
       const thinking = item.message.thinking?.text;
       if (thinking?.trim()) {
-        entries.push({ kind: 'thinking', messageId: item.message.id, text: thinking });
+        // Replay resets the expansion defaults to collapsed, so replayed
+        // entries start collapsed too.
+        entries.push({ kind: 'thinking', messageId: item.message.id, text: thinking, expanded: false });
       }
       entries.push({ kind: 'assistant', messageId: item.message.id, text: item.message.text });
       return entries;
@@ -684,6 +815,7 @@ function toolActivityToTranscriptEntry(item: ToolActivityItem): MakaPiToolEntry 
     resultVersion: item.result ? 1 : 0,
     ...(item.durationMs !== undefined ? { durationMs: item.durationMs } : {}),
     status: transcriptToolStatus(item.status),
+    expanded: false,
   };
   // A failed call keeps its error status and raw payload: applying the shell_run
   // as the card's own result would let a still-running or settled payload
@@ -871,8 +1003,14 @@ export function renderMakaPiTranscript(
     return renderWelcomeBlock(metadata, safeWidth);
   }
 
+  const entryFirstLine = new Map<MakaPiTranscriptEntry, number>();
+  const viewportTop = state.renderGeometry.viewportTop;
   for (let i = 0; i < state.entries.length; i += 1) {
     const entry = state.entries[i]!;
+    if (entry.kind === 'tool' && entry.hidden) {
+      entryFirstLine.set(entry, lines.length);
+      continue;
+    }
     const prev = state.entries[i - 1];
     // A blank gap separates human-facing boundaries (user/assistant/thinking/
     // notice) and the edges of a tool stack; only consecutive tool entries (the
@@ -881,8 +1019,22 @@ export function renderMakaPiTranscript(
     // text rather than packing against the tool rows.
     const continuesStack = entry.kind === 'tool' && prev?.kind === 'tool';
     if (!continuesStack) lines.push('');
-    lines.push(...renderTranscriptEntryMemoized(entry, safeWidth, state.expandAllTools, state.expandAllThinking));
+    entryFirstLine.set(entry, lines.length);
+    // An entry that sits entirely above the live viewport is in terminal
+    // scrollback — freeze its rendered lines (#1135). An entry that straddles
+    // the boundary (first line in scrollback, tail still visible) must still
+    // re-render: append-only entries (assistant text, tool deltas) only change
+    // the visible tail, and pi-tui's `firstChanged` will be inside the
+    // viewport, so no full redraw is triggered. An entry with a zero-line
+    // cache (e.g. blank thinking) is still off-screen if its first line is
+    // above the viewport — it must not suddenly produce lines in scrollback.
+    const cachedLines = transcriptEntryRenderCache.get(entry);
+    const entryHeight = cachedLines?.lines.length ?? 0;
+    const fullyOffScreen = lines.length < viewportTop
+      && (entryHeight === 0 || lines.length + entryHeight <= viewportTop);
+    lines.push(...renderTranscriptEntryMemoized(entry, safeWidth, fullyOffScreen));
   }
+  state.renderGeometry.entryFirstLine = entryFirstLine;
 
   if (state.pendingInteraction?.type === 'permission_request') {
     lines.push('');
@@ -972,6 +1124,8 @@ function clearPendingInteractions(state: MakaPiTranscriptState): void {
 interface TranscriptEntryRender {
   signature: string;
   lines: string[];
+  /** Width the cached lines were rendered at, for off-screen freeze matching. */
+  width: number;
 }
 
 const transcriptEntryRenderCache = new WeakMap<MakaPiTranscriptEntry, TranscriptEntryRender>();
@@ -983,22 +1137,30 @@ const transcriptEntryRenderCache = new WeakMap<MakaPiTranscriptEntry, Transcript
 function renderTranscriptEntryMemoized(
   entry: MakaPiTranscriptEntry,
   width: number,
-  expandAllTools: boolean,
-  expandAllThinking: boolean,
+  offScreen: boolean,
 ): string[] {
-  const signature = transcriptEntrySignature(entry, width, expandAllTools, expandAllThinking);
+  // Off-screen entries live in terminal scrollback, which is immutable: any
+  // change to their rendered lines forces pi-tui's differential renderer into a
+  // scrollback-clearing full redraw (#1135). Serving the cached render keeps
+  // the display consistent with what's already in the terminal. The underlying
+  // entry state still updates — only the visual output is frozen. A width
+  // change already triggered a pi-tui full redraw (re-anchoring viewportTop to
+  // the tail), so a stale-width cache won't be served.
+  if (offScreen) {
+    const cached = transcriptEntryRenderCache.get(entry);
+    if (cached && cached.width === width) return cached.lines;
+  }
+  const signature = transcriptEntrySignature(entry, width);
   const cached = transcriptEntryRenderCache.get(entry);
   if (cached && cached.signature === signature) return cached.lines;
-  const lines = renderTranscriptEntryBlock(entry, width, expandAllTools, expandAllThinking);
-  transcriptEntryRenderCache.set(entry, { signature, lines });
+  const lines = renderTranscriptEntryBlock(entry, width);
+  transcriptEntryRenderCache.set(entry, { signature, lines, width });
   return lines;
 }
 
 function renderTranscriptEntryBlock(
   entry: MakaPiTranscriptEntry,
   width: number,
-  expandAllTools: boolean,
-  expandAllThinking: boolean,
 ): string[] {
   switch (entry.kind) {
     case 'user':
@@ -1006,9 +1168,9 @@ function renderTranscriptEntryBlock(
     case 'assistant':
       return renderAssistantBlock(entry.text, width);
     case 'thinking':
-      return renderThinkingBlock(entry, width, expandAllThinking);
+      return renderThinkingBlock(entry, width, entry.expanded);
     case 'tool':
-      return renderToolBlock(entry, width, expandAllTools);
+      return renderToolBlock(entry, width, entry.expanded);
     case 'notice':
       return renderNotice(entry, width);
   }
@@ -1017,8 +1179,6 @@ function renderTranscriptEntryBlock(
 function transcriptEntrySignature(
   entry: MakaPiTranscriptEntry,
   width: number,
-  expandAllTools: boolean,
-  expandAllThinking: boolean,
 ): string {
   switch (entry.kind) {
     // user and assistant text is append-only (user is immutable; assistant only
@@ -1033,7 +1193,7 @@ function transcriptEntrySignature(
       // Not just the length: `thinking_complete` can replace the streamed text
       // in place with a same-length final, which a length-only key would miss and
       // then serve stale reasoning from the cache. Key on the full text.
-      return `thinking|${width}|${expandAllThinking ? 1 : 0}|${entry.text}`;
+      return `thinking|${width}|${entry.expanded ? 1 : 0}|${entry.text}`;
     case 'notice':
       return `notice|${width}|${entry.level}|${entry.text.length}`;
     case 'tool':
@@ -1046,7 +1206,7 @@ function transcriptEntrySignature(
       return [
         'tool',
         width,
-        expandAllTools ? 1 : 0,
+        entry.expanded ? 1 : 0,
         entry.status,
         entry.durationMs ?? '',
         entry.title ?? entry.toolName,
@@ -1181,7 +1341,7 @@ function appendThinking(state: MakaPiTranscriptState, messageId: string, text: s
     last.text += text;
     return;
   }
-  state.entries.push({ kind: 'thinking', messageId, text });
+  state.entries.push({ kind: 'thinking', messageId, text, expanded: state.expandAllThinking });
 }
 
 function setThinking(state: MakaPiTranscriptState, messageId: string, text: string): void {
@@ -1194,7 +1354,7 @@ function setThinking(state: MakaPiTranscriptState, messageId: string, text: stri
       return;
     }
   }
-  state.entries.push({ kind: 'thinking', messageId, text });
+  state.entries.push({ kind: 'thinking', messageId, text, expanded: state.expandAllThinking });
 }
 
 // Thinking stays collapsed to a one-line marker by default so reasoning

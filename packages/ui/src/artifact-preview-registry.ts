@@ -25,8 +25,8 @@
  *     MAX_BYTES` → `unsupported('oversize')` BEFORE the renderer
  *     attempts `readBinary`. The renderer also re-checks after
  *     load (cap can be hit even if `sizeBytes` was unknown).
- *   - No new internal protocol. The renderer keeps using existing
- *     `window.maka.artifacts.readBinary` → `data:<mime>;base64,...`,
+ *   - No new internal protocol. The renderer keeps using the desktop preload's
+ *     artifact reader → `data:<mime>;base64,...`,
  *     where main does path safety + MIME sniffing. We are NOT
  *     inventing `app-file://` / `maka-asset://` here; that's a
  *     trust-boundary PR, not a registry-shape PR.

@@ -1,34 +1,40 @@
 import { useEffect, useRef, useState } from 'react';
 import type { AppSettings, OpenGatewayRuntimeStatus, UpdateAppSettingsResult } from '@maka/core';
-import { Button, Input, NumberField, NumberFieldInput, SettingsSelect, SettingsSwitch as Switch, Textarea, useMountedRef, useToast } from '@maka/ui';
+import { Button, Input, NumberField, NumberFieldInput, SettingsSelect, SettingsSwitch as Switch, Textarea, useToast } from '@maka/ui';
 import { PasswordInput } from './password-input';
 import { MetricCard } from './settings-metric-card';
 import { SettingsRows, SettingRow } from './settings-rows';
 import { settingsActionErrorMessage } from './settings-error-copy';
+import { useOptimisticSettingsDraft } from './use-optimistic-settings-draft';
 
 export function OpenGatewaySettingsPage(props: {
   settings: AppSettings;
   onUpdate(patch: Parameters<typeof window.maka.settings.update>[0]): Promise<UpdateAppSettingsResult>;
 }) {
   const persistedGateway = props.settings.openGateway;
-  const [gatewayDraft, setGatewayDraft] = useState(persistedGateway);
   const [status, setStatus] = useState<OpenGatewayRuntimeStatus | null>(null);
   const [statusLoadError, setStatusLoadError] = useState<string | null>(null);
   const [tokenDraft, setTokenDraft] = useState(persistedGateway.token);
   const [eventSessionId, setEventSessionId] = useState('');
-  const [saving, setSaving] = useState(false);
   const [copyingGatewayAction, setCopyingGatewayAction] = useState<string | null>(null);
-  const gatewayDraftRef = useRef(persistedGateway);
-  const persistedGatewayRef = useRef(persistedGateway);
-  const gatewayPendingSaveCountRef = useRef(0);
-  const gatewaySaveTicketRef = useRef(0);
   const copyingGatewayActionRef = useRef<string | null>(null);
-  const openGatewayMountedRef = useMountedRef();
   const toast = useToast();
+  const {
+    draft: gatewayDraft,
+    mountedRef: openGatewayMountedRef,
+    saving,
+    update,
+  } = useOptimisticSettingsDraft<AppSettings['openGateway']>(
+    persistedGateway,
+    (patch) => props.onUpdate({ openGateway: patch }).then((result) => result.settings.openGateway),
+    {
+      onError: (error) => toast.error('保存开放网关设置失败', settingsActionErrorMessage(error)),
+      onReconcile: (next) => setTokenDraft(next.token),
+    },
+  );
 
   useEffect(() => {
     return () => {
-      gatewaySaveTicketRef.current += 1;
       copyingGatewayActionRef.current = null;
     };
   }, []);
@@ -61,46 +67,8 @@ export function OpenGatewaySettingsPage(props: {
     };
   }, []);
 
-  function commitGatewayDraft(next: AppSettings['openGateway']) {
-    gatewayDraftRef.current = next;
-    setGatewayDraft(next);
-  }
-
-  useEffect(() => {
-    persistedGatewayRef.current = persistedGateway;
-    if (gatewayPendingSaveCountRef.current === 0) {
-      commitGatewayDraft(persistedGateway);
-      setTokenDraft(persistedGateway.token);
-    }
-  }, [persistedGateway]);
-
-  async function updateGateway(patch: Partial<AppSettings['openGateway']>): Promise<boolean> {
-    const nextDraft = { ...gatewayDraftRef.current, ...patch };
-    const ticket = gatewaySaveTicketRef.current + 1;
-    gatewaySaveTicketRef.current = ticket;
-    gatewayPendingSaveCountRef.current += 1;
-    commitGatewayDraft(nextDraft);
-    setSaving(true);
-    try {
-      const result = await props.onUpdate({ openGateway: patch });
-      if (openGatewayMountedRef.current && ticket === gatewaySaveTicketRef.current) {
-        commitGatewayDraft(result.settings.openGateway);
-        setTokenDraft(result.settings.openGateway.token);
-      }
-      return openGatewayMountedRef.current;
-    } catch (error) {
-      if (openGatewayMountedRef.current && ticket === gatewaySaveTicketRef.current) {
-        commitGatewayDraft(persistedGatewayRef.current);
-        setTokenDraft(persistedGatewayRef.current.token);
-        toast.error('保存开放网关设置失败', settingsActionErrorMessage(error));
-      }
-      return false;
-    } finally {
-      gatewayPendingSaveCountRef.current = Math.max(0, gatewayPendingSaveCountRef.current - 1);
-      if (openGatewayMountedRef.current) {
-        setSaving(gatewayPendingSaveCountRef.current > 0);
-      }
-    }
+  function updateGateway(patch: Partial<AppSettings['openGateway']>): Promise<boolean> {
+    return update(patch);
   }
 
   async function saveToken(nextToken = tokenDraft.trim()) {

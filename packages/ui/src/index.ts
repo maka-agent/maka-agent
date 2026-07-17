@@ -67,7 +67,7 @@ export * from './primitives/stat-tile.js';
 export * from './primitives/section-header.js';
 export { EmptyState } from './empty-state.js';
 export * from './primitives/choice-card.js';
-export * from './primitives/settings-segmented.js';
+export * from './primitives/segmented.js';
 export * from './primitives/settings-select.js';
 export * from './primitives/settings-switch.js';
 export * from './primitives/input.js';

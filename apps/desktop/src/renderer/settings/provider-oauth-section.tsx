@@ -21,6 +21,7 @@ import {
 import { type StatusTone } from './settings-status-badge';
 import { ProviderLogo } from './provider-display';
 import { ProviderConnectionDialog } from './provider-connection-dialog';
+import { createOneShotActionGuard } from './oauth-login-flow-guard';
 import {
   useOAuthLoginFlow,
   subscriptionActionErrorMessage,
@@ -331,10 +332,15 @@ async function getSubscriptionSnapshot(serviceId: OAuthServiceId): Promise<Subsc
   return (await window.maka.openAiCodex.getAccountState()) as SubscriptionSnapshot;
 }
 
+type GitHubCopilotPendingAction = 'connect' | 'refresh' | 'logout';
+
 function GitHubCopilotSubscriptionModal(props: { onClose(): void }) {
   const [state, setState] = useState<SubscriptionSnapshot | null>(null);
-  const [pendingAction, setPendingAction] = useState<'connect' | 'refresh' | 'logout' | null>(null);
-  const pendingRef = useRef<typeof pendingAction>(null);
+  const [pendingAction, setPendingAction] = useState<GitHubCopilotPendingAction | null>(null);
+  // Same synchronous one-shot guard useOAuthLoginFlow relies on: reject a
+  // second concurrent action before React can re-render the disabled button,
+  // instead of hand-rolling a parallel pendingRef lifecycle here.
+  const pendingGuard = useRef(createOneShotActionGuard<GitHubCopilotPendingAction>()).current;
   const mountedRef = useMountedRef();
   const toast = useToast();
 
@@ -345,9 +351,8 @@ function GitHubCopilotSubscriptionModal(props: { onClose(): void }) {
 
   useEffect(() => { void refreshState(); }, []);
 
-  async function runAction(action: NonNullable<typeof pendingAction>) {
-    if (pendingRef.current) return;
-    pendingRef.current = action;
+  async function runAction(action: GitHubCopilotPendingAction) {
+    if (!pendingGuard.begin(action)) return;
     setPendingAction(action);
     try {
       const result = action === 'connect'
@@ -360,7 +365,7 @@ function GitHubCopilotSubscriptionModal(props: { onClose(): void }) {
     } catch (error) {
       if (mountedRef.current) toast.error('GitHub Copilot 账号操作失败', subscriptionActionErrorMessage(error));
     } finally {
-      pendingRef.current = null;
+      pendingGuard.finish();
       if (mountedRef.current) setPendingAction(null);
     }
   }

@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { basename, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { describe, it } from 'node:test';
 
 function findRepoRoot(start: string): string {
@@ -35,7 +35,7 @@ function readJson(path: string) {
 
 function readTypescriptConfig(repoRoot: string, configPath: string) {
   const requireFromRepo = createRequire(join(repoRoot, 'package.json'));
-  const tscBin = requireFromRepo.resolve('typescript/bin/tsc');
+  const tscBin = join(dirname(requireFromRepo.resolve('typescript/package.json')), 'bin', 'tsc');
   return JSON.parse(execFileSync(
     process.execPath,
     [tscBin, '-p', configPath, '--showConfig'],
@@ -414,6 +414,11 @@ describe('Storybook baseline contract', () => {
       mkdirSync(join(parent, 'node_modules', 'typescript', 'bin'), { recursive: true });
       writeFileSync(join(repoRoot, 'package.json'), '{"private":true}', 'utf8');
       writeFileSync(configPath, '{}', 'utf8');
+      writeFileSync(
+        join(parent, 'node_modules', 'typescript', 'package.json'),
+        '{"name":"typescript","main":"./bin/tsc"}',
+        'utf8',
+      );
       writeFileSync(
         tscPath,
         'console.log(JSON.stringify({ files: ["packages/ui/src/index.ts"] }));\n',

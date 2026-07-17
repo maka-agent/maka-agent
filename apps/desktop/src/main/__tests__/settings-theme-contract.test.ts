@@ -74,7 +74,7 @@ describe('Settings theme page contract', () => {
     // PR round-c-choice-card-primitive + PR yuejing/settings-segmented-
     // primitive: Theme/Palette via Base UI `RadioGroup`-backed
     // `ChoiceCardGroup`; Segmented via Base UI `ToggleGroup`-backed
-    // `SettingsSegmented`. Both primitives provide arrow-key
+    // `Segmented`. Both primitives provide arrow-key
     // navigation, focus management, and roving tabindex for free, so
     // the hand-rolled `onSettingsRadioGroupKeyDown` /
     // `focusRadioValue` / `radioTabIndex` helpers are gone from
@@ -93,10 +93,9 @@ describe('Settings theme page contract', () => {
     assert.doesNotMatch(themePage, /onSettingsRadioGroupKeyDown|radioTabIndex|data-radio-value/);
     assert.doesNotMatch(themePage, /界面密度|props\.density|setDensity|onDensityChange/);
 
-    // Segmented now comes from `@maka/ui` as `SettingsSegmented`,
-    // imported aliased as `Segmented`. The local `function Segmented`
-    // declaration must be gone.
-    assert.match(src, /SettingsSegmented as Segmented/);
+    // Segmented now comes from `@maka/ui`. The local
+    // `function Segmented` declaration must be gone.
+    assert.match(src, /import \{[^}]*\bSegmented\b[^}]*\} from '@maka\/ui'/);
     assert.doesNotMatch(src, /^function Segmented</m);
   });
 

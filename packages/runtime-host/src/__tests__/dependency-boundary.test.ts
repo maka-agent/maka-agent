@@ -1,11 +1,54 @@
 import assert from 'node:assert/strict';
 import { readFile, readdir } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { test } from 'node:test';
-import ts from 'typescript';
+import { after, test } from 'node:test';
+import * as ts from 'typescript/unstable/ast';
+import { API } from 'typescript/unstable/sync';
 
 const sourceRoot = join(process.cwd(), 'src');
 const packageName = '@maka/runtime-host';
+const compilerApi = new API({ cwd: process.cwd() });
+const projectConfig = join(process.cwd(), 'tsconfig.json');
+const compilerSnapshot = compilerApi.updateSnapshot({ openProjects: [projectConfig] });
+const compilerProject = loadCompilerProject();
+const allowedHostExternalImports = new Set([
+  '@maka/storage/root-authority',
+  'node:child_process',
+  'node:crypto',
+  'node:fs/promises',
+  'node:net',
+  'node:path',
+  'node:perf_hooks',
+  'node:url',
+  'node:util',
+]);
+const allowedExternalImports = {
+  client: allowedHostExternalImports,
+  protocol: new Set(['node:util']),
+} as const;
+
+async function dependencyScannerFixture(target: string): Promise<void> {
+  await import(`node:url`);
+  await import(target);
+}
+void dependencyScannerFixture;
+
+function dependencyScannerLoaderCapabilityFixture(): void {
+  const load = process.getBuiltinModule('node:module').createRequire(import.meta.url);
+  load('@maka/headless');
+}
+void dependencyScannerLoaderCapabilityFixture;
+
+after(() => {
+  compilerSnapshot.dispose();
+  compilerApi.close();
+});
+
+function loadCompilerProject() {
+  const project = compilerSnapshot.getProject(projectConfig);
+  if (!project) throw new Error(`TypeScript did not load ${projectConfig}`);
+  return project;
+}
 
 test('protocol and client stay within their subpaths and the root-authority boundary', async () => {
   const violations: string[] = [];
@@ -13,7 +56,7 @@ test('protocol and client stay within their subpaths and the root-authority boun
   for (const area of ['protocol', 'client'] as const) {
     const entrypoint = publicEntrypoints.get(area);
     assert.ok(entrypoint, `missing public ${area} entrypoint`);
-    for (const path of await reachableModules(entrypoint, publicEntrypoints)) {
+    for (const path of reachableModules(entrypoint, publicEntrypoints)) {
       const localPath = relative(sourceRoot, path);
       const topLevelArea = localPath.split(sep)[0];
       if (
@@ -23,17 +66,13 @@ test('protocol and client stay within their subpaths and the root-authority boun
       ) {
         violations.push(`${area} reaches ${localPath}`);
       }
-      for (const specifier of await moduleSpecifiers(path)) {
+      for (const specifier of moduleSpecifiers(path)) {
         const target = sourcePathForLocalSpecifier(path, specifier, publicEntrypoints);
         if (target) {
           if (!isInside(sourceRoot, target)) violations.push(`${path}: ${specifier}`);
           continue;
         }
-        if (isRuntimeHostImport(specifier)) violations.push(`${path}: ${specifier}`);
-        if (isRuntimeImport(specifier)) violations.push(`${path}: ${specifier}`);
-        if (isStorageImport(specifier) && (area === 'protocol' || specifier !== '@maka/storage/root-authority')) {
-          violations.push(`${path}: ${specifier}`);
-        }
+        if (!allowedExternalImports[area].has(specifier)) violations.push(`${path}: ${specifier}`);
       }
     }
   }
@@ -44,36 +83,45 @@ test('M1 Host source cannot reach Runtime or bypass package storage boundaries',
   const violations: string[] = [];
   for (const path of await listTypeScriptFiles(sourceRoot)) {
     if (relative(sourceRoot, path).split(sep)[0] === '__tests__') continue;
-    for (const specifier of await moduleSpecifiers(path)) {
+    for (const specifier of moduleSpecifiers(path)) {
       if (isRelativeSpecifier(specifier)) {
         const target = sourcePathForSpecifier(path, specifier);
         if (!isInside(sourceRoot, target)) violations.push(`${path}: ${specifier}`);
         continue;
       }
-      if (isRuntimeImport(specifier)) violations.push(`${path}: ${specifier}`);
-      if (isStorageImport(specifier) && specifier !== '@maka/storage/root-authority') {
-        violations.push(`${path}: ${specifier}`);
-      }
+      if (!allowedHostExternalImports.has(specifier)) violations.push(`${path}: ${specifier}`);
     }
   }
   assert.deepEqual(violations, []);
 });
 
-async function reachableModules(
+test('dependency scanning fails closed on computed loads, loader aliases, and unapproved packages', () => {
+  const scan = scanModuleReferences(join(sourceRoot, '__tests__', 'dependency-boundary.test.ts'));
+  assert.ok(scan.specifiers.includes('node:url'));
+  assert.equal(scan.specifiers.includes('node:module'), false);
+  assert.equal(allowedHostExternalImports.has('node:module'), false);
+  assert.equal(allowedHostExternalImports.has('@maka/headless'), false);
+  assert.equal(scan.nonStaticLoads.length, 1);
+  assert.match(scan.nonStaticLoads[0] ?? '', /import\(\.\.\.\)/);
+  assert.equal(scan.forbiddenLoaderCapabilities.length, 1);
+  assert.match(scan.forbiddenLoaderCapabilities[0] ?? '', /getBuiltinModule/);
+});
+
+function reachableModules(
   entrypoint: string,
   publicEntrypoints: ReadonlyMap<string, string>,
-): Promise<string[]> {
+): string[] {
   const seen = new Set<string>();
-  const visit = async (path: string): Promise<void> => {
+  const visit = (path: string): void => {
     if (seen.has(path)) return;
     seen.add(path);
-    for (const specifier of await moduleSpecifiers(path)) {
+    for (const specifier of moduleSpecifiers(path)) {
       const target = sourcePathForLocalSpecifier(path, specifier, publicEntrypoints);
       if (!target) continue;
-      if (isInside(sourceRoot, target)) await visit(target);
+      if (isInside(sourceRoot, target)) visit(target);
     }
   };
-  await visit(entrypoint);
+  visit(entrypoint);
   return [...seen];
 }
 
@@ -87,36 +135,60 @@ async function listTypeScriptFiles(root: string): Promise<string[]> {
   return files;
 }
 
-async function moduleSpecifiers(path: string): Promise<string[]> {
-  const source = ts.createSourceFile(
-    path,
-    await readFile(path, 'utf8'),
-    ts.ScriptTarget.Latest,
-    true,
-    ts.ScriptKind.TS,
-  );
+function moduleSpecifiers(path: string): string[] {
+  const scan = scanModuleReferences(path);
+  const violations = [...scan.nonStaticLoads, ...scan.forbiddenLoaderCapabilities];
+  if (violations.length > 0) {
+    throw new Error(`Dependency boundary requires explicit module declarations:\n${violations.join('\n')}`);
+  }
+  return scan.specifiers;
+}
+
+function scanModuleReferences(path: string): {
+  specifiers: string[];
+  nonStaticLoads: string[];
+  forbiddenLoaderCapabilities: string[];
+} {
+  const source = compilerProject.program.getSourceFile(path);
+  if (!source) throw new Error(`TypeScript did not load ${path}`);
   const specifiers: string[] = [];
+  const nonStaticLoads: string[] = [];
+  const forbiddenLoaderCapabilities: string[] = [];
   const visit = (node: ts.Node) => {
+    if (forbiddenLoaderCapabilities.length === 0 && isGetBuiltinModuleAccess(node)) {
+      forbiddenLoaderCapabilities.push(`${path}: getBuiltinModule`);
+    }
     if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node))
       && node.moduleSpecifier
       && ts.isStringLiteral(node.moduleSpecifier)) {
       specifiers.push(node.moduleSpecifier.text);
     }
-    if (ts.isCallExpression(node) && node.arguments.length > 0 && ts.isStringLiteral(node.arguments[0])) {
-      if (node.expression.kind === ts.SyntaxKind.ImportKeyword
-        || (ts.isIdentifier(node.expression) && node.expression.text === 'require')) {
-        specifiers.push(node.arguments[0].text);
-      }
+    if (ts.isCallExpression(node)
+      && (node.expression.kind === ts.SyntaxKind.ImportKeyword
+        || (ts.isIdentifier(node.expression) && node.expression.text === 'require'))) {
+      const target = node.arguments[0];
+      if (target && ts.isStringLiteralLikeNode(target)) specifiers.push(target.text);
+      else nonStaticLoads.push(`${path}: ${node.expression.kind === ts.SyntaxKind.ImportKeyword ? 'import' : 'require'}(...)`);
     }
     if (ts.isImportTypeNode(node)
       && ts.isLiteralTypeNode(node.argument)
       && ts.isStringLiteral(node.argument.literal)) {
       specifiers.push(node.argument.literal.text);
     }
-    ts.forEachChild(node, visit);
+    node.forEachChild(visit);
   };
   visit(source);
-  return specifiers;
+  return { specifiers, nonStaticLoads, forbiddenLoaderCapabilities };
+}
+
+function isGetBuiltinModuleAccess(node: ts.Node): boolean {
+  if (ts.isPropertyAccessExpression(node)) return node.name.text === 'getBuiltinModule';
+  if (ts.isElementAccessExpression(node)) {
+    return Boolean(node.argumentExpression
+      && ts.isStringLiteralLikeNode(node.argumentExpression)
+      && node.argumentExpression.text === 'getBuiltinModule');
+  }
+  return ts.isIdentifier(node) && node.text === 'getBuiltinModule';
 }
 
 function sourcePathForSpecifier(importer: string, specifier: string): string {
@@ -160,16 +232,4 @@ function isInside(root: string, path: string): boolean {
 
 function isRelativeSpecifier(specifier: string): boolean {
   return specifier.startsWith('.');
-}
-
-function isRuntimeImport(specifier: string): boolean {
-  return specifier === '@maka/runtime' || specifier.startsWith('@maka/runtime/');
-}
-
-function isRuntimeHostImport(specifier: string): boolean {
-  return specifier === packageName || specifier.startsWith(`${packageName}/`);
-}
-
-function isStorageImport(specifier: string): boolean {
-  return specifier === '@maka/storage' || specifier.startsWith('@maka/storage/');
 }

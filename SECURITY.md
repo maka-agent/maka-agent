@@ -92,12 +92,14 @@ supply their own boundary. See
    user's workspace directory. Its load-bearing boundary is the OS
    user account plus filesystem controls: directory mode 0o700,
    file mode 0o600, atomic writes, and no symlink/traversal escape.
-   Claude and Codex subscription services keep their Desktop token copy
-   behind Electron safeStorage, but also export a best-effort plaintext
-   `oauth_token` JSON copy to `credentials.json` so the pure-Node runtime
-   can use the account. That shared copy has the same OS-account and
-   0o700/0o600 boundary as other runtime credentials. Cursor and
-   Antigravity are currently non-operational preview integrations.
+   Subscription OAuth tokens (Claude, Codex, GitHub Copilot, and the
+   Cursor/Antigravity previews) live in the same store: `credentials.json`
+   is the single authority every surface — Desktop, TUI, headless —
+   reads and writes, under the same OS-account and 0o700/0o600 boundary
+   as other runtime credentials. Electron safeStorage is not part of
+   this boundary anymore; Desktop startup imports pre-existing
+   safeStorage-encrypted token files into the store once and removes
+   them (#1125).
 3. **Renderer process sandbox + preload IPC bridge.** The
    renderer cannot reach files, network, or shell directly. Every
    IPC handler in `apps/desktop/src/main/main.ts` is the trust
@@ -175,9 +177,10 @@ boundary in §2.3 was crossed. Examples:
 - `credentials.json` is written outside the workspace credential
   path, through a symlink/traversal escape, or with POSIX permissions
   looser than the 0o700/0o600 boundary.
-- safeStorage encryption is bypassed for a Desktop subscription-token
-  store that is implemented to require safeStorage. The documented
-  plaintext CLI shared copy is not such a bypass.
+- A production OAuth path writes or requires a safeStorage-encrypted
+  token copy again. `credentials.json` is the single documented token
+  authority; safeStorage exists only inside the one-shot legacy import
+  (#1125).
 - A cleartext secret crosses main→renderer IPC under any
   circumstance (including error paths, settings preview, IPC
   result envelopes, log lines).

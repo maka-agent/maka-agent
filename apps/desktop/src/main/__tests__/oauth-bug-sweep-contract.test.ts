@@ -18,13 +18,6 @@ const SERVICES_WITH_LOOPBACK_SERVER = [
   'antigravity-subscription-service.ts',
 ];
 
-const SERVICES_WITH_LOAD_TOKENS = [
-  'claude-subscription-service.ts',
-  'openai-codex-service.ts',
-  'cursor-subscription-service.ts',
-  'antigravity-subscription-service.ts',
-];
-
 const WIRED_OAUTH_SEND_SERVICES = [
   'claude-subscription-service.ts',
   'openai-codex-service.ts',
@@ -58,26 +51,10 @@ describe('OAuth callback server: drains sockets + timeout (B-SWEEP-1, B-SWEEP-2)
   }
 });
 
-describe('OAuth loadTokens: unlinks corrupt files (B-SWEEP-3)', () => {
-  for (const file of SERVICES_WITH_LOAD_TOKENS) {
-    it(`${file} deletes the token file when decryptString / JSON.parse throws`, async () => {
-      const source = await readFile(resolve(OAUTH_DIR, file), 'utf8');
-      // After PR-BUG-SWEEP-2026-06-02 the catch block around
-      // decryptString + JSON.parse must call fs.unlink so a
-      // corrupt token blob doesn't pin the user to a stuck
-      // "not logged in" state. Best-effort — we don't bubble the
-      // unlink error.
-      // Find the loadTokens method, ensure it contains an unlink.
-      const loadTokensStart = source.indexOf('private async loadTokens(');
-      assert.ok(loadTokensStart > 0, `loadTokens not found in ${file}`);
-      // Limit to the method body — find the next top-level
-      // 'private ' or 'public ' or 'async ' declaration after it.
-      const tail = source.slice(loadTokensStart, loadTokensStart + 1500);
-      assert.match(tail, /fs\.unlink\(this\.tokenFilePath\)/,
-        `loadTokens in ${file} must unlink the token file on decrypt failure`);
-    });
-  }
-});
+// B-SWEEP-3 (unlink corrupt token files) is retired: every service
+// now persists through the shared CredentialStore (#1125), and the
+// bridge deletes a corrupt entry — covered by
+// shared-oauth-token-persistence.test.ts.
 
 describe('OAuth loadTokens: storage failures are not shown as logged out', () => {
   for (const file of WIRED_OAUTH_SEND_SERVICES) {
@@ -102,18 +79,18 @@ describe('OAuth loadTokens: storage failures are not shown as logged out', () =>
       );
       assert.match(
         loadTokens,
-        /safeStorage\.isEncryptionAvailable\(\)[\s\S]*lastStorageFailedMessage[\s\S]*return null/,
-        `${file} safeStorage-unavailable reads must set storage_failed detail`,
+        /loadSharedOAuthTokens\(this\.credentialStore/,
+        `${file} must load tokens from the shared credential store (the authority, #1125)`,
       );
       assert.match(
         loadTokens,
-        /catch \(error\)[\s\S]*code !== 'ENOENT'[\s\S]*lastStorageFailedMessage[\s\S]*return null/,
-        `${file} token-file read errors other than ENOENT must set storage_failed detail`,
+        /catch \{[\s\S]*lastStorageFailedMessage[\s\S]*return null/,
+        `${file} store read failures must set storage_failed detail instead of reading as logged out`,
       );
       assert.match(
         loadTokens,
-        /decryptString[\s\S]*JSON\.parse[\s\S]*catch \{[\s\S]*lastStorageFailedMessage[\s\S]*fs\.unlink\(this\.tokenFilePath\)/,
-        `${file} decrypt/parse failures must set storage_failed detail before corrupt-token cleanup`,
+        /status === 'corrupt'[\s\S]*lastStorageFailedMessage[\s\S]*return null/,
+        `${file} corrupt shared entries (deleted by the bridge) must surface storage_failed detail`,
       );
     });
   }

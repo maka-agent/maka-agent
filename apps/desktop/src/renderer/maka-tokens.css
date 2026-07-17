@@ -563,9 +563,10 @@
   --h-control-md:  calc(var(--spacing) * 7);  /* 28px — compact menu item, sm tab,
                                       round FAB (jump-to-bottom)          */
   --h-control-lg:  var(--space-8);  /* 32px — default button, input, tab,
-                                      sidebar nav row, session row, select */
-  --h-control-xl:  calc(var(--spacing) * 9);  /* 36px — prominent button, settings
-                                      nav row, first-run checklist row    */
+                                      sidebar nav row, session row,
+                                      settings nav row, select            */
+  --h-control-xl:  calc(var(--spacing) * 9);  /* 36px — prominent button,
+                                      first-run checklist row             */
   --h-control-2xl: var(--space-10); /* 40px — toolbar, large touch target  */
 
   /* === content measure (#520 PR4 item 16) ================================

@@ -12,7 +12,7 @@
  *
  * The tests import from `antigravity-subscription-helpers.ts`
  * directly so they don't pull in the `electron` ESM module —
- * the service class file imports `safeStorage` from electron,
+ * the service class file imports `shell` from electron,
  * which is unavailable under plain `node --test`.
  */
 
@@ -126,15 +126,18 @@ describe('Antigravity service source-grep contract', () => {
     );
   });
 
-  it('declares the safeStorage-encrypted token path under userData', async () => {
+  it('persists tokens through the shared credential store, not safeStorage (#1125)', async () => {
     const src = await readFile(SERVICE_SOURCE, 'utf8');
     assert.match(
       src,
-      /\.antigravity_subscription_token/,
-      'token file path must mirror the Claude / Codex pattern',
+      /saveSharedOAuthTokens\(this\.credentialStore, 'antigravity-subscription'/,
+      'tokens must be written to the shared CredentialStore (the cross-surface authority)',
     );
-    assert.match(src, /safeStorage\.encryptString/, 'tokens must be encrypted via safeStorage');
-    assert.match(src, /mode:\s*0o600/, 'persisted token file must be written with mode 0o600');
+    assert.doesNotMatch(
+      src,
+      /encryptString|decryptString|isEncryptionAvailable/,
+      'no safeStorage-encrypted token path may remain',
+    );
   });
 
   it('exports the preview status constant for the renderer-side scan', async () => {

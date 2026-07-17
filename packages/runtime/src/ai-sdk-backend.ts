@@ -4139,8 +4139,11 @@ export class AiSdkBackend implements AgentBackend {
         }
         out.push({ role: 'user', content: await this.appendImageParts(formatTextWithAttachmentRefs(m.text, m.attachments), m.attachments) } as ModelMessage);
       }
-      else if (m.type === 'assistant') out.push({ role: 'assistant', content: m.text });
-      // tool_call / tool_result / permission_decision / token_usage / system_note skipped
+      // A thinking/tool-only step projects an assistant row with empty text;
+      // replaying it as an empty text block is a hard 400 on Anthropic-protocol
+      // providers.
+      else if (m.type === 'assistant' && m.text.length > 0) out.push({ role: 'assistant', content: m.text });
+      // empty assistant / tool_call / tool_result / permission_decision / token_usage / system_note skipped
     }
     return out;
   }

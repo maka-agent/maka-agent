@@ -29,6 +29,7 @@ import { buildCatalogChatModelChoices } from '../model-catalog-choices';
 import { PasswordInput } from './password-input';
 import { SettingsRows } from './settings-rows';
 import { settingsActionErrorMessage } from './settings-error-copy';
+import { useOptimisticSettingsDraft } from './use-optimistic-settings-draft';
 
 export function GeneralSettingsPage(props: {
   settings: AppSettings;
@@ -244,54 +245,28 @@ function NetworkProxySection(props: {
   onUpdate(patch: Parameters<typeof window.maka.settings.update>[0]): Promise<UpdateAppSettingsResult>;
 }) {
   const persistedProxy = props.settings.network.proxy;
-  const [proxyDraft, setProxyDraft] = useState<NetworkProxySettings>(persistedProxy);
   const [testing, setTesting] = useState(false);
-  const proxyDraftRef = useRef<NetworkProxySettings>(persistedProxy);
-  const persistedProxyRef = useRef<NetworkProxySettings>(persistedProxy);
-  const proxyPendingSaveCountRef = useRef(0);
-  const proxySaveTicketRef = useRef(0);
   const proxyTestRunningRef = useRef(false);
-  const networkPageMountedRef = useMountedRef();
   const toast = useToast();
+  const {
+    draft: proxyDraft,
+    draftRef: proxyDraftRef,
+    mountedRef: networkPageMountedRef,
+    update,
+  } = useOptimisticSettingsDraft<NetworkProxySettings>(
+    persistedProxy,
+    (patch) => props.onUpdate({ network: { proxy: patch } }).then((result) => result.settings.network.proxy),
+    { onError: (error) => toast.error('保存网络设置失败', settingsActionErrorMessage(error)) },
+  );
 
   useEffect(() => {
     return () => {
-      proxySaveTicketRef.current += 1;
       proxyTestRunningRef.current = false;
     };
   }, []);
 
-  function commitProxyDraft(next: NetworkProxySettings) {
-    proxyDraftRef.current = next;
-    setProxyDraft(next);
-  }
-
-  useEffect(() => {
-    persistedProxyRef.current = persistedProxy;
-    if (proxyPendingSaveCountRef.current === 0) {
-      commitProxyDraft(persistedProxy);
-    }
-  }, [persistedProxy]);
-
-  async function updateProxy(patch: Partial<NetworkProxySettings>) {
-    const nextDraft = { ...proxyDraftRef.current, ...patch };
-    const ticket = proxySaveTicketRef.current + 1;
-    proxySaveTicketRef.current = ticket;
-    proxyPendingSaveCountRef.current += 1;
-    commitProxyDraft(nextDraft);
-    try {
-      const result = await props.onUpdate({ network: { proxy: patch } });
-      if (networkPageMountedRef.current && ticket === proxySaveTicketRef.current) {
-        commitProxyDraft(result.settings.network.proxy);
-      }
-    } catch (error) {
-      if (networkPageMountedRef.current && ticket === proxySaveTicketRef.current) {
-        commitProxyDraft(persistedProxyRef.current);
-        toast.error('保存网络设置失败', settingsActionErrorMessage(error));
-      }
-    } finally {
-      proxyPendingSaveCountRef.current = Math.max(0, proxyPendingSaveCountRef.current - 1);
-    }
+  function updateProxy(patch: Partial<NetworkProxySettings>) {
+    return update(patch);
   }
 
   async function testProxy() {

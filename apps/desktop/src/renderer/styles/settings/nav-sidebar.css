@@ -31,8 +31,8 @@
      rhythm. Match `.settingsNavItem` exactly so the row reads as part
      of the same vertical list. */
   width: calc(100% - 8px);
-  height: var(--h-control-xl);
-  min-height: var(--h-control-xl);
+  height: var(--h-control-lg);
+  min-height: var(--h-control-lg);
   display: flex;
   align-items: center;
   gap: var(--space-3);
@@ -113,16 +113,17 @@
 }
 
 .settingsNavItem {
-  /* PR-SETTINGS-SIDEBAR-SPACIOUS-0: roomier nav row matching reference.
-     PR-SETTINGS-CSS-ROOT-CLEANUP-0 (WAWQAQ msg `57de86ae`): the previous
+  /* PR-SETTINGS-CSS-ROOT-CLEANUP-0 (WAWQAQ msg `57de86ae`): the previous
      `grid-template-columns: 24px minmax(0,1fr) auto` allocated a trailing
      `auto` track for the Beta badge, but on the 11 rows without a
      badge the empty auto track still consumed a 12px gap, so the label
      ran 12px short. Switched to flex — glyph is fixed-width, label
-     fills, badge sits right-aligned naturally. No phantom gap. */
+     fills, badge sits right-aligned naturally. No phantom gap.
+     Height sits on the lg control tier (32px) — same tier as the
+     session-list rows, so the two sidebars share one row rhythm. */
   width: calc(100% - 8px);
-  height: var(--h-control-xl);
-  min-height: var(--h-control-xl);
+  height: var(--h-control-lg);
+  min-height: var(--h-control-lg);
   display: flex;
   align-items: center;
   gap: var(--space-3);
@@ -136,8 +137,8 @@
   text-align: left;
   justify-content: initial;
   font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-medium);
   transition: background-color var(--duration-base) var(--ease-out-strong), color var(--duration-base) var(--ease-out-strong);
-  grid-template-columns: 20px minmax(0, 1fr) auto;
 }
 
 .settingsNavItem > .settingsNavGlyph {
@@ -150,6 +151,10 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  /* Weight lives on the item so the active rule below can bump it;
+     an explicit weight here would shadow that state change (the old
+     always-semibold rule made the active bump a dead declaration). */
+  font-weight: inherit;
 }
 
 /* PR-SETTINGS-NAV-REGROUP-0 (WAWQAQ msg `a9ef0d5d`): small chip on nav
@@ -189,12 +194,14 @@
 }
 
 .settingsNavItem[data-active="true"] {
-  /* Active state via the shared --state-selected-bg token + 500 weight.
-     Keep the selected row neutral (WAWQAQ msg 49bd00e1): a leading
-     accent rail reads like a stray status marker in the Settings nav. */
+  /* Active state via the shared --state-selected-bg token + a weight
+     bump (medium → semibold, same recipe as `.maka-list-row-name` in
+     the session sidebar). Keep the selected row neutral (WAWQAQ msg
+     49bd00e1): a leading accent rail reads like a stray status marker
+     in the Settings nav. */
   background: var(--state-selected-bg);
   color: var(--foreground);
-  font-weight: var(--font-weight-medium);
+  font-weight: var(--font-weight-semibold);
   box-shadow: none;
 }
 
@@ -214,31 +221,19 @@
 }
 
 .settingsNavGlyph {
-  /* PR-SETTINGS-SIDEBAR-SPACIOUS-0: slightly bigger glyph track + svg
-     so the icon doesn't read as a tiny dot. */
-  width: 24px;
-  height: 24px;
+  /* Track = icon footprint (16px, the size the TSX renders). The old
+     24px track + 17px svg override meant nav labels started 8px to the
+     right of the back button's label (its bare 16px ArrowLeft has no
+     track); now both rows share the same icon + gap rhythm. */
+  width: 16px;
+  height: 16px;
   display: grid;
   place-items: center;
   color: var(--foreground-secondary);
 }
 
-.settingsNavGlyph svg {
-  width: 17px;
-  height: 17px;
-}
-
 /* PR-UI-11 (@yuejing 2026-05-22): inactive glyph stays muted; active
  * glyph is overridden above to `--foreground` for selection visibility. */
-
-.settingsNavItem strong {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: var(--font-size-ui);
-  font-weight: var(--font-weight-semibold);
-}
 
 .settingsFeatureStatusPage {
   display: grid;
@@ -362,21 +357,6 @@
 
 .settingsNoticeAction {
   margin-top: var(--space-2);
-}
-
-/* PR daily-review-bundled (@kenji audit finding #5): semantic width
-   bucket on the row, not a class selector keyed off the input
-   className. Different settings rows ask for different control
-   widths (time-pickers want compact, free-text selects want a 320px
-   cap); keying off the row makes the contract local and obvious. */
-.settingsRow[data-control-width="compact"] > input,
-.settingsRow[data-control-width="compact"] > .settingsTimeInput {
-  max-width: 140px;
-  justify-self: end;
-}
-
-.settingsRow[data-control-width="select"] > .settingsSelectTrigger {
-  justify-self: end;
 }
 
 .settingsFeatureStatusBadge {
@@ -568,176 +548,19 @@
   font-size: var(--font-size-ui);
 }
 
-/* PR-SETTINGS-ROW-SPACIOUS-0 (2026-06-23, WAWQAQ msg `f7e9d166`):
-   reference rows are MUCH more spacious than maka's. WAWQAQ's screenshot
-   of QoderWork's preferences card showed rows ~80–90px tall with
-   noticeable internal padding. Bumped: min-height 56→72, padding
-   16/20 → 20/24, gap inside row 16→20, label 14→15px, hint 12→13. */
-.settingsFormRow {
-  min-height: 72px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-5);
-  padding: var(--space-5) var(--space-6);
-  border: 0;
-  border-bottom: var(--border-width-hairline) solid oklch(from var(--foreground) l c h / 0.06);
-  border-radius: 0;
-  background: transparent;
-  transition: background var(--duration-base) var(--ease-out-strong);
-}
-
-/* Detail audit round 3: vertical variant for full-width controls (the
-   personalization tone textarea) living inside the shared card rows. */
-.settingsFormRow[data-orient="vertical"] {
-  flex-direction: column;
-  align-items: stretch;
-  gap: var(--space-3);
-}
-
-.settingsFormRow[data-orient="vertical"] .settingsActionRow {
-  margin: 0;
-}
-
-.settingsFormRow:last-child {
-  border-bottom: 0;
-}
-
-.settingsFormRow:hover {
-  background: var(--state-hover-bg);
-}
-
 .settingsBackButton:active,
 .settingsNavItem:active {
   background: var(--state-selected-bg);
 }
 
-/* PR-SETTINGS-A11Y-POLISH-0 (round 11/15) — keyboard-only focus ring
-   on settings rows + inputs. Reference's settings cards use a 2px
-   ring on focus-visible; maka had no visible affordance. Use the
-   accent color with 2px outline + 2px offset so it doesn't blend
-   with the row's hairline divider. */
-.settingsFormRow:focus-visible,
-.settingsRow:focus-visible {
-  outline: var(--focus-ring-width) solid var(--focus-ring);
-  outline-offset: var(--focus-ring-offset);
-  background: oklch(from var(--focus-ring) l c h / 0.04);
-}
-
-.settingsFormGrid select:focus-visible {
-  outline: none;
-  border-color: var(--focus-ring);
-  box-shadow: 0 0 0 var(--focus-ring-width) oklch(from var(--focus-ring) l c h / 0.18);
-}
-
-/* PR-SETTINGS-A11Y-POLISH-0 — respect prefers-reduced-motion. Strip
-   the nav-item background transition, the switch thumb slide, and
-   the row hover transitions for users on the OS reduced-motion
-   accommodation. The interaction still fires, just instantly. */
+/* PR-SETTINGS-A11Y-POLISH-0 — respect prefers-reduced-motion for the
+   nav chrome. The row/field primitives carry their own reduced-motion
+   block in rows.css. */
 @media (prefers-reduced-motion: reduce) {
-  .settingsNavItem,
-  .settingsFormRow,
-  .settingsRow,
-  .settingsField input,
-  .settingsField textarea {
+  .settingsNavItem {
     transition: none !important;
   }
   .settingsModal [role="switch"] > span {
     transition: none;
   }
-}
-
-.settingsFormRow strong,
-.settingsField span,
-.settingsFormGrid label span {
-  display: block;
-  color: var(--foreground);
-  font-size: var(--font-size-heading);
-  font-weight: var(--font-weight-medium);
-  line-height: var(--leading-snug);
-}
-
-.settingsFormRow small,
-.settingsField small {
-  display: block;
-  margin-top: var(--space-1-5);
-  color: var(--muted-foreground);
-  /* Hint is the most-read body text on the page; body tier (13). */
-  font-size: var(--font-size-base);
-  line-height: var(--leading-normal);
-}
-
-.settingsFieldWarning {
-  display: block;
-  margin-top: var(--space-1);
-  color: var(--warning-text, var(--info-text));
-}
-
-.settingsFormGrid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--space-3);
-}
-
-.settingsFormGridProxy {
-  grid-template-columns: minmax(150px, 0.8fr) minmax(0, 1.8fr) minmax(84px, 0.5fr);
-}
-
-.settingsField,
-.settingsFormGrid label {
-  display: grid;
-  gap: var(--space-1);
-}
-
-/* PR-S2 (2026-06-23): reference-style horizontal Settings row — label
-   stack on the left (title + description), control aligned right. Use
-   `<div className="settingsField" data-orient="horizontal">` on rows
-   whose control is a single inline element (Input, Switch, Segmented,
-   Select). Leave the default vertical stack for full-width controls
-   (Textarea, multi-line forms). The 1px hairline divider between rows
-   pulls the look closer to reference's flat divider list and away from
-   the previous "each row in its own implicit card" feel. */
-.settingsField[data-orient="horizontal"] {
-  grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-areas:
-    "label control"
-    "hint  control";
-  column-gap: var(--space-4);
-  row-gap: var(--space-0-5);
-  align-items: center;
-  padding: var(--space-3) 0;
-  border-bottom: var(--border-width-hairline) solid var(--border);
-}
-.settingsField[data-orient="horizontal"] > span {
-  grid-area: label;
-  align-self: end;
-}
-.settingsField[data-orient="horizontal"] > small {
-  grid-area: hint;
-  margin-top: 0;
-  align-self: start;
-}
-.settingsField[data-orient="horizontal"] > :not(span):not(small) {
-  grid-area: control;
-  justify-self: end;
-  align-self: center;
-  min-width: 0;
-}
-/* Allow inputs to take a comfortable cap width on horizontal rows so
-   the description column has space to breathe.
-   PR-SETTINGS-INPUT-POLISH-0: cap from 280 → 320 since rows are now
-   roomier (24px L/R padding). */
-.settingsField[data-orient="horizontal"] > input,
-.settingsField[data-orient="horizontal"] > .settingsSelectTrigger {
-  max-width: 320px;
-}
-/* WAWQAQ msg `0951e3b1` 2026-06-25 + @kenji audit #5 (msg `26a221be`):
-   moved to `.settingsRow[data-control-width="select"] >
-   .settingsBaseSelectTrigger` so the contract lives on the row, not on
-   a global class selector. See the data-control-width block above. */
-/* The horizontal row above the first one shouldn't carry a top border;
-   below the last one the section footer takes over. The default
-   border-bottom is fine for the inter-row hairlines. */
-.settingsField[data-orient="horizontal"] + .settingsField[data-orient="horizontal"] {
-  border-top: 0;
 }

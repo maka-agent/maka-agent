@@ -2,7 +2,7 @@ import type { PlanReminder, SessionSummary } from '@maka/core';
 import type { NavSelection } from './nav-selection.js';
 import { SessionHistoryList, type SessionHistoryStatusGroup, type SessionRowActions } from './session-history-list.js';
 import { SessionSidebarFooter, SessionSidebarNav } from './session-sidebar-nav.js';
-import { SettingsSegmented } from './primitives/settings-segmented.js';
+import { Segmented } from './primitives/segmented.js';
 
 export type SessionViewMode = 'status' | 'project';
 
@@ -50,7 +50,7 @@ export function SessionListPanel(props: {
               daily-review range tabs. The previous hand-rolled buttons
               referenced tokens that don't exist in maka-tokens
               (--surface-secondary etc.), rendering an invisible chrome. */}
-          <SettingsSegmented
+          <Segmented
             value={viewMode}
             options={[['status', '按状态'], ['project', '按项目']]}
             onChange={(mode) => onViewModeChange(mode)}

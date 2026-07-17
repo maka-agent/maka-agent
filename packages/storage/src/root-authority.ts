@@ -309,14 +309,9 @@ export async function assertStorageRootLease<
   expectedKind: K,
   expectedAccess: A,
 ): Promise<void> {
-  const record = leases.get(lease);
-  if (!record || record.kind !== expectedKind || record.access !== expectedAccess || !record.isActive()) {
-    throw new StorageRootAuthorityError(
-      'invalid_lease',
-      `Expected an active ${expectedKind} ${expectedAccess} storage root lease`,
-    );
-  }
+  const record = requireLease(lease, expectedKind, expectedAccess);
   await assertRootIdentity(record);
+  requireLease(lease, expectedKind, expectedAccess);
 }
 
 export async function assertStorageRootCapability<K extends StorageRootKind>(
@@ -329,8 +324,10 @@ export async function assertStorageRootCapability<K extends StorageRootKind>(
 
 export async function assertInteractiveRootOwner(owner: InteractiveRootOwner): Promise<void> {
   const authenticOwner = authenticateInteractiveRootOwner(owner);
-  await assertStorageRootCapability(authenticOwner.capability, 'interactive');
-  await assertStorageRootLease(authenticOwner.lease, 'interactive', 'write');
+  const capabilityRecord = requireCapability(authenticOwner.capability, 'interactive');
+  requireLease(authenticOwner.lease, 'interactive', 'write');
+  await assertRootIdentity(capabilityRecord);
+  requireLease(authenticOwner.lease, 'interactive', 'write');
 }
 
 export function authenticateInteractiveRootOwner(owner: InteractiveRootOwner): InteractiveRootOwner {
@@ -356,7 +353,6 @@ async function acquireInteractiveRootLock(
   access: StorageRootAccess,
 ): Promise<InteractiveRootOwner | InteractiveRootReader | undefined> {
   const capabilityRecord = requireCapability(capability, 'interactive');
-  await assertRootIdentity(capabilityRecord);
   const { controlDirectory } = await prepareStorageRootControlDirectory(capability);
   const lockPath = join(controlDirectory, 'owner.lock');
   const handle = await open(lockPath, 'a+', 0o600);
@@ -466,22 +462,31 @@ function requireCapability<K extends StorageRootKind>(
   return record as CapabilityRecord<K>;
 }
 
+function requireLease<K extends StorageRootKind, A extends StorageRootAccess>(
+  lease: StorageRootLease<K, A>,
+  expectedKind: K,
+  expectedAccess: A,
+): LeaseRecord<K, A> {
+  const record = leases.get(lease);
+  if (!record || record.kind !== expectedKind || record.access !== expectedAccess || !record.isActive()) {
+    throw new StorageRootAuthorityError(
+      'invalid_lease',
+      `Expected an active ${expectedKind} ${expectedAccess} storage root lease`,
+    );
+  }
+  return record as LeaseRecord<K, A>;
+}
+
 async function assertRootIdentity(record: CapabilityRecord): Promise<void> {
   await withAuthorityFailure(
     'root_io_failed',
     `Unable to validate storage root identity: ${record.canonicalPath}`,
     async () => {
-      const rootStat = await statRootIfPresent(record.canonicalPath);
-      if (
-        !rootStat?.isDirectory()
-        || rootStat.dev !== record.identity.dev
-        || rootStat.ino !== record.identity.ino
-      ) {
-        throw new StorageRootAuthorityError(
-          'root_identity_changed',
-          `Storage root identity changed: ${record.canonicalPath}`,
-        );
-      }
+      await assertRootPathIdentity(
+        record.canonicalPath,
+        record.identity,
+        `Storage root identity changed: ${record.canonicalPath}`,
+      );
       await confirmRootSnapshot({
         root: record.canonicalPath,
         identity: record.identity,
@@ -511,17 +516,11 @@ async function confirmRootSnapshot(input: ConfirmRootSnapshotInput): Promise<Roo
   ) {
     throw new StorageRootAuthorityError(input.markerMismatchCode, input.markerMismatchMessage);
   }
-  const confirmedRootStat = await statRootIfPresent(input.root);
-  if (
-    !confirmedRootStat?.isDirectory()
-    || confirmedRootStat.dev !== input.identity.dev
-    || confirmedRootStat.ino !== input.identity.ino
-  ) {
-    throw new StorageRootAuthorityError(
-      'root_identity_changed',
-      `Storage root identity changed while validating its marker: ${input.root}`,
-    );
-  }
+  await assertRootPathIdentity(
+    input.root,
+    input.identity,
+    `Storage root identity changed while validating its marker: ${input.root}`,
+  );
   return marker;
 }
 
@@ -551,6 +550,11 @@ async function ensureRootMarker(
     } finally {
       await handle.close();
     }
+    await assertRootPathIdentity(
+      root,
+      identity,
+      `Storage root identity changed before publishing its marker: ${root}`,
+    );
     try {
       await link(tempPath, markerPath);
       await syncDirectory(root);
@@ -567,6 +571,21 @@ async function ensureRootMarker(
     }
   }
   return readAndValidateRootMarker(root, kind);
+}
+
+async function assertRootPathIdentity(
+  root: string,
+  identity: RootIdentity,
+  message: string,
+): Promise<void> {
+  const rootStat = await statRootIfPresent(root);
+  if (
+    !rootStat?.isDirectory()
+    || rootStat.dev !== identity.dev
+    || rootStat.ino !== identity.ino
+  ) {
+    throw new StorageRootAuthorityError('root_identity_changed', message);
+  }
 }
 
 async function readAndValidateRootMarker(root: string, expectedKind: StorageRootKind): Promise<RootMarker> {

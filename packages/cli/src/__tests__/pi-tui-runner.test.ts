@@ -667,6 +667,153 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('Ctrl-O with tool cards above the viewport never clears terminal scrollback (#1097)', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new OffscreenToolDriver();
+    const run = runMakaPiTui({
+      title: 'Maka', driver, cwd: '/repo', model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription', permissionMode: 'ask', terminal,
+    });
+
+    terminal.input('r');
+    terminal.input('\r');
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('late-build'));
+
+    terminal.input('\x0f');
+    // The late card sits inside the 24-row viewport, so Ctrl+O expands it.
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('late-head'));
+
+    // The early card scrolled above the viewport before the toggle: its lines
+    // are terminal scrollback now, so it must not be re-rendered expanded, and
+    // nothing in the whole run may emit the scrollback-erase sequence.
+    assert.equal(plainTerminalOutput(terminal.output()).includes('early-head'), false);
+    assert.equal(terminal.output().includes('\x1b[3J'), false);
+
+    exitMaka(terminal);
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close during test cleanup');
+      }),
+    ]);
+  });
+
+  test('off-screen running-Bash ticker never clears scrollback (#1135)', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new OffscreenTickerDriver();
+    const run = runMakaPiTui({
+      title: 'Maka', driver, cwd: '/repo', model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription', permissionMode: 'ask', terminal,
+    });
+
+    terminal.input('r');
+    terminal.input('\r');
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('late-build'));
+
+    // The ticker fires every 1s; wait past two ticks. The early running card
+    // is off-screen, so its elapsed update must not trigger a scrollback wipe.
+    await delay(2_500);
+    assert.equal(terminal.output().includes('\x1b[3J'), false);
+
+    exitMaka(terminal);
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close during test cleanup');
+      }),
+    ]);
+  });
+
+  test('off-screen shell-run settle never clears scrollback (#1135)', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new OffscreenSettleDriver();
+    let listener: ((update: ShellRunUpdate) => void) | undefined;
+    const run = runMakaPiTui({
+      title: 'Maka', driver, cwd: '/repo', model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription', permissionMode: 'ask', terminal,
+      subscribeShellRunUpdates: (next) => {
+        listener = next;
+        return () => { listener = undefined; };
+      },
+    });
+
+    terminal.input('r');
+    terminal.input('\r');
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('late-build'));
+    assert.ok(listener);
+    // Settle the off-screen early card.
+    listener({
+      sessionId: 'session-1', ownership: { kind: 'local' }, sourceTurnId: 'turn-1', sourceToolCallId: 'tool-early',
+      result: {
+        kind: 'shell_run', ref: 'maka://runtime/background-tasks/bg-1',
+        mode: 'pipes' as const,
+        status: 'completed', cwd: '/repo', cmd: 'early-build',
+        startedAt: 1_000, updatedAt: 5_000, completedAt: 5_000, exitCode: 0,
+        revision: 5_000,
+        output: pipeOutput('early-build done'),
+      },
+    });
+    await delay(50);
+
+    assert.equal(terminal.output().includes('\x1b[3J'), false);
+
+    exitMaka(terminal);
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close during test cleanup');
+      }),
+    ]);
+  });
+
+  test('streaming text past the viewport keeps appending visible content (#1135)', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new StreamingPastViewportDriver();
+    const run = runMakaPiTui({
+      title: 'Maka', driver, cwd: '/repo', model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription', permissionMode: 'ask', terminal,
+    });
+
+    terminal.input('r');
+    terminal.input('\r');
+    // The assistant reply fills the viewport, then a second delta appends a
+    // unique tail marker. The tail must be visible — the entry straddles the
+    // scrollback/viewport boundary and only its scrollback prefix is frozen.
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('UNIQUE-TAIL-MARKER'));
+    assert.equal(terminal.output().includes('\x1b[3J'), false);
+
+    exitMaka(terminal);
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close during test cleanup');
+      }),
+    ]);
+  });
+
+  test('off-screen thinking_complete never clears scrollback (#1135)', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new OffscreenThinkingDriver();
+    const run = runMakaPiTui({
+      title: 'Maka', driver, cwd: '/repo', model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription', permissionMode: 'ask', terminal,
+    });
+
+    terminal.input('r');
+    terminal.input('\r');
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('late-visible'));
+
+    assert.equal(terminal.output().includes('\x1b[3J'), false);
+
+    exitMaka(terminal);
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close during test cleanup');
+      }),
+    ]);
+  });
+
   test('renders a background ShellRun terminal update after the agent turn ends', async () => {
     const terminal = new FakeTerminal();
     const driver = new BackgroundShellRunDriver();
@@ -803,6 +950,40 @@ describe('Maka Pi TUI runner', () => {
 
     terminal.input('\x14');
     await waitFor(() => !plainTerminalOutput(terminal.screenOutput()).includes('secret reasoning tail'));
+
+    exitMaka(terminal);
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close during test cleanup');
+      }),
+    ]);
+  });
+
+  test('Ctrl-T on a block expanded past the viewport flips the default and explains, without clearing scrollback (#1134)', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new TallThinkingOutputDriver();
+    const run = runMakaPiTui({
+      title: 'Maka', driver, cwd: '/repo', model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription', permissionMode: 'ask', terminal,
+    });
+
+    terminal.input('run');
+    terminal.input('\r');
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('Thinking…'));
+
+    // Expanding writes all 80 reasoning rows; the block's own head scrolls
+    // above the 24-row viewport into terminal scrollback.
+    terminal.input('\x14');
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('reason-row-79'));
+
+    // The second Ctrl+T finds no thinking head inside the viewport. It must
+    // not clear scrollback, must keep the frozen expansion, and must say what
+    // happened instead of silently doing nothing.
+    terminal.input('\x14');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('No thinking in view to toggle'));
+    assert.match(plainTerminalOutput(terminal.screenOutput()), /New thinking starts collapsed/);
+    assert.equal(terminal.output().includes('\x1b[3J'), false);
 
     exitMaka(terminal);
     await Promise.race([
@@ -4590,6 +4771,27 @@ class ThinkingOutputDriver implements MakaSessionDriver {
   }
 }
 
+/** 80 reasoning rows: expanding pushes the block's head into scrollback (#1134). */
+class TallThinkingOutputDriver extends ThinkingOutputDriver {
+  override async *sendPrompt(_prompt: string): AsyncIterable<SessionEvent> {
+    yield {
+      type: 'thinking_delta',
+      id: 'event-thinking',
+      turnId: 'turn-1',
+      ts: 1,
+      messageId: 'message-1',
+      text: Array.from({ length: 80 }, (_, i) => `reason-row-${i}`).join('\n'),
+    };
+    yield {
+      type: 'complete',
+      id: 'event-complete',
+      turnId: 'turn-1',
+      ts: 2,
+      stopReason: 'end_turn',
+    };
+  }
+}
+
 class ToolOutputDriver implements MakaSessionDriver {
   async listSessions(): Promise<SessionSummary[]> {
     return [];
@@ -4672,6 +4874,176 @@ class BackgroundShellRunDriver extends ToolOutputDriver {
         revision: 2_000,
         output: pipeOutput(),
       },
+    };
+    yield { type: 'complete', id: 'event-complete', turnId: 'turn-1', ts: 3, stopReason: 'end_turn' };
+  }
+}
+
+class OffscreenToolDriver extends ToolOutputDriver {
+  override async *sendPrompt(_prompt: string): AsyncIterable<SessionEvent> {
+    yield {
+      type: 'tool_start', id: 'event-early-start', turnId: 'turn-1', ts: 1,
+      toolUseId: 'tool-early', toolName: 'Bash', args: { command: 'early-build' },
+    };
+    yield {
+      type: 'tool_result', id: 'event-early-result', turnId: 'turn-1', ts: 2,
+      toolUseId: 'tool-early', isError: false,
+      content: {
+        kind: 'terminal', cwd: '/repo', cmd: 'early-build',
+        status: 'completed', exitCode: 0,
+        // `early-head` is hidden by the compact tail; it can only ever be
+        // written if the card is re-rendered expanded.
+        output: pipeOutput(`early-head\n${Array.from({ length: 30 }, (_, i) => `early-row-${i}`).join('\n')}`),
+      },
+    };
+    yield {
+      type: 'text_delta', id: 'event-filler', turnId: 'turn-1', ts: 3,
+      messageId: 'message-1',
+      // 30 paragraphs (~60 rows) push the early card above a 24-row viewport.
+      text: Array.from({ length: 30 }, (_, i) => `filler-${i}`).join('\n\n'),
+    };
+    yield {
+      type: 'tool_start', id: 'event-late-start', turnId: 'turn-1', ts: 4,
+      toolUseId: 'tool-late', toolName: 'Bash', args: { command: 'late-build' },
+    };
+    yield {
+      type: 'tool_result', id: 'event-late-result', turnId: 'turn-1', ts: 5,
+      toolUseId: 'tool-late', isError: false,
+      content: {
+        kind: 'terminal', cwd: '/repo', cmd: 'late-build',
+        status: 'completed', exitCode: 0,
+        output: pipeOutput(`late-head\n${Array.from({ length: 30 }, (_, i) => `late-row-${i}`).join('\n')}`),
+      },
+    };
+    yield { type: 'complete', id: 'event-complete', turnId: 'turn-1', ts: 6, stopReason: 'end_turn' };
+  }
+}
+
+// #1135: a running Bash card scrolls off-screen, then the 1s ticker updates
+// its elapsed time. The freeze must keep the off-screen render unchanged.
+class OffscreenTickerDriver extends ToolOutputDriver {
+  override async *sendPrompt(_prompt: string): AsyncIterable<SessionEvent> {
+    yield {
+      type: 'tool_start', id: 'event-early-start', turnId: 'turn-1', ts: 1,
+      toolUseId: 'tool-early', toolName: 'Bash', args: { command: 'early-build' },
+    };
+    yield {
+      type: 'tool_result', id: 'event-early-result', turnId: 'turn-1', ts: 2,
+      toolUseId: 'tool-early', isError: false,
+      content: {
+        kind: 'shell_run', ref: 'maka://runtime/background-tasks/bg-1',
+        mode: 'pipes' as const,
+        status: 'running', cwd: '/repo', cmd: 'early-build',
+        startedAt: 1_000, updatedAt: 2_000, revision: 2_000,
+        output: pipeOutput(),
+      },
+    };
+    yield {
+      type: 'text_delta', id: 'event-filler', turnId: 'turn-1', ts: 3,
+      messageId: 'message-1',
+      text: Array.from({ length: 30 }, (_, i) => `filler-${i}`).join('\n\n'),
+    };
+    yield {
+      type: 'tool_start', id: 'event-late-start', turnId: 'turn-1', ts: 4,
+      toolUseId: 'tool-late', toolName: 'Bash', args: { command: 'late-build' },
+    };
+    yield {
+      type: 'tool_result', id: 'event-late-result', turnId: 'turn-1', ts: 5,
+      toolUseId: 'tool-late', isError: false,
+      content: {
+        kind: 'terminal', cwd: '/repo', cmd: 'late-build',
+        status: 'completed', exitCode: 0,
+        output: pipeOutput('late-build done'),
+      },
+    };
+    yield { type: 'complete', id: 'event-complete', turnId: 'turn-1', ts: 6, stopReason: 'end_turn' };
+  }
+}
+
+// #1135: an off-screen running Bash card settles while off-screen. The settle
+// is delivered via subscribeShellRunUpdates (see the test). The driver only
+// sets up the off-screen running card and a late visible tool.
+class OffscreenSettleDriver extends ToolOutputDriver {
+  override async *sendPrompt(_prompt: string): AsyncIterable<SessionEvent> {
+    yield {
+      type: 'tool_start', id: 'event-early-start', turnId: 'turn-1', ts: 1,
+      toolUseId: 'tool-early', toolName: 'Bash', args: { command: 'early-build' },
+    };
+    yield {
+      type: 'tool_result', id: 'event-early-result', turnId: 'turn-1', ts: 2,
+      toolUseId: 'tool-early', isError: false,
+      content: {
+        kind: 'shell_run', ref: 'maka://runtime/background-tasks/bg-1',
+        mode: 'pipes' as const,
+        status: 'running', cwd: '/repo', cmd: 'early-build',
+        startedAt: 1_000, updatedAt: 2_000, revision: 2_000,
+        output: pipeOutput(),
+      },
+    };
+    yield {
+      type: 'text_delta', id: 'event-filler', turnId: 'turn-1', ts: 3,
+      messageId: 'message-1',
+      text: Array.from({ length: 30 }, (_, i) => `filler-${i}`).join('\n\n'),
+    };
+    yield {
+      type: 'tool_start', id: 'event-late-start', turnId: 'turn-1', ts: 4,
+      toolUseId: 'tool-late', toolName: 'Bash', args: { command: 'late-build' },
+    };
+    yield {
+      type: 'tool_result', id: 'event-late-result', turnId: 'turn-1', ts: 5,
+      toolUseId: 'tool-late', isError: false,
+      content: {
+        kind: 'terminal', cwd: '/repo', cmd: 'late-build',
+        status: 'completed', exitCode: 0,
+        output: pipeOutput('late-build done'),
+      },
+    };
+    yield { type: 'complete', id: 'event-complete', turnId: 'turn-1', ts: 6, stopReason: 'end_turn' };
+  }
+}
+
+// #1135: a thinking entry is streamed off-screen, then thinking_complete
+// replaces its text. The freeze must keep the off-screen render unchanged.
+class OffscreenThinkingDriver extends ToolOutputDriver {
+  override async *sendPrompt(_prompt: string): AsyncIterable<SessionEvent> {
+    yield {
+      type: 'thinking_delta', id: 'event-thinking-delta', turnId: 'turn-1', ts: 1,
+      messageId: 'message-1', text: 'early-streamed-reasoning',
+    };
+    yield {
+      type: 'text_delta', id: 'event-filler', turnId: 'turn-1', ts: 2,
+      messageId: 'message-2',
+      text: Array.from({ length: 30 }, (_, i) => `filler-${i}`).join('\n\n'),
+    };
+    // thinking_complete arrives after the thinking entry has scrolled off-screen.
+    yield {
+      type: 'thinking_complete', id: 'event-thinking-complete', turnId: 'turn-1', ts: 3,
+      messageId: 'message-1', text: 'final-reasoning-replaces-streamed',
+    };
+    yield {
+      type: 'text_delta', id: 'event-late-text', turnId: 'turn-1', ts: 4,
+      messageId: 'message-3', text: 'late-visible-reply',
+    };
+    yield { type: 'complete', id: 'event-complete', turnId: 'turn-1', ts: 5, stopReason: 'end_turn' };
+  }
+}
+
+// #1135: an assistant reply grows past the viewport boundary. The entry
+// straddles scrollback and viewport — its scrollback prefix is frozen but the
+// visible tail must keep updating.
+class StreamingPastViewportDriver extends ToolOutputDriver {
+  override async *sendPrompt(_prompt: string): AsyncIterable<SessionEvent> {
+    // First delta: ~30 paragraphs fill a 24-row viewport.
+    yield {
+      type: 'text_delta', id: 'event-text-1', turnId: 'turn-1', ts: 1,
+      messageId: 'message-1',
+      text: Array.from({ length: 30 }, (_, i) => `line-${i}`).join('\n\n'),
+    };
+    // Second delta: a unique marker appended to the same entry.
+    yield {
+      type: 'text_delta', id: 'event-text-2', turnId: 'turn-1', ts: 2,
+      messageId: 'message-1',
+      text: '\n\nUNIQUE-TAIL-MARKER',
     };
     yield { type: 'complete', id: 'event-complete', turnId: 'turn-1', ts: 3, stopReason: 'end_turn' };
   }

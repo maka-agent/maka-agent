@@ -8,7 +8,7 @@ import type {
   UiLocalePreference,
   UpdateAppSettingsResult,
 } from '@maka/core';
-import { ChoiceCard, ChoiceCardGroup, Input, SettingsSegmented as Segmented, Textarea, useMountedRef, useToast } from '@maka/ui';
+import { ChoiceCard, ChoiceCardGroup, Input, Segmented, Textarea, useMountedRef, useToast } from '@maka/ui';
 import { settingsActionErrorMessage } from './settings-error-copy';
 
 const THEME_OPTIONS: Array<{ value: ThemePreference; label: string; help: string }> = [

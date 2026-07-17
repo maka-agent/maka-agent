@@ -57,7 +57,8 @@
     "clean": "node ../../scripts/clean-paths.mjs dist tsconfig.tsbuildinfo",
     "build": "tsc -p tsconfig.json && node scripts/chmod-bin.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "npm run clean && npm run build && node ../../scripts/run-headless-tests.mjs"
+    "test": "npm run clean && npm run build && npm run test:dist",
+    "test:dist": "node ../../scripts/run-headless-tests.mjs"
   },
   "dependencies": {
     "@maka/core": "0.1.0",

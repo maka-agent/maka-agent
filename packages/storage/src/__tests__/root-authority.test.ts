@@ -72,6 +72,48 @@ describe('storage root authority', () => {
     });
   });
 
+  test('rejects replacement before opening the temporary marker', async () => {
+    await withRoots(async ({ base, root }) => {
+      const originalRoot = join(base, 'original-root');
+      const child = fork(
+        new URL('./fixtures/root-initialization-race.js', import.meta.url),
+        [root, STORAGE_ROOT_MARKER_FILE],
+        { stdio: ['ignore', 'ignore', 'ignore', 'ipc'] },
+      );
+      try {
+        await waitForChildMessage(
+          child,
+          (message): message is { type: 'marker_open_pending' } => message.type === 'marker_open_pending',
+          'marker_open_pending',
+        );
+        await rename(root, originalRoot);
+        await mkdir(root);
+
+        const outcomePromise = waitForChildMessage(
+          child,
+          (message): message is RootResolverMessage => message.type === 'resolved' || message.type === 'error',
+          'resolver outcome',
+        );
+        child.send('resume');
+        assert.deepEqual(await outcomePromise, {
+          type: 'error',
+          code: 'root_identity_changed',
+        });
+        child.disconnect();
+        await waitForExit(child);
+
+        await assert.rejects(lstat(join(root, STORAGE_ROOT_MARKER_FILE)), { code: 'ENOENT' });
+        const replacement = await resolveStorageRoot({ path: root, kind: 'interactive' });
+        await assert.doesNotReject(() => assertStorageRootCapability(replacement, 'interactive'));
+      } finally {
+        if (child.exitCode === null && child.signalCode === null) {
+          child.kill('SIGKILL');
+          await waitForExit(child);
+        }
+      }
+    });
+  });
+
   test('rejects a regular file as a typed invalid root', async () => {
     await withRoots(async ({ root }) => {
       await writeFile(root, 'not a directory');
@@ -414,6 +456,8 @@ type RootResolverMessage =
   | { type: 'resolved' }
   | { type: 'error'; code: string };
 
+type InitializationRaceMessage = RootResolverMessage | { type: 'marker_open_pending' };
+
 function createFifo(path: string): void {
   const result = spawnSync('mkfifo', [path], { encoding: 'utf8' });
   if (result.error) throw result.error;
@@ -464,11 +508,60 @@ function resolveRootInChild(root: string): Promise<RootResolverMessage> {
   });
 }
 
+function waitForChildMessage<T extends InitializationRaceMessage>(
+  child: ChildProcess,
+  matches: (message: InitializationRaceMessage) => message is T,
+  expected: string,
+): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error(`initialization race fixture did not report ${expected}`));
+    }, 5_000);
+    const cleanup = () => {
+      clearTimeout(timer);
+      child.off('error', onError);
+      child.off('exit', onExit);
+      child.off('message', onMessage);
+    };
+    const onError = (error: Error) => {
+      cleanup();
+      reject(error);
+    };
+    const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
+      cleanup();
+      reject(new Error(`initialization race fixture exited before reporting: ${code ?? signal}`));
+    };
+    const onMessage = (value: unknown) => {
+      if (!isInitializationRaceMessage(value)) {
+        cleanup();
+        reject(new Error(`unexpected initialization race message: ${JSON.stringify(value)}`));
+      } else if (matches(value)) {
+        cleanup();
+        resolve(value);
+      } else {
+        cleanup();
+        reject(new Error(
+          `initialization race fixture reported ${value.type} while waiting for ${expected}`,
+        ));
+      }
+    };
+    child.once('error', onError);
+    child.once('exit', onExit);
+    child.on('message', onMessage);
+  });
+}
+
 function isRootResolverMessage(value: unknown): value is RootResolverMessage {
   if (!value || typeof value !== 'object') return false;
   const message = value as Record<string, unknown>;
   return message.type === 'resolved'
     || (message.type === 'error' && typeof message.code === 'string');
+}
+
+function isInitializationRaceMessage(value: unknown): value is InitializationRaceMessage {
+  return isRootResolverMessage(value)
+    || (!!value && typeof value === 'object' && (value as { type?: unknown }).type === 'marker_open_pending');
 }
 
 async function closeHolder(child: ChildProcess): Promise<void> {

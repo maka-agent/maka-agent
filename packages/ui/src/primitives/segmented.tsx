@@ -16,11 +16,12 @@ import { cn } from "../utils.js";
  * arrow-key navigation, and `data-pressed` state for the active item
  * for free.
  *
- * Caller's `className` (legacy `.settingsSegmented`) still owns the
- * visual chrome. The primitive only contributes Base UI's behavior
- * contract, the same way `ChoiceCard` / `SettingsSelect` are layered.
+ * Visual chrome lives in the renderer's `styles/segmented.css` under
+ * `.maka-segmented` — one home for every consumer (sidebar view-mode
+ * toggle, daily-review range tabs, usage and appearance settings),
+ * the same way `ChoiceCard` / `SettingsSelect` are layered.
  */
-export interface SettingsSegmentedProps<T extends string> {
+export interface SegmentedProps<T extends string> {
   value: T;
   options: ReadonlyArray<readonly [T, string]>;
   onChange(value: T): void;
@@ -29,8 +30,8 @@ export interface SettingsSegmentedProps<T extends string> {
   className?: string;
 }
 
-export function SettingsSegmented<T extends string>(
-  props: SettingsSegmentedProps<T>,
+export function Segmented<T extends string>(
+  props: SegmentedProps<T>,
 ): ReactElement {
   return (
     <BaseToggleGroup
@@ -43,7 +44,7 @@ export function SettingsSegmented<T extends string>(
       }}
       disabled={props.disabled}
       aria-label={props.ariaLabel}
-      className={cn("settingsSegmented", props.className)}
+      className={cn("maka-segmented", props.className)}
     >
       {props.options.map(([value, label]) => (
         <BaseToggle

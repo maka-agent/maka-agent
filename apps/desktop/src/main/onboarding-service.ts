@@ -98,7 +98,7 @@ export function createOnboardingService(deps: OnboardingServiceDeps): Onboarding
 
       // @kenji PR110b perf gate: per-connection credential lookup must
       // run in parallel, NOT serialized. Even with 4-5 connections,
-      // async safeStorage reads can add up to noticeable startup
+      // async credential-store reads can add up to noticeable startup
       // latency on cold open.
       const secretEntries = await Promise.all(
         connections.map(async (connection) => {

@@ -90,6 +90,118 @@ describe('AiSdkBackend model history', () => {
     ]);
   });
 
+  test('keeps RuntimeEvent replay when the prior run ended with a terminal error event', async () => {
+    // Regression: a run recovered after an app restart commits a terminal
+    // error-content event to the ledger. That event must not degrade the next
+    // turn to the stored-message projection — the session would be stuck on the
+    // degraded path for every later turn.
+    const model = completionModel();
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    await drain(backend.send({
+      turnId: 'turn-current',
+      text: 'current user',
+      context: [
+        { type: 'user', id: 'projection-u', turnId: 'turn-prev', ts: 1, text: 'projection user' },
+        { type: 'assistant', id: 'projection-a', turnId: 'turn-prev', ts: 2, text: 'projection assistant', modelId: 'm' },
+      ],
+      runtimeContext: [
+        runtimeTextEvent({ id: 'rt-u', turnId: 'turn-prev', role: 'user', author: 'user', text: 'runtime user' }),
+        runtimeTextEvent({ id: 'rt-a', turnId: 'turn-prev', role: 'model', author: 'agent', text: 'runtime assistant' }),
+        {
+          id: 'rt-terminal-error',
+          invocationId: 'inv-1',
+          runId: 'run-prev',
+          sessionId: 'session-1',
+          turnId: 'turn-prev',
+          ts: 3,
+          partial: false,
+          role: 'system',
+          author: 'system',
+          status: 'failed',
+          content: { kind: 'error', code: 'app_restarted', reason: 'app_restarted', message: 'app_restarted' },
+          actions: { endInvocation: true },
+        },
+      ],
+    }));
+
+    assert.deepEqual(compactPrompt(model), [
+      { role: 'user', content: [{ type: 'text', text: 'runtime user' }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'runtime assistant' }] },
+      { role: 'user', content: [{ type: 'text', text: 'current user' }] },
+    ]);
+  });
+
+  test('drops a dangling tool call from replay after a crash during tool execution', async () => {
+    // The app died between persisting the function_call and its
+    // function_response; recovery appended the terminal error event. Replaying
+    // the dangling tool_use without a tool_result is a provider 400, so the
+    // request must carry the surviving history without the orphan call.
+    const model = completionModel();
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    await drain(backend.send({
+      turnId: 'turn-current',
+      text: 'current user',
+      context: [
+        { type: 'user', id: 'projection-u', turnId: 'turn-prev', ts: 1, text: 'runtime user' },
+      ],
+      runtimeContext: [
+        runtimeTextEvent({ id: 'rt-u', turnId: 'turn-prev', role: 'user', author: 'user', text: 'runtime user' }),
+        runtimeEvent({
+          id: 'rt-dangling-call',
+          turnId: 'turn-prev',
+          role: 'model',
+          author: 'agent',
+          content: { kind: 'function_call', id: 'tool-1', name: 'Bash', args: { command: 'sleep 999' } },
+        }),
+        {
+          id: 'rt-terminal-error',
+          invocationId: 'inv-1',
+          runId: 'run-prev',
+          sessionId: 'session-1',
+          turnId: 'turn-prev',
+          ts: 3,
+          partial: false,
+          role: 'system',
+          author: 'system',
+          status: 'failed',
+          content: { kind: 'error', code: 'app_restarted', reason: 'app_restarted', message: 'app_restarted' },
+          actions: { endInvocation: true },
+        },
+      ],
+    }));
+
+    assert.deepEqual(compactPrompt(model), [
+      { role: 'user', content: [{ type: 'text', text: 'runtime user' }] },
+      { role: 'user', content: [{ type: 'text', text: 'current user' }] },
+    ]);
+  });
+
   test('uses StoredMessage projection when RuntimeEvent replay is empty', async () => {
     const model = completionModel();
     const backend = new AiSdkBackend({
@@ -127,6 +239,43 @@ describe('AiSdkBackend model history', () => {
           status: 'completed',
           actions: { endInvocation: true },
         },
+      ],
+    }));
+
+    assert.deepEqual(compactPrompt(model), [
+      { role: 'user', content: [{ type: 'text', text: 'projection user' }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'projection assistant' }] },
+      { role: 'user', content: [{ type: 'text', text: 'current user' }] },
+    ]);
+  });
+
+  test('stored-message fallback skips empty assistant texts', async () => {
+    // A thinking/tool-only step projects an assistant row with empty text.
+    // The degraded stored-message path must not replay it: an empty text
+    // content block is a hard 400 on Anthropic-protocol providers, which
+    // permanently blocks every later turn of the session.
+    const model = completionModel();
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    await drain(backend.send({
+      turnId: 'turn-current',
+      text: 'current user',
+      context: [
+        { type: 'user', id: 'projection-u', turnId: 'turn-prev', ts: 1, text: 'projection user' },
+        { type: 'assistant', id: 'projection-empty', turnId: 'turn-prev', ts: 2, text: '', modelId: 'm' },
+        { type: 'assistant', id: 'projection-a', turnId: 'turn-prev', ts: 3, text: 'projection assistant', modelId: 'm' },
       ],
     }));
 
@@ -3495,11 +3644,25 @@ describe('AiSdkBackend model history', () => {
       runtimeContext: [
         runtimeTextEvent({ id: 'rt-u', turnId: 'turn-prev', role: 'user', author: 'user', text: 'runtime user' }),
         runtimeEvent({
-          id: 'rt-error',
+          id: 'rt-call',
           turnId: 'turn-prev',
-          role: 'system',
-          author: 'system',
-          content: { kind: 'error', reason: 'tool_failed', message: 'Tool failed' },
+          role: 'model',
+          author: 'agent',
+          content: { kind: 'function_call', id: 'tool-1', name: 'Bash', args: { command: 'ls' } },
+        }),
+        runtimeEvent({
+          id: 'rt-invalid-shell',
+          turnId: 'turn-prev',
+          role: 'tool',
+          author: 'tool',
+          content: {
+            kind: 'function_response',
+            id: 'tool-1',
+            name: 'Bash',
+            // Unrecognizable shell result shape: neither current nor legacy.
+            result: { kind: 'terminal', garbage: true },
+            isError: false,
+          },
         }),
       ],
     }));

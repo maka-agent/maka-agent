@@ -1,19 +1,11 @@
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
-import { readFileSync } from 'node:fs';
-import { exec as nodeExec } from 'node:child_process';
-import { createHash, randomUUID } from 'node:crypto';
-import { homedir } from 'node:os';
+import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
-import { promisify } from 'node:util';
 import type {
   BackendKind,
-  LlmConnection,
-  ModelInfo,
   PricingConfig,
   ProviderType,
-  RuntimeEvent,
 } from '@maka/core';
-import { PROVIDER_DEFAULTS } from '@maka/core';
 import { isThinkingLevel } from '@maka/core';
 import {
   AiSdkBackend,
@@ -23,19 +15,13 @@ import {
   SessionManager,
   buildProviderOptions,
   buildSubscriptionModelFetch,
-  defaultShellPlan,
   getAIModel,
   getBuiltinPricing,
   loadSynthesisCacheBlocksFromArtifacts,
   persistSynthesisCacheBlocksToArtifacts,
-  runShellWithBoundedTail,
-  type MakaTool,
   type InvocationResult,
-  type ContextBudgetPolicy,
   type SynthesisCacheLoader,
   type SynthesisCacheWriter,
-  type ToolResultArchiveReader,
-  type ToolResultArchiveRecorder,
 } from '@maka/runtime';
 import {
   createAgentRunStore,
@@ -55,27 +41,63 @@ import {
 import type { Config, Task } from './contracts.js';
 import { configWithHeavyTaskPolicy, resolveHeavyTaskMode } from './heavy-task-policy.js';
 import { configWithEconomyTaskPolicy, resolveEconomyTaskMode } from './economy-task-policy.js';
-import type { HeadlessBackendContext, IsolatedToolExecutor, RealBackendIsolation } from './isolation.js';
-import { ISOLATED_HEADLESS_TOOL_NAMES, validateRealBackendIsolation } from './isolation.js';
+import type { HeadlessBackendContext, RealBackendIsolation } from './isolation.js';
+import { validateRealBackendIsolation } from './isolation.js';
 import { PiCliJsonTransport } from './pi-cli-json-transport.js';
-import {
-  providerBaseUrlFromEnv,
-  providerCredentialEnv,
-  requireProviderCredentialEnv,
-} from './provider-env.js';
+import { providerFromEnv, resolveHarborCellAiSdkEnv } from './provider-env.js';
 import { backendNeedsIsolation } from './runner.js';
-import { buildIsolatedHeadlessToolAvailability, buildIsolatedHeadlessTools, type BuildIsolatedHeadlessToolsOptions } from './tools.js';
+import { buildIsolatedHeadlessToolAvailability } from './tools.js';
 import {
   createInMemoryTaskLedgerExperimentStore,
   renderTaskLedgerExperimentReplay,
 } from './task-ledger-experiment.js';
+import {
+  booleanEnv,
+  numericEnv,
+  positiveIntEnv,
+  type RunHarborCellEnv,
+} from './headless-run-env.js';
+import {
+  buildHarborCellContextBudgetBackendOptions,
+  buildHarborCellContextBudgetPolicySnapshot,
+  buildHarborCellTaskLedgerExperimentPolicy,
+} from './harbor-cell-context-budget-env.js';
+import {
+  buildHarborCellAiSdkTools,
+  createHarborCellLocalToolExecutor,
+} from './harbor-cell-tool-executor.js';
+
+// The Harbor cell orchestration module keeps `#harbor-cell` (and './harbor-cell.js')
+// as the stable public surface. After the sink-file split the moved symbols live in
+// dedicated leaves; re-export them here so existing importers keep resolving them
+// from the orchestration module.
+export {
+  HARBOR_CELL_CONTEXT_ENV_KEYS,
+  normalizeHarborCellContextEnv,
+  buildHarborCellContextBudgetBackendOptions,
+  buildHarborCellContextBudgetPolicySnapshot,
+  buildHarborCellTaskLedgerExperimentPolicy,
+  type HarborCellContextEnvKey,
+  type HarborCellContextBudgetBackendOptions,
+  type HarborCellTaskLedgerExperimentPolicy,
+} from './harbor-cell-context-budget-env.js';
+export {
+  HARBOR_CELL_DEFAULT_COMMAND_TIMEOUT_MS,
+  buildHarborCellAiSdkTools,
+  createHarborCellLocalToolExecutor,
+  createHarborHttpToolExecutor,
+} from './harbor-cell-tool-executor.js';
+export {
+  providerApiKeyEnvName,
+  resolveHarborCellAiSdkEnv,
+  type ResolvedHarborCellAiSdkEnv,
+} from './provider-env.js';
+export type { RunHarborCellEnv } from './headless-run-env.js';
 
 export const HARBOR_CELL_OUTPUT_FILENAME = 'maka-cell-output.json';
 export const HARBOR_CELL_RUNTIME_EVENTS_FILENAME = 'runtime-events.jsonl';
 export const HARBOR_CELL_EXECUTION_IDENTITY_FILENAME = 'maka-cell-execution-identity.json';
 export const HARBOR_CELL_USAGE_CHECKPOINT_FILENAME = 'maka-cell-usage-checkpoint.json';
-const execAsync = promisify(nodeExec);
-const HARBOR_CELL_TOOL_MAX_BUFFER_BYTES = 10 * 1024 * 1024;
 
 export interface RunHarborCellInput {
   config: Config;
@@ -131,12 +153,6 @@ export interface RunHarborCellResult {
   settledByDeadline: boolean;
 }
 
-export type RunHarborCellEnv = Record<string, string | undefined>;
-
-export function providerApiKeyEnvName(provider: string): string {
-  return requireProviderCredentialEnv(provider).apiKeys[0]!;
-}
-
 export const HARBOR_CELL_DEFAULT_CONTINUATION_PROMPT = 'Continue the same benchmark task from the current workspace state. Do not restart. If the task is complete, provide the final response.';
 const HARBOR_CELL_DEFAULT_MAX_STEPS_PER_TURN = 50;
 
@@ -144,17 +160,6 @@ export interface RunHarborCellFromEnvOptions {
   registerBackends?: RunHarborCellInput['registerBackends'];
   now?: () => number;
   newId?: () => string;
-}
-
-export interface ResolvedHarborCellAiSdkEnv {
-  connection: LlmConnection;
-  apiKey: string;
-}
-
-export interface HarborCellContextBudgetBackendOptions {
-  contextBudget?: ContextBudgetPolicy;
-  archiveToolResult?: ToolResultArchiveRecorder;
-  readToolResultArchive?: ToolResultArchiveReader;
 }
 
 export interface HarborCellUsageCheckpoint {
@@ -167,115 +172,6 @@ export interface HarborCellUsageCheckpoint {
   reasoningTokens: number;
   totalTokens: number;
   costUsd?: number;
-}
-
-export interface HarborCellTaskLedgerExperimentPolicy {
-  enabled: true;
-  replayMaxChars: number;
-}
-
-export const HARBOR_CELL_CONTEXT_ENV_KEYS = [
-  'MAKA_CONTEXT_BUDGET',
-  'MAKA_CONTEXT_BUDGET_NAME',
-  'MAKA_CONTEXT_CHARS_PER_TOKEN',
-  'MAKA_CONTEXT_MAX_HISTORY_ESTIMATED_TOKENS',
-  'MAKA_CONTEXT_MAX_HISTORY_TURNS',
-  'MAKA_CONTEXT_HISTORY_BUDGET_TOKENS',
-  'MAKA_CONTEXT_HISTORY_BUDGET_TURNS',
-  'MAKA_CONTEXT_MIN_RECENT_TURNS',
-  'MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE',
-  'MAKA_CONTEXT_STALE_TOOL_RESULT_MAX_ESTIMATED_TOKENS',
-  'MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE_MAX_ESTIMATED_TOKENS',
-  'MAKA_CONTEXT_STALE_TOOL_RESULT_MAX_TOKENS',
-  'MAKA_CONTEXT_STALE_TOOL_RESULT_MIN_RECENT_TURNS_FULL',
-  'MAKA_CONTEXT_STALE_TOOL_RESULT_MIN_RECENT_TURNS',
-  'MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE',
-  'MAKA_CONTEXT_ACTIVE_TOOL_RESULT_MAX_ESTIMATED_TOKENS',
-  'MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE_MAX_ESTIMATED_TOKENS',
-  'MAKA_CONTEXT_ACTIVE_TOOL_RESULT_MIN_STEP_NUMBER',
-  'MAKA_CONTEXT_ACTIVE_FULL_COMPACT',
-  'MAKA_CONTEXT_ACTIVE_FULL_COMPACT_MODE',
-  'MAKA_CONTEXT_ACTIVE_FULL_COMPACT_MIN_STEP_NUMBER',
-  'MAKA_CONTEXT_ACTIVE_FULL_COMPACT_HIGH_WATER_RATIO',
-  'MAKA_CONTEXT_ACTIVE_FULL_COMPACT_FORCE_RATIO',
-  'MAKA_CONTEXT_ACTIVE_FULL_COMPACT_TARGET_RATIO',
-  'MAKA_CONTEXT_ACTIVE_FULL_COMPACT_MAX_ACTIVE_ESTIMATED_TOKENS',
-  'MAKA_CONTEXT_ACTIVE_FULL_COMPACT_MAX_ESTIMATED_TOKENS',
-  'MAKA_CONTEXT_ACTIVE_FULL_COMPACT_MIN_RECENT_MESSAGES',
-  'MAKA_CONTEXT_ACTIVE_FULL_COMPACT_MIN_RECENT_TOOL_PAIRS',
-  'MAKA_CONTEXT_ACTIVE_FULL_COMPACT_MAX_SUMMARY_ESTIMATED_TOKENS',
-  'MAKA_CONTEXT_ACTIVE_FULL_COMPACT_SUMMARY_MAX_ESTIMATED_TOKENS',
-  'MAKA_CONTEXT_ACTIVE_FULL_COMPACT_ARCHIVE_REQUIRED',
-  'MAKA_CONTEXT_ACTIVE_FULL_COMPACT_HIGH_WATER_NAME',
-  'MAKA_CONTEXT_SEMANTIC_COMPACT',
-  'MAKA_CONTEXT_SEMANTIC_COMPACT_MODE',
-  'MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_STEP_NUMBER',
-  'MAKA_CONTEXT_SEMANTIC_COMPACT_HIGH_WATER_RATIO',
-  'MAKA_CONTEXT_SEMANTIC_COMPACT_FORCE_RATIO',
-  'MAKA_CONTEXT_SEMANTIC_COMPACT_TARGET_RATIO',
-  'MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_ACTIVE_ESTIMATED_TOKENS',
-  'MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_ESTIMATED_TOKENS',
-  'MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_RECENT_MESSAGES',
-  'MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_RECENT_TOOL_PAIRS',
-  'MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_SAFE_PREFIX_ESTIMATED_TOKENS',
-  'MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_NEW_PREFIX_ESTIMATED_TOKENS',
-  'MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_ACCEPTED_PROJECTION_ESTIMATED_TOKENS',
-  'MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_SUMMARY_ESTIMATED_TOKENS',
-  'MAKA_CONTEXT_SEMANTIC_COMPACT_SUMMARY_MAX_ESTIMATED_TOKENS',
-  'MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_SAVINGS_TOKENS',
-  'MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_SAVINGS_RATIO',
-  'MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_NET_SAVINGS_TOKENS',
-  'MAKA_CONTEXT_SEMANTIC_COMPACT_CALL_TOKEN_COST_WEIGHT',
-  'MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_CALL_TOKENS',
-  'MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_CONSECUTIVE_INVALID_SUMMARIES',
-  'MAKA_CONTEXT_SEMANTIC_COMPACT_INVALID_SUMMARY_COOLDOWN_STEPS',
-  'MAKA_CONTEXT_SEMANTIC_COMPACT_TIMEOUT_MS',
-  'MAKA_CONTEXT_SEMANTIC_COMPACT_ARCHIVE_REQUIRED',
-  'MAKA_CONTEXT_SEMANTIC_COMPACT_MODEL',
-  'MAKA_CONTEXT_SEMANTIC_COMPACT_PROMPT_VERSION',
-  'MAKA_CONTEXT_SEMANTIC_COMPACT_HIGH_WATER_NAME',
-  'MAKA_CONTEXT_ARCHIVE_RETRIEVAL',
-  'MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MODE',
-  'MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_RESULTS',
-  'MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_ESTIMATED_TOKENS',
-  'MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_TOKENS',
-  'MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_BYTES',
-  'MAKA_CONTEXT_SYNTHESIS_CACHE',
-  'MAKA_CONTEXT_SYNTHESIS_CACHE_MODE',
-  'MAKA_CONTEXT_SYNTHESIS_CACHE_MAX_BLOCKS',
-  'MAKA_CONTEXT_SYNTHESIS_CACHE_MAX_TOKENS',
-  'MAKA_CONTEXT_SYNTHESIS_CACHE_MAX_BLOCK_TOKENS',
-  'MAKA_CONTEXT_TOOL_RESULT_ARCHIVE_DIR',
-  'MAKA_CONTEXT_TASK_TOOLS',
-  'MAKA_CONTEXT_TASK_REPLAY_MAX_CHARS',
-] as const;
-
-export type HarborCellContextEnvKey = typeof HARBOR_CELL_CONTEXT_ENV_KEYS[number];
-
-const HARBOR_CELL_CONTEXT_ENV_KEY_SET = new Set<string>(HARBOR_CELL_CONTEXT_ENV_KEYS);
-
-export function normalizeHarborCellContextEnv(
-  env: RunHarborCellEnv,
-): Partial<Record<HarborCellContextEnvKey, string>> {
-  const result: Partial<Record<HarborCellContextEnvKey, string>> = {};
-  for (const [key, value] of Object.entries(env)) {
-    if (!key.startsWith('MAKA_CONTEXT_')) continue;
-    if (!HARBOR_CELL_CONTEXT_ENV_KEY_SET.has(key)) throw new Error(`unsupported Harbor context env key: ${key}`);
-    if (value !== undefined) result[key as HarborCellContextEnvKey] = value;
-  }
-  return result;
-}
-
-interface HarborCellToolResultArchiveRecord {
-  version: 1;
-  sessionId: string;
-  runtimeEventId: string;
-  toolCallId: string;
-  toolName: string;
-  bodySha256: string;
-  originalEstimatedTokens: number;
-  originalBytes: number;
-  serializedResult: string;
 }
 
 const PI_BASE_ENV_KEYS = ['PATH', 'HOME', 'USER', 'TMPDIR', 'TMP', 'TEMP', 'SHELL', 'SystemRoot', 'COMSPEC'];
@@ -839,328 +735,6 @@ async function writeHarborCellArtifact(path: string, contents: string): Promise<
   }
 }
 
-export function buildHarborCellAiSdkTools(
-  executor: IsolatedToolExecutor,
-  options: BuildIsolatedHeadlessToolsOptions = {},
-): MakaTool[] {
-  const nonInteractiveToolNames = new Set<string>(ISOLATED_HEADLESS_TOOL_NAMES);
-  return buildIsolatedHeadlessTools(executor, options).map((tool) => (
-    nonInteractiveToolNames.has(tool.name)
-      ? { ...tool, permissionRequired: false }
-      : tool
-  ));
-}
-
-export function buildHarborCellContextBudgetBackendOptions(
-  env: RunHarborCellEnv = process.env,
-): HarborCellContextBudgetBackendOptions {
-  normalizeHarborCellContextEnv(env);
-  if (env.MAKA_CONTEXT_BUDGET === 'off') return {};
-  const pruneEnabled = booleanEnv(
-    env.MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE ??
-    env.MAKA_HARBOR_CONTEXT_STALE_TOOL_RESULT_PRUNE ??
-    env.MAKA_TOOL_RESULT_PRUNE,
-    'MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE',
-  ) ?? true;
-  const activePruneEnabled = booleanEnv(
-    env.MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE ??
-    env.MAKA_HARBOR_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE ??
-    env.MAKA_ACTIVE_TOOL_RESULT_PRUNE,
-    'MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE',
-  ) ?? true;
-  const archiveRetrievalEnabled = booleanEnv(
-    env.MAKA_CONTEXT_ARCHIVE_RETRIEVAL ??
-    env.MAKA_HARBOR_CONTEXT_ARCHIVE_RETRIEVAL,
-    'MAKA_CONTEXT_ARCHIVE_RETRIEVAL',
-  ) ?? false;
-  const activeFullCompactEnabled = booleanEnv(
-    env.MAKA_CONTEXT_ACTIVE_FULL_COMPACT ??
-    env.MAKA_HARBOR_CONTEXT_ACTIVE_FULL_COMPACT,
-    'MAKA_CONTEXT_ACTIVE_FULL_COMPACT',
-  ) ?? false;
-  const semanticCompactEnabled = booleanEnv(
-    env.MAKA_CONTEXT_SEMANTIC_COMPACT ??
-    env.MAKA_HARBOR_CONTEXT_SEMANTIC_COMPACT,
-    'MAKA_CONTEXT_SEMANTIC_COMPACT',
-  ) ?? false;
-  const synthesisCacheEnabled = booleanEnv(
-    env.MAKA_CONTEXT_SYNTHESIS_CACHE ??
-    env.MAKA_HARBOR_CONTEXT_SYNTHESIS_CACHE,
-    'MAKA_CONTEXT_SYNTHESIS_CACHE',
-  ) ?? false;
-  if (!pruneEnabled && !activePruneEnabled && !archiveRetrievalEnabled && !activeFullCompactEnabled && !semanticCompactEnabled && !synthesisCacheEnabled) return {};
-
-  const contextBudget: ContextBudgetPolicy = {
-    name: env.MAKA_CONTEXT_BUDGET_NAME ?? 'harbor-cell-context-budget',
-  };
-  const charsPerToken = numericEnv(env.MAKA_CONTEXT_CHARS_PER_TOKEN);
-  const maxHistoryEstimatedTokens = firstContextNonNegativeIntEnv(env, [
-    'MAKA_CONTEXT_MAX_HISTORY_ESTIMATED_TOKENS',
-    'MAKA_CONTEXT_HISTORY_BUDGET_TOKENS',
-  ]);
-  const maxHistoryTurns = firstContextNonNegativeIntEnv(env, [
-    'MAKA_CONTEXT_MAX_HISTORY_TURNS',
-    'MAKA_CONTEXT_HISTORY_BUDGET_TURNS',
-  ]);
-  const minRecentTurns = firstContextNonNegativeIntEnv(env, ['MAKA_CONTEXT_MIN_RECENT_TURNS']);
-  if (charsPerToken !== undefined) contextBudget.charsPerToken = charsPerToken;
-  if (maxHistoryEstimatedTokens !== undefined) contextBudget.maxHistoryEstimatedTokens = maxHistoryEstimatedTokens;
-  if (maxHistoryTurns !== undefined) contextBudget.maxHistoryTurns = maxHistoryTurns;
-  if (minRecentTurns !== undefined) contextBudget.minRecentTurns = minRecentTurns;
-
-  if (pruneEnabled) {
-    const maxResultEstimatedTokens = positiveIntEnv(
-      env.MAKA_CONTEXT_STALE_TOOL_RESULT_MAX_ESTIMATED_TOKENS ??
-      env.MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE_MAX_ESTIMATED_TOKENS ??
-      env.MAKA_CONTEXT_STALE_TOOL_RESULT_MAX_TOKENS,
-      'MAKA_CONTEXT_STALE_TOOL_RESULT_MAX_ESTIMATED_TOKENS',
-    );
-    const minRecentTurnsFull = firstContextNonNegativeIntEnv(env, [
-      'MAKA_CONTEXT_STALE_TOOL_RESULT_MIN_RECENT_TURNS_FULL',
-      'MAKA_CONTEXT_STALE_TOOL_RESULT_MIN_RECENT_TURNS',
-    ]);
-    contextBudget.staleToolResultPrune = {
-      enabled: true,
-      ...(maxResultEstimatedTokens !== undefined ? { maxResultEstimatedTokens } : {}),
-      // Active prune owns the current turn; stale prune must take over on the
-      // next replay without restoring a full-result protection window.
-      minRecentTurnsFull: minRecentTurnsFull ?? 0,
-    };
-  }
-
-  if (activePruneEnabled) {
-    const maxCurrentResultEstimatedTokens = positiveIntEnv(
-      env.MAKA_CONTEXT_ACTIVE_TOOL_RESULT_MAX_ESTIMATED_TOKENS ??
-      env.MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE_MAX_ESTIMATED_TOKENS,
-      'MAKA_CONTEXT_ACTIVE_TOOL_RESULT_MAX_ESTIMATED_TOKENS',
-    );
-    const minStepNumber = firstContextNonNegativeIntEnv(env, ['MAKA_CONTEXT_ACTIVE_TOOL_RESULT_MIN_STEP_NUMBER']);
-    contextBudget.activeToolResultPrune = {
-      enabled: true,
-      ...(maxCurrentResultEstimatedTokens !== undefined ? { maxCurrentResultEstimatedTokens } : {}),
-      ...(minStepNumber !== undefined ? { minStepNumber } : {}),
-    };
-  }
-
-  if (archiveRetrievalEnabled) {
-    const mode = archiveRetrievalModeEnv(env.MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MODE);
-    const maxResults = positiveIntEnv(env.MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_RESULTS, 'MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_RESULTS');
-    const maxEstimatedTokens = positiveIntEnv(
-      env.MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_ESTIMATED_TOKENS ??
-      env.MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_TOKENS,
-      'MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_ESTIMATED_TOKENS',
-    );
-    const maxBytes = positiveIntEnv(env.MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_BYTES, 'MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_BYTES');
-    contextBudget.archiveRetrieval = {
-      enabled: true,
-      ...(mode ? { mode } : {}),
-      ...(maxResults !== undefined ? { maxResults } : {}),
-      ...(maxEstimatedTokens !== undefined ? { maxEstimatedTokens } : {}),
-      ...(maxBytes !== undefined ? { maxBytes } : {}),
-    };
-  }
-
-  if (activeFullCompactEnabled) {
-    const mode = activeFullCompactModeEnv(env.MAKA_CONTEXT_ACTIVE_FULL_COMPACT_MODE);
-    const maxActiveEstimatedTokens = positiveIntEnv(
-      env.MAKA_CONTEXT_ACTIVE_FULL_COMPACT_MAX_ACTIVE_ESTIMATED_TOKENS ??
-      env.MAKA_CONTEXT_ACTIVE_FULL_COMPACT_MAX_ESTIMATED_TOKENS,
-      'MAKA_CONTEXT_ACTIVE_FULL_COMPACT_MAX_ACTIVE_ESTIMATED_TOKENS',
-    );
-    const minStepNumber = firstContextNonNegativeIntEnv(env, ['MAKA_CONTEXT_ACTIVE_FULL_COMPACT_MIN_STEP_NUMBER']);
-    const minRecentMessages = firstContextNonNegativeIntEnv(env, ['MAKA_CONTEXT_ACTIVE_FULL_COMPACT_MIN_RECENT_MESSAGES']);
-    const minRecentToolPairs = firstContextNonNegativeIntEnv(env, ['MAKA_CONTEXT_ACTIVE_FULL_COMPACT_MIN_RECENT_TOOL_PAIRS']);
-    const maxSummaryEstimatedTokens = positiveIntEnv(
-      env.MAKA_CONTEXT_ACTIVE_FULL_COMPACT_MAX_SUMMARY_ESTIMATED_TOKENS ??
-      env.MAKA_CONTEXT_ACTIVE_FULL_COMPACT_SUMMARY_MAX_ESTIMATED_TOKENS,
-      'MAKA_CONTEXT_ACTIVE_FULL_COMPACT_MAX_SUMMARY_ESTIMATED_TOKENS',
-    );
-    const archiveRequired = booleanEnv(
-      env.MAKA_CONTEXT_ACTIVE_FULL_COMPACT_ARCHIVE_REQUIRED,
-      'MAKA_CONTEXT_ACTIVE_FULL_COMPACT_ARCHIVE_REQUIRED',
-    );
-    const highWaterRatio = numericEnv(env.MAKA_CONTEXT_ACTIVE_FULL_COMPACT_HIGH_WATER_RATIO);
-    const forceRatio = numericEnv(env.MAKA_CONTEXT_ACTIVE_FULL_COMPACT_FORCE_RATIO);
-    const targetRatio = numericEnv(env.MAKA_CONTEXT_ACTIVE_FULL_COMPACT_TARGET_RATIO);
-    contextBudget.activeFullCompact = {
-      enabled: true,
-      ...(mode ? { mode } : {}),
-      ...(minStepNumber !== undefined ? { minStepNumber } : {}),
-      ...(highWaterRatio !== undefined ? { highWaterRatio } : {}),
-      ...(forceRatio !== undefined ? { forceRatio } : {}),
-      ...(targetRatio !== undefined ? { targetRatio } : {}),
-      ...(maxActiveEstimatedTokens !== undefined ? { maxActiveEstimatedTokens } : {}),
-      ...(minRecentMessages !== undefined ? { minRecentMessages } : {}),
-      ...(minRecentToolPairs !== undefined ? { minRecentToolPairs } : {}),
-      ...(maxSummaryEstimatedTokens !== undefined ? { maxSummaryEstimatedTokens } : {}),
-      ...(archiveRequired !== undefined ? { archiveRequired } : {}),
-      ...(env.MAKA_CONTEXT_ACTIVE_FULL_COMPACT_HIGH_WATER_NAME
-        ? { highWaterName: env.MAKA_CONTEXT_ACTIVE_FULL_COMPACT_HIGH_WATER_NAME }
-        : {}),
-    };
-  }
-
-  if (semanticCompactEnabled) {
-    const mode = semanticCompactModeEnv(env.MAKA_CONTEXT_SEMANTIC_COMPACT_MODE);
-    const maxActiveEstimatedTokens = positiveIntEnv(
-      env.MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_ACTIVE_ESTIMATED_TOKENS ??
-      env.MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_ESTIMATED_TOKENS,
-      'MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_ACTIVE_ESTIMATED_TOKENS',
-    );
-    const minStepNumber = firstContextNonNegativeIntEnv(env, ['MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_STEP_NUMBER']);
-    const minRecentMessages = firstContextNonNegativeIntEnv(env, ['MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_RECENT_MESSAGES']);
-    const minRecentToolPairs = firstContextNonNegativeIntEnv(env, ['MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_RECENT_TOOL_PAIRS']);
-    const minSafePrefixEstimatedTokens = positiveIntEnv(
-      env.MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_SAFE_PREFIX_ESTIMATED_TOKENS,
-      'MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_SAFE_PREFIX_ESTIMATED_TOKENS',
-    );
-    const minNewPrefixEstimatedTokens = positiveIntEnv(
-      env.MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_NEW_PREFIX_ESTIMATED_TOKENS,
-      'MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_NEW_PREFIX_ESTIMATED_TOKENS',
-    );
-    const maxSummaryEstimatedTokens = positiveIntEnv(
-      env.MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_SUMMARY_ESTIMATED_TOKENS ??
-      env.MAKA_CONTEXT_SEMANTIC_COMPACT_SUMMARY_MAX_ESTIMATED_TOKENS,
-      'MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_SUMMARY_ESTIMATED_TOKENS',
-    );
-    const maxAcceptedProjectionEstimatedTokens = positiveIntEnv(
-      env.MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_ACCEPTED_PROJECTION_ESTIMATED_TOKENS ??
-      env.MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_SUMMARY_ESTIMATED_TOKENS ??
-      env.MAKA_CONTEXT_SEMANTIC_COMPACT_SUMMARY_MAX_ESTIMATED_TOKENS,
-      'MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_ACCEPTED_PROJECTION_ESTIMATED_TOKENS',
-    );
-    const minSavingsTokens = firstContextNonNegativeIntEnv(env, ['MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_SAVINGS_TOKENS']);
-    const minNetSavingsTokens = firstContextNonNegativeIntEnv(env, ['MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_NET_SAVINGS_TOKENS']);
-    const maxCompactCallTokens = positiveIntEnv(
-      env.MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_CALL_TOKENS,
-      'MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_CALL_TOKENS',
-    );
-    const maxConsecutiveInvalidSummaries = firstContextNonNegativeIntEnv(env, ['MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_CONSECUTIVE_INVALID_SUMMARIES']);
-    const invalidSummaryCooldownSteps = firstContextNonNegativeIntEnv(env, ['MAKA_CONTEXT_SEMANTIC_COMPACT_INVALID_SUMMARY_COOLDOWN_STEPS']);
-    const timeoutMs = positiveIntEnv(
-      env.MAKA_CONTEXT_SEMANTIC_COMPACT_TIMEOUT_MS,
-      'MAKA_CONTEXT_SEMANTIC_COMPACT_TIMEOUT_MS',
-    );
-    const archiveRequired = booleanEnv(
-      env.MAKA_CONTEXT_SEMANTIC_COMPACT_ARCHIVE_REQUIRED,
-      'MAKA_CONTEXT_SEMANTIC_COMPACT_ARCHIVE_REQUIRED',
-    );
-    const highWaterRatio = numericEnv(env.MAKA_CONTEXT_SEMANTIC_COMPACT_HIGH_WATER_RATIO);
-    const forceRatio = numericEnv(env.MAKA_CONTEXT_SEMANTIC_COMPACT_FORCE_RATIO);
-    const targetRatio = numericEnv(env.MAKA_CONTEXT_SEMANTIC_COMPACT_TARGET_RATIO);
-    const minSavingsRatio = numericEnv(env.MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_SAVINGS_RATIO);
-    const compactCallTokenCostWeight = numericEnv(env.MAKA_CONTEXT_SEMANTIC_COMPACT_CALL_TOKEN_COST_WEIGHT);
-    contextBudget.semanticCompact = {
-      enabled: true,
-      ...(mode ? { mode } : {}),
-      ...(minStepNumber !== undefined ? { minStepNumber } : {}),
-      ...(highWaterRatio !== undefined ? { highWaterRatio } : {}),
-      ...(forceRatio !== undefined ? { forceRatio } : {}),
-      ...(targetRatio !== undefined ? { targetRatio } : {}),
-      ...(maxActiveEstimatedTokens !== undefined ? { maxActiveEstimatedTokens } : {}),
-      ...(minRecentMessages !== undefined ? { minRecentMessages } : {}),
-      ...(minRecentToolPairs !== undefined ? { minRecentToolPairs } : {}),
-      ...(minSafePrefixEstimatedTokens !== undefined ? { minSafePrefixEstimatedTokens } : {}),
-      ...(minNewPrefixEstimatedTokens !== undefined ? { minNewPrefixEstimatedTokens } : {}),
-      ...(maxAcceptedProjectionEstimatedTokens !== undefined ? { maxAcceptedProjectionEstimatedTokens } : {}),
-      ...(maxSummaryEstimatedTokens !== undefined ? { maxSummaryEstimatedTokens } : {}),
-      ...(minSavingsTokens !== undefined ? { minSavingsTokens } : {}),
-      ...(minSavingsRatio !== undefined ? { minSavingsRatio } : {}),
-      ...(minNetSavingsTokens !== undefined ? { minNetSavingsTokens } : {}),
-      ...(compactCallTokenCostWeight !== undefined ? { compactCallTokenCostWeight } : {}),
-      ...(maxCompactCallTokens !== undefined ? { maxCompactCallTokens } : {}),
-      ...(maxConsecutiveInvalidSummaries !== undefined ? { maxConsecutiveInvalidSummaries } : {}),
-      ...(invalidSummaryCooldownSteps !== undefined ? { invalidSummaryCooldownSteps } : {}),
-      ...(timeoutMs !== undefined ? { timeoutMs } : {}),
-      ...(archiveRequired !== undefined ? { archiveRequired } : {}),
-      ...(env.MAKA_CONTEXT_SEMANTIC_COMPACT_MODEL
-        ? { summarizerModel: env.MAKA_CONTEXT_SEMANTIC_COMPACT_MODEL }
-        : {}),
-      ...(env.MAKA_CONTEXT_SEMANTIC_COMPACT_PROMPT_VERSION
-        ? { promptVersion: env.MAKA_CONTEXT_SEMANTIC_COMPACT_PROMPT_VERSION }
-        : {}),
-      ...(env.MAKA_CONTEXT_SEMANTIC_COMPACT_HIGH_WATER_NAME
-        ? { highWaterName: env.MAKA_CONTEXT_SEMANTIC_COMPACT_HIGH_WATER_NAME }
-        : {}),
-    };
-  }
-
-  if (synthesisCacheEnabled) {
-    contextBudget.synthesisCache = {
-      enabled: true,
-      mode: env.MAKA_CONTEXT_SYNTHESIS_CACHE_MODE === 'read_write' ? 'read_write' : 'lookup',
-      maxBlocks: positiveIntEnv(env.MAKA_CONTEXT_SYNTHESIS_CACHE_MAX_BLOCKS, 'MAKA_CONTEXT_SYNTHESIS_CACHE_MAX_BLOCKS') ?? 1,
-      maxEstimatedTokens: positiveIntEnv(env.MAKA_CONTEXT_SYNTHESIS_CACHE_MAX_TOKENS, 'MAKA_CONTEXT_SYNTHESIS_CACHE_MAX_TOKENS') ?? 2048,
-      maxBlockEstimatedTokens: positiveIntEnv(env.MAKA_CONTEXT_SYNTHESIS_CACHE_MAX_BLOCK_TOKENS, 'MAKA_CONTEXT_SYNTHESIS_CACHE_MAX_BLOCK_TOKENS') ?? 1024,
-      invalidateOnNewToolResult: true,
-      schemaVersion: 1,
-    };
-  }
-
-  const archiveDir = harborCellToolResultArchiveDir(env);
-  if (!archiveDir) return { contextBudget };
-  return {
-    contextBudget,
-    archiveToolResult: async (input) => {
-      await mkdir(archiveDir, { recursive: true });
-      const artifactId = harborCellToolResultArchiveArtifactId(input);
-      const record: HarborCellToolResultArchiveRecord = {
-        version: 1,
-        sessionId: input.sessionId,
-        runtimeEventId: input.runtimeEventId,
-        toolCallId: input.toolCallId,
-        toolName: input.toolName,
-        bodySha256: input.bodySha256,
-        originalEstimatedTokens: input.originalEstimatedTokens,
-        originalBytes: input.originalBytes,
-        serializedResult: input.serializedResult,
-      };
-      await writeFile(join(archiveDir, artifactId), `${JSON.stringify(record)}\n`, 'utf8');
-      return { artifactId };
-    },
-    readToolResultArchive: async (input) => {
-      if (!isSafeHarborCellArchiveArtifactId(input.artifactId)) return { ok: false, reason: 'not_allowed' };
-      let raw: string;
-      try {
-        raw = await readFile(join(archiveDir, input.artifactId), 'utf8');
-      } catch {
-        return { ok: false, reason: 'not_found' };
-      }
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(raw);
-      } catch {
-        return { ok: false, reason: 'corrupt' };
-      }
-      if (!isHarborCellToolResultArchiveRecord(parsed)) return { ok: false, reason: 'corrupt' };
-      if (parsed.sessionId !== input.sessionId) return { ok: false, reason: 'session_mismatch' };
-      if (parsed.runtimeEventId !== input.runtimeEventId || parsed.toolCallId !== input.toolCallId) {
-        return { ok: false, reason: 'source_mismatch' };
-      }
-      if (parsed.originalBytes !== input.originalBytes) return { ok: false, reason: 'size_mismatch' };
-      if (parsed.bodySha256 !== input.bodySha256) return { ok: false, reason: 'source_mismatch' };
-      const actualSha = createHash('sha256').update(parsed.serializedResult).digest('hex');
-      if (actualSha !== input.bodySha256) return { ok: false, reason: 'corrupt' };
-      if (Buffer.byteLength(parsed.serializedResult, 'utf8') !== input.originalBytes) {
-        return { ok: false, reason: 'size_mismatch' };
-      }
-      return { ok: true, serializedResult: parsed.serializedResult };
-    },
-  };
-}
-
-export function buildHarborCellTaskLedgerExperimentPolicy(
-  env: RunHarborCellEnv = process.env,
-): HarborCellTaskLedgerExperimentPolicy | undefined {
-  normalizeHarborCellContextEnv(env);
-  const enabled = booleanEnv(env.MAKA_CONTEXT_TASK_TOOLS, 'MAKA_CONTEXT_TASK_TOOLS') ?? false;
-  if (!enabled) return undefined;
-  return {
-    enabled: true,
-    replayMaxChars: positiveIntEnv(env.MAKA_CONTEXT_TASK_REPLAY_MAX_CHARS, 'MAKA_CONTEXT_TASK_REPLAY_MAX_CHARS') ?? 4_000,
-  };
-}
-
 function buildHarborCellSynthesisCacheCallbacks(
   env: RunHarborCellEnv,
   enabled: boolean,
@@ -1173,296 +747,6 @@ function buildHarborCellSynthesisCacheCallbacks(
     loadSynthesisCache: (event) => loadSynthesisCacheBlocksFromArtifacts(artifactStore, event),
     writeSynthesisCache: (event) => persistSynthesisCacheBlocksToArtifacts(artifactStore, event),
   };
-}
-
-export function buildHarborCellContextBudgetPolicySnapshot(
-  env: RunHarborCellEnv,
-): HarborCellContextBudgetPolicySnapshot | undefined {
-  if (env.MAKA_CONTEXT_BUDGET === 'off') return { enabled: false };
-  const contextBudget = buildHarborCellContextBudgetBackendOptions(env).contextBudget;
-  if (!contextBudget) return undefined;
-  const minRecentTurns = contextBudget.minRecentTurns ?? 2;
-  return {
-    enabled: true,
-    name: contextBudget.name,
-    ...(contextBudget.maxHistoryTurns !== undefined ? { maxHistoryTurns: contextBudget.maxHistoryTurns } : {}),
-    ...(contextBudget.maxHistoryEstimatedTokens !== undefined
-      ? { maxHistoryEstimatedTokens: contextBudget.maxHistoryEstimatedTokens }
-      : {}),
-    ...(contextBudget.staleToolResultPrune
-      ? {
-          staleToolResultPrune: {
-            enabled: contextBudget.staleToolResultPrune.enabled,
-            maxResultEstimatedTokens: contextBudget.staleToolResultPrune.maxResultEstimatedTokens ?? 2048,
-            minRecentTurnsFull: contextBudget.staleToolResultPrune.minRecentTurnsFull ?? minRecentTurns,
-          },
-        }
-      : {}),
-    ...(contextBudget.activeToolResultPrune
-      ? {
-          activeToolResultPrune: {
-            enabled: contextBudget.activeToolResultPrune.enabled,
-            maxCurrentResultEstimatedTokens: contextBudget.activeToolResultPrune.maxCurrentResultEstimatedTokens ?? 2048,
-            minStepNumber: contextBudget.activeToolResultPrune.minStepNumber ?? 1,
-          },
-        }
-      : {}),
-    ...(contextBudget.activeFullCompact
-      ? {
-          activeFullCompact: {
-            enabled: contextBudget.activeFullCompact.enabled,
-            ...(contextBudget.activeFullCompact.mode ? { mode: contextBudget.activeFullCompact.mode } : {}),
-            ...(contextBudget.activeFullCompact.minStepNumber !== undefined
-              ? { minStepNumber: contextBudget.activeFullCompact.minStepNumber }
-              : {}),
-            ...(contextBudget.activeFullCompact.highWaterRatio !== undefined
-              ? { highWaterRatio: contextBudget.activeFullCompact.highWaterRatio }
-              : {}),
-            ...(contextBudget.activeFullCompact.forceRatio !== undefined
-              ? { forceRatio: contextBudget.activeFullCompact.forceRatio }
-              : {}),
-            ...(contextBudget.activeFullCompact.targetRatio !== undefined
-              ? { targetRatio: contextBudget.activeFullCompact.targetRatio }
-              : {}),
-            ...(contextBudget.activeFullCompact.maxActiveEstimatedTokens !== undefined
-              ? { maxActiveEstimatedTokens: contextBudget.activeFullCompact.maxActiveEstimatedTokens }
-              : {}),
-            ...(contextBudget.activeFullCompact.minRecentMessages !== undefined
-              ? { minRecentMessages: contextBudget.activeFullCompact.minRecentMessages }
-              : {}),
-            ...(contextBudget.activeFullCompact.minRecentToolPairs !== undefined
-              ? { minRecentToolPairs: contextBudget.activeFullCompact.minRecentToolPairs }
-              : {}),
-            ...(contextBudget.activeFullCompact.maxSummaryEstimatedTokens !== undefined
-              ? { maxSummaryEstimatedTokens: contextBudget.activeFullCompact.maxSummaryEstimatedTokens }
-              : {}),
-            ...(contextBudget.activeFullCompact.archiveRequired !== undefined
-              ? { archiveRequired: contextBudget.activeFullCompact.archiveRequired }
-              : {}),
-            ...(contextBudget.activeFullCompact.highWaterName
-              ? { highWaterName: contextBudget.activeFullCompact.highWaterName }
-              : {}),
-          },
-        }
-      : {}),
-    ...(contextBudget.semanticCompact
-      ? {
-          semanticCompact: {
-            enabled: contextBudget.semanticCompact.enabled,
-            ...(contextBudget.semanticCompact.mode ? { mode: contextBudget.semanticCompact.mode } : {}),
-            ...(contextBudget.semanticCompact.minStepNumber !== undefined
-              ? { minStepNumber: contextBudget.semanticCompact.minStepNumber }
-              : {}),
-            ...(contextBudget.semanticCompact.highWaterRatio !== undefined
-              ? { highWaterRatio: contextBudget.semanticCompact.highWaterRatio }
-              : {}),
-            ...(contextBudget.semanticCompact.forceRatio !== undefined
-              ? { forceRatio: contextBudget.semanticCompact.forceRatio }
-              : {}),
-            ...(contextBudget.semanticCompact.targetRatio !== undefined
-              ? { targetRatio: contextBudget.semanticCompact.targetRatio }
-              : {}),
-            ...(contextBudget.semanticCompact.maxActiveEstimatedTokens !== undefined
-              ? { maxActiveEstimatedTokens: contextBudget.semanticCompact.maxActiveEstimatedTokens }
-              : {}),
-            ...(contextBudget.semanticCompact.minRecentMessages !== undefined
-              ? { minRecentMessages: contextBudget.semanticCompact.minRecentMessages }
-              : {}),
-            ...(contextBudget.semanticCompact.minRecentToolPairs !== undefined
-              ? { minRecentToolPairs: contextBudget.semanticCompact.minRecentToolPairs }
-              : {}),
-            ...(contextBudget.semanticCompact.minSafePrefixEstimatedTokens !== undefined
-              ? { minSafePrefixEstimatedTokens: contextBudget.semanticCompact.minSafePrefixEstimatedTokens }
-              : {}),
-            ...(contextBudget.semanticCompact.minNewPrefixEstimatedTokens !== undefined
-              ? { minNewPrefixEstimatedTokens: contextBudget.semanticCompact.minNewPrefixEstimatedTokens }
-              : {}),
-            ...(contextBudget.semanticCompact.maxAcceptedProjectionEstimatedTokens !== undefined
-              ? { maxAcceptedProjectionEstimatedTokens: contextBudget.semanticCompact.maxAcceptedProjectionEstimatedTokens }
-              : {}),
-            ...(contextBudget.semanticCompact.maxSummaryEstimatedTokens !== undefined
-              ? { maxSummaryEstimatedTokens: contextBudget.semanticCompact.maxSummaryEstimatedTokens }
-              : {}),
-            ...(contextBudget.semanticCompact.minSavingsTokens !== undefined
-              ? { minSavingsTokens: contextBudget.semanticCompact.minSavingsTokens }
-              : {}),
-            ...(contextBudget.semanticCompact.minSavingsRatio !== undefined
-              ? { minSavingsRatio: contextBudget.semanticCompact.minSavingsRatio }
-              : {}),
-            ...(contextBudget.semanticCompact.minNetSavingsTokens !== undefined
-              ? { minNetSavingsTokens: contextBudget.semanticCompact.minNetSavingsTokens }
-              : {}),
-            ...(contextBudget.semanticCompact.compactCallTokenCostWeight !== undefined
-              ? { compactCallTokenCostWeight: contextBudget.semanticCompact.compactCallTokenCostWeight }
-              : {}),
-            ...(contextBudget.semanticCompact.maxCompactCallTokens !== undefined
-              ? { maxCompactCallTokens: contextBudget.semanticCompact.maxCompactCallTokens }
-              : {}),
-            ...(contextBudget.semanticCompact.maxConsecutiveInvalidSummaries !== undefined
-              ? { maxConsecutiveInvalidSummaries: contextBudget.semanticCompact.maxConsecutiveInvalidSummaries }
-              : {}),
-            ...(contextBudget.semanticCompact.invalidSummaryCooldownSteps !== undefined
-              ? { invalidSummaryCooldownSteps: contextBudget.semanticCompact.invalidSummaryCooldownSteps }
-              : {}),
-            ...(contextBudget.semanticCompact.timeoutMs !== undefined
-              ? { timeoutMs: contextBudget.semanticCompact.timeoutMs }
-              : {}),
-            ...(contextBudget.semanticCompact.archiveRequired !== undefined
-              ? { archiveRequired: contextBudget.semanticCompact.archiveRequired }
-              : {}),
-            ...(contextBudget.semanticCompact.summarizerModel
-              ? { summarizerModel: contextBudget.semanticCompact.summarizerModel }
-              : {}),
-            ...(contextBudget.semanticCompact.promptVersion
-              ? { promptVersion: contextBudget.semanticCompact.promptVersion }
-              : {}),
-            ...(contextBudget.semanticCompact.highWaterName
-              ? { highWaterName: contextBudget.semanticCompact.highWaterName }
-              : {}),
-          },
-        }
-      : {}),
-    ...(contextBudget.archiveRetrieval
-      ? {
-          archiveRetrieval: {
-            enabled: contextBudget.archiveRetrieval.enabled,
-            ...(contextBudget.archiveRetrieval.mode ? { mode: contextBudget.archiveRetrieval.mode } : {}),
-            maxResults: contextBudget.archiveRetrieval.maxResults ?? 3,
-            maxEstimatedTokens: contextBudget.archiveRetrieval.maxEstimatedTokens ?? 8192,
-            maxBytes: contextBudget.archiveRetrieval.maxBytes ?? 1024 * 1024,
-            order: 'newest_first',
-          },
-        }
-      : {}),
-    ...(contextBudget.synthesisCache
-      ? {
-          synthesisCache: {
-            enabled: contextBudget.synthesisCache.enabled,
-            ...(contextBudget.synthesisCache.mode ? { mode: contextBudget.synthesisCache.mode } : {}),
-            maxBlocks: contextBudget.synthesisCache.maxBlocks ?? 1,
-            maxEstimatedTokens: contextBudget.synthesisCache.maxEstimatedTokens ?? 2048,
-            maxBlockEstimatedTokens: contextBudget.synthesisCache.maxBlockEstimatedTokens ?? 1024,
-            ...(contextBudget.synthesisCache.invalidateOnNewToolResult !== undefined
-              ? { invalidateOnNewToolResult: contextBudget.synthesisCache.invalidateOnNewToolResult }
-              : {}),
-            ...(contextBudget.synthesisCache.schemaVersion !== undefined
-              ? { schemaVersion: contextBudget.synthesisCache.schemaVersion }
-              : {}),
-          },
-        }
-      : {}),
-    minRecentTurns,
-  };
-}
-
-export const HARBOR_CELL_DEFAULT_COMMAND_TIMEOUT_MS = 120_000;
-
-export function createHarborHttpToolExecutor(env: RunHarborCellEnv = process.env): IsolatedToolExecutor {
-  const baseUrl = requiredHarborEnv(env, 'MAKA_HARBOR_TOOL_EXECUTOR_URL');
-  const token = requiredHarborEnv(env, 'MAKA_HARBOR_TOOL_EXECUTOR_TOKEN');
-  return {
-    exec: async (input, control) => {
-      const timeoutSec = input.timeoutMs === undefined
-        ? undefined
-        : Math.max(1, Math.ceil(input.timeoutMs / 1000));
-      const response = await fetch(new URL('/exec', baseUrl), {
-        method: 'POST',
-        headers: {
-          authorization: `Bearer ${token}`,
-          'content-type': 'application/json',
-        },
-        body: JSON.stringify({
-          ...input,
-          ...(timeoutSec !== undefined ? { timeoutSec } : {}),
-        }),
-        signal: control?.abortSignal,
-      });
-      const body = await response.text();
-      if (!response.ok) return { exitCode: 1, stdout: '', stderr: body };
-      const parsed: unknown = JSON.parse(body);
-      if (!isRecord(parsed)) return { exitCode: 1, stdout: '', stderr: 'Harbor bridge returned a non-object response' };
-      const exitCode = parsed.exitCode ?? parsed.returnCode;
-      return {
-        exitCode: typeof exitCode === 'number' && Number.isInteger(exitCode) ? exitCode : 1,
-        stdout: typeof parsed.stdout === 'string' ? parsed.stdout : '',
-        stderr: typeof parsed.stderr === 'string' ? parsed.stderr : '',
-      };
-    },
-  };
-}
-
-export function createHarborCellLocalToolExecutor(env: RunHarborCellEnv = process.env): IsolatedToolExecutor {
-  const childEnv = childProcessEnv(env);
-  // A command that does not request its own timeout falls back to this. Some
-  // Terminal-Bench tasks build or test for longer than the 2-minute default, so
-  // the floor is operator-configurable instead of a hard-coded failure source.
-  const defaultTimeoutMs = numericEnv(env.MAKA_CELL_COMMAND_TIMEOUT_MS) ?? HARBOR_CELL_DEFAULT_COMMAND_TIMEOUT_MS;
-  // The shell this executor spawns in (PowerShell on Windows). Exposed as
-  // `shell` so buildIsolatedBashTool DECLARES the dialect to the model, and
-  // passed to runShellWithBoundedTail so the declaration matches execution —
-  // selection without declaration is the original Windows bug (shell-detect.ts).
-  const shell = defaultShellPlan();
-  return {
-    shell,
-    exec: async ({ command, cwd, timeoutMs, boundedTail }, control) => {
-      if (boundedTail) {
-        // Bash opted in: stream into a bounded tail (shared with the in-process
-        // builtin Bash) instead of execAsync({ maxBuffer }). A command whose
-        // output passes 10MB is no longer KILLED with only its head returned —
-        // it runs to completion and we keep the last ~1MB (the recoverable tail).
-        try {
-          const result = await runShellWithBoundedTail(command, {
-            cwd,
-            env: childEnv,
-            timeoutMs: timeoutMs ?? defaultTimeoutMs,
-            abortSignal: control?.abortSignal,
-            shell,
-          });
-          return {
-            exitCode: result.timedOut ? 124 : result.exitCode,
-            stdout: result.stdout,
-            stderr: result.stderr,
-            stdoutTruncated: result.stdoutTruncated,
-            stderrTruncated: result.stderrTruncated,
-          };
-        } catch (error) {
-          // runShellWithBoundedTail only rejects when the process cannot be
-          // spawned at all (e.g. the shell binary is missing).
-          return {
-            exitCode: shellErrorExitCode(error),
-            stdout: shellErrorText(error, 'stdout'),
-            stderr: shellErrorText(error, 'stderr') || shellErrorMessage(error),
-          };
-        }
-      }
-      // Default (Read/Glob/Grep/Edit fallbacks): FULL output up to the buffer
-      // cap. These must return complete, head-first content — a bounded tail
-      // would silently drop the head of a file or search result and the model
-      // would edit code from a partial view.
-      try {
-        const result = await execAsync(command, {
-          cwd,
-          env: childEnv,
-          timeout: timeoutMs ?? defaultTimeoutMs,
-          maxBuffer: HARBOR_CELL_TOOL_MAX_BUFFER_BYTES,
-          signal: control?.abortSignal,
-        });
-        return { exitCode: 0, stdout: result.stdout, stderr: result.stderr };
-      } catch (error) {
-        return {
-          exitCode: shellErrorExitCode(error),
-          stdout: shellErrorText(error, 'stdout'),
-          stderr: shellErrorText(error, 'stderr') || shellErrorMessage(error),
-        };
-      }
-    },
-  };
-}
-
-function requiredHarborEnv(env: RunHarborCellEnv, name: string): string {
-  const value = env[name];
-  if (!value) throw new Error(`${name} is required`);
-  return value;
 }
 
 // When the cell is given an explicit system prompt (MAKA_SYSTEM_PROMPT), it is
@@ -1501,172 +785,6 @@ function resolveHarborCellPricingOverride(env: RunHarborCellEnv, modelKey: strin
   };
 }
 
-function numericEnv(raw: string | undefined): number | undefined {
-  if (raw === undefined || raw.trim() === '') return undefined;
-  const value = Number(raw);
-  return Number.isFinite(value) && value >= 0 ? value : undefined;
-}
-
-function positiveIntEnv(raw: string | undefined, name: string): number | undefined {
-  const value = raw?.trim();
-  if (value === undefined || value === '') return undefined;
-  if (!/^[1-9]\d*$/.test(value)) throw new Error(`${name} must be a positive integer, got ${JSON.stringify(raw)}`);
-  return Number(value);
-}
-
-function firstContextNonNegativeIntEnv(
-  env: RunHarborCellEnv,
-  names: readonly string[],
-): number | undefined {
-  for (const name of names) {
-    const raw = env[name];
-    if (raw !== undefined) return contextNonNegativeIntEnv(raw, name);
-  }
-  return undefined;
-}
-
-function contextNonNegativeIntEnv(raw: string | undefined, name: string): number | undefined {
-  const value = raw?.trim();
-  if (value === undefined || value === '') return undefined;
-  if (!/^\d+$/.test(value)) throw new Error(`${name} must be a non-negative integer, got ${JSON.stringify(raw)}`);
-  return Number(value);
-}
-
-function archiveRetrievalModeEnv(
-  raw: string | undefined,
-): NonNullable<ContextBudgetPolicy['archiveRetrieval']>['mode'] | undefined {
-  const value = raw?.trim();
-  if (value === undefined || value === '') return undefined;
-  if (value === 'eager' || value === 'history_search_gated') return value;
-  throw new Error(`MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MODE must be one of eager, history_search_gated, got ${JSON.stringify(raw)}`);
-}
-
-function activeFullCompactModeEnv(
-  raw: string | undefined,
-): NonNullable<ContextBudgetPolicy['activeFullCompact']>['mode'] | undefined {
-  const value = raw?.trim();
-  if (value === undefined || value === '') return undefined;
-  if (value === 'off' || value === 'index_only' || value === 'validate_only' || value === 'prepare_step_dry_run') {
-    return value;
-  }
-  throw new Error(
-    `MAKA_CONTEXT_ACTIVE_FULL_COMPACT_MODE must be one of off, index_only, validate_only, prepare_step_dry_run, got ${JSON.stringify(raw)}`,
-  );
-}
-
-function semanticCompactModeEnv(
-  raw: string | undefined,
-): NonNullable<ContextBudgetPolicy['semanticCompact']>['mode'] | undefined {
-  const value = raw?.trim();
-  if (value === undefined || value === '') return undefined;
-  if (value === 'off' || value === 'validate_only' || value === 'prepare_step_dry_run' || value === 'replace') {
-    return value;
-  }
-  throw new Error(
-    `MAKA_CONTEXT_SEMANTIC_COMPACT_MODE must be one of off, validate_only, prepare_step_dry_run, replace, got ${JSON.stringify(raw)}`,
-  );
-}
-
-function booleanEnv(raw: string | undefined, name: string): boolean | undefined {
-  const value = raw?.trim().toLowerCase();
-  if (value === undefined || value === '') return undefined;
-  switch (value) {
-    case '1':
-    case 'true':
-    case 'yes':
-    case 'on':
-    case 'enabled':
-      return true;
-    case '0':
-    case 'false':
-    case 'no':
-    case 'off':
-    case 'disabled':
-      return false;
-    default:
-      throw new Error(`${name} must be a boolean, got ${JSON.stringify(raw)}`);
-  }
-}
-
-function harborCellToolResultArchiveDir(env: RunHarborCellEnv): string | undefined {
-  return (
-    env.MAKA_CONTEXT_TOOL_RESULT_ARCHIVE_DIR ??
-    env.MAKA_TOOL_RESULT_ARCHIVE_DIR ??
-    env.MAKA_HARBOR_TOOL_RESULT_ARCHIVE_DIR ??
-    (env.MAKA_OUTPUT_DIR ? join(env.MAKA_OUTPUT_DIR, 'tool-result-archives') : undefined)
-  );
-}
-
-function harborCellToolResultArchiveArtifactId(input: {
-  sessionId: string;
-  runtimeEventId: string;
-  bodySha256: string;
-}): string {
-  return [
-    safeArtifactIdPart(input.sessionId),
-    safeArtifactIdPart(input.runtimeEventId),
-    safeArtifactIdPart(input.bodySha256.slice(0, 16)),
-  ].join('--') + '.json';
-}
-
-function safeArtifactIdPart(value: string): string {
-  const safe = value.replace(/[^A-Za-z0-9_.=-]/g, '_').slice(0, 96);
-  return safe || 'unknown';
-}
-
-function isSafeHarborCellArchiveArtifactId(value: string): boolean {
-  return /^[A-Za-z0-9_.=-]+\.json$/.test(value);
-}
-
-function isHarborCellToolResultArchiveRecord(value: unknown): value is HarborCellToolResultArchiveRecord {
-  return (
-    isRecord(value) &&
-    value.version === 1 &&
-    typeof value.sessionId === 'string' &&
-    typeof value.runtimeEventId === 'string' &&
-    typeof value.toolCallId === 'string' &&
-    typeof value.toolName === 'string' &&
-    typeof value.bodySha256 === 'string' &&
-    typeof value.originalEstimatedTokens === 'number' &&
-    typeof value.originalBytes === 'number' &&
-    typeof value.serializedResult === 'string'
-  );
-}
-
-/** Provider secrets the LLM backend already captured; task tool subprocesses must
- * never see them, or a candidate prompt could `cat $..._API_KEY_FILE` and exfiltrate. */
-const TOOL_CHILD_SECRET_ENV = /_API_KEY(_FILE)?$/;
-
-function childProcessEnv(env: RunHarborCellEnv): NodeJS.ProcessEnv {
-  const childEnv: NodeJS.ProcessEnv = { ...process.env };
-  for (const [key, value] of Object.entries(env)) {
-    if (value !== undefined) childEnv[key] = value;
-  }
-  for (const key of Object.keys(childEnv)) {
-    if (TOOL_CHILD_SECRET_ENV.test(key)) delete childEnv[key];
-  }
-  return childEnv;
-}
-
-function shellErrorExitCode(error: unknown): number {
-  if (isRecord(error) && typeof error.code === 'number') return error.code;
-  if (isRecord(error) && typeof error.signal === 'string') return 124;
-  return 1;
-}
-
-function shellErrorText(error: unknown, field: 'stdout' | 'stderr'): string {
-  if (isRecord(error) && typeof error[field] === 'string') return error[field];
-  return '';
-}
-
-function shellErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
-}
-
 function buildPiCliEnv(env: RunHarborCellEnv, provider: string | undefined): NodeJS.ProcessEnv {
   const result: NodeJS.ProcessEnv = {};
   copyEnv(result, { ...process.env, ...env }, PI_BASE_ENV_KEYS);
@@ -1695,19 +813,6 @@ function copyEnv(target: NodeJS.ProcessEnv, source: RunHarborCellEnv, keys: stri
   }
 }
 
-export function resolveHarborCellAiSdkEnv(input: {
-  provider: ProviderType;
-  model: string;
-  env: RunHarborCellEnv;
-  ts: number;
-}): ResolvedHarborCellAiSdkEnv {
-  const connection = connectionFromEnv(input.provider, input.model, input.env, input.ts);
-  return {
-    connection,
-    apiKey: apiKeyFromEnv(input.provider, input.env, connection.slug),
-  };
-}
-
 async function instructionFromEnv(env: RunHarborCellEnv): Promise<string> {
   if (env.MAKA_INSTRUCTION !== undefined) return env.MAKA_INSTRUCTION;
   if (env.MAKA_INSTRUCTION_FILE) return await readFile(env.MAKA_INSTRUCTION_FILE, 'utf8');
@@ -1732,86 +837,6 @@ function parseModelSpec(rawModel: string, rawProvider: string | undefined): { pr
   const provider = providerFromEnv(providerPart);
   if (!modelPart) throw new Error('MAKA_MODEL must include a model id');
   return { provider, model: modelPart };
-}
-
-function providerFromEnv(value: string | undefined): ProviderType {
-  if (!value || !(value in PROVIDER_DEFAULTS)) {
-    throw new Error(`unsupported MAKA_PROVIDER: ${value ?? ''}`);
-  }
-  return value as ProviderType;
-}
-
-function connectionFromEnv(
-  provider: ProviderType,
-  model: string,
-  env: RunHarborCellEnv,
-  ts: number,
-): LlmConnection {
-  const defaults = PROVIDER_DEFAULTS[provider];
-  const githubApiProtocol = modelApiProtocolFromEnv(env.MAKA_MODEL_API_PROTOCOL);
-  if (provider === 'github-copilot' && !githubApiProtocol) {
-    throw new Error('GitHub Copilot requires an account-discovered model protocol');
-  }
-  return {
-    slug: env.MAKA_LLM_CONNECTION_SLUG ?? provider,
-    name: defaults.label,
-    providerType: provider,
-    baseUrl: env.MAKA_BASE_URL ?? providerBaseUrlFromEnv(provider, env) ?? defaults.baseUrl,
-    defaultModel: model,
-    ...(provider === 'github-copilot' ? { models: [{ id: model, apiProtocol: githubApiProtocol }] } : {}),
-    enabled: true,
-    createdAt: ts,
-    updatedAt: ts,
-  };
-}
-
-function modelApiProtocolFromEnv(value: string | undefined): ModelInfo['apiProtocol'] {
-  if (value === 'openai-chat' || value === 'openai-responses' || value === 'anthropic-messages') return value;
-  return undefined;
-}
-
-function apiKeyFromEnv(provider: ProviderType, env: RunHarborCellEnv, connectionSlug: string): string {
-  const credentialEnv = providerCredentialEnv(provider);
-  if (!credentialEnv) return '';
-  return resolveApiKey(env, credentialEnv.apiKeys, connectionSlug);
-}
-
-// Resolve an API key from either the raw env var or its `<NAME>_FILE` companion.
-// The file path is what travels through the Harbor CLI / job config, so the secret
-// itself stays in a mounted file — never on a command line or in config.json.
-function resolveApiKey(env: RunHarborCellEnv, names: readonly string[], connectionSlug?: string): string {
-  for (const name of names) {
-    const raw = env[name];
-    if (raw) return raw;
-    const filePath = env[`${name}_FILE`];
-    if (filePath) {
-      try {
-        return readFileSync(filePath, 'utf8').trim();
-      } catch {
-        // Fall through to the next candidate (or empty) when the file is unreadable.
-      }
-    }
-  }
-  if (connectionSlug) {
-    return readStoredMakaApiKey(env, connectionSlug);
-  }
-  return '';
-}
-
-function readStoredMakaApiKey(env: RunHarborCellEnv, connectionSlug: string): string {
-  const credentialPath = env.MAKA_CREDENTIALS_PATH
-    ?? join(homedir(), 'Library', 'Application Support', 'Maka', 'workspaces', 'default', 'credentials.json');
-  try {
-    const parsed = JSON.parse(readFileSync(credentialPath, 'utf8')) as {
-      version?: unknown;
-      values?: unknown;
-    };
-    if (parsed.version !== 1 || !parsed.values || typeof parsed.values !== 'object') return '';
-    const value = (parsed.values as Record<string, unknown>)[`${connectionSlug}:apiKey`];
-    return typeof value === 'string' ? value : '';
-  } catch {
-    return '';
-  }
 }
 
 function runtimeEventsJsonl(invocation: InvocationResult): string {

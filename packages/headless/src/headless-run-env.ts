@@ -80,3 +80,83 @@ export function resolveMinStable(
 export function smokeExitCode(smokeStatus: string): number {
   return smokeStatus === 'pass' ? 0 : 1;
 }
+
+/**
+ * A raw environment bag: the Harbor cell and its helpers read strings from
+ * `process.env` (or an injected clone), so the shared shape is a plain
+ * name → value record. This is the single home for the type so the Harbor cell
+ * split and its sink files (`harbor-cell-context-budget-env`,
+ * `harbor-cell-tool-executor`, `provider-env`) share one definition instead of
+ * each re-declaring it.
+ */
+export type RunHarborCellEnv = Record<string, string | undefined>;
+
+/**
+ * Parse a non-negative finite number; returns `undefined` for unset/blank or any
+ * value that is not a finite `>= 0` number. Lenient by design (never throws): a
+ * malformed value falls back to the caller's default. Shared by the Harbor cell
+ * context-budget env compiler, tool executor, and pricing override.
+ */
+export function numericEnv(raw: string | undefined): number | undefined {
+  if (raw === undefined || raw.trim() === '') return undefined;
+  const value = Number(raw);
+  return Number.isFinite(value) && value >= 0 ? value : undefined;
+}
+
+/**
+ * Parse a positive integer (>= 1) from a raw env string; throws with `name` on a
+ * non-positive-integer value so a typo fails loudly instead of silently
+ * disabling a budget. Returns `undefined` when unset/blank.
+ */
+export function positiveIntEnv(raw: string | undefined, name: string): number | undefined {
+  const value = raw?.trim();
+  if (value === undefined || value === '') return undefined;
+  if (!/^[1-9]\d*$/.test(value)) throw new Error(`${name} must be a positive integer, got ${JSON.stringify(raw)}`);
+  return Number(value);
+}
+
+/**
+ * Lenient positive-integer parse: returns `undefined` for unset, malformed, or
+ * non-positive values instead of throwing. Byte-equivalent to the pre-split
+ * private parser in `harbor-task-runner.ts`, kept lenient because the Harbor
+ * Python adapter recovers from a malformed `MAKA_CELL_TIMEOUT_SEC`
+ * (`maka_agent.py` `_cell_timeout_sec`: "a malformed value falls back to the
+ * default") and the TS runner must not fail loudly where the adapter would
+ * recover. Accepted syntax is wider than Python's `int()`: `Number(raw)` also
+ * takes exponent/decimal-looking forms (`"1e3"` → 1000, `"1.0"` → 1) that the
+ * adapter would reject — harmless today because the host rewrites the env to
+ * the parsed integer before the container sees it; unifying the accepted syntax
+ * is deferred to the same fail-loud follow-up noted in PR #1137. New TS-only
+ * env vars should use the throwing `positiveIntEnv` instead.
+ */
+export function lenientPositiveIntEnv(raw: string | undefined): number | undefined {
+  if (raw === undefined) return undefined;
+  const value = Number(raw);
+  return Number.isInteger(value) && value > 0 ? value : undefined;
+}
+
+/**
+ * Parse a boolean flag from a raw env string; throws with `name` on an
+ * unrecognized value. Returns `undefined` when unset/blank so callers can apply
+ * their own default.
+ */
+export function booleanEnv(raw: string | undefined, name: string): boolean | undefined {
+  const value = raw?.trim().toLowerCase();
+  if (value === undefined || value === '') return undefined;
+  switch (value) {
+    case '1':
+    case 'true':
+    case 'yes':
+    case 'on':
+    case 'enabled':
+      return true;
+    case '0':
+    case 'false':
+    case 'no':
+    case 'off':
+    case 'disabled':
+      return false;
+    default:
+      throw new Error(`${name} must be a boolean, got ${JSON.stringify(raw)}`);
+  }
+}

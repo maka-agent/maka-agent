@@ -4,8 +4,6 @@
   "description": "Single-owner Runtime Host lifecycle, protocol, and client bootstrap.",
   "type": "module",
   "private": true,
-  "main": "./dist/server/index.js",
-  "types": "./dist/server/index.d.ts",
   "exports": {
     "./protocol": "./dist/protocol/index.js",
     "./client": "./dist/client/index.js",
@@ -22,6 +20,6 @@
     "@maka/storage": "0.1.0"
   },
   "devDependencies": {
-    "electron": "^39.2.7"
+    "electron": "^43.1.1"
   }
 }
