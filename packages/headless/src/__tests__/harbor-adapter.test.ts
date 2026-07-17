@@ -49,9 +49,8 @@ describe('Harbor adapter contract', () => {
     assert.match(source, /_run_host_cell/);
     assert.match(source, /_ToolExecutorServer/);
     assert.match(source, /MAKA_HARBOR_COMMAND_SCOPE/);
-    assert.match(source, /_cleanup_scoped_processes/);
-    assert.match(source, /signal="TERM"/);
-    assert.match(source, /signal="KILL"/);
+    assert.match(source, /_scoped_process_cleanup_command/);
+    assert.match(source, /_scoped_command_cleanup_command/);
     assert.match(source, /upload_file\(local_instruction_path, instruction_path\.as_posix\(\)\)/);
     assert.match(source, /bash -lc/);
     assert.match(source, /set -o pipefail/);
@@ -896,6 +895,20 @@ class LocalShellEnv:
         return ExecResult(stdout="", stderr="", return_code=process.returncode)
 
 
+class BlockingLocalShellEnv(LocalShellEnv):
+    def __init__(self):
+        self.active_process = None
+        self.active_started = asyncio.Event()
+
+    async def exec(self, command, cwd=None, env=None, timeout_sec=None, user=None):
+        process = await asyncio.create_subprocess_exec("bash", "-lc", command)
+        if "set -m;" in command:
+            self.active_process = process
+            self.active_started.set()
+        await process.wait()
+        return ExecResult(stdout="", stderr="", return_code=process.returncode)
+
+
 async def _run_with_scoped_service(mark_infra_failure):
     with tempfile.TemporaryDirectory() as tmp:
         agent = MakaAgent(Path(tmp))
@@ -933,9 +946,57 @@ async def fix3_infra_failure_reclaims_scoped_processes():
     assert preserved is None, "clean exit killed a verifier-visible scoped process"
 
 
+async def fix4_deadline_reclaims_only_active_commands():
+    with tempfile.TemporaryDirectory() as tmp:
+        agent = MakaAgent(Path(tmp))
+        env = BlockingLocalShellEnv()
+        server = m._ToolExecutorServer(agent, env)
+        scope_dir = Path(m._COMMAND_SCOPE_ROOT) / server.command_scope
+        scope_dir.mkdir(parents=True, exist_ok=True)
+        service = subprocess.Popen(
+            ["sleep", "30"],
+            start_new_session=True,
+            env={
+                "PATH": os.environ.get("PATH", ""),
+                m._COMMAND_SCOPE_ENV: server.command_scope,
+            },
+        )
+        (scope_dir / "completed-service.pgid").write_text(str(service.pid) + "\n", encoding="utf-8")
+        request = None
+        try:
+            async with server:
+                request = asyncio.create_task(asyncio.to_thread(
+                    post,
+                    server.url,
+                    server.token,
+                    {"command": "sleep 30"},
+                ))
+                await asyncio.wait_for(env.active_started.wait(), timeout=2)
+                server.mark_reclaim_active_commands()
+            await request
+            assert env.active_process is not None and env.active_process.returncode is not None, (
+                "deadline teardown left an active bridged command running"
+            )
+            assert service.poll() is None, "deadline teardown killed a verifier-visible completed service"
+        finally:
+            if request is not None and not request.done():
+                request.cancel()
+            if env.active_process is not None and env.active_process.returncode is None:
+                env.active_process.kill()
+                await env.active_process.wait()
+            if service.poll() is None:
+                os.killpg(service.pid, signal.SIGKILL)
+                service.wait()
+            if scope_dir.exists():
+                for path in scope_dir.glob("*"):
+                    path.unlink()
+                scope_dir.rmdir()
+
+
 asyncio.run(fix1_bridge_exec_contract())
 asyncio.run(fix2_workdir_probe_falls_back())
 asyncio.run(fix3_infra_failure_reclaims_scoped_processes())
+asyncio.run(fix4_deadline_reclaims_only_active_commands())
 print("bridge-contract ok")
 `;
 }
@@ -1505,6 +1566,7 @@ with tempfile.TemporaryDirectory() as tmp:
         def __init__(self, agent, environment):
             self.url = "http://127.0.0.1:4321"
             self.token = "tool-token"
+            self.reclaim_active_commands = False
             self.reclaim_scoped_processes = False
             self.instances.append(self)
 
@@ -1516,6 +1578,9 @@ with tempfile.TemporaryDirectory() as tmp:
 
         def mark_reclaim_scoped_processes(self):
             self.reclaim_scoped_processes = True
+
+        def mark_reclaim_active_commands(self):
+            self.reclaim_active_commands = True
 
     class FakeHostProcess:
         returncode = 0
@@ -1570,7 +1635,7 @@ with tempfile.TemporaryDirectory() as tmp:
 
         asyncio.create_subprocess_exec = fake_deadline_subprocess_exec
         asyncio.run(host_process_agent._run_host_cell(host_process_environment, Path(tmp) / "instruction.txt"))
-        assert FakeToolExecutor.instances[-1].reclaim_scoped_processes, (
+        assert FakeToolExecutor.instances[-1].reclaim_active_commands, (
             "a settled deadline must reclaim active bridged commands before Harbor's outer timeout"
         )
 
