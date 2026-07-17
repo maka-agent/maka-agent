@@ -9,7 +9,7 @@ import { TERMINAL_BENCH_2_1_TASK_IDS } from '../harness-ab-manifest.js';
 
 const execFileAsync = promisify(execFile);
 
-test('harness A/B CLI accepts a 2-task operational canary', async () => {
+test('harness A/B CLI accepts a 5-task operational canary', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'maka-harness-ab-cli-'));
   try {
     const scriptPath = new URL('../../harbor/run-harness-ab.mjs', import.meta.url);
@@ -19,7 +19,7 @@ test('harness A/B CLI accepts a 2-task operational canary', async () => {
         ...process.env,
         MAKA_HARNESS_AB_OUT_DIR: join(dir, 'out'),
         MAKA_HARNESS_AB_TASKS_ROOT: join(dir, 'missing-tasks'),
-        MAKA_HARNESS_AB_LIMIT: '2',
+        MAKA_HARNESS_AB_LIMIT: '5',
         MAKA_HARNESS_AB_DRY_RUN: '1',
       },
     }), /Terminal-Bench 2\.1 task set mismatch/);
@@ -171,6 +171,25 @@ test('harness A/B manifest uses the pinned OpenCode toolchain version', async ()
     manifest.arms.find((arm: { id: string }) => arm.id === 'opencode')?.metadata.version,
     '1.17.18',
   );
+  assert.deepEqual(manifest.metadata.model, {
+    provider: 'kimi-coding-plan',
+    id: 'k3',
+    reasoningEffort: 'max',
+  });
+  assert.deepEqual(manifest.metadata.pricing, {
+    currency: 'USD',
+    unit: 'per_1m_tokens',
+    input: 0,
+    cachedInput: 0,
+    output: 0,
+    source: 'kimi-coding-plan-account-plan',
+  });
+  assert.equal(manifest.metadata.order.pilotTaskCount, 5);
+  assert.equal(manifest.maxConcurrency, 4);
+  assert.equal(manifest.maxConcurrentAttempts, 8);
+  for (const arm of manifest.arms) {
+    assert.equal(arm.metadata.config.billingMode, 'account-plan');
+  }
 });
 
 test('harness A/B completion log preserves the report status', async () => {
@@ -193,7 +212,7 @@ test('detached harness launcher persists a terminal failed journal after the wor
         MAKA_HARNESS_AB_OUT_DIR: outDir,
         MAKA_HARNESS_AB_RUN_ID: runId,
         MAKA_HARNESS_AB_TASKS_ROOT: join(dir, 'missing-tasks'),
-        MAKA_HARNESS_AB_LIMIT: '2',
+        MAKA_HARNESS_AB_LIMIT: '5',
         MAKA_HARNESS_AB_DRY_RUN: '1',
       },
     });
@@ -237,7 +256,7 @@ test('duplicate detached launch does not overwrite the active run journal', asyn
         MAKA_HARNESS_AB_OUT_DIR: outDir,
         MAKA_HARNESS_AB_RUN_ID: runId,
         MAKA_HARNESS_AB_TASKS_ROOT: join(dir, 'missing-tasks'),
-        MAKA_HARNESS_AB_LIMIT: '2',
+        MAKA_HARNESS_AB_LIMIT: '5',
         MAKA_HARNESS_AB_DRY_RUN: '1',
       },
     }), /before acquiring the run lock/);
@@ -252,7 +271,7 @@ test('duplicate detached launch does not overwrite the active run journal', asyn
   }
 });
 
-test('harness A/B CLI accepts the fixed 30-task pilot limit', async () => {
+test('harness A/B CLI rejects the superseded 30-task pilot checkpoint', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'maka-harness-ab-cli-'));
   try {
     const scriptPath = new URL('../../harbor/run-harness-ab.mjs', import.meta.url);
@@ -265,7 +284,7 @@ test('harness A/B CLI accepts the fixed 30-task pilot limit', async () => {
         MAKA_HARNESS_AB_LIMIT: '30',
         MAKA_HARNESS_AB_DRY_RUN: '1',
       },
-    }), /Terminal-Bench 2\.1 task set mismatch/);
+    }), /MAKA_HARNESS_AB_LIMIT must be 5 or 89/);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -308,7 +327,7 @@ test('harness A/B CLI rejects modified task contents before reading credentials'
         MAKA_HARNESS_AB_OUT_DIR: outDir,
         MAKA_HARNESS_AB_TASKS_ROOT: tasksRoot,
         MAKA_HARNESS_AB_RUN_ID: 'dry-run',
-        MAKA_HARNESS_AB_LIMIT: '30',
+        MAKA_HARNESS_AB_LIMIT: '5',
         MAKA_HARNESS_AB_DRY_RUN: '1',
         MAKA_HARNESS_AB_KEY_FILE: join(dir, 'must-not-be-read'),
         MAKA_HARNESS_AB_EXPLICIT_SUBJECT_FINGERPRINT: `sha256:${'a'.repeat(64)}`,

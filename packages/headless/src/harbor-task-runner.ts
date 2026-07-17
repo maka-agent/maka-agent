@@ -751,6 +751,7 @@ async function hostSideProviderRuntime(options: HarborTaskRunnerOptions): Promis
     const proxy = await startProviderAuthProxy({
       upstreamBaseUrl: baseUrl,
       apiKeyFile,
+      authMode: providerProxyAuthMode(provider),
     });
     return {
       env: {
@@ -779,6 +780,14 @@ async function hostSideProviderRuntime(options: HarborTaskRunnerOptions): Promis
       ...(copilotCredential ? { MAKA_HOST_MODEL_API_PROTOCOL: copilotCredential.apiProtocol } : {}),
     },
   };
+}
+
+function providerProxyAuthMode(provider: string): 'bearer' | 'x-api-key' {
+  const definition = (PROVIDER_DEFAULTS as Partial<Record<string, (typeof PROVIDER_DEFAULTS)[ProviderType]>>)[provider];
+  return definition?.runtimeAdapter.kind === 'anthropic'
+    && definition.runtimeAdapter.auth === 'api-key'
+    ? 'x-api-key'
+    : 'bearer';
 }
 
 async function resolveGitHubCopilotHostCredential(

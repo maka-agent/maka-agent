@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
@@ -390,6 +391,51 @@ describe('createHarborTaskRunner', () => {
       const closedProxyUrl = harborEnv?.MAKA_OPENCODE_PROVIDER_PROXY_URL?.replace('host.docker.internal', '127.0.0.1');
       assert.ok(closedProxyUrl);
       await assert.rejects(fetch(closedProxyUrl));
+    });
+  });
+
+  test('selects Anthropic x-api-key auth for the OpenCode Kimi Coding Plan proxy', async () => {
+    await withRun(async ({ jobsDir, repo, keyFile }) => {
+      let upstreamApiKey = '';
+      const upstream = createServer((request, response) => {
+        upstreamApiKey = String(request.headers['x-api-key'] ?? '');
+        response.writeHead(200).end('ok');
+      });
+      await new Promise<void>((resolve) => upstream.listen(0, '127.0.0.1', resolve));
+      const address = upstream.address();
+      assert.ok(address && typeof address !== 'string');
+      try {
+        const runner = createHarborTaskRunner({
+          makaRepoPath: repo,
+          jobsDir,
+          agent: 'opencode',
+          opencodeToolchainPath: '/toolchain',
+          agentVersion: '1.17.18',
+          model: 'kimi-coding-plan/k3',
+          provider: 'kimi-coding-plan',
+          reasoningEffort: 'max',
+          apiKeyFile: keyFile,
+          agentEnv: { MAKA_BASE_URL: `http://127.0.0.1:${address.port}/coding/v1` },
+          runHarbor: async (request) => {
+            const proxyUrl = request.env?.MAKA_OPENCODE_PROVIDER_PROXY_URL
+              ?.replace('host.docker.internal', '127.0.0.1');
+            const proxyToken = request.env?.MAKA_OPENCODE_PROVIDER_PROXY_TOKEN;
+            assert.ok(proxyUrl && proxyToken);
+            const response = await fetch(`${proxyUrl}/messages`, {
+              method: 'POST',
+              headers: { 'x-api-key': proxyToken },
+              body: '{}',
+            });
+            assert.equal(response.status, 200);
+            return fakeRunner({ reward: '1\n' })(request);
+          },
+        });
+
+        await runner(runInput());
+        assert.equal(upstreamApiKey, 'sk-secret');
+      } finally {
+        await new Promise<void>((resolve, reject) => upstream.close((error) => error ? reject(error) : resolve()));
+      }
     });
   });
 

@@ -9,10 +9,13 @@ export interface ProviderAuthProxy {
   close(): Promise<void>;
 }
 
+export type ProviderAuthProxyMode = 'bearer' | 'x-api-key';
+
 export async function startProviderAuthProxy(input: {
   upstreamBaseUrl: string;
   apiKeyFile: string;
   advertisedHost?: string;
+  authMode?: ProviderAuthProxyMode;
 }): Promise<ProviderAuthProxy> {
   const upstreamBaseUrl = new URL(input.upstreamBaseUrl);
   if (upstreamBaseUrl.protocol !== 'https:' && upstreamBaseUrl.protocol !== 'http:') {
@@ -20,6 +23,7 @@ export async function startProviderAuthProxy(input: {
   }
   const providerKey = (await readFile(input.apiKeyFile, 'utf8')).trim();
   if (providerKey.length === 0) throw new Error('provider API key file is empty');
+  const authMode = input.authMode ?? 'bearer';
   const token = randomBytes(32).toString('hex');
   const activeRequests = new Set<AbortController>();
   const sockets = new Set<Socket>();
@@ -32,6 +36,7 @@ export async function startProviderAuthProxy(input: {
       upstreamBaseUrl,
       providerKey,
       token,
+      authMode,
       signal: controller.signal,
     }).finally(() => activeRequests.delete(controller));
   });
@@ -72,10 +77,14 @@ async function forwardProviderRequest(input: {
   upstreamBaseUrl: URL;
   providerKey: string;
   token: string;
+  authMode: ProviderAuthProxyMode;
   signal: AbortSignal;
 }): Promise<void> {
   try {
-    if (!authorized(input.request.headers.authorization, input.token)) {
+    const presentedCredential = input.authMode === 'x-api-key'
+      ? input.request.headers['x-api-key']
+      : input.request.headers.authorization;
+    if (!authorized(presentedCredential, input.token, input.authMode)) {
       input.response.writeHead(401).end('unauthorized');
       return;
     }
@@ -85,11 +94,12 @@ async function forwardProviderRequest(input: {
     upstreamUrl.search = incomingUrl.search;
     const headers = new Headers();
     for (const [name, value] of Object.entries(input.request.headers)) {
-      if (value === undefined || HOP_BY_HOP_HEADERS.has(name.toLowerCase())) continue;
+      if (value === undefined || REQUEST_HEADER_DENYLIST.has(name.toLowerCase())) continue;
       if (Array.isArray(value)) value.forEach((item) => headers.append(name, item));
       else headers.set(name, value);
     }
-    headers.set('authorization', `Bearer ${input.providerKey}`);
+    if (input.authMode === 'x-api-key') headers.set('x-api-key', input.providerKey);
+    else headers.set('authorization', `Bearer ${input.providerKey}`);
     const body = input.request.method === 'GET' || input.request.method === 'HEAD'
       ? undefined
       : await readRequestBody(input.request);
@@ -115,9 +125,19 @@ async function forwardProviderRequest(input: {
   }
 }
 
-function authorized(header: string | undefined, token: string): boolean {
-  if (!header?.startsWith('Bearer ')) return false;
-  const presented = Buffer.from(header.slice('Bearer '.length));
+function authorized(
+  header: string | string[] | undefined,
+  token: string,
+  authMode: ProviderAuthProxyMode,
+): boolean {
+  if (typeof header !== 'string') return false;
+  const value = authMode === 'bearer'
+    ? header.startsWith('Bearer ')
+      ? header.slice('Bearer '.length)
+      : undefined
+    : header;
+  if (value === undefined) return false;
+  const presented = Buffer.from(value);
   const expected = Buffer.from(token);
   return presented.length === expected.length && timingSafeEqual(presented, expected);
 }
@@ -142,4 +162,9 @@ const HOP_BY_HOP_HEADERS = new Set([
   'trailer',
   'transfer-encoding',
   'upgrade',
+]);
+
+const REQUEST_HEADER_DENYLIST = new Set([
+  ...HOP_BY_HOP_HEADERS,
+  'x-api-key',
 ]);

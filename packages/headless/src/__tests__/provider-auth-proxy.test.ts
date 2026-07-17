@@ -53,6 +53,50 @@ test('provider auth proxy keeps the provider key host-side', async () => {
   }
 });
 
+test('provider auth proxy supports Anthropic x-api-key without replacing the client user agent', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'maka-provider-proxy-anthropic-'));
+  const providerKey = 'anthropic-provider-secret';
+  let upstreamApiKey = '';
+  let upstreamAuthorization = '';
+  let upstreamUserAgent = '';
+  const upstream = createServer((request, response) => {
+    upstreamApiKey = String(request.headers['x-api-key'] ?? '');
+    upstreamAuthorization = request.headers.authorization ?? '';
+    upstreamUserAgent = request.headers['user-agent'] ?? '';
+    response.writeHead(200).end('ok');
+  });
+  await new Promise<void>((resolve) => upstream.listen(0, '127.0.0.1', resolve));
+  const address = upstream.address();
+  assert.ok(address && typeof address !== 'string');
+  const keyFile = join(dir, 'provider-key');
+  await writeFile(keyFile, `${providerKey}\n`, 'utf8');
+  const proxy = await startProviderAuthProxy({
+    upstreamBaseUrl: `http://127.0.0.1:${address.port}/coding/v1`,
+    apiKeyFile: keyFile,
+    advertisedHost: '127.0.0.1',
+    authMode: 'x-api-key',
+  });
+
+  try {
+    const response = await fetch(`${proxy.baseUrl}/messages`, {
+      method: 'POST',
+      headers: {
+        'x-api-key': proxy.token,
+        'user-agent': 'opencode/1.17.18 ai-sdk/6',
+      },
+      body: '{}',
+    });
+    assert.equal(response.status, 200);
+    assert.equal(upstreamApiKey, providerKey);
+    assert.equal(upstreamAuthorization, '');
+    assert.equal(upstreamUserAgent, 'opencode/1.17.18 ai-sdk/6');
+  } finally {
+    await proxy.close();
+    await new Promise<void>((resolve, reject) => upstream.close((error) => error ? reject(error) : resolve()));
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('provider auth proxy aborts an in-flight upstream request on close', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'maka-provider-proxy-close-'));
   let received!: () => void;

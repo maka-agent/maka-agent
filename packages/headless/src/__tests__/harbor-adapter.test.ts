@@ -1906,6 +1906,46 @@ try:
             "apiKey": "{env:ZAI_API_KEY}",
             "baseURL": "{env:ZAI_BASE_URL}",
         }, benchmark_config
+        assert benchmark_config["provider"]["kimi-coding-plan"] == {
+            "npm": "@ai-sdk/anthropic",
+            "name": "Kimi Coding Plan",
+            "options": {
+                "apiKey": "{env:KIMI_API_KEY}",
+                "baseURL": "{env:KIMI_BASE_URL}",
+            },
+            "models": {
+                "k3": {
+                    "name": "Kimi K3",
+                    "limit": {"context": 1048576, "output": 131072},
+                    "options": {
+                        "thinking": {"type": "adaptive"},
+                        "effort": "max",
+                    },
+                    "variants": {
+                        "max": {
+                            "thinking": {"type": "adaptive"},
+                            "effort": "max",
+                        }
+                    },
+                }
+            },
+        }, benchmark_config
+        kimi_agent = MakaOpenCodeAgent(Path(tmp), extra_env={
+            "MAKA_OPENCODE_PROVIDER_PROXY_URL": "http://host.docker.internal:43210",
+            "MAKA_OPENCODE_PROVIDER_PROXY_TOKEN": "ephemeral-kimi-token",
+            "MAKA_LLM_CONNECTION_SLUG": "kimi-coding-plan",
+            "MAKA_SYSTEM_PROMPT": "",
+            "MAKA_REASONING_EFFORT": "max",
+            "MAKA_OPENCODE_VARIANT": "max",
+        }, prompt_template_path=template_path, model_name="kimi-coding-plan/k3")
+        kimi_agent.exec_as_agent = exec_as_agent
+        asyncio.run(kimi_agent.run("hi", environment, AgentContext()))
+        kimi_command, kimi_env = environment.agent_commands[-1]
+        assert "opencode --model=kimi-coding-plan/k3 run --format=json" in kimi_command, kimi_command
+        assert "--variant=max" in kimi_command, kimi_command
+        assert kimi_env["KIMI_API_KEY"] == "ephemeral-kimi-token", kimi_env
+        assert kimi_env["KIMI_BASE_URL"] == "http://host.docker.internal:43210", kimi_env
+        assert "ZAI_API_KEY" not in kimi_env, kimi_env
         assert environment.uploaded_files == [], environment.uploaded_files
         assert 'cat --' not in command, command
         assert "test-zai-key" not in command, command

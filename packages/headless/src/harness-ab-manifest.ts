@@ -176,6 +176,7 @@ export interface HarnessAbRunManifestInput {
   subjectFingerprint: string;
   taskSourceFingerprint: string;
   toolchainFingerprint: string;
+  pairConcurrency?: number;
   oracleEvidence?: {
     registryUrl?: string;
     expectedSnapshotFingerprint?: string;
@@ -223,6 +224,10 @@ export function deterministicHarnessTaskOrder(taskIds: readonly string[], seed: 
 
 export function buildHarnessAbRunManifest(input: HarnessAbRunManifestInput): HarnessAbRunManifest {
   const evaluationTaskIds = deterministicHarnessTaskOrder(input.taskIds, input.orderSeed);
+  const pairConcurrency = input.pairConcurrency ?? HARNESS_AB_PAIR_CONCURRENCY;
+  if (!Number.isSafeInteger(pairConcurrency) || pairConcurrency < 1) {
+    throw new Error('pairConcurrency must be a positive integer');
+  }
   if (
     !Number.isSafeInteger(input.pilotTaskCount)
     || input.pilotTaskCount < 1
@@ -266,8 +271,8 @@ export function buildHarnessAbRunManifest(input: HarnessAbRunManifestInput): Har
     pilotTaskIds: evaluationTaskIds.slice(0, input.pilotTaskCount),
     reps: 1,
     candidateLimit: null,
-    maxConcurrency: HARNESS_AB_PAIR_CONCURRENCY,
-    maxConcurrentAttempts: HARNESS_AB_MAX_CONCURRENT_ATTEMPTS,
+    maxConcurrency: pairConcurrency,
+    maxConcurrentAttempts: pairConcurrency * 2,
     selectionMode: 'explicit',
   });
   return manifest as HarnessAbRunManifest;

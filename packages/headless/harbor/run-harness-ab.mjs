@@ -57,22 +57,23 @@ import {
 const execFileAsync = promisify(execFile);
 
 const EXPECTED_SOURCE_TASKS = TERMINAL_BENCH_2_1_TASK_IDS.length;
-export const DEFAULT_HARNESS_AB_RUN_ID = 'glm-5.2-maka-vs-opencode-tbench-2.1-full-v2';
-const CANARY_TASKS = 2;
-const PILOT_TASKS = 30;
-const PROVIDER = 'zai-coding-plan';
-const MODEL = 'glm-5.2';
+export const DEFAULT_HARNESS_AB_RUN_ID = 'k3-maka-vs-opencode-tbench-2.1-full-v1';
+const CANARY_TASKS = 5;
+const PROVIDER = 'kimi-coding-plan';
+const MODEL = 'k3';
 const MODEL_SPEC = `${PROVIDER}/${MODEL}`;
 const REASONING_EFFORT = 'max';
-const BASE_URL = 'https://api.z.ai/api/coding/paas/v4';
-const ORDER_SEED = 'terminal-bench-2.1:glm-5.2:maka-vs-opencode:v1';
+const BASE_URL = 'https://api.kimi.com/coding/v1';
+const ORDER_SEED = 'terminal-bench-2.1:k3:maka-vs-opencode:v1';
+const PAIR_CONCURRENCY = 4;
+const BILLING_MODE = 'account-plan';
 const PRICING = {
   currency: 'USD',
   unit: 'per_1m_tokens',
-  input: 1.4,
-  cachedInput: 0.26,
-  output: 4.4,
-  source: 'z.ai-public-2026-07-13',
+  input: 0,
+  cachedInput: 0,
+  output: 0,
+  source: 'kimi-coding-plan-account-plan',
 };
 const HARBOR_SETUP_TEARDOWN_GRACE_SEC = 15 * 60;
 const ORACLE_EVIDENCE_RESOLUTION_TIMEOUT_MS = 15_000;
@@ -88,9 +89,9 @@ function envPath(name, fallback) {
 }
 
 function runLimit(raw) {
-  const parsed = Number(raw ?? PILOT_TASKS);
-  if (parsed !== CANARY_TASKS && parsed !== PILOT_TASKS && parsed !== EXPECTED_SOURCE_TASKS) {
-    throw new Error(`MAKA_HARNESS_AB_LIMIT must be ${CANARY_TASKS}, ${PILOT_TASKS}, or ${EXPECTED_SOURCE_TASKS}`);
+  const parsed = Number(raw ?? CANARY_TASKS);
+  if (parsed !== CANARY_TASKS && parsed !== EXPECTED_SOURCE_TASKS) {
+    throw new Error(`MAKA_HARNESS_AB_LIMIT must be ${CANARY_TASKS} or ${EXPECTED_SOURCE_TASKS}`);
   }
   return parsed;
 }
@@ -133,7 +134,7 @@ export function buildHarnessAbManifest({
     },
     taskIds,
     orderSeed: ORDER_SEED,
-    pilotTaskCount: PILOT_TASKS,
+    pilotTaskCount: CANARY_TASKS,
     model: { provider: PROVIDER, id: MODEL, reasoningEffort: REASONING_EFFORT },
     pricing: PRICING,
     arms: [
@@ -146,6 +147,7 @@ export function buildHarnessAbManifest({
           reasoningEffort: REASONING_EFFORT,
           continuation: false,
           attemptPolicy: 'single',
+          billingMode: BILLING_MODE,
           contextBudget: HARNESS_MAKA_CONTEXT_BUDGET,
         },
       },
@@ -159,6 +161,7 @@ export function buildHarnessAbManifest({
           pure: true,
           permissions: 'auto',
           attemptPolicy: 'single',
+          billingMode: BILLING_MODE,
         },
       },
     ],
@@ -167,6 +170,7 @@ export function buildHarnessAbManifest({
     subjectFingerprint,
     taskSourceFingerprint,
     toolchainFingerprint,
+    pairConcurrency: PAIR_CONCURRENCY,
     ...(oracleEvidence ? { oracleEvidence } : {}),
   });
 }
@@ -262,7 +266,7 @@ async function runLocked({ repoRoot, makaRepoPath, tasksRoot, runId, limit, runR
     : join(runRoot, 'toolchains', `opencode-${OPENCODE_TOOLCHAIN_SPEC.opencode.version}-linux-x64`);
   await prepareOpenCodeToolchain(opencodeToolchainPath);
 
-  const keyFile = envPath('MAKA_HARNESS_AB_KEY_FILE', join(repoRoot, '.local-secrets/zai-key'));
+  const keyFile = envPath('MAKA_HARNESS_AB_KEY_FILE', join(homedir(), '.maka/secrets/kimi-coding-plan.key'));
   if ((await readFile(keyFile, 'utf8')).trim().length === 0) throw new Error('MAKA_HARNESS_AB_KEY_FILE is empty');
   const controllerDir = join(runRoot, 'controller');
   const promptsDir = join(runRoot, 'prompts');
@@ -285,9 +289,9 @@ async function runLocked({ repoRoot, makaRepoPath, tasksRoot, runId, limit, runR
     provider: PROVIDER,
     reasoningEffort: REASONING_EFFORT,
     apiKeyFile: keyFile,
-    apiKeyEnvName: 'ZAI_API_KEY',
+    apiKeyEnvName: 'ANTHROPIC_API_KEY',
     pricing,
-    agentEnv: { ZAI_BASE_URL: BASE_URL },
+    agentEnv: { MAKA_BASE_URL: BASE_URL },
     timeoutMultiplier: 1,
     dockerPlatform: 'linux/amd64',
   };
@@ -311,6 +315,7 @@ async function runLocked({ repoRoot, makaRepoPath, tasksRoot, runId, limit, runR
         id: 'maka',
         config: config('maka'),
         expectedPricingProfile: PRICING.source,
+        billingMode: BILLING_MODE,
         harborRunner: createHarborTaskRunner({
           ...runnerOptions,
           agent: 'maka',
@@ -321,6 +326,7 @@ async function runLocked({ repoRoot, makaRepoPath, tasksRoot, runId, limit, runR
         id: 'opencode',
         config: config('opencode'),
         expectedPricingProfile: PRICING.source,
+        billingMode: BILLING_MODE,
         harborRunner: createHarborTaskRunner({
           ...runnerOptions,
           agent: 'opencode',
@@ -329,6 +335,7 @@ async function runLocked({ repoRoot, makaRepoPath, tasksRoot, runId, limit, runR
         }),
       },
     ],
+    pairConcurrency: PAIR_CONCURRENCY,
   });
   const evaluatedTaskIds = new Set(evaluationTasks.map((task) => task.id));
   const report = buildHarnessAbReport(summary, {
