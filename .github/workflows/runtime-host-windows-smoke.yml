@@ -17,4 +17,5 @@ jobs:
       - run: npm ci
       - run: npm --workspace @maka/core run build
       - run: npm --workspace @maka/storage test
-      - run: npm --workspace @maka/runtime-host test
+      - if: always()
+        run: npm --workspace @maka/runtime-host test
