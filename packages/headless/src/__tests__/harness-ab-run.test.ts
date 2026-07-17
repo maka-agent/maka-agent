@@ -43,9 +43,13 @@ describe('runHarnessAbComparison', () => {
         ],
       });
 
+      // Bound is intentionally generous: the full headless suite runs many
+      // files under one `node --test` process, so a 100ms observe window was
+      // flaking under load even when all four arms did start. Concurrency
+      // breakage still fails (fourStarted never resolves).
       const observedFour = await Promise.race([
         fourStartedPromise.then(() => true),
-        new Promise<false>((resolve) => setTimeout(() => resolve(false), 100)),
+        new Promise<false>((resolve) => setTimeout(() => resolve(false), 5_000)),
       ]);
       release();
       await comparison;
