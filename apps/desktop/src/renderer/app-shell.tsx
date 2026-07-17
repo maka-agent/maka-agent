@@ -35,8 +35,7 @@ import {
 } from '@maka/ui';
 import { useKeyboardHelp } from './keyboard-help';
 import { useCommandPalette } from './command-palette';
-import { OnboardingHero } from './OnboardingHero';
-import { FirstRunChecklist } from './FirstRunChecklist';
+import { OnboardingEmptyState } from './onboarding-empty-state';
 import { useOnboardingSnapshot } from './use-onboarding-snapshot';
 import type { OnboardingSnapshot } from '../global';
 import { ProviderLogo } from './settings/provider-display';
@@ -1385,37 +1384,31 @@ export function AppShell({
                 onBranchBannerClick={handleBranchBannerClick}
                 emptyOverride={
                   showOnboardingHero && onboardingState ? (
-                    <div className="maka-onboarding-stack">
-                      <OnboardingHero
-                        state={onboardingState}
-                        onOpenSettings={(section) => {
-                          if (section) openSettingsSection(section);
-                          else openSettings();
-                        }}
-                        onBrowseProviders={openProviderCatalog}
-                        onQuickChatSubmit={handleQuickChatSubmit}
-                        quickChatPending={quickChatPending}
-                        connections={connections}
-                        onRefreshConnections={refreshConnections}
-                        onSkip={async () => {
-                          try {
-                            await window.maka.onboarding.setMilestone('initial_onboarding', 'skipped');
-                            onboarding.refresh();
-                          } catch (error) {
-                            toastApi.error('跳过失败', generalizedErrorMessageChinese(error, '请稍后重试。'));
-                          }
-                        }}
-                      />
-                      {onboardingState.kind === 'ready_empty' && (
-                        <FirstRunChecklist
-                          onOpenSettingsSection={(section) => openSettingsSection(section)}
-                          onOpenSidebarModule={(target) => {
-                            setNavSelection({ section: target });
-                          }}
-                          onStartPlanReminder={openPlanReminderForm}
-                        />
-                      )}
-                    </div>
+                    <OnboardingEmptyState
+                      state={onboardingState}
+                      onOpenSettings={(section) => {
+                        if (section) openSettingsSection(section);
+                        else openSettings();
+                      }}
+                      onBrowseProviders={openProviderCatalog}
+                      onQuickChatSubmit={handleQuickChatSubmit}
+                      quickChatPending={quickChatPending}
+                      connections={connections}
+                      onRefreshConnections={refreshConnections}
+                      onSkip={async () => {
+                        try {
+                          await window.maka.onboarding.setMilestone('initial_onboarding', 'skipped');
+                          onboarding.refresh();
+                        } catch (error) {
+                          toastApi.error('跳过失败', generalizedErrorMessageChinese(error, '请稍后重试。'));
+                        }
+                      }}
+                      onOpenSettingsSection={(section) => openSettingsSection(section)}
+                      onOpenSidebarModule={(target) => {
+                        setNavSelection({ section: target });
+                      }}
+                      onStartPlanReminder={openPlanReminderForm}
+                    />
                   ) : isOnboardingLoading ? (
                     // @kenji review: render a no-op skeleton while the
                     // first snapshot resolves so EmptyChatHero doesn't
