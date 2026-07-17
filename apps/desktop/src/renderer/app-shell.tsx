@@ -11,12 +11,7 @@ import type {
 } from '@maka/core';
 import { generalizedErrorMessageChinese, hasSettledInitialOnboarding } from '@maka/core';
 import {
-  Alert,
-  AlertAction,
-  AlertDescription,
-  AlertTitle,
   AutomationsPage,
-  ChatView,
   Composer,
   PermissionPrompt,
   UserQuestionPrompt,
@@ -35,7 +30,7 @@ import {
 } from '@maka/ui';
 import { useKeyboardHelp } from './keyboard-help';
 import { useCommandPalette } from './command-palette';
-import { OnboardingEmptyState } from './onboarding-empty-state';
+import { ChatMessageSurface } from './chat-message-surface';
 import { useOnboardingSnapshot } from './use-onboarding-snapshot';
 import type { OnboardingSnapshot } from '../global';
 import { ProviderLogo } from './settings/provider-display';
@@ -1338,7 +1333,7 @@ export function AppShell({
                   onSaveMarkdown={(input) => saveDailyReviewMarkdown(input, { shouldShowFeedback: isDailyReviewSurfaceActive })}
                 />
               ) : (
-              <ChatView
+              <ChatMessageSurface
                 messages={messages}
                 liveTurn={activeLiveTurn}
                 shellRunUpdates={activeShellRunUpdates}
@@ -1382,74 +1377,35 @@ export function AppShell({
                 scrollBehavior={readScrollMotionBehavior()}
                 branchBanner={branchBanner}
                 onBranchBannerClick={handleBranchBannerClick}
-                emptyOverride={
-                  showOnboardingHero && onboardingState ? (
-                    <OnboardingEmptyState
-                      state={onboardingState}
-                      onOpenSettings={(section) => {
-                        if (section) openSettingsSection(section);
-                        else openSettings();
-                      }}
-                      onBrowseProviders={openProviderCatalog}
-                      onQuickChatSubmit={handleQuickChatSubmit}
-                      quickChatPending={quickChatPending}
-                      connections={connections}
-                      onRefreshConnections={refreshConnections}
-                      onSkip={async () => {
-                        try {
-                          await window.maka.onboarding.setMilestone('initial_onboarding', 'skipped');
-                          onboarding.refresh();
-                        } catch (error) {
-                          toastApi.error('跳过失败', generalizedErrorMessageChinese(error, '请稍后重试。'));
-                        }
-                      }}
-                      onOpenSettingsSection={(section) => openSettingsSection(section)}
-                      onOpenSidebarModule={(target) => {
-                        setNavSelection({ section: target });
-                      }}
-                      onStartPlanReminder={openPlanReminderForm}
-                    />
-                  ) : isOnboardingLoading ? (
-                    // @kenji review: render a no-op skeleton while the
-                    // first snapshot resolves so EmptyChatHero doesn't
-                    // flash. Use an aria-busy live region so screen
-                    // readers know something is loading.
-                    <div
-                      className="maka-onboarding-loading"
-                      role="status"
-                      aria-busy="true"
-                      aria-label="加载中"
-                    />
-                  ) : undefined
-                }
                 onNew={createSession}
                 onPromptSuggestion={(prompt) => composerRef.current?.appendText(prompt)}
+                sessionHealthNotice={sessionHealthNotice}
+                showOnboardingHero={showOnboardingHero}
+                onboardingState={onboardingState}
+                isOnboardingLoading={isOnboardingLoading}
+                onOpenSettings={(section) => {
+                  if (section) openSettingsSection(section);
+                  else openSettings();
+                }}
+                onBrowseProviders={openProviderCatalog}
+                onQuickChatSubmit={handleQuickChatSubmit}
+                quickChatPending={quickChatPending}
+                connections={connections}
+                onRefreshConnections={refreshConnections}
+                onSkip={async () => {
+                  try {
+                    await window.maka.onboarding.setMilestone('initial_onboarding', 'skipped');
+                    onboarding.refresh();
+                  } catch (error) {
+                    toastApi.error('跳过失败', generalizedErrorMessageChinese(error, '请稍后重试。'));
+                  }
+                }}
+                onOpenSettingsSection={(section) => openSettingsSection(section)}
+                onOpenSidebarModule={(target) => {
+                  setNavSelection({ section: target });
+                }}
+                onStartPlanReminder={openPlanReminderForm}
               />
-              )}
-              {navSelection.section === 'sessions' && sessionHealthNotice && (
-                <div className="maka-session-health-notice">
-                  <Alert
-                    className="maka-session-health-notice-alert"
-                    variant={sessionHealthNotice.tone === 'destructive' ? 'error' : sessionHealthNotice.tone === 'warning' ? 'warning' : 'info'}
-                    role="status"
-                    aria-label={sessionHealthNotice.tooltip ?? sessionHealthNotice.label}
-                    title={sessionHealthNotice.tooltip}
-                  >
-                    <AlertTitle>{sessionHealthNotice.label}</AlertTitle>
-                    {sessionHealthNotice.tooltip ? (
-                      <AlertDescription>{sessionHealthNotice.tooltip}</AlertDescription>
-                    ) : null}
-                    <AlertAction>
-                      <button
-                        type="button"
-                        className="maka-session-health-notice-action"
-                        onClick={sessionHealthNotice.onClick}
-                      >
-                        {sessionHealthNotice.onClickTarget === 'account' ? '去账号' : '去模型'}
-                      </button>
-                    </AlertAction>
-                  </Alert>
-                </div>
               )}
               <div className="maka-composer-interaction-slot">
                 {activePermission && (

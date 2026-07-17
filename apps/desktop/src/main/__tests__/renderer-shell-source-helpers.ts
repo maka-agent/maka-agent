@@ -41,6 +41,7 @@ const sourcePaths = [
   'use-shell-layout.ts',
   'use-settings-modal.ts',
   'onboarding-empty-state.tsx',
+  'chat-message-surface.tsx',
   'app-shell-visual-smoke.ts',
   'cached-theme-bootstrap.ts',
   'chat-model-selection.ts',

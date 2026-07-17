@@ -36,7 +36,7 @@ it('renders live thinking and text from timeline items instead of a trailing liv
     'utf8',
   );
   assert.match(shell, /const activeLiveTurn = activeId \? liveTurnBySession\[activeId\] : undefined;/);
-  assert.match(shell, /<ChatView[\s\S]*?liveTurn=\{activeLiveTurn\}/);
+  assert.match(shell, /<ChatMessageSurface[\s\S]*?liveTurn=\{activeLiveTurn\}/);
 });
 
 it('keeps persisted turn materialization stable while live text grows', async () => {
