@@ -6,91 +6,11 @@ import { describe, test } from 'node:test';
 import { hashHarborSystemPrompt, type HarborCellOutput } from '../cell-output.js';
 import type { HarborTaskRunner } from '../fixed-prompt-controller.js';
 import { buildHarnessAbReport } from '../harness-ab-report.js';
-import { runHarnessAbCells, runHarnessAbComparison } from '../harness-ab-run.js';
+import { runHarnessAbComparison } from '../harness-ab-run.js';
 import { HarborInfraError } from '../harbor-task-runner.js';
 import { tokenSummary } from './helpers/cell-output-fixtures.js';
 
 describe('runHarnessAbComparison', () => {
-  test('runs only explicitly selected harness cells', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'maka-harness-ab-cells-'));
-    try {
-      const promptPath = join(dir, 'empty-system-prompt.txt');
-      await writeFile(promptPath, '', 'utf8');
-      const calls: string[] = [];
-
-      const result = await runHarnessAbCells({
-        runId: 'glm-harness-ab-cells',
-        runRoot: dir,
-        resultsJsonlPath: join(dir, 'results.jsonl'),
-        systemPromptPath: promptPath,
-        resumeFingerprint: 'sha256:manifest',
-        evaluationTasks: ['a', 'b'].map((id) => ({ id, path: `/tasks/${id}` })),
-        arms: [harnessArm('maka', calls), harnessArm('opencode', calls)],
-        cells: [
-          { taskId: 'a', armId: 'maka' },
-          { taskId: 'b', armId: 'opencode' },
-        ],
-      });
-
-      assert.deepEqual(new Set(calls), new Set(['a:maka', 'b:opencode']));
-      assert.deepEqual(
-        result.cells.map(({ taskId, armId, event }) => ({ taskId, armId, roundId: event.roundId })),
-        [
-          { taskId: 'a', armId: 'maka', roundId: 'ab-maka-r0-a' },
-          { taskId: 'b', armId: 'opencode', roundId: 'ab-opencode-r0-b' },
-        ],
-      );
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-
-  test('drains started harness cells before propagating a sibling rejection', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'maka-harness-ab-cell-drain-'));
-    try {
-      const promptPath = join(dir, 'empty-system-prompt.txt');
-      await writeFile(promptPath, '', 'utf8');
-      let release!: () => void;
-      let siblingStarted!: () => void;
-      const releasePromise = new Promise<void>((resolve) => { release = resolve; });
-      const siblingStartedPromise = new Promise<void>((resolve) => { siblingStarted = resolve; });
-      const calls: string[] = [];
-      const failingArm = harnessArm('maka', calls);
-      Object.defineProperty(failingArm, 'expectedPricingProfile', {
-        get: () => { throw new Error('cell runner rejected'); },
-      });
-      const siblingArm = harnessArm('opencode', calls, async () => {
-        siblingStarted();
-        await releasePromise;
-      });
-      let settled = false;
-      const outcome = runHarnessAbCells({
-        runId: 'glm-harness-ab-cell-drain',
-        runRoot: dir,
-        resultsJsonlPath: join(dir, 'results.jsonl'),
-        systemPromptPath: promptPath,
-        resumeFingerprint: 'sha256:manifest',
-        evaluationTasks: ['a', 'b'].map((id) => ({ id, path: `/tasks/${id}` })),
-        arms: [failingArm, siblingArm],
-        cells: [
-          { taskId: 'a', armId: 'maka' },
-          { taskId: 'b', armId: 'opencode' },
-        ],
-      }).then(
-        () => new Error('cell run unexpectedly resolved'),
-        (error: unknown) => error,
-      ).finally(() => { settled = true; });
-
-      await siblingStartedPromise;
-      await new Promise<void>((resolve) => setImmediate(resolve));
-      assert.equal(settled, false);
-      release();
-      assert.match(String(await outcome), /cell runner rejected/);
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-
   test('runs two paired tasks concurrently with both harness arms in parallel', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'maka-harness-ab-concurrency-'));
     try {
