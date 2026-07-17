@@ -36,9 +36,7 @@ function userMessage(text: string, id = 'u1'): StoredMessage {
   return { type: 'user', id, turnId: 't1', ts: 1, text };
 }
 
-function makeOptions(
-  partial: Partial<AppShellCommandListOptions> = {},
-): AppShellCommandListOptions {
+function makeOptions(partial: Partial<AppShellCommandListOptions> = {}): AppShellCommandListOptions {
   const activeId = partial.activeId ?? 's1';
   const sessions = partial.sessions ?? [session({ id: activeId, name: '会话 A' })];
   return {
@@ -46,12 +44,19 @@ function makeOptions(
     activePermissionMode: 'ask',
     connections: [],
     defaultConnection: null,
-    dailyReviewBridge: { fetchDay: async () => { throw new Error('unused'); } },
+    dailyReviewBridge: {
+      fetchDay: async () => {
+        throw new Error('unused');
+      },
+    },
     messages: [],
     sessions,
     themePref: 'auto',
     visibleSessions: sessions,
-    captureComposerImportOwner: () => ({ sessionId: activeId, navSection: 'sessions' }),
+    captureComposerImportOwner: () => ({
+      sessionId: activeId,
+      navSection: 'sessions',
+    }),
     closePalette: () => undefined,
     composerRef: { current: null },
     createSession: () => undefined,
@@ -76,6 +81,7 @@ function makeOptions(
       error: () => undefined,
     },
     ...partial,
+    uiLocale: partial.uiLocale ?? 'zh',
   };
 }
 
@@ -154,11 +160,7 @@ describe('app-shell command freeze + live session rows (#1045)', () => {
       /latest-streamed-body/,
       'export run() must dereference latest messages from the options ref',
     );
-    assert.doesNotMatch(
-      written[0]!,
-      /stale-body/,
-      'export must not keep the build-time messages snapshot',
-    );
+    assert.doesNotMatch(written[0]!, /stale-body/, 'export must not keep the build-time messages snapshot');
   });
 
   test('session rows reflect visibleSessions changes independently of the frozen base list', () => {
@@ -196,10 +198,7 @@ describe('app-shell command freeze + live session rows (#1045)', () => {
 
     // Base list is still the original frozen object (caller does not rebuild).
     assert.ok(baseCommands.every((c) => !c.id.startsWith('session:')));
-    assert.equal(
-      baseCommands.find((c) => c.id === 'diag:export-conversation')?.id,
-      'diag:export-conversation',
-    );
+    assert.equal(baseCommands.find((c) => c.id === 'diag:export-conversation')?.id, 'diag:export-conversation');
 
     // Active-session hint updates with activeId without rebuilding base.
     optionsRef.current = {

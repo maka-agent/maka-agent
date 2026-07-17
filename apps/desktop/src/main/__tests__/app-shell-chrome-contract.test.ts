@@ -50,11 +50,14 @@ describe('app shell chrome contract', () => {
 
   it('exposes the session workbar toggle in the top-right workspace actions', async () => {
     const combined = await readRendererShellCombinedSource();
+    const catalog = await readFile(resolve(RENDERER_ROOT, 'locales', 'shell-copy.ts'), 'utf8');
 
     assert.match(combined, /PanelRightClose/, 'expanded workbar must expose its collapse action');
     assert.match(combined, /PanelRightOpen/, 'collapsed workbar must expose its expand action');
-    assert.match(combined, /'展开会话工作栏'/);
-    assert.match(combined, /'收起会话工作栏'/);
+    assert.match(combined, /copy\.expandWorkbar/);
+    assert.match(combined, /copy\.collapseWorkbar/);
+    assert.match(catalog, /expandWorkbar: '展开会话工作栏'/);
+    assert.match(catalog, /expandWorkbar: 'Expand conversation workbar'/);
     assert.match(combined, /aria-label=\{workbarLabel\}/);
   });
 

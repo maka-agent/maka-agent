@@ -8,6 +8,7 @@ import type {
   SettingsSection,
   StoredMessage,
   ThemePreference,
+  UiLocale,
 } from '@maka/core';
 import { formatDailyReviewMarkdown } from '@maka/ui';
 import type { NavSelection } from '@maka/ui';
@@ -16,6 +17,7 @@ import type { Command } from './command-palette-types.js';
 import { renderConversationMarkdown } from './conversation-markdown.js';
 import { dailyReviewActionErrorMessage } from './daily-review-actions.js';
 import { commandPaletteActionErrorMessage, commandPaletteConnectionTestFailureMessage } from './app-shell-copy.js';
+import { getShellCopy } from './locales/shell-copy.js';
 
 type ToastApi = {
   success(title: string, description?: string): void;
@@ -39,6 +41,7 @@ type DailyReviewBridge = {
 };
 
 export interface AppShellCommandListOptions {
+  uiLocale: UiLocale;
   activeId: string | undefined;
   activePermissionMode: PermissionMode | undefined;
   connections: LlmConnection[];
@@ -63,11 +66,7 @@ export interface AppShellCommandListOptions {
   openSkillsFolder: () => Promise<void>;
   openWorkspaceFolder: () => Promise<void>;
   refreshConnections: () => Promise<void>;
-  saveDailyReviewMarkdown: (input: {
-    markdown: string;
-    label: string;
-    summary: DailyReviewSummary;
-  }) => Promise<void>;
+  saveDailyReviewMarkdown: (input: { markdown: string; label: string; summary: DailyReviewSummary }) => Promise<void>;
   setNavSelection: (selection: NavSelection) => void;
   setPermissionMode: (mode: PermissionMode) => Promise<void>;
   setThemePref: (themePref: ThemePreference) => void;
@@ -84,8 +83,10 @@ export function buildAppShellCommandList(
   // still acts on current data (same stable-ref pattern as
   // openSessionInChatRef in app-shell.tsx).
   const options = optionsRef.current;
+  const copy = getShellCopy(options.uiLocale).commandActions;
 
   return buildCommandList({
+    locale: options.uiLocale,
     activeSessionId: options.activeId,
     themePref: options.themePref,
     connections: options.connections,
@@ -113,17 +114,20 @@ export function buildAppShellCommandList(
         const name = conn?.name ?? slug;
         if (result.ok) {
           toastApi.success(
-            `连接已验证 · ${name}`,
-            `延迟 ${result.latencyMs ?? '?'} ms${result.modelTested ? ' · ' + result.modelTested : ''}`,
+            copy.connectionVerified(name),
+            copy.connectionLatency(result.latencyMs ?? '?', result.modelTested),
           );
         } else {
-          toastApi.error(`连接测试失败 · ${name}`, commandPaletteConnectionTestFailureMessage(result));
+          toastApi.error(
+            copy.connectionTestFailed(name),
+            commandPaletteConnectionTestFailureMessage(result, options.uiLocale),
+          );
         }
         await refreshConnections();
       } catch (err) {
         toastApi.error(
-          '测试出错',
-          commandPaletteActionErrorMessage(err, '连接测试暂时不可用，请稍后重试。'),
+          copy.testErrorTitle,
+          commandPaletteActionErrorMessage(err, copy.connectionUnavailable, options.uiLocale),
         );
       }
     },
@@ -133,11 +137,11 @@ export function buildAppShellCommandList(
         await window.maka.connections.setDefault(slug);
         await refreshConnections();
         const conn = connections.find((c) => c.slug === slug);
-        toastApi.success(`已设为默认 · ${conn?.name ?? slug}`);
+        toastApi.success(copy.setDefaultSuccess(conn?.name ?? slug));
       } catch (err) {
         toastApi.error(
-          '切换默认失败',
-          commandPaletteActionErrorMessage(err, '默认模型暂时无法切换，请稍后重试。'),
+          copy.setDefaultFailedTitle,
+          commandPaletteActionErrorMessage(err, copy.setDefaultFallback, options.uiLocale),
         );
       }
     },
@@ -155,22 +159,19 @@ export function buildAppShellCommandList(
       const { activeId, messages, sessions, toastApi } = optionsRef.current;
       if (!activeId) return;
       const session = sessions.find((s) => s.id === activeId);
-      const markdown = renderConversationMarkdown(session?.name ?? '新建对话', messages);
+      const markdown = renderConversationMarkdown(session?.name ?? copy.newConversation, messages);
       try {
         await navigator.clipboard.writeText(markdown);
-        toastApi.success(
-          '已复制对话为 Markdown',
-          `${markdown.split('\n').length} 行 · 可粘贴到 Notion / Obsidian / GitHub`,
-        );
+        toastApi.success(copy.conversationCopiedTitle, copy.lineCount(markdown.split('\n').length));
       } catch {
-        toastApi.error('复制失败', '剪贴板不可用');
+        toastApi.error(copy.copyFailedTitle, copy.clipboardUnavailable);
       }
     },
     onSaveActiveConversationToFile: async () => {
       const { activeId, messages, sessions, toastApi } = optionsRef.current;
       if (!activeId) return;
       const session = sessions.find((s) => s.id === activeId);
-      const sessionName = session?.name ?? '新建对话';
+      const sessionName = session?.name ?? copy.newConversation;
       const markdown = renderConversationMarkdown(sessionName, messages);
       const now = new Date();
       const yyyy = now.getFullYear();
@@ -184,23 +185,23 @@ export function buildAppShellCommandList(
         .slice(0, 80);
       const defaultName = `maka-${sanitizedSession}-${yyyy}-${mm}-${dd}.md`;
       try {
-        const result = await window.maka.sessions.saveConversationToFile({ markdown, defaultName });
+        const result = await window.maka.sessions.saveConversationToFile({
+          markdown,
+          defaultName,
+        });
         if (result.ok) {
-          toastApi.success(
-            '已保存当前对话',
-            `${markdown.split('\n').length} 行 · 保存为 ${defaultName}`,
-          );
+          toastApi.success(copy.conversationSavedTitle, copy.saveSummary(markdown.split('\n').length, defaultName));
         } else if (result.reason === 'canceled') {
           // User dismissed the dialog — no toast.
         } else if (result.reason === 'invalid_input') {
-          toastApi.error('保存失败', '导出内容无效');
+          toastApi.error(copy.saveFailedTitle, copy.invalidExport);
         } else {
-          toastApi.error('保存失败', '无法写入选择的位置');
+          toastApi.error(copy.saveFailedTitle, copy.writeFailed);
         }
       } catch (err) {
         toastApi.error(
-          '保存失败',
-          commandPaletteActionErrorMessage(err, '导出当前对话失败，请稍后重试。'),
+          copy.saveFailedTitle,
+          commandPaletteActionErrorMessage(err, copy.exportFallback, options.uiLocale),
         );
       }
     },
@@ -209,12 +210,12 @@ export function buildAppShellCommandList(
       try {
         const result = await window.maka.memory.openFile();
         if (!result.ok) {
-          toastApi.error('无法打开 MEMORY.md', result.message);
+          toastApi.error(copy.memoryOpenFailedTitle, result.message);
         }
       } catch (err) {
         toastApi.error(
-          '打开失败',
-          commandPaletteActionErrorMessage(err, '无法打开 MEMORY.md，请稍后重试。'),
+          copy.openFailedTitle,
+          commandPaletteActionErrorMessage(err, copy.memoryOpenFallback, options.uiLocale),
         );
       }
     },
@@ -228,20 +229,17 @@ export function buildAppShellCommandList(
         const state = await window.maka.workspaceInstructions.getState();
         const available = state.files.find((f) => f.status === 'available');
         if (!available) {
-          toastApi.info(
-            '等待创建项目指引',
-            '在 Settings · 记忆 创建 AGENTS.md 或 CLAUDE.md',
-          );
+          toastApi.info(copy.instructionsMissingTitle, copy.instructionsMissingDescription);
           return;
         }
         const result = await window.maka.workspaceInstructions.openFile(available.file);
         if (!result.ok) {
-          toastApi.error(`无法打开 ${available.file}`, result.message);
+          toastApi.error(copy.fileOpenFailed(available.file), result.message);
         }
       } catch (err) {
         toastApi.error(
-          '打开失败',
-          commandPaletteActionErrorMessage(err, '无法打开项目指引，请稍后重试。'),
+          copy.openFailedTitle,
+          commandPaletteActionErrorMessage(err, copy.instructionsOpenFallback, options.uiLocale),
         );
       }
     },
@@ -251,43 +249,38 @@ export function buildAppShellCommandList(
       const { dailyReviewBridge, toastApi } = optionsRef.current;
       try {
         const summary = await dailyReviewBridge.fetchDay(0, 1);
-        const markdown = formatDailyReviewMarkdown(summary, '今天');
+        const markdown = formatDailyReviewMarkdown(summary, copy.today);
         await navigator.clipboard.writeText(markdown);
         toastApi.success(
-          '已复制今日回顾为 Markdown',
-          `${summary.totals.sessionCount} 个对话 · ${summary.totals.requestCount} 个请求`,
+          copy.reviewCopiedTitle,
+          copy.reviewSummary(summary.totals.sessionCount, summary.totals.requestCount),
         );
       } catch (err) {
         toastApi.error(
-          '复制失败',
-          dailyReviewActionErrorMessage(err, '今日回顾暂时不可用，或剪贴板被系统拒绝。'),
+          copy.copyFailedTitle,
+          dailyReviewActionErrorMessage(err, copy.reviewCopyFallback, options.uiLocale),
         );
       }
     },
     onPasteTodayDailyReviewIntoComposer: async () => {
-      const {
-        captureComposerImportOwner,
-        composerRef,
-        dailyReviewBridge,
-        isComposerImportOwnerActive,
-        toastApi,
-      } = optionsRef.current;
+      const { captureComposerImportOwner, composerRef, dailyReviewBridge, isComposerImportOwnerActive, toastApi } =
+        optionsRef.current;
       const owner = captureComposerImportOwner();
       if (!owner.sessionId) return;
       try {
         const summary = await dailyReviewBridge.fetchDay(0, 1);
-        const markdown = formatDailyReviewMarkdown(summary, '今天');
+        const markdown = formatDailyReviewMarkdown(summary, copy.today);
         if (!isComposerImportOwnerActive(owner)) return;
         composerRef.current?.appendText(markdown);
         toastApi.success(
-          '已追加今日回顾到输入框',
-          `${summary.totals.sessionCount} 个对话 · ${summary.totals.requestCount} 个请求`,
+          copy.reviewPastedTitle,
+          copy.reviewSummary(summary.totals.sessionCount, summary.totals.requestCount),
         );
       } catch (err) {
         if (isComposerImportOwnerActive(owner)) {
           toastApi.error(
-            '粘贴失败',
-            dailyReviewActionErrorMessage(err, '今日回顾暂时不可用，请稍后重试。'),
+            copy.pasteFailedTitle,
+            dailyReviewActionErrorMessage(err, copy.reviewUnavailable, options.uiLocale),
           );
         }
       }
@@ -296,12 +289,12 @@ export function buildAppShellCommandList(
       const { dailyReviewBridge, saveDailyReviewMarkdown, toastApi } = optionsRef.current;
       try {
         const summary = await dailyReviewBridge.fetchDay(0, 1);
-        const markdown = formatDailyReviewMarkdown(summary, '今天');
-        await saveDailyReviewMarkdown({ markdown, label: '今天', summary });
+        const markdown = formatDailyReviewMarkdown(summary, copy.today);
+        await saveDailyReviewMarkdown({ markdown, label: copy.today, summary });
       } catch (err) {
         toastApi.error(
-          '保存失败',
-          dailyReviewActionErrorMessage(err, '今日回顾暂时不可用，请稍后重试。'),
+          copy.saveFailedTitle,
+          dailyReviewActionErrorMessage(err, copy.reviewUnavailable, options.uiLocale),
         );
       }
     },
@@ -332,14 +325,11 @@ export function buildAppShellCommandList(
           buildLine,
         ].join('\n');
         await navigator.clipboard.writeText(summary);
-        toastApi.success(
-          '已复制环境信息',
-          `Maka v${info.appVersion} · ${platformPretty} · ${info.arch}`,
-        );
+        toastApi.success(copy.environmentCopiedTitle, `Maka v${info.appVersion} · ${platformPretty} · ${info.arch}`);
       } catch (err) {
         toastApi.error(
-          '复制失败',
-          commandPaletteActionErrorMessage(err, '剪贴板不可用或被系统拒绝'),
+          copy.copyFailedTitle,
+          commandPaletteActionErrorMessage(err, copy.clipboardDenied, options.uiLocale),
         );
       }
     },
@@ -354,14 +344,14 @@ export function buildAppShellCommandList(
         const result = await window.maka.settings.testNetworkProxy(undefined);
         if (result.ok) {
           const latency = result.latencyMs ? ` · ${result.latencyMs}ms` : '';
-          toastApi.success('网络代理测试通过', `${result.message}${latency}`);
+          toastApi.success(copy.networkPassedTitle, `${result.message}${latency}`);
         } else {
-          toastApi.error('网络代理测试失败', result.message);
+          toastApi.error(copy.networkFailedTitle, result.message);
         }
       } catch (err) {
         toastApi.error(
-          '测试失败',
-          commandPaletteActionErrorMessage(err, '网络代理测试暂时不可用，请稍后重试。'),
+          copy.genericTestFailedTitle,
+          commandPaletteActionErrorMessage(err, copy.networkTestFallback, options.uiLocale),
         );
       }
     },
@@ -373,6 +363,7 @@ export function buildAppShellSessionCommands(
 ): ReturnType<typeof buildSessionCommands> {
   const options = optionsRef.current;
   return buildSessionCommands({
+    locale: options.uiLocale,
     sessions: options.visibleSessions,
     activeSessionId: options.activeId,
     onSelectSession: (sessionId) => {
@@ -392,23 +383,14 @@ export function buildAppShellSessionCommands(
  * reintroducing per-tick rebuilds (visibleSessions is itself memoized in
  * app-shell, so rows rebuild only on real catalog changes).
  */
-export function useAppShellCommands(
-  paletteOpen: boolean,
-  commandOptions: AppShellCommandListOptions,
-): Command[] {
+export function useAppShellCommands(paletteOpen: boolean, commandOptions: AppShellCommandListOptions): Command[] {
   const optionsRef = useRef(commandOptions);
   optionsRef.current = commandOptions;
-  const baseCommands = useMemo(
-    () => buildAppShellCommandList(optionsRef),
-    [paletteOpen],
-  );
-  const { activeId, visibleSessions } = commandOptions;
+  const { activeId, uiLocale, visibleSessions } = commandOptions;
+  const baseCommands = useMemo(() => buildAppShellCommandList(optionsRef), [paletteOpen, uiLocale]);
   const sessionCommands = useMemo(
     () => buildAppShellSessionCommands(optionsRef),
-    [paletteOpen, visibleSessions, activeId],
+    [paletteOpen, visibleSessions, activeId, uiLocale],
   );
-  return useMemo(
-    () => [...baseCommands, ...sessionCommands],
-    [baseCommands, sessionCommands],
-  );
+  return useMemo(() => [...baseCommands, ...sessionCommands], [baseCommands, sessionCommands]);
 }

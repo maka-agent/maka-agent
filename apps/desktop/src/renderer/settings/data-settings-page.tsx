@@ -1,6 +1,14 @@
 import { useEffect, useState } from 'react';
 import type { ConfigCategory } from '@maka/storage';
-import { Button, SettingsSelect, SettingsSwitch as Switch, clearGlobalInputHistory, useMountedRef, useToast } from '@maka/ui';
+import {
+  Button,
+  SettingsSelect,
+  SettingsSwitch as Switch,
+  clearGlobalInputHistory,
+  useMountedRef,
+  useToast,
+  useUiLocale,
+} from '@maka/ui';
 import { openPathFailureCopy, openPathActionLabel } from '../open-path';
 import { SettingsRows, SettingRow } from './settings-rows';
 import { settingsActionErrorMessage } from './settings-error-copy';
@@ -12,8 +20,16 @@ const CONFIG_CATEGORY_OPTIONS: ReadonlyArray<{
   detail: string;
   sensitive?: boolean;
 }> = [
-  { id: 'connections', label: '模型连接', detail: '供应商连接与默认模型（不含密钥）' },
-  { id: 'settings', label: '应用设置', detail: '常规、搜索、机器人、代理等设置' },
+  {
+    id: 'connections',
+    label: '模型连接',
+    detail: '供应商连接与默认模型（不含密钥）',
+  },
+  {
+    id: 'settings',
+    label: '应用设置',
+    detail: '常规、搜索、机器人、代理等设置',
+  },
   { id: 'memory', label: '本地记忆', detail: '本机 MEMORY.md 的内容' },
   {
     id: 'credentials',
@@ -23,10 +39,7 @@ const CONFIG_CATEGORY_OPTIONS: ReadonlyArray<{
   },
 ];
 
-type ConfigImportResult = Extract<
-  Awaited<ReturnType<typeof window.maka.config.import>>,
-  { ok: true }
->['result'];
+type ConfigImportResult = Extract<Awaited<ReturnType<typeof window.maka.config.import>>, { ok: true }>['result'];
 
 function summarizeImportResult(result: ConfigImportResult): string {
   const parts: string[] = [];
@@ -42,6 +55,7 @@ function summarizeImportResult(result: ConfigImportResult): string {
 }
 
 export function DataSettingsPage() {
+  const locale = useUiLocale();
   const [info, setInfo] = useState<Awaited<ReturnType<typeof window.maka.app.info>> | null>(null);
   const [infoError, setInfoError] = useState<string | null>(null);
   const [pendingDataAction, setPendingDataAction] = useState<string | null>(null);
@@ -96,11 +110,14 @@ export function DataSettingsPage() {
         const result = await window.maka.app.openPath('workspace');
         if (!dataPageMountedRef.current) return;
         if (!result.ok) {
-          toast.error(`无法打开${openPathActionLabel('workspace')}`, openPathFailureCopy(result.reason));
+          toast.error(
+            `无法打开${openPathActionLabel('workspace', locale)}`,
+            openPathFailureCopy(result.reason, locale),
+          );
         }
       } catch (error) {
         if (dataPageMountedRef.current) {
-          toast.error(`无法打开${openPathActionLabel('workspace')}`, settingsActionErrorMessage(error));
+          toast.error(`无法打开${openPathActionLabel('workspace', locale)}`, settingsActionErrorMessage(error));
         }
       }
     });
@@ -273,10 +290,12 @@ export function DataSettingsPage() {
           <SettingsSelect
             value={importStrategy}
             ariaLabel="导入时同名连接的处理方式"
-            options={[
+            options={
+              [
               ['skip', '跳过'],
               ['overwrite', '覆盖'],
-            ] satisfies Array<readonly [typeof importStrategy, string]>}
+              ] satisfies Array<readonly [typeof importStrategy, string]>
+            }
             onChange={(strategy) => setImportStrategy(strategy)}
           />
         </div>

@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { generalizedErrorMessageChinese } from '@maka/core';
+import type { UiLocale } from '@maka/core';
+import { getShellCopy, localizedShellErrorMessage } from './locales/shell-copy.js';
 
 type ToastApi = {
   error(title: string, description?: string): void;
@@ -16,17 +17,21 @@ type ToastApi = {
  * `useAppShellBootstrapSubscriptions`; the Settings-close recompute is driven
  * by `closeSettings`. Both call the returned `refreshMemoryActive`.
  */
-export function useShellMemoryPill({ toastApi }: { toastApi: ToastApi }): {
+export function useShellMemoryPill({ toastApi, uiLocale }: { toastApi: ToastApi; uiLocale: UiLocale }): {
   memoryActive: boolean;
-  refreshMemoryActive: (failureTitle?: string) => Promise<void>;
+  refreshMemoryActive: (failureContext?: 'load') => Promise<void>;
 } {
   const [memoryActive, setMemoryActive] = useState(false);
-  async function refreshMemoryActive(failureTitle = '刷新本地记忆状态失败') {
+  const copy = getShellCopy(uiLocale).app;
+  async function refreshMemoryActive(failureContext?: 'load') {
     try {
       const next = await window.maka.memory.getState();
       setMemoryActive(next.agentReadEnabled && next.status === 'ok' && next.content.trim().length > 0);
     } catch (error) {
-      toastApi.error(failureTitle, generalizedErrorMessageChinese(error, '本地记忆状态暂时无法刷新，请稍后重试。'));
+      toastApi.error(
+        failureContext === 'load' ? copy.memoryLoadErrorTitle : copy.memoryRefreshErrorTitle,
+        localizedShellErrorMessage(error, copy.memoryErrorFallback, uiLocale),
+      );
     }
   }
   return { memoryActive, refreshMemoryActive };

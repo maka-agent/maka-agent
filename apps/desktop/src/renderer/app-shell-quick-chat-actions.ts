@@ -1,4 +1,4 @@
-import type { QuickChatMode } from '@maka/core';
+import type { QuickChatMode, UiLocale } from '@maka/core';
 import { generalizedErrorMessageChinese } from '@maka/core';
 import { saveGlobalInputHistoryEntry } from '@maka/ui';
 import type { NavSelection } from '@maka/ui';
@@ -26,6 +26,7 @@ export interface AppShellQuickChatActions {
 }
 
 export function createAppShellQuickChatActions(deps: {
+  uiLocale: UiLocale;
   activeIdRef: RefBox<string | undefined>;
   captureComposerImportOwner: () => ComposerImportOwner;
   composerRef: RefBox<ComposerFocusHandle | null>;
@@ -38,6 +39,7 @@ export function createAppShellQuickChatActions(deps: {
   toastApi: ToastApi;
 }): AppShellQuickChatActions {
   const {
+    uiLocale,
     activeIdRef,
     captureComposerImportOwner,
     composerRef,
@@ -77,7 +79,7 @@ export function createAppShellQuickChatActions(deps: {
         return false;
       } else if (result.reason === 'workspace_unavailable') {
         if (isShellSurfaceOwnerActive(owner)) {
-          showSessionWorkspaceUnavailableToast(toastApi);
+          showSessionWorkspaceUnavailableToast(toastApi, uiLocale);
         }
         return false;
       } else {
@@ -104,7 +106,10 @@ export function createAppShellQuickChatActions(deps: {
     quickChatPendingRef.current = true;
     setQuickChatPending(true);
     try {
-      const result = await window.maka.expertTeam.start({ teamId, prompt: prompt ?? '' });
+      const result = await window.maka.expertTeam.start({
+        teamId,
+        prompt: prompt ?? '',
+      });
       if (result.ok) {
         if (prompt && prompt.trim()) saveGlobalInputHistoryEntry(prompt);
         if (isShellSurfaceOwnerActive(owner)) {
@@ -121,16 +126,13 @@ export function createAppShellQuickChatActions(deps: {
         return false;
       } else if (result.reason === 'workspace_unavailable') {
         if (isShellSurfaceOwnerActive(owner)) {
-          showSessionWorkspaceUnavailableToast(toastApi);
+          showSessionWorkspaceUnavailableToast(toastApi, uiLocale);
         }
         return false;
       } else {
         await refreshSessions();
         if (isShellSurfaceOwnerActive(owner)) {
-          toastApi.error(
-            '开始专家团失败',
-            result.reason === 'unknown_team' ? '找不到该专家团。' : result.message,
-          );
+          toastApi.error('开始专家团失败', result.reason === 'unknown_team' ? '找不到该专家团。' : result.message);
         }
         return false;
       }

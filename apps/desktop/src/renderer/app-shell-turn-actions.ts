@@ -1,4 +1,4 @@
-import type { SessionSummary, StoredMessage } from '@maka/core';
+import type { SessionSummary, StoredMessage, UiLocale } from '@maka/core';
 import { generalizedErrorMessageChinese } from '@maka/core';
 import type { TurnFooterActionMeta } from '@maka/ui';
 import {
@@ -20,6 +20,7 @@ export interface AppShellTurnActions {
 }
 
 export function createAppShellTurnActions(deps: {
+  uiLocale: UiLocale;
   activeIdRef: RefBox<string | undefined>;
   addPendingTurnAction: (key: string) => boolean;
   clearPendingTurnAction: (key: string) => void;
@@ -32,6 +33,7 @@ export function createAppShellTurnActions(deps: {
   upsertSessionSummary: (session: SessionSummary) => void;
 }): AppShellTurnActions {
   const {
+    uiLocale,
     activeIdRef,
     addPendingTurnAction,
     clearPendingTurnAction,
@@ -44,10 +46,7 @@ export function createAppShellTurnActions(deps: {
     upsertSessionSummary,
   } = deps;
 
-  async function handleTurnFooterAction(
-    turnId: string,
-    actionId: TurnFooterActionMeta['id'],
-  ): Promise<void> {
+  async function handleTurnFooterAction(turnId: string, actionId: TurnFooterActionMeta['id']): Promise<void> {
     if (actionId === 'copy') return; // handled in-component
     const sessionId = activeIdRef.current;
     if (!sessionId) return;
@@ -58,7 +57,9 @@ export function createAppShellTurnActions(deps: {
     if (!addPendingTurnAction(key)) return;
     try {
       if (actionId === 'regenerate') {
-        await window.maka.sessions.regenerateTurn(sessionId, { sourceTurnId: turnId });
+        await window.maka.sessions.regenerateTurn(sessionId, {
+          sourceTurnId: turnId,
+        });
         if (activeIdRef.current === sessionId) toastApi.info('已发起重新生成', '正在生成新的一轮回答');
       } else if (actionId === 'branch') {
         const newSession = await window.maka.sessions.branchFromTurn(sessionId, { sourceTurnId: turnId });
@@ -74,7 +75,7 @@ export function createAppShellTurnActions(deps: {
     } catch (error) {
       if (activeIdRef.current !== sessionId) return;
       if (isSessionWorkspaceUnavailableError(error)) {
-        showSessionWorkspaceUnavailableToast(toastApi);
+        showSessionWorkspaceUnavailableToast(toastApi, uiLocale);
       } else {
         toastApi.error('操作失败', generalizedErrorMessageChinese(error, '对话操作失败，请稍后重试。'));
       }

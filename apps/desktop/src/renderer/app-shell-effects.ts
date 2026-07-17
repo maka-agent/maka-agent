@@ -8,12 +8,9 @@ import type {
   StoredMessage,
   ThemePalette,
   ThemePreference,
+  UiLocale,
 } from '@maka/core';
-import {
-  ShellRunUpdateBuffer,
-  generalizedErrorMessageChinese,
-  type ShellRunUpdate,
-} from '@maka/core';
+import { ShellRunUpdateBuffer, generalizedErrorMessageChinese, type ShellRunUpdate } from '@maka/core';
 import type { LiveTurnProjection, NavSelection } from '@maka/ui';
 import { messageReadErrorMessage } from './app-shell-copy';
 import { applyTheme, applyThemePalette } from './theme';
@@ -51,10 +48,7 @@ type ToastApi = {
   }): void;
 };
 
-export function useAppShellNavRefSync(options: {
-  navSelection: NavSelection;
-  navSelectionRef: RefBox<NavSelection>;
-}) {
+export function useAppShellNavRefSync(options: { navSelection: NavSelection; navSelectionRef: RefBox<NavSelection> }) {
   useEffect(() => {
     options.navSelectionRef.current = options.navSelection;
   }, [options.navSelection]);
@@ -72,10 +66,13 @@ export function useAppShellHostEffects(options: {
   // keep their opaque chrome since vibrancy is a no-op there.
   useEffect(() => {
     let cancelled = false;
-    void window.maka.app.info().then((info) => {
+    void window.maka.app
+      .info()
+      .then((info) => {
       if (cancelled) return;
       document.documentElement.setAttribute('data-os', info.platform);
-    }).catch(() => {
+      })
+      .catch(() => {
       /* swallow — leaves data-os unset, CSS falls back to opaque chrome */
     });
     return () => {
@@ -189,7 +186,7 @@ export function useAppShellBootstrapSubscriptions(options: {
   projectPickerRequestRef: RefBox<number>;
   refreshAppInfo: () => Promise<void>;
   refreshConnections: () => Promise<void>;
-  refreshMemoryActive: (failureTitle?: string) => Promise<void>;
+  refreshMemoryActive: (failureContext?: 'load') => Promise<void>;
   refreshMessages: (sessionId: string) => Promise<boolean>;
   refreshPlanReminders: (options?: { shouldShowError?: () => boolean }) => Promise<void>;
   refreshShellSettings: () => Promise<void>;
@@ -206,7 +203,7 @@ export function useAppShellBootstrapSubscriptions(options: {
 }) {
   const runDeferredStartupRefreshes = useEffectEvent(() => {
     void options.refreshAppInfo();
-    void options.refreshMemoryActive('载入本地记忆状态失败');
+    void options.refreshMemoryActive('load');
     void options.refreshSkills();
     void options.refreshManagedSkillSources();
     void options.refreshBundledSkillCatalog();
@@ -216,7 +213,8 @@ export function useAppShellBootstrapSubscriptions(options: {
   const handleConnectionSubscriptionEvent = useEffectEvent((event: ConnectionEvent) => {
     options.handleConnectionEvent(event);
   });
-  const handleSessionChange = useEffectEvent((event: { reason: string; sessionId?: string; ts: number; modelId?: string }) => {
+  const handleSessionChange = useEffectEvent(
+    (event: { reason: string; sessionId?: string; ts: number; modelId?: string }) => {
     void options.refreshSessions();
     if (event.sessionId) {
       options.setSessionEventHealthBySession((current) => {
@@ -248,7 +246,8 @@ export function useAppShellBootstrapSubscriptions(options: {
       options.setMessages([]);
       options.clearSessionRendererState(deletedSessionId);
     }
-  });
+    },
+  );
   const handleOpenSettings = useEffectEvent(() => {
     options.openSettings();
   });
@@ -275,7 +274,12 @@ export function useAppShellBootstrapSubscriptions(options: {
     }
     // ⌘/Ctrl+N — new task, mirroring the sidebar 新任务 row (whose kbd hint
     // advertises this). Plain N only: shift/alt combos stay free.
-    if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && (event.key === 'n' || event.key === 'N')) {
+    if (
+      (event.metaKey || event.ctrlKey) &&
+      !event.shiftKey &&
+      !event.altKey &&
+      (event.key === 'n' || event.key === 'N')
+    ) {
       event.preventDefault();
       void options.createSession();
     }
@@ -330,24 +334,19 @@ export function useAppShellBootstrapSubscriptions(options: {
 }
 
 export function useActiveSessionEvents(options: {
+  uiLocale: UiLocale;
   activeId: string | undefined;
   activeIdRef: RefBox<string | undefined>;
   handleEvent: (sessionId: string, event: SessionEvent) => void;
   markSessionReadLocally: (sessionId: string, readMessages: readonly StoredMessage[]) => void;
-  setMessageLoadErrorBySession: (
-    updater: (current: Record<string, string>) => Record<string, string>,
-  ) => void;
+  setMessageLoadErrorBySession: (updater: (current: Record<string, string>) => Record<string, string>) => void;
   setMessageLoadPending: (pending: boolean) => void;
   setMessages: (messages: StoredMessage[]) => void;
   setSessionEventHealthBySession: SessionEventHealthUpdater;
   toastApi: Pick<ToastApi, 'error'>;
 }) {
   const activeId = options.activeId;
-  const applyReadMessages = useEffectEvent((
-    sessionId: string,
-    next: StoredMessage[],
-    isDisposed: () => boolean,
-  ) => {
+  const applyReadMessages = useEffectEvent((sessionId: string, next: StoredMessage[], isDisposed: () => boolean) => {
     if (!isDisposed() && options.activeIdRef.current === sessionId) {
       options.markSessionReadLocally(sessionId, next);
       // Ignore an empty read: it can race a just-sent message's save and wipe
@@ -360,8 +359,11 @@ export function useActiveSessionEvents(options: {
   });
   const applyReadError = useEffectEvent((sessionId: string, error: unknown, isDisposed: () => boolean) => {
     if (!isDisposed() && options.activeIdRef.current === sessionId) {
-      const message = messageReadErrorMessage(error);
-      options.setMessageLoadErrorBySession((current) => ({ ...current, [sessionId]: message }));
+      const message = messageReadErrorMessage(error, options.uiLocale);
+      options.setMessageLoadErrorBySession((current) => ({
+        ...current,
+        [sessionId]: message,
+      }));
       options.setMessageLoadPending(false);
       options.toastApi.error('读取对话失败', message);
     }
@@ -370,7 +372,10 @@ export function useActiveSessionEvents(options: {
     options.setSessionEventHealthBySession((current) => {
       const previous = current[sessionId];
       if (!previous) return current;
-      return { ...current, [sessionId]: recordSessionEventStreamEvent(previous, Date.now()) };
+      return {
+        ...current,
+        [sessionId]: recordSessionEventStreamEvent(previous, Date.now()),
+      };
     });
     options.handleEvent(sessionId, event);
   });
@@ -402,9 +407,13 @@ export function useActiveSessionEvents(options: {
     });
     options.setSessionEventHealthBySession((current) => ({
       ...current,
-      [activeId]: createSessionEventStreamSubscription({ sessionId: activeId, now: subscribedAt }),
+      [activeId]: createSessionEventStreamSubscription({
+        sessionId: activeId,
+        now: subscribedAt,
+      }),
     }));
-    void window.maka.sessions.readMessages(activeId)
+    void window.maka.sessions
+      .readMessages(activeId)
       .then((next) => {
         applyReadMessages(activeId, next, () => disposed);
       })
@@ -424,14 +433,10 @@ export function useActiveSessionEvents(options: {
 
 export function useShellRunUpdates(options: {
   activeId: string | undefined;
-  setShellRunUpdatesBySession: (
-    updater: (current: ShellRunUpdatesBySession) => ShellRunUpdatesBySession,
-  ) => void;
+  setShellRunUpdatesBySession: (updater: (current: ShellRunUpdatesBySession) => ShellRunUpdatesBySession) => void;
 }) {
-  const applyUpdates = useEffectEvent((
-    sessionId: string,
-    updates: Awaited<ReturnType<typeof window.maka.shellRuns.list>>,
-  ) => {
+  const applyUpdates = useEffectEvent(
+    (sessionId: string, updates: Awaited<ReturnType<typeof window.maka.shellRuns.list>>) => {
     options.setShellRunUpdatesBySession((current) => {
       const active = current[sessionId];
       const retained = active ? { [sessionId]: active } : {};
@@ -440,7 +445,8 @@ export function useShellRunUpdates(options: {
         updates.filter((update) => update.sessionId === sessionId),
       );
     });
-  });
+    },
+  );
 
   useEffect(() => {
     const sessionId = options.activeId;
@@ -462,27 +468,26 @@ export function useShellRunUpdates(options: {
         pending.add(update);
         return;
       }
-      options.setShellRunUpdatesBySession((current) => (
-        mergeShellRunNotification(current, sessionId, update)
-      ));
+      options.setShellRunUpdatesBySession((current) => mergeShellRunNotification(current, sessionId, update));
     });
     const hydrate = () => {
-      void window.maka.shellRuns.list(sessionId).then((updates) => {
+      void window.maka.shellRuns
+        .list(sessionId)
+        .then((updates) => {
         if (disposed) return;
         applyUpdates(sessionId, updates);
         retryDelayMs = 250;
         const buffered = pending.drain();
         for (const update of buffered.updates) {
-          options.setShellRunUpdatesBySession((current) => (
-            mergeShellRunNotification(current, sessionId, update)
-          ));
+            options.setShellRunUpdatesBySession((current) => mergeShellRunNotification(current, sessionId, update));
         }
         if (buffered.overflowed) {
           hydrate();
           return;
         }
         hydrated = true;
-      }).catch(() => {
+        })
+        .catch(() => {
         if (disposed) return;
         retryTimer = globalThis.setTimeout(() => {
           retryTimer = undefined;

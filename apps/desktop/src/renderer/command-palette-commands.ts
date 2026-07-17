@@ -25,8 +25,16 @@ import {
   Wifi,
   type LucideIcon,
 } from '@maka/ui/icons';
-import type { LlmConnection, PermissionMode, SessionSummary, SettingsSection, ThemePreference } from '@maka/core';
+import type {
+  LlmConnection,
+  PermissionMode,
+  SessionSummary,
+  SettingsSection,
+  ThemePreference,
+  UiLocale,
+} from '@maka/core';
 import type { NavSelection } from '@maka/ui';
+import { getShellCopy } from './locales/shell-copy.js';
 import { SETTINGS_NAV } from './settings/settings-nav.js';
 import type { Command } from './command-palette-types.js';
 
@@ -37,6 +45,7 @@ import type { Command } from './command-palette-types.js';
  * the palette itself pure presentation.
  */
 export function buildCommandList(args: {
+  locale: UiLocale;
   activeSessionId: string | undefined;
   themePref: ThemePreference;
   connections: LlmConnection[];
@@ -130,89 +139,82 @@ export function buildCommandList(args: {
   onSelectModule?(selection: NavSelection): void;
   onStartPlanReminder?(): void;
 }): Command[] {
+  const copy = getShellCopy(args.locale).commandPalette;
+  const staticCopy = (id: keyof typeof copy.commands) => copy.commands[id];
   const cmds: Command[] = [
     {
       id: 'action:new-chat',
       kind: 'action',
-      label: '新建对话',
-      hint: '开始新的会话',
-      group: '操作',
+      ...staticCopy('action:new-chat'),
       Icon: Plus,
-      keywords: ['new', 'chat', 'start', '新', '建', '对话'],
+      keywords: [...copy.staticKeywords['action:new-chat']],
       run: args.onNewChat,
     },
     ...(args.onStartDeepResearch
-      ? [{
+      ? [
+          {
           id: 'action:new-deep-research',
           kind: 'action' as const,
-          label: '新建深度研究',
-          hint: '只读探索',
-          group: '操作',
+            ...staticCopy('action:new-deep-research'),
           Icon: Sparkles,
-          keywords: ['deep', 'research', 'explore', 'readonly', '研究', '深度', '探索', '只读'],
+            keywords: [...copy.staticKeywords['action:new-deep-research']],
           run: () => args.onStartDeepResearch!(),
-        }]
+          },
+        ]
       : []),
     ...(args.onStartPlanReminder
-      ? [{
+      ? [
+          {
           id: 'action:new-plan-reminder',
           kind: 'action' as const,
-          label: '新建计划提醒',
-          hint: '打开计划表单',
-          group: '操作',
+            ...staticCopy('action:new-plan-reminder'),
           Icon: Clock,
-          keywords: ['plan', 'reminder', 'schedule', 'new', 'create', '计划', '提醒', '新建', '创建'],
+            keywords: [...copy.staticKeywords['action:new-plan-reminder']],
           run: args.onStartPlanReminder,
-        }]
+          },
+        ]
       : []),
     {
       id: 'action:open-settings',
       kind: 'action',
-      label: '打开设置',
-      hint: '⌘,',
-      group: '操作',
+      ...staticCopy('action:open-settings'),
       Icon: SettingsIcon,
-      keywords: ['settings', 'preferences', '设置', 'options'],
+      keywords: [...copy.staticKeywords['action:open-settings']],
       run: args.onOpenSettings,
     },
     {
       id: 'action:keyboard-help',
       kind: 'action',
-      label: '查看键盘快捷键',
-      hint: '?',
-      group: '操作',
+      ...staticCopy('action:keyboard-help'),
       Icon: Keyboard,
-      keywords: ['shortcuts', 'keyboard', 'help', '快捷键', '帮助'],
+      keywords: [...copy.staticKeywords['action:keyboard-help']],
       run: args.onOpenShortcuts,
     },
     {
       id: 'theme:light',
       kind: 'action',
-      label: '主题 · 浅色',
-      hint: args.themePref === 'light' ? '当前' : undefined,
-      group: '主题',
+      ...staticCopy('theme:light'),
+      hint: args.themePref === 'light' ? copy.current : undefined,
       Icon: Sun,
-      keywords: ['light', 'theme', '浅色', '主题'],
+      keywords: [...copy.staticKeywords['theme:light']],
       run: () => args.onSetTheme('light'),
     },
     {
       id: 'theme:dark',
       kind: 'action',
-      label: '主题 · 深色',
-      hint: args.themePref === 'dark' ? '当前' : undefined,
-      group: '主题',
+      ...staticCopy('theme:dark'),
+      hint: args.themePref === 'dark' ? copy.current : undefined,
       Icon: Moon,
-      keywords: ['dark', 'theme', '深色', 'night', '主题'],
+      keywords: [...copy.staticKeywords['theme:dark']],
       run: () => args.onSetTheme('dark'),
     },
     {
       id: 'theme:auto',
       kind: 'action',
-      label: '主题 · 跟随系统',
-      hint: args.themePref === 'auto' ? '当前' : undefined,
-      group: '主题',
+      ...staticCopy('theme:auto'),
+      hint: args.themePref === 'auto' ? copy.current : undefined,
       Icon: SunMoon,
-      keywords: ['auto', 'system', 'theme', '跟随', '系统', '主题'],
+      keywords: [...copy.staticKeywords['theme:auto']],
       run: () => args.onSetTheme('auto'),
     },
   ];
@@ -225,37 +227,33 @@ export function buildCommandList(args: {
     cmds.push({
       id: 'nav:sessions',
       kind: 'action',
-      label: '侧栏 · 会话',
-      group: '导航',
+      ...staticCopy('nav:sessions'),
       Icon: MessageSquare,
-      keywords: ['sessions', 'chats', '会话', '对话', 'left'],
+      keywords: [...copy.staticKeywords['nav:sessions']],
       run: () => select({ section: 'sessions', filter: 'chats' }),
     });
     cmds.push({
       id: 'nav:automations',
       kind: 'action',
-      label: '侧栏 · 定时任务',
-      group: '导航',
+      ...staticCopy('nav:automations'),
       Icon: Clock,
-      keywords: ['automations', 'plan', 'reminder', 'schedule', 'cron', '定时任务', '计划', '提醒'],
+      keywords: [...copy.staticKeywords['nav:automations']],
       run: () => select({ section: 'automations' }),
     });
     cmds.push({
       id: 'nav:skills',
       kind: 'action',
-      label: '打开 · 技能',
-      group: '导航',
+      ...staticCopy('nav:skills'),
       Icon: Blocks,
-      keywords: ['skills', '技能'],
+      keywords: [...copy.staticKeywords['nav:skills']],
       run: () => select({ section: 'skills' }),
     });
     cmds.push({
       id: 'nav:daily-review',
       kind: 'action',
-      label: '打开 · 每日回顾',
-      group: '导航',
+      ...staticCopy('nav:daily-review'),
       Icon: CalendarDays,
-      keywords: ['daily', 'review', 'today', '每日', '回顾', '今天'],
+      keywords: [...copy.staticKeywords['nav:daily-review']],
       run: () => select({ section: 'daily-review' }),
     });
   }
@@ -266,10 +264,10 @@ export function buildCommandList(args: {
     cmds.push({
       id: `settings:${navItem.id}`,
       kind: 'action',
-      label: `设置 · ${navItem.label}`,
-      group: '设置',
+      label: copy.settingsCommand(copy.settingsSections[navItem.id]),
+      group: copy.groups.settings,
       Icon: navItem.Icon as LucideIcon,
-      keywords: [navItem.id, navItem.label, 'settings', '设置'],
+      keywords: copy.settingsKeywords(navItem.id, copy.settingsSections[navItem.id]),
       run: () => args.onOpenSettingsSection(navItem.id),
     });
   }
@@ -282,11 +280,9 @@ export function buildCommandList(args: {
     cmds.push({
       id: 'diag:open-workspace',
       kind: 'action',
-      label: '打开工作区文件夹',
-      hint: 'Finder',
-      group: '诊断',
+      ...staticCopy('diag:open-workspace'),
       Icon: FolderOpen,
-      keywords: ['workspace', 'folder', 'open', 'finder', '工作区', '文件夹', '目录'],
+      keywords: [...copy.staticKeywords['diag:open-workspace']],
       run: () => args.onOpenWorkspace!(),
     });
   }
@@ -294,11 +290,9 @@ export function buildCommandList(args: {
     cmds.push({
       id: 'diag:open-project-folder',
       kind: 'action',
-      label: '打开项目目录',
-      hint: 'Finder',
-      group: '诊断',
+      ...staticCopy('diag:open-project-folder'),
       Icon: FolderOpen,
-      keywords: ['project', 'folder', 'open', 'finder', '项目', '目录', '文件夹'],
+      keywords: [...copy.staticKeywords['diag:open-project-folder']],
       run: () => args.onOpenProjectFolder!(),
     });
   }
@@ -306,11 +300,9 @@ export function buildCommandList(args: {
     cmds.push({
       id: 'diag:open-skills',
       kind: 'action',
-      label: '打开 Skills 文件夹',
-      hint: 'Finder',
-      group: '诊断',
+      ...staticCopy('diag:open-skills'),
       Icon: FolderOpen,
-      keywords: ['skills', 'folder', 'open', 'finder', '技能', '文件夹'],
+      keywords: [...copy.staticKeywords['diag:open-skills']],
       run: () => args.onOpenSkillsFolder!(),
     });
   }
@@ -318,11 +310,9 @@ export function buildCommandList(args: {
     cmds.push({
       id: 'diag:export-conversation',
       kind: 'action',
-      label: '导出当前对话为 Markdown',
-      hint: '复制到剪贴板',
-      group: '诊断',
+      ...staticCopy('diag:export-conversation'),
       Icon: Download,
-      keywords: ['export', 'markdown', 'copy', 'conversation', '导出', '对话', '剪贴板', 'md'],
+      keywords: [...copy.staticKeywords['diag:export-conversation']],
       run: () => args.onExportActiveConversation!(),
     });
   }
@@ -330,11 +320,9 @@ export function buildCommandList(args: {
     cmds.push({
       id: 'diag:save-conversation-file',
       kind: 'action',
-      label: '保存当前对话为 .md 文件',
-      hint: '用系统保存对话框',
-      group: '诊断',
+      ...staticCopy('diag:save-conversation-file'),
       Icon: Download,
-      keywords: ['save', 'file', 'markdown', 'conversation', 'export', '保存', '文件', '对话', '导出', 'md'],
+      keywords: [...copy.staticKeywords['diag:save-conversation-file']],
       run: () => args.onSaveActiveConversationToFile!(),
     });
   }
@@ -342,11 +330,9 @@ export function buildCommandList(args: {
     cmds.push({
       id: 'diag:copy-today-daily-review',
       kind: 'action',
-      label: '复制今日回顾为 Markdown',
-      hint: '复制到剪贴板',
-      group: '诊断',
+      ...staticCopy('diag:copy-today-daily-review'),
       Icon: CalendarDays,
-      keywords: ['daily', 'review', 'today', 'copy', 'markdown', '今日', '回顾', '复制', '剪贴板'],
+      keywords: [...copy.staticKeywords['diag:copy-today-daily-review']],
       run: () => args.onCopyTodayDailyReview!(),
     });
   }
@@ -354,11 +340,9 @@ export function buildCommandList(args: {
     cmds.push({
       id: 'diag:paste-today-daily-review',
       kind: 'action',
-      label: '把今日回顾粘到 composer',
-      hint: '不进剪贴板',
-      group: '诊断',
+      ...staticCopy('diag:paste-today-daily-review'),
       Icon: CalendarDays,
-      keywords: ['daily', 'review', 'paste', 'composer', '今日', '回顾', '粘贴', '输入框'],
+      keywords: [...copy.staticKeywords['diag:paste-today-daily-review']],
       run: () => args.onPasteTodayDailyReviewIntoComposer!(),
     });
   }
@@ -366,11 +350,9 @@ export function buildCommandList(args: {
     cmds.push({
       id: 'diag:save-today-daily-review',
       kind: 'action',
-      label: '保存今日回顾为 .md 文件',
-      hint: '用系统保存对话框',
-      group: '诊断',
+      ...staticCopy('diag:save-today-daily-review'),
       Icon: CalendarDays,
-      keywords: ['daily', 'review', 'save', 'file', 'export', 'markdown', '今日', '回顾', '保存', '文件', '导出'],
+      keywords: [...copy.staticKeywords['diag:save-today-daily-review']],
       run: () => args.onSaveTodayDailyReviewToFile!(),
     });
   }
@@ -378,11 +360,9 @@ export function buildCommandList(args: {
     cmds.push({
       id: 'diag:copy-env-summary',
       kind: 'action',
-      label: '复制环境信息',
-      hint: 'Markdown · bug report 友好',
-      group: '诊断',
+      ...staticCopy('diag:copy-env-summary'),
       Icon: Database,
-      keywords: ['env', 'environment', 'version', 'about', 'bug', 'report', '环境', '版本', '关于', '诊断', '汇报'],
+      keywords: [...copy.staticKeywords['diag:copy-env-summary']],
       run: () => args.onCopyEnvSummary!(),
     });
   }
@@ -390,11 +370,9 @@ export function buildCommandList(args: {
     cmds.push({
       id: 'diag:test-network-proxy',
       kind: 'action',
-      label: '测试当前网络代理',
-      hint: '诊断 · 不打开设置',
-      group: '诊断',
+      ...staticCopy('diag:test-network-proxy'),
       Icon: Wifi,
-      keywords: ['network', 'proxy', 'test', 'ping', '网络', '代理', '测试', '连接', '诊断'],
+      keywords: [...copy.staticKeywords['diag:test-network-proxy']],
       run: () => args.onTestNetworkProxy!(),
     });
   }
@@ -402,11 +380,9 @@ export function buildCommandList(args: {
     cmds.push({
       id: 'diag:open-local-memory',
       kind: 'action',
-      label: '打开本地 MEMORY.md',
-      hint: '系统编辑器',
-      group: '诊断',
+      ...staticCopy('diag:open-local-memory'),
       Icon: FolderOpen,
-      keywords: ['memory', 'md', 'open', '记忆', '本地', '编辑', 'edit'],
+      keywords: [...copy.staticKeywords['diag:open-local-memory']],
       run: () => args.onOpenLocalMemoryFile!(),
     });
   }
@@ -414,33 +390,27 @@ export function buildCommandList(args: {
     cmds.push({
       id: 'diag:open-workspace-instructions',
       kind: 'action',
-      label: '打开项目指引文件',
-      hint: 'AGENTS.md / CLAUDE.md',
-      group: '诊断',
+      ...staticCopy('diag:open-workspace-instructions'),
       Icon: FolderOpen,
-      keywords: ['workspace', 'instructions', 'agents', 'claude', 'md', 'open', '项目', '指引', '本地'],
+      keywords: [...copy.staticKeywords['diag:open-workspace-instructions']],
       run: () => args.onOpenWorkspaceInstructionsFile!(),
     });
   }
   if (args.onSetPermissionMode && args.activeSessionId) {
     const setMode = args.onSetPermissionMode;
     const current = args.activePermissionMode;
-    const modes: Array<{ id: PermissionMode; label: string; hintCopy: string }> = [
-      { id: 'explore', label: '权限 · 只读', hintCopy: '读取和搜索直通，写入仍确认' },
-      { id: 'ask', label: '权限 · 询问权限', hintCopy: '每条敏感工具都先确认（默认）' },
-      { id: 'execute', label: '权限 · 自动执行', hintCopy: '常见工具直通，破坏性操作仍确认' },
-      { id: 'bypass', label: '权限 · 跳过确认', hintCopy: '全部工具直通，不再弹权限确认' },
-    ];
-    for (const entry of modes) {
+    const modes: PermissionMode[] = ['explore', 'ask', 'execute', 'bypass'];
+    for (const mode of modes) {
+      const localized = copy.permissionModes[mode];
       cmds.push({
-        id: `perm:set-${entry.id}`,
+        id: `perm:set-${mode}`,
         kind: 'action',
-        label: entry.label,
-        hint: current === entry.id ? '当前' : entry.hintCopy,
-        group: '权限',
+        label: localized.label,
+        hint: current === mode ? copy.current : localized.hint,
+        group: copy.groups.permissions,
         Icon: ShieldCheck,
-        keywords: [entry.id, 'permission', 'mode', '权限', '模式'],
-        run: () => setMode(entry.id),
+        keywords: copy.permissionKeywords(mode),
+        run: () => setMode(mode),
       });
     }
   }
@@ -450,11 +420,11 @@ export function buildCommandList(args: {
       cmds.push({
         id: 'diag:test-default',
         kind: 'action',
-        label: `测试默认连接 · ${defaultConnection.name}`,
+        label: copy.testDefaultConnection(defaultConnection.name),
         hint: defaultConnection.providerType,
-        group: '诊断',
+        group: copy.commands['diag:test-network-proxy'].group,
         Icon: Plug,
-        keywords: ['test', 'connection', 'verify', '测试', '连接', '验证', 'default', '默认'],
+        keywords: copy.connectionKeywords('test', defaultConnection.name, defaultConnection.providerType),
         run: () => args.onTestConnection!(defaultConnection.slug),
       });
     }
@@ -471,11 +441,11 @@ export function buildCommandList(args: {
         cmds.push({
           id: `connection:set-default:${connection.slug}`,
           kind: 'action',
-          label: `设为默认 · ${connection.name}`,
+          label: copy.setDefaultConnection(connection.name),
           hint: connection.providerType,
-          group: '连接',
+          group: copy.groups.connections,
           Icon: Wifi,
-          keywords: ['default', 'connection', '默认', '连接', connection.name, connection.providerType],
+          keywords: copy.connectionKeywords('default', connection.name, connection.providerType),
           run: () => args.onSetDefaultConnection!(connection.slug),
         });
       }
@@ -483,11 +453,11 @@ export function buildCommandList(args: {
         cmds.push({
           id: `connection:test:${connection.slug}`,
           kind: 'action',
-          label: `测试连接 · ${connection.name}`,
+          label: copy.testConnection(connection.name),
           hint: connection.providerType,
-          group: '连接',
+          group: copy.groups.connections,
           Icon: Plug,
-          keywords: ['test', 'connection', '测试', '连接', connection.name, connection.providerType],
+          keywords: copy.connectionKeywords('test', connection.name, connection.providerType),
           run: () => args.onTestConnection!(connection.slug),
         });
       }
@@ -505,10 +475,12 @@ export function buildCommandList(args: {
  * without reintroducing per-render list rebuilds.
  */
 export function buildSessionCommands(args: {
+  locale: UiLocale;
   sessions: SessionSummary[];
   activeSessionId: string | undefined;
   onSelectSession(id: string): void;
 }): Command[] {
+  const copy = getShellCopy(args.locale).commandPalette;
   const cmds: Command[] = [];
   for (const session of args.sessions) {
     if (session.isArchived) continue;
@@ -516,8 +488,8 @@ export function buildSessionCommands(args: {
       id: `session:${session.id}`,
       kind: 'session',
       label: session.name,
-      hint: session.id === args.activeSessionId ? '当前' : undefined,
-      group: '会话',
+      hint: session.id === args.activeSessionId ? copy.current : undefined,
+      group: copy.groups.conversations,
       Icon: session.isFlagged ? Palette : MessageSquare,
       keywords: ['session', 'chat', session.name],
       run: () => args.onSelectSession(session.id),

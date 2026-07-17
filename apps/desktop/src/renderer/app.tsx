@@ -1,7 +1,6 @@
 import { StrictMode, useEffect } from 'react';
 import { ToastProvider } from '@maka/ui';
 import { AppShell } from './app-shell';
-import { ErrorBoundary } from './error-boundary';
 import type { OnboardingSnapshot } from '../global';
 
 export function App({
@@ -36,11 +35,9 @@ export function App({
   }, []);
   return (
     <StrictMode>
-      <ErrorBoundary>
         <ToastProvider>
           <AppShell initialOnboardingSnapshot={initialOnboardingSnapshot} />
         </ToastProvider>
-      </ErrorBoundary>
     </StrictMode>
   );
 }

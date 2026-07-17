@@ -1,4 +1,17 @@
-import { lazy, Suspense, useCallback, useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type Dispatch,
+  type SetStateAction,
+} from 'react';
 import type {
   ChatDefaultPermissionMode,
   PermissionMode,
@@ -9,11 +22,7 @@ import type {
   UiLocale,
   UiLocalePreference,
 } from '@maka/core';
-import {
-  generalizedErrorMessageChinese,
-  hasSettledInitialOnboarding,
-  resolveUiLocale,
-} from '@maka/core';
+import { hasSettledInitialOnboarding, resolveUiLocale } from '@maka/core';
 import {
   Alert,
   AlertAction,
@@ -35,6 +44,7 @@ import {
   type SessionViewMode,
   type TurnFooterActionMeta,
   useToast,
+  useUiLocale,
   activeInteractionFor,
 } from '@maka/ui';
 import { useKeyboardHelp } from './keyboard-help';
@@ -46,14 +56,20 @@ import type { OnboardingSnapshot } from '../global';
 import { ProviderLogo } from './settings/provider-display';
 import { ProviderBrandMark } from './settings/provider-brand-marks';
 import { createUiLocaleUpdateGate } from './settings/ui-locale-update-gate';
+import { getShellCopy, localizedShellErrorMessage } from './locales/shell-copy';
+import { ErrorBoundary } from './error-boundary';
 // The session workbar owns the task ledger, embedded browser, and artifact
 // preview. Keep the combined auxiliary surface out of the first chat paint.
 const SessionWorkbar = lazy(() => import('./session-workbar').then((m) => ({ default: m.SessionWorkbar })));
 
 function SessionWorkbarFallback() {
+  const locale = useUiLocale();
+  const copy = getShellCopy(locale).app;
   return (
-    <aside className="maka-session-workbar" role="status" aria-busy="true" aria-label="正在加载会话工作栏">
-      <div className="maka-lazy-fallback" data-surface="panel">正在加载会话工作栏…</div>
+    <aside className="maka-session-workbar" role="status" aria-busy="true" aria-label={copy.loadingWorkbarLabel}>
+      <div className="maka-lazy-fallback" data-surface="panel">
+        {copy.loadingWorkbar}
+      </div>
     </aside>
   );
 }
@@ -75,9 +91,7 @@ import {
   SESSION_WORKBAR_MAX_WIDTH,
   SESSION_WORKBAR_MIN_WIDTH,
 } from './session-workbar-layout';
-import {
-  modelSetupToastCopy,
-} from './model-connection-errors';
+import { modelSetupToastCopy } from './model-connection-errors';
 import { basenameFromPath } from './app-shell-copy';
 import type { AppShellCommandListOptions } from './app-shell-command-actions';
 import { AppShellTopbarActions, AppShellWorkspaceTopActions } from './app-shell-chrome-actions';
@@ -137,12 +151,44 @@ type ComposerImportOwner = {
  */
 const SETTLE_FALLBACK_GRACE_MS = 1000;
 
-export function AppShell({
-  initialOnboardingSnapshot = null,
-}: {
+type AppShellProps = {
   /** Pre-mount snapshot prefetched by main.tsx — see prefetchOnboardingSnapshot. */
   initialOnboardingSnapshot?: OnboardingSnapshot | null;
-} = {}) {
+};
+
+export function AppShell({ initialOnboardingSnapshot = null }: AppShellProps = {}) {
+  const [uiLocalePreference, setUiLocalePreference] = useState<UiLocalePreference>('auto');
+  const [uiLocaleOverride, setUiLocaleOverride] = useState<UiLocale | null>(null);
+  const uiLocale = resolveUiLocale(uiLocalePreference, uiLocaleOverride);
+
+  return (
+    <LocaleProvider locale={uiLocale} override={uiLocaleOverride}>
+      <ErrorBoundary locale={uiLocale}>
+        <AppShellContent
+          initialOnboardingSnapshot={initialOnboardingSnapshot}
+          uiLocale={uiLocale}
+          uiLocaleOverride={uiLocaleOverride}
+          setUiLocaleOverride={setUiLocaleOverride}
+          setUiLocalePreference={setUiLocalePreference}
+        />
+      </ErrorBoundary>
+    </LocaleProvider>
+  );
+}
+
+function AppShellContent({
+  initialOnboardingSnapshot = null,
+  uiLocale,
+  uiLocaleOverride,
+  setUiLocaleOverride,
+  setUiLocalePreference,
+}: {
+  initialOnboardingSnapshot?: OnboardingSnapshot | null;
+  uiLocale: UiLocale;
+  uiLocaleOverride: UiLocale | null;
+  setUiLocaleOverride: Dispatch<SetStateAction<UiLocale | null>>;
+  setUiLocalePreference: Dispatch<SetStateAction<UiLocalePreference>>;
+}) {
   const toastApi = useToast();
   const {
     sessions,
@@ -206,7 +252,7 @@ export function AppShell({
   // injected into the system prompt). State and the fire-and-forget refresh
   // live in `useShellMemoryPill`; recompute is triggered on mount (bootstrap
   // subscriptions) and when Settings closes (closeSettings).
-  const { memoryActive, refreshMemoryActive } = useShellMemoryPill({ toastApi });
+  const { memoryActive, refreshMemoryActive } = useShellMemoryPill({ toastApi, uiLocale });
   const {
     connections,
     connectionsRevision,
@@ -228,9 +274,7 @@ export function AppShell({
   } = useSettingsModal();
   const [themePref, setThemePref] = useState<ThemePreference>('auto');
   const [themePalette, setThemePalette] = useState<ThemePalette>('default');
-  const [uiLocalePreference, setUiLocalePreference] = useState<UiLocalePreference>('auto');
-  const [uiLocaleOverride, setUiLocaleOverride] = useState<UiLocale | null>(null);
-  const uiLocale = resolveUiLocale(uiLocalePreference, uiLocaleOverride);
+  const shellCopy = getShellCopy(uiLocale).app;
   const [uiLocaleUpdateGate] = useState(createUiLocaleUpdateGate);
   const [userLabel, setUserLabel] = useState<string>('');
   // Settings → 通用 → 默认权限模式 — DISPLAY-ONLY mirror. The composer's
@@ -263,9 +307,7 @@ export function AppShell({
     setSearchModalOpen(false);
     if (options?.restoreFocus === false) return;
     window.requestAnimationFrame(() => {
-      document
-        .querySelector<HTMLButtonElement>('[data-maka-search-trigger="true"]')
-        ?.focus({ preventScroll: true });
+      document.querySelector<HTMLButtonElement>('[data-maka-search-trigger="true"]')?.focus({ preventScroll: true });
     });
   }
   const composerRef = useRef<ComposerHandle>(null);
@@ -308,6 +350,7 @@ export function AppShell({
     copyDailyReviewMarkdown,
     saveDailyReviewMarkdown,
   } = useStableActions(createAppShellDailyReviewActions, {
+    uiLocale,
     composerRef,
     toastApi,
   });
@@ -394,7 +437,10 @@ export function AppShell({
   // into React state (drives the disabled mask) and arms a 5s auto-clear
   // fallback timer; the other three stay ref-only and clear in their action's
   // `finally`.
-  const turnActionRegistry = useKeyedPendingRegistry({ trackState: true, autoClearMs: 5000 });
+  const turnActionRegistry = useKeyedPendingRegistry({
+    trackState: true,
+    autoClearMs: 5000,
+  });
   const pendingTurnActions = turnActionRegistry.keys;
   const sessionRowActionRegistry = useKeyedPendingRegistry();
   const permissionModeChangeRegistry = useKeyedPendingRegistry();
@@ -437,6 +483,7 @@ export function AppShell({
   }
 
   const sessionRowActionHandlers = useStableActions(createAppShellSessionRowActions, {
+    uiLocale,
     activeIdRef,
     clearSessionRendererState,
     pendingSessionRowActionsRef: sessionRowActionRegistry.keysRef,
@@ -462,6 +509,7 @@ export function AppShell({
     setSessionModel,
     setSessionThinkingLevel,
   } = useStableActions(createAppShellSessionSettingsActions, {
+    uiLocale,
     activeIdRef,
     connections,
     pendingPermissionModeChangesRef: permissionModeChangeRegistry.keysRef,
@@ -475,13 +523,10 @@ export function AppShell({
     toastApi,
   });
 
-  const {
-    turnFooterActionsByTurn,
-    turnFailedReasonLabels,
-    turnFailedRecoveryLabels,
-    turnLineageBadgesByTurn,
-  } = useMemo(
-    () => deriveAppShellTurnViewModel({
+  const { turnFooterActionsByTurn, turnFailedReasonLabels, turnFailedRecoveryLabels, turnLineageBadgesByTurn } =
+    useMemo(
+      () =>
+        deriveAppShellTurnViewModel({
       activeId,
       messages,
       pendingTurnActions,
@@ -539,7 +584,9 @@ export function AppShell({
   const openSessionInChatRef = useRef(openSessionInChat);
   openSessionInChatRef.current = openSessionInChat;
   const searchModalDeps = useMemo(
-    () => ({ searchThread: (request: Parameters<typeof window.maka.search.thread>[0]) => window.maka.search.thread(request) }),
+    () => ({
+      searchThread: (request: Parameters<typeof window.maka.search.thread>[0]) => window.maka.search.thread(request),
+    }),
     [],
   );
   const searchModalOnNavigate = useCallback((sessionId: string, turnId?: string) => {
@@ -555,10 +602,11 @@ export function AppShell({
   /** 技能页 使用: jump to the chat view and seed the composer with a skill
    *  invocation. Same human-in-the-loop rule as maka://compose — we never
    *  auto-send; the user finishes the sentence and presses Enter. */
-  const useSkillInChat = useCallback((_skillId: string, skillName: string) => {
+  const useSkillInChat = useCallback(
+    (_skillId: string, skillName: string) => {
     setNavSelection({ section: 'sessions', filter: 'chats' });
     const seed = () => {
-      composerRef.current?.setText(`使用 ${skillName} 技能：`);
+        composerRef.current?.setText(shellCopy.useSkillPrompt(skillName));
       composerRef.current?.focus();
     };
     if (activeIdRef.current) {
@@ -566,7 +614,9 @@ export function AppShell({
       return;
     }
     void createSession().then(() => window.requestAnimationFrame(seed));
-  }, []);
+    },
+    [shellCopy],
+  );
   const sessionListSelectSession = useCallback((sessionId: string) => {
     openSessionInChatRef.current(sessionId);
   }, []);
@@ -590,9 +640,12 @@ export function AppShell({
     openSessionInChat(parentSessionId);
   }
 
-  const activeSessionForView: SessionSummary | undefined = activeSession ?? (activeId ? {
+  const activeSessionForView: SessionSummary | undefined =
+    activeSession ??
+    (activeId
+      ? {
     id: activeId,
-    name: '新建对话',
+          name: shellCopy.newConversation,
     isFlagged: false,
     isArchived: false,
     labels: [],
@@ -606,7 +659,8 @@ export function AppShell({
     // matches the configured default so the composer doesn't flash a
     // hardcoded value before the real session data settles.
     permissionMode: defaultPermissionMode,
-  } : undefined);
+        }
+      : undefined);
   const activeMessageLoading = Boolean(activeId && messageLoadPending);
   // PR110c: OnboardingState is now the single source of truth for
   // first-run UI. The renderer never re-derives provider readiness;
@@ -619,6 +673,7 @@ export function AppShell({
   const [quickChatPending, setQuickChatPending] = useState(false);
   const quickChatPendingRef = useRef(false);
   const { handleQuickChatSubmit, handleExpertTeamStart } = useStableActions(createAppShellQuickChatActions, {
+    uiLocale,
     activeIdRef,
     captureComposerImportOwner,
     composerRef,
@@ -695,7 +750,10 @@ export function AppShell({
   // the state-routed OnboardingHero mounts.
   const isOnboardingLoading = sessions.length === 0 && onboardingState === undefined && !onboardingSettled;
   const showOnboardingHero =
-    sessions.length === 0 && !onboardingSettled && onboardingState !== undefined && onboardingState.kind !== 'ready_with_history';
+    sessions.length === 0 &&
+    !onboardingSettled &&
+    onboardingState !== undefined &&
+    onboardingState.kind !== 'ready_with_history';
   const onboardingComposerHidden = isOnboardingLoading || (showOnboardingHero && onboardingState !== undefined);
   const {
     sessionListWidth,
@@ -756,6 +814,7 @@ export function AppShell({
     deleteSkill,
     openSkill,
   } = useAppShellModuleData({
+    uiLocale,
     isSkillsSurfaceActive,
     isAutomationsSurfaceActive,
     toastApi,
@@ -764,7 +823,10 @@ export function AppShell({
   // Composer mention popups: `/` skills (enabled only) + `@` workspace file
   // search. The hook owns the window.maka IPC wrapper so app-shell keeps no
   // inline mention state.
-  const { mentionSkills, searchMentionFiles } = useComposerMentions({ skills, sessionId: activeId });
+  const { mentionSkills, searchMentionFiles } = useComposerMentions({
+    skills,
+    sessionId: activeId,
+  });
 
   const {
     projectInfo,
@@ -783,6 +845,7 @@ export function AppShell({
     listGitBranches,
     checkoutGitBranch,
   } = useAppShellProjectContext({
+    uiLocale,
     persistedComposerDefaults,
     rendererMountedRef,
     sessionId: activeId,
@@ -817,6 +880,7 @@ export function AppShell({
     refreshMessages,
     retryMessages,
   } = useStableActions(createAppShellChatActions, {
+    uiLocale,
     activeIdRef,
     addPendingSessionAction,
     captureComposerImportOwner,
@@ -841,6 +905,7 @@ export function AppShell({
   });
 
   const { handleTurnFooterAction } = useStableActions(createAppShellTurnActions, {
+    uiLocale,
     activeIdRef,
     addPendingTurnAction: turnActionRegistry.addKey,
     clearPendingTurnAction: turnActionRegistry.clearKey,
@@ -863,9 +928,12 @@ export function AppShell({
       } catch (error) {
         if (activeIdRef.current !== sessionId) return false;
         if (isSessionWorkspaceUnavailableError(error)) {
-          showSessionWorkspaceUnavailableToast(toastApi);
+          showSessionWorkspaceUnavailableToast(toastApi, uiLocale);
         } else {
-          toastApi.error('压缩失败', generalizedErrorMessageChinese(error, '对话暂时无法压缩，请稍后重试。'));
+          toastApi.error(
+            shellCopy.compactErrorTitle,
+            localizedShellErrorMessage(error, shellCopy.compactErrorFallback, uiLocale),
+          );
         }
         return false;
       }
@@ -926,7 +994,9 @@ export function AppShell({
   // (`streamingMessageId` suppresses it while draining).
   useEffect(() => {
     if (!activeId || !activeStreamingComplete || !activeStreamingMessageId) return;
-    const committedAssistantArrived = messages.some((message) => message.type === 'assistant' && message.id === activeStreamingMessageId);
+    const committedAssistantArrived = messages.some(
+      (message) => message.type === 'assistant' && message.id === activeStreamingMessageId,
+    );
     if (!committedAssistantArrived) return;
     const timer = window.setTimeout(() => {
       void settleAssistantStreaming(activeId, activeStreamingMessageId);
@@ -988,6 +1058,7 @@ export function AppShell({
     themePref,
   });
   useActiveSessionEvents({
+    uiLocale,
     activeId,
     activeIdRef,
     handleEvent,
@@ -1025,21 +1096,24 @@ export function AppShell({
   }
 
   function isComposerImportOwnerActive(owner: ComposerImportOwner): boolean {
-    return owner.navSection === 'sessions'
-      && navSelectionRef.current.section === 'sessions'
-      && activeIdRef.current === owner.sessionId;
+    return (
+      owner.navSection === 'sessions' &&
+      navSelectionRef.current.section === 'sessions' &&
+      activeIdRef.current === owner.sessionId
+    );
   }
 
   function isNewChatSendSurfaceActive(owner: ComposerImportOwner): boolean {
-    return owner.navSection === 'sessions'
-      && owner.sessionId === undefined
-      && navSelectionRef.current.section === 'sessions'
-      && activeIdRef.current === undefined;
+    return (
+      owner.navSection === 'sessions' &&
+      owner.sessionId === undefined &&
+      navSelectionRef.current.section === 'sessions' &&
+      activeIdRef.current === undefined
+    );
   }
 
   function isShellSurfaceOwnerActive(owner: ComposerImportOwner): boolean {
-    return navSelectionRef.current.section === owner.navSection
-      && activeIdRef.current === owner.sessionId;
+    return navSelectionRef.current.section === owner.navSection && activeIdRef.current === owner.sessionId;
   }
 
   async function refreshShellSettings() {
@@ -1052,10 +1126,8 @@ export function AppShell({
       const name = next.personalization?.displayName ?? '';
       const uiLocale = next.personalization?.uiLocale ?? 'auto';
       setUiLocaleOverride(smoke?.locale ?? null);
-      uiLocaleUpdateGate.commitHydration(
-        uiLocaleHydration,
-        uiLocale,
-        (preference) => setUiLocalePreference(preference),
+      uiLocaleUpdateGate.commitHydration(uiLocaleHydration, uiLocale, (preference) =>
+        setUiLocalePreference(preference),
       );
       setThemePref(pref);
       setThemePalette(palette);
@@ -1064,7 +1136,10 @@ export function AppShell({
       applyTheme(pref);
       applyThemePalette(palette);
     } catch (error) {
-      toastApi.error('载入外观设置失败', generalizedErrorMessageChinese(error, '外观设置暂时无法载入，请稍后重试。'));
+      toastApi.error(
+        shellCopy.appearanceLoadErrorTitle,
+        localizedShellErrorMessage(error, shellCopy.appearanceLoadErrorFallback, uiLocale),
+      );
     }
   }
 
@@ -1087,9 +1162,7 @@ export function AppShell({
     setNavSelection({ section: 'automations' });
     closePalette();
     window.requestAnimationFrame(() => {
-      document
-        .querySelector<HTMLInputElement>('[data-maka-plan-title-input="true"]')
-        ?.focus({ preventScroll: false });
+      document.querySelector<HTMLInputElement>('[data-maka-plan-title-input="true"]')?.focus({ preventScroll: false });
     });
   }
 
@@ -1148,9 +1221,12 @@ export function AppShell({
     // app restart. New-chat creation can't happen while Settings is open
     // anyway, so a close-time refresh is timely enough (unlike theme,
     // which needs to apply instantly and has its own onThemeChange wire).
-    void window.maka.settings.get().then((next) => {
+    void window.maka.settings
+      .get()
+      .then((next) => {
       setDefaultPermissionMode(next.chatDefaults?.permissionMode ?? 'ask');
-    }).catch(() => {});
+      })
+      .catch(() => {});
   }
 
   function showModelSetupToast(description: string, reason?: string) {
@@ -1161,7 +1237,7 @@ export function AppShell({
       variant: 'error',
       duration: 8000,
       action: {
-        label: '打开设置 · 模型',
+        label: shellCopy.openModelSettings,
         onClick: () => openSettingsSection('models'),
       },
     });
@@ -1170,13 +1246,14 @@ export function AppShell({
 
   const activeMessageLoadError = activeId ? messageLoadErrorBySession[activeId] : undefined;
   const homeSurfaceActive =
-    navSelection.section === 'sessions'
-    && messages.length === 0
-    && activeStreaming.length === 0
-    && activeThinking.length === 0
-    && liveTools.length === 0
-    && !activeMessageLoadError;
+    navSelection.section === 'sessions' &&
+    messages.length === 0 &&
+    activeStreaming.length === 0 &&
+    activeThinking.length === 0 &&
+    liveTools.length === 0 &&
+    !activeMessageLoadError;
   const commandOptions: AppShellCommandListOptions = {
+    uiLocale,
     activeId,
     activePermissionMode: activeSessionForView?.permissionMode,
     connections,
@@ -1209,7 +1286,6 @@ export function AppShell({
   };
 
   return (
-    <LocaleProvider locale={uiLocale} override={uiLocaleOverride}>
       <div className="appFrame agents-layout-root" data-agents-page>
       <div
         className="app maka-shell-2col agents-layout-body"
@@ -1217,10 +1293,12 @@ export function AppShell({
         inert={hasModalOpen ? true : undefined}
         data-modal-background-hidden={hasModalOpen ? 'true' : undefined}
         data-sidebar-state={sessionListCollapsed ? 'collapsed' : 'expanded'}
-        style={{
+        style={
+          {
           '--maka-session-list-width': `${sessionListCollapsed ? SESSION_LIST_COLLAPSED_WIDTH : sessionListWidth}px`,
           '--maka-resize-handle-width': '0px',
-        } as CSSProperties}
+          } as CSSProperties
+        }
       >
         <AppShellTopbarActions
           sidebarCollapsed={sessionListCollapsed}
@@ -1258,7 +1336,7 @@ export function AppShell({
         <div
           className="maka-resize-handle"
           role="separator"
-          aria-label={sessionListCollapsed ? '侧边栏已收起' : '调整对话列表宽度'}
+          aria-label={sessionListCollapsed ? shellCopy.sidebarCollapsed : shellCopy.resizeConversationList}
           aria-orientation="vertical"
           aria-valuemin={SESSION_LIST_EXPANDED_MIN_WIDTH}
           aria-valuemax={SESSION_LIST_EXPANDED_MAX_WIDTH}
@@ -1326,7 +1404,11 @@ export function AppShell({
                 <AutomationsPage
                   skills={skills}
                   reminders={planReminders}
-                  onRefresh={() => refreshPlanReminders({ shouldShowError: isAutomationsSurfaceActive })}
+                    onRefresh={() =>
+                      refreshPlanReminders({
+                        shouldShowError: isAutomationsSurfaceActive,
+                      })
+                    }
                   onCreate={(input) => createPlanReminder(input)}
                   onUpdate={(id, patch) => updatePlanReminder(id, patch)}
                   onToggle={(id, enabled) => togglePlanReminder(id, enabled)}
@@ -1351,7 +1433,9 @@ export function AppShell({
                 messageLoading={activeMessageLoading}
                 processingIndicator={showProcessingIndicator}
                 continuingIndicator={showContinuingIndicator}
-                onStreamingSettled={activeId ? (messageId) => settleAssistantStreaming(activeId, messageId) : undefined}
+                    onStreamingSettled={
+                      activeId ? (messageId) => settleAssistantStreaming(activeId, messageId) : undefined
+                    }
                 activeSession={activeSessionForView}
                 activeConnectionLabel={activeConnectionLabel}
                 activeModelLabel={activeModelLabel}
@@ -1363,13 +1447,19 @@ export function AppShell({
                 userLabel={userLabel}
                 memoryActive={memoryActive}
                 onOpenMemorySettings={() => openSettingsSection('memory')}
-                goalIndicator={activeGoal ? {
+                    goalIndicator={
+                      activeGoal
+                        ? {
                   condition: activeGoal.condition,
                   status: activeGoal.status,
                   iterations: activeGoal.iterations,
                   maxIterations: activeGoal.maxIterations,
-                  onClear: () => { void window.maka.goal.clear(activeGoal.sessionId); },
-                } : undefined}
+                            onClear: () => {
+                              void window.maka.goal.clear(activeGoal.sessionId);
+                            },
+                          }
+                        : undefined
+                    }
                 messageLoadError={activeId ? messageLoadErrorBySession[activeId] : undefined}
                 messageLoadRetryPending={activeId ? messageRetryPendingBySession[activeId] === true : false}
                 onRetryMessages={activeId ? () => void retryMessages(activeId) : undefined}
@@ -1382,7 +1472,10 @@ export function AppShell({
                 onReadAttachmentBytes={window.maka.attachments.readBytes}
                 scrollTargetTurn={
                   activeId && searchScrollTarget?.sessionId === activeId
-                    ? { turnId: searchScrollTarget.turnId, nonce: searchScrollTarget.nonce }
+                        ? {
+                            turnId: searchScrollTarget.turnId,
+                            nonce: searchScrollTarget.nonce,
+                          }
                     : undefined
                 }
                 scrollBehavior={readScrollMotionBehavior()}
@@ -1407,7 +1500,10 @@ export function AppShell({
                             await window.maka.onboarding.setMilestone('initial_onboarding', 'skipped');
                             onboarding.refresh();
                           } catch (error) {
-                            toastApi.error('跳过失败', generalizedErrorMessageChinese(error, '请稍后重试。'));
+                                toastApi.error(
+                                  shellCopy.skipErrorTitle,
+                                  localizedShellErrorMessage(error, shellCopy.tryAgainLater, uiLocale),
+                                );
                           }
                         }}
                       />
@@ -1430,7 +1526,7 @@ export function AppShell({
                       className="maka-onboarding-loading"
                       role="status"
                       aria-busy="true"
-                      aria-label="加载中"
+                          aria-label={shellCopy.loading}
                     />
                   ) : undefined
                 }
@@ -1442,7 +1538,13 @@ export function AppShell({
                 <div className="maka-session-health-notice">
                   <Alert
                     className="maka-session-health-notice-alert"
-                    variant={sessionHealthNotice.tone === 'destructive' ? 'error' : sessionHealthNotice.tone === 'warning' ? 'warning' : 'info'}
+                      variant={
+                        sessionHealthNotice.tone === 'destructive'
+                          ? 'error'
+                          : sessionHealthNotice.tone === 'warning'
+                            ? 'warning'
+                            : 'info'
+                      }
                     role="status"
                     aria-label={sessionHealthNotice.tooltip ?? sessionHealthNotice.label}
                     title={sessionHealthNotice.tooltip}
@@ -1457,7 +1559,9 @@ export function AppShell({
                         className="maka-session-health-notice-action"
                         onClick={sessionHealthNotice.onClick}
                       >
-                        {sessionHealthNotice.onClickTarget === 'account' ? '去账号' : '去模型'}
+                          {sessionHealthNotice.onClickTarget === 'account'
+                            ? shellCopy.goToAccount
+                            : shellCopy.goToModels}
                       </button>
                     </AlertAction>
                   </Alert>
@@ -1516,11 +1620,7 @@ export function AppShell({
                 onAttachFilePaths={attachFilePaths}
                 expertTeams={expertTeams}
                 onStartExpertTeam={handleExpertTeamStart}
-                modelLabel={
-                  activeModelLabel
-                  ?? newChatModelLabel
-                  ?? undefined
-                }
+                  modelLabel={activeModelLabel ?? newChatModelLabel ?? undefined}
                 activeSession={activeSessionForView}
                 activeConnectionLabel={activeConnectionLabel}
                 activeModel={activeModel}
@@ -1544,7 +1644,7 @@ export function AppShell({
                 onNewChatThinkingLevelChange={(level) => setPendingNewChatThinkingLevel(level ?? null)}
                 onOpenModelSettings={() => openSettingsSection('models')}
                 workspacePicker={{
-                  label: projectInfo ? basenameFromPath(projectInfo.projectPath) : undefined,
+                    label: projectInfo ? basenameFromPath(projectInfo.projectPath, uiLocale) : undefined,
                   branch: projectInfo?.projectGit.branch,
                   pending: projectPickerPending,
                   recentWorkspaces: recentProjectPaths,
@@ -1574,13 +1674,13 @@ export function AppShell({
                 permissionModePending={activeId ? pendingPermissionModeBySession[activeId] === true : false}
                 permissionModeDisabledReason={
                   activeId && pendingPermissionModeBySession[activeId] === true
-                    ? '权限模式正在切换，完成后再继续操作。'
+                      ? shellCopy.permissionModeChanging
                     : activeStreamingLive
-                      ? '当前对话正在流式输出，等结束后再切换权限模式。'
+                        ? shellCopy.permissionModeStreaming
                       : activeId && activeSessionForView?.status === 'running'
-                        ? '当前对话正在运行，等结束后再切换权限模式。'
+                          ? shellCopy.permissionModeRunning
                         : activeId && activeSessionForView?.status === 'waiting_for_user'
-                          ? '当前有工具调用正在等待确认，处理后再切换权限模式。'
+                            ? shellCopy.permissionModeWaiting
                           : undefined
                 }
                 onPermissionModeChange={(mode) => setPermissionMode(mode)}
@@ -1591,7 +1691,7 @@ export function AppShell({
                 <div
                   className="maka-workbar-resize-handle"
                   role="separator"
-                  aria-label="调整会话工作栏宽度"
+                    aria-label={shellCopy.resizeWorkbar}
                   aria-orientation="vertical"
                   aria-valuemin={SESSION_WORKBAR_MIN_WIDTH}
                   aria-valuemax={SESSION_WORKBAR_MAX_WIDTH}
@@ -1655,6 +1755,5 @@ export function AppShell({
         commandOptions={commandOptions}
       />
       </div>
-    </LocaleProvider>
   );
 }

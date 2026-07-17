@@ -27,12 +27,14 @@ import {
   InputGroupInput,
   Kbd,
   KbdGroup,
+  useUiLocale,
 } from '@maka/ui';
 import { Autocomplete } from '@base-ui/react/autocomplete';
 import { useThreadSearch } from './use-thread-search';
 import { buildContentSearchCommands } from './command-palette-content-search';
 import type { Command, CommandKind } from './command-palette-types';
 import type { UseThreadSearchDeps } from './use-thread-search';
+import { getShellCopy } from './locales/shell-copy';
 export type { Command, CommandKind } from './command-palette-types';
 export { buildContentSearchCommands } from './command-palette-content-search';
 export { buildCommandList, buildSessionCommands } from './command-palette-commands';
@@ -91,6 +93,8 @@ export function CommandPalette(props: {
   onOpenSearchModal?: (query: string) => void;
   threadSearchDeps?: UseThreadSearchDeps;
 }) {
+  const locale = useUiLocale();
+  const copy = getShellCopy(locale).commandPalette;
   const inputRef = useRef<HTMLInputElement>(null);
   const commitPendingRef = useRef(false);
   const [query, setQuery] = useState('');
@@ -169,7 +173,7 @@ export function CommandPalette(props: {
     >
       <DialogContent
         className="maka-modal maka-palette-modal top-[12vh] -translate-y-0"
-        aria-label="命令面板"
+        aria-label={copy.label}
         initialFocus={inputRef}
         showClose={false}
       >
@@ -201,7 +205,7 @@ export function CommandPalette(props: {
           <div className="maka-palette-header">
             <InputGroup
               className="maka-palette-input-wrap"
-              aria-label="命令面板搜索"
+              aria-label={copy.searchLabel}
               onMouseDown={(event) => {
                 const target = event.target as HTMLElement;
                 if (target.closest('input')) return;
@@ -218,8 +222,8 @@ export function CommandPalette(props: {
                     ref={inputRef}
                     className="maka-palette-input"
                     type="text"
-                    placeholder="搜索命令、设置项或会话…"
-                    aria-label="搜索命令、设置项或会话"
+                    placeholder={copy.placeholder}
+                    aria-label={copy.placeholder}
                     autoComplete="off"
                     spellCheck={false}
                   />
@@ -230,21 +234,21 @@ export function CommandPalette(props: {
               type="button"
               variant="quiet"
               size="icon-sm"
-              aria-label="关闭命令面板"
+              aria-label={copy.closeLabel}
               onClick={props.onClose}
             >
               <X aria-hidden="true" />
             </Button>
           </div>
-          <Autocomplete.List className="maka-palette-list" id="maka-palette-list" aria-label="命令面板结果">
+          <Autocomplete.List className="maka-palette-list" id="maka-palette-list" aria-label={copy.resultsLabel}>
             {grouped.length === 0 ? (
               <Empty className="maka-palette-empty py-8 md:py-10 gap-3">
                 <EmptyHeader>
                   <EmptyMedia variant="icon">
                     <Search aria-hidden="true" />
                   </EmptyMedia>
-                  <EmptyTitle>没有匹配的命令</EmptyTitle>
-                  <EmptyDescription>换个关键词，或按 Esc 关闭。</EmptyDescription>
+                  <EmptyTitle>{copy.emptyTitle}</EmptyTitle>
+                  <EmptyDescription>{copy.emptyDescription}</EmptyDescription>
                 </EmptyHeader>
               </Empty>
             ) : (
@@ -297,15 +301,15 @@ export function CommandPalette(props: {
               <Kbd>↑</Kbd>
               <Kbd>↓</Kbd>
             </KbdGroup>
-            <span>选择</span>
+            <span>{copy.selectHint}</span>
           </span>
           <span className="maka-palette-footer-hint">
             <Kbd>↵</Kbd>
-            <span>执行</span>
+            <span>{copy.runHint}</span>
           </span>
           <span className="maka-palette-footer-hint">
             <Kbd>Esc</Kbd>
-            <span>关闭</span>
+            <span>{copy.closeHint}</span>
           </span>
         </div>
       </DialogContent>

@@ -1,7 +1,13 @@
-import type { ChatDefaultPermissionMode, LlmConnection, PermissionMode, SessionSummary, ThinkingLevel } from '@maka/core';
-import { generalizedErrorMessageChinese } from '@maka/core';
-import { permissionModeDescriptions } from './app-shell-copy';
+import type {
+  ChatDefaultPermissionMode,
+  LlmConnection,
+  PermissionMode,
+  SessionSummary,
+  ThinkingLevel,
+  UiLocale,
+} from '@maka/core';
 import { saveComposerDefaults } from './composer-defaults';
+import { getShellCopy, localizedShellErrorMessage } from './locales/shell-copy.js';
 
 type RefBox<T> = { current: T };
 type BooleanRecordUpdater = (updater: (current: Record<string, boolean>) => Record<string, boolean>) => void;
@@ -18,6 +24,7 @@ export interface AppShellSessionSettingsActions {
 }
 
 export function createAppShellSessionSettingsActions(deps: {
+  uiLocale: UiLocale;
   activeIdRef: RefBox<string | undefined>;
   connections: readonly LlmConnection[];
   pendingPermissionModeChangesRef: RefBox<Set<string>>;
@@ -31,6 +38,7 @@ export function createAppShellSessionSettingsActions(deps: {
   toastApi: ToastApi;
 }): AppShellSessionSettingsActions {
   const {
+    uiLocale,
     activeIdRef,
     connections,
     pendingPermissionModeChangesRef,
@@ -43,6 +51,7 @@ export function createAppShellSessionSettingsActions(deps: {
     setSessions,
     toastApi,
   } = deps;
+  const copy = getShellCopy(uiLocale).sessionSettingsActions;
 
   function omitSessionKey<T>(current: Record<string, T>, sessionId: string): Record<string, T> {
     if (!(sessionId in current)) return current;
@@ -58,19 +67,22 @@ export function createAppShellSessionSettingsActions(deps: {
     if (pendingPermissionModeChangesRef.current.has(pendingKey)) return;
 
     pendingPermissionModeChangesRef.current.add(pendingKey);
-    if (sessionId) setPendingPermissionModeBySession((current) => ({ ...current, [sessionId]: true }));
+    if (sessionId)
+      setPendingPermissionModeBySession((current) => ({
+        ...current,
+        [sessionId]: true,
+      }));
     try {
-      const result = await window.maka.settings.update({ chatDefaults: { permissionMode: mode } });
+      const result = await window.maka.settings.update({
+        chatDefaults: { permissionMode: mode },
+      });
       const nextMode = result.settings.chatDefaults.permissionMode;
       setDefaultPermissionMode(nextMode);
       setSessions((prev) => prev.map((session) => ({ ...session, permissionMode: nextMode })));
-      toastApi.success(`已切到 ${permissionModeLabels[nextMode]}`, permissionModeDescriptions[nextMode]);
+      toastApi.success(copy.permissionSwitched(copy.permissionLabels[nextMode]), copy.permissionDescriptions[nextMode]);
       await refreshSessions();
     } catch (error) {
-      toastApi.error(
-        '切换权限模式失败',
-        generalizedErrorMessageChinese(error, '权限模式暂时无法切换，请稍后重试。'),
-      );
+      toastApi.error(copy.permissionFailedTitle, localizedShellErrorMessage(error, copy.permissionFallback, uiLocale));
     } finally {
       pendingPermissionModeChangesRef.current.delete(pendingKey);
       if (sessionId) setPendingPermissionModeBySession((current) => omitSessionKey(current, sessionId));
@@ -82,22 +94,22 @@ export function createAppShellSessionSettingsActions(deps: {
     if (!sessionId) return;
     if (pendingSessionModelChangesRef.current.has(sessionId)) return;
     pendingSessionModelChangesRef.current.add(sessionId);
-    setPendingSessionModelBySession((current) => ({ ...current, [sessionId]: true }));
+    setPendingSessionModelBySession((current) => ({
+      ...current,
+      [sessionId]: true,
+    }));
     try {
       const next = await window.maka.sessions.setModel(sessionId, input);
       setSessions((prev) => prev.map((session) => (session.id === next.id ? next : session)));
       const connection = connections.find((entry) => entry.slug === next.llmConnectionSlug);
       if (activeIdRef.current === sessionId) {
-        toastApi.success(
-          '已切换当前会话模型',
-          `${connection?.name ?? next.llmConnectionSlug} · ${next.model}`,
-        );
+        toastApi.success(copy.modelSwitchedTitle, `${connection?.name ?? next.llmConnectionSlug} · ${next.model}`);
       }
       saveComposerDefaults({ model: input });
       await refreshSessions();
     } catch (error) {
       if (activeIdRef.current === sessionId) {
-        toastApi.error('切换模型失败', generalizedErrorMessageChinese(error, '模型暂时无法切换，请稍后重试。'));
+        toastApi.error(copy.modelFailedTitle, localizedShellErrorMessage(error, copy.modelFallback, uiLocale));
       }
     } finally {
       pendingSessionModelChangesRef.current.delete(sessionId);
@@ -114,12 +126,12 @@ export function createAppShellSessionSettingsActions(deps: {
       const next = await window.maka.sessions.setThinkingLevel(sessionId, level);
       setSessions((prev) => prev.map((session) => (session.id === next.id ? next : session)));
       if (activeIdRef.current === sessionId) {
-        toastApi.success('已更新思考级别', level ? thinkingLevelLabels[level] : '默认');
+        toastApi.success(copy.thinkingUpdatedTitle, level ? copy.thinkingLabels[level] : copy.thinkingDefault);
       }
       await refreshSessions();
     } catch (error) {
       if (activeIdRef.current === sessionId) {
-        toastApi.error('切换思考级别失败', generalizedErrorMessageChinese(error, '思考级别暂时无法切换，请稍后重试。'));
+        toastApi.error(copy.thinkingFailedTitle, localizedShellErrorMessage(error, copy.thinkingFallback, uiLocale));
       }
     }
   }
@@ -130,19 +142,3 @@ export function createAppShellSessionSettingsActions(deps: {
     setSessionThinkingLevel,
   };
 }
-
-const permissionModeLabels: Record<ChatDefaultPermissionMode, string> = {
-  ask: '询问权限',
-  execute: '自动执行',
-  bypass: '跳过确认',
-};
-
-const thinkingLevelLabels: Record<ThinkingLevel, string> = {
-  off: '关',
-  minimal: '最少',
-  low: '低',
-  medium: '中',
-  high: '高',
-  xhigh: '超高',
-  max: '最高',
-};

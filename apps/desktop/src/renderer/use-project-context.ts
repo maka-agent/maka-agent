@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import type { UiLocale } from '@maka/core';
 import type { ComposerDefaults } from './composer-defaults';
 import {
   createAppShellProjectActions,
@@ -29,6 +30,7 @@ type ToastApi = {
  * have to be threaded back out through AppShell.
  */
 export function useAppShellProjectContext(options: {
+  uiLocale: UiLocale;
   persistedComposerDefaults: ComposerDefaults | null;
   rendererMountedRef: RefBox<boolean>;
   sessionId?: string;
@@ -45,6 +47,7 @@ export function useAppShellProjectContext(options: {
   projectPickerRequestRef: RefBox<number>;
 } {
   const {
+    uiLocale,
     persistedComposerDefaults,
     rendererMountedRef,
     sessionId,
@@ -54,7 +57,10 @@ export function useAppShellProjectContext(options: {
   } = options;
   const [appInfo, setAppInfo] = useState<RendererAppInfo | null>(
     persistedComposerDefaults?.projectPath
-      ? { projectPath: persistedComposerDefaults.projectPath, projectGit: { isGitRepo: false } }
+      ? {
+          projectPath: persistedComposerDefaults.projectPath,
+          projectGit: { isGitRepo: false },
+        }
       : null,
   );
   const [sessionProjectInfo, setSessionProjectInfo] = useState<SessionProjectInfoState | null>(null);
@@ -84,20 +90,23 @@ export function useAppShellProjectContext(options: {
     };
   }, [sessionId, sessionCwd]);
 
-  const resolvedSessionProjectInfo = sessionId
-    && sessionProjectInfo?.sessionId === sessionId
-    && (!sessionCwd || sessionProjectInfo.projectPath === sessionCwd)
+  const resolvedSessionProjectInfo =
+    sessionId &&
+    sessionProjectInfo?.sessionId === sessionId &&
+    (!sessionCwd || sessionProjectInfo.projectPath === sessionCwd)
       ? sessionProjectInfo
       : null;
   const projectInfo = sessionId
-    ? resolvedSessionProjectInfo
-      ?? (sessionCwd ? { projectPath: sessionCwd, projectGit: { isGitRepo: false } } : null)
+    ? (resolvedSessionProjectInfo ??
+      (sessionCwd ? { projectPath: sessionCwd, projectGit: { isGitRepo: false } } : null))
     : appInfo;
-  const branchList = branchListState?.contextKey === (sessionId ?? null)
+  const branchList =
+    branchListState?.contextKey === (sessionId ?? null)
     ? { branches: branchListState.branches, current: branchListState.current }
     : null;
 
   const actions = createAppShellProjectActions({
+    uiLocale,
     projectPickerPendingRef,
     projectPickerRequestRef,
     rendererMountedRef,

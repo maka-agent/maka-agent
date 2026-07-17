@@ -12,6 +12,7 @@ describe('Chat save-conversation-to-file contract (PR-CMD-PALETTE-SAVE-CONVERSAT
     const main = await readMainProcessCombinedSource();
     const preload = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/preload/preload.ts'), 'utf8');
     const palette = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/renderer/command-palette-commands.ts'), 'utf8');
+    const catalog = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/renderer/locales/shell-copy.ts'), 'utf8');
     const renderer = await readRendererShellCombinedSource();
     const globalDts = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/global.d.ts'), 'utf8');
 
@@ -40,7 +41,9 @@ describe('Chat save-conversation-to-file contract (PR-CMD-PALETTE-SAVE-CONVERSAT
     // and an active session are wired (no session → nothing to save).
     assert.match(palette, /onSaveActiveConversationToFile/);
     assert.match(palette, /diag:save-conversation-file/);
-    assert.match(palette, /保存当前对话为 \.md 文件/);
+    assert.match(palette, /staticCopy\('diag:save-conversation-file'\)/);
+    assert.match(catalog, /label: '保存当前对话为 \.md 文件'/);
+    assert.match(catalog, /label: 'Save conversation as an \.md file'/);
     assert.match(palette, /args\.onSaveActiveConversationToFile\s*&&\s*args\.activeSessionId/);
 
     // Renderer wires the callback to render markdown, build a
@@ -48,7 +51,7 @@ describe('Chat save-conversation-to-file contract (PR-CMD-PALETTE-SAVE-CONVERSAT
     // success / write_failed / invalid_input toasts. `canceled` is silent.
     assert.match(renderer, /onSaveActiveConversationToFile:\s*async \(\)/);
     assert.match(renderer, /sessions\.saveConversationToFile\(\{\s*markdown,\s*defaultName/);
-    assert.match(renderer, /toastApi\.success\(\s*['"]已保存当前对话['"]/);
+    assert.match(renderer, /toastApi\.success\(copy\.conversationSavedTitle/);
     assert.match(renderer, /maka-\$\{sanitizedSession\}-\$\{yyyy\}-\$\{mm\}-\$\{dd\}\.md/);
   });
 

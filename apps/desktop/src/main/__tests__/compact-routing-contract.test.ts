@@ -24,7 +24,7 @@ describe('/compact routing contract', () => {
     assert.match(send, /await window\.maka\.sessions\.compact\(sessionId\);/);
     assert.match(
       send,
-      /catch \(error\) \{[\s\S]*if \(activeIdRef\.current !== sessionId\) return false;[\s\S]*isSessionWorkspaceUnavailableError\(error\)[\s\S]*showSessionWorkspaceUnavailableToast\(toastApi\)[\s\S]*return false;/,
+      /catch \(error\) \{[\s\S]*if \(activeIdRef\.current !== sessionId\) return false;[\s\S]*isSessionWorkspaceUnavailableError\(error\)[\s\S]*showSessionWorkspaceUnavailableToast\(toastApi, uiLocale\)[\s\S]*return false;/,
       'compact failures must be consumed by the shell and preserve workspace recovery copy',
     );
     // returns early so /compact never falls through to the normal send path
