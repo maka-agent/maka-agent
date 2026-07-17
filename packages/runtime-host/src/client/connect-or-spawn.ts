@@ -89,6 +89,10 @@ export async function connectOrSpawnRuntimeHostWithDependencies(
       handshakeTimeoutMs: input.handshakeTimeoutMs,
       electionDeadline: deadline,
     });
+    if (result.kind === 'election_deadline_elapsed') {
+      if (result.endpointConnected) sawUnresponsiveEndpoint = true;
+      break;
+    }
     if (result.kind === 'connected') return { kind: 'connected', connection: result.connection };
     if (result.kind === 'unavailable' && result.reason === 'handshake_failed') {
       sawUnresponsiveEndpoint = true;

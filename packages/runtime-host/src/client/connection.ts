@@ -45,6 +45,18 @@ export type ConnectRuntimeHostResult =
   | { kind: 'draining'; registration: HostRegistration }
   | { kind: 'unavailable'; reason: RuntimeHostUnavailableReason; registration?: HostRegistration };
 
+type ConnectResolvedRuntimeHostResult = ConnectRuntimeHostResult | {
+  kind: 'election_deadline_elapsed';
+  endpointConnected: boolean;
+};
+
+class ElectionDeadlineElapsedError extends Error {
+  constructor() {
+    super('Runtime Host election deadline elapsed');
+    this.name = 'ElectionDeadlineElapsedError';
+  }
+}
+
 interface ConnectResolvedRuntimeHostInput extends Omit<ConnectRuntimeHostInput, 'rootPath' | 'clientInstanceId'> {
   capability: StorageRootCapability<'interactive'>;
   clientInstanceId: string;
@@ -126,7 +138,7 @@ export async function connectRuntimeHost(
   const clientInstanceId = requireClientInstanceId(input.clientInstanceId ?? randomUUID());
   const capability = await resolveStorageRoot({ path: input.rootPath, kind: 'interactive' });
   const { controlDirectory } = await prepareStorageRootControlDirectory(capability);
-  return connectResolvedRuntimeHost({
+  const result = await connectResolvedRuntimeHost({
     ...input,
     clientInstanceId,
     connectTimeoutMs,
@@ -134,11 +146,18 @@ export async function connectRuntimeHost(
     capability,
     controlDirectory,
   });
+  if (result.kind === 'election_deadline_elapsed') {
+    return {
+      kind: 'unavailable',
+      reason: result.endpointConnected ? 'handshake_failed' : 'connect_failed',
+    };
+  }
+  return result;
 }
 
 export async function connectResolvedRuntimeHost(
   input: ConnectResolvedRuntimeHostInput,
-): Promise<ConnectRuntimeHostResult> {
+): Promise<ConnectResolvedRuntimeHostResult> {
   validateProtocolRange(input.protocol);
   requireClientInstanceId(input.clientInstanceId);
   const connectTimeoutMs = requireTimeout(input.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS, 'connectTimeoutMs');
@@ -153,6 +172,9 @@ export async function connectResolvedRuntimeHost(
       input.electionDeadline,
     );
   } catch (error) {
+    if (error instanceof ElectionDeadlineElapsedError) {
+      return { kind: 'election_deadline_elapsed', endpointConnected: false };
+    }
     if (error instanceof RuntimeHostRegistrationError && error.code === 'invalid_registration') {
       return { kind: 'unavailable', reason: 'invalid_registration' };
     }
@@ -164,24 +186,41 @@ export async function connectResolvedRuntimeHost(
   }
 
   const connectDeadline = phaseDeadline(connectTimeoutMs, input.electionDeadline);
-  const connectBudget = remainingTimeout(connectDeadline);
+  const connectBudget = remainingTimeout(connectDeadline.at);
   if (connectBudget === undefined) {
+    if (connectDeadline.exhaustsElection) {
+      return { kind: 'election_deadline_elapsed', endpointConnected: false };
+    }
     return { kind: 'unavailable', reason: 'connect_failed', registration };
   }
   let transport: FramedTransport;
   try {
-    transport = await openTransport(registration.endpoint, connectBudget);
-  } catch {
+    transport = await openTransport(
+      registration.endpoint,
+      connectBudget,
+      connectDeadline.exhaustsElection,
+    );
+  } catch (error) {
+    if (error instanceof ElectionDeadlineElapsedError) {
+      return { kind: 'election_deadline_elapsed', endpointConnected: false };
+    }
     return { kind: 'unavailable', reason: 'connect_failed', registration };
   }
   const handshakeDeadline = phaseDeadline(handshakeTimeoutMs, input.electionDeadline);
-  const handshakeBudget = remainingTimeout(handshakeDeadline);
+  const handshakeBudget = remainingTimeout(handshakeDeadline.at);
   if (handshakeBudget === undefined) {
     transport.destroy();
+    if (handshakeDeadline.exhaustsElection) {
+      return { kind: 'election_deadline_elapsed', endpointConnected: true };
+    }
     return { kind: 'unavailable', reason: 'handshake_failed', registration };
   }
+  let handshakeTimeoutError: Error | undefined;
   const handshakeTimer = setTimeout(() => {
-    transport.destroy(new Error('Timed out handshaking with Runtime Host'));
+    handshakeTimeoutError = handshakeDeadline.exhaustsElection
+      ? new ElectionDeadlineElapsedError()
+      : new Error('Timed out handshaking with Runtime Host');
+    transport.destroy(handshakeTimeoutError);
   }, handshakeBudget);
   try {
     await transport.write({
@@ -191,10 +230,14 @@ export async function connectResolvedRuntimeHost(
       protocolMin: input.protocol.min,
       protocolMax: input.protocol.max,
     });
-    const readBudget = remainingTimeout(handshakeDeadline);
-    if (readBudget === undefined) throw new Error('Runtime Host handshake deadline elapsed');
+    if (remainingTimeout(handshakeDeadline.at) === undefined) {
+      throw handshakeDeadline.exhaustsElection
+        ? new ElectionDeadlineElapsedError()
+        : new Error('Runtime Host handshake deadline elapsed');
+    }
+    // The phase timer owns the full hello write/read deadline and its timeout classification.
     const handshake = decodeHostFrame(
-      await transport.read(readBudget),
+      await transport.read(0),
     );
     if (handshake.kind === 'status') throw new Error('Runtime Host returned status before handshake');
     if (handshake.hostEpoch !== registration.hostEpoch) {
@@ -219,21 +262,31 @@ export async function connectResolvedRuntimeHost(
     transport.destroy();
     if (handshake.kind === 'incompatible') return { kind: 'incompatible', handshake, registration };
     return { kind: 'draining', registration };
-  } catch {
+  } catch (error) {
     transport.destroy();
+    const failure = handshakeTimeoutError ?? error;
+    if (failure instanceof ElectionDeadlineElapsedError) {
+      return { kind: 'election_deadline_elapsed', endpointConnected: true };
+    }
     return { kind: 'unavailable', reason: 'handshake_failed', registration };
   } finally {
     clearTimeout(handshakeTimer);
   }
 }
 
-function openTransport(path: string, timeoutMs: number): Promise<FramedTransport> {
+function openTransport(
+  path: string,
+  timeoutMs: number,
+  exhaustsElection: boolean,
+): Promise<FramedTransport> {
   return new Promise((resolve, reject) => {
     const socket = connect(path);
     const timer = setTimeout(() => {
       cleanup();
       socket.destroy();
-      reject(new Error('Timed out connecting to Runtime Host'));
+      reject(exhaustsElection
+        ? new ElectionDeadlineElapsedError()
+        : new Error('Timed out connecting to Runtime Host'));
     }, timeoutMs);
     const onConnect = () => {
       const transport = new FramedTransport(socket);
@@ -262,9 +315,17 @@ function requireTimeout(value: number, label: string): number {
   return value;
 }
 
-function phaseDeadline(timeoutMs: number, outerDeadline: number | undefined): number {
-  const deadline = performance.now() + timeoutMs;
-  return outerDeadline === undefined ? deadline : Math.min(deadline, outerDeadline);
+interface PhaseDeadline {
+  at: number;
+  exhaustsElection: boolean;
+}
+
+function phaseDeadline(timeoutMs: number, outerDeadline: number | undefined): PhaseDeadline {
+  const phaseTimeout = performance.now() + timeoutMs;
+  if (outerDeadline !== undefined && outerDeadline <= phaseTimeout) {
+    return { at: outerDeadline, exhaustsElection: true };
+  }
+  return { at: phaseTimeout, exhaustsElection: false };
 }
 
 function remainingTimeout(deadline: number): number | undefined {
@@ -279,12 +340,12 @@ function readRegistrationBeforeDeadline(
   if (deadline === undefined) return readHostRegistration(controlDirectory);
   const remaining = remainingTimeout(deadline);
   if (remaining === undefined) {
-    return Promise.reject(new Error('Runtime Host election deadline elapsed'));
+    return Promise.reject(new ElectionDeadlineElapsedError());
   }
   const operation = readHostRegistration(controlDirectory);
   return new Promise((resolve, reject) => {
     const timer = setTimeout(
-      () => reject(new Error('Runtime Host election deadline elapsed')),
+      () => reject(new ElectionDeadlineElapsedError()),
       remaining,
     );
     operation.then(
