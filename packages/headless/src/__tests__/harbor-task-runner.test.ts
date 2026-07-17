@@ -831,7 +831,7 @@ describe('createHarborTaskRunner', () => {
     });
   });
 
-  test('treats Harbor agent timeout with verifier reward as budget exhausted', async () => {
+  test('returns the official verifier result after a Harbor agent timeout', async () => {
     await withRun(async ({ jobsDir, repo }) => {
       const timedCell = cellOutput({
         executionIdentity: {
@@ -846,7 +846,7 @@ describe('createHarborTaskRunner', () => {
         jobsDir,
         model: 'deepseek/deepseek-v4-flash',
         runHarbor: fakeRunner({
-          reward: '0\n',
+          reward: '1\n',
           cell: timedCell,
           trialResult: {
             exception_info: {
@@ -856,12 +856,11 @@ describe('createHarborTaskRunner', () => {
           },
         }),
       });
-      await assert.rejects(runner(runInput()), (error: unknown) => {
-        assert.ok(error instanceof FixedPromptBudgetExhaustedError);
-        assert.deepEqual(error.artifactRefs?.tokenSummary, timedCell.tokenSummary);
-        assert.deepEqual(error.artifactRefs?.cellOutput?.executionIdentity, timedCell.executionIdentity);
-        return true;
-      });
+      const output = await runner(runInput());
+      assert.equal(output.harbor.reward, 1);
+      assert.equal(output.harbor.verifier?.outcome, 'passed');
+      assert.deepEqual(output.cell.tokenSummary, timedCell.tokenSummary);
+      assert.deepEqual(output.cell.executionIdentity, timedCell.executionIdentity);
     });
   });
 
