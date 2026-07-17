@@ -152,7 +152,7 @@ describe('Settings coming-soon cleanup contract', () => {
     assert.match(settings, /function botReadinessCopyForSupport\b/, 'Settings bot page must route readiness copy through support-aware presentation');
     assert.match(settings, /if \(support === 'planned'\) return BOT_PLANNED_COPY;/, 'planned bot platforms must not reuse credential-readiness copy');
     assert.match(settings, /wechat:[\s\S]*support:\s*'credentials'/, 'WeChat should expose credential probing rather than stay in the planned-only bucket');
-    assert.match(settings, /selected === 'wechat'/, 'WeChat needs visible App ID / App Secret credential fields');
+    assert.match(settings, /provider === 'wechat'/, 'WeChat needs visible App ID / App Secret credential fields');
     assert.doesNotMatch(settings, /机器人运行时尚未接入|代码中还没有这个平台的运行时|平台运行时尚未接入|运行时未开放|可用运行时|开放前|收发 smoke/, 'planned bot copy must not expose implementation-status placeholder language');
     assert.doesNotMatch(settings, /providerSupport === 'planned'\s*\?\s*\{\s*label: '未接入'/, 'planned bot list tags should use the shared planned copy');
   });

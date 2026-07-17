@@ -74,8 +74,10 @@ describe('voice capture smoke Settings contract', () => {
     const voicePage = src.match(/function VoiceModelsSettingsPage\([\s\S]*?async function readBrowserMicrophonePermission/)?.[0];
     assert.ok(voicePage, 'voice settings page source must be discoverable');
     assert.match(
-      src,
-      /import \{ useEffect, useId, useMemo, useRef, useState,/,
+      // Pin the voice page file itself: the combined source used to satisfy
+      // this import pattern via an unrelated page (#1042 split it away).
+      await readFile(join(REPO_ROOT, 'apps/desktop/src/renderer/settings/voice-settings-page.tsx'), 'utf8'),
+      /import \{ useEffect, useId, useRef, useState \} from 'react';/,
       'voice capture status needs a stable React id rather than a hard-coded duplicate id',
     );
     assert.match(

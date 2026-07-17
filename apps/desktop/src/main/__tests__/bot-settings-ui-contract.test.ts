@@ -17,11 +17,17 @@ async function readRepo(path: string): Promise<string> {
 
 describe('Bot settings UI contract', () => {
   it('presents remote access as an overview of active and available channels', async () => {
-    const [page, nav, botBrand] = await Promise.all([
-      readRepo('apps/desktop/src/renderer/settings/bot-chat-settings-page.tsx'),
+    // #1042: the page split into a container (bot-chat-settings-page.tsx)
+    // plus overview/detail views and shared brand metadata; the bot-chat
+    // surface these invariants pin is the three split sources together.
+    const [shared, overview, detail, nav, botBrand] = await Promise.all([
+      readRepo('apps/desktop/src/renderer/settings/bot-chat-shared.tsx'),
+      readRepo('apps/desktop/src/renderer/settings/bot-chat-overview.tsx'),
+      readRepo('apps/desktop/src/renderer/settings/bot-chat-detail.tsx'),
       readRepo('apps/desktop/src/renderer/settings/settings-nav.ts'),
       readRepo('packages/ui/src/bot-brand.ts'),
     ]);
+    const page = [shared, overview, detail].join('\n');
 
     assert.match(nav, /id: 'bot-chat', label: '远程接入'/, 'The product-facing settings label must describe the user goal, not the implementation object');
     assert.match(page, /BOT_BRAND/, 'Bot settings must import shared per-platform brand presentation metadata');
@@ -39,7 +45,7 @@ describe('Bot settings UI contract', () => {
 
   it('puts channel diagnosis before an always-visible configuration form', async () => {
     const [page, styles] = await Promise.all([
-      readRepo('apps/desktop/src/renderer/settings/bot-chat-settings-page.tsx'),
+      readRepo('apps/desktop/src/renderer/settings/bot-chat-detail.tsx'),
       readRepo('apps/desktop/src/renderer/styles/settings/bot.css'),
     ]);
 
@@ -55,7 +61,7 @@ describe('Bot settings UI contract', () => {
 
     assert.match(
       detailBlock,
-      /<dl className="settingsBotStatusGrid" aria-label=\{`\$\{BOT_LABELS\[selected\]\.label\}运行状态`\}>/,
+      /<dl className="settingsBotStatusGrid" aria-label=\{`\$\{BOT_LABELS\[provider\]\.label\}运行状态`\}>/,
       'The selected bot platform status grid must expose a platform-specific accessible name',
     );
     assert.doesNotMatch(
@@ -74,7 +80,7 @@ describe('Bot settings UI contract', () => {
     const restartProviderBlock = settings.match(/async function restartBotProvider\(provider: BotProvider\)[\s\S]*?\n\s*async function restartChannel/)?.[0] ?? '';
     const restartChannelBlock = settings.match(/async function restartChannel\(\)[\s\S]*?\n\s*async function refreshBotStatuses/)?.[0] ?? '';
     const actionRowBlock = settings.match(/<div className="settingsBotActionStack"[\s\S]*?<\/div>/)?.[0] ?? '';
-    const switchBlock = settings.match(/<Switch\s+ariaLabel=\{`启用\$\{BOT_LABELS\[selected\]\.label\}渠道`\}[\s\S]*?\/>/)?.[0] ?? '';
+    const switchBlock = settings.match(/<Switch\s+ariaLabel=\{`启用\$\{BOT_LABELS\[provider\]\.label\}渠道`\}[\s\S]*?\/>/)?.[0] ?? '';
 
     assert.match(settings, /type BotPendingActionName = 'test' \| 'connect' \| 'restart' \| 'disconnect'/, 'Bot async actions must use a closed pending-action enum');
     assert.match(settings, /const \[pendingBotAction, setPendingBotAction\] = useState<BotPendingAction \| null>\(null\)/, 'Bot async action pending state must be explicit');
@@ -86,11 +92,11 @@ describe('Bot settings UI contract', () => {
     assert.match(settings, /function canEnableBotChannel\(readiness: BotReadinessState\): boolean\s*\{[\s\S]*credentials_valid[\s\S]*operational[\s\S]*degraded[\s\S]*\}/, 'Only validated or already-runtime-capable bot states can be enabled directly');
     assert.match(settings, /const enableSwitchDisabled = support === 'planned' \|\| \(!channel\.enabled && !canEnableBotChannel\(readiness\)\)/, 'Unchecked bot channels must keep the enable switch locked until credentials are tested');
     assert.match(settings, /先测试并连接后才能启用。/, 'Locked runtime bot channels must explain the test-first path');
-    assert.match(settings, /const enableSwitchHintId = `settings-bot-enable-hint-\$\{selected\}`/, 'Enable-lock hint must have a stable aria-describedby id');
+    assert.match(settings, /const enableSwitchHintId = `settings-bot-enable-hint-\$\{provider\}`/, 'Enable-lock hint must have a stable aria-describedby id');
     assert.match(settings, /<small id=\{enableSwitchHintId\} className="settingsBotEnableHint">/, 'Enable-lock hint must be rendered near the switch');
     assert.match(styles, /\.settingsBotEnableHint\s*\{[\s\S]*display:\s*block/, 'Enable-lock hint needs a stable visible style');
     assert.match(switchBlock, /ariaDescribedBy=\{enableSwitchHint \? enableSwitchHintId : undefined\}/, 'Disabled enable switch must point assistive tech at the reason');
-    assert.match(switchBlock, /disabled=\{enableSwitchDisabled \|\| botActionBusy\}/, 'Bot enable switch must be disabled while an owned bot action is pending');
+    assert.match(switchBlock, /disabled=\{enableSwitchDisabled \|\| props\.actionBusy\}/, 'Bot enable switch must be disabled while an owned bot action is pending');
     assert.match(testChannelBlock, /const provider = selected;[\s\S]*if \(!beginBotAction\(provider, 'test'\)\) return;[\s\S]*testBotChannel\(provider\)/, 'Separate tests must capture the provider and gate duplicate clicks before IPC');
     assert.match(testAndConnectBlock, /const provider = selected;[\s\S]*const providerChannel = props\.settings\.botChat\.channels\[provider\];[\s\S]*const providerSupport = BOT_LABELS\[provider\]\.support;[\s\S]*if \(!beginBotAction\(provider, 'connect'\)\) return;[\s\S]*testBotChannel\(provider\)/, 'Combined action must capture provider/channel/support and gate duplicate clicks before IPC');
     assert.match(testChannelBlock, /catch \(error\) \{[\s\S]*toast\.error\(`\$\{BOT_LABELS\[provider\]\.label\} 测试出错`, settingsActionErrorMessage\(error\)\)/, 'Separate bot credential tests must scrub thrown IPC failures against the captured provider');
@@ -101,10 +107,10 @@ describe('Bot settings UI contract', () => {
     assert.match(restartProviderBlock, /catch \(error\) \{[\s\S]*const message = settingsActionErrorMessage\(error\);[\s\S]*toast\.error\(`\$\{BOT_LABELS\[provider\]\.label\} 启动失败`, message\)/, 'Bot restart failures must use the Settings error scrubber against the captured provider');
     assert.match(restartChannelBlock, /if \(!beginBotAction\(provider, 'restart'\)\) return;[\s\S]*await restartBotProvider\(provider\)[\s\S]*finishBotAction\(provider, 'restart'\)/, 'Manual restart must use the shared provider-scoped pending owner');
     assert.doesNotMatch(`${testChannelBlock}\n${testAndConnectBlock}\n${restartProviderBlock}\n${restartChannelBlock}`, /error instanceof Error \? error\.message : String\(error\)/, 'Bot test/restart actions must not toast raw Error.message');
-    assert.match(actionRowBlock, /support === 'runtime' && !selectedStatus\?\.running/, 'Runtime channels that are not listening must use the combined onboarding path');
+    assert.match(actionRowBlock, /support === 'runtime' && !status\?\.running/, 'Runtime channels that are not listening must use the combined onboarding path');
     assert.match(
       actionRowBlock,
-      /<div className="settingsBotActionStack" role="group" aria-label=\{`\$\{BOT_LABELS\[selected\]\.label\}渠道操作`\}>/,
+      /<div className="settingsBotActionStack" role="group" aria-label=\{`\$\{BOT_LABELS\[provider\]\.label\}渠道操作`\}>/,
       'Selected bot platform actions must expose a platform-specific accessible group name',
     );
     assert.doesNotMatch(
@@ -118,12 +124,12 @@ describe('Bot settings UI contract', () => {
       'Bot platform action buttons must use the shared Button primitive',
     );
     assert.match(actionRowBlock, /测试并连接/, 'Runtime onboarding CTA must keep the user-facing combined action label');
-    assert.match(actionRowBlock, /selectedBotActionPending === 'connect' \? '连接中…' : '测试并连接'/, 'Runtime onboarding CTA must expose a visible connect pending state');
+    assert.match(actionRowBlock, /pendingAction === 'connect' \? '连接中…' : '测试并连接'/, 'Runtime onboarding CTA must expose a visible connect pending state');
     // PR-BOT-RESTART-RACE-0 added `|| restarting` so the button
     // doesn't unmount during the stop→start cycle. Allow the
     // parenthesized form here without abandoning the original
     // intent (running channels still get the restart action).
-    assert.match(actionRowBlock, /support === 'runtime' && \(?selectedStatus\?\.running/, 'Already-running channels must keep separate test/restart actions');
+    assert.match(actionRowBlock, /support === 'runtime' && \(?status\?\.running/, 'Already-running channels must keep separate test/restart actions');
   });
 
   it('keeps bot allowlist validation copy text-only and Chinese-first', async () => {
@@ -300,7 +306,7 @@ describe('Bot settings UI contract', () => {
     assert.match(settings, /token:\s*credentials\.botToken[\s\S]*webhookUrl:\s*credentials\.baseUrl[\s\S]*botUserId:\s*credentials\.botId/, 'Confirmed iLink credentials must be persisted into the WeChat channel');
     assert.match(
       settings,
-      /await props\.onReload\(\);[\s\S]*if \(!botPageMountedRef\.current\) return;[\s\S]*setScanLoginOpen\(false\);[\s\S]*toast\.success\('微信已扫码登录'/,
+      /await props\.onReload\(\);[\s\S]*if \(!botDetailMountedRef\.current\) return;[\s\S]*setScanLoginOpen\(false\);[\s\S]*toast\.success\('微信已扫码登录'/,
       'Confirmed WeChat scan login must not close the modal or toast success after Settings unmounts during reload',
     );
     assert.match(settings, /function WechatQrLoginModal\b/, 'WeChat scan login must render its own QR modal');
