@@ -65,16 +65,11 @@ import { applyTheme, applyThemePalette } from './theme';
 import { safeLocalStorageSet } from './browser-storage';
 import { filterSessions, readNavSelection } from './nav-selection';
 import {
-  readSessionListCollapsed,
-  readSessionListWidth,
   SESSION_LIST_COLLAPSED_WIDTH,
   SESSION_LIST_EXPANDED_MAX_WIDTH,
   SESSION_LIST_EXPANDED_MIN_WIDTH,
 } from './session-list-layout';
 import {
-  readSessionWorkbarCollapsed,
-  readSessionWorkbarTab,
-  readSessionWorkbarWidth,
   SESSION_WORKBAR_MAX_WIDTH,
   SESSION_WORKBAR_MIN_WIDTH,
 } from './session-workbar-layout';
@@ -119,6 +114,7 @@ import { useShellMemoryPill } from './use-shell-memory-pill';
 import { useShellConnections } from './use-shell-connections';
 import { useShellChatModel } from './use-shell-chat-model';
 import { useShellLiveTurn } from './use-shell-live-turn';
+import { useShellLayout } from './use-shell-layout';
 import {
   isSessionWorkspaceUnavailableError,
   showSessionWorkspaceUnavailableToast,
@@ -690,11 +686,18 @@ export function AppShell({
   const showOnboardingHero =
     sessions.length === 0 && !onboardingSettled && onboardingState !== undefined && onboardingState.kind !== 'ready_with_history';
   const onboardingComposerHidden = isOnboardingLoading || (showOnboardingHero && onboardingState !== undefined);
-  const [sessionListWidth, setSessionListWidth] = useState(() => readSessionListWidth());
-  const [sessionListCollapsed, setSessionListCollapsed] = useState(() => readSessionListCollapsed());
-  const [workbarCollapsed, setWorkbarCollapsed] = useState(() => readSessionWorkbarCollapsed());
-  const [workbarWidth, setWorkbarWidth] = useState(() => readSessionWorkbarWidth());
-  const [workbarTab, setWorkbarTab] = useState(() => readSessionWorkbarTab());
+  const {
+    sessionListWidth,
+    setSessionListWidth,
+    sessionListCollapsed,
+    setSessionListCollapsed,
+    workbarCollapsed,
+    setWorkbarCollapsed,
+    workbarWidth,
+    setWorkbarWidth,
+    workbarTab,
+    setWorkbarTab,
+  } = useShellLayout();
   const { startColumnResize, onResizeHandleKeyDown, startWorkbarResize, onWorkbarResizeHandleKeyDown } = useStableActions(createAppShellLayoutActions, {
     sessionListCollapsed,
     sessionListWidth,
