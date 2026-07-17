@@ -189,6 +189,53 @@ test('provider auth proxy totals OpenAI chat streaming usage without changing th
   }
 });
 
+test('provider auth proxy forwards streaming response headers before the first body chunk', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'maka-provider-proxy-stream-headers-'));
+  let upstreamHeadersSent!: () => void;
+  let releaseBody!: () => void;
+  const headersSent = new Promise<void>((resolve) => { upstreamHeadersSent = resolve; });
+  const bodyReleased = new Promise<void>((resolve) => { releaseBody = resolve; });
+  const upstream = createServer(async (_request, response) => {
+    response.writeHead(200, { 'content-type': 'text/event-stream' });
+    response.flushHeaders();
+    upstreamHeadersSent();
+    await bodyReleased;
+    response.end('data: [DONE]\n\n');
+  });
+  await new Promise<void>((resolve) => upstream.listen(0, '127.0.0.1', resolve));
+  const address = upstream.address();
+  assert.ok(address && typeof address !== 'string');
+  const keyFile = join(dir, 'provider-key');
+  await writeFile(keyFile, 'provider-secret-key\n', 'utf8');
+  const proxy = await startProviderAuthProxy({
+    upstreamBaseUrl: `http://127.0.0.1:${address.port}`,
+    apiKeyFile: keyFile,
+    advertisedHost: '127.0.0.1',
+  });
+  const pendingResponse = fetch(`${proxy.baseUrl}/chat/completions`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${proxy.token}` },
+    body: '{}',
+  });
+
+  try {
+    await headersSent;
+    const headersForwarded = await Promise.race([
+      pendingResponse.then(() => true),
+      new Promise<false>((resolve) => setTimeout(() => resolve(false), 250)),
+    ]);
+    releaseBody();
+    const response = await pendingResponse;
+    assert.equal(headersForwarded, true, 'proxy held response headers until the first body chunk');
+    assert.equal(await response.text(), 'data: [DONE]\n\n');
+  } finally {
+    releaseBody();
+    await proxy.close();
+    await new Promise<void>((resolve, reject) => upstream.close((error) => error ? reject(error) : resolve()));
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('provider auth proxy keeps unknown streaming usage schemas missing', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'maka-provider-proxy-unknown-usage-'));
   const upstream = createServer((_request, response) => {

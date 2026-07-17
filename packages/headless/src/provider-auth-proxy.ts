@@ -130,6 +130,7 @@ async function forwardProviderRequest(input: {
       if (!HOP_BY_HOP_HEADERS.has(name.toLowerCase())) responseHeaders[name] = value;
     });
     input.response.writeHead(upstreamResponse.status, responseHeaders);
+    input.response.flushHeaders();
     const responseUsage = input.usageProtocol
       && upstreamResponse.headers.get('content-type')?.includes('text/event-stream')
       ? new SseUsageParser(input.usageProtocol)
