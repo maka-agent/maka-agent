@@ -20,6 +20,7 @@ import { PERMISSION_MODES, type PermissionMode } from '@maka/core/permission';
 import type { ThinkingLevel } from '@maka/core/model-thinking';
 import type { InvocableSkillEntry } from '@maka/runtime';
 import type { ModelChoice } from './connection-target.js';
+import type { OnboardableProvider } from './onboarding.js';
 import { skillInvocationPrefixAt } from './skill-token.js';
 import { ansi, editorTheme, stripAnsi } from './tui-ansi.js';
 
@@ -446,6 +447,18 @@ export function skillPickerItems(skills: readonly InvocableSkillEntry[]): Select
     value: skill.id,
     label: skill.name,
     description: skill.description ? `${skill.id} · ${skill.description}` : skill.id,
+  }));
+}
+
+export function onboardableProviderPickerItems(
+  providers: readonly OnboardableProvider[],
+): SelectItem[] {
+  return providers.map((provider) => ({
+    value: provider.providerType,
+    label: provider.label,
+    description: provider.requiresBaseUrl
+      ? `${provider.providerType} · custom endpoint`
+      : provider.providerType,
   }));
 }
 

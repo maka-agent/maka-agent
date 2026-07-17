@@ -253,6 +253,100 @@ describe('Maka Pi TUI runner', () => {
     }
   });
 
+  test('/setup opens a provider picker listing API-key providers', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'bypass',
+      terminal,
+    });
+
+    await delay(20);
+    terminal.input('/setup');
+    terminal.input('\r');
+
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), 'Set Up Provider') !== null;
+      } catch {
+        return false;
+      }
+    });
+
+    const output = plainTerminalOutput(terminal.writes.join(''));
+    assert.ok(
+      output.includes('Anthropic') || output.includes('OpenAI'),
+      'provider picker should list an API-key provider',
+    );
+
+    terminal.input('\x1b');
+    await delay(30);
+    terminal.input('/exit');
+    terminal.input('\r');
+    await Promise.race([
+      run,
+      delay(500).then(() => { throw new Error('TUI did not close after /exit'); }),
+    ]);
+  });
+
+  test('/setup collects an API key after picking a provider and calls onboarding.setup', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const setupCalls: Array<{ providerType: string; apiKey: string }> = [];
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'bypass',
+      terminal,
+      onboarding: {
+        setup: async (req) => { setupCalls.push(req); },
+      },
+    });
+
+    await delay(20);
+    terminal.input('/setup');
+    terminal.input('\r');
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), 'Set Up Provider') !== null;
+      } catch {
+        return false;
+      }
+    });
+
+    // Enter picks the highlighted provider; the wizard then asks for the API key.
+    terminal.input('\r');
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), 'API key') !== null;
+      } catch {
+        return false;
+      }
+    });
+
+    // Submitting the key fires onboarding.setup instead of an agent turn.
+    terminal.input('sk-test');
+    terminal.input('\r');
+    await waitFor(() => setupCalls.length === 1);
+
+    assert.equal(setupCalls[0]!.apiKey, 'sk-test');
+    assert.ok(setupCalls[0]!.providerType);
+
+    process.emit('SIGTERM');
+    await Promise.race([
+      run,
+      delay(500).then(() => { throw new Error('TUI did not close after SIGTERM'); }),
+    ]);
+  });
+
   test('allows a pending permission request from the terminal', async () => {
     const terminal = new FakeTerminal();
     const driver = new PermissionPromptDriver();
@@ -2161,12 +2255,14 @@ describe('Maka Pi TUI runner', () => {
     const afterRows = inputSurfaceRows(afterLines);
     const afterSessionRow = afterLines.findIndex((line) => line.includes('/session'));
     const afterSkillRow = afterLines.findIndex((line) => line.includes('/skill'));
+    const afterSetupRow = afterLines.findIndex((line) => line.includes('/setup'));
 
     assert.ok(beforeSessionRow >= 0);
     assert.deepEqual(afterRows, beforeRows);
-    // The 's' filter matches two commands — /session then /skill — bottom-aligned.
+    // The 's' filter matches three commands — /session, /setup, /skill — bottom-aligned.
     assert.equal(afterSkillRow, afterRows[0] - 1);
-    assert.equal(afterSessionRow, afterRows[0] - 2);
+    assert.equal(afterSetupRow, afterRows[0] - 2);
+    assert.equal(afterSessionRow, afterRows[0] - 3);
 
     exitMaka(terminal);
     await Promise.race([
@@ -2213,11 +2309,13 @@ describe('Maka Pi TUI runner', () => {
     const afterRows = inputSurfaceRows(afterLines);
     const afterSessionRow = afterLines.findIndex((line) => line.includes('/session'));
     const afterSkillRow = afterLines.findIndex((line) => line.includes('/skill'));
+    const afterSetupRow = afterLines.findIndex((line) => line.includes('/setup'));
 
     assert.deepEqual(afterRows, beforeRows);
     assert.equal(afterRows[1], terminal.rows - 2);
     assert.equal(afterSkillRow, afterRows[0] - 1);
-    assert.equal(afterSessionRow, afterRows[0] - 2);
+    assert.equal(afterSetupRow, afterRows[0] - 2);
+    assert.equal(afterSessionRow, afterRows[0] - 3);
 
     exitMaka(terminal);
     await Promise.race([

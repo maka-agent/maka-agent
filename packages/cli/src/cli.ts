@@ -154,6 +154,7 @@ export async function runMakaCli(argv: string[] = process.argv.slice(2)): Promis
           listShellRunUpdates: context.listShellRunUpdates,
           skills: context.skills,
           goalLifecycle: context.goalContinuation,
+          onboarding: context.onboarding,
           onProcessExit: handleMakaCliProcessExit,
         });
         return 0;

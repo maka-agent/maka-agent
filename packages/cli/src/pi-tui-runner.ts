@@ -15,7 +15,7 @@ import {
 } from '@earendil-works/pi-tui';
 import { PERMISSION_MODES, isPermissionMode, type PermissionMode } from '@maka/core/permission';
 import { isThinkingLevel, thinkingVariantsForModel, type ThinkingLevel } from '@maka/core/model-thinking';
-import type { ProviderType } from '@maka/core/llm-connections';
+import { PROVIDER_DEFAULTS, type ProviderType } from '@maka/core/llm-connections';
 import {
   ShellRunUpdateBuffer,
   mergeShellRunUpdate,
@@ -24,6 +24,7 @@ import {
 } from '@maka/core';
 import type { GoalTurnOutcome, SessionActivityLease } from '@maka/runtime';
 import type { ModelChoice } from './connection-target.js';
+import { listApiKeyOnboardableProviders, type MakaOnboardingSurface } from './onboarding.js';
 import type { MakaCliSkillSurface } from './runtime-bootstrap.js';
 import {
   composeSkillInvocationMessage,
@@ -82,6 +83,7 @@ import {
   MakaAutocompleteProvider,
   PickerOverlay,
   UserQuestionOverlay,
+  onboardableProviderPickerItems,
   modelChoicePickerItems,
   modelPickerItems,
   permissionModePickerItems,
@@ -132,6 +134,9 @@ export interface MakaPiTuiInput {
   skills?: MakaCliSkillSurface;
   /** Mandatory turn ownership shared with CLI Automation and Goal continuation. */
   goalLifecycle: MakaPiTuiGoalLifecycle;
+  /** API-key onboarding surface (#1098). When present, /setup runs the wizard
+   *  and calls setup() with the chosen provider + key; the host owns the stores. */
+  onboarding?: MakaOnboardingSurface;
 }
 
 export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
@@ -783,7 +788,34 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     requestRender();
   };
 
+  let pendingKeyEntry: { providerType: ProviderType } | undefined;
+
   editor.onSubmit = (prompt) => {
+    if (pendingKeyEntry) {
+      const entry = pendingKeyEntry;
+      pendingKeyEntry = undefined;
+      const providerLabel = PROVIDER_DEFAULTS[entry.providerType]?.label ?? entry.providerType;
+      void input.onboarding?.setup({ providerType: entry.providerType, apiKey: prompt }).then(
+        () => {
+          state.entries.push({
+            kind: 'notice',
+            level: 'info',
+            text: `已配置 ${providerLabel}。使用 /model 选择模型，或直接开始对话。`,
+          });
+          requestRender();
+        },
+        (error) => {
+          pendingKeyEntry = entry;
+          state.entries.push({
+            kind: 'notice',
+            level: 'error',
+            text: `配置失败：${error instanceof Error ? error.message : String(error)}`,
+          });
+          requestRender();
+        },
+      );
+      return;
+    }
     if (turnRunning) {
       steerRunningTurn(prompt);
       return;
@@ -1453,6 +1485,49 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
           return;
         }
         void showSkillList();
+      },
+    },
+    {
+      name: 'setup',
+      description: 'Set up a model provider (API key)',
+      run: (parts: string[]) => {
+        if (parts.length !== 1) {
+          state.entries.push({
+            kind: 'notice',
+            level: 'error',
+            text: 'Usage: /setup',
+          });
+          requestRender();
+          return;
+        }
+        const providers = listApiKeyOnboardableProviders();
+        if (providers.length === 0) {
+          state.entries.push({
+            kind: 'notice',
+            level: 'info',
+            text: '没有可配置的 API key 类供应商。',
+          });
+          requestRender();
+          return;
+        }
+        showSelectPicker(
+          'Set Up Provider',
+          String(providers.length),
+          onboardableProviderPickerItems(providers),
+          (item) => {
+            if (!input.onboarding) return;
+            const providerType = item.value as ProviderType;
+            const label = PROVIDER_DEFAULTS[providerType]?.label ?? providerType;
+            pendingKeyEntry = { providerType };
+            state.entries.push({
+              kind: 'notice',
+              level: 'info',
+              text: `请输入 ${label} 的 API key，按回车提交（仅本机存储）。`,
+            });
+            requestRender();
+          },
+          { minPrimaryColumnWidth: 16, maxPrimaryColumnWidth: 32 },
+        );
       },
     },
     {
