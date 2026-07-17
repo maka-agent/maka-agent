@@ -185,69 +185,6 @@ describe('legacy safeStorage token file import (one-shot)', () => {
     await assert.rejects(stat(filePath), { code: 'ENOENT' });
   });
 
-  it('rolls back an import when logout removes an initially unowned legacy file', async () => {
-    const workspaceRoot = await makeWorkspace();
-    const store = createFileCredentialStore(workspaceRoot);
-    const filePath = join(workspaceRoot, '.claude_subscription_token');
-    await writeFile(filePath, encryptedTokenFileContents(TOKENS));
-    let compareAndSetCalls = 0;
-    assert.ok(store.compareAndSetSecret);
-    const racingStore: CredentialStore = {
-      getSecret: (slug, kind) => store.getSecret(slug, kind),
-      setSecret: (slug, kind, value) => store.setSecret(slug, kind, value),
-      deleteSecret: (slug, kind) => store.deleteSecret(slug, kind),
-      compareAndSetSecret: async (slug, kind, expected, value) => {
-        compareAndSetCalls += 1;
-        if (compareAndSetCalls === 1) {
-          await unlink(filePath);
-          await store.deleteSecret(slug, kind);
-        }
-        return store.compareAndSetSecret!(slug, kind, expected, value);
-      },
-    };
-
-    const reports = await importLegacyOAuthTokenFiles({
-      credentialStore: racingStore,
-      decryptor: fakeDecryptor(),
-      files: [{ slug: 'claude-subscription', filePath }],
-    });
-
-    assert.equal(await store.getSecret('claude-subscription', 'oauth_token'), null);
-    assert.deepEqual(reports.map((report) => report.outcome), ['superseded']);
-    await assert.rejects(stat(filePath), { code: 'ENOENT' });
-  });
-
-  it('does not roll back a concurrent replacement after the legacy file disappears', async () => {
-    const workspaceRoot = await makeWorkspace();
-    const store = createFileCredentialStore(workspaceRoot);
-    const filePath = join(workspaceRoot, '.claude_subscription_token');
-    const replacement = JSON.stringify({ ...TOKENS, access_token: 'concurrent-replacement' });
-    await writeFile(filePath, encryptedTokenFileContents(TOKENS));
-    let compareAndSetCalls = 0;
-    assert.ok(store.compareAndSetSecret);
-    const racingStore: CredentialStore = {
-      getSecret: (slug, kind) => store.getSecret(slug, kind),
-      setSecret: (slug, kind, value) => store.setSecret(slug, kind, value),
-      deleteSecret: (slug, kind) => store.deleteSecret(slug, kind),
-      compareAndSetSecret: async (slug, kind, expected, value) => {
-        compareAndSetCalls += 1;
-        if (compareAndSetCalls === 1) await unlink(filePath);
-        if (compareAndSetCalls === 2) await store.setSecret(slug, kind, replacement);
-        return store.compareAndSetSecret!(slug, kind, expected, value);
-      },
-    };
-
-    const reports = await importLegacyOAuthTokenFiles({
-      credentialStore: racingStore,
-      decryptor: fakeDecryptor(),
-      files: [{ slug: 'claude-subscription', filePath }],
-    });
-
-    assert.equal(await store.getSecret('claude-subscription', 'oauth_token'), replacement);
-    assert.deepEqual(reports.map((report) => report.outcome), ['superseded']);
-    assert.equal(compareAndSetCalls, 2);
-  });
-
   it('does not rebase a legacy import over an unparseable concurrent write', async () => {
     const workspaceRoot = await makeWorkspace();
     const store = createFileCredentialStore(workspaceRoot);

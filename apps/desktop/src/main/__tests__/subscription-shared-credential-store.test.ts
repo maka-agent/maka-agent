@@ -136,4 +136,23 @@ describe('OAuth subscription token authority (shared CredentialStore)', () => {
       );
     }
   });
+
+  it('finishes credential migration before the first window can issue OAuth mutations', async () => {
+    const src = await readFile(resolve(DESKTOP_ROOT, 'src', 'main', 'main.ts'), 'utf8');
+    const credentialStartup = src.indexOf('await runCredentialStartup();');
+    const backgroundStartup = src.indexOf('const backgroundStartup = runBackgroundStartup();');
+    const createWindow = src.indexOf('await mainWindowController.createWindow();', backgroundStartup);
+    const secondInstance = src.indexOf("app.on('second-instance', focusOrCreateMainWindow);");
+    const activate = src.indexOf("app.on('activate', focusOrCreateMainWindow);");
+
+    assert.notEqual(credentialStartup, -1, 'startup must expose an awaited credential migration phase');
+    assert.ok(
+      credentialStartup < backgroundStartup && backgroundStartup < createWindow,
+      'credential migration must finish before background startup opens the interactive window',
+    );
+    assert.ok(
+      credentialStartup < secondInstance && credentialStartup < activate,
+      'window-creation events must not be registered until credential migration finishes',
+    );
+  });
 });

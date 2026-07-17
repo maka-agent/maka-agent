@@ -508,7 +508,6 @@ function focusOrCreateMainWindow(): void {
     void mainWindowController.createWindow();
   }
 }
-app.on('second-instance', focusOrCreateMainWindow);
 const safeSendToRenderer = mainWindowController.send;
 taskLedgerStore.subscribe((event) => safeSendToRenderer('tasks:changed', event));
 const openGateway = new OpenGatewayService({
@@ -1446,12 +1445,11 @@ app.whenReady().then(async () => {
     }
   }
 
-  // Launch the window as early as possible so the user sees the app
-  // chrome (preload skeleton + backgroundColor) within milliseconds of
-  // launch. Everything below — credential migration, connection
-  // bootstrapping, telemetry/pricing load, interrupted-session recovery,
-  // bot bridges, gateway, schedulers — runs concurrently in the
-  // background and never blocks the first paint. The renderer's first
+  // Credential migration is the one startup phase that must finish before an
+  // interactive window exists: OAuth logout is otherwise able to race the
+  // one-shot legacy import. The work is local and normally a missing-file
+  // check; all non-critical startup below still runs behind the first paint.
+  // The renderer's first
   // IPC calls (session enumeration, settings read, connection listing)
   // all read from stores that are initialized synchronously at module load,
   // so they succeed regardless of whether background startup has
@@ -1469,6 +1467,9 @@ app.whenReady().then(async () => {
     console.log(`[visual-smoke] scenario=${visualSmokeFixture.scenario} workspace=${workspaceRoot}`);
     await seedVisualSmokeFixture({ workspaceRoot, fixture: visualSmokeFixture, credentialStore });
   }
+  await runCredentialStartup();
+  app.on('second-instance', focusOrCreateMainWindow);
+  app.on('activate', focusOrCreateMainWindow);
   const backgroundStartup = runBackgroundStartup();
   await mainWindowController.createWindow();
   // Keep the process alive until background work settles so schedulers
@@ -1476,18 +1477,7 @@ app.whenReady().then(async () => {
   await backgroundStartup;
 });
 
-/**
- * Non-critical startup work that must NOT block the first window paint.
- *
- * Order matters within this routine: `migrateLegacyCredentials` and
- * `ensureBootstrapConnection` touch the credential store, so they run
- * first; `setActiveProxy` must be applied before any network-bearing
- * step (`botRegistry.applySettings`, `openGateway.sync`); pricing depends
- * on `telemetryRepo.load()`. Everything here is best-effort and logged
- * on failure — none of it should prevent the user from seeing and
- * interacting with the app shell.
- */
-async function runBackgroundStartup(): Promise<void> {
+async function runCredentialStartup(): Promise<void> {
   // One-time migration of credentials.json off Electron safeStorage so
   // the pure-Node runtime can read it (issue #32). Runs before any
   // credential read/write below; failure is non-fatal (legacy file is
@@ -1520,6 +1510,18 @@ async function runBackgroundStartup(): Promise<void> {
   } catch (error) {
     console.error('[credentials] legacy OAuth token import failed; files left intact:', error);
   }
+}
+
+/**
+ * Non-critical startup work that must NOT block the first window paint.
+ *
+ * `setActiveProxy` must be applied before any network-bearing step
+ * (`botRegistry.applySettings`, `openGateway.sync`); pricing depends on
+ * `telemetryRepo.load()`. Everything here is best-effort and logged on
+ * failure — none of it should prevent the user from seeing and interacting
+ * with the app shell.
+ */
+async function runBackgroundStartup(): Promise<void> {
   // Visual-smoke seeding happens synchronously in `whenReady` before the
   // window opens (see there for why); only the real bootstrap runs here.
   if (!visualSmokeFixture) {
@@ -1586,5 +1588,3 @@ function computerUseCapabilityInput() {
     health: computerUseServiceHealth(computerUse.backendId, serviceState),
   };
 }
-
-app.on('activate', focusOrCreateMainWindow);

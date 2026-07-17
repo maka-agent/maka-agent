@@ -123,6 +123,8 @@ export interface LegacyOAuthTokenImportReport {
  * recovery), because the import must never destroy the last copy without
  * an authoritative replacement or deletion. Never throws — desktop startup
  * treats migration as best-effort; returns a report per file that existed.
+ * The startup owner completes this one-shot phase before exposing interactive
+ * OAuth mutations; CAS protects it from independent shared-store writers.
  */
 export async function importLegacyOAuthTokenFiles(input: {
   credentialStore: Pick<CredentialStore, 'getSecret' | 'setSecret' | 'compareAndSetSecret'>;
@@ -192,7 +194,6 @@ export async function importLegacyOAuthTokenFiles(input: {
         continue;
       }
       const serialized = serializeOAuthSubscriptionTokens(tokens);
-      let committedByImport = false;
       if (input.credentialStore.compareAndSetSecret) {
         const committed = await input.credentialStore.compareAndSetSecret(
           slug,
@@ -209,41 +210,10 @@ export async function importLegacyOAuthTokenFiles(input: {
           }
           continue;
         }
-        committedByImport = true;
       } else {
         await input.credentialStore.setSecret(slug, 'oauth_token', serialized);
       }
-      try {
-        await fs.unlink(filePath);
-      } catch (error) {
-        if (
-          (error as NodeJS.ErrnoException).code === 'ENOENT'
-          && committedByImport
-          && input.credentialStore.compareAndSetSecret
-        ) {
-          // Logout removes the legacy file before deleting the shared token. If
-          // it won after this import buffered the file but before our CAS, undo
-          // only the exact value this import committed. A concurrent replacement
-          // makes the rollback lose and remains authoritative.
-          const rolledBack = await input.credentialStore.compareAndSetSecret(
-            slug,
-            'oauth_token',
-            serialized,
-            null,
-          );
-          if (
-            rolledBack.committed
-            || rolledBack.current === null
-            || parseOAuthSubscriptionTokens(rolledBack.current)
-          ) {
-            report('superseded');
-          } else {
-            report('failed', new Error('OAuth credential changed during legacy import rollback.'));
-          }
-          continue;
-        }
-        throw error;
-      }
+      await fs.unlink(filePath);
       report('imported');
     } catch (error) {
       report('failed', error);

@@ -245,23 +245,6 @@ describe('FileCredentialStore compareAndSetSecret', () => {
     });
   });
 
-  test('conditionally deletes when the basis still matches', async () => {
-    await withTempDir(async (dir) => {
-      const store = createFileCredentialStore(dir);
-      await store.setSecret('acct', 'oauth_token', 'tok-basis');
-      assert.ok(store.compareAndSetSecret);
-
-      const result = await store.compareAndSetSecret('acct', 'oauth_token', 'tok-basis', null);
-
-      assert.deepEqual(result, { committed: true });
-      assert.equal(await createFileCredentialStore(dir).getSecret('acct', 'oauth_token'), null);
-      const persisted = JSON.parse(await readFile(join(dir, 'credentials.json'), 'utf8')) as {
-        values: Record<string, unknown>;
-      };
-      assert.equal('acct:oauth_token' in persisted.values, false);
-    });
-  });
-
   test('commits a write-if-absent (expected null) only while the entry is absent', async () => {
     await withTempDir(async (dir) => {
       // The one-shot legacy import: decide "store has no token" and write in one

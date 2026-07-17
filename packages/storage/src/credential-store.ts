@@ -74,10 +74,11 @@ export interface CredentialStore {
    *  connection being removed). */
   deleteSecret(slug: string, kind?: CredentialKind): Promise<void>;
   /**
-   * Optional compare-and-set mutation. Persist `value` for `(slug, kind)` only
+   * Optional compare-and-set write. Persist `value` for `(slug, kind)` only
    * while the stored entry still equals `expected` — the basis the caller read
    * before deciding to write. `expected: null` asserts the entry is absent, for
-   * a write-if-not-present; `value: null` conditionally deletes the entry.
+   * a write-if-not-present (e.g. the one-shot legacy import deciding "store
+   * already has a token" and writing inside one serialized step).
    *
    * The basis check and the write run together under the same cross-process
    * lock as `setSecret`, so no concurrent writer can slip in between them; the
@@ -93,7 +94,7 @@ export interface CredentialStore {
     slug: string,
     kind: CredentialKind,
     expected: string | null,
-    value: string | null,
+    value: string,
   ): Promise<CredentialCasResult>;
 }
 
@@ -257,7 +258,7 @@ class FileCredentialStore implements CredentialStore {
     slug: string,
     kind: CredentialKind,
     expected: string | null,
-    value: string | null,
+    value: string,
   ): Promise<CredentialCasResult> {
     const key = this.key(slug, toStoredKind(kind));
     return withCredentialFileLock(this.path, async () => {
@@ -267,8 +268,7 @@ class FileCredentialStore implements CredentialStore {
       if (current !== expected) {
         return { committed: false, current };
       }
-      if (value === null) delete file.values[key];
-      else file.values[key] = value;
+      file.values[key] = value;
       await this.write(file);
       return { committed: true };
     });
