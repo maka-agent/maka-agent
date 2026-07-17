@@ -20,8 +20,10 @@ import { isAbsolute, relative, sep } from 'node:path';
  * - `workspace-executor.ts`, `filesystem-worker/operations.ts`, and
  *   `additional-permissions.ts` each define a local `isInside`-style check
  *   with bare-`startsWith('..')` ({@link isContainedPath}) semantics.
- * - `system-prompt/workspace-instructions.ts` exports `isPathInside`, a
- *   cross-platform-tested equivalent of {@link isInside} under default args.
+ * - {@link isPathInside} (moved here from `system-prompt/workspace-instructions.ts`)
+ *   is the cross-platform-tested, `pathApi`-injectable form of this check and
+ *   the intended single home for the separator-aware family once the bare-
+ *   `startsWith('..')` variants below migrate to it.
  */
 
 /**
@@ -44,10 +46,41 @@ export function isSafeSkillId(value: string): boolean {
  * `root`. Rejects only an exact `..` or a `..<sep>`-prefixed relative path, so
  * a child entry whose own name starts with `..` stays inside. See the module
  * note on why this differs from {@link isContainedPath}.
+ *
+ * Prefer {@link isPathInside} for new code: it is the same check with an
+ * injectable `pathApi` and an explicit cross-drive guard, and is intended to
+ * replace both this and {@link isContainedPath} once callers migrate.
  */
 export function isInside(root: string, target: string): boolean {
   const rel = relative(root, target);
   return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
+}
+
+/** Path primitives {@link isPathInside} uses, injectable for cross-platform tests. */
+export interface PathInsideApi {
+  relative: typeof relative;
+  isAbsolute: typeof isAbsolute;
+  sep: string;
+}
+
+/**
+ * Separator-aware containment check with an injectable `pathApi`: true when
+ * `target` is inside (or equal to) `root`. Moved here from
+ * `system-prompt/workspace-instructions.ts` so the separator-aware family has
+ * one home; defaults use the host `node:path`. The injectable primitives make
+ * the Windows cross-drive case and POSIX sandbox paths testable.
+ */
+export function isPathInside(root: string, target: string, pathApi: PathInsideApi = { relative, isAbsolute, sep }): boolean {
+  const rel = pathApi.relative(root, target);
+  // path.relative returns the target path unchanged (absolute) when root and
+  // target are on different drives on Windows. An absolute result means the
+  // target is not reachable from root via a relative path, so reject it before
+  // the `..` escape check.
+  if (pathApi.isAbsolute(rel)) return false;
+  // Reject only a real parent-reference segment: the exact ".." or a path
+  // starting with `..${sep}`. A leading ".." followed by anything else (e.g.
+  // "..rules") is a legitimate directory name, not an escape.
+  return rel === '' || (rel !== '..' && !rel.startsWith(`..${pathApi.sep}`));
 }
 
 /** Relative POSIX path from `root` to `target`, or `.` when they are equal. */

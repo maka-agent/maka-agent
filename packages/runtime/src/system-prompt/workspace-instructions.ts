@@ -1,5 +1,6 @@
 import { readFile, realpath } from 'node:fs/promises';
-import { isAbsolute, join, relative, sep } from 'node:path';
+import { join } from 'node:path';
+import { isPathInside } from '../path-containment.js';
 
 /**
  * Read-only workspace-instruction prompt fragment.
@@ -166,23 +167,4 @@ function truncateCodepoints(text: string, max: number): string {
   const chars = Array.from(text);
   if (chars.length <= max) return text;
   return chars.slice(0, Math.max(0, max)).join('');
-}
-
-export interface PathInsideApi {
-  relative: typeof relative;
-  isAbsolute: typeof isAbsolute;
-  sep: string;
-}
-
-export function isPathInside(root: string, target: string, pathApi: PathInsideApi = { relative, isAbsolute, sep }): boolean {
-  const rel = pathApi.relative(root, target);
-  // path.relative returns the target path unchanged (absolute) when root and
-  // target are on different drives on Windows. An absolute result means the
-  // target is not reachable from root via a relative path, so reject it before
-  // the `..` escape check.
-  if (pathApi.isAbsolute(rel)) return false;
-  // Reject only a real parent-reference segment: the exact ".." or a path
-  // starting with `..${sep}`. A leading ".." followed by anything else (e.g.
-  // "..rules") is a legitimate directory name, not an escape.
-  return rel === '' || (rel !== '..' && !rel.startsWith(`..${pathApi.sep}`));
 }

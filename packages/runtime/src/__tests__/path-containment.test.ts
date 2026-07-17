@@ -1,7 +1,7 @@
 import { strict as assert } from 'node:assert';
 import { win32, posix } from 'node:path';
 import { describe, test } from 'node:test';
-import { isPathInside } from '../system-prompt/workspace-instructions.js';
+import { isPathInside } from '../path-containment.js';
 
 describe('isPathInside', () => {
   test('rejects cross-drive Windows targets (different drive is not inside root)', () => {

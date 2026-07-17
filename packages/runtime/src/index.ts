@@ -932,7 +932,6 @@ export type {
 export {
   buildWorkspaceInstructionsPromptFragment,
   getWorkspaceInstructionsState,
-  isPathInside,
   WORKSPACE_INSTRUCTION_FILES,
   MAX_WORKSPACE_INSTRUCTION_FILE_CHARS,
   MAX_WORKSPACE_INSTRUCTIONS_PROMPT_CHARS,
@@ -941,7 +940,6 @@ export type {
   WorkspaceInstructionFileStatus,
   WorkspaceInstructionFileState,
   WorkspaceInstructionsState,
-  PathInsideApi,
 } from './system-prompt/workspace-instructions.js';
 export {
   buildPersonalizationPromptFragment,
@@ -1045,8 +1043,10 @@ export {
   isContainedPath,
   isSafeSkillId,
   isInside,
+  isPathInside,
   toRelative,
 } from './path-containment.js';
+export type { PathInsideApi } from './path-containment.js';
 export type {
   SkillRuntimeStatus,
   SkillManifest,
