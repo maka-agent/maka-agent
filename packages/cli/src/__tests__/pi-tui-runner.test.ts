@@ -581,6 +581,169 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('onboarding wizard filters the provider list as you type in the search field', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: '',
+      connectionSlug: '',
+      permissionMode: 'bypass',
+      terminal,
+      firstRun: true,
+      onboarding: { setup: async () => ({}) },
+    });
+
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), 'Set Up Provider') !== null;
+      } catch {
+        return false;
+      }
+    });
+    const before = plainTerminalOutput(terminal.screenOutput());
+    assert.ok(before.includes('Anthropic'));
+    assert.ok(before.includes('DeepSeek'));
+
+    // Typing in the wizard's search field filters the provider list live: the
+    // unmatched providers leave the list while the match stays.
+    terminal.input('anth');
+    await waitFor(() => {
+      const out = plainTerminalOutput(terminal.screenOutput());
+      return out.includes('Anthropic') && !out.includes('DeepSeek');
+    });
+
+    process.emit('SIGTERM');
+    await Promise.race([
+      run,
+      delay(500).then(() => { throw new Error('TUI did not close after SIGTERM'); }),
+    ]);
+  });
+
+  test('onboarding wizard keeps verifying/failure status beside the input, out of the transcript', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const setupCalls: Array<{ apiKey: string }> = [];
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'bypass',
+      terminal,
+      onboarding: {
+        setup: async (req) => {
+          setupCalls.push({ apiKey: req.apiKey });
+          return setupCalls.length === 1 ? { testError: 'HTTP 401 Unauthorized' } : {};
+        },
+      },
+    });
+
+    await delay(20);
+    terminal.input('/setup');
+    terminal.input('\r');
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), 'Set Up Provider') !== null;
+      } catch {
+        return false;
+      }
+    });
+    terminal.input('\r'); // pick the highlighted provider -> key phase
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), 'API key') !== null;
+      } catch {
+        return false;
+      }
+    });
+
+    // A failing probe surfaces the error beside the key field (wizard overlay).
+    terminal.input('sk-bad');
+    terminal.input('\r');
+    await waitFor(() => setupCalls.length === 1);
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), '验证失败') !== null;
+      } catch {
+        return false;
+      }
+    });
+
+    // A succeeding retry closes the wizard. The in-flight failure status lived
+    // only in the overlay, so once it closes it leaves no residue in the
+    // transcript — only the completed-configuration event remains on screen.
+    terminal.input('sk-good');
+    terminal.input('\r');
+    await waitFor(() => setupCalls.length === 2);
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), '已配置') !== null;
+      } catch {
+        return false;
+      }
+    });
+
+    assert.doesNotMatch(plainTerminalOutput(terminal.screenOutput()), /验证失败/);
+
+    process.emit('SIGTERM');
+    await Promise.race([
+      run,
+      delay(500).then(() => { throw new Error('TUI did not close after SIGTERM'); }),
+    ]);
+  });
+
+  test('onboarding wizard key Esc returns to the provider search', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'bypass',
+      terminal,
+      onboarding: { setup: async () => ({}) },
+    });
+
+    await delay(20);
+    terminal.input('/setup');
+    terminal.input('\r');
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), 'Set Up Provider') !== null;
+      } catch {
+        return false;
+      }
+    });
+    terminal.input('\r'); // pick the highlighted provider -> key phase
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), 'API key') !== null;
+      } catch {
+        return false;
+      }
+    });
+
+    // Esc from the key field returns to the search phase: the step marker is
+    // back to 1/2 and the provider list is visible again.
+    terminal.input('\x1b');
+    await waitFor(() => {
+      const out = plainTerminalOutput(terminal.screenOutput());
+      return out.includes('1/2') && out.includes('Anthropic');
+    });
+
+    process.emit('SIGTERM');
+    await Promise.race([
+      run,
+      delay(500).then(() => { throw new Error('TUI did not close after SIGTERM'); }),
+    ]);
+  });
+
   test('allows a pending permission request from the terminal', async () => {
     const terminal = new FakeTerminal();
     const driver = new PermissionPromptDriver();

@@ -82,9 +82,9 @@ import {
 } from './pi-tui-layout.js';
 import {
   MakaAutocompleteProvider,
+  OnboardingWizard,
   PickerOverlay,
   UserQuestionOverlay,
-  onboardableProviderPickerItems,
   modelChoicePickerItems,
   modelPickerItems,
   permissionModePickerItems,
@@ -823,73 +823,14 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     requestRender();
   };
 
-  let pendingKeyEntry: { providerType: ProviderType } | undefined;
+  // Onboarding wizard (#1098 UX redesign): one overlay spans provider search
+  // → API key entry, keeping every prompt/verifying/failure notice beside the
+  // input field instead of the transcript entry flow.
+  let wizardOverlay: OverlayHandle | undefined;
+  let wizard: OnboardingWizard | undefined;
+  let wizardProviderType: ProviderType | undefined;
 
   editor.onSubmit = (prompt) => {
-    if (pendingKeyEntry) {
-      const entry = pendingKeyEntry;
-      // A slash command while the key prompt is armed is routed as a command,
-      // not swallowed as an API key (e.g. /exit must still work).
-      if (prompt.startsWith('/')) {
-        pendingKeyEntry = undefined;
-        handleSlashCommand(prompt);
-        return;
-      }
-      pendingKeyEntry = undefined;
-      if (!input.onboarding) {
-        // Minimal host without an onboarding surface cannot collect a key.
-        state.entries.push({
-          kind: 'notice',
-          level: 'error',
-          text: 'Onboarding 不可用：当前运行环境未提供配置入口。',
-        });
-        requestRender();
-        return;
-      }
-      const providerLabel = PROVIDER_DEFAULTS[entry.providerType]?.label ?? entry.providerType;
-      void input.onboarding.setup({ providerType: entry.providerType, apiKey: prompt }).then(
-        (result) => {
-          if (result.testError) {
-            // Saved but the probe failed (wrong key / offline). Re-arm the key
-            // prompt so the user retries in place — the upsert rotates the key.
-            state.entries.push({
-              kind: 'notice',
-              level: 'error',
-              text: `API key 验证失败：${result.testError}。请检查后重新输入。`,
-            });
-            pendingKeyEntry = entry;
-            requestRender();
-            return;
-          }
-          if (input.firstRun) {
-            beginClose();
-            return;
-          }
-          state.entries.push({
-            kind: 'notice',
-            level: 'info',
-            text: `已配置 ${providerLabel}。新连接将在下次启动 maka 时生效。`,
-          });
-          requestRender();
-        },
-        (error) => {
-          pendingKeyEntry = entry;
-          state.entries.push({
-            kind: 'notice',
-            level: 'error',
-            text: `配置失败：${error instanceof Error ? error.message : String(error)}`,
-          });
-          requestRender();
-        },
-      );
-      return;
-    }
-    if (input.firstRun) {
-      // First-run mode: no agent turn is possible before a connection exists.
-      // Re-open the picker so the only exits are configure or cancel (Esc).
-      showSetupPicker();
-      return;
-    }
     if (turnRunning) {
       steerRunningTurn(prompt);
       return;
@@ -1270,7 +1211,65 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     overlay = showBottomPicker(picker);
   };
 
-  const showSetupPicker = () => {
+  const closeWizard = (): void => {
+    wizardOverlay?.hide();
+    wizardOverlay = undefined;
+    wizard = undefined;
+    wizardProviderType = undefined;
+  };
+
+  // Key submit from the wizard. Slash commands route as commands (so /exit
+  // still escapes the wizard) instead of being stored as an API key; every
+  // in-flight state stays inside the wizard overlay, never the transcript.
+  const submitWizardKey = (apiKey: string): void => {
+    const providerType = wizardProviderType;
+    if (!providerType || !wizard) return;
+    if (apiKey.startsWith('/')) {
+      closeWizard();
+      handleSlashCommand(apiKey);
+      return;
+    }
+    if (!input.onboarding) {
+      wizard.setResult({ kind: 'error', text: 'Onboarding 不可用：当前运行环境未提供配置入口。' });
+      requestRender();
+      return;
+    }
+    wizard.setVerifying();
+    requestRender();
+    void input.onboarding.setup({ providerType, apiKey }).then(
+      (result) => {
+        if (!wizard) return;
+        if (result.testError) {
+          // Probe failed: re-arm the key field in place — the upsert rotates
+          // the key, so retrying does not throw "slug already exists".
+          wizard.setResult({ kind: 'error', text: `API key 验证失败：${result.testError}。请检查后重新输入。` });
+          requestRender();
+          return;
+        }
+        const label = PROVIDER_DEFAULTS[providerType]?.label ?? providerType;
+        if (input.firstRun) {
+          beginClose();
+          return;
+        }
+        // The wizard's in-flight notices never reached the transcript; only the
+        // completed configuration is recorded as an event for the next launch.
+        closeWizard();
+        state.entries.push({
+          kind: 'notice',
+          level: 'info',
+          text: `已配置 ${label}。新连接将在下次启动 maka 时生效。`,
+        });
+        requestRender();
+      },
+      (error) => {
+        if (!wizard) return;
+        wizard.setResult({ kind: 'error', text: `配置失败：${error instanceof Error ? error.message : String(error)}` });
+        requestRender();
+      },
+    );
+  };
+
+  const showSetupWizard = (): void => {
     const providers = listApiKeyOnboardableProviders();
     if (providers.length === 0) {
       state.entries.push({
@@ -1281,23 +1280,26 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       requestRender();
       return;
     }
-    showSelectPicker(
-      'Set Up Provider',
-      String(providers.length),
-      onboardableProviderPickerItems(providers),
-      (item) => {
-        const providerType = item.value as ProviderType;
-        const label = PROVIDER_DEFAULTS[providerType]?.label ?? providerType;
-        pendingKeyEntry = { providerType };
-        state.entries.push({
-          kind: 'notice',
-          level: 'info',
-          text: `请输入 ${label} 的 API key，按回车提交（仅本机存储）。`,
-        });
+    wizardOverlay?.hide();
+    wizard = new OnboardingWizard(tui, {
+      providers,
+      onPickProvider: (providerType) => {
+        wizardProviderType = providerType;
         requestRender();
       },
-      { minPrimaryColumnWidth: 16, maxPrimaryColumnWidth: 32, onCancel: input.firstRun ? () => beginClose() : undefined },
-    );
+      onSubmitKey: submitWizardKey,
+      onCancel: () => {
+        closeWizard();
+        // First-run has no connection to fall back to: cancelling the wizard
+        // closes the TUI so the host surfaces its missing-default guidance.
+        if (input.firstRun) beginClose();
+      },
+      onBack: () => {
+        wizardProviderType = undefined;
+        requestRender();
+      },
+    });
+    wizardOverlay = showBottomPicker(wizard);
   };
 
   // One-sentence session recap (issue #1055). Shared by the manual /recap
@@ -1725,7 +1727,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
           requestRender();
           return;
         }
-        showSetupPicker();
+        showSetupWizard();
       },
     },
     {
@@ -2073,7 +2075,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     // to the enable sequence (a focus-in `\x1b[I`) is echoed by the cooked-mode
     // line discipline and leaks onto the screen as a stray `^[[I` on launch.
     terminal.write(ENABLE_FOCUS_REPORTING);
-    if (input.firstRun) showSetupPicker();
+    if (input.firstRun) showSetupWizard();
   } catch (error) {
     beginClose(error instanceof Error ? error : new Error(String(error)));
   }
