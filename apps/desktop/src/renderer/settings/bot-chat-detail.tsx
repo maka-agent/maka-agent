@@ -205,94 +205,11 @@ export function BotChatChannelDetail(props: {
             rewritten to match the reference design 1:1. The previous
             implementations diverged with technical wording, extra
             fields, and missing TUN-mode amber notices. */}
-        {provider === 'telegram' && (
-          <>
-            <label className="settingsField">
-              <span>Bot Token</span>
-              <PasswordInput value={channel.token} onChange={(next) => props.onUpdateChannel({ token: next })} placeholder="123456:ABC-DEF..." ariaLabel="Telegram Bot Token" />
-            </label>
-            <label className="settingsField">
-              <span>代理地址 <em className="settingsFieldHint">(国内网络必填)</em></span>
-              <Input value={channel.proxyUrl} onChange={(event) => props.onUpdateChannel({ proxyUrl: event.currentTarget.value })} placeholder="http://127.0.0.1:7890" aria-label="Telegram 代理地址" />
-            </label>
-            <BotAllowedUserIdsField
-              value={channel.allowedUserIds}
-              onChange={(next) => props.onUpdateChannel({ allowedUserIds: next })}
-            />
-            <div className="settingsBotInfoNotice">
-              <span className="settingsBotInfoNoticeIcon" aria-hidden="true">ⓘ</span>
-              <span>请打开网络的 TUN 模式后重启应用，以便完成 Telegram Bot 设置</span>
-            </div>
-          </>
-        )}
-
-        {provider === 'feishu' && (
-          <>
-            <label className="settingsField">
-              <span>App ID</span>
-              <Input aria-label="飞书凭据 ID" value={channel.appId ?? ''} onChange={(event) => props.onUpdateChannel({ appId: event.currentTarget.value })} placeholder="cli_xxxx" />
-            </label>
-            <label className="settingsField">
-              <span>App Secret</span>
-              <PasswordInput value={channel.appSecret ?? ''} onChange={(next) => props.onUpdateChannel({ appSecret: next })} placeholder="xxxx" ariaLabel="飞书 App Secret" />
-            </label>
-            <label className="settingsField">
-              <span>域名</span>
-              <SettingsSelect
-                value={channel.domain ?? 'feishu.cn'}
-                ariaLabel="飞书域名"
-                options={[
-                  ['feishu.cn', '飞书 (feishu.cn)'],
-                  ['larksuite.com', 'Lark (larksuite.com)'],
-                ]}
-                onChange={(domain) => props.onUpdateChannel({ domain })}
-              />
-            </label>
-          </>
-        )}
-
-        {provider === 'discord' && (
-          <>
-            <label className="settingsField">
-              <span>Bot Token</span>
-              <PasswordInput value={channel.token} onChange={(next) => props.onUpdateChannel({ token: next })} placeholder="MTAx..." ariaLabel="Discord Bot Token" />
-            </label>
-            <label className="settingsField">
-              <span>代理地址 <em className="settingsFieldHint">(仅用于 Bot 鉴权)</em></span>
-              <Input value={channel.proxyUrl} onChange={(event) => props.onUpdateChannel({ proxyUrl: event.currentTarget.value })} placeholder="http://127.0.0.1:7890" aria-label="Discord 代理地址" />
-            </label>
-            <div className="settingsBotInfoNotice">
-              <span className="settingsBotInfoNoticeIcon" aria-hidden="true">ⓘ</span>
-              <span>国内网络访问 Discord：上方代理仅作用于 Bot 鉴权请求，消息收发走 WebSocket 长连接需要系统级代理。请打开网络的 TUN 模式后重启应用。</span>
-            </div>
-          </>
-        )}
-
-        {provider === 'dingtalk' && (
-          <>
-            <label className="settingsField">
-              <span>Client ID (AppKey)</span>
-              <Input aria-label="钉钉应用密钥" value={channel.appId ?? ''} onChange={(event) => props.onUpdateChannel({ appId: event.currentTarget.value })} placeholder="dingxxxxxxxx" />
-            </label>
-            <label className="settingsField">
-              <span>Client Secret (AppSecret)</span>
-              <PasswordInput value={channel.appSecret ?? ''} onChange={(next) => props.onUpdateChannel({ appSecret: next })} placeholder="xxxx" ariaLabel="钉钉 Client Secret" />
-            </label>
-          </>
-        )}
-
-        {provider === 'wecom' && (
-          <>
-            <label className="settingsField">
-              <span>Bot ID</span>
-              <Input value={channel.appId ?? ''} onChange={(event) => props.onUpdateChannel({ appId: event.currentTarget.value })} placeholder="企业微信 AI 应用 Bot ID" aria-label="企业微信 Bot ID" />
-            </label>
-            <label className="settingsField">
-              <span>Secret</span>
-              <PasswordInput value={channel.appSecret ?? ''} onChange={(next) => props.onUpdateChannel({ appSecret: next })} placeholder="AI 应用 Secret" ariaLabel="企业微信 Secret" />
-            </label>
-          </>
-        )}
+        <BotCredentialFields
+          provider={provider}
+          channel={channel}
+          onUpdateChannel={props.onUpdateChannel}
+        />
 
         {/* PR-BOT-WECHAT-SCAN-LOGIN-0 (WAWQAQ msg `1d9c412e`): WeChat
             personal account integration. Reference design uses ONE
@@ -303,19 +220,6 @@ export function BotChatChannelDetail(props: {
             preserved. */}
         {provider === 'wechat' && (
           <BotWeChatFields channel={channel} updateChannel={props.onUpdateChannel} />
-        )}
-
-        {provider === 'qq' && (
-          <>
-            <label className="settingsField">
-              <span>AppID</span>
-              <Input aria-label="QQ 应用编号" value={channel.appId ?? ''} onChange={(event) => props.onUpdateChannel({ appId: event.currentTarget.value })} placeholder="102xxxxxx" />
-            </label>
-            <label className="settingsField">
-              <span>AppSecret</span>
-              <PasswordInput value={channel.appSecret ?? ''} onChange={(next) => props.onUpdateChannel({ appSecret: next })} placeholder="xxxx" ariaLabel="QQ AppSecret" />
-            </label>
-          </>
         )}
 
         {support === 'planned' && (
@@ -352,6 +256,153 @@ export function BotChatChannelDetail(props: {
         )}
       </section>
     </div>
+  );
+}
+
+/**
+ * Per-platform credential form descriptors (#1042). The per-provider
+ * credential blocks were structurally identical hand-written JSX branches;
+ * the uniform fields are data-driven from this table (like BOT_LABELS).
+ * WeChat keeps its bespoke `BotWeChatFields` because of the collapsed
+ * advanced section, and `planned` platforms render no fields at all.
+ */
+type BotCredentialField =
+  | {
+      kind: 'text' | 'password';
+      key: 'token' | 'proxyUrl' | 'appId' | 'appSecret';
+      label: ReactNode;
+      placeholder: string;
+      ariaLabel: string;
+    }
+  | {
+      kind: 'select';
+      key: 'domain';
+      label: ReactNode;
+      ariaLabel: string;
+      defaultValue: string;
+      options: ReadonlyArray<readonly [string, string]>;
+    }
+  | { kind: 'allowed-user-ids' }
+  | { kind: 'notice'; text: string };
+
+const BOT_CREDENTIAL_FIELDS: Partial<Record<BotProvider, ReadonlyArray<BotCredentialField>>> = {
+  telegram: [
+    { kind: 'password', key: 'token', label: 'Bot Token', placeholder: '123456:ABC-DEF...', ariaLabel: 'Telegram Bot Token' },
+    {
+      kind: 'text',
+      key: 'proxyUrl',
+      label: <>代理地址 <em className="settingsFieldHint">(国内网络必填)</em></>,
+      placeholder: 'http://127.0.0.1:7890',
+      ariaLabel: 'Telegram 代理地址',
+    },
+    { kind: 'allowed-user-ids' },
+    { kind: 'notice', text: '请打开网络的 TUN 模式后重启应用，以便完成 Telegram Bot 设置' },
+  ],
+  feishu: [
+    { kind: 'text', key: 'appId', label: 'App ID', placeholder: 'cli_xxxx', ariaLabel: '飞书凭据 ID' },
+    { kind: 'password', key: 'appSecret', label: 'App Secret', placeholder: 'xxxx', ariaLabel: '飞书 App Secret' },
+    {
+      kind: 'select',
+      key: 'domain',
+      label: '域名',
+      ariaLabel: '飞书域名',
+      defaultValue: 'feishu.cn',
+      options: [
+        ['feishu.cn', '飞书 (feishu.cn)'],
+        ['larksuite.com', 'Lark (larksuite.com)'],
+      ],
+    },
+  ],
+  discord: [
+    { kind: 'password', key: 'token', label: 'Bot Token', placeholder: 'MTAx...', ariaLabel: 'Discord Bot Token' },
+    {
+      kind: 'text',
+      key: 'proxyUrl',
+      label: <>代理地址 <em className="settingsFieldHint">(仅用于 Bot 鉴权)</em></>,
+      placeholder: 'http://127.0.0.1:7890',
+      ariaLabel: 'Discord 代理地址',
+    },
+    { kind: 'notice', text: '国内网络访问 Discord：上方代理仅作用于 Bot 鉴权请求，消息收发走 WebSocket 长连接需要系统级代理。请打开网络的 TUN 模式后重启应用。' },
+  ],
+  dingtalk: [
+    { kind: 'text', key: 'appId', label: 'Client ID (AppKey)', placeholder: 'dingxxxxxxxx', ariaLabel: '钉钉应用密钥' },
+    { kind: 'password', key: 'appSecret', label: 'Client Secret (AppSecret)', placeholder: 'xxxx', ariaLabel: '钉钉 Client Secret' },
+  ],
+  wecom: [
+    { kind: 'text', key: 'appId', label: 'Bot ID', placeholder: '企业微信 AI 应用 Bot ID', ariaLabel: '企业微信 Bot ID' },
+    { kind: 'password', key: 'appSecret', label: 'Secret', placeholder: 'AI 应用 Secret', ariaLabel: '企业微信 Secret' },
+  ],
+  qq: [
+    { kind: 'text', key: 'appId', label: 'AppID', placeholder: '102xxxxxx', ariaLabel: 'QQ 应用编号' },
+    { kind: 'password', key: 'appSecret', label: 'AppSecret', placeholder: 'xxxx', ariaLabel: 'QQ AppSecret' },
+  ],
+};
+
+function BotCredentialFields(props: {
+  provider: BotProvider;
+  channel: BotChannelSettings;
+  onUpdateChannel(patch: Partial<BotChannelSettings>): Promise<boolean>;
+}) {
+  const fields = BOT_CREDENTIAL_FIELDS[props.provider];
+  if (!fields) return null;
+  return (
+    <>
+      {fields.map((field, index) => {
+        switch (field.kind) {
+          case 'text':
+            return (
+              <label key={field.key} className="settingsField">
+                <span>{field.label}</span>
+                <Input
+                  value={props.channel[field.key] ?? ''}
+                  onChange={(event) => props.onUpdateChannel({ [field.key]: event.currentTarget.value })}
+                  placeholder={field.placeholder}
+                  aria-label={field.ariaLabel}
+                />
+              </label>
+            );
+          case 'password':
+            return (
+              <label key={field.key} className="settingsField">
+                <span>{field.label}</span>
+                <PasswordInput
+                  value={props.channel[field.key] ?? ''}
+                  onChange={(next) => props.onUpdateChannel({ [field.key]: next })}
+                  placeholder={field.placeholder}
+                  ariaLabel={field.ariaLabel}
+                />
+              </label>
+            );
+          case 'select':
+            return (
+              <label key={field.key} className="settingsField">
+                <span>{field.label}</span>
+                <SettingsSelect
+                  value={props.channel[field.key] ?? field.defaultValue}
+                  ariaLabel={field.ariaLabel}
+                  options={field.options}
+                  onChange={(next) => props.onUpdateChannel({ [field.key]: next })}
+                />
+              </label>
+            );
+          case 'allowed-user-ids':
+            return (
+              <BotAllowedUserIdsField
+                key="allowed-user-ids"
+                value={props.channel.allowedUserIds}
+                onChange={(next) => props.onUpdateChannel({ allowedUserIds: next })}
+              />
+            );
+          case 'notice':
+            return (
+              <div key={`notice-${index}`} className="settingsBotInfoNotice">
+                <span className="settingsBotInfoNoticeIcon" aria-hidden="true">ⓘ</span>
+                <span>{field.text}</span>
+              </div>
+            );
+        }
+      })}
+    </>
   );
 }
 

@@ -246,7 +246,12 @@ describe('Settings form accessibility labels', () => {
       'MEMORY.md 内容',
     ]) {
       assert.ok(
-        settings.includes(`aria-label="${label}"`) || settings.includes(`ariaLabel="${label}"`),
+        // #1042: bot credential fields moved into a field-descriptor table,
+        // so their accessible names sit in `ariaLabel: '…'` entries rather
+        // than inline JSX attributes.
+        settings.includes(`aria-label="${label}"`) ||
+          settings.includes(`ariaLabel="${label}"`) ||
+          settings.includes(`ariaLabel: '${label}'`),
         `SettingsModal must label ${label}`,
       );
     }

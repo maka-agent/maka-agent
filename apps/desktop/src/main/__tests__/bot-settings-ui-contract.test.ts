@@ -132,6 +132,37 @@ describe('Bot settings UI contract', () => {
     assert.match(actionRowBlock, /support === 'runtime' && \(?status\?\.running/, 'Already-running channels must keep separate test/restart actions');
   });
 
+  it('drives per-provider credential fields from a shared descriptor table (#1042)', async () => {
+    const settings = await readSettingsCombinedSource();
+
+    assert.match(
+      settings,
+      /const BOT_CREDENTIAL_FIELDS: Partial<Record<BotProvider, ReadonlyArray<BotCredentialField>>>/,
+      'Per-provider credential fields must be declared in a shared descriptor table',
+    );
+    for (const provider of ['telegram', 'feishu', 'discord', 'dingtalk', 'wecom', 'qq']) {
+      assert.match(
+        settings,
+        new RegExp(`\\n  ${provider}: \\[\\n`),
+        `${provider} credential fields must be descriptor entries`,
+      );
+      assert.doesNotMatch(
+        settings,
+        new RegExp(`provider === '${provider}' && \\(`),
+        `${provider} credential fields must not be a hand-written JSX branch`,
+      );
+    }
+    // The descriptor renderer must keep each field kind on its governed
+    // primitive with the descriptor's accessible name.
+    assert.match(settings, /function BotCredentialFields\(/);
+    assert.match(settings, /<PasswordInput[\s\S]*ariaLabel=\{field\.ariaLabel\}/);
+    assert.match(settings, /<Input[\s\S]*aria-label=\{field\.ariaLabel\}/);
+    assert.match(settings, /<SettingsSelect[\s\S]*ariaLabel=\{field\.ariaLabel\}/);
+    // WeChat keeps its bespoke fields component (collapsed advanced section),
+    // so it is intentionally not part of the descriptor table.
+    assert.match(settings, /provider === 'wechat' && \(/);
+  });
+
   it('keeps bot allowlist validation copy text-only and Chinese-first', async () => {
     const settings = await readSettingsCombinedSource();
     const styles = await readRendererContractCss();
