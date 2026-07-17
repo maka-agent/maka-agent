@@ -179,6 +179,7 @@ export async function runMakaCli(argv: string[] = process.argv.slice(2)): Promis
           skills: context.skills,
           goalLifecycle: context.goalContinuation,
           onboarding: context.onboarding,
+          recap: context.recap,
           onProcessExit: handleMakaCliProcessExit,
         });
         return 0;

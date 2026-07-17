@@ -56,6 +56,7 @@ import type { ModelChoice, ReadySessionTarget } from './connection-target.js';
 import { listReadyModelChoices, resolveDefaultSessionTarget, resolveSessionTargetForSlug } from './connection-target.js';
 import { buildCliSystemPrompt, buildCliTurnTailPrompt } from './cli-system-prompt.js';
 import { CliGoalContinuation } from './cli-goal-continuation.js';
+import { buildRecapMessages, cleanRecapText } from './session-recap.js';
 
 export interface MakaCliRuntimeContext {
   workspaceRoot: string;
@@ -79,9 +80,24 @@ export interface MakaCliRuntimeContext {
   listShellRunUpdates(sessionId: string): Promise<ShellRunUpdate[]>;
   goalManager: GoalManager;
   goalContinuation: CliGoalContinuation;
+  /** One-sentence session recap generator (issue #1055), shared by `/recap` and idle-return auto-recap. */
+  recap: SessionRecapGenerator;
   close(): Promise<void>;
   /** API-key onboarding surface for the /setup wizard (#1098). */
   onboarding: MakaOnboardingSurface;
+}
+
+/**
+ * Generates a one-sentence recap of a session so far, using a tool-free model
+ * call whose exchange is never written to the session's own history. Never
+ * throws — failures resolve to `{ ok: false }` so callers can surface them
+ * without a try/catch.
+ */
+export interface SessionRecapGenerator {
+  generate(
+    sessionId: string,
+    reason: 'manual' | 'idle',
+  ): Promise<{ ok: true; text: string; raw: string } | { ok: false; error: string }>;
 }
 
 export interface CreateMakaCliRuntimeContextInput {
@@ -287,6 +303,88 @@ export async function createMakaCliRuntimeContext(
     },
     getTokenCount: (sessionId: string) => goalTokenCache.get(sessionId) ?? 0,
   });
+
+  // One-sentence session recap (issue #1055): a tool-free model call over the
+  // session's own history, never written back to it. Mirrors the goal
+  // evaluator's connection resolution + call shape above.
+  const recap: SessionRecapGenerator = {
+    async generate(sessionId, reason) {
+      let modelId = '';
+      let messageCount = 0;
+      let rawText = '';
+      let cleaned = '';
+      let errorMessage: string | undefined;
+      try {
+        const messages = await runtime.getMessages(sessionId);
+        messageCount = messages.length;
+        const header = await store.readHeader(sessionId);
+        const ready = await resolveSessionTargetForSlug(header.llmConnectionSlug, {
+          connectionStore,
+          credentialStore,
+          requestedModel: header.model,
+        });
+        modelId = ready.model;
+        const modelFetch = buildSubscriptionModelFetch({
+          connection: ready.connection,
+          sessionId: 'session-recap',
+          modelId: ready.model,
+          ...(ready.connection.providerType === 'claude-subscription' ? {
+            claude: {
+              cloakEnabled: isMakaClaudeSubscriptionCloakEnabled(),
+              deviceId: await getOrCreateCliClaudeDeviceId(input.workspaceRoot),
+              accountUuid: ready.oauthTokens?.account_uuid ?? '',
+            },
+          } : {}),
+        });
+        const contextWindow = resolveSelectedModelContextWindow(ready.connection, ready.model);
+        const ai = await import('ai') as unknown as {
+          generateText(opts: Record<string, unknown>): Promise<{ text: string }>;
+        };
+        const result = await ai.generateText({
+          model: getAIModel({
+            connection: ready.connection,
+            apiKey: ready.apiKey ?? '',
+            modelId: ready.model,
+            fetch: modelFetch,
+          }),
+          messages: buildRecapMessages(messages, { contextWindow }),
+          providerOptions: buildProviderOptions(ready.connection, ready.model, header.thinkingLevel),
+          maxOutputTokens: 1024,
+        });
+        rawText = result.text;
+        cleaned = cleanRecapText(rawText);
+        return { ok: true as const, text: cleaned, raw: rawText };
+      } catch (error) {
+        errorMessage = error instanceof Error ? error.message : String(error);
+        return { ok: false as const, error: errorMessage };
+      } finally {
+        try {
+          await artifactStore.create({
+            sessionId,
+            turnId: randomUUID(),
+            name: 'recap-request.json',
+            kind: 'file',
+            content: JSON.stringify(
+              {
+                reason,
+                model: modelId,
+                messageCount,
+                raw: rawText,
+                cleaned,
+                ...(errorMessage ? { error: errorMessage } : {}),
+              },
+              null,
+              2,
+            ),
+            ...(cleaned ? { summary: cleaned.slice(0, 100) } : {}),
+          });
+        } catch {
+          // Best-effort persistence; recap must work even if the artifact store fails.
+        }
+      }
+    },
+  };
+
   const goalTools = input.surface === 'tui'
     ? buildGoalTools({
         goalManager,
@@ -486,6 +584,7 @@ export async function createMakaCliRuntimeContext(
     goalManager,
     goalContinuation,
     onboarding: createApiKeyOnboardingSurface({ connectionStore, credentialStore, fetchModels: fetchProviderModels }),
+    recap,
     close: async () => {
       // Stop the automation scheduler's timer (else it keeps the process alive
       // and ticks into a stopped session), then terminate background shell runs.

@@ -39,6 +39,7 @@ import {
   type MakaPiTuiGoalLifecycle,
   type MakaPiTuiInput,
 } from '../pi-tui-runner.js';
+import { AUTO_RECAP_IDLE_MS } from '../session-recap.js';
 import { _setColorLevelForTesting } from '../tui-ansi.js';
 import { BUSY_SPINNER_FRAMES } from '../tui-attention.js';
 import { arrangeAutocompleteAboveEditor } from '../tui-autocomplete-layout.js';
@@ -4873,6 +4874,301 @@ describe('Maka Pi TUI runner', () => {
         sent.endsWith('<user-message>\n整理一下\n</user-message>'),
         `picker-inserted token composes on submit: ${sent}`,
       );
+
+      exitMaka(terminal);
+      await Promise.race([
+        run,
+        delay(50).then(() => {
+          throw new Error('TUI did not close during test cleanup');
+        }),
+      ]);
+    });
+  });
+
+  // #1055: `/recap` and the generator injection point it shares with idle-return
+  // auto-recap. The idle-timer path itself is not covered here (it depends on
+  // real wall-clock gaps with no injectable clock) — see session-recap.test.ts
+  // for the pure `shouldAutoRecap` boundary coverage instead.
+  describe('/recap command', () => {
+    test('reports unavailability when no generator is injected', async () => {
+      const terminal = new FakeTerminal();
+      const driver = new RewindDriver([{ turnId: 'turn-1', label: 'first prompt' }]);
+      const run = runMakaPiTui({
+        title: 'Maka',
+        driver,
+        cwd: '/repo',
+        model: 'claude-sonnet-4-5',
+        connectionSlug: 'claude-subscription',
+        permissionMode: 'ask',
+        terminal,
+      });
+
+      terminal.input('/recap');
+      terminal.input('\r');
+      await waitFor(() =>
+        plainTerminalOutput(terminal.output()).includes('Recap is not available in this environment.'));
+
+      exitMaka(terminal);
+      await Promise.race([
+        run,
+        delay(50).then(() => {
+          throw new Error('TUI did not close during test cleanup');
+        }),
+      ]);
+    });
+
+    test('reports nothing to recap yet when there are no main turns, without calling the generator', async () => {
+      const terminal = new FakeTerminal();
+      const driver = new SlashCommandDriver(); // default listRewindTargets() resolves to []
+      let calls = 0;
+      const run = runMakaPiTui({
+        title: 'Maka',
+        driver,
+        cwd: '/repo',
+        model: 'claude-sonnet-4-5',
+        connectionSlug: 'claude-subscription',
+        permissionMode: 'ask',
+        terminal,
+        recap: {
+          generate: async () => {
+            calls++;
+            return { ok: true, text: 'unused', raw: 'unused' };
+          },
+        },
+      });
+
+      terminal.input('/recap');
+      terminal.input('\r');
+      await waitFor(() => plainTerminalOutput(terminal.output()).includes('Nothing to recap yet.'));
+      assert.equal(calls, 0, 'the generator must not be called when there is nothing to recap');
+
+      exitMaka(terminal);
+      await Promise.race([
+        run,
+        delay(50).then(() => {
+          throw new Error('TUI did not close during test cleanup');
+        }),
+      ]);
+    });
+
+    test('shows the cleaned recap text on success', async () => {
+      const terminal = new FakeTerminal();
+      const driver = new RewindDriver([{ turnId: 'turn-1', label: 'first prompt' }]);
+      const run = runMakaPiTui({
+        title: 'Maka',
+        driver,
+        cwd: '/repo',
+        model: 'claude-sonnet-4-5',
+        connectionSlug: 'claude-subscription',
+        permissionMode: 'ask',
+        terminal,
+        recap: {
+          generate: async () => ({ ok: true, text: 'We fixed the recap bug.', raw: 'We fixed the recap bug.' }),
+        },
+      });
+
+      terminal.input('/recap');
+      terminal.input('\r');
+      await waitFor(() => plainTerminalOutput(terminal.output()).includes('Recap: We fixed the recap bug.'));
+
+      exitMaka(terminal);
+      await Promise.race([
+        run,
+        delay(50).then(() => {
+          throw new Error('TUI did not close during test cleanup');
+        }),
+      ]);
+    });
+
+    test('shows an error notice on failure', async () => {
+      const terminal = new FakeTerminal();
+      const driver = new RewindDriver([{ turnId: 'turn-1', label: 'first prompt' }]);
+      const run = runMakaPiTui({
+        title: 'Maka',
+        driver,
+        cwd: '/repo',
+        model: 'claude-sonnet-4-5',
+        connectionSlug: 'claude-subscription',
+        permissionMode: 'ask',
+        terminal,
+        recap: {
+          generate: async () => ({ ok: false, error: 'connection lost' }),
+        },
+      });
+
+      terminal.input('/recap');
+      terminal.input('\r');
+      await waitFor(() => plainTerminalOutput(terminal.output()).includes('Recap failed: connection lost'));
+
+      exitMaka(terminal);
+      await Promise.race([
+        run,
+        delay(50).then(() => {
+          throw new Error('TUI did not close during test cleanup');
+        }),
+      ]);
+    });
+
+    test('a second /recap while one is in flight reports it is already running, without a second generate() call', async () => {
+      const terminal = new FakeTerminal();
+      const driver = new RewindDriver([{ turnId: 'turn-1', label: 'first prompt' }]);
+      const gate = deferred<void>();
+      let calls = 0;
+      const run = runMakaPiTui({
+        title: 'Maka',
+        driver,
+        cwd: '/repo',
+        model: 'claude-sonnet-4-5',
+        connectionSlug: 'claude-subscription',
+        permissionMode: 'ask',
+        terminal,
+        recap: {
+          generate: async () => {
+            calls++;
+            await gate.promise;
+            return { ok: true, text: 'first recap result', raw: 'first recap result' };
+          },
+        },
+      });
+
+      terminal.input('/recap');
+      terminal.input('\r');
+      await waitFor(() => calls === 1);
+
+      terminal.input('/recap');
+      terminal.input('\r');
+      await waitFor(() => plainTerminalOutput(terminal.output()).includes('Recap already running.'));
+      assert.equal(calls, 1, 'the in-flight lock must prevent a second concurrent generate() call');
+
+      gate.resolve();
+      await waitFor(() => plainTerminalOutput(terminal.output()).includes('Recap: first recap result'));
+
+      exitMaka(terminal);
+      await Promise.race([
+        run,
+        delay(50).then(() => {
+          throw new Error('TUI did not close during test cleanup');
+        }),
+      ]);
+    });
+
+    // The bug this guards against: the idle-return recap is triggered BY the
+    // very prompt that ends the idle gap, and that prompt's own turn runs for
+    // the several seconds the recap call is in flight. A staleness check that
+    // re-samples any turn-count signal after generate() resolves would see
+    // that count already moved (because of that triggering prompt) and would
+    // discard every idle recap unconditionally. The fix samples `promptSeq`
+    // (bumped once per submitted prompt, including the triggering one)
+    // synchronously on entry to runRecap, so only a prompt submitted *after*
+    // entry — a genuinely later one — makes the result stale.
+    test('an idle-triggered recap is discarded when a later prompt supersedes it before it resolves', async (t) => {
+      const terminal = new FakeTerminal();
+      const driver = new RewindDriver([
+        { turnId: 'turn-1', label: 'first' },
+        { turnId: 'turn-2', label: 'second' },
+        { turnId: 'turn-3', label: 'third' },
+      ]);
+      const gate = deferred<void>();
+      let calls = 0;
+      const run = runMakaPiTui({
+        title: 'Maka',
+        driver,
+        cwd: '/repo',
+        model: 'claude-sonnet-4-5',
+        connectionSlug: 'claude-subscription',
+        permissionMode: 'ask',
+        terminal,
+        recap: {
+          generate: async () => {
+            calls++;
+            await gate.promise;
+            return { ok: true, text: 'stale recap result', raw: 'stale recap result' };
+          },
+        },
+      });
+
+      const submit = async (prompt: string, expectedPromptCount: number) => {
+        terminal.input(prompt);
+        terminal.input('\r');
+        await waitFor(() => driver.prompts.length === expectedPromptCount);
+        await waitFor(() => terminal.progressStates.at(-1) === false);
+      };
+
+      // Fake a return-from-idle gap: freeze/advance Date just long enough for
+      // submitPrompt to synchronously capture a qualifying idleMs, then
+      // restore the real clock immediately — everything below (waitFor, the
+      // in-flight generate() gate) depends on real elapsed time.
+      t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
+      t.mock.timers.tick(AUTO_RECAP_IDLE_MS + 1_000);
+      terminal.input('first prompt after idle');
+      terminal.input('\r');
+      t.mock.timers.reset();
+
+      await waitFor(() => calls === 1); // idle auto-recap fired; generate() is in flight
+      await waitFor(() => driver.prompts.length === 1);
+      await waitFor(() => terminal.progressStates.at(-1) === false);
+
+      // Submitted while the idle recap's generate() call is still pending:
+      // this bumps promptSeq past the value runRecap captured on entry.
+      await submit('a later prompt', 2);
+
+      gate.resolve();
+      await delay(50);
+      assert.equal(
+        plainTerminalOutput(terminal.output()).includes('Recap: stale recap result'),
+        false,
+        'an idle recap superseded by a later prompt must be dropped silently',
+      );
+
+      exitMaka(terminal);
+      await Promise.race([
+        run,
+        delay(50).then(() => {
+          throw new Error('TUI did not close during test cleanup');
+        }),
+      ]);
+    });
+
+    test('an idle-triggered recap is shown normally when no later prompt supersedes it', async (t) => {
+      const terminal = new FakeTerminal();
+      const driver = new RewindDriver([
+        { turnId: 'turn-1', label: 'first' },
+        { turnId: 'turn-2', label: 'second' },
+        { turnId: 'turn-3', label: 'third' },
+      ]);
+      const gate = deferred<void>();
+      let calls = 0;
+      const run = runMakaPiTui({
+        title: 'Maka',
+        driver,
+        cwd: '/repo',
+        model: 'claude-sonnet-4-5',
+        connectionSlug: 'claude-subscription',
+        permissionMode: 'ask',
+        terminal,
+        recap: {
+          generate: async () => {
+            calls++;
+            await gate.promise;
+            return { ok: true, text: 'fresh recap result', raw: 'fresh recap result' };
+          },
+        },
+      });
+
+      t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
+      t.mock.timers.tick(AUTO_RECAP_IDLE_MS + 1_000);
+      terminal.input('first prompt after idle');
+      terminal.input('\r');
+      t.mock.timers.reset();
+
+      await waitFor(() => calls === 1); // idle auto-recap fired; generate() is in flight
+      await waitFor(() => driver.prompts.length === 1);
+      await waitFor(() => terminal.progressStates.at(-1) === false);
+
+      // No further prompt is submitted before the recap resolves, so promptSeq
+      // is unchanged from what runRecap captured on entry: the notice shows.
+      gate.resolve();
+      await waitFor(() => plainTerminalOutput(terminal.output()).includes('Recap: fresh recap result'));
 
       exitMaka(terminal);
       await Promise.race([
