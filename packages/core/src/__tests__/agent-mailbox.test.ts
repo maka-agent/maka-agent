@@ -47,5 +47,10 @@ describe('agent mailbox contract', () => {
     assert.equal(isAgentMailboxMessage({ ...base, kind: 'broadcast', to: { role: 'lead', agentId: 'lead' } }), false);
     assert.equal(isAgentMailboxMessage({ ...base, kind: 'message', to: { role: 'member', agentId: base.from.agentId } }), false);
     assert.equal(isAgentMailboxMessage({ ...base, kind: 'message', to: { role: 'member', agentId: 'lead' } }), false);
+    assert.equal(isAgentMailboxMessage({
+      ...base,
+      kind: 'broadcast',
+      from: { role: 'lead', agentId: 'lead', runId: 'another-parent-run', turnId: 'lead-turn' },
+    }), false);
   });
 });

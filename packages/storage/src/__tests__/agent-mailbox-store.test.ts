@@ -69,6 +69,53 @@ describe('AgentMailboxStore', () => {
     assert.equal(page.total, 3);
   });
 
+  test('shares direct-message history by role while each invocation owns its cursor', async () => {
+    const root = await tempRoot();
+    let id = 0;
+    const store = createAgentMailboxStore(root, { newId: () => `m-${++id}`, now: () => id });
+    const sender = member('expert:code-review:correctness-reviewer', 'sender-run', 'sender-turn');
+    const recipientAgentId = 'expert:code-review:test-coverage-reviewer';
+    const options = {
+      teamId: TEAM_ID,
+      parentRunId: PARENT_RUN_ID,
+      recipientAgentId,
+    };
+
+    await store.send(SESSION_ID, {
+      teamId: TEAM_ID,
+      parentRunId: PARENT_RUN_ID,
+      kind: 'message',
+      from: sender,
+      to: { role: 'member', agentId: recipientAgentId },
+      content: 'first role message',
+    });
+    const [firstInvocation, concurrentInvocation] = await Promise.all([
+      store.list(SESSION_ID, options),
+      store.list(SESSION_ID, options),
+    ]);
+    assert.deepEqual(firstInvocation.messages.map((message) => message.content), ['first role message']);
+    assert.deepEqual(concurrentInvocation.messages.map((message) => message.content), ['first role message']);
+
+    await store.send(SESSION_ID, {
+      teamId: TEAM_ID,
+      parentRunId: PARENT_RUN_ID,
+      kind: 'message',
+      from: sender,
+      to: { role: 'member', agentId: recipientAgentId },
+      content: 'second role message',
+    });
+    const resumedInvocation = await store.list(SESSION_ID, {
+      ...options,
+      afterSeq: firstInvocation.nextSeq,
+    });
+    const freshInvocation = await store.list(SESSION_ID, options);
+    assert.deepEqual(resumedInvocation.messages.map((message) => message.content), ['second role message']);
+    assert.deepEqual(freshInvocation.messages.map((message) => message.content), [
+      'first role message',
+      'second role message',
+    ]);
+  });
+
   test('serializes concurrent sends without duplicate sequence numbers', async () => {
     const root = await tempRoot();
     let id = 0;

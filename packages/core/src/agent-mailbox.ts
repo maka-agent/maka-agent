@@ -24,6 +24,7 @@ export interface AgentMailboxMessage {
   seq: number;
   kind: AgentMailboxMessageKind;
   from: AgentMailboxParticipantRef;
+  /** Stable role address within one parent lead run; it does not identify a child invocation. */
   to?: { role: AgentMailboxRole; agentId: string };
   content: string;
   createdAt: number;
@@ -34,6 +35,7 @@ export interface AgentMailboxSendInput {
   parentRunId: string;
   kind: AgentMailboxMessageKind;
   from: AgentMailboxParticipantRef;
+  /** Stable role address within one parent lead run; it does not identify a child invocation. */
   to?: { role: AgentMailboxRole; agentId: string };
   content: unknown;
 }
@@ -41,7 +43,9 @@ export interface AgentMailboxSendInput {
 export interface AgentMailboxListOptions {
   teamId: string;
   parentRunId: string;
+  /** Stable role address shared by repeated or concurrent invocations of that member. */
   recipientAgentId: string;
+  /** Caller-owned role-mailbox cursor; the store does not persist a cursor per invocation. */
   afterSeq?: number;
   limit?: number;
 }
@@ -109,6 +113,7 @@ export function isAgentMailboxMessage(value: unknown): value is AgentMailboxMess
     || typeof value.createdAt !== 'number'
     || !Number.isFinite(value.createdAt)
   ) return false;
+  if (value.from.role === 'lead' && value.from.runId !== value.parentRunId) return false;
   const content = normalizeAgentMailboxContent(value.content);
   if (!content.ok || content.value !== value.content) return false;
   if (value.kind === 'broadcast') return value.to === undefined;

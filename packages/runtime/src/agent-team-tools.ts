@@ -51,11 +51,12 @@ function buildTeamMessageTool(mailbox: AgentMailboxStore): MakaTool {
   return {
     name: TEAM_MESSAGE_TOOL_NAME,
     displayName: 'Team Message',
-    description: 'Send one bounded, durable message to the team lead, a named teammate, or the whole current expert-team run.',
+    description: 'Send one bounded, durable message to the team lead role, a member role mailbox, or the whole current expert-team run.',
     parameters: z.discriminatedUnion('type', [
       z.object({
         type: z.literal('message'),
-        recipient: z.string().min(1).max(128).describe('Use "lead" or a member id from the team roster.'),
+        recipient: z.string().min(1).max(128)
+          .describe('Use "lead" or a member id from the team roster. A member id addresses its shared role mailbox.'),
         content: z.string().min(1).max(AGENT_MAILBOX_CONTENT_MAX_CHARS),
       }),
       z.object({
@@ -88,7 +89,9 @@ function buildTeamInboxTool(mailbox: AgentMailboxStore): MakaTool {
   return {
     name: TEAM_INBOX_TOOL_NAME,
     displayName: 'Team Inbox',
-    description: 'Read durable direct messages and teammate broadcasts for the current expert-team run. Use after_seq to poll without replaying earlier messages.',
+    description:
+      'Read durable direct messages and teammate broadcasts for this role in the current expert-team run. '
+      + 'Repeated or concurrent invocations of one member share this history; each caller must pass its own after_seq cursor.',
     parameters: z.object({
       after_seq: z.number().int().min(0).optional(),
       limit: z.number().int().min(1).max(AGENT_MAILBOX_LIST_MAX).optional(),

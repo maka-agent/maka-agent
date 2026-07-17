@@ -174,6 +174,35 @@ describe('agent team collaboration tools', () => {
     });
   });
 
+  test('uses one role mailbox with caller-owned cursors across repeated member invocations', async () => {
+    const mailbox = new MemoryMailbox();
+    const tools = buildAgentTeamChildTools({ mailbox, taskLedger: new MemoryTaskLedger() });
+    const inbox = findTool(tools, TEAM_INBOX_TOOL_NAME);
+
+    await inbox.impl({ after_seq: 7 }, memberContext({
+      runId: 'child-run-a',
+      turnId: 'child-turn-a',
+    }));
+    await inbox.impl({}, memberContext({
+      runId: 'child-run-b',
+      turnId: 'child-turn-b',
+    }));
+
+    assert.deepEqual(mailbox.lists.map(({ options }) => options), [
+      {
+        teamId: 'code-review',
+        parentRunId: 'lead-run',
+        recipientAgentId: 'expert:code-review:correctness-reviewer',
+        afterSeq: 7,
+      },
+      {
+        teamId: 'code-review',
+        parentRunId: 'lead-run',
+        recipientAgentId: 'expert:code-review:correctness-reviewer',
+      },
+    ]);
+  });
+
   test('lists only available shared tasks and claims with durable child refs', async () => {
     const taskLedger = new MemoryTaskLedger();
     taskLedger.tasks = [

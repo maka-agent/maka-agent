@@ -44,8 +44,9 @@ statelessly from the id alone.
    scoped capability tools plus `team_message`, `team_inbox`, `team_task_list`, and
    `team_task_claim`; a read-only archetype still cannot write files or use the network.
 4. Messages are appended to `sessions/<sessionId>/agent-mailbox.jsonl`, scoped by team
-   and parent lead `AgentRun`. Sender/recipient identities come from trusted runtime
-   context, not model arguments. Cursor reads make polling bounded and deterministic.
+   and parent lead `AgentRun`. Sender `AgentRun`/turn attribution comes from trusted
+   runtime context; named recipients resolve through the trusted team roster to stable
+   role addresses. Cursor reads make polling bounded and deterministic.
 5. A member may use `team_task_claim` to atomically claim one pending/blocked task
    owned by the current parent lead `AgentRun`. Tasks from ordinary or older lead runs
    are not discoverable or claimable. Conflicting claims fail closed; members receive
@@ -58,6 +59,21 @@ statelessly from the id alone.
 
 Members never receive `expert_dispatch` (child turns are gated in the backend factory),
 so there are no nested teams.
+
+### Role mailbox and cursor semantics
+
+Direct-message recipients are role addresses within one parent lead `AgentRun`, not
+individual child invocations. The lead uses the stable `lead` address; each member uses
+its deterministic `expert:<teamId>:<memberId>` agent id. Repeated or concurrent
+dispatches of the same member therefore share one role mailbox. This supports durable
+handoff between invocations, but it is not an invocation-private channel.
+
+`team_inbox` cursors are caller-owned. The store does not persist a read cursor for a
+role or child invocation: callers pass the last observed `nextSeq` back as `after_seq`.
+A fresh invocation that omits `after_seq` reads the role's available history from the
+start of the current lead run, including direct messages observed by an earlier
+invocation of that member. A new parent lead `AgentRun` starts a separate mailbox scope.
+Use distinct expert member roles when work requires separate direct-message inboxes.
 
 ## Definition resolution
 
@@ -101,7 +117,8 @@ prompt + tool wiring, the start/list IPC + preload + typings, and unit tests acr
 core / runtime / desktop-main.
 
 Shipped in the collaboration slice: a durable per-session/team-run mailbox, bounded
-direct messages and broadcasts, trusted AgentRun/Turn attribution, and atomic
+role-addressed direct messages and broadcasts, trusted sender AgentRun/Turn
+attribution, caller-owned inbox cursors, and atomic
 self-claim of one eligible shared Task Ledger item per child turn. Mailbox history is
 reloaded from its append-only log after process restart; corruption fails closed, and
 new lead runs do not silently inherit messages from an older run.
