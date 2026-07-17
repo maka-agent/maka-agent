@@ -347,6 +347,38 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('first-run mode auto-opens the provider picker without typing /setup', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: '',
+      connectionSlug: '',
+      permissionMode: 'bypass',
+      terminal,
+      firstRun: true,
+      onboarding: {
+        setup: async () => {},
+      },
+    });
+
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), 'Set Up Provider') !== null;
+      } catch {
+        return false;
+      }
+    });
+
+    process.emit('SIGTERM');
+    await Promise.race([
+      run,
+      delay(500).then(() => { throw new Error('TUI did not close after SIGTERM'); }),
+    ]);
+  });
+
   test('allows a pending permission request from the terminal', async () => {
     const terminal = new FakeTerminal();
     const driver = new PermissionPromptDriver();

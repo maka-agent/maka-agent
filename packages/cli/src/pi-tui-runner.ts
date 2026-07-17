@@ -137,6 +137,12 @@ export interface MakaPiTuiInput {
   /** API-key onboarding surface (#1098). When present, /setup runs the wizard
    *  and calls setup() with the chosen provider + key; the host owns the stores. */
   onboarding?: MakaOnboardingSurface;
+  /** First-run mode: auto-open the onboarding wizard on launch instead of
+   *  waiting for /setup (used when the CLI starts with no configured connection). */
+  firstRun?: boolean;
+  /** First-run callback fired after onboarding.setup succeeds, so the host
+   *  can retry context creation and relaunch the normal TUI. */
+  onConfigured?: () => void;
 }
 
 export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
@@ -797,6 +803,11 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       const providerLabel = PROVIDER_DEFAULTS[entry.providerType]?.label ?? entry.providerType;
       void input.onboarding?.setup({ providerType: entry.providerType, apiKey: prompt }).then(
         () => {
+          if (input.firstRun) {
+            input.onConfigured?.();
+            beginClose();
+            return;
+          }
           state.entries.push({
             kind: 'notice',
             level: 'info',
@@ -1192,6 +1203,36 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     overlay = showBottomPicker(picker);
   };
 
+  const showSetupPicker = () => {
+    const providers = listApiKeyOnboardableProviders();
+    if (providers.length === 0) {
+      state.entries.push({
+        kind: 'notice',
+        level: 'info',
+        text: '没有可配置的 API key 类供应商。',
+      });
+      requestRender();
+      return;
+    }
+    showSelectPicker(
+      'Set Up Provider',
+      String(providers.length),
+      onboardableProviderPickerItems(providers),
+      (item) => {
+        const providerType = item.value as ProviderType;
+        const label = PROVIDER_DEFAULTS[providerType]?.label ?? providerType;
+        pendingKeyEntry = { providerType };
+        state.entries.push({
+          kind: 'notice',
+          level: 'info',
+          text: `请输入 ${label} 的 API key，按回车提交（仅本机存储）。`,
+        });
+        requestRender();
+      },
+      { minPrimaryColumnWidth: 16, maxPrimaryColumnWidth: 32 },
+    );
+  };
+
   const compactSession = async () => {
     state.entries.push({
       kind: 'notice',
@@ -1500,34 +1541,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
           requestRender();
           return;
         }
-        const providers = listApiKeyOnboardableProviders();
-        if (providers.length === 0) {
-          state.entries.push({
-            kind: 'notice',
-            level: 'info',
-            text: '没有可配置的 API key 类供应商。',
-          });
-          requestRender();
-          return;
-        }
-        showSelectPicker(
-          'Set Up Provider',
-          String(providers.length),
-          onboardableProviderPickerItems(providers),
-          (item) => {
-            if (!input.onboarding) return;
-            const providerType = item.value as ProviderType;
-            const label = PROVIDER_DEFAULTS[providerType]?.label ?? providerType;
-            pendingKeyEntry = { providerType };
-            state.entries.push({
-              kind: 'notice',
-              level: 'info',
-              text: `请输入 ${label} 的 API key，按回车提交（仅本机存储）。`,
-            });
-            requestRender();
-          },
-          { minPrimaryColumnWidth: 16, maxPrimaryColumnWidth: 32 },
-        );
+        showSetupPicker();
       },
     },
     {
@@ -1868,6 +1882,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     // to the enable sequence (a focus-in `\x1b[I`) is echoed by the cooked-mode
     // line discipline and leaks onto the screen as a stray `^[[I` on launch.
     terminal.write(ENABLE_FOCUS_REPORTING);
+    if (input.firstRun) showSetupPicker();
   } catch (error) {
     beginClose(error instanceof Error ? error : new Error(String(error)));
   }
