@@ -804,8 +804,18 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
         return;
       }
       pendingKeyEntry = undefined;
+      if (!input.onboarding) {
+        // Minimal host without an onboarding surface cannot collect a key.
+        state.entries.push({
+          kind: 'notice',
+          level: 'error',
+          text: 'Onboarding 不可用：当前运行环境未提供配置入口。',
+        });
+        requestRender();
+        return;
+      }
       const providerLabel = PROVIDER_DEFAULTS[entry.providerType]?.label ?? entry.providerType;
-      void input.onboarding?.setup({ providerType: entry.providerType, apiKey: prompt }).then(
+      void input.onboarding.setup({ providerType: entry.providerType, apiKey: prompt }).then(
         (result) => {
           if (result.testError) {
             // Saved but the probe failed (wrong key / offline). Re-arm the key

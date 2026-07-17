@@ -464,6 +464,54 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('/setup without an onboarding surface reports unavailable instead of throwing', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    // No onboarding surface: a minimal host that can open /setup's picker but
+    // cannot actually collect a key.
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'bypass',
+      terminal,
+    });
+
+    await delay(20);
+    terminal.input('/setup');
+    terminal.input('\r');
+    terminal.input('\r'); // pick the highlighted provider -> arms the key prompt
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), 'API key') !== null;
+      } catch {
+        return false;
+      }
+    });
+
+    // Submitting a key with no onboarding surface reports unavailable instead
+    // of throwing TypeError on `undefined.then`.
+    terminal.input('sk-test');
+    terminal.input('\r');
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), 'Onboarding 不可用') !== null;
+      } catch {
+        return false;
+      }
+    });
+
+    process.emit('SIGTERM');
+    await Promise.race([
+      run,
+      delay(500).then(() => {
+        throw new Error('TUI did not close after SIGTERM');
+      }),
+    ]);
+  });
+
   test('first-run picker cancel closes the TUI without configuring', async () => {
     const terminal = new FakeTerminal();
     const driver = new SlashCommandDriver();

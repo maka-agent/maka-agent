@@ -139,11 +139,21 @@ export async function runMakaCli(argv: string[] = process.argv.slice(2)): Promis
           process.stderr.write(`${formatStartupConnectionError(error, workspaceRoot)}\n`);
           return 1;
         }
-        context = await createMakaCliRuntimeContext({
-          surface: 'tui',
-          workspaceRoot,
-          cwd: process.cwd(),
-        });
+        try {
+          context = await createMakaCliRuntimeContext({
+            surface: 'tui',
+            workspaceRoot,
+            cwd: process.cwd(),
+          });
+        } catch (retryError) {
+          // A failure after onboarding (e.g. the saved connection still isn't
+          // ready) gets the same classified guidance as the first attempt,
+          // not a raw stack propagated to the top-level handler.
+          const guidance = formatStartupConnectionError(retryError, workspaceRoot);
+          if (guidance === null) throw retryError;
+          process.stderr.write(`${guidance}\n`);
+          return 1;
+        }
       }
       try {
         const driver = createMakaSessionDriver({
