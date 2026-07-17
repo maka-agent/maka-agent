@@ -31,7 +31,7 @@ describe('bot incoming new-session cwd', () => {
       getCurrentProjectRoot: async () => '/custom/project/root',
       getDefaultConnectionSlug: async () => 'slug',
       getReadyConnection: async () => ({ connection: { slug: 'slug' }, model: 'm' }),
-      readSessionHeader: async () => ({ permissionMode: 'ask' }),
+      readSessionHeader: async () => ({ permissionMode: 'ask', isArchived: false, status: 'active' }),
       ensureSessionCanSend: async () => {},
       emitSessionsChanged() {},
       async runAgentTurn() {

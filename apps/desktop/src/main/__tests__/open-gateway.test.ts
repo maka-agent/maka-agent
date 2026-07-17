@@ -3,6 +3,7 @@ import { afterEach, describe, test } from 'node:test';
 import type { AppSettings, SearchResult, SessionEvent, SessionSummary, StoredMessage } from '@maka/core';
 import { createDefaultSettings } from '@maka/core/settings';
 import { OpenGatewayService } from '../open-gateway.js';
+import { SessionLifecycleError } from '../session-lifecycle.js';
 
 const activeServices: OpenGatewayService[] = [];
 
@@ -983,6 +984,35 @@ describe('OpenGatewayService', () => {
     assert.equal(oversize.status, 400);
     assert.equal(oversize.body.error, 'text_too_large');
     assert.equal(calls, 0);
+  });
+
+  test('maps archived and removed send bindings to stable lifecycle responses', async () => {
+    const service = makeService({
+      sendMessage: async (sessionId) => {
+        throw new SessionLifecycleError(sessionId === 'archived' ? 'archived' : 'removed');
+      },
+    });
+    activeServices.push(service);
+    const status = await service.sync(createGatewaySettings({ enabled: true, port: 0, token: 'dev-token' }).openGateway);
+    assert.ok(status.baseUrl);
+
+    const archived = await fetchJson(`${status.baseUrl}/v1/sessions/archived/messages`, {
+      token: 'dev-token',
+      method: 'POST',
+      body: { text: 'hello' },
+    });
+    assert.equal(archived.status, 409);
+    assert.equal(archived.body.ok, false);
+    assert.equal(archived.body.error, 'session_archived');
+
+    const removed = await fetchJson(`${status.baseUrl}/v1/sessions/removed/messages`, {
+      token: 'dev-token',
+      method: 'POST',
+      body: { text: 'hello' },
+    });
+    assert.equal(removed.status, 404);
+    assert.equal(removed.body.ok, false);
+    assert.equal(removed.body.error, 'session_not_found');
   });
 });
 

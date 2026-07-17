@@ -178,6 +178,11 @@ import { registerPermissionsIpc } from './permissions-ipc-main.js';
 import { registerSettingsIpc } from './settings-ipc-main.js';
 import { registerGatewayIpc } from './gateway-ipc-main.js';
 import { registerSessionsIpc } from './sessions-ipc-main.js';
+import {
+  assertSessionCanSendFromHeader,
+  isSessionLifecycleError,
+  sessionLifecycleErrorFromReadFailure,
+} from './session-lifecycle.js';
 import { createProjectRootController } from './project-root-controller.js';
 import {
   assertSessionWorkspaceAvailable,
@@ -1060,7 +1065,13 @@ botIncoming = createBotIncomingMainService({
   getCurrentProjectRoot: () => resolveCurrentProjectRoot(),
   getDefaultConnectionSlug: () => connectionStore.getDefault(),
   getReadyConnection,
-  readSessionHeader: (sessionId) => store.readHeader(sessionId),
+  readSessionHeader: async (sessionId) => {
+    try {
+      return await store.readHeader(sessionId);
+    } catch (error) {
+      throw sessionLifecycleErrorFromReadFailure(error) ?? error;
+    }
+  },
   ensureSessionCanSend,
   emitSessionsChanged,
   runAgentTurn: ({ sessionId, iterator, turnId, onEvent }) => streamEvents(sessionId, iterator, {
@@ -1128,6 +1139,7 @@ function registerIpc(): void {
     visualSmokeFixture,
     emitSessionsChanged,
     ensureSessionCanSend,
+    invalidateSessionBindings: (sessionId) => botIncoming.invalidateSessionBindings(sessionId),
     ensureSessionWorkspaceAvailable,
     createSession: createDesktopSession,
     getReadyConnection,
@@ -1357,6 +1369,7 @@ async function ensureSessionCanSend(sessionId: string): Promise<void> {
       }),
     });
   } catch (error) {
+    if (isSessionLifecycleError(error)) throw error;
     await runtime.setSessionStatus(sessionId, 'blocked', 'NO_REAL_CONNECTION').catch(() => {});
     emitSessionsChanged('status-change', sessionId);
     throw error;
@@ -1370,7 +1383,15 @@ async function ensureSessionCanSend(sessionId: string): Promise<void> {
 }
 
 async function readAvailableSessionHeader(sessionId: string) {
-  const header = await store.readHeader(sessionId);
+  let header;
+  try {
+    header = await store.readHeader(sessionId);
+  } catch (error) {
+    const lifecycleError = sessionLifecycleErrorFromReadFailure(error);
+    if (lifecycleError) throw lifecycleError;
+    throw error;
+  }
+  assertSessionCanSendFromHeader(header);
   await assertSessionWorkspaceAvailable(header.cwd);
   return header;
 }

@@ -81,7 +81,7 @@ describe('bot incoming Goal lifecycle', () => {
       getCurrentProjectRoot: async () => '/repo',
       getDefaultConnectionSlug: async () => 'provider',
       getReadyConnection: async () => ({ connection: { slug: 'provider' }, model: 'model' }),
-      readSessionHeader: async () => ({ permissionMode: 'explore' }),
+      readSessionHeader: async () => ({ permissionMode: 'explore', isArchived: false, status: 'active' }),
       ensureSessionCanSend: async () => {},
       emitSessionsChanged() {},
       async runAgentTurn(input) {

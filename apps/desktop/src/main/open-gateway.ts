@@ -11,6 +11,7 @@ import type {
   StoredMessage,
 } from '@maka/core';
 import { redactSecrets } from '@maka/core/redaction';
+import { isSessionLifecycleError } from './session-lifecycle.js';
 
 export type OpenGatewayStatus = OpenGatewayRuntimeStatus;
 
@@ -409,7 +410,19 @@ export class OpenGatewayService {
         writeJson(res, 400, { ok: false, error: input.error });
         return;
       }
-      const result = await this.deps.sendMessage(sessionId, { text: input.text });
+      let result: { turnId: string };
+      try {
+        result = await this.deps.sendMessage(sessionId, { text: input.text });
+      } catch (error) {
+        if (isSessionLifecycleError(error)) {
+          writeJson(res, error.reason === 'archived' ? 409 : 404, {
+            ok: false,
+            error: error.reason === 'archived' ? 'session_archived' : 'session_not_found',
+          });
+          return;
+        }
+        throw error;
+      }
       writeJson(res, 202, { ok: true, turnId: result.turnId });
       return;
     }

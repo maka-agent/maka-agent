@@ -22,6 +22,10 @@ import type {
   SessionManager,
 } from '@maka/runtime';
 import { isSessionWorkspaceUnavailableError } from './project-context-root.js';
+import {
+  assertSessionCanSendFromHeader,
+  isSessionLifecycleError,
+} from './session-lifecycle.js';
 
 const BOT_RECENT_SOURCE_EVENT_LIMIT = 1_000;
 const BOT_RECENT_SOURCE_EVENT_TTL_MS = 60 * 60 * 1_000;
@@ -38,6 +42,7 @@ interface BotConversationRateBucket {
 
 export interface BotIncomingMainService {
   handleBotIncomingMessage(message: BotIncomingMessage): Promise<void>;
+  invalidateSessionBindings(sessionId: string): void;
 }
 
 interface BotIncomingMainServiceDeps {
@@ -52,7 +57,11 @@ interface BotIncomingMainServiceDeps {
     slug: string | null | undefined,
     model?: string,
   ): Promise<{ connection: { slug: string }; model: string }>;
-  readSessionHeader(sessionId: string): Promise<{ permissionMode: string }>;
+  readSessionHeader(sessionId: string): Promise<{
+    permissionMode: string;
+    isArchived: boolean;
+    status: string;
+  }>;
   ensureSessionCanSend(sessionId: string): Promise<void>;
   emitSessionsChanged(
     reason: SessionChangedReason,
@@ -72,6 +81,14 @@ export function createBotIncomingMainService(deps: BotIncomingMainServiceDeps): 
   const botConversationQueues = new Map<string, Promise<void>>();
   const botRecentSourceEventKeys = new Map<string, number>();
   const botConversationRateBuckets = new Map<string, BotConversationRateBucket>();
+
+  function invalidateSessionBindings(sessionId: string): void {
+    for (const [conversationKey, boundSessionId] of botConversationSessions) {
+      if (boundSessionId !== sessionId) continue;
+      botConversationSessions.delete(conversationKey);
+      botConversationRateBuckets.delete(conversationKey);
+    }
+  }
 
   async function handleBotIncomingMessage(message: BotIncomingMessage): Promise<void> {
     if (rememberBotSourceEvent(message)) return;
@@ -172,6 +189,35 @@ export function createBotIncomingMainService(deps: BotIncomingMainServiceDeps): 
     ).catch(() => null);
   }
 
+  async function createBotConversationSession(
+    conversationKey: string,
+    message: BotIncomingMessage,
+    noticeTtlMs: number,
+  ): Promise<string | undefined> {
+    if (botConversationSessions.size >= BOT_CONVERSATION_SESSION_LIMIT) {
+      await sendTransientBotNotice(message, 'Maka 当前机器人会话数量已达上限，请重置或清理旧会话后再试。', noticeTtlMs);
+      return undefined;
+    }
+    if (!consumeBotConversationToken(conversationKey)) {
+      await sendTransientBotNotice(message, 'Maka 收到的机器人消息过于频繁，请稍后再试。', noticeTtlMs);
+      return undefined;
+    }
+    const ready = await deps.getReadyConnection(await deps.getDefaultConnectionSlug(), undefined);
+    const summary = await deps.createSession({
+      cwd: await deps.getCurrentProjectRoot(),
+      backend: 'ai-sdk',
+      llmConnectionSlug: ready.connection.slug,
+      model: ready.model,
+      permissionMode: 'explore',
+      name: `${botDisplayLabel(message.platform)} 对话`,
+      labels: ['bot', message.platform],
+    });
+    botConversationSessions.set(conversationKey, summary.id);
+    deps.emitSessionsChanged('created', summary.id);
+    await deps.ensureSessionCanSend(summary.id);
+    return summary.id;
+  }
+
   async function processBotIncomingMessage(
     conversationKey: string,
     message: BotIncomingMessage,
@@ -253,10 +299,19 @@ export function createBotIncomingMainService(deps: BotIncomingMainServiceDeps): 
         deps.emitSessionsChanged('created', sessionId);
         await deps.ensureSessionCanSend(sessionId);
       } else {
-        const permissionModeOk = await ensureBotSessionExploreMode(sessionId, message, SYSTEM_NOTICE_TTL_MS);
-        if (!permissionModeOk) return;
-        await deps.ensureSessionCanSend(sessionId);
-        if (!consumeBotConversationToken(conversationKey)) {
+        let rebound = false;
+        try {
+          const permissionModeOk = await ensureBotSessionExploreMode(sessionId, message, SYSTEM_NOTICE_TTL_MS);
+          if (!permissionModeOk) return;
+          await deps.ensureSessionCanSend(sessionId);
+        } catch (error) {
+          if (!isSessionLifecycleError(error)) throw error;
+          invalidateSessionBindings(sessionId);
+          sessionId = await createBotConversationSession(conversationKey, message, SYSTEM_NOTICE_TTL_MS);
+          if (!sessionId) return;
+          rebound = true;
+        }
+        if (!rebound && !consumeBotConversationToken(conversationKey)) {
           await sendTransientBotNotice(
             message,
             'Maka 收到的机器人消息过于频繁，请稍后再试。',
@@ -350,6 +405,7 @@ export function createBotIncomingMainService(deps: BotIncomingMainServiceDeps): 
     noticeTtlMs: number,
   ): Promise<boolean> {
     const header = await deps.readSessionHeader(sessionId);
+    assertSessionCanSendFromHeader(header);
     if (header.permissionMode === 'explore') return true;
     try {
       await deps.runtime.updateSession(sessionId, { permissionMode: 'explore' });
@@ -388,5 +444,5 @@ export function createBotIncomingMainService(deps: BotIncomingMainServiceDeps): 
     return latestText;
   }
 
-  return { handleBotIncomingMessage };
+  return { handleBotIncomingMessage, invalidateSessionBindings };
 }
