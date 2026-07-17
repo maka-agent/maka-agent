@@ -1,7 +1,6 @@
 import {
   forwardRef,
   useEffect,
-  useId,
   useImperativeHandle,
   useRef,
   useState,
@@ -12,7 +11,7 @@ import {
   type ReactNode,
 } from 'react';
 import { useMountedRef } from './use-mounted-ref.js';
-import { ArrowUp, Blocks, Check, ChevronDown, FileEdit, FolderOpen, GitBranch, History, Paperclip, Plus } from './icons.js';
+import { ArrowUp, Blocks, Paperclip, Plus } from './icons.js';
 import { ChatModelSwitcher, ModelChipStatic, NewChatModelPicker } from './chat-model-switcher.js';
 import type { UiCatalog } from '@maka/core';
 import { useUiLocale } from './locale-context.js';
@@ -22,22 +21,21 @@ import { useComposerDraft } from './use-composer-draft.js';
 import { useComposerHistory } from './use-composer-history.js';
 import {
   createChatInputActionOwner,
-  detectMentionTrigger,
   fileTransferContainsFiles,
   focusTextInputAtEnd,
   isChatInputComposing,
-  mentionQueryMatches,
   type ChatInputActionOwner,
-  type MentionTrigger,
 } from './chat-input-behavior.js';
-import { ComposerMentionPopup, mentionOptionId, type MentionItem } from './composer-mention-popup.js';
+import { ComposerMentionPopup, mentionOptionId } from './composer-mention-popup.js';
+import { useMentionPopup } from './use-mention-popup.js';
+import { ComposerWorkspaceRow, type ComposerBranchPicker, type ComposerWorkspacePicker } from './composer-workspace-row.js';
 import type { AttachmentRef, PermissionMode, ProviderType, SessionSummary } from '@maka/core';
 import { Button as UiButton } from './ui.js';
 import { Textarea as UiTextarea } from './primitives/textarea.js';
 import { AttachmentFileCard } from './attachment-file-card.js';
 import { Kbd } from './primitives/kbd.js';
 import { PermissionModeSelect } from './permission-mode-menu.js';
-import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuSub, MenuSubPopup, MenuSubTrigger, MenuTrigger } from './primitives/menu.js';
+import { Menu, MenuItem, MenuPopup, MenuSub, MenuSubPopup, MenuSubTrigger, MenuTrigger } from './primitives/menu.js';
 
 const COMPOSER_MAX_HEIGHT = 240;
 
@@ -189,27 +187,14 @@ export const Composer = forwardRef<
      * Settings · 模型 instead of wearing a dropdown chevron it cannot honor.
      */
     onOpenModelSettings?(): void;
-    workspacePicker?: {
-      label?: string;
-      branch?: string | null;
-      pending?: boolean;
-      recentWorkspaces?: string[];
-      onOpen(): void;
-      onSelect(path: string): void;
-    };
+    workspacePicker?: ComposerWorkspacePicker;
     /**
      * Git branch picker for the workspace row, shown to the right of
      * the folder indicator when the workspace is a git repository.
      * Clicking the trigger opens a Menu listing local branches; selecting
      * one fires `onSelect` to switch branches (handled in the shell).
      */
-    branchPicker?: {
-      branch: string | null;
-      pending?: boolean;
-      branches: string[];
-      onOpen(): void;
-      onSelect(branch: string): void;
-    };
+    branchPicker?: ComposerBranchPicker;
     /**
      * PR-MOVE-PERMISSION-MODE (WAWQAQ 47fe0d0e + a667cf6c): the
      * permission mode picker lives inside the composer left-controls
@@ -268,22 +253,29 @@ export const Composer = forwardRef<
     autoResize,
     saveCurrentDraft,
   });
-  // Mention popup state (@ file / skill). `mention` holds the active trigger +
-  // query + trigger-char index; items/loading/activeIndex drive the popup. The
-  // whole block stays inert unless the matching provider prop is present, so
-  // the SSR contracts (minimal props) render nothing here.
-  const [mention, setMention] = useState<MentionTrigger | null>(null);
-  const [mentionItems, setMentionItems] = useState<readonly MentionItem[]>([]);
-  const [mentionActiveIndex, setMentionActiveIndex] = useState(0);
-  const [mentionLoading, setMentionLoading] = useState(false);
-  const mentionListboxId = useId();
-  // Exact post-insertion snapshot: after we splice in a token the value can
-  // still parse as a valid trigger (e.g. `@file.txt ` — one trailing space),
-  // which would immediately re-open the popup. Suppress detection for that one
-  // state only; any further edit or caret move clears it and detection resumes.
-  const mentionSuppressRef = useRef<{ value: string; caret: number } | null>(null);
-  const recomputeMentionRef = useRef<() => void>(() => {});
-  const mentionPopupOpen = mention !== null;
+  // Mention popup state (@ file / skill) lives in useMentionPopup (issue
+  // #1044); the identifiers below keep their names so the keydown routing
+  // (arrows / Enter / Tab / Esc, pinned by the composer-mention contract)
+  // reads exactly as before.
+  const {
+    mention,
+    mentionItems,
+    mentionActiveIndex,
+    setMentionActiveIndex,
+    mentionLoading,
+    mentionListboxId,
+    mentionPopupOpen,
+    recomputeMention,
+    closeMention,
+    selectMention,
+  } = useMentionPopup({
+    textareaRef,
+    mentionSkills: props.mentionSkills,
+    onSearchMentionFiles: props.onSearchMentionFiles,
+    saveCurrentDraft,
+    autoResize,
+    resetPromptHistoryNavigation,
+  });
   // PR-UI-15: locale-aware copy for placeholder + toolbar states. We
   const locale = useUiLocale();
   const copy = COMPOSER_COPY_BY_LOCALE[locale];
@@ -457,135 +449,6 @@ export const Composer = forwardRef<
     saveCurrentDraft();
     recomputeMention();
   }
-
-  function closeMention() {
-    setMention(null);
-    setMentionItems([]);
-    setMentionActiveIndex(0);
-    setMentionLoading(false);
-  }
-
-  // Re-detect the active mention trigger from the live textarea value + caret.
-  // Called on input, keyup, and document selectionchange so clicking elsewhere
-  // (or moving the caret out of a trigger) closes the popup.
-  function recomputeMention() {
-    const el = textareaRef.current;
-    if (!el) return;
-    // Only the focused textarea drives the popup — a selectionchange from
-    // another field, or a blur, should close it.
-    if (typeof document !== 'undefined' && document.activeElement !== el) {
-      if (mentionPopupOpen) closeMention();
-      return;
-    }
-    const caret = el.selectionEnd ?? el.value.length;
-    const suppress = mentionSuppressRef.current;
-    if (suppress && suppress.value === el.value && suppress.caret === caret) {
-      if (mentionPopupOpen) closeMention();
-      return;
-    }
-    mentionSuppressRef.current = null;
-    const result = detectMentionTrigger(el.value, caret);
-    // Gate on provider presence so the feature no-ops when a popup has nothing
-    // to render (keeps the SSR/minimal-props path inert).
-    if (!result
-      || (result.trigger === '@' && !props.onSearchMentionFiles)
-      || (result.trigger === '/' && props.mentionSkills === undefined)) {
-      if (mentionPopupOpen) closeMention();
-      return;
-    }
-    setMention((prev) =>
-      prev && prev.trigger === result.trigger && prev.query === result.query && prev.start === result.start
-        ? prev
-        : result,
-    );
-  }
-  recomputeMentionRef.current = recomputeMention;
-
-  function selectMention(index: number) {
-    const el = textareaRef.current;
-    const current = mention;
-    if (!el || !current) return;
-    const item = mentionItems[index];
-    if (!item) return;
-    const insertion = item.type === 'file'
-      ? `@${item.relativePath} `
-      : `使用 ${item.name} 技能：`;
-    const value = el.value;
-    const caret = el.selectionEnd ?? value.length;
-    // Replace [start, caret): the trigger char (at `start`) through the caret,
-    // i.e. the `@query` / `/query` the user typed, with the plain-text token.
-    const nextValue = value.slice(0, current.start) + insertion + value.slice(caret);
-    const nextCaret = current.start + insertion.length;
-    resetPromptHistoryNavigation();
-    el.value = nextValue;
-    el.setSelectionRange(nextCaret, nextCaret);
-    mentionSuppressRef.current = { value: nextValue, caret: nextCaret };
-    closeMention();
-    saveCurrentDraft(nextValue);
-    autoResize();
-    el.focus();
-  }
-
-  // Populate the popup for the active trigger: skills filter synchronously from
-  // props; files search through the (debounced) IPC-backed callback.
-  useEffect(() => {
-    if (!mention) {
-      setMentionItems([]);
-      setMentionLoading(false);
-      return;
-    }
-    if (mention.trigger === '/') {
-      const skills = props.mentionSkills ?? [];
-      const items: MentionItem[] = skills
-        .filter((skill) => mentionQueryMatches(mention.query, `${skill.name} ${skill.description ?? ''}`))
-        .slice(0, 50)
-        .map((skill) => ({ type: 'skill', id: skill.id, name: skill.name, description: skill.description }));
-      setMentionItems(items);
-      setMentionActiveIndex(0);
-      setMentionLoading(false);
-      return undefined;
-    }
-    const search = props.onSearchMentionFiles;
-    if (!search) {
-      setMentionItems([]);
-      setMentionLoading(false);
-      return undefined;
-    }
-    let cancelled = false;
-    setMentionLoading(true);
-    setMentionActiveIndex(0);
-    const timer = setTimeout(() => {
-      void (async () => {
-        try {
-          const files = await search(mention.query);
-          if (cancelled) return;
-          const items: MentionItem[] = files
-            .filter((file) => mentionQueryMatches(mention.query, file.relativePath))
-            .slice(0, 50)
-            .map((file) => ({ type: 'file', relativePath: file.relativePath }));
-          setMentionItems(items);
-        } catch {
-          // Fail soft: an IPC error just yields an empty list (未找到文件).
-          if (!cancelled) setMentionItems([]);
-        } finally {
-          if (!cancelled) setMentionLoading(false);
-        }
-      })();
-    }, 150);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [mention, props.mentionSkills, props.onSearchMentionFiles]);
-
-  // Caret-move detection: a plain click or arrow that moves the caret out of a
-  // trigger fires selectionchange (not input), so listen for it while mounted.
-  useEffect(() => {
-    if (typeof document === 'undefined') return undefined;
-    const onSelectionChange = () => recomputeMentionRef.current();
-    document.addEventListener('selectionchange', onSelectionChange);
-    return () => document.removeEventListener('selectionchange', onSelectionChange);
-  }, []);
 
   function canAcceptDroppedFiles(): boolean {
     return Boolean(props.onAttachFilePaths && !props.disabled && !props.streaming && !importActionOwnerRef.current?.pending);
@@ -916,130 +779,9 @@ export const Composer = forwardRef<
           </div>
         </div>
       </div>
-      {props.workspacePicker && (() => {
-        const wp = props.workspacePicker!;
-        return (
-        <div className="maka-composer-workspace-row">
-          {/* The workspace and branch pickers are standard compact menu
-              triggers. Shared Button owns their visual and interaction states;
-              local classes only constrain layout and label truncation. */}
-          <Menu>
-            <MenuTrigger
-              render={({ onClick: menuToggleClick, ...triggerRest }) => (
-                <UiButton
-                  {...triggerRest}
-                  onClick={(e) => {
-                    menuToggleClick?.(e);
-                  }}
-                  type="button"
-                  variant="quiet"
-                  size="sm"
-                  className="maka-composer-workspace-picker"
-                  disabled={wp.pending === true}
-                  aria-busy={wp.pending === true ? 'true' : undefined}
-                  title={wp.branch ? `选择工作目录 · ${wp.branch}` : '选择工作目录'}
-                  aria-label={wp.branch
-                    ? `选择工作目录：${wp.label ?? '当前工作目录'}，当前分支 ${wp.branch}`
-                    : `选择工作目录：${wp.label ?? '当前工作目录'}`}
-                >
-                  <FolderOpen size={13} aria-hidden="true" />
-                  {wp.label
-                    ? <span className="maka-composer-workspace-current">{wp.label}</span>
-                    : <span>选择工作目录</span>}
-                  <ChevronDown size={12} aria-hidden="true" />
-                </UiButton>
-              )}
-            />
-            <MenuPopup className="maka-composer-workspace-menu" align="start" side="top" sideOffset={6}>
-              {wp.recentWorkspaces && wp.recentWorkspaces.length > 0
-                ? (
-                  <>
-                    {wp.recentWorkspaces.map((wsp) => (
-                      <MenuItem key={wsp} onClick={() => { wp.onSelect(wsp); }}>
-                        <History size={13} aria-hidden="true" />
-                        <span>{basenameFromPath(wsp)}</span>
-                      </MenuItem>
-                    ))}
-                    <MenuSeparator />
-                    <MenuItem onClick={() => { wp.onOpen(); }}>
-                      <FolderOpen size={13} aria-hidden="true" />
-                      <span>选择其他目录...</span>
-                    </MenuItem>
-                  </>
-                )
-                : (
-                  <MenuItem onClick={() => { wp.onOpen(); }}>
-                    <FolderOpen size={13} aria-hidden="true" />
-                    <span>选择工作目录...</span>
-                  </MenuItem>
-                )}
-            </MenuPopup>
-          </Menu>
-          {props.branchPicker && (() => {
-            const bp = props.branchPicker!;
-            const triggerDisabled = bp.pending === true;
-            return (
-              <Menu>
-                <MenuTrigger
-                  render={({ onClick: menuToggleClick, ...triggerRest }) => (
-                    <UiButton
-                      {...triggerRest}
-                      onClick={(e) => {
-                        bp.onOpen();
-                        menuToggleClick?.(e);
-                      }}
-                      type="button"
-                      variant="quiet"
-                      size="sm"
-                      className="maka-composer-branch-picker"
-                      disabled={triggerDisabled}
-                      aria-busy={triggerDisabled ? 'true' : undefined}
-                      title={bp.branch ? `分支：${bp.branch}` : '选择分支'}
-                      aria-label={bp.branch
-                        ? `切换分支：${bp.branch}`
-                        : '选择分支'}
-                    >
-                      <GitBranch size={13} aria-hidden="true" />
-                      <span className="maka-composer-branch-current">{bp.branch ?? '—'}</span>
-                      <ChevronDown size={12} aria-hidden="true" />
-                    </UiButton>
-                  )}
-                />
-                <MenuPopup className="maka-composer-branch-menu" align="start" side="top" sideOffset={6}>
-                  {bp.branches.length === 0 ? (
-                    <div className="maka-composer-branch-empty">无本地分支</div>
-                  ) : (
-                    bp.branches.map((b) => (
-                      <MenuItem
-                        key={b}
-                        data-active={b === bp.branch}
-                        onClick={() => {
-                          if (b === bp.branch) return;
-                          void bp.onSelect(b);
-                        }}
-                      >
-                        <GitBranch size={13} aria-hidden="true" />
-                        <span>{b}</span>
-                        {b === bp.branch && (
-                          <Check size={12} aria-hidden="true" className="maka-composer-branch-check" />
-                        )}
-                      </MenuItem>
-                    ))
-                  )}
-                </MenuPopup>
-              </Menu>
-            );
-          })()}
-        </div>
-      );
-    })()}
+      {props.workspacePicker ? (
+        <ComposerWorkspaceRow workspacePicker={props.workspacePicker} branchPicker={props.branchPicker} />
+      ) : null}
     </form>
   );
 });
-
-/** Extract the last path segment from a file system path (win32 / posix). */
-function basenameFromPath(value: string): string {
-  const trimmed = value.replace(/[\\/]+$/, '');
-  const name = trimmed.split(/[\\/]/).filter(Boolean).pop();
-  return name || trimmed || '当前项目';
-}

@@ -209,21 +209,26 @@ describe('project context workspace picker', () => {
 
   it('renders the guarded project picker below the composer', async () => {
     const ui = await readRepo('packages/ui/src/composer.tsx');
+    // Issue #1044: the workspace row JSX + its picker prop shapes moved into
+    // ComposerWorkspaceRow; Composer forwards the props. The picker-contract
+    // assertions read the row component, the prop wiring stays on Composer.
+    const workspaceRow = await readRepo('packages/ui/src/composer-workspace-row.tsx');
     const styles = await readRendererContractCss();
     const renderer = await readRendererShellCombinedSource();
 
-    assert.match(ui, /workspacePicker\?:\s*\{/);
-    assert.match(ui, /className="maka-composer-workspace-picker"/);
-    assert.match(ui, /branch\?: string \| null;/);
-    assert.match(ui, /pending\?: boolean;/);
-    assert.match(ui, /disabled=\{wp\.pending === true\}/);
-    assert.match(ui, /aria-busy=\{wp\.pending === true \? 'true' : undefined\}/);
+    assert.match(ui, /workspacePicker\?: ComposerWorkspacePicker;/);
+    assert.match(ui, /<ComposerWorkspaceRow workspacePicker=\{props\.workspacePicker\} branchPicker=\{props\.branchPicker\} \/>/);
+    assert.match(workspaceRow, /className="maka-composer-workspace-picker"/);
+    assert.match(workspaceRow, /branch\?: string \| null;/);
+    assert.match(workspaceRow, /pending\?: boolean;/);
+    assert.match(workspaceRow, /disabled=\{wp\.pending === true\}/);
+    assert.match(workspaceRow, /aria-busy=\{wp\.pending === true \? 'true' : undefined\}/);
     // WAWQAQ msg `28128c9e` (2026-06-20): the "选择工作目录" placeholder
     // is only rendered when no directory has been selected yet. Once
     // a label is set, the picker renders `.maka-composer-workspace-current`
     // alone — no more "选择工作目录 ai ▾" doubled string.
-    assert.match(ui, /\? <span className="maka-composer-workspace-current">\{wp\.label\}<\/span>[\s\S]*?: <span>选择工作目录<\/span>/);
-    assert.match(ui, /当前分支 \$\{wp\.branch\}/);
+    assert.match(workspaceRow, /\? <span className="maka-composer-workspace-current">\{wp\.label\}<\/span>[\s\S]*?: <span>选择工作目录<\/span>/);
+    assert.match(workspaceRow, /当前分支 \$\{wp\.branch\}/);
     // Workspace picker must track the shared chat/composer measure token,
     // not a bespoke hard-coded width, so future measure updates keep the
     // row aligned with the composer card automatically.

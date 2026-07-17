@@ -37,6 +37,9 @@ const FILES_TO_SCAN = [
   resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'chat-view.tsx'),
   resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'chat-turn.tsx'),
   resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'composer.tsx'),
+  // Issue #1044: visible copy that moved out of the two decomposed panels
+  // keeps the same hygiene coverage in its new home.
+  resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'composer-workspace-row.tsx'),
   resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'skills-panel.tsx'),
   resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'daily-review-panel.tsx'),
   resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'plan-reminder-panel.tsx'),

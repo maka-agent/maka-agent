@@ -346,6 +346,9 @@ describe('Settings coming-soon cleanup contract', () => {
         readRepo('packages/ui/src/components.tsx'),
         readRepo('packages/ui/src/chat-view.tsx'),
         readRepo('packages/ui/src/composer.tsx'),
+        // Issue #1044: keep the stub-vocabulary gate on the extracted
+        // composer workspace row (moved out of composer.tsx).
+        readRepo('packages/ui/src/composer-workspace-row.tsx'),
         readRepo('packages/ui/src/skills-panel.tsx'),
         readRepo('packages/ui/src/daily-review-panel.tsx'),
         readRepo('packages/ui/src/plan-reminder-panel.tsx'),
