@@ -7,6 +7,7 @@ import {
   computeEditedSource,
 } from '@maka/runtime';
 import { withFileWriteLock } from '@maka/runtime/file-write-lock';
+import { createHash } from 'node:crypto';
 import { posix as pathPosix } from 'node:path';
 import { z } from 'zod';
 import type { HeavyTaskEvidenceRecorder } from './heavy-task-evidence.js';
@@ -37,6 +38,10 @@ export interface BuildIsolatedHeadlessToolsOptions {
 // so the executor — not this layer — owns canonicalization.
 const fileWriteKey = (cwd: string, normalizedPath: string) =>
   JSON.stringify([pathPosix.normalize(cwd), pathPosix.normalize(normalizedPath)]);
+
+const EDIT_READ_FRAME_END = 'MAKA_EDIT_BYTES_END';
+const EDIT_READ_FRAME_HEADER_PATTERN = /^MAKA_EDIT_BYTES_V1 length=(0|[1-9]\d*) sha256=([a-f0-9]{64})$/;
+const CANONICAL_BASE64_PATTERN = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 /**
  * Build Maka's standard headless tool surface with shell and file operations
  * routed through the isolated executor boundary.
@@ -205,6 +210,10 @@ export function buildIsolatedEditTool(
         const raw = await readIsolatedFileBytes(executor, cwd, normalizedPath, ctx.abortSignal);
         const { content, ...metadata } = computeEditBytes(raw, old_string, new_string, normalizedPath);
         await writeIsolatedFileBytes(executor, cwd, normalizedPath, content, ctx.abortSignal);
+        const stored = await readIsolatedFileBytes(executor, cwd, normalizedPath, ctx.abortSignal);
+        if (!stored.equals(content)) {
+          throw new Error(`Edit post-write verification failed for ${normalizedPath}: stored bytes differ from the replacement result`);
+        }
         const result = { ok: true, path: normalizedPath, replacements: 1, ...metadata };
         await options.heavyTaskEvidence?.recordToolEvidence({ name: 'Edit', input, result }, ctx);
         return result;
@@ -311,7 +320,38 @@ async function readIsolatedFileBytes(
   abortSignal: AbortSignal,
 ): Promise<Buffer> {
   const stdout = await execFileCommand(executor, cwd, shellFileCommand(EDIT_READ_BYTES_SCRIPT, [path]), abortSignal);
-  return Buffer.from(stdout.replace(/\s+/g, ''), 'base64');
+  return parseEditReadFrame(stdout);
+}
+
+function parseEditReadFrame(stdout: string): Buffer {
+  const lines = stdout.split('\n');
+  if (lines.length !== 4 || lines[3] !== '' || lines[2] !== EDIT_READ_FRAME_END) {
+    throw editReadIntegrityError('expected exactly one complete frame with no surrounding output');
+  }
+
+  const header = lines[0]?.match(EDIT_READ_FRAME_HEADER_PATTERN);
+  if (!header) throw editReadIntegrityError('frame header is missing or malformed');
+  const expectedLength = Number(header[1]);
+  if (!Number.isSafeInteger(expectedLength)) throw editReadIntegrityError('declared byte length is not safe');
+
+  const payload = lines[1] ?? '';
+  if (!CANONICAL_BASE64_PATTERN.test(payload)) {
+    throw editReadIntegrityError('payload is not canonical Base64');
+  }
+  const decoded = Buffer.from(payload, 'base64');
+  if (decoded.toString('base64') !== payload) {
+    throw editReadIntegrityError('payload is not canonical Base64');
+  }
+  if (decoded.length !== expectedLength) {
+    throw editReadIntegrityError(`declared ${expectedLength} bytes but decoded ${decoded.length}`);
+  }
+  const actualDigest = createHash('sha256').update(decoded).digest('hex');
+  if (actualDigest !== header[2]) throw editReadIntegrityError('SHA-256 digest mismatch');
+  return decoded;
+}
+
+function editReadIntegrityError(reason: string): Error {
+  return new Error(`Edit read transport integrity check failed: ${reason}`);
 }
 
 async function writeIsolatedFileBytes(
@@ -558,7 +598,17 @@ printf '%s' "$2" > "$target"
 const EDIT_READ_BYTES_SCRIPT = `${COMMON_SHELL_HELPERS}
 root=$(pwd -P) || exit 1
 target=$(existing_target "$1" 'Edit path') || exit 1
-base64 < "$target"
+size=$(wc -c < "$target" | tr -d '[:space:]') || exit 1
+if command -v sha256sum >/dev/null 2>&1; then
+  digest=$(sha256sum "$target" | awk '{print $1}') || exit 1
+elif command -v shasum >/dev/null 2>&1; then
+  digest=$(shasum -a 256 "$target" | awk '{print $1}') || exit 1
+else
+  fail 'SHA-256 utility is required for Edit transport'
+fi
+printf 'MAKA_EDIT_BYTES_V1 length=%s sha256=%s\n' "$size" "$digest"
+base64 < "$target" | LC_ALL=C tr -d '\\r\\n'
+printf '\nMAKA_EDIT_BYTES_END\n'
 `;
 
 const EDIT_WRITE_BYTES_SCRIPT = `${COMMON_SHELL_HELPERS}

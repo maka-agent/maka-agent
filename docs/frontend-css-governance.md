@@ -11,6 +11,12 @@ Maka's frontend styling combines Tailwind v4 with handwritten renderer CSS. Some
 - New per-surface selector blocks belong in `apps/desktop/src/renderer/styles/**/*.css`.
 - Historical recipes at the end of `maka-tokens.css` and `reference-shell.css` are transitional exceptions. Do not add new surface rules to them.
 
+### Selector naming
+
+- Shared renderer and `@maka/ui` selectors use the kebab-case `.maka-*` dialect.
+- The established `styles/settings/**` surface uses camelCase `.settings*` selectors. Keep that dialect for settings-local selectors instead of mixing both forms within one surface.
+- Moving existing settings selectors between concern files does not require a repository-wide rename; any future naming migration should be handled as an explicit compatibility change.
+
 ## 2. Layers
 
 - Pure presentation rules that do not override shared primitives or Tailwind utilities should use `@layer base` or `@layer components` where practical.

@@ -33,6 +33,8 @@ import {
 } from './shell-run-update-state.js';
 
 type RefBox<T> = { current: T };
+const LAYOUT_PERSIST_DEBOUNCE_MS = 200;
+
 type SessionEventHealthUpdater = (
   updater: (current: Record<string, SessionEventStreamSnapshot>) => Record<string, SessionEventStreamSnapshot>,
 ) => void;
@@ -138,7 +140,7 @@ export function useAppShellPersistenceEffects(options: {
   useEffect(() => {
     const handle = window.setTimeout(() => {
       safeLocalStorageSet('maka-chat-list-width-v1', String(options.sessionListWidth));
-    }, 200);
+    }, LAYOUT_PERSIST_DEBOUNCE_MS);
     return () => window.clearTimeout(handle);
   }, [options.sessionListWidth]);
 
@@ -149,7 +151,7 @@ export function useAppShellPersistenceEffects(options: {
   useEffect(() => {
     const handle = window.setTimeout(() => {
       safeLocalStorageSet('maka-session-workbar-width-v1', String(options.workbarWidth));
-    }, 200);
+    }, LAYOUT_PERSIST_DEBOUNCE_MS);
     return () => window.clearTimeout(handle);
   }, [options.workbarWidth]);
 

@@ -285,10 +285,8 @@ function SessionListGroups(props: {
                 <ChevronRight
                   size={12}
                   aria-hidden="true"
-                  style={{
-                    transform: expanded ? 'rotate(90deg)' : undefined,
-                    transition: 'transform 140ms var(--ease-out-strong)',
-                  }}
+                  className="maka-list-group-chevron"
+                  style={{ transform: expanded ? 'rotate(90deg)' : undefined }}
                 />
                 <span>{group.label}</span>
                 {/* Collapsed history buckets keep a subdued count so users

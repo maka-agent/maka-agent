@@ -16,6 +16,12 @@
 - 新增的 per-surface selector 规则块必须放在 `apps/desktop/src/renderer/styles/**/*.css`。
 - `maka-tokens.css` 尾部的历史 recipe 和 `reference-shell.css` 是待收敛的 transitional exceptions；不要继续向这两个例外增加 surface 规则。
 
+### Selector 命名
+
+- renderer 与 `@maka/ui` 的共享 selector 使用 kebab-case `.maka-*` 方言。
+- 已有的 `styles/settings/**` surface 使用 camelCase `.settings*` selector；settings 内的新 selector 应延续该方言，避免同一 surface 混用两套命名。
+- 在 settings 的 concern 文件之间移动现有 selector 时不要求全仓重命名；未来若统一命名，应作为显式兼容性改动单独推进。
+
 ## 2. Layer 规则
 
 - 纯展示、不会去覆盖共享 primitive / Tailwind utility 的规则，应尽量放进：
