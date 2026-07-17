@@ -12,9 +12,6 @@ import type {
 import { generalizedErrorMessageChinese, hasSettledInitialOnboarding } from '@maka/core';
 import {
   AutomationsPage,
-  Composer,
-  PermissionPrompt,
-  UserQuestionPrompt,
   DailyReviewPage,
   type ComposerHandle,
   type MakaUriDest,
@@ -31,6 +28,7 @@ import {
 import { useKeyboardHelp } from './keyboard-help';
 import { useCommandPalette } from './command-palette';
 import { ChatMessageSurface } from './chat-message-surface';
+import { ChatComposerRegion } from './chat-composer-region';
 import { useOnboardingSnapshot } from './use-onboarding-snapshot';
 import type { OnboardingSnapshot } from '../global';
 import { ProviderLogo } from './settings/provider-display';
@@ -1407,29 +1405,19 @@ export function AppShell({
                 onStartPlanReminder={openPlanReminderForm}
               />
               )}
-              <div className="maka-composer-interaction-slot">
-                {activePermission && (
-                  <PermissionPrompt
-                    request={activePermission}
-                    onRespond={respondToPermission}
-                    onStop={stop}
-                    stopPending={activeId ? stopPendingBySession[activeId] === true : false}
-                  />
-                )}
-                {activeQuestion && (
-                  <UserQuestionPrompt
-                    request={activeQuestion}
-                    onRespond={respondToUserQuestion}
-                    onStop={stop}
-                    stopPending={activeId ? stopPendingBySession[activeId] === true : false}
-                  />
-                )}
-              </div>
-              <Composer
-                ref={composerRef}
-                hidden={navSelection.section !== 'sessions' || onboardingComposerHidden || Boolean(activeInteraction)}
-                draftKey={activeId ?? 'new-session'}
-                // #646: Stop must be available for the WHOLE turn — the moment the
+              <ChatComposerRegion
+                composerRef={composerRef}
+                active={navSelection.section === 'sessions'}
+                onboardingComposerHidden={onboardingComposerHidden}
+                activeInteraction={activeInteraction}
+                activeId={activeId}
+                stopPendingBySession={stopPendingBySession}
+                activePermission={activePermission}
+                respondToPermission={respondToPermission}
+                activeQuestion={activeQuestion}
+                respondToUserQuestion={respondToUserQuestion}
+                stop={stop}
+                // #646: Stop must be available for the WHOLE turn - the moment the
                 // user most wants to interrupt is a long wait with nothing on
                 // screen (first token, or a slow provider's step-to-step lull).
                 // Drive Stop off `turnInFlight` (armed at send, cleared at the
@@ -1451,7 +1439,6 @@ export function AppShell({
                 continuing={showContinuingIndicator && !activeStreamingLive}
                 onSend={sendWithAttachments}
                 onStop={stop}
-                stopPending={activeId ? stopPendingBySession[activeId] === true : false}
                 mentionSkills={mentionSkills}
                 onSearchMentionFiles={searchMentionFiles}
                 pendingAttachments={pendingAttachments}

@@ -29,15 +29,14 @@ describe('session health notice layout contract (#1032)', () => {
   it('mounts the hard-only health notice above the composer interaction slot', async () => {
     const shell = await readRepo('apps/desktop/src/renderer/app-shell.tsx');
     const surface = await readRepo('apps/desktop/src/renderer/chat-message-surface.tsx');
+    const composerRegion = await readRepo('apps/desktop/src/renderer/chat-composer-region.tsx');
     const surfaceIndex = shell.indexOf('<ChatMessageSurface');
-    const slotIndex = shell.indexOf('className="maka-composer-interaction-slot"');
-    const composerIndex = shell.indexOf('<Composer\n                ref={composerRef}');
+    const composerRegionIndex = shell.indexOf('<ChatComposerRegion');
     assert.ok(surfaceIndex >= 0, 'ChatMessageSurface should render in app-shell');
-    assert.ok(slotIndex >= 0, 'composer interaction slot should remain');
-    assert.ok(composerIndex >= 0, 'composer mount should remain');
+    assert.ok(composerRegionIndex >= 0, 'ChatComposerRegion should render in app-shell');
     assert.ok(
-      surfaceIndex < slotIndex && slotIndex < composerIndex,
-      'the message surface (with its health notice) must sit above the interaction slot and composer',
+      surfaceIndex < composerRegionIndex,
+      'the message surface (with its health notice) must sit above the composer region',
     );
     assert.match(
       shell,
@@ -49,6 +48,7 @@ describe('session health notice layout contract (#1032)', () => {
       /className="maka-session-health-notice"[\s\S]*?role="status"/,
     );
     assert.match(surface, /sessionHealthNotice\.onClickTarget === 'account' \? '去账号' : '去模型'/);
+    assert.match(composerRegion, /className="maka-composer-interaction-slot"/);
   });
 
   it('does not surface routine running or event-stream recovery badges', async () => {
