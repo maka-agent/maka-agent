@@ -17,7 +17,7 @@ const toolActivitySource = readFileSync(
 
 function renderToStaticMarkup(node: ReactNode): string {
   return renderReactToStaticMarkup(createElement(LocaleProvider, {
-    preference: 'zh',
+    locale: 'zh',
     children: node,
   }));
 }

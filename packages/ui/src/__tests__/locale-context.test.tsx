@@ -13,9 +13,9 @@ function LocaleProbe() {
 }
 
 describe('LocaleProvider', () => {
-  it('renders an explicit preference through context', () => {
+  it('publishes an already-resolved locale through context', () => {
     const markup = renderToStaticMarkup(
-      <LocaleProvider preference="en">
+      <LocaleProvider locale="en">
         <LocaleProbe />
       </LocaleProvider>,
     );
@@ -23,35 +23,15 @@ describe('LocaleProvider', () => {
     assert.equal(markup, '<span>en</span>');
   });
 
-  it('switches the resolved locale when the provider preference changes', () => {
-    const renderPreference = (preference: 'zh' | 'en') => renderToStaticMarkup(
-      <LocaleProvider preference={preference}>
+  it('switches when the resolved locale changes', () => {
+    const renderLocale = (locale: 'zh' | 'en') => renderToStaticMarkup(
+      <LocaleProvider locale={locale}>
         <LocaleProbe />
       </LocaleProvider>,
     );
 
-    assert.equal(renderPreference('zh'), '<span>zh</span>');
-    assert.equal(renderPreference('en'), '<span>en</span>');
-  });
-
-  it('keeps auto Chinese-first until desktop translation is complete', () => {
-    const markup = renderToStaticMarkup(
-      <LocaleProvider preference="auto">
-        <LocaleProbe />
-      </LocaleProvider>,
-    );
-
-    assert.equal(markup, '<span>zh</span>');
-  });
-
-  it('gives the test override precedence over the persisted preference', () => {
-    const markup = renderToStaticMarkup(
-      <LocaleProvider preference="en" override="zh">
-        <LocaleProbe />
-      </LocaleProvider>,
-    );
-
-    assert.equal(markup, '<span>zh</span>');
+    assert.equal(renderLocale('zh'), '<span>zh</span>');
+    assert.equal(renderLocale('en'), '<span>en</span>');
   });
 
   it('fails clearly when a reactive consumer is outside the provider', () => {

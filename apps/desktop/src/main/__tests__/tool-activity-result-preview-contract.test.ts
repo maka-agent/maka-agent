@@ -210,7 +210,7 @@ describe('ToolActivity result preview contract', () => {
 
 function renderPreview(content: ToolResultContent): string {
   return renderToStaticMarkup(createElement(LocaleProvider, {
-    preference: 'zh',
+    locale: 'zh',
     children: createElement(OverlayHost, { content, onClose: () => {} }),
   }));
 }

@@ -30,7 +30,7 @@ const TAIL_MARKER = 'TAIL_MARKER_SCHEMA_DETAILS';
 
 function renderWithLocale(child: ReactNode): string {
   return renderToStaticMarkup(
-    createElement(LocaleProvider, { preference: 'zh', children: child }),
+    createElement(LocaleProvider, { locale: 'zh', children: child }),
   );
 }
 

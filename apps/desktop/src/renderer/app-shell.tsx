@@ -9,7 +9,11 @@ import type {
   UiLocale,
   UiLocalePreference,
 } from '@maka/core';
-import { generalizedErrorMessageChinese, hasSettledInitialOnboarding } from '@maka/core';
+import {
+  generalizedErrorMessageChinese,
+  hasSettledInitialOnboarding,
+  resolveUiLocale,
+} from '@maka/core';
 import {
   Alert,
   AlertAction,
@@ -226,6 +230,7 @@ export function AppShell({
   const [themePalette, setThemePalette] = useState<ThemePalette>('default');
   const [uiLocalePreference, setUiLocalePreference] = useState<UiLocalePreference>('auto');
   const [uiLocaleOverride, setUiLocaleOverride] = useState<UiLocale | null>(null);
+  const uiLocale = resolveUiLocale(uiLocalePreference, uiLocaleOverride);
   const [uiLocaleUpdateGate] = useState(createUiLocaleUpdateGate);
   const [userLabel, setUserLabel] = useState<string>('');
   // Settings → 通用 → 默认权限模式 — DISPLAY-ONLY mirror. The composer's
@@ -1204,7 +1209,7 @@ export function AppShell({
   };
 
   return (
-    <LocaleProvider preference={uiLocalePreference} override={uiLocaleOverride}>
+    <LocaleProvider locale={uiLocale} override={uiLocaleOverride}>
       <div className="appFrame agents-layout-root" data-agents-page>
       <div
         className="app maka-shell-2col agents-layout-body"

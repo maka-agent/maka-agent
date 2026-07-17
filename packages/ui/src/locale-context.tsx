@@ -4,11 +4,7 @@ import {
   useLayoutEffect,
   type ReactNode,
 } from 'react';
-import {
-  resolveUiLocale,
-  type UiLocale,
-  type UiLocalePreference,
-} from '@maka/core';
+import type { UiLocale } from '@maka/core';
 
 const UiLocaleContext = createContext<UiLocale | undefined>(undefined);
 
@@ -29,18 +25,16 @@ export function syncUiLocaleDocument(
 }
 
 export function LocaleProvider(props: {
-  preference: UiLocalePreference;
+  locale: UiLocale;
   override?: UiLocale | null;
   children: ReactNode;
 }) {
-  const locale = resolveUiLocale(props.preference, props.override);
-
   useLayoutEffect(() => {
-    syncUiLocaleDocument(locale, props.override);
-  }, [locale, props.override]);
+    syncUiLocaleDocument(props.locale, props.override);
+  }, [props.locale, props.override]);
 
   return (
-    <UiLocaleContext.Provider value={locale}>
+    <UiLocaleContext.Provider value={props.locale}>
       {props.children}
     </UiLocaleContext.Provider>
   );

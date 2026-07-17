@@ -7,7 +7,7 @@ import { LocaleProvider, OverlayHost } from '@maka/ui';
 describe('subagent UI contract', () => {
   it('renders a compact subagent card without exposing internal ids', () => {
     const markup = renderToStaticMarkup(createElement(LocaleProvider, {
-      preference: 'zh',
+      locale: 'zh',
       children: createElement(OverlayHost, {
         content: {
           kind: 'subagent',
