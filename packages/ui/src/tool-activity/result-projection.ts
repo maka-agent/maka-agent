@@ -88,7 +88,7 @@ export function isCancelledToolResult(result: ToolActivityItem['result']): boole
   return false;
 }
 
-export function resultHasCapturedStreams(result: ToolActivityItem['result']): boolean {
+function resultHasCapturedStreams(result: ToolActivityItem['result']): boolean {
   if (!result) return false;
   if (result.kind === 'terminal' || result.kind === 'shell_run') {
     const output = isShellOutput(result.output) ? result.output : undefined;
