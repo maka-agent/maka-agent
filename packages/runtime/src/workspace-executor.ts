@@ -1,7 +1,8 @@
 import { promises as fs } from 'node:fs';
 import { exec } from 'node:child_process';
 import { glob as nodeGlob } from 'node:fs/promises';
-import { dirname, isAbsolute, relative, resolve } from 'node:path';
+import { dirname, isAbsolute, resolve } from 'node:path';
+import { isPathInside } from './path-containment.js';
 import { promisify } from 'node:util';
 import type { ToolExecutionFacts } from '@maka/core/permission';
 import { runProcessWithBoundedTail, runShellWithBoundedTail } from './shell-exec.js';
@@ -292,11 +293,11 @@ async function resolveWritableInsideCwd(cwd: string, inputPath: string, label: s
   }
   const root = await fs.realpath(cwd);
   const candidate = resolve(root, inputPath);
-  if (!isInside(root, candidate)) {
+  if (!isPathInside(root, candidate)) {
     throw new Error(`${label} path must stay inside session cwd`);
   }
   const parent = await fs.realpath(dirname(candidate));
-  if (!isInside(root, parent)) {
+  if (!isPathInside(root, parent)) {
     throw new Error(`${label} path must stay inside session cwd`);
   }
   return candidate;
@@ -308,17 +309,12 @@ async function resolveExistingInsideCwd(cwd: string, inputPath: string, label: s
   }
   const root = await fs.realpath(cwd);
   const candidate = resolve(root, inputPath);
-  if (!isInside(root, candidate)) {
+  if (!isPathInside(root, candidate)) {
     throw new Error(`${label} path must stay inside session cwd`);
   }
   const target = await fs.realpath(candidate);
-  if (!isInside(root, target)) {
+  if (!isPathInside(root, target)) {
     throw new Error(`${label} path must stay inside session cwd`);
   }
   return target;
-}
-
-function isInside(root: string, target: string): boolean {
-  const rel = relative(root, target);
-  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
 }

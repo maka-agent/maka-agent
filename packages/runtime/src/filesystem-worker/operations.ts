@@ -1,7 +1,8 @@
 import { spawn } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import { glob as nodeGlob } from 'node:fs/promises';
-import { dirname, isAbsolute, relative, resolve } from 'node:path';
+import { dirname, isAbsolute, resolve } from 'node:path';
+import { isPathInside } from '../path-containment.js';
 import { additionalPermissionAllowsPath } from '@maka/core/additional-permissions';
 
 import { hashAdditionalPermissionProfile } from '../additional-permission-hash.js';
@@ -228,7 +229,7 @@ async function resolveWritableAllowed(
   }
   const parent = await fs.realpath(dirname(candidate));
   assertAllowed(root, candidate, label, 'write', permission);
-  if (!isInside(root, parent) && !exactWriteCoversParent(permission, candidate, parent)) {
+  if (!isPathInside(root, parent) && !exactWriteCoversParent(permission, candidate, parent)) {
     throw operationError('path_denied', `${label} parent was not covered by the one-call permission.`);
   }
   return candidate;
@@ -256,7 +257,7 @@ async function resolveCandidate(
 ): Promise<{ root: string; candidate: string }> {
   const root = await fs.realpath(cwd);
   const candidate = resolve(root, inputPath);
-  if (!isInside(root, candidate) && !additionalPermissionAllowsPath(permission, candidate, access)) {
+  if (!isPathInside(root, candidate) && !additionalPermissionAllowsPath(permission, candidate, access)) {
     throw operationError('path_denied', `${label} path was not covered by the one-call permission.`);
   }
   return { root, candidate };
@@ -269,13 +270,8 @@ function assertAllowed(
   access: 'read' | 'write',
   permission: FilesystemWorkerRequest['operationPermission'],
 ): void {
-  if (isInside(root, target) || additionalPermissionAllowsPath(permission, target, access)) return;
+  if (isPathInside(root, target) || additionalPermissionAllowsPath(permission, target, access)) return;
   throw operationError('path_denied', `${label} path escaped its approved target.`);
-}
-
-function isInside(root: string, target: string): boolean {
-  const rel = relative(root, target);
-  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
 }
 
 function exactWriteCoversParent(

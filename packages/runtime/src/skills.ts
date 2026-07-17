@@ -4,7 +4,7 @@ import { lstat, mkdir, readdir, readFile, realpath, rename, unlink, writeFile } 
 import { join, relative } from 'node:path';
 import { parseDocument } from 'yaml';
 import { z } from 'zod';
-import { isContainedPath, isSafeSkillId } from './path-containment.js';
+import { isPathInside, isSafeSkillId } from './path-containment.js';
 import type { MakaTool, MakaToolContext } from './tool-runtime.js';
 
 /**
@@ -353,7 +353,7 @@ async function scanSkillDir(
     // Verify the resolved directory has not escaped its containment root via
     // an ancestor symlink (e.g. `repo/.agents -> /outside`).
     const [rootReal, dirReal] = await Promise.all([realpath(containmentRoot), realpath(dir)]);
-    if (!isContainedPath(rootReal, dirReal)) return { skills: [], diagnostics: [] };
+    if (!isPathInside(rootReal, dirReal)) return { skills: [], diagnostics: [] };
     entries = await readdir(dir, { withFileTypes: true });
     entries.sort((a, b) => a.name.localeCompare(b.name));
   } catch {
@@ -810,7 +810,7 @@ export async function readSkillRuntimeState(root: string): Promise<SkillRuntimeS
     if (metadataStat === null) return { ok: true, states: new Map() };
     if (!metadataStat.isDirectory() || metadataStat.isSymbolicLink()) return { ok: false, reason: 'blocked_path' };
     const metadataReal = await realpath(metadataDir);
-    if (!isContainedPath(rootReal, metadataReal)) return { ok: false, reason: 'blocked_path' };
+    if (!isPathInside(rootReal, metadataReal)) return { ok: false, reason: 'blocked_path' };
 
     const stateStat = await lstat(stateFile).catch((error: NodeJS.ErrnoException) => {
       if (error.code === 'ENOENT') return null;
@@ -819,7 +819,7 @@ export async function readSkillRuntimeState(root: string): Promise<SkillRuntimeS
     if (stateStat === null) return { ok: true, states: new Map() };
     if (!stateStat.isFile() || stateStat.isSymbolicLink()) return { ok: false, reason: 'blocked_path' };
     const stateReal = await realpath(stateFile);
-    if (!isContainedPath(metadataReal, stateReal)) return { ok: false, reason: 'blocked_path' };
+    if (!isPathInside(metadataReal, stateReal)) return { ok: false, reason: 'blocked_path' };
 
     const parsed = JSON.parse(await readFile(stateFile, 'utf8')) as unknown;
     if (!isRecord(parsed) || parsed.schemaVersion !== 1 || !isRecord(parsed.skills)) {
@@ -865,7 +865,7 @@ export async function readContainedRegularFile(rootDir: string, filePath: string
     const [rootReal, fileStat] = await Promise.all([realpath(rootDir), lstat(filePath)]);
     if (!fileStat.isFile() || fileStat.isSymbolicLink()) return { ok: false };
     const fileReal = await realpath(filePath);
-    if (!isContainedPath(rootReal, fileReal)) return { ok: false };
+    if (!isPathInside(rootReal, fileReal)) return { ok: false };
     return { ok: true, bytes: await readFile(filePath) };
   } catch {
     return { ok: false };
@@ -880,7 +880,7 @@ export async function readContainedRegularTextFile(rootDir: string, filePath: st
     const [rootReal, fileStat] = await Promise.all([realpath(rootDir), lstat(filePath)]);
     if (!fileStat.isFile() || fileStat.isSymbolicLink()) return { ok: false, reason: 'blocked_path' };
     const fileReal = await realpath(filePath);
-    if (!isContainedPath(rootReal, fileReal)) return { ok: false, reason: 'blocked_path' };
+    if (!isPathInside(rootReal, fileReal)) return { ok: false, reason: 'blocked_path' };
     const content = await readFile(filePath, 'utf8');
     return { ok: true, content, sha256: `sha256:${sha256(content)}` };
   } catch {
@@ -899,7 +899,7 @@ export async function writeContainedRegularTextFile(rootDir: string, filePath: s
     if (existing !== null && (!existing.isFile() || existing.isSymbolicLink())) return false;
     if (existing !== null) {
       const fileReal = await realpath(filePath);
-      if (!isContainedPath(rootReal, fileReal)) return false;
+      if (!isPathInside(rootReal, fileReal)) return false;
     }
     await writeFile(tempPath, content, { encoding: 'utf8', flag: 'wx', mode: 0o600 });
     const tempStat = await lstat(tempPath);
@@ -908,7 +908,7 @@ export async function writeContainedRegularTextFile(rootDir: string, filePath: s
       return false;
     }
     const tempReal = await realpath(tempPath);
-    if (!isContainedPath(rootReal, tempReal)) {
+    if (!isPathInside(rootReal, tempReal)) {
       await unlink(tempPath).catch(() => {});
       return false;
     }
@@ -1182,7 +1182,7 @@ async function resolveSkillRuntimeStateDirForWrite(root: string): Promise<
     const metadataStat = await lstat(metadataDir);
     if (!metadataStat.isDirectory() || metadataStat.isSymbolicLink()) return { ok: false, reason: 'blocked_path' };
     const metadataReal = await realpath(metadataDir);
-    if (!isContainedPath(rootReal, metadataReal)) return { ok: false, reason: 'blocked_path' };
+    if (!isPathInside(rootReal, metadataReal)) return { ok: false, reason: 'blocked_path' };
     return { ok: true, metadataDir };
   } catch {
     return { ok: false, reason: 'write_failed' };

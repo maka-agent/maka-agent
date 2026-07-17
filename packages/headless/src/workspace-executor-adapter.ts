@@ -18,6 +18,7 @@ import type {
   WorkspaceWriteLockKeyResult,
 } from '@maka/runtime/workspace-executor';
 import { posix as pathPosix } from 'node:path';
+import { isPathInside } from '@maka/runtime';
 import type { IsolatedToolExecutor } from './isolation.js';
 
 export const ISOLATED_WORKSPACE_EXECUTOR_FACTS: WorkspaceExecutorFacts = {
@@ -115,13 +116,8 @@ function resolveIsolatedWorkspacePath(cwd: string, inputPath: string, label: str
   const target = inputPath.startsWith('/')
     ? pathPosix.normalize(inputPath)
     : pathPosix.resolve(root, inputPath);
-  if (!isInsidePosix(root, target)) {
+  if (!isPathInside(root, target, { relative: pathPosix.relative, isAbsolute: pathPosix.isAbsolute, sep: pathPosix.sep })) {
     throw new Error(`${label} must stay inside workspace`);
   }
   return target;
-}
-
-function isInsidePosix(root: string, target: string): boolean {
-  const rel = pathPosix.relative(root, target);
-  return rel === '' || (!rel.startsWith('..') && !pathPosix.isAbsolute(rel));
 }

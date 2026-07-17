@@ -1040,10 +1040,8 @@ export type {
   SkillInvocationResolution,
 } from './skill-invocation.js';
 export {
-  isContainedPath,
-  isSafeSkillId,
-  isInside,
   isPathInside,
+  isSafeSkillId,
   toRelative,
 } from './path-containment.js';
 export type { PathInsideApi } from './path-containment.js';

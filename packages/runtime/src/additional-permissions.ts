@@ -1,5 +1,6 @@
 import { promises as fs } from 'node:fs';
-import { dirname, isAbsolute, relative, resolve } from 'node:path';
+import { dirname, isAbsolute, resolve } from 'node:path';
+import { isPathInside } from './path-containment.js';
 import {
   MAX_ADDITIONAL_FILESYSTEM_ENTRIES,
   MAX_ADDITIONAL_PERMISSION_PATH_CHARS,
@@ -516,7 +517,7 @@ export function buildAdditionalPermissionProposal(input: {
     isProtectedMetadataPath(entry.path, input.workspaceRoots)
   )) ?? false;
   const outsideWorkspace = input.profile.fileSystem?.entries.some((entry) => (
-    !input.workspaceRoots.some((root) => pathWithinRoot(entry.path, root))
+    !input.workspaceRoots.some((root) => isPathInside(root, entry.path))
   )) ?? false;
   return freezeAdditionalPermissionProposal({
     profile: input.profile,
@@ -642,11 +643,6 @@ function permissionPathKey(entry: NormalizedAdditionalPermissionPath): string {
 
 function permissionProfileHasNetwork(profile: PermissionProfile): boolean {
   return profile.type !== 'disabled' && profile.network.kind === 'enabled';
-}
-
-function pathWithinRoot(path: string, root: string): boolean {
-  const rel = relative(root, path);
-  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
 }
 
 function isMissingPathError(error: unknown): boolean {
