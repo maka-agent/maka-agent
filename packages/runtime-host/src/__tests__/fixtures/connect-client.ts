@@ -1,6 +1,9 @@
 import { connectOrSpawnRuntimeHostWithDependencies } from '../../client/connect-or-spawn.js';
 import { launchDetachedRuntimeHostCandidate } from '../../client/launcher.js';
-import type { ClientSurface } from '../../protocol/index.js';
+import {
+  RUNTIME_HOST_PROTOCOL_VERSION,
+  type ClientSurface,
+} from '../../protocol/index.js';
 
 const [rootPath, surface] = process.argv.slice(2);
 if (!rootPath || !isClientSurface(surface)) {
@@ -12,7 +15,10 @@ const result = await connectOrSpawnRuntimeHostWithDependencies(
   {
     rootPath,
     surface,
-    protocol: { min: 1, max: 1 },
+    protocol: {
+      min: RUNTIME_HOST_PROTOCOL_VERSION,
+      max: RUNTIME_HOST_PROTOCOL_VERSION,
+    },
     electionDeadlineMs: 5_000,
   },
   {

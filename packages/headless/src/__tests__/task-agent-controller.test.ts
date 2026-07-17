@@ -86,7 +86,16 @@ class ReportingBackend implements AgentBackend {
       reasoning: 2,
       total: 17,
       costUsd: 0.123,
-      contextBudget: { policyName: 'unit-budget', droppedTurns: 1 } as never,
+      contextBudget: {
+        enabled: true,
+        policyName: 'unit-budget',
+        estimatedTokensBefore: 20,
+        estimatedTokensAfter: 10,
+        keptTurns: 1,
+        droppedTurns: 1,
+        keptEvents: 2,
+        droppedEvents: 1,
+      },
     };
     yield { type: 'complete', id: 'report-complete', turnId, ts, stopReason: 'end_turn' };
   }
@@ -1233,6 +1242,9 @@ describe('runTaskOnce', () => {
             throw new Error('terminal append failed');
           }
           return backingRuntimeEventStore.appendRuntimeEvent(sessionId, runId, event);
+        },
+        ensureTerminalRuntimeEventDurable() {
+          throw new Error('terminal append failed');
         },
         readRuntimeEvents: (sessionId, runId) => backingRuntimeEventStore.readRuntimeEvents(sessionId, runId),
         readSessionRuntimeEvents: (sessionId) => backingRuntimeEventStore.readSessionRuntimeEvents(sessionId),

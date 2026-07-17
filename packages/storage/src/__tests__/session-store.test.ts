@@ -470,6 +470,10 @@ describe('FileSessionStore CRUD', () => {
         messages.some((message) => message.type === 'system_note' && message.id.startsWith('jsonl-corrupt-')),
         true,
       );
+      await assert.rejects(
+        () => store.readMessagesForRecovery(header.id),
+        /Session .* has a corrupt JSONL record at line 2/,
+      );
     });
   });
 
@@ -533,6 +537,45 @@ describe('FileSessionStore CRUD', () => {
     });
   });
 
+  test('reports an invalid unterminated tail instead of treating it as a crash prefix', async () => {
+    await withStore(async (store, workspaceRoot) => {
+      const sessionId = 'invalid-unterminated-tail';
+      const sessionDir = join(workspaceRoot, 'sessions', sessionId);
+      await mkdir(sessionDir, { recursive: true });
+      const path = join(sessionDir, 'session.jsonl');
+      const bytes = [
+        JSON.stringify(
+          makeRawHeader({
+            id: sessionId,
+            workspaceRoot,
+            name: 'Invalid tail',
+            connectionLocked: true,
+          }),
+        ),
+        JSON.stringify({
+          type: 'user',
+          id: 'u1',
+          turnId: 't1',
+          ts: 2,
+          text: 'survives',
+        }),
+        '{"type":]',
+      ].join('\n');
+      await writeFile(path, bytes, 'utf8');
+
+      const messages = await store.readMessages(sessionId);
+      assert.deepEqual(
+        messages.map((message) => message.type),
+        ['user', 'system_note'],
+      );
+      await assert.rejects(
+        () => store.readMessagesForRecovery(sessionId),
+        /Session invalid-unterminated-tail has a corrupt JSONL record at line 3/,
+      );
+      assert.equal(await readFile(path, 'utf8'), bytes);
+    });
+  });
+
   test('reports a corrupt tail JSONL message line when it was newline-terminated', async () => {
     await withStore(async (store, workspaceRoot) => {
       const sessionId = 'corrupt-terminated-tail-line';
@@ -558,6 +601,134 @@ describe('FileSessionStore CRUD', () => {
       assert.equal(note.kind, 'error');
       assert.equal((note.data as { code?: unknown }).code, 'jsonl_parse_error');
       assert.equal((note.data as { lineNumber?: unknown }).lineNumber, 3);
+    });
+  });
+
+  test('rejects a complete schema-invalid message during strict recovery', async () => {
+    await withStore(async (store, workspaceRoot) => {
+      const sessionId = 'schema-invalid-message';
+      const sessionDir = join(workspaceRoot, 'sessions', sessionId);
+      await mkdir(sessionDir, { recursive: true });
+      await writeFile(
+        join(sessionDir, 'session.jsonl'),
+        [
+          JSON.stringify(
+            makeRawHeader({
+              id: sessionId,
+              workspaceRoot,
+              name: 'Invalid message',
+            }),
+          ),
+          JSON.stringify({}),
+        ].join('\n'),
+        'utf8',
+      );
+
+      await assert.rejects(
+        () => store.readMessagesForRecovery(sessionId),
+        /Session schema-invalid-message has a corrupt JSONL record at line 2/,
+      );
+    });
+  });
+
+  test('recovers a canonical token usage message with nested diagnostics', async () => {
+    await withStore(async (store) => {
+      const session = await store.create(
+        makeInput({ name: 'Token usage recovery' }),
+      );
+      await store.appendMessage(session.id, {
+        type: 'token_usage',
+        id: 'usage-1',
+        turnId: 'turn-1',
+        ts: 10,
+        input: 100,
+        output: 20,
+        cacheHitInput: 80,
+        prefixChangeReason: 'stable',
+        promptSegments: [
+          { kind: 'prior_history', chars: 400, estimatedTokens: 100 },
+        ],
+        contextBudget: {
+          enabled: true,
+          policyName: 'bounded-history',
+          estimatedTokensBefore: 120,
+          estimatedTokensAfter: 100,
+          keptTurns: 4,
+          droppedTurns: 1,
+          keptEvents: 8,
+          droppedEvents: 2,
+          semanticCompactMode: 'validate_only',
+          compactionDecisions: [
+            {
+              stage: 'priorReplay',
+              sourceKind: 'runtimeEvents',
+              decision: 'unchanged',
+              coveredTurns: 4,
+            },
+          ],
+        },
+      });
+
+      const messages = await store.readMessagesForRecovery(session.id);
+      assert.equal(messages[0]?.type, 'token_usage');
+      assert.equal(
+        messages[0]?.type === 'token_usage' &&
+          messages[0].contextBudget?.policyName,
+        'bounded-history',
+      );
+    });
+  });
+
+  test('rejects malformed nested message payloads during strict recovery', async () => {
+    await withStore(async (store, workspaceRoot) => {
+      const malformed = [
+        {
+          type: 'token_usage',
+          id: 'usage-1',
+          turnId: 'turn-1',
+          ts: 1,
+          input: 1,
+          output: 1,
+          contextBudget: {
+            enabled: true,
+            policyName: 42,
+            estimatedTokensBefore: 1,
+            estimatedTokensAfter: 1,
+            keptTurns: 1,
+            droppedTurns: 0,
+            keptEvents: 1,
+            droppedEvents: 0,
+          },
+        },
+        exploreToolResult({ candidateFiles: [null], matches: [] }),
+        exploreToolResult({ candidateFiles: [], matches: [42] }),
+      ];
+
+      for (const [index, message] of malformed.entries()) {
+        const sessionId = `malformed-nested-${index}`;
+        const sessionDir = join(workspaceRoot, 'sessions', sessionId);
+        await mkdir(sessionDir, { recursive: true });
+        await writeFile(
+          join(sessionDir, 'session.jsonl'),
+          [
+            JSON.stringify(
+              makeRawHeader({
+                id: sessionId,
+                workspaceRoot,
+                name: 'Malformed nested',
+              }),
+            ),
+            JSON.stringify(message),
+          ].join('\n'),
+          'utf8',
+        );
+        await assert.rejects(
+          () => store.readMessagesForRecovery(sessionId),
+          new RegExp(
+            `Session malformed-nested-${index} has a corrupt JSONL record at line 2`,
+          ),
+        );
+      }
     });
   });
 
@@ -952,6 +1123,35 @@ function makeRawHeader(overrides: Partial<SessionHeader> = {}): SessionHeader {
     permissionMode: 'ask',
     schemaVersion: 1,
     ...overrides,
+  };
+}
+
+function exploreToolResult(overrides: {
+  candidateFiles: unknown[];
+  matches: unknown[];
+}): unknown {
+  return {
+    type: 'tool_result',
+    id: 'tool-result-1',
+    turnId: 'turn-1',
+    ts: 1,
+    toolUseId: 'tool-1',
+    isError: false,
+    content: {
+      kind: 'explore_agent',
+      ok: true,
+      mode: 'read_only',
+      objective: 'inspect',
+      roots: ['/tmp'],
+      queries: ['needle'],
+      filesInspected: 1,
+      filesSkipped: 0,
+      bytesRead: 10,
+      progress: [],
+      candidateFiles: overrides.candidateFiles,
+      matches: overrides.matches,
+      notes: [],
+    },
   };
 }
 

@@ -1043,8 +1043,13 @@ export class SessionManager {
       if (sourceEvents.length === 0) continue;
 
       const runId = this.deps.newId();
-      const invocationIds = new Map<string, string>();
-      const clonedRun = cloneRunHeaderForBranchCreate(sourceRun, childSessionId, runId);
+      const invocationId = this.deps.newId();
+      const clonedRun = cloneRunHeaderForBranchCreate(
+        sourceRun,
+        childSessionId,
+        runId,
+        invocationId,
+      );
       await this.deps.runStore.createRun(clonedRun);
 
       const sourceTerminalLedger = classifyTerminalRuntimeLedger(sourceRun, sourceEvents);
@@ -1054,7 +1059,7 @@ export class SessionManager {
           sessionId: childSessionId,
           runId,
           eventId: this.deps.newId(),
-          invocationId: remapInvocationId(invocationIds, event.invocationId, this.deps.newId),
+          invocationId,
         });
         await this.deps.runtimeEventStore.appendRuntimeEvent(childSessionId, runId, clonedEvent);
         clonedEventBySourceId.set(event.id, clonedEvent);
@@ -1065,6 +1070,7 @@ export class SessionManager {
         if (!terminalEvent) continue;
         await commitTerminalRunWithRuntimeFact({
           runStore: this.deps.runStore,
+          runtimeEventStore: this.deps.runtimeEventStore,
           newId: this.deps.newId,
           sessionId: childSessionId,
           runId,
@@ -1072,7 +1078,6 @@ export class SessionManager {
           status: sourceTerminalLedger.fact.runStatus,
           ts: terminalEvent.ts,
           terminalEvent,
-          terminalEventAlreadyPersisted: true,
           ...(sourceTerminalLedger.fact.failureClass ? { failureClass: sourceTerminalLedger.fact.failureClass } : {}),
           ...(sourceRun.failureMessage ? { failureMessage: sourceRun.failureMessage } : {}),
           ...(sourceTerminalLedger.fact.abortSource ? { abortSource: sourceTerminalLedger.fact.abortSource } : {}),
@@ -1191,7 +1196,6 @@ export class SessionManager {
         status,
         ts,
         terminalEvent,
-        terminalEventAlreadyPersisted: existingTerminal !== undefined,
         ...(failureClass ? { failureClass } : {}),
         ...(abortSource ? { abortSource } : {}),
         runEventData: { recovered: true, ...decision.diagnostic },
@@ -1449,8 +1453,9 @@ function cloneRunHeaderForBranchCreate(
   sourceRun: AgentRunHeader,
   childSessionId: string,
   runId: string,
+  invocationId: string,
 ): AgentRunHeader {
-  const cloned = { ...sourceRun, sessionId: childSessionId, runId };
+  const cloned = { ...sourceRun, invocationId, sessionId: childSessionId, runId };
   if (isTerminalRunStatus(sourceRun.status)) {
     cloned.status = 'running';
     delete cloned.completedAt;
@@ -1459,18 +1464,6 @@ function cloneRunHeaderForBranchCreate(
     delete cloned.abortSource;
   }
   return cloned;
-}
-
-function remapInvocationId(
-  mapping: Map<string, string>,
-  sourceInvocationId: string,
-  newId: () => string,
-): string {
-  const existing = mapping.get(sourceInvocationId);
-  if (existing) return existing;
-  const next = newId();
-  mapping.set(sourceInvocationId, next);
-  return next;
 }
 
 function copyMessagesThroughTurnBoundary(messages: readonly StoredMessage[], turnId: string): StoredMessage[] {

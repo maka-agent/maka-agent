@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, test } from 'node:test';
 import type { BackendKind, SessionEvent, SessionHeader, StoredMessage } from '@maka/core';
+import { createSessionStore } from '@maka/storage';
 
 import { PermissionEngine } from '../permission-engine.js';
 import {
@@ -48,6 +52,61 @@ describe('PiAgentBackend skeleton', () => {
     );
     assert.equal(messages.some((message) => message.type === 'tool_call' && message.toolName === 'Read'), true);
     assert.equal(messages.some((message) => message.type === 'tool_result' && message.toolUseId === 'tool-1'), true);
+  });
+
+  test('normalizes noncanonical tool payloads before strict storage recovery', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-pi-canonical-'));
+    try {
+      const store = createSessionStore(root);
+      const session = await store.create({
+        cwd: root,
+        backend: 'pi-agent',
+        llmConnectionSlug: 'pi-agent',
+        model: 'pi-test',
+        permissionMode: 'execute',
+      });
+      const backend = new PiAgentBackend({
+        sessionId: session.id,
+        header: session,
+        appendMessage: (message) => store.appendMessage(session.id, message),
+        permissionEngine: new PermissionEngine({ newId: nextId('perm'), now: nextNow(1_250) }),
+        transport: frames([
+          { type: 'tool_start', toolUseId: 'tool-1', toolName: 'Read' },
+          { type: 'tool_result', toolUseId: 'tool-1' },
+          {
+            type: 'tool_start',
+            toolUseId: 'tool-2',
+            toolName: 'Weather',
+            args: { city: 'Singapore' },
+          },
+          {
+            type: 'tool_result',
+            toolUseId: 'tool-2',
+            content: { kind: 'weather', temperature: 20 },
+          },
+          { type: 'complete' },
+        ]),
+        newId: nextId('id'),
+        now: nextNow(2_250),
+      });
+
+      await drain(backend.send({ turnId: 'turn-1', text: 'inspect', context: [] }));
+
+      const messages = await store.readMessagesForRecovery(session.id);
+      const toolCalls = messages.filter((message) => message.type === 'tool_call');
+      const toolResults = messages.filter((message) => message.type === 'tool_result');
+      assert.equal(toolCalls[0]?.args, null);
+      assert.deepEqual(
+        toolResults[0]?.content,
+        { kind: 'json', value: null },
+      );
+      assert.deepEqual(toolResults[1]?.content, {
+        kind: 'json',
+        value: { kind: 'weather', temperature: 20 },
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   test('persists Pi text-tool-text as two stable assistant steps', async () => {

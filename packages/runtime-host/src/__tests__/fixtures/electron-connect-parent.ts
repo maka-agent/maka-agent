@@ -4,6 +4,7 @@ import {
 } from '@maka/storage/root-authority';
 import { connectOrSpawnRuntimeHost } from '../../client/index.js';
 import { readHostRegistration } from '../../control/registration.js';
+import { RUNTIME_HOST_PROTOCOL_VERSION } from '../../protocol/index.js';
 
 const [rootPath] = process.argv.slice(2);
 if (!rootPath) throw new Error('usage: electron-connect-parent <root>');
@@ -12,7 +13,10 @@ if (!process.versions.electron) throw new Error('electron-connect-parent require
 const result = await connectOrSpawnRuntimeHost({
   rootPath,
   surface: 'desktop',
-  protocol: { min: 1, max: 1 },
+  protocol: {
+    min: RUNTIME_HOST_PROTOCOL_VERSION,
+    max: RUNTIME_HOST_PROTOCOL_VERSION,
+  },
   electionDeadlineMs: 5_000,
 });
 if (result.kind !== 'connected') {

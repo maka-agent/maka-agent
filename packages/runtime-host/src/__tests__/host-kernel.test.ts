@@ -21,6 +21,7 @@ import { readHostRegistration } from '../control/registration.js';
 import {
   decodeHostFrame,
   RUNTIME_HOST_MAX_FRAME_BYTES,
+  RUNTIME_HOST_PROTOCOL_VERSION,
   RuntimeHostProtocolError,
 } from '../protocol/index.js';
 import {
@@ -40,8 +41,11 @@ import {
   type StorageRootCapability,
 } from '@maka/storage/root-authority';
 
-const PROTOCOL_1 = { min: 1, max: 1 } as const;
-const PROTOCOL_2 = { min: 2, max: 2 } as const;
+const CURRENT_PROTOCOL = {
+  min: RUNTIME_HOST_PROTOCOL_VERSION,
+  max: RUNTIME_HOST_PROTOCOL_VERSION,
+} as const;
+const LEGACY_PROTOCOL = { min: 1, max: 1 } as const;
 const require = createRequire(import.meta.url);
 
 describe('non-serving Runtime Host kernel', () => {
@@ -57,7 +61,7 @@ describe('non-serving Runtime Host kernel', () => {
         rootPath: paths.root,
       }), { kind: 'loser' });
 
-      const connected = await connectRuntimeHost({ ...paths, rootPath: paths.root, surface: 'tui', protocol: PROTOCOL_1 });
+      const connected = await connectRuntimeHost({ ...paths, rootPath: paths.root, surface: 'tui', protocol: CURRENT_PROTOCOL });
       assert.equal(connected.kind, 'connected');
       if (connected.kind !== 'connected') return;
       const statuses = await Promise.all([
@@ -89,7 +93,7 @@ describe('non-serving Runtime Host kernel', () => {
       });
       assert.equal(candidate.kind, 'winner');
       if (candidate.kind !== 'winner') return;
-      const resident = await connectRuntimeHost({ ...paths, rootPath: paths.root, surface: 'desktop', protocol: PROTOCOL_1 });
+      const resident = await connectRuntimeHost({ ...paths, rootPath: paths.root, surface: 'desktop', protocol: CURRENT_PROTOCOL });
       assert.equal(resident.kind, 'connected');
       if (resident.kind !== 'connected') return;
 
@@ -97,7 +101,7 @@ describe('non-serving Runtime Host kernel', () => {
         ...paths,
         rootPath: paths.root,
         surface: 'tui',
-        protocol: PROTOCOL_2,
+        protocol: LEGACY_PROTOCOL,
         electionDeadlineMs: 2_000,
       });
       assert.equal(blocked.kind, 'incompatible');
@@ -105,8 +109,8 @@ describe('non-serving Runtime Host kernel', () => {
       await resident.connection.close();
 
       const replaceable = await Promise.all([
-        connectRuntimeHost({ ...paths, rootPath: paths.root, surface: 'tui', protocol: PROTOCOL_2 }),
-        connectRuntimeHost({ ...paths, rootPath: paths.root, surface: 'run', protocol: PROTOCOL_2 }),
+        connectRuntimeHost({ ...paths, rootPath: paths.root, surface: 'tui', protocol: LEGACY_PROTOCOL }),
+        connectRuntimeHost({ ...paths, rootPath: paths.root, surface: 'run', protocol: LEGACY_PROTOCOL }),
       ]);
       for (const result of replaceable) {
         assert.equal(result.kind, 'incompatible');
@@ -126,7 +130,7 @@ describe('non-serving Runtime Host kernel', () => {
         ...paths,
         rootPath: paths.root,
         surface: 'tui',
-        protocol: PROTOCOL_1,
+        protocol: CURRENT_PROTOCOL,
       });
       assert.equal(attached.kind, 'connected');
       if (attached.kind !== 'connected') return;
@@ -185,7 +189,7 @@ describe('non-serving Runtime Host kernel', () => {
             idleGraceMs: 10_000,
           });
           holderPid = holder.pid;
-          const connected = await retryConnect(paths, PROTOCOL_1);
+          const connected = await retryConnect(paths, CURRENT_PROTOCOL);
           assert.equal(connected.kind, 'connected');
           if (connected.kind !== 'connected') return;
           assert.equal(connected.registration.pid, holderPid);
@@ -205,7 +209,7 @@ describe('non-serving Runtime Host kernel', () => {
             ...paths,
             rootPath: paths.root,
             surface: 'run',
-            protocol: PROTOCOL_1,
+            protocol: CURRENT_PROTOCOL,
           });
           assert.equal(stillConnected.kind, 'connected');
           if (stillConnected.kind !== 'connected') return;
@@ -229,7 +233,7 @@ describe('non-serving Runtime Host kernel', () => {
             {
               rootPath: paths.root,
               surface: 'inspect',
-              protocol: PROTOCOL_1,
+              protocol: CURRENT_PROTOCOL,
               electionDeadlineMs: 100,
             },
             {
@@ -247,7 +251,7 @@ describe('non-serving Runtime Host kernel', () => {
             {
               rootPath: paths.root,
               surface: 'inspect',
-              protocol: PROTOCOL_1,
+              protocol: CURRENT_PROTOCOL,
               electionDeadlineMs: 5_000,
             },
             {
@@ -304,7 +308,7 @@ describe('non-serving Runtime Host kernel', () => {
       paths.resources.trackPid(launchedPid);
       await waitForExit(launcher);
 
-      const connected = await retryConnect(paths, PROTOCOL_1);
+      const connected = await retryConnect(paths, CURRENT_PROTOCOL);
       assert.equal(connected.kind, 'connected');
       if (connected.kind !== 'connected') return;
       assert.equal(connected.registration.pid, launchedPid);
@@ -332,7 +336,7 @@ describe('non-serving Runtime Host kernel', () => {
       paths.resources.trackPid(launched.pid);
       await waitForSuccessfulExit(parent, 'Electron connect parent');
 
-      const connected = await retryConnect(paths, PROTOCOL_1);
+      const connected = await retryConnect(paths, CURRENT_PROTOCOL);
       assert.equal(connected.kind, 'connected');
       if (connected.kind !== 'connected') return;
       assert.equal(connected.connection.hostEpoch, launched.hostEpoch);
@@ -356,7 +360,7 @@ describe('non-serving Runtime Host kernel', () => {
       });
       let stopped = false;
       try {
-        const connected = await retryConnect(paths, PROTOCOL_1);
+        const connected = await retryConnect(paths, CURRENT_PROTOCOL);
         assert.equal(connected.kind, 'connected');
         if (connected.kind !== 'connected') return;
 
@@ -372,7 +376,7 @@ describe('non-serving Runtime Host kernel', () => {
 
         process.kill(attempt.pid, 'SIGCONT');
         stopped = false;
-        const reconnected = await retryConnect(paths, PROTOCOL_1);
+        const reconnected = await retryConnect(paths, CURRENT_PROTOCOL);
         assert.equal(reconnected.kind, 'connected');
         if (reconnected.kind !== 'connected') return;
         assert.equal((await reconnected.connection.status()).hostEpoch, connected.connection.hostEpoch);
@@ -398,7 +402,7 @@ describe('non-serving Runtime Host kernel', () => {
       const result = await connectOrSpawnRuntimeHost({
         rootPath: paths.root,
         surface: 'tui',
-        protocol: PROTOCOL_1,
+        protocol: CURRENT_PROTOCOL,
         electionDeadlineMs: 100,
       });
       assert.deepEqual(result, { kind: 'failed', reason: 'startup_timeout' });
@@ -478,7 +482,7 @@ describe('non-serving Runtime Host kernel', () => {
       });
       let stopped = false;
       try {
-        const connected = await retryConnect(paths, PROTOCOL_1);
+        const connected = await retryConnect(paths, CURRENT_PROTOCOL);
         assert.equal(connected.kind, 'connected');
         if (connected.kind !== 'connected') return;
         await connected.connection.close();
@@ -491,7 +495,7 @@ describe('non-serving Runtime Host kernel', () => {
           {
             rootPath: paths.root,
             surface: 'tui',
-            protocol: PROTOCOL_1,
+            protocol: CURRENT_PROTOCOL,
             electionDeadlineMs: 50,
             handshakeTimeoutMs: 5_000,
           },
@@ -529,8 +533,8 @@ describe('non-serving Runtime Host kernel', () => {
         kind: 'hello',
         clientInstanceId: 'draining-client',
         surface: 'tui',
-        protocolMin: 1,
-        protocolMax: 1,
+        protocolMin: CURRENT_PROTOCOL.min,
+        protocolMax: CURRENT_PROTOCOL.max,
       });
       const response = decodeHostFrame(await transport.read(2_000));
       assert.deepEqual(response, { kind: 'draining', hostEpoch: candidate.host.hostEpoch });
@@ -556,8 +560,8 @@ describe('non-serving Runtime Host kernel', () => {
           kind: 'hello',
           clientInstanceId: 'half-open-client',
           surface: 'tui',
-          protocolMin: 1,
-          protocolMax: 1,
+          protocolMin: CURRENT_PROTOCOL.min,
+          protocolMax: CURRENT_PROTOCOL.max,
         });
         const handshake = decodeHostFrame(await transport.read(2_000));
         assert.ok('kind' in handshake);
@@ -593,7 +597,7 @@ describe('non-serving Runtime Host kernel', () => {
         ...paths,
         rootPath: paths.root,
         surface: 'inspect',
-        protocol: PROTOCOL_1,
+        protocol: CURRENT_PROTOCOL,
       });
       assert.equal(observer.kind, 'connected');
       if (observer.kind !== 'connected') return;
@@ -684,7 +688,7 @@ describe('non-serving Runtime Host kernel', () => {
         () => connectRuntimeHost({
           rootPath: paths.root,
           surface: 'tui',
-          protocol: PROTOCOL_1,
+          protocol: CURRENT_PROTOCOL,
           connectTimeoutMs: 0,
         }),
         RangeError,
@@ -693,7 +697,7 @@ describe('non-serving Runtime Host kernel', () => {
         () => connectRuntimeHost({
           rootPath: paths.root,
           surface: 'tui',
-          protocol: PROTOCOL_1,
+          protocol: CURRENT_PROTOCOL,
           handshakeTimeoutMs: 0,
         }),
         RangeError,
@@ -702,7 +706,7 @@ describe('non-serving Runtime Host kernel', () => {
         () => connectRuntimeHost({
           rootPath: paths.root,
           surface: 'tui',
-          protocol: PROTOCOL_1,
+          protocol: CURRENT_PROTOCOL,
           clientInstanceId: '',
         }),
         RuntimeHostProtocolError,
@@ -719,7 +723,7 @@ describe('non-serving Runtime Host kernel', () => {
         () => connectOrSpawnRuntimeHost({
           rootPath: paths.root,
           surface: 'tui',
-          protocol: PROTOCOL_1,
+          protocol: CURRENT_PROTOCOL,
           clientInstanceId: 'x'.repeat(129),
           electionDeadlineMs: 100,
         }),
@@ -775,7 +779,7 @@ describe('non-serving Runtime Host kernel', () => {
       await writeFile(join(controlDirectory, 'registration.json'), '{"endpoint":"/tmp/not-authority"}\n', {
         mode: 0o600,
       });
-      const result = await connectRuntimeHost({ ...paths, rootPath: paths.root, surface: 'inspect', protocol: PROTOCOL_1 });
+      const result = await connectRuntimeHost({ ...paths, rootPath: paths.root, surface: 'inspect', protocol: CURRENT_PROTOCOL });
       assert.deepEqual(result, { kind: 'unavailable', reason: 'invalid_registration' });
     });
   });
@@ -796,7 +800,7 @@ describe('non-serving Runtime Host kernel', () => {
         ...paths,
         rootPath: paths.root,
         surface: 'tui',
-        protocol: PROTOCOL_1,
+        protocol: CURRENT_PROTOCOL,
       });
       assert.equal(connected.kind, 'connected');
       if (connected.kind !== 'connected') return;
@@ -817,7 +821,7 @@ describe('non-serving Runtime Host kernel', () => {
       const connected = await connectRuntimeHost({
         rootPath: paths.root,
         surface: 'tui',
-        protocol: PROTOCOL_1,
+        protocol: CURRENT_PROTOCOL,
       });
       assert.equal(connected.kind, 'connected');
       if (connected.kind !== 'connected') return;
@@ -1220,8 +1224,8 @@ async function openNonReadingStatusSocket(path: string): Promise<Socket> {
       kind: 'hello',
       clientInstanceId: 'non-reading-client',
       surface: 'tui',
-      protocolMin: 1,
-      protocolMax: 1,
+      protocolMin: CURRENT_PROTOCOL.min,
+      protocolMax: CURRENT_PROTOCOL.max,
     })}\n`);
   });
   assert.ok('kind' in handshake);

@@ -38,10 +38,17 @@ import {
 	RuntimeHostOperationError,
 	type RuntimeHostConnection,
 } from "../client/index.js";
-import { decodeHostFrame, type TurnSnapshot } from "../protocol/index.js";
+import {
+	decodeHostFrame,
+	RUNTIME_HOST_PROTOCOL_VERSION,
+	type TurnSnapshot,
+} from "../protocol/index.js";
 import { FramedTransport } from "../transport/framed-transport.js";
 
-const PROTOCOL_1 = { min: 1, max: 1 } as const;
+const CURRENT_PROTOCOL = {
+	min: RUNTIME_HOST_PROTOCOL_VERSION,
+	max: RUNTIME_HOST_PROTOCOL_VERSION,
+} as const;
 const PROCESS_TIMEOUT_MS = 10_000;
 
 test("two Clients share one execution after the starting Client disconnects", async () => {
@@ -809,7 +816,7 @@ async function connectClient(
 	const result = await connectRuntimeHost({
 		rootPath,
 		surface,
-		protocol: PROTOCOL_1,
+		protocol: CURRENT_PROTOCOL,
 	});
 	assert.equal(result.kind, "connected");
 	return result.connection;
@@ -824,8 +831,8 @@ async function sendStartWithoutReadingResponse(
 		kind: "hello",
 		clientInstanceId: randomUUID(),
 		surface: "desktop",
-		protocolMin: 1,
-		protocolMax: 1,
+		protocolMin: CURRENT_PROTOCOL.min,
+		protocolMax: CURRENT_PROTOCOL.max,
 	});
 	const handshake = decodeHostFrame(await transport.read(2_000));
 	assert.ok("kind" in handshake);

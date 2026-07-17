@@ -67,14 +67,6 @@ export class RuntimeLedgerRepair {
         ? recovered
         : recovered.filter((event) => !isMatchingTerminalRuntimeEvent(run, event));
       const eventsToAppend = missingRecoveredRuntimeEvents(run, runtimeEvents, recoveredEventsToPersist);
-      if (recoveredTerminal && canTrustRecoveredTerminal) {
-        for (const event of eventsToAppend) {
-          await this.deps.runtimeEventStore.appendRuntimeEvent(sessionId, run.runId, event);
-        }
-        return await this.repairRunHeaderFromExistingTerminal(sessionId, run, messages, legacyTerminal, recoveredTerminal) ||
-          eventsToAppend.length > 0;
-      }
-
       for (const event of eventsToAppend) {
         await this.deps.runtimeEventStore.appendRuntimeEvent(sessionId, run.runId, event);
       }
@@ -111,6 +103,7 @@ export class RuntimeLedgerRepair {
     const existingEvents = await this.deps.runStore.readEvents(sessionId, run.runId).catch(() => []);
     await commitTerminalRunWithRuntimeFact({
       runStore: this.deps.runStore,
+      runtimeEventStore: this.deps.runtimeEventStore,
       newId: this.deps.newId,
       sessionId,
       runId: run.runId,
@@ -118,7 +111,6 @@ export class RuntimeLedgerRepair {
       status,
       ts,
       terminalEvent: terminal,
-      terminalEventAlreadyPersisted: true,
       ...(failureClass ? { failureClass } : {}),
       ...(abortSource ? { abortSource } : {}),
       runEventData: {
@@ -288,6 +280,7 @@ function isMatchingTerminalRuntimeEvent(run: AgentRunHeader, event: RuntimeEvent
     event.sessionId === run.sessionId &&
     event.runId === run.runId &&
     event.turnId === run.turnId &&
+    (run.invocationId === undefined || event.invocationId === run.invocationId) &&
     isTerminalRuntimeEvent(event);
 }
 

@@ -34,6 +34,29 @@ function recoveryMarker(event: RuntimeEvent): Record<string, unknown> | undefine
 }
 
 describe('runtime event backfill', () => {
+  test('prefers the persisted Run invocation identity over a caller fallback', () => {
+    const result = backfillRuntimeEventsFromStoredMessages({
+      run: { ...run, invocationId: 'persisted-invocation' },
+      invocationId: 'caller-fallback',
+      messages: [
+        {
+          type: 'turn_state',
+          id: 'legacy-state',
+          turnId: 'turn-1',
+          ts: 180,
+          status: 'completed',
+          partialOutputRetained: false,
+        },
+      ],
+      newId: nextIds(),
+      now: () => 999,
+    });
+
+    expect(result.events.map((event) => event.invocationId)).toEqual([
+      'persisted-invocation',
+    ]);
+  });
+
   test('backfills only low-risk RuntimeEvents from legacy StoredMessage rows', () => {
     const messages: StoredMessage[] = [
       {

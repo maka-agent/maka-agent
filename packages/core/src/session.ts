@@ -6,7 +6,7 @@
  * is enforced by the storage implementation.
  */
 
-import type { AttachmentRef, ToolActivityKind, ToolResultContent } from './events.js';
+import { TOOL_ACTIVITY_KINDS, type AttachmentRef, type ToolActivityKind, type ToolResultContent } from './events.js';
 import type { PermissionMode } from './permission.js';
 import type {
   CacheMissInputSource,
@@ -14,6 +14,13 @@ import type {
   PrefixChangeReason,
   PromptSegmentEstimate,
 } from './usage-stats/types.js';
+import { defineObjectShape, hasExactShape, isFiniteNumber, isOptionalString, isRecord } from './record-schema.js';
+import { isAttachmentRef, isPermissionDecisionFields } from './interaction-record-schema.js';
+import { isTokenUsageFields } from './usage-record-schema.js';
+import {
+  decodeCanonicalToolResultContent,
+  normalizeToolResultContentForRead,
+} from './tool-result-record-schema.js';
 
 export const SESSION_STATUSES = [
   'active',
@@ -361,6 +368,234 @@ export interface SystemNoteMessage {
     | 'abort';
   /** Shape depends on `kind`. */
   data?: unknown;
+}
+
+const USER_MESSAGE_SHAPE = defineObjectShape<UserMessage>()(
+  ['type', 'id', 'turnId', 'ts', 'text'],
+  ['displayText', 'attachments', 'origin'],
+);
+const ASSISTANT_MESSAGE_SHAPE = defineObjectShape<AssistantMessage>()(
+  ['type', 'id', 'turnId', 'ts', 'text', 'modelId'],
+  ['thinking', 'contentOrder'],
+);
+const TOOL_CALL_MESSAGE_SHAPE = defineObjectShape<ToolCallMessage>()(
+  ['type', 'id', 'turnId', 'ts', 'toolName', 'args'],
+  ['activityKind', 'displayName', 'intent', 'stepId'],
+);
+const TOOL_RESULT_MESSAGE_SHAPE = defineObjectShape<ToolResultMessage>()(
+  ['type', 'id', 'turnId', 'ts', 'toolUseId', 'isError', 'content'],
+  ['durationMs'],
+);
+const PERMISSION_DECISION_MESSAGE_SHAPE = defineObjectShape<PermissionDecisionMessage>()(
+  ['type', 'id', 'turnId', 'ts', 'toolUseId', 'toolName', 'decision'],
+  ['rememberForTurn', 'reviewer', 'rationale', 'riskLevel', 'hint'],
+);
+const TOKEN_USAGE_MESSAGE_SHAPE = defineObjectShape<TokenUsageMessage>()(
+  ['type', 'id', 'turnId', 'ts', 'input', 'output'],
+  [
+    'cacheHitInput',
+    'cacheMissInput',
+    'cacheWriteInput',
+    'cacheMissInputSource',
+    'reasoning',
+    'total',
+    'rawFinishReason',
+    'runtimeSteps',
+    'cacheRead',
+    'cacheCreation',
+    'costUsd',
+    'systemPromptHash',
+    'prefixHash',
+    'prefixChangeReason',
+    'requestShapeHash',
+    'requestShapeChangeReason',
+    'promptSegments',
+    'contextBudget',
+  ],
+);
+const TURN_STATE_MESSAGE_SHAPE = defineObjectShape<TurnStateMessage>()(
+  ['type', 'id', 'turnId', 'ts', 'status', 'partialOutputRetained'],
+  [
+    'parentTurnId',
+    'retriedFromTurnId',
+    'regeneratedFromTurnId',
+    'branchOfTurnId',
+    'parentSessionId',
+    'abortedAt',
+    'abortSource',
+    'errorClass',
+  ],
+);
+const SYSTEM_NOTE_MESSAGE_SHAPE = defineObjectShape<SystemNoteMessage>()(
+  ['type', 'id', 'ts', 'kind'],
+  ['turnId', 'data'],
+);
+type AssistantThinking = NonNullable<AssistantMessage['thinking']>;
+const ASSISTANT_THINKING_SHAPE = defineObjectShape<AssistantThinking>()(['text'], ['signature']);
+type AutomationOrigin = NonNullable<UserMessage['origin']>;
+const AUTOMATION_ORIGIN_SHAPE = defineObjectShape<AutomationOrigin>()(['kind', 'automationId'], []);
+
+const SYSTEM_NOTE_KINDS = new Set([
+  'session_start',
+  'session_resume',
+  'mode_change',
+  'model_change',
+  'context_compacted',
+  'context_compaction_failed_open',
+  'step_limit',
+  'error',
+  'abort',
+]);
+
+export function decodeStoredMessageForRead(value: unknown): StoredMessage {
+  return decodeStoredMessage(value, normalizeToolResultContentForRead);
+}
+
+export function decodeStoredMessageForRecovery(value: unknown): StoredMessage {
+  return decodeStoredMessage(value, decodeCanonicalToolResultContent);
+}
+
+function decodeStoredMessage(
+  value: unknown,
+  decodeToolResultContent: (content: unknown) => ToolResultContent,
+): StoredMessage {
+  const message = decodeStoredMessageContent(value, decodeToolResultContent);
+  if (!isRecord(message)) throw new Error('Invalid stored message schema');
+  switch (message.type) {
+    case 'user':
+      if (
+        hasExactShape(message, USER_MESSAGE_SHAPE) &&
+        hasMessageEnvelope(message, true) &&
+        typeof message.text === 'string' &&
+        isOptionalString(message.displayText) &&
+        (message.attachments === undefined ||
+          (Array.isArray(message.attachments) && message.attachments.every(isAttachmentRef))) &&
+        (message.origin === undefined || isAutomationOrigin(message.origin))
+      )
+        return message as unknown as UserMessage;
+      break;
+    case 'assistant':
+      if (
+        hasExactShape(message, ASSISTANT_MESSAGE_SHAPE) &&
+        hasMessageEnvelope(message, true) &&
+        typeof message.text === 'string' &&
+        typeof message.modelId === 'string' &&
+        (message.thinking === undefined || isAssistantThinking(message.thinking)) &&
+        (message.contentOrder === undefined ||
+          (Array.isArray(message.contentOrder) &&
+            message.contentOrder.every((item) => item === 'thinking' || item === 'text' || item === 'tools')))
+      )
+        return message as unknown as AssistantMessage;
+      break;
+    case 'tool_call':
+      if (
+        hasExactShape(message, TOOL_CALL_MESSAGE_SHAPE) &&
+        hasMessageEnvelope(message, true) &&
+        typeof message.toolName === 'string' &&
+        Object.hasOwn(message, 'args') &&
+        (message.activityKind === undefined ||
+          (TOOL_ACTIVITY_KINDS as readonly unknown[]).includes(message.activityKind)) &&
+        isOptionalString(message.displayName) &&
+        isOptionalString(message.intent) &&
+        isOptionalString(message.stepId)
+      )
+        return message as unknown as ToolCallMessage;
+      break;
+    case 'tool_result':
+      if (
+        hasExactShape(message, TOOL_RESULT_MESSAGE_SHAPE) &&
+        hasMessageEnvelope(message, true) &&
+        typeof message.toolUseId === 'string' &&
+        typeof message.isError === 'boolean' &&
+        isOptionalFiniteDuration(message.durationMs)
+      )
+        return message as unknown as ToolResultMessage;
+      break;
+    case 'permission_decision':
+      if (
+        hasExactShape(message, PERMISSION_DECISION_MESSAGE_SHAPE) &&
+        hasMessageEnvelope(message, true) &&
+        typeof message.toolUseId === 'string' &&
+        typeof message.toolName === 'string' &&
+        isPermissionDecisionFields(message, { allowHint: true })
+      )
+        return message as unknown as PermissionDecisionMessage;
+      break;
+    case 'token_usage':
+      if (
+        hasExactShape(message, TOKEN_USAGE_MESSAGE_SHAPE) &&
+        hasMessageEnvelope(message, true) &&
+        isTokenUsageFields(message)
+      )
+        return message as unknown as TokenUsageMessage;
+      break;
+    case 'turn_state':
+      if (
+        hasExactShape(message, TURN_STATE_MESSAGE_SHAPE) &&
+        hasMessageEnvelope(message, true) &&
+        isTurnStatus(message.status) &&
+        typeof message.partialOutputRetained === 'boolean' &&
+        isOptionalString(message.parentTurnId) &&
+        isOptionalString(message.retriedFromTurnId) &&
+        isOptionalString(message.regeneratedFromTurnId) &&
+        isOptionalString(message.branchOfTurnId) &&
+        isOptionalString(message.parentSessionId) &&
+        (message.abortedAt === undefined || isFiniteNumber(message.abortedAt)) &&
+        isOptionalString(message.abortSource) &&
+        isOptionalString(message.errorClass)
+      )
+        return message as unknown as TurnStateMessage;
+      break;
+    case 'system_note':
+      if (
+        hasExactShape(message, SYSTEM_NOTE_MESSAGE_SHAPE) &&
+        hasMessageEnvelope(message, false) &&
+        isOptionalString(message.turnId) &&
+        SYSTEM_NOTE_KINDS.has(message.kind as string)
+      )
+        return message as unknown as SystemNoteMessage;
+      break;
+  }
+  throw new Error('Invalid stored message schema');
+}
+
+function decodeStoredMessageContent(
+  value: unknown,
+  decodeToolResultContent: (content: unknown) => ToolResultContent,
+): unknown {
+  if (!isRecord(value) || value.type !== 'tool_result') return value;
+  return {
+    ...value,
+    content: decodeToolResultContent(value.content),
+  };
+}
+
+function hasMessageEnvelope(value: Record<string, unknown>, turnRequired: boolean): boolean {
+  return (
+    typeof value.id === 'string' && isFiniteNumber(value.ts) && (turnRequired ? typeof value.turnId === 'string' : true)
+  );
+}
+
+function isAssistantThinking(value: unknown): value is AssistantThinking {
+  return (
+    isRecord(value) &&
+    hasExactShape(value, ASSISTANT_THINKING_SHAPE) &&
+    typeof value.text === 'string' &&
+    isOptionalString(value.signature)
+  );
+}
+
+function isAutomationOrigin(value: unknown): value is AutomationOrigin {
+  return (
+    isRecord(value) &&
+    hasExactShape(value, AUTOMATION_ORIGIN_SHAPE) &&
+    value.kind === 'automation' &&
+    typeof value.automationId === 'string'
+  );
+}
+
+function isOptionalFiniteDuration(value: unknown): boolean {
+  return value === undefined || isFiniteNumber(value);
 }
 
 export const STEP_LIMIT_NOTICE_TEXT =

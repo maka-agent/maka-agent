@@ -321,6 +321,42 @@ describe("interactive execution stores", () => {
 		});
 	});
 
+	test("refuses to truncate a syntactically invalid JSONL tail", async () => {
+		await withRoot(async ({ root }) => {
+			const capability = await resolveStorageRoot({
+				path: root,
+				kind: "interactive",
+			});
+			const owner = await tryAcquireInteractiveRootOwner(capability);
+			assert.ok(owner);
+			if (!owner) return;
+			try {
+				const stores = await openInteractiveExecutionStoresForWrite(
+					owner.lease,
+				);
+				const session = await stores.sessionStore.create(sessionInput(root));
+				const sessionPath = join(root, "sessions", session.id, "session.jsonl");
+				await appendFile(sessionPath, '{"type":]', "utf8");
+				const before = await readFile(sessionPath, "utf8");
+
+				await assert.rejects(
+					() =>
+						stores.sessionStore.appendMessage(session.id, {
+							type: "user",
+							id: "message-1",
+							turnId: "turn-1",
+							ts: 1,
+							text: "must not overwrite corruption",
+						}),
+					/Cannot append after an invalid JSONL tail record/,
+				);
+				assert.equal(await readFile(sessionPath, "utf8"), before);
+			} finally {
+				await owner.close();
+			}
+		});
+	});
+
 	test("rejects stale writers before a replacement root is mutated", async () => {
 		await withRoot(async ({ base, root }) => {
 			const capability = await resolveStorageRoot({

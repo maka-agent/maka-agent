@@ -1,11 +1,15 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { appendFile, link, mkdir, open, readFile, readdir, rename, rm, unlink, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import { appendJsonl } from './jsonl-append.js';
+import { decodeAgentRunEvent, decodeAgentRunHeader, decodeRuntimeEvent } from './execution-record-codec.js';
+import { classifyJsonRecord } from './json-prefix.js';
+import { syncDirectory, syncDirectoryChain, syncFile } from './stable-storage.js';
 import { chainWrite } from './write-queue.js';
 import {
-  AGENT_RUN_STATUSES,
-  isPermissionMode,
+  DurableStoreWriteError,
+  isTerminalRuntimeEvent,
   type AgentRunEvent,
   type AgentRunEventType,
   type AgentRunHeader,
@@ -87,21 +91,25 @@ export function createRuntimeEventStore(workspaceRoot: string): DurableRuntimeEv
 }
 
 class FileAgentRunStore implements DurableAgentRunStore {
+  private readonly durabilityRoot: string;
   private readonly sessionsRoot: string;
   private readonly writeQueues = new Map<string, Promise<void>>();
   private readonly projectionWriteQueues = new Map<string, Promise<void>>();
 
   constructor(workspaceRoot: string) {
-    this.sessionsRoot = join(workspaceRoot, 'sessions');
+    this.durabilityRoot = resolve(workspaceRoot);
+    this.sessionsRoot = join(this.durabilityRoot, 'sessions');
   }
 
-  async createRun(header: AgentRunHeader): Promise<AgentRunHeader> {
+  async createRun(header: AgentRunHeader, options: { durable?: boolean } = {}): Promise<AgentRunHeader> {
     assertSafeId(header.sessionId, 'Invalid session id');
     assertSafeId(header.runId, 'Invalid run id');
     await this.withQueue(header.sessionId, header.runId, async () => {
       const created = await writeExclusiveAtomic(
         this.runPath(header.sessionId, header.runId),
         JSON.stringify(header, sanitizeJson) + '\n',
+        options,
+        this.durabilityRoot,
       );
       if (!created) throw new Error(`Agent run already exists: ${header.runId}`);
     });
@@ -136,7 +144,12 @@ class FileAgentRunStore implements DurableAgentRunStore {
       admittedAt: input.admittedAt,
     };
     const path = this.rootTurnAdmissionPath(input.sessionId, input.turnId);
-    const created = await writeExclusiveAtomic(path, JSON.stringify(admission) + '\n');
+    const created = await writeExclusiveAtomic(
+      path,
+      JSON.stringify(admission) + '\n',
+      { durable: true },
+      this.durabilityRoot,
+    );
     if (created) return { kind: 'admitted', admission };
     const existing = await this.readRootTurnAdmission(input.sessionId, input.turnId);
     if (!existing) throw new Error(`Root turn admission disappeared: ${input.turnId}`);
@@ -193,12 +206,21 @@ class FileAgentRunStore implements DurableAgentRunStore {
     return admissions.sort((a, b) => a.admittedAt - b.admittedAt || a.turnId.localeCompare(b.turnId));
   }
 
-  async updateRun(sessionId: string, runId: string, patch: Partial<AgentRunHeader>): Promise<AgentRunHeader> {
+  async updateRun(
+    sessionId: string,
+    runId: string,
+    patch: Partial<AgentRunHeader>,
+    options: { durable?: boolean } = {},
+  ): Promise<AgentRunHeader> {
     let next: AgentRunHeader | undefined;
     await this.withQueue(sessionId, runId, async () => {
       const current = await this.readRunUnlocked(sessionId, runId);
       next = { ...current, ...patch, sessionId, runId };
-      await writeAtomic(this.runPath(sessionId, runId), JSON.stringify(next, sanitizeJson) + '\n');
+      await writeAtomic(
+        this.runPath(sessionId, runId),
+        JSON.stringify(next, sanitizeJson) + '\n',
+        { ...options, durabilityRoot: this.durabilityRoot },
+      );
     });
     if (!next) throw new Error(`Failed to update run ${runId}`);
     return next;
@@ -257,7 +279,12 @@ class FileAgentRunStore implements DurableAgentRunStore {
     return headers.sort((a, b) => a.createdAt - b.createdAt || a.runId.localeCompare(b.runId));
   }
 
-  async appendEvent(sessionId: string, runId: string, event: AgentRunEvent): Promise<void> {
+  async appendEvent(
+    sessionId: string,
+    runId: string,
+    event: AgentRunEvent,
+    options: { durable?: boolean } = {},
+  ): Promise<void> {
     assertSafeId(sessionId, 'Invalid session id');
     assertSafeId(runId, 'Invalid run id');
     if (event.type === 'history_compact_checkpoint_recorded') {
@@ -268,8 +295,10 @@ class FileAgentRunStore implements DurableAgentRunStore {
         } catch {
           current = undefined;
         }
-        await rm(this.eventProjectionPath(sessionId, event.type), { force: true });
-        await this.appendRunEvent(sessionId, runId, event);
+        await rm(this.eventProjectionPath(sessionId, event.type), {
+          force: true,
+        });
+        await this.appendRunEvent(sessionId, runId, event, options);
         const projected = shouldPreserveCheckpointProjectionDuringAppend(current, event)
           ? current!
           : event;
@@ -279,13 +308,22 @@ class FileAgentRunStore implements DurableAgentRunStore {
       });
       return;
     }
-    await this.appendRunEvent(sessionId, runId, event);
+    await this.appendRunEvent(sessionId, runId, event, options);
   }
 
-  private async appendRunEvent(sessionId: string, runId: string, event: AgentRunEvent): Promise<void> {
+  private async appendRunEvent(
+    sessionId: string,
+    runId: string,
+    event: AgentRunEvent,
+    options: { durable?: boolean },
+  ): Promise<void> {
     await this.withQueue(sessionId, runId, async () => {
       await mkdir(this.runDir(sessionId, runId), { recursive: true });
-      await appendJsonl(this.eventsPath(sessionId, runId), JSON.stringify(event, sanitizeJson) + '\n');
+      await appendJsonl(
+        this.eventsPath(sessionId, runId),
+        JSON.stringify(event, sanitizeJson) + '\n',
+        { ...options, durabilityRoot: this.durabilityRoot },
+      );
     });
   }
 
@@ -320,10 +358,41 @@ class FileAgentRunStore implements DurableAgentRunStore {
     const lastLineNumber = lines.at(-1)?.lineNumber;
     const events: AgentRunEvent[] = [];
     for (const entry of lines) {
+      let parsed: unknown;
       try {
-        events.push(JSON.parse(entry.line) as AgentRunEvent);
+        parsed = JSON.parse(entry.line);
       } catch (error) {
-        if (!endsWithNewline && entry.lineNumber === lastLineNumber) continue;
+        if (
+          !endsWithNewline &&
+          entry.lineNumber === lastLineNumber &&
+          classifyJsonRecord(entry.line) === 'incomplete-prefix'
+        )
+          continue;
+        if (strict) {
+          const detail = error instanceof Error ? error.message : String(error);
+          throw new Error(`AgentRun ${runId} has a corrupt JSONL record at line ${entry.lineNumber}: ${detail}`);
+        }
+        events.push({
+          type: 'event_corrupt',
+          id: `run-event-corrupt-${entry.lineNumber}`,
+          runId,
+          sessionId,
+          turnId: header.turnId,
+          ts: header.updatedAt,
+          message: error instanceof Error ? error.message : 'Invalid AgentRun event JSONL line',
+          data: { lineNumber: entry.lineNumber },
+        });
+        continue;
+      }
+      try {
+        events.push(
+          decodeAgentRunEvent(parsed, {
+            sessionId,
+            runId,
+            turnId: header.turnId,
+          }),
+        );
+      } catch (error) {
         if (strict) {
           const detail = error instanceof Error ? error.message : String(error);
           throw new Error(
@@ -381,7 +450,10 @@ class FileAgentRunStore implements DurableAgentRunStore {
   private async readRunUnlocked(sessionId: string, runId: string): Promise<AgentRunHeader> {
     assertSafeId(sessionId, 'Invalid session id');
     assertSafeId(runId, 'Invalid run id');
-    return normalizeAgentRunHeader(JSON.parse(await readFile(this.runPath(sessionId, runId), 'utf8')), sessionId, runId);
+    return decodeAgentRunHeader(
+      JSON.parse(await readFile(this.runPath(sessionId, runId), 'utf8')),
+      { sessionId, runId },
+    );
   }
 
   private runsRoot(sessionId: string): string {
@@ -481,7 +553,9 @@ class FileAgentRunStore implements DurableAgentRunStore {
       await readFile(this.eventProjectionPath(sessionId, type), 'utf8');
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-      const runs = await readdir(this.runsRoot(sessionId), { withFileTypes: true });
+      const runs = await readdir(this.runsRoot(sessionId), {
+        withFileTypes: true,
+      });
       if (runs.some((entry) => entry.isDirectory() && isSafeId(entry.name) && entry.name !== currentRunId)) {
         return;
       }
@@ -539,15 +613,22 @@ function historyCompactProjectionCoverage(event: AgentRunEvent): number | undefi
     : undefined;
 }
 
-class FileRuntimeEventStore implements RuntimeEventStore {
+class FileRuntimeEventStore implements DurableRuntimeEventStore {
+  private readonly durabilityRoot: string;
   private readonly sessionsRoot: string;
   private readonly writeQueues = new Map<string, Promise<void>>();
 
   constructor(workspaceRoot: string) {
-    this.sessionsRoot = join(workspaceRoot, 'sessions');
+    this.durabilityRoot = resolve(workspaceRoot);
+    this.sessionsRoot = join(this.durabilityRoot, 'sessions');
   }
 
-  async appendRuntimeEvent(sessionId: string, runId: string, event: RuntimeEvent): Promise<void> {
+  async appendRuntimeEvent(
+    sessionId: string,
+    runId: string,
+    event: RuntimeEvent,
+    options: { durable?: boolean } = {},
+  ): Promise<void> {
     assertSafeId(sessionId, 'Invalid session id');
     assertSafeId(runId, 'Invalid run id');
     await this.withQueue(sessionId, runId, async () => {
@@ -561,7 +642,7 @@ class FileRuntimeEventStore implements RuntimeEventStore {
           if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
           const immutableEvents = await readRuntimeEventJsonl(
             this.runtimeEventsPath(sessionId, runId),
-            runId,
+            await this.readRunHeader(sessionId, runId),
           );
           if (immutableEvents.some((item) => completedPartialRuntimeStreamKey(item) === partial.key)) {
             return;
@@ -571,16 +652,25 @@ class FileRuntimeEventStore implements RuntimeEventStore {
             event: partial.snapshot,
             ...(immutableEvents.at(-1)?.id ? { afterEventId: immutableEvents.at(-1)!.id } : {}),
           };
-          await writeAtomic(partialPath, JSON.stringify(metadata, sanitizeJson) + '\n');
+          await writeAtomic(
+            partialPath,
+            JSON.stringify(metadata, sanitizeJson) + '\n',
+            { ...options, durabilityRoot: this.durabilityRoot },
+          );
         }
         if (partial.text) {
-          await appendFile(partialPath, partial.text, 'utf8');
+          if (options.durable) {
+            await appendFileDurably(partialPath, partial.text, this.durabilityRoot);
+          } else {
+            await appendFile(partialPath, partial.text, 'utf8');
+          }
         }
         return;
       }
       await appendJsonl(
         this.runtimeEventsPath(sessionId, runId),
         JSON.stringify(event, sanitizeJson) + '\n',
+        { ...options, durabilityRoot: this.durabilityRoot },
       );
       const completedPartialKey = completedPartialRuntimeStreamKey(event);
       if (completedPartialKey) {
@@ -591,10 +681,60 @@ class FileRuntimeEventStore implements RuntimeEventStore {
     });
   }
 
+  async ensureTerminalRuntimeEventDurable(
+    sessionId: string,
+    runId: string,
+    event: RuntimeEvent,
+  ): Promise<void> {
+    assertSafeId(sessionId, 'Invalid session id');
+    assertSafeId(runId, 'Invalid run id');
+    if (event.partial || !isTerminalRuntimeEvent(event)) {
+      throw new Error('Only a final terminal RuntimeEvent can cross the terminal durability barrier');
+    }
+    await this.withQueue(sessionId, runId, async () => {
+      const path = this.runtimeEventsPath(sessionId, runId);
+      const header = await this.readRunHeader(sessionId, runId);
+      const existing = await readRuntimeEventJsonl(path, header);
+      const matching = existing.filter((candidate) => candidate.id === event.id);
+      if (matching.length > 1) {
+        throw new Error(`RuntimeEvent ${event.id} appears more than once in run ${runId}`);
+      }
+      if (matching.length === 1) {
+        const canonical = JSON.parse(JSON.stringify(event, sanitizeJson)) as RuntimeEvent;
+        if (!isDeepStrictEqual(matching[0], canonical)) {
+          throw new Error(`RuntimeEvent ${event.id} does not match the durable ledger record`);
+        }
+        try {
+          await syncFile(path);
+          await syncDirectoryChain(dirname(path), this.durabilityRoot);
+        } catch (error) {
+          throw new DurableStoreWriteError(
+            `Terminal RuntimeEvent did not reach stable storage: ${path}`,
+            error,
+          );
+        }
+        return;
+      }
+      const existingTerminal = existing.find(isTerminalRuntimeEvent);
+      if (existingTerminal) {
+        throw new Error(
+          `Run ${runId} already has terminal RuntimeEvent ${existingTerminal.id}`,
+        );
+      }
+      await appendJsonl(path, JSON.stringify(event, sanitizeJson) + '\n', {
+        durable: true,
+        durabilityRoot: this.durabilityRoot,
+      });
+    });
+  }
+
   async readRuntimeEvents(sessionId: string, runId: string): Promise<RuntimeEvent[]> {
     assertSafeId(sessionId, 'Invalid session id');
     assertSafeId(runId, 'Invalid run id');
-    const events = await readRuntimeEventJsonl(this.runtimeEventsPath(sessionId, runId), runId);
+    const events = await readRuntimeEventJsonl(
+      this.runtimeEventsPath(sessionId, runId),
+      await this.readRunHeader(sessionId, runId),
+    );
     const partials = await this.readRuntimePartials(sessionId, runId);
     const completedPartialKeys = new Set(
       events.map(completedPartialRuntimeStreamKey).filter((key): key is string => key !== undefined),
@@ -609,7 +749,7 @@ class FileRuntimeEventStore implements RuntimeEventStore {
   async readImmutableRuntimeEvents(sessionId: string, runId: string): Promise<RuntimeEvent[]> {
     assertSafeId(sessionId, 'Invalid session id');
     assertSafeId(runId, 'Invalid run id');
-    return readRuntimeEventJsonl(this.runtimeEventsPath(sessionId, runId), runId);
+    return readRuntimeEventJsonl(this.runtimeEventsPath(sessionId, runId), await this.readRunHeader(sessionId, runId));
   }
 
   async readSessionRuntimeEvents(sessionId: string): Promise<RuntimeEvent[]> {
@@ -622,12 +762,20 @@ class FileRuntimeEventStore implements RuntimeEventStore {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
       throw error;
     }
-    const ordered: Array<{ event: RuntimeEvent; runId: string; eventIndex: number }> = [];
+    const ordered: Array<{
+      event: RuntimeEvent;
+      runId: string;
+      eventIndex: number;
+    }> = [];
     for (const entry of entries) {
       if (!entry.isDirectory() || !isSafeId(entry.name)) continue;
       const events = await this.readRuntimeEvents(sessionId, entry.name);
       for (let eventIndex = 0; eventIndex < events.length; eventIndex += 1) {
-        ordered.push({ event: events[eventIndex]!, runId: entry.name, eventIndex });
+        ordered.push({
+          event: events[eventIndex]!,
+          runId: entry.name,
+          eventIndex,
+        });
       }
     }
     ordered.sort((a, b) =>
@@ -653,6 +801,13 @@ class FileRuntimeEventStore implements RuntimeEventStore {
     return join(this.runDir(sessionId, runId), 'runtime-events.jsonl');
   }
 
+  private async readRunHeader(sessionId: string, runId: string): Promise<AgentRunHeader> {
+    return decodeAgentRunHeader(JSON.parse(await readFile(join(this.runDir(sessionId, runId), 'run.json'), 'utf8')), {
+      sessionId,
+      runId,
+    });
+  }
+
   private runtimePartialsDir(sessionId: string, runId: string): string {
     return join(this.runDir(sessionId, runId), 'runtime-partials');
   }
@@ -664,7 +819,9 @@ class FileRuntimeEventStore implements RuntimeEventStore {
   private async readRuntimePartials(sessionId: string, runId: string): Promise<RuntimePartialSnapshot[]> {
     let entries;
     try {
-      entries = await readdir(this.runtimePartialsDir(sessionId, runId), { withFileTypes: true });
+      entries = await readdir(this.runtimePartialsDir(sessionId, runId), {
+        withFileTypes: true,
+      });
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
       throw error;
@@ -681,7 +838,10 @@ class FileRuntimeEventStore implements RuntimeEventStore {
         if (snapshot.version !== 1 || !snapshot.event?.partial) continue;
         const event = snapshot.event;
         if (event.content?.kind === 'text' || event.content?.kind === 'thinking') {
-          event.content = { ...event.content, text: stored.slice(headerEnd + 1) };
+          event.content = {
+            ...event.content,
+            text: stored.slice(headerEnd + 1),
+          };
         }
         partials.push({ ...snapshot, event });
       } catch {
@@ -794,7 +954,7 @@ function hasOnlyKeys(value: object, allowed: readonly string[]): boolean {
   return Object.keys(value).every((key) => allowed.includes(key));
 }
 
-async function readRuntimeEventJsonl(path: string, runId: string): Promise<RuntimeEvent[]> {
+async function readRuntimeEventJsonl(path: string, expected: AgentRunHeader): Promise<RuntimeEvent[]> {
   let text: string;
   try {
     text = await readFile(path, 'utf8');
@@ -810,12 +970,24 @@ async function readRuntimeEventJsonl(path: string, runId: string): Promise<Runti
   const lastLineNumber = lines.at(-1)?.lineNumber;
   const events: RuntimeEvent[] = [];
   for (const entry of lines) {
+    let parsed: unknown;
     try {
-      events.push(JSON.parse(entry.line) as RuntimeEvent);
+      parsed = JSON.parse(entry.line);
     } catch (error) {
-      if (!endsWithNewline && entry.lineNumber === lastLineNumber) continue;
+      if (
+        !endsWithNewline &&
+        entry.lineNumber === lastLineNumber &&
+        classifyJsonRecord(entry.line) === 'incomplete-prefix'
+      )
+        continue;
       const message = error instanceof Error ? error.message : 'Invalid JSON';
-      throw new Error(`Invalid RuntimeEvent JSONL line ${entry.lineNumber} for run ${runId}: ${message}`);
+      throw new Error(`Invalid RuntimeEvent JSONL line ${entry.lineNumber} for run ${expected.runId}: ${message}`);
+    }
+    try {
+      events.push(decodeRuntimeEvent(parsed, expected));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Invalid RuntimeEvent';
+      throw new Error(`Invalid RuntimeEvent JSONL line ${entry.lineNumber} for run ${expected.runId}: ${message}`);
     }
   }
   return events;
@@ -836,58 +1008,104 @@ function isProjectedAgentRunEvent(
     && Number.isFinite(event.ts);
 }
 
-async function writeAtomic(path: string, content: string): Promise<void> {
-  await mkdir(dirname(path), { recursive: true });
-  const tempPath = `${path}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`;
-  await writeFile(tempPath, content, 'utf8');
-  await rename(tempPath, path);
+interface AtomicWriteOptions {
+  durable?: boolean;
+  durabilityRoot?: string;
 }
 
-async function writeExclusiveAtomic(path: string, content: string): Promise<boolean> {
+async function writeAtomic(path: string, content: string, options: AtomicWriteOptions = {}): Promise<void> {
+  try {
+    await writeAtomicUnchecked(path, content, options);
+  } catch (error) {
+    if (!options.durable || error instanceof DurableStoreWriteError) throw error;
+    throw new DurableStoreWriteError(`Durable atomic write did not reach stable storage: ${path}`, error);
+  }
+}
+
+async function appendFileDurably(path: string, content: string, durabilityRoot: string): Promise<void> {
+  try {
+    const handle = await open(path, 'a');
+    try {
+      await handle.appendFile(content, 'utf8');
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    await syncDirectoryChain(dirname(path), durabilityRoot);
+  } catch (error) {
+    if (error instanceof DurableStoreWriteError) throw error;
+    throw new DurableStoreWriteError(`Durable append did not reach stable storage: ${path}`, error);
+  }
+}
+
+async function writeAtomicUnchecked(path: string, content: string, options: AtomicWriteOptions): Promise<void> {
+  await mkdir(dirname(path), { recursive: true });
+  const tempPath = `${path}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`;
+  if (options.durable) {
+    const handle = await open(tempPath, 'wx', 0o600);
+    try {
+      await handle.writeFile(content, 'utf8');
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+  } else {
+    await writeFile(tempPath, content, 'utf8');
+  }
+  await rename(tempPath, path);
+  if (options.durable) {
+    if (!options.durabilityRoot) {
+      throw new Error('Durable atomic write requires a durability root');
+    }
+    await syncDirectoryChain(dirname(path), options.durabilityRoot);
+  }
+}
+
+async function writeExclusiveAtomic(
+  path: string,
+  content: string,
+  options: { durable?: boolean },
+  durabilityRoot: string,
+): Promise<boolean> {
+  try {
+    return await writeExclusiveAtomicUnchecked(path, content, options, durabilityRoot);
+  } catch (error) {
+    if (!options.durable || error instanceof DurableStoreWriteError) throw error;
+    throw new DurableStoreWriteError(`Durable exclusive write did not reach stable storage: ${path}`, error);
+  }
+}
+
+async function writeExclusiveAtomicUnchecked(
+  path: string,
+  content: string,
+  options: { durable?: boolean },
+  durabilityRoot: string,
+): Promise<boolean> {
   const directory = dirname(path);
-  await ensureDirectoryDurable(directory);
+  await mkdir(directory, { recursive: true });
   const tempPath = `${path}.${process.pid}.${randomUUID()}.tmp`;
   const handle = await open(tempPath, 'wx', 0o600);
   try {
     await handle.writeFile(content, 'utf8');
-    await handle.sync();
+    if (options.durable) await handle.sync();
   } finally {
     await handle.close();
   }
   try {
     await link(tempPath, path);
     await unlink(tempPath);
-    await syncDirectory(directory);
+    if (options.durable) await syncDirectoryChain(directory, durabilityRoot);
     return true;
   } catch (error) {
     await unlink(tempPath).catch(() => {});
-    if ((error as NodeJS.ErrnoException).code === 'EEXIST') return false;
-    throw error;
-  }
-}
-
-async function ensureDirectoryDurable(path: string): Promise<void> {
-  const firstCreated = await mkdir(path, { recursive: true });
-  if (!firstCreated) return;
-  let created = path;
-  while (true) {
-    await syncDirectory(dirname(created));
-    if (created === firstCreated) return;
-    const parent = dirname(created);
-    if (parent === created) {
-      throw new Error(`Unable to locate newly created directory ancestor for ${path}`);
+    if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
+      if (options.durable) {
+        await syncFile(path);
+        await syncDirectoryChain(directory, durabilityRoot);
+      }
+      return false;
     }
-    created = parent;
-  }
-}
-
-async function syncDirectory(path: string): Promise<void> {
-  if (process.platform === 'win32') return;
-  const handle = await open(path, 'r');
-  try {
-    await handle.sync();
-  } finally {
-    await handle.close();
+    throw error;
   }
 }
 
@@ -978,57 +1196,6 @@ function hasExactKeys(record: Record<string, unknown>, expected: readonly string
 
 function isMissingFile(error: unknown): boolean {
   return (error as NodeJS.ErrnoException | undefined)?.code === 'ENOENT';
-}
-
-function normalizeAgentRunHeader(value: unknown, sessionId: string, runId: string): AgentRunHeader {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    throw new Error(`Invalid AgentRun header for run ${runId}: expected an object`);
-  }
-  const record = value as Partial<AgentRunHeader>;
-  const requiredStrings = [
-    record.runId,
-    record.sessionId,
-    record.turnId,
-    record.llmConnectionSlug,
-    record.modelId,
-    record.cwd,
-  ];
-  const optionalStrings = [
-    record.invocationId,
-    record.parentRunId,
-    record.agentId,
-    record.agentName,
-    record.parentTurnId,
-    record.retriedFromTurnId,
-    record.regeneratedFromTurnId,
-    record.branchOfTurnId,
-    record.parentSessionId,
-    record.failureClass,
-    record.failureMessage,
-    record.traceWriteError,
-  ];
-  const valid = requiredStrings.every((item) => typeof item === 'string') &&
-    record.sessionId === sessionId &&
-    record.runId === runId &&
-    (AGENT_RUN_STATUSES as readonly string[]).includes(String(record.status)) &&
-    isBackendKind(record.backendKind) &&
-    isPermissionMode(record.permissionMode) &&
-    isFiniteNumber(record.createdAt) &&
-    isFiniteNumber(record.updatedAt) &&
-    (record.completedAt === undefined || isFiniteNumber(record.completedAt)) &&
-    optionalStrings.every((item) => item === undefined || typeof item === 'string');
-  if (!valid) {
-    throw new Error(`Invalid AgentRun header for run ${runId}: malformed fields`);
-  }
-  return record as AgentRunHeader;
-}
-
-function isBackendKind(value: unknown): boolean {
-  return value === 'ai-sdk' || value === 'fake' || value === 'pi-agent';
-}
-
-function isFiniteNumber(value: unknown): value is number {
-  return typeof value === 'number' && Number.isFinite(value);
 }
 
 function sanitizeJson(_key: string, value: unknown): unknown {

@@ -2,16 +2,14 @@ import { mkdir, open, readFile, readdir, rename, rm, writeFile } from 'node:fs/p
 import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
-import { appendJsonl } from './jsonl-append.js';
-import { chainWrite } from './write-queue.js';
 import {
-  deriveTurnRecords,
-  isPermissionMode,
-  isSessionBlockedReason,
-  isSessionStatus,
-  normalizeShellToolResultContent,
-  normalizeUserSessionName,
-} from '@maka/core';
+  decodeStoredMessageForRead,
+  decodeStoredMessageForRecovery,
+} from './execution-record-codec.js';
+import { appendJsonl } from './jsonl-append.js';
+import { classifyJsonRecord } from './json-prefix.js';
+import { chainWrite } from './write-queue.js';
+import { deriveTurnRecords, isPermissionMode, isSessionBlockedReason, isSessionStatus, normalizeUserSessionName } from '@maka/core';
 import type {
   CreateSessionInput,
   SessionHeader,
@@ -132,7 +130,11 @@ class FileSessionStore implements SessionStore {
     // list() proportional to the number of sessions rather than full
     // transcript size, while preserving sidebar previews and timestamp
     // fallback for sessions outside the top few.
-    const withHeaders: Array<{ id: string; header: SessionHeader; previewMessages: StoredMessage[] }> = [];
+    const withHeaders: Array<{
+      id: string;
+      header: SessionHeader;
+      previewMessages: StoredMessage[];
+    }> = [];
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
       if (!isSafeSessionId(entry.name)) continue;
@@ -245,7 +247,9 @@ class FileSessionStore implements SessionStore {
     if (messages.length === 0) return;
     await this.withQueue(sessionId, async () => {
       const payload = messages.map((message) => JSON.stringify(message)).join('\n') + '\n';
-      await appendJsonl(this.sessionPath(sessionId), payload, { requireExistingRecord: true });
+      await appendJsonl(this.sessionPath(sessionId), payload, {
+        requireExistingRecord: true,
+      });
     });
   }
 
@@ -280,7 +284,12 @@ class FileSessionStore implements SessionStore {
 
   async archive(sessionId: string): Promise<void> {
     const now = Date.now();
-    await this.updateHeader(sessionId, { isArchived: true, archivedAt: now, status: 'archived', statusUpdatedAt: now });
+    await this.updateHeader(sessionId, {
+      isArchived: true,
+      archivedAt: now,
+      status: 'archived',
+      statusUpdatedAt: now,
+    });
   }
 
   async unarchive(sessionId: string): Promise<void> {
@@ -374,7 +383,7 @@ class FileSessionStore implements SessionStore {
       for (const line of completeLines) {
         if (line.trim().length === 0) continue;
         try {
-          messages.push(normalizeStoredMessageForRead(JSON.parse(line)));
+          messages.push(decodeStoredMessageForRead(JSON.parse(line)));
         } catch {
           // Tail previews are best-effort; full reads still surface durable corruption notes.
         }
@@ -404,10 +413,25 @@ class FileSessionStore implements SessionStore {
     const messages: StoredMessage[] = [];
     const lastLineNumber = lines.at(-1)?.lineNumber;
     for (const entry of lines.slice(1)) {
+      let parsed: unknown;
       try {
-        messages.push(normalizeStoredMessageForRead(JSON.parse(entry.line)));
+        parsed = JSON.parse(entry.line);
       } catch (error) {
-        if (!endsWithNewline && entry.lineNumber === lastLineNumber) continue;
+        if (!endsWithNewline && entry.lineNumber === lastLineNumber && classifyJsonRecord(entry.line) === 'incomplete-prefix') continue;
+        if (strict) {
+          const detail = error instanceof Error ? error.message : String(error);
+          throw new Error(`Session ${sessionId} has a corrupt JSONL record at line ${entry.lineNumber}: ${detail}`);
+        }
+        messages.push(createJsonlCorruptionNote(header, entry.lineNumber, error));
+        continue;
+      }
+      try {
+        messages.push(
+          strict
+            ? decodeStoredMessageForRecovery(parsed)
+            : decodeStoredMessageForRead(parsed),
+        );
+      } catch (error) {
         if (strict) {
           const detail = error instanceof Error ? error.message : String(error);
           throw new Error(`Session ${sessionId} has a corrupt JSONL record at line ${entry.lineNumber}: ${detail}`);
@@ -448,14 +472,6 @@ async function replaceFileWithWindowsReaderRetry(tempPath: string, path: string)
       await delay(attempt * 10);
     }
   }
-}
-
-function normalizeStoredMessageForRead(value: unknown): StoredMessage {
-  const message = value as StoredMessage;
-  if (!value || typeof value !== 'object' || Array.isArray(value) || message.type !== 'tool_result') return message;
-  const normalized = normalizeShellToolResultContent(message.content);
-  if (normalized.state === 'invalid') throw new Error('Invalid shell tool result content');
-  return normalized.state === 'valid' ? { ...message, content: normalized.content } : message;
 }
 
 /** Shared guard for stores that derive filesystem paths from a session id. */

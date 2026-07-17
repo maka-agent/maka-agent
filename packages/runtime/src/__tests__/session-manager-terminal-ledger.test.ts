@@ -1,6 +1,6 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { deriveTurnRecords, isTerminalRuntimeEvent } from '@maka/core';
+import { deriveTurnRecords, DurableStoreWriteError, isTerminalRuntimeEvent } from '@maka/core';
 import type {
   AgentRunEvent,
   AgentRunHeader,
@@ -263,7 +263,6 @@ describe('SessionManager terminal ledger invariants', () => {
         status: 'failed',
         ts: 3,
         terminalEvent: completedTerminal,
-        terminalEventAlreadyPersisted: true,
         failureClass: 'tool_failed',
       }),
       /terminal RuntimeEvent status completed cannot commit failed run header/,
@@ -352,6 +351,35 @@ describe('SessionManager terminal ledger invariants', () => {
     expect(terminalEvents[0]?.status).toBe('aborted');
     expect(terminalEvents[0]?.actions?.stateDelta?.abortSource).toBe('user_stop');
     expect(terminalEvents[0]?.actions?.stateDelta?.recovered).toBeUndefined();
+  });
+
+  test('synthetic terminal durability failures are not tolerated as header failures', async () => {
+    const runStore = new TinyAgentRunStore({
+      failTerminalRuntimeEventDurabilityAfterAppend: true,
+    });
+    const run = makeRunHeader({ status: 'running' });
+    await runStore.createRun(run);
+
+    await assert.rejects(
+      commitOrCreateTerminalRunFact({
+        runStore,
+        runtimeEventStore: runStore,
+        newId: nextId(),
+        sessionId: run.sessionId,
+        runId: run.runId,
+        turnId: run.turnId,
+        ts: 3,
+        fallbackStatus: 'failed',
+        fallbackInvocationId: run.runId,
+        fallbackFailureClass: 'missing_terminal_event',
+        allowHeaderCommitFailure: true,
+      }),
+      DurableStoreWriteError,
+    );
+
+    expect((await runStore.readRun(run.sessionId, run.runId)).status).toBe('running');
+    expect(await runStore.readRuntimeEvents(run.sessionId, run.runId)).toHaveLength(1);
+    expect(await runStore.readEvents(run.sessionId, run.runId)).toHaveLength(0);
   });
 
   test('synthetic terminal builder keeps live and recovered metadata distinct', () => {
@@ -1376,6 +1404,7 @@ class TinyAgentRunStore implements AgentRunStore, RuntimeEventStore {
 
   constructor(private readonly options: {
     failTerminalRuntimeEventAppends?: boolean;
+    failTerminalRuntimeEventDurabilityAfterAppend?: boolean;
     beforeTerminalRuntimeEventAppend?: () => Promise<void>;
   } = {}) {}
 
@@ -1420,6 +1449,25 @@ class TinyAgentRunStore implements AgentRunStore, RuntimeEventStore {
     if (isTerminalRuntimeEvent(event)) await this.options.beforeTerminalRuntimeEventAppend?.();
     const eventKey = key(sessionId, runId);
     this.runtimeEvents.set(eventKey, [...(this.runtimeEvents.get(eventKey) ?? []), clone(event)]);
+  }
+
+  async ensureTerminalRuntimeEventDurable(
+    sessionId: string,
+    runId: string,
+    event: RuntimeEvent,
+  ): Promise<void> {
+    const existing = (this.runtimeEvents.get(key(sessionId, runId)) ?? []).find((candidate) => candidate.id === event.id);
+    if (!existing) {
+      await this.appendRuntimeEvent(sessionId, runId, event);
+    } else if (JSON.stringify(existing) !== JSON.stringify(event)) {
+      throw new Error(`RuntimeEvent ${event.id} does not match the durable ledger record`);
+    }
+    if (this.options.failTerminalRuntimeEventDurabilityAfterAppend) {
+      throw new DurableStoreWriteError(
+        'terminal runtime event did not reach stable storage',
+        new Error('simulated fsync failure'),
+      );
+    }
   }
 
   async readRuntimeEvents(sessionId: string, runId: string): Promise<RuntimeEvent[]> {

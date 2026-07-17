@@ -122,17 +122,18 @@ export async function openInteractiveExecutionStoresForWrite(
 			remove: (sessionId) => run(() => sessionStore.remove(sessionId)),
 		},
 		agentRunStore: {
-			createRun: (header) => run(() => agentRunStore.createRun(header)),
-			updateRun: (sessionId, runId, patch) =>
-				run(() => agentRunStore.updateRun(sessionId, runId, patch)),
+			createRun: (header, options) =>
+				run(() => agentRunStore.createRun(header, options)),
+			updateRun: (sessionId, runId, patch, options) =>
+				run(() => agentRunStore.updateRun(sessionId, runId, patch, options)),
 			readRun: (sessionId, runId) =>
 				run(() => agentRunStore.readRun(sessionId, runId)),
 			listSessionRuns: (sessionId) =>
 				run(() => agentRunStore.listSessionRuns(sessionId)),
 			listSessionRunsForRecovery: (sessionId) =>
 				run(() => agentRunStore.listSessionRunsForRecovery(sessionId)),
-			appendEvent: (sessionId, runId, event) =>
-				run(() => agentRunStore.appendEvent(sessionId, runId, event)),
+			appendEvent: (sessionId, runId, event, options) =>
+				run(() => agentRunStore.appendEvent(sessionId, runId, event, options)),
 			readEvents: (sessionId, runId) =>
 				run(() => agentRunStore.readEvents(sessionId, runId)),
 			readEventsForRecovery: (sessionId, runId) =>
@@ -153,9 +154,22 @@ export async function openInteractiveExecutionStoresForWrite(
 				run(() => agentRunStore.listRootTurnAdmissionsForRecovery(sessionId)),
 		},
 		runtimeEventStore: {
-			appendRuntimeEvent: (sessionId, runId, event) =>
+			appendRuntimeEvent: (sessionId, runId, event, options) =>
 				run(() =>
-					runtimeEventStore.appendRuntimeEvent(sessionId, runId, event),
+					runtimeEventStore.appendRuntimeEvent(
+						sessionId,
+						runId,
+						event,
+						options,
+					),
+				),
+			ensureTerminalRuntimeEventDurable: (sessionId, runId, event) =>
+				run(() =>
+					runtimeEventStore.ensureTerminalRuntimeEventDurable(
+						sessionId,
+						runId,
+						event,
+					),
 				),
 			readRuntimeEvents: (sessionId, runId) =>
 				run(() => runtimeEventStore.readRuntimeEvents(sessionId, runId)),

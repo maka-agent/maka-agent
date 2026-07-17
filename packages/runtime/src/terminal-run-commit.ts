@@ -49,15 +49,14 @@ export function classifyTerminalRuntimeLedger(
 
 export interface CommitTerminalRunWithRuntimeFactInput {
   runStore: AgentRunStore;
-  runtimeEventStore?: RuntimeEventStore;
+  runtimeEventStore: RuntimeEventStore;
   newId: () => string;
   sessionId: string;
   runId: string;
   turnId: string;
   status: TerminalAgentRunStatus;
   ts: number;
-  terminalEvent?: RuntimeEvent;
-  terminalEventAlreadyPersisted?: boolean;
+  terminalEvent: RuntimeEvent;
   failureClass?: string;
   failureMessage?: string;
   abortSource?: string;
@@ -69,9 +68,6 @@ export interface CommitTerminalRunWithRuntimeFactInput {
 export async function commitTerminalRunWithRuntimeFact(
   input: CommitTerminalRunWithRuntimeFactInput,
 ): Promise<void> {
-  if (!input.terminalEvent) {
-    throw new Error('terminal RuntimeEvent must be provided before terminal run header');
-  }
   if (isPartialRuntimeEvent(input.terminalEvent)) {
     throw new Error('terminal RuntimeEvent must be final before terminal run header');
   }
@@ -89,36 +85,51 @@ export async function commitTerminalRunWithRuntimeFact(
   ) {
     throw new Error('terminal RuntimeEvent identity does not match run header commit');
   }
-  if (!input.terminalEventAlreadyPersisted) {
-    if (!input.runtimeEventStore) {
-      throw new Error('terminal RuntimeEvent must be persisted before terminal run header');
-    }
-    await input.runtimeEventStore.appendRuntimeEvent(input.sessionId, input.runId, input.terminalEvent);
-  }
+  await input.runtimeEventStore.ensureTerminalRuntimeEventDurable(
+    input.sessionId,
+    input.runId,
+    input.terminalEvent,
+  );
 
+  await commitTerminalRunProjection(input);
+}
+
+async function commitTerminalRunProjection(
+  input: CommitTerminalRunWithRuntimeFactInput,
+): Promise<void> {
   const failureClass = input.status === 'failed' ? input.failureClass ?? 'unknown' : undefined;
   const abortSource = input.status === 'cancelled' ? input.abortSource : undefined;
-  await input.runStore.updateRun(input.sessionId, input.runId, {
-    status: input.status,
-    updatedAt: input.ts,
-    completedAt: input.ts,
-    ...(failureClass ? { failureClass } : {}),
-    ...(input.failureMessage ? { failureMessage: input.failureMessage } : {}),
-    ...(abortSource ? { abortSource } : {}),
-  });
+  await input.runStore.updateRun(
+    input.sessionId,
+    input.runId,
+    {
+      status: input.status,
+      updatedAt: input.ts,
+      completedAt: input.ts,
+      ...(failureClass ? { failureClass } : {}),
+      ...(input.failureMessage ? { failureMessage: input.failureMessage } : {}),
+      ...(abortSource ? { abortSource } : {}),
+    },
+    { durable: true },
+  );
 
   if (hasTerminalAgentRunEvent(input.existingEvents ?? [])) return;
   const data = terminalRunEventData(input.status, failureClass, input.runEventData);
-  await input.runStore.appendEvent(input.sessionId, input.runId, {
-    type: terminalAgentRunEventType(input.status),
-    id: input.newId(),
-    runId: input.runId,
-    sessionId: input.sessionId,
-    turnId: input.turnId,
-    ts: input.ts,
-    ...(input.runEventMessage ? { message: input.runEventMessage } : {}),
-    ...(Object.keys(data).length > 0 ? { data } : {}),
-  });
+  await input.runStore.appendEvent(
+    input.sessionId,
+    input.runId,
+    {
+      type: terminalAgentRunEventType(input.status),
+      id: input.newId(),
+      runId: input.runId,
+      sessionId: input.sessionId,
+      turnId: input.turnId,
+      ts: input.ts,
+      ...(input.runEventMessage ? { message: input.runEventMessage } : {}),
+      ...(Object.keys(data).length > 0 ? { data } : {}),
+    },
+    { durable: true },
+  );
 }
 
 export interface CommitOrCreateTerminalRunFactInput extends Omit<
@@ -182,24 +193,20 @@ export async function commitOrCreateTerminalRunFact(
   const failureClass = status === 'failed'
     ? runtimeEventFailureClass(terminalEvent) ?? input.failureClass ?? 'unknown'
     : undefined;
-  let terminalEventAlreadyPersisted = !createdTerminalEvent && input.terminalEventAlreadyPersisted;
-  if (!terminalEventAlreadyPersisted) {
-    if (!input.runtimeEventStore) {
-      throw new Error('terminal RuntimeEvent must be persisted before terminal run header');
-    }
-    await input.runtimeEventStore.appendRuntimeEvent(input.sessionId, input.runId, terminalEvent);
-    terminalEventAlreadyPersisted = true;
-  }
+  await input.runtimeEventStore.ensureTerminalRuntimeEventDurable(
+    input.sessionId,
+    input.runId,
+    terminalEvent,
+  );
   let headerCommitted = false;
   let headerCommitError: unknown;
   try {
-    await commitTerminalRunWithRuntimeFact({
+    await commitTerminalRunProjection({
       ...input,
       terminalEvent,
       status,
       ...(failureClass ? { failureClass } : {}),
       ...(effectiveAbortSource ? { abortSource: effectiveAbortSource } : {}),
-      terminalEventAlreadyPersisted,
     });
     headerCommitted = true;
   } catch (error) {
@@ -269,7 +276,7 @@ export function buildSyntheticTerminalRuntimeEvent(
 
 export interface BuildRecoveredTerminalRuntimeEventInput {
   id: string;
-  run: Pick<AgentRunHeader, 'runId' | 'sessionId' | 'turnId'>;
+  run: Pick<AgentRunHeader, 'runId' | 'sessionId' | 'turnId' | 'invocationId'>;
   status: TerminalAgentRunStatus;
   ts: number;
   invocationId?: string;
@@ -285,7 +292,8 @@ export function buildRecoveredTerminalRuntimeEvent(
 ): RuntimeEvent {
   return buildSyntheticTerminalRuntimeEvent({
     id: input.id,
-    invocationId: input.invocationId ?? `recovery-${input.run.runId}`,
+    invocationId:
+      input.run.invocationId ?? input.invocationId ?? `recovery-${input.run.runId}`,
     run: input.run,
     ts: input.ts,
     status: input.status,

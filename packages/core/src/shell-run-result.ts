@@ -2,8 +2,10 @@ import type {
   ShellRunSnapshotResult,
   ShellRunStateResult,
   ShellRunUpdate,
+  SandboxDenialRecovery,
   ToolResultContent,
 } from './events.js';
+import { defineObjectShape, hasExactShape } from './record-schema.js';
 import {
   isShellOutput,
   isShellRunStatus,
@@ -15,6 +17,12 @@ import {
 export type ShellRunToolResult = Extract<ToolResultContent, { kind: 'shell_run' }>;
 type TerminalToolResult = Extract<ToolResultContent, { kind: 'terminal' }>;
 type ShellToolResult = TerminalToolResult | ShellRunToolResult;
+type ShellRunToolResultRecord = Omit<ShellRunToolResult, 'output' | 'operation'> & {
+  output?: ShellOutput;
+  operation?: ShellRunToolResult extends { operation?: infer Operation }
+    ? Operation
+    : never;
+};
 
 /** Bounds observer updates retained while a durable ShellRun view is hydrating. */
 export const SHELL_RUN_UPDATE_BUFFER_MAX_ENTRIES = 256;
@@ -77,33 +85,20 @@ export type ShellToolResultNormalization =
   | { state: 'invalid' }
   | { state: 'valid'; content: ShellToolResult };
 
-const CURRENT_TERMINAL_RESULT_KEYS = new Set([
-  'kind',
-  'cwd',
-  'cmd',
-  'status',
-  'exitCode',
-  'failureMessage',
-  'output',
-]);
+const CURRENT_TERMINAL_RESULT_SHAPE = defineObjectShape<TerminalToolResult>()(
+  ['kind', 'cwd', 'cmd', 'status', 'output'],
+  ['exitCode', 'failureMessage', 'sandboxDenial'],
+);
 
-const CURRENT_SHELL_RUN_RESULT_KEYS = new Set([
-  'kind',
-  'ref',
-  'mode',
-  'status',
-  'cwd',
-  'cmd',
-  'startedAt',
-  'updatedAt',
-  'completedAt',
-  'exitCode',
-  'failureMessage',
-  'revision',
-  'timeoutMs',
-  'output',
-  'operation',
-]);
+const CURRENT_SHELL_RUN_RESULT_SHAPE = defineObjectShape<ShellRunToolResultRecord>()(
+  ['kind', 'ref', 'mode', 'status', 'cwd', 'cmd', 'startedAt', 'updatedAt', 'revision'],
+  ['completedAt', 'exitCode', 'failureMessage', 'timeoutMs', 'output', 'operation', 'sandboxDenial'],
+);
+
+const SANDBOX_DENIAL_SHAPE = defineObjectShape<SandboxDenialRecovery>()(
+  ['likely', 'recovery'],
+  ['backend'],
+);
 
 const STOP_OPERATION_KEYS = new Set(['kind', 'applied']);
 const PTY_CONTROL_OPERATION_KEYS = new Set(['kind', 'failed', 'input', 'resize']);
@@ -155,19 +150,25 @@ const LEGACY_SHELL_RUN_RESULT_KEYS = new Set([
 
 /** Validate current shell results and normalize only the exact preceding shape. */
 export function normalizeShellToolResultContent(value: unknown): ShellToolResultNormalization {
-  if (!isRecord(value) || (value.kind !== 'terminal' && value.kind !== 'shell_run')) {
-    return { state: 'not_shell' };
-  }
-  const current = value.kind === 'terminal'
-    ? currentTerminalResult(value)
-    : currentShellRunResult(value);
-  if (current) return { state: 'valid', content: current };
+  const canonical = decodeCanonicalShellToolResultContent(value);
+  if (canonical.state !== 'invalid') return canonical;
+  if (!isRecord(value)) return canonical;
   const legacy = value.kind === 'terminal'
     ? normalizeLegacyTerminalResult(value) ?? normalizePreStatusTerminalResult(value)
     : normalizeLegacyShellRunResult(value);
   return legacy
     ? { state: 'valid', content: legacy }
     : { state: 'invalid' };
+}
+
+export function decodeCanonicalShellToolResultContent(value: unknown): ShellToolResultNormalization {
+  if (!isRecord(value) || (value.kind !== 'terminal' && value.kind !== 'shell_run')) {
+    return { state: 'not_shell' };
+  }
+  const current = value.kind === 'terminal'
+    ? currentTerminalResult(value)
+    : currentShellRunResult(value);
+  return current ? { state: 'valid', content: current } : { state: 'invalid' };
 }
 
 function normalizePreStatusTerminalResult(
@@ -205,12 +206,13 @@ function hasLegacyTruncationMarker(value: string): boolean {
 
 function currentTerminalResult(value: Record<string, unknown>): TerminalToolResult | undefined {
   if (
-    !hasOnlyKeys(value, CURRENT_TERMINAL_RESULT_KEYS)
+    !hasExactShape(value, CURRENT_TERMINAL_RESULT_SHAPE)
     || typeof value.cwd !== 'string'
     || typeof value.cmd !== 'string'
     || !isLegacyTerminalStatus(value.status)
     || !isOptionalFiniteNumber(value.exitCode)
     || !isOptionalString(value.failureMessage)
+    || !isOptionalSandboxDenial(value.sandboxDenial)
     || !isShellOutput(value.output)
     || !isValidTerminalState(value)
   ) return undefined;
@@ -237,7 +239,7 @@ function isValidTerminalState(value: Record<string, unknown>): boolean {
 
 function currentShellRunResult(value: Record<string, unknown>): ShellRunToolResult | undefined {
   if (
-    !hasOnlyKeys(value, CURRENT_SHELL_RUN_RESULT_KEYS)
+    !hasExactShape(value, CURRENT_SHELL_RUN_RESULT_SHAPE)
     || typeof value.ref !== 'string'
     || (value.mode !== 'pipes' && value.mode !== 'pty')
     || !isShellRunStatus(value.status)
@@ -250,6 +252,7 @@ function currentShellRunResult(value: Record<string, unknown>): ShellRunToolResu
     || !isOptionalFiniteNumber(value.exitCode)
     || !isOptionalFiniteNumber(value.timeoutMs)
     || !isOptionalString(value.failureMessage)
+    || !isOptionalSandboxDenial(value.sandboxDenial)
     || (value.output !== undefined
       && (!isShellOutput(value.output) || value.output.mode !== value.mode))
     || !isCurrentShellRunOperation(value.operation, value.mode, value.output !== undefined)
@@ -448,6 +451,16 @@ function isOptionalFiniteNumber(value: unknown): boolean {
 
 function isOptionalString(value: unknown): boolean {
   return value === undefined || typeof value === 'string';
+}
+
+function isOptionalSandboxDenial(value: unknown): boolean {
+  return value === undefined || (
+    isRecord(value) &&
+    hasExactShape(value, SANDBOX_DENIAL_SHAPE) &&
+    value.likely === true &&
+    (value.backend === undefined || value.backend === 'macos-seatbelt' || value.backend === 'linux') &&
+    value.recovery === 'require_escalated'
+  );
 }
 
 function isOptionalBoolean(value: unknown): boolean {

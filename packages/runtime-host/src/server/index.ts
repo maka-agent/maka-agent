@@ -1,8 +1,3 @@
-export { createExecutionRuntimeHostComposition } from './execution-composition.js';
-export {
-  startExecutionRuntimeHostCandidate,
-  type ExecutionRuntimeHostCandidateResult,
-} from './execution-candidate.js';
 export {
   RuntimeHostKernel,
   type RuntimeHostComposition,

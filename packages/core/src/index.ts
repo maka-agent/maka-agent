@@ -99,6 +99,7 @@ export {
   isRuntimeEventRole,
   isRuntimeEventAuthor,
   isRuntimeEventStatus,
+  decodeRuntimeEvent,
   isTerminalRuntimeEventStatus,
   isTerminalRuntimeEvent,
   isPartialRuntimeEvent,
@@ -137,6 +138,7 @@ export {
 export type {
   RuntimeEventStore,
 } from './runtime-event-store.js';
+export { DurableStoreWriteError } from './runtime-event-store.js';
 
 // session.ts
 export type {
@@ -169,8 +171,11 @@ export {
   isSessionStatus,
   isSessionBlockedReason,
   isTurnStatus,
+  decodeStoredMessageForRead,
+  decodeStoredMessageForRecovery,
   userFacingText,
 } from './session.js';
+export { decodeCanonicalToolResultContent } from './tool-result-record-schema.js';
 
 // model-thinking.ts
 export type { ThinkingLevel } from './model-thinking.js';
@@ -189,7 +194,11 @@ export type {
   AgentRunStatus,
   AgentRunStore,
 } from './agent-run.js';
-export { AGENT_RUN_STATUSES } from './agent-run.js';
+export {
+  AGENT_RUN_STATUSES,
+  decodeAgentRunEvent,
+  decodeAgentRunHeader,
+} from './agent-run.js';
 
 // shell-run.ts
 export type {

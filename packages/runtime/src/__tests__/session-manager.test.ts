@@ -7752,6 +7752,21 @@ class MemoryAgentRunStore implements AgentRunStore, RuntimeEventStore {
     this.runtimeEvents.set(eventKey, [...(this.runtimeEvents.get(eventKey) ?? []), copyRuntimeEvent(event)]);
   }
 
+  async ensureTerminalRuntimeEventDurable(
+    sessionId: string,
+    runId: string,
+    event: RuntimeEvent,
+  ): Promise<void> {
+    const existing = (this.runtimeEvents.get(key(sessionId, runId)) ?? []).find((candidate) => candidate.id === event.id);
+    if (!existing) {
+      await this.appendRuntimeEvent(sessionId, runId, event);
+      return;
+    }
+    if (JSON.stringify(existing) !== JSON.stringify(event)) {
+      throw new Error(`RuntimeEvent ${event.id} does not match the durable ledger record`);
+    }
+  }
+
   async readRuntimeEvents(sessionId: string, runId: string): Promise<RuntimeEvent[]> {
     if (this.options.failRuntimeEventReads) throw new Error('runtime event read failed');
     await this.options.beforeRuntimeEventRead?.(sessionId, runId);
@@ -7858,6 +7873,21 @@ class MemoryRuntimeEventStore implements RuntimeEventStore {
     if (this.options.failRuntimeEventAppends) throw new Error('runtime event append failed');
     const eventKey = key(sessionId, runId);
     this.runtimeEvents.set(eventKey, [...(this.runtimeEvents.get(eventKey) ?? []), copyRuntimeEvent(event)]);
+  }
+
+  async ensureTerminalRuntimeEventDurable(
+    sessionId: string,
+    runId: string,
+    event: RuntimeEvent,
+  ): Promise<void> {
+    const existing = (this.runtimeEvents.get(key(sessionId, runId)) ?? []).find((candidate) => candidate.id === event.id);
+    if (!existing) {
+      await this.appendRuntimeEvent(sessionId, runId, event);
+      return;
+    }
+    if (JSON.stringify(existing) !== JSON.stringify(event)) {
+      throw new Error(`RuntimeEvent ${event.id} does not match the durable ledger record`);
+    }
   }
 
   async readRuntimeEvents(sessionId: string, runId: string): Promise<RuntimeEvent[]> {

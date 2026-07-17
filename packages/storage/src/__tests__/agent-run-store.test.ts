@@ -1,5 +1,5 @@
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -74,6 +74,20 @@ describe('AgentRunStore', () => {
         /Invalid AgentRun header for run run-1: malformed fields/,
       );
       assert.equal(await readFile(runPath, 'utf8'), invalid);
+    });
+  });
+
+  it('rejects malformed optional run header fields', async () => {
+    await withStore(async (store, root) => {
+      const runPath = join(root, 'sessions', 'session-1', 'runs', 'run-1', 'run.json');
+      for (const patch of [{ automationId: 42 }, { abortSource: false }]) {
+        await mkdir(dirname(runPath), { recursive: true });
+        await writeFile(runPath, JSON.stringify({ ...makeHeader(), ...patch }) + '\n', 'utf8');
+        await assert.rejects(
+          () => store.readRun('session-1', 'run-1'),
+          /Invalid AgentRun header for run run-1: malformed fields/,
+        );
+      }
     });
   });
 
@@ -410,6 +424,26 @@ describe('AgentRunStore', () => {
     });
   });
 
+  it('does not mistake an invalid unterminated tail for a crash prefix', async () => {
+    await withStore(async (store, root) => {
+      await store.createRun(makeHeader());
+      const eventsPath = join(root, 'sessions', 'session-1', 'runs', 'run-1', 'events.jsonl');
+      const bytes = JSON.stringify(makeEvent({ id: 'good-1', ts: 1 })) + '\n{"type":]';
+      await writeFile(eventsPath, bytes, 'utf8');
+
+      const events = await store.readEvents('session-1', 'run-1');
+      assert.deepEqual(
+        events.map((event) => event.type),
+        ['run_started', 'event_corrupt'],
+      );
+      await assert.rejects(
+        () => store.readEventsForRecovery('session-1', 'run-1'),
+        /AgentRun run-1 has a corrupt JSONL record at line 2/,
+      );
+      assert.equal(await readFile(eventsPath, 'utf8'), bytes);
+    });
+  });
+
   it('keeps newline-terminated corrupt tail events as durable corruption notes', async () => {
     await withStore(async (store, root) => {
       await store.createRun(makeHeader());
@@ -423,9 +457,28 @@ describe('AgentRunStore', () => {
     });
   });
 
+  it('rejects complete schema-invalid and identity-mismatched events during recovery', async () => {
+    await withStore(async (store, root) => {
+      await store.createRun(makeHeader());
+      const eventsPath = join(root, 'sessions', 'session-1', 'runs', 'run-1', 'events.jsonl');
+      for (const record of [
+        {},
+        makeEvent({ sessionId: 'other-session' }),
+        makeEvent({ runId: 'other-run' }),
+        makeEvent({ turnId: 'other-turn' }),
+      ]) {
+        await writeFile(eventsPath, JSON.stringify(record));
+        await assert.rejects(
+          () => store.readEventsForRecovery('session-1', 'run-1'),
+          /AgentRun run-1 has a corrupt JSONL record at line 1/,
+        );
+      }
+    });
+  });
+
   it('appends and reads runtime events from a separate per-run ledger', async () => {
     await withStores(async (runStore, runtimeEventStore, root) => {
-      await runStore.createRun(makeHeader());
+      await runStore.createRun(makeHeader({ invocationId: 'turn-1' }));
       await runStore.appendEvent('session-1', 'run-1', makeEvent({ id: 'operational-event' }));
       await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', makeRuntimeEvent({ id: 'runtime-1', role: 'user' }));
       await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', makeRuntimeEvent({ id: 'runtime-2', role: 'model' }));
@@ -821,6 +874,82 @@ describe('AgentRunStore', () => {
     });
   });
 
+  it('re-establishes a terminal durability barrier without duplicating the event', async () => {
+    await withStores(async (runStore, runtimeEventStore) => {
+      await runStore.createRun(makeHeader({ invocationId: 'turn-1' }));
+      const terminal = makeRuntimeEvent({
+        id: 'runtime-terminal',
+        role: 'system',
+        author: 'system',
+        status: 'completed',
+        content: undefined,
+        actions: { endInvocation: true },
+      });
+      await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', terminal);
+
+      await runtimeEventStore.ensureTerminalRuntimeEventDurable(
+        'session-1',
+        'run-1',
+        terminal,
+      );
+      await runtimeEventStore.ensureTerminalRuntimeEventDurable(
+        'session-1',
+        'run-1',
+        terminal,
+      );
+
+      const events = await runtimeEventStore.readImmutableRuntimeEvents(
+        'session-1',
+        'run-1',
+      );
+      assert.deepEqual(events.map((event) => event.id), ['runtime-terminal']);
+      await assert.rejects(
+        () =>
+          runtimeEventStore.ensureTerminalRuntimeEventDurable(
+            'session-1',
+            'run-1',
+            { ...terminal, ts: terminal.ts + 1 },
+        ),
+        /does not match the durable ledger record/,
+      );
+      await assert.rejects(
+        () =>
+          runtimeEventStore.ensureTerminalRuntimeEventDurable(
+            'session-1',
+            'run-1',
+            { ...terminal, id: 'runtime-terminal-2' },
+          ),
+        /already has terminal RuntimeEvent runtime-terminal/,
+      );
+      assert.deepEqual(
+        (await runtimeEventStore.readImmutableRuntimeEvents('session-1', 'run-1')).map(
+          (event) => event.id,
+        ),
+        ['runtime-terminal'],
+      );
+    });
+  });
+
+  it('rejects complete schema-invalid and path-mismatched runtime events', async () => {
+    await withStores(async (runStore, runtimeEventStore, root) => {
+      await runStore.createRun(makeHeader({ invocationId: 'turn-1' }));
+      const runtimeEventsPath = join(root, 'sessions', 'session-1', 'runs', 'run-1', 'runtime-events.jsonl');
+      for (const record of [
+        {},
+        makeRuntimeEvent({ sessionId: 'other-session' }),
+        makeRuntimeEvent({ runId: 'other-run' }),
+        makeRuntimeEvent({ turnId: 'other-turn' }),
+        makeRuntimeEvent({ invocationId: 'other-invocation' }),
+      ]) {
+        await writeFile(runtimeEventsPath, JSON.stringify(record));
+        await assert.rejects(
+          () => runtimeEventStore.readRuntimeEvents('session-1', 'run-1'),
+          /Invalid RuntimeEvent JSONL line 1 for run run-1/,
+        );
+      }
+    });
+  });
+
   it('ignores an unterminated partial runtime event tail', async () => {
     await withStores(async (runStore, runtimeEventStore, root) => {
       await runStore.createRun(makeHeader());
@@ -833,6 +962,21 @@ describe('AgentRunStore', () => {
 
       const events = await runtimeEventStore.readRuntimeEvents('session-1', 'run-1');
       assert.deepEqual(events.map((event) => event.id), ['runtime-1']);
+    });
+  });
+
+  it('rejects an invalid unterminated runtime event tail without changing it', async () => {
+    await withStores(async (runStore, runtimeEventStore, root) => {
+      await runStore.createRun(makeHeader());
+      const runtimeEventsPath = join(root, 'sessions', 'session-1', 'runs', 'run-1', 'runtime-events.jsonl');
+      const bytes = JSON.stringify(makeRuntimeEvent({ id: 'runtime-1' })) + '\n{"id":]';
+      await writeFile(runtimeEventsPath, bytes, 'utf8');
+
+      await assert.rejects(
+        () => runtimeEventStore.readRuntimeEvents('session-1', 'run-1'),
+        /Invalid RuntimeEvent JSONL line 2 for run run-1/,
+      );
+      assert.equal(await readFile(runtimeEventsPath, 'utf8'), bytes);
     });
   });
 

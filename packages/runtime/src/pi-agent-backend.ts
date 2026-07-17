@@ -11,7 +11,7 @@ import type {
   ToolResultMessage,
   TokenUsageMessage,
 } from '@maka/core';
-import { computerUseApprovalSummary } from '@maka/core';
+import { computerUseApprovalSummary, decodeCanonicalToolResultContent } from '@maka/core';
 import type { BackendSendInput, PermissionDecision } from '@maka/core/backend-types';
 import { redactSecrets } from '@maka/core/redaction';
 import { isToolCategory, type ToolCategory } from '@maka/core/permission';
@@ -561,7 +561,7 @@ export function normalizePiAgentFrame(frame: unknown): PiAgentFrame | null {
       type,
       toolUseId: value.toolUseId,
       toolName: value.toolName,
-      args: value.args,
+      args: value.args ?? null,
       ...(typeof value.displayName === 'string' ? { displayName: value.displayName } : {}),
       ...(typeof value.intent === 'string' ? { intent: value.intent } : {}),
     };
@@ -571,7 +571,12 @@ export function normalizePiAgentFrame(frame: unknown): PiAgentFrame | null {
     return { type, toolUseId: value.toolUseId, stream, chunk: value.chunk };
   }
   if (type === 'tool_result' && typeof value.toolUseId === 'string') {
-    return { type, toolUseId: value.toolUseId, isError: value.isError === true, content: value.content };
+    return {
+      type,
+      toolUseId: value.toolUseId,
+      isError: value.isError === true,
+      content: value.content ?? null,
+    };
   }
   if (type === 'token_usage') {
     const input = finiteNumber(value.input);
@@ -594,7 +599,7 @@ export function normalizePiAgentFrame(frame: unknown): PiAgentFrame | null {
       type,
       toolUseId: value.toolUseId,
       toolName: value.toolName,
-      args: value.args,
+      args: value.args ?? null,
       ...(isToolCategory(value.categoryHint) ? { categoryHint: value.categoryHint } : {}),
       ...(typeof value.hint === 'string' ? { hint: value.hint } : {}),
     };
@@ -626,11 +631,13 @@ function finiteNumber(value: unknown): number | undefined {
 }
 
 function normalizeToolResultContent(content: unknown): ToolResultContent {
-  if (content && typeof content === 'object' && 'kind' in content) {
-    return redactUnknown(content) as ToolResultContent;
-  }
   if (typeof content === 'string') return { kind: 'text', text: redactBoundedText(content) };
-  return { kind: 'json', value: redactUnknown(content) };
+  const redacted = redactUnknown(content ?? null);
+  try {
+    return decodeCanonicalToolResultContent(redacted);
+  } catch {
+    return { kind: 'json', value: redacted };
+  }
 }
 
 function redactBoundedText(text: string, maxChars = 8192): string {

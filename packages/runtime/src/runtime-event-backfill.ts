@@ -54,7 +54,7 @@ export function backfillRuntimeEventsFromStoredMessages(
 ): RuntimeEventBackfillResult {
   const newId = input.newId ?? (() => createRuntimeEventId('rt-backfill'));
   const now = input.now ?? (() => Date.now());
-  const invocationId = input.invocationId ?? `backfill-${input.run.runId}`;
+  const invocationId = input.run.invocationId ?? input.invocationId ?? `backfill-${input.run.runId}`;
   const diagnostics: RuntimeEventBackfillDiagnostic[] = [];
   const events: RuntimeEvent[] = [];
   const turnMessages = input.messages

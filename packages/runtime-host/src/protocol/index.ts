@@ -12,7 +12,7 @@ export { RuntimeHostProtocolError } from './errors.js';
 export * from './operations.js';
 
 export const RUNTIME_HOST_REGISTRATION_SCHEMA_VERSION = 1 as const;
-export const RUNTIME_HOST_PROTOCOL_VERSION = 1 as const;
+export const RUNTIME_HOST_PROTOCOL_VERSION = 2 as const;
 export const RUNTIME_HOST_MAX_FRAME_BYTES = 64 * 1024;
 
 export type ClientSurface = 'desktop' | 'tui' | 'run' | 'bot' | 'open_gateway' | 'inspect';

@@ -129,6 +129,24 @@ test('the production Candidate dependency graph remains non-serving', () => {
   assert.deepEqual(violations, []);
 });
 
+test('the public server entrypoint does not expose the test execution composition', async () => {
+  const publicEntrypoints = await readPublicEntrypoints();
+  const serverEntrypoint = publicEntrypoints.get('server');
+  assert.ok(serverEntrypoint, 'missing public server entrypoint');
+  const forbidden = new Set([
+    'server/execution-candidate.ts',
+    'server/execution-composition.ts',
+    'server/root-turn-coordinator.ts',
+  ]);
+  assert.deepEqual(
+    reachableModules(serverEntrypoint, publicEntrypoints)
+      .map((path) => relative(sourceRoot, path))
+      .filter((path) => forbidden.has(path))
+      .sort(),
+    [],
+  );
+});
+
 test('dependency scanning fails closed on computed loads, loader aliases, and unapproved packages', () => {
   const scan = scanModuleReferences(join(sourceRoot, '__tests__', 'dependency-boundary.test.ts'));
   assert.ok(scan.specifiers.includes('node:url'));

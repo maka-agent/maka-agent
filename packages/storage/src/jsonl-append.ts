@@ -1,9 +1,15 @@
 import { constants } from "node:fs";
 import { open, type FileHandle } from "node:fs/promises";
+import { dirname } from "node:path";
+import { DurableStoreWriteError } from "@maka/core";
+import { classifyJsonRecord } from "./json-prefix.js";
+import { syncDirectoryChain } from "./stable-storage.js";
 
 const REVERSE_SCAN_CHUNK_BYTES = 64 * 1024;
 
 export interface AppendJsonlOptions {
+	durable?: boolean;
+	durabilityRoot?: string;
 	requireExistingRecord?: boolean;
 }
 
@@ -11,6 +17,23 @@ export async function appendJsonl(
 	path: string,
 	payload: string,
 	options: AppendJsonlOptions = {},
+): Promise<void> {
+	try {
+		await appendJsonlUnchecked(path, payload, options);
+	} catch (error) {
+		if (!options.durable || error instanceof DurableStoreWriteError)
+			throw error;
+		throw new DurableStoreWriteError(
+			`Durable JSONL append did not reach stable storage: ${path}`,
+			error,
+		);
+	}
+}
+
+async function appendJsonlUnchecked(
+	path: string,
+	payload: string,
+	options: AppendJsonlOptions,
 ): Promise<void> {
 	if (payload.length === 0 || !payload.endsWith("\n")) {
 		throw new Error("JSONL append payload must end with a newline");
@@ -31,20 +54,30 @@ export async function appendJsonl(
 		if (size > 0 && !(await endsWithNewline(handle, size))) {
 			const tailStart = await findTrailingRecordStart(handle, size);
 			const tail = await readRange(handle, tailStart, size);
-			if (isCompleteJson(tail)) {
+			const classification = classifyJsonRecord(tail);
+			if (classification === "complete") {
 				separator = "\n";
-			} else {
+			} else if (classification === "incomplete-prefix") {
 				if (tailStart === 0 && options.requireExistingRecord) {
 					throw new Error("Cannot repair a truncated JSONL document header");
 				}
 				await handle.truncate(tailStart);
 				await handle.sync();
+			} else {
+				throw new Error("Cannot append after an invalid JSONL tail record");
 			}
 		}
 
 		await handle.appendFile(separator + payload, "utf8");
+		if (options.durable) await handle.sync();
 	} finally {
 		await handle.close();
+	}
+	if (options.durable) {
+		if (!options.durabilityRoot) {
+			throw new Error("Durable JSONL append requires a durability root");
+		}
+		await syncDirectoryChain(dirname(path), options.durabilityRoot);
 	}
 }
 
@@ -98,14 +131,5 @@ async function readFully(
 		);
 		if (bytesRead === 0) throw new Error("Unexpected end of JSONL document");
 		offset += bytesRead;
-	}
-}
-
-function isCompleteJson(value: string): boolean {
-	try {
-		JSON.parse(value);
-		return true;
-	} catch {
-		return false;
 	}
 }
