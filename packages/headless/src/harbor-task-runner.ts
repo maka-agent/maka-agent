@@ -27,7 +27,7 @@ import {
   resolveHarnessOracleWatchdogTimeoutMs,
   type HarnessOracleTaskResult,
 } from './harness-oracle-policy.js';
-import { startProviderAuthProxy } from './provider-auth-proxy.js';
+import { startProviderAuthProxy, type ProviderTokenUsage } from './provider-auth-proxy.js';
 import {
   providerBaseUrlFromEnv,
   providerCredentialEnv,
@@ -39,6 +39,11 @@ import {
   OPENCODE_TOOLCHAIN_FINGERPRINT,
   OPENCODE_TOOLCHAIN_SPEC,
 } from './opencode-toolchain.js';
+import {
+  KIMI_CODE_TOOLCHAIN_CONTAINER_PATH,
+  KIMI_CODE_TOOLCHAIN_FINGERPRINT,
+  KIMI_CODE_TOOLCHAIN_SPEC,
+} from './kimi-code-toolchain.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -81,11 +86,13 @@ export interface HarborTaskRunnerOptions {
   /** Host path to the maka repo, mounted read-only at /opt/maka-agent. */
   makaRepoPath: string;
   /** Harbor adapter under test (default: Maka). */
-  agent?: 'maka' | 'opencode';
-  /** Version passed to Harbor's installed-agent adapter (used to pin OpenCode). */
+  agent?: 'maka' | 'opencode' | 'kimi-code';
+  /** Version passed to Harbor's installed-agent adapter. */
   agentVersion?: string;
   /** Prepared OpenCode toolchain mounted read-only into task containers. */
   opencodeToolchainPath?: string;
+  /** Prepared Kimi Code toolchain mounted read-only into task containers. */
+  kimiCodeToolchainPath?: string;
   /** Explicit Docker target platform shared by comparison arms. */
   dockerPlatform?: 'linux/amd64';
   /** Base directory under which each task gets an isolated per-task job dir. */
@@ -200,7 +207,7 @@ export function createHarborTaskRunner(options: HarborTaskRunnerOptions): Harbor
     assertNoProviderSecretsInAgentEnv(runnerOptions.agentEnv);
     const hasHostProviderRuntime = runnerOptions.apiKeyFile !== undefined
       || githubCopilotAccountTokenFromEnv(runnerOptions.provider, runnerOptions.agentEnv) !== undefined
-      || (runnerOptions.agent !== 'opencode' && !providerRequiresSecret(runnerOptions.provider));
+      || (!usesHostProviderProxy(runnerOptions.agent) && !providerRequiresSecret(runnerOptions.provider));
     const configPath = join(jobsDir, 'job-config.json');
     const { agentEnv: _attemptAgentEnv, ...inputWithoutAttemptEnv } = input;
     const config = buildHarborJobConfig(inputWithoutAttemptEnv, {
@@ -213,6 +220,7 @@ export function createHarborTaskRunner(options: HarborTaskRunnerOptions): Harbor
 
     const args = ['run', '--config', configPath, '--yes'];
     let result: HarborRunResult;
+    let providerUsage: ProviderTokenUsage | null = null;
     try {
       const providerRuntime = await hostSideProviderRuntime(runnerOptions);
       try {
@@ -226,6 +234,7 @@ export function createHarborTaskRunner(options: HarborTaskRunnerOptions): Harbor
           timeoutMs: resolveHarborTimeoutMs(runnerOptions, input),
           env: { PYTHONPATH: pythonPath, ...(providerRuntime?.env ?? {}) },
         });
+        providerUsage = providerRuntime?.usage?.() ?? null;
       } finally {
         await providerRuntime?.close?.();
       }
@@ -262,7 +271,10 @@ export function createHarborTaskRunner(options: HarborTaskRunnerOptions): Harbor
       );
     }
     const reward = await readReward(rewardPath, resultPath, input.task.id);
-    const cell = await readCellOutput(cellOutputPath, input.task.id);
+    const rawCell = await readCellOutput(cellOutputPath, input.task.id);
+    const cell = rawCell.tokenSummary || !providerUsage || !runnerOptions.pricing
+      ? rawCell
+      : { ...rawCell, tokenSummary: providerTokenSummary(providerUsage, runnerOptions.pricing) };
     const verifierStdout = await readOptionalText(join(trialDir, TRIAL_VERIFIER_STDOUT));
     const verifier = await readVerifierOutcome(join(trialDir, TRIAL_VERIFIER_OUTCOME), input.task.id);
     if (!verifier) {
@@ -605,11 +617,19 @@ export function buildHarborJobConfig(
   if (adapter === 'opencode' && options.agentVersion !== OPENCODE_TOOLCHAIN_SPEC.opencode.version) {
     throw new Error(`OpenCode adapter version must match toolchain version ${OPENCODE_TOOLCHAIN_SPEC.opencode.version}`);
   }
+  if (adapter === 'kimi-code' && !options.kimiCodeToolchainPath) {
+    throw new Error('kimiCodeToolchainPath is required for the Kimi Code adapter');
+  }
+  if (adapter === 'kimi-code' && options.agentVersion !== KIMI_CODE_TOOLCHAIN_SPEC.kimiCode.version) {
+    throw new Error(`Kimi Code adapter version must match toolchain version ${KIMI_CODE_TOOLCHAIN_SPEC.kimiCode.version}`);
+  }
   const mounts: Array<Record<string, unknown>> = [
     { type: 'bind', source: options.makaRepoPath, target: CONTAINER_MAKA_REPO, read_only: true },
     ...(adapter === 'opencode'
       ? [{ type: 'bind', source: options.opencodeToolchainPath!, target: OPENCODE_TOOLCHAIN_CONTAINER_PATH, read_only: true }]
-      : []),
+      : adapter === 'kimi-code'
+        ? [{ type: 'bind', source: options.kimiCodeToolchainPath!, target: KIMI_CODE_TOOLCHAIN_CONTAINER_PATH, read_only: true }]
+        : []),
   ];
 
   const agentEnv: Record<string, string> = {
@@ -626,6 +646,9 @@ export function buildHarborJobConfig(
   }
   if (adapter === 'opencode') {
     agentEnv.MAKA_OPENCODE_TOOLCHAIN_FINGERPRINT = OPENCODE_TOOLCHAIN_FINGERPRINT;
+  }
+  if (adapter === 'kimi-code') {
+    agentEnv.MAKA_KIMI_CODE_TOOLCHAIN_FINGERPRINT = KIMI_CODE_TOOLCHAIN_FINGERPRINT;
   }
 
   if (options.pricing) {
@@ -671,7 +694,11 @@ export function buildHarborJobConfig(
     agents: [
       {
         ...(adapter === 'maka' ? { name: adapter } : {}),
-        import_path: adapter === 'opencode' ? 'opencode_agent:MakaOpenCodeAgent' : 'maka_agent:MakaAgent',
+        import_path: adapter === 'opencode'
+          ? 'opencode_agent:MakaOpenCodeAgent'
+          : adapter === 'kimi-code'
+            ? 'kimi_code_agent:MakaKimiCodeAgent'
+            : 'maka_agent:MakaAgent',
         model_name: agentModel,
         kwargs: adapter === 'maka'
           ? { backend: 'ai-sdk' }
@@ -718,6 +745,7 @@ function verifierPolicy(task: HarborTaskRunInput['task']): {
 
 async function hostSideProviderRuntime(options: HarborTaskRunnerOptions): Promise<{
   env: Record<string, string>;
+  usage?: () => ProviderTokenUsage | null;
   close?: () => Promise<void>;
 } | null> {
   const provider = options.provider ?? 'deepseek';
@@ -744,20 +772,21 @@ async function hostSideProviderRuntime(options: HarborTaskRunnerOptions): Promis
       )
     : undefined;
   const baseUrl = copilotCredential?.baseUrl ?? configuredBaseUrl;
-  if (options.agent === 'opencode') {
+  if (usesHostProviderProxy(options.agent)) {
     const apiKeyFile = options.apiKeyFile;
     if (!apiKeyFile) return null;
-    if (!baseUrl) throw new Error(`OpenCode provider ${provider} requires a base URL`);
+    if (!baseUrl) throw new Error(`${options.agent} provider ${provider} requires a base URL`);
     const proxy = await startProviderAuthProxy({
       upstreamBaseUrl: baseUrl,
       apiKeyFile,
-      authMode: providerProxyAuthMode(provider),
+      authMode: options.agent === 'kimi-code' ? 'bearer' : providerProxyAuthMode(provider),
     });
     return {
       env: {
-        MAKA_OPENCODE_PROVIDER_PROXY_URL: proxy.baseUrl,
-        MAKA_OPENCODE_PROVIDER_PROXY_TOKEN: proxy.token,
+        MAKA_PROVIDER_PROXY_URL: proxy.baseUrl,
+        MAKA_PROVIDER_PROXY_TOKEN: proxy.token,
       },
+      usage: proxy.usage,
       close: proxy.close,
     };
   }
@@ -779,6 +808,36 @@ async function hostSideProviderRuntime(options: HarborTaskRunnerOptions): Promis
       ...(baseUrl ? { MAKA_HOST_BASE_URL: baseUrl } : {}),
       ...(copilotCredential ? { MAKA_HOST_MODEL_API_PROTOCOL: copilotCredential.apiProtocol } : {}),
     },
+  };
+}
+
+function usesHostProviderProxy(agent: HarborTaskRunnerOptions['agent']): boolean {
+  return agent === 'opencode' || agent === 'kimi-code';
+}
+
+function providerTokenSummary(
+  usage: ProviderTokenUsage,
+  pricing: HarborTaskPricing,
+): NonNullable<HarborCellOutput['tokenSummary']> {
+  const cacheMissInput = Math.max(0, usage.input - usage.cacheRead - usage.cacheWrite);
+  const costUsd = (
+    cacheMissInput * pricing.inputUsdPer1M
+    + usage.cacheRead * (pricing.cacheReadUsdPer1M ?? pricing.inputUsdPer1M)
+    + usage.cacheWrite * (pricing.cacheWriteUsdPer1M ?? pricing.inputUsdPer1M)
+    + usage.output * pricing.outputUsdPer1M
+  ) / 1_000_000;
+  return {
+    input: usage.input,
+    output: usage.output,
+    cachedInput: usage.cacheRead,
+    cacheHitInput: usage.cacheRead,
+    cacheMissInput,
+    cacheWriteInput: usage.cacheWrite,
+    cacheMissInputSource: 'explicit',
+    reasoning: 0,
+    total: usage.input + usage.output,
+    costUsd,
+    pricingSource: 'runtime',
   };
 }
 

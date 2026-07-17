@@ -668,6 +668,19 @@ describe('Harbor adapter contract', () => {
     assert.match(result.stdout, /opencode_estimated_cost_usd/);
   });
 
+  test('kimi_code_agent.py runs the pinned CLI contract without Harbor installed', (t: TestContext) => {
+    const result = spawnSync('python3', ['-c', pythonKimiCodeAdapterSmokeScript(repoRoot)], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+    });
+    if (result.error && 'code' in result.error && result.error.code === 'ENOENT') {
+      t.skip('python3 is not available');
+      return;
+    }
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /kimi-code adapter ok/);
+  });
+
   test('trial_pricing.py validates explicit pricing env without Harbor installed', (t: TestContext) => {
     const result = spawnSync('python3', ['-c', pythonTrialPricingSmokeScript(repoRoot)], {
       cwd: repoRoot,
@@ -1842,8 +1855,8 @@ try:
         key_path = Path(tmp) / "zai-key"
         key_path.write_text("test-zai-key\n", encoding="utf-8")
         agent = MakaOpenCodeAgent(Path(tmp), extra_env={
-            "MAKA_OPENCODE_PROVIDER_PROXY_URL": "http://host.docker.internal:43210",
-            "MAKA_OPENCODE_PROVIDER_PROXY_TOKEN": "ephemeral-proxy-token",
+            "MAKA_PROVIDER_PROXY_URL": "http://host.docker.internal:43210",
+            "MAKA_PROVIDER_PROXY_TOKEN": "ephemeral-proxy-token",
             "MAKA_LLM_CONNECTION_SLUG": "zai-coding-plan",
             "MAKA_SYSTEM_PROMPT": "",
             "MAKA_REASONING_EFFORT": "max",
@@ -1931,8 +1944,8 @@ try:
             },
         }, benchmark_config
         kimi_agent = MakaOpenCodeAgent(Path(tmp), extra_env={
-            "MAKA_OPENCODE_PROVIDER_PROXY_URL": "http://host.docker.internal:43210",
-            "MAKA_OPENCODE_PROVIDER_PROXY_TOKEN": "ephemeral-kimi-token",
+            "MAKA_PROVIDER_PROXY_URL": "http://host.docker.internal:43210",
+            "MAKA_PROVIDER_PROXY_TOKEN": "ephemeral-kimi-token",
             "MAKA_LLM_CONNECTION_SLUG": "kimi-coding-plan",
             "MAKA_SYSTEM_PROMPT": "",
             "MAKA_REASONING_EFFORT": "max",
@@ -2007,8 +2020,8 @@ try:
         assert "tokenSummary" not in missing_usage_cell, missing_usage_cell
 
         failing_agent = MakaOpenCodeAgent(Path(tmp), extra_env={
-            "MAKA_OPENCODE_PROVIDER_PROXY_URL": "http://host.docker.internal:43210",
-            "MAKA_OPENCODE_PROVIDER_PROXY_TOKEN": "ephemeral-proxy-token",
+            "MAKA_PROVIDER_PROXY_URL": "http://host.docker.internal:43210",
+            "MAKA_PROVIDER_PROXY_TOKEN": "ephemeral-proxy-token",
             "MAKA_LLM_CONNECTION_SLUG": "zai-coding-plan",
             "MAKA_SYSTEM_PROMPT": "",
             "MAKA_REASONING_EFFORT": "max",
@@ -2041,6 +2054,132 @@ finally:
         os.environ["ZAI_API_KEY"] = old_key
     if old_base is not None:
         os.environ["ZAI_BASE_URL"] = old_base
+`;
+}
+
+function pythonKimiCodeAdapterSmokeScript(root: string): string {
+  return String.raw`
+import asyncio
+import json
+import os
+import sys
+import tempfile
+import types
+from pathlib import Path
+
+root = Path(${JSON.stringify(root)})
+
+def module(name):
+    mod = types.ModuleType(name)
+    sys.modules[name] = mod
+    return mod
+
+module("harbor")
+module("harbor.agents")
+module("harbor.agents.installed")
+base_mod = module("harbor.agents.installed.base")
+
+def with_prompt_template(fn):
+    async def wrapper(self, instruction, *args, **kwargs):
+        return await fn(self, self.render_instruction(instruction), *args, **kwargs)
+    return wrapper
+
+class BaseInstalledAgent:
+    def __init__(self, logs_dir, prompt_template_path=None, version=None, extra_env=None, model_name=None, **kwargs):
+        self.logs_dir = Path(logs_dir)
+        self._prompt_template_path = Path(prompt_template_path) if prompt_template_path else None
+        self._extra_env = extra_env or {}
+        self._version = version
+        self.model_name = model_name
+
+    def _get_env(self, key):
+        return self._extra_env.get(key) or os.environ.get(key)
+
+    def render_instruction(self, instruction):
+        if not self._prompt_template_path:
+            return instruction
+        return self._prompt_template_path.read_text(encoding="utf-8").replace("{{ instruction }}", instruction)
+
+    async def exec_as_agent(self, environment, command, env=None, **kwargs):
+        return await environment.exec(command, env=env or {}, **kwargs)
+
+base_mod.BaseInstalledAgent = BaseInstalledAgent
+base_mod.with_prompt_template = with_prompt_template
+
+module("harbor.environments")
+env_mod = module("harbor.environments.base")
+env_mod.BaseEnvironment = object
+module("harbor.models")
+module("harbor.models.agent")
+context_mod = module("harbor.models.agent.context")
+context_mod.AgentContext = object
+
+sys.path.insert(0, str(root / "packages" / "headless" / "harbor"))
+from kimi_code_agent import MakaKimiCodeAgent
+
+with tempfile.TemporaryDirectory() as tmp:
+    logs = Path(tmp)
+    template = logs / "prompt.j2"
+    template.write_text("templated: {{ instruction }}", encoding="utf-8")
+    commands = []
+
+    class Environment:
+        async def exec(self, command, env=None, **kwargs):
+            commands.append((command, env or {}))
+            if "--output-format stream-json" in command:
+                identity = logs / "maka-cell-execution-identity.json"
+                assert identity.exists(), "execution identity must be durable before sampling"
+                (logs / "kimi-code.jsonl").write_text(
+                    '\n'.join([
+                        json.dumps({"role": "assistant", "tool_calls": [{"function": {"name": "Shell"}}]}),
+                        json.dumps({"role": "tool", "tool_call_id": "1", "content": "ok"}),
+                        json.dumps({"role": "meta", "type": "session.resume_hint", "session_id": "session-1"}),
+                    ]) + '\n',
+                    encoding="utf-8",
+                )
+            return types.SimpleNamespace(return_code=0, stdout="", stderr="")
+
+    agent = MakaKimiCodeAgent(
+        logs,
+        prompt_template_path=template,
+        version="0.26.0",
+        model_name="k3",
+        extra_env={
+            "MAKA_KIMI_CODE_TOOLCHAIN_FINGERPRINT": "sha256:" + "a" * 64,
+            "MAKA_PROVIDER_PROXY_URL": "http://host.docker.internal:43210",
+            "MAKA_PROVIDER_PROXY_TOKEN": "ephemeral-token",
+            "MAKA_MODEL": "k3",
+            "MAKA_LLM_CONNECTION_SLUG": "kimi-coding-plan",
+            "MAKA_REASONING_EFFORT": "max",
+            "MAKA_SYSTEM_PROMPT": "",
+            "MAKA_TRIAL_PRICING_SOURCE": "kimi-coding-plan-account-plan",
+        },
+    )
+    environment = Environment()
+    asyncio.run(agent.install(environment))
+    install_command, install_env = commands[0]
+    assert "sha256sum --check" in install_command, install_command
+    assert "/opt/maka-kimi-code-toolchain/bin/node" in install_command, install_command
+    assert install_env["MAKA_EXPECTED_TOOLCHAIN_FINGERPRINT"] == "sha256:" + "a" * 64, install_env
+    asyncio.run(agent.run("hi", environment, object()))
+    run_command, run_env = commands[-1]
+    assert "--yolo --output-format stream-json --prompt" in run_command, run_command
+    assert "templated: hi" in run_command, run_command
+    assert run_env["KIMI_MODEL_NAME"] == "k3", run_env
+    assert run_env["KIMI_MODEL_API_KEY"] == "ephemeral-token", run_env
+    assert run_env["KIMI_MODEL_PROVIDER_TYPE"] == "kimi", run_env
+    assert run_env["KIMI_MODEL_MAX_CONTEXT_SIZE"] == "1048576", run_env
+    assert run_env["KIMI_MODEL_MAX_OUTPUT_SIZE"] == "131072", run_env
+    assert run_env["KIMI_MODEL_ADAPTIVE_THINKING"] == "true", run_env
+    assert "ephemeral-token" not in run_command, run_command
+    agent.populate_context_post_run(object())
+    cell = json.loads((logs / "maka-cell-output.json").read_text(encoding="utf-8"))
+    assert cell["executionIdentity"]["model"] == "k3", cell
+    assert cell["executionIdentity"]["reasoningEffort"] == "max", cell
+    assert cell["runtimeRefs"]["sessionId"] == "session-1", cell
+    assert cell["toolSummary"]["actualToolCallCounts"] == {"Shell": 1}, cell
+    assert "tokenSummary" not in cell, cell
+    print("kimi-code adapter ok")
 `;
 }
 

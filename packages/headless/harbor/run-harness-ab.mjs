@@ -31,6 +31,11 @@ import {
   prepareOpenCodeToolchain,
 } from '#opencode-toolchain';
 import {
+  KIMI_CODE_TOOLCHAIN_FINGERPRINT,
+  KIMI_CODE_TOOLCHAIN_SPEC,
+  prepareKimiCodeToolchain,
+} from '#kimi-code-toolchain';
+import {
   assertTerminalBench21TaskSet,
   assertTerminalBench21TaskTreeFingerprint,
   buildHarnessAbResumeFingerprint,
@@ -57,14 +62,14 @@ import {
 const execFileAsync = promisify(execFile);
 
 const EXPECTED_SOURCE_TASKS = TERMINAL_BENCH_2_1_TASK_IDS.length;
-export const DEFAULT_HARNESS_AB_RUN_ID = 'k3-maka-vs-opencode-tbench-2.1-full-v1';
+export const DEFAULT_HARNESS_AB_RUN_ID = 'k3-maka-vs-kimi-code-tbench-2.1-full-v1';
 const CANARY_TASKS = 5;
 const PROVIDER = 'kimi-coding-plan';
 const MODEL = 'k3';
 const MODEL_SPEC = `${PROVIDER}/${MODEL}`;
 const REASONING_EFFORT = 'max';
 const BASE_URL = 'https://api.kimi.com/coding/v1';
-const ORDER_SEED = 'terminal-bench-2.1:k3:maka-vs-opencode:v1';
+const ORDER_SEED = 'terminal-bench-2.1:k3:harness-comparison:v1';
 const PAIR_CONCURRENCY = 4;
 const BILLING_MODE = 'account-plan';
 const PRICING = {
@@ -81,6 +86,42 @@ const BACKGROUND_RUN_ENV = 'MAKA_HARNESS_AB_BACKGROUND_RUN';
 const BACKGROUND_STARTED_AT_ENV = 'MAKA_HARNESS_AB_DETACHED_STARTED_AT';
 const BACKGROUND_JOURNAL_FILENAME = 'background-run.json';
 const BACKGROUND_LOG_FILENAME = 'background-run.log';
+
+export const HARNESS_COMPETITOR_PROFILES = Object.freeze({
+  'kimi-code': Object.freeze({
+    id: 'kimi-code',
+    version: KIMI_CODE_TOOLCHAIN_SPEC.kimiCode.version,
+    toolchainFingerprint: KIMI_CODE_TOOLCHAIN_FINGERPRINT,
+    config: Object.freeze({
+      adapter: 'kimi_code_agent:MakaKimiCodeAgent',
+      outputFormat: 'stream-json',
+      permissions: 'yolo',
+      attemptPolicy: 'single',
+      billingMode: BILLING_MODE,
+    }),
+  }),
+  opencode: Object.freeze({
+    id: 'opencode',
+    version: OPENCODE_TOOLCHAIN_SPEC.opencode.version,
+    toolchainFingerprint: OPENCODE_TOOLCHAIN_FINGERPRINT,
+    config: Object.freeze({
+      adapter: 'opencode_agent:MakaOpenCodeAgent',
+      variant: REASONING_EFFORT,
+      pure: true,
+      permissions: 'auto',
+      attemptPolicy: 'single',
+      billingMode: BILLING_MODE,
+    }),
+  }),
+});
+
+export function resolveHarnessCompetitorProfile(raw = 'kimi-code') {
+  const profile = HARNESS_COMPETITOR_PROFILES[raw];
+  if (!profile) {
+    throw new Error(`MAKA_HARNESS_AB_COMPETITOR must be one of: ${Object.keys(HARNESS_COMPETITOR_PROFILES).join(', ')}`);
+  }
+  return profile;
+}
 
 function envPath(name, fallback) {
   const raw = process.env[name] || fallback;
@@ -122,6 +163,7 @@ export function buildHarnessAbManifest({
   toolchainFingerprint,
   taskIds = TERMINAL_BENCH_2_1_TASK_IDS,
   oracleEvidence,
+  competitorProfile = resolveHarnessCompetitorProfile(),
 }) {
   return buildHarnessAbRunManifest({
     benchmark: {
@@ -152,17 +194,9 @@ export function buildHarnessAbManifest({
         },
       },
       {
-        id: 'opencode',
-        version: OPENCODE_TOOLCHAIN_SPEC.opencode.version,
-        config: {
-          adapter: 'opencode_agent:MakaOpenCodeAgent',
-          externalSystemPrompt: 'empty',
-          variant: REASONING_EFFORT,
-          pure: true,
-          permissions: 'auto',
-          attemptPolicy: 'single',
-          billingMode: BILLING_MODE,
-        },
+        id: competitorProfile.id,
+        version: competitorProfile.version,
+        config: { ...competitorProfile.config, externalSystemPrompt: 'empty', profile: competitorProfile.id },
       },
     ],
     taskBudgetSec: null,
@@ -182,7 +216,11 @@ export async function main() {
     : repoRoot;
   const outDir = envPath('MAKA_HARNESS_AB_OUT_DIR');
   const tasksRoot = envPath('MAKA_HARNESS_AB_TASKS_ROOT', join(homedir(), '.cache/harbor/tasks'));
-  const runId = process.env.MAKA_HARNESS_AB_RUN_ID || DEFAULT_HARNESS_AB_RUN_ID;
+  const competitorProfile = resolveHarnessCompetitorProfile(process.env.MAKA_HARNESS_AB_COMPETITOR || 'kimi-code');
+  const runId = process.env.MAKA_HARNESS_AB_RUN_ID
+    || (competitorProfile.id === 'kimi-code'
+      ? DEFAULT_HARNESS_AB_RUN_ID
+      : `k3-maka-vs-${competitorProfile.id}-tbench-2.1-full-v1`);
   const limit = runLimit(process.env.MAKA_HARNESS_AB_LIMIT);
   const runRoot = resolveFixedPromptRunRoot(outDir, runId, 'MAKA_HARNESS_AB_RUN_ID');
   await withHarnessAbRunLock(runRoot, async () => {
@@ -190,7 +228,7 @@ export async function main() {
     if (journal) await writeBackgroundJournal(journal.path, { ...journal.base, status: 'running' });
     let exitCode = 0;
     try {
-      await runLocked({ repoRoot, makaRepoPath, tasksRoot, runId, limit, runRoot });
+      await runLocked({ repoRoot, makaRepoPath, tasksRoot, runId, limit, runRoot, competitorProfile });
     } catch (error) {
       exitCode = 1;
       throw error;
@@ -207,7 +245,7 @@ export async function main() {
   });
 }
 
-async function runLocked({ repoRoot, makaRepoPath, tasksRoot, runId, limit, runRoot }) {
+async function runLocked({ repoRoot, makaRepoPath, tasksRoot, runId, limit, runRoot, competitorProfile }) {
   const allTasks = await discoverCachedHarborTasks(tasksRoot);
   assertTerminalBench21TaskSet(allTasks.map((task) => task.id));
   const taskSourceFingerprint = await fingerprintFixedPromptTaskTree(allTasks);
@@ -248,7 +286,8 @@ async function runLocked({ repoRoot, makaRepoPath, tasksRoot, runId, limit, runR
 
   const toolchainFingerprint = `sha256:${createHash('sha256').update(JSON.stringify({
     hostToolchainFingerprint,
-    opencodeToolchainFingerprint: OPENCODE_TOOLCHAIN_FINGERPRINT,
+    competitor: competitorProfile.id,
+    competitorToolchainFingerprint: competitorProfile.toolchainFingerprint,
   })).digest('hex')}`;
   const manifest = buildHarnessAbManifest({
     subjectFingerprint,
@@ -256,15 +295,26 @@ async function runLocked({ repoRoot, makaRepoPath, tasksRoot, runId, limit, runR
     toolchainFingerprint,
     taskIds: TERMINAL_BENCH_2_1_TASK_IDS,
     oracleEvidence,
+    competitorProfile,
   });
   await ensureAbRunManifest(manifestPath, manifest);
   const evaluationTasks = manifest.evaluationTaskIds.slice(0, limit).map((taskId) => tasksById.get(taskId));
   if (evaluationTasks.some((task) => !task)) throw new Error('manifest contains a task absent from the frozen task source');
 
-  const opencodeToolchainPath = process.env.MAKA_HARNESS_AB_OPENCODE_TOOLCHAIN
-    ? resolve(process.env.MAKA_HARNESS_AB_OPENCODE_TOOLCHAIN)
-    : join(runRoot, 'toolchains', `opencode-${OPENCODE_TOOLCHAIN_SPEC.opencode.version}-linux-x64`);
-  await prepareOpenCodeToolchain(opencodeToolchainPath);
+  const competitorToolchain = competitorProfile.id === 'kimi-code'
+    ? {
+        path: process.env.MAKA_HARNESS_AB_KIMI_CODE_TOOLCHAIN
+          ? resolve(process.env.MAKA_HARNESS_AB_KIMI_CODE_TOOLCHAIN)
+          : join(runRoot, 'toolchains', `kimi-code-${KIMI_CODE_TOOLCHAIN_SPEC.kimiCode.version}-linux-x64`),
+        prepare: prepareKimiCodeToolchain,
+      }
+    : {
+        path: process.env.MAKA_HARNESS_AB_OPENCODE_TOOLCHAIN
+          ? resolve(process.env.MAKA_HARNESS_AB_OPENCODE_TOOLCHAIN)
+          : join(runRoot, 'toolchains', `opencode-${OPENCODE_TOOLCHAIN_SPEC.opencode.version}-linux-x64`),
+        prepare: prepareOpenCodeToolchain,
+      };
+  await competitorToolchain.prepare(competitorToolchain.path);
 
   const keyFile = envPath('MAKA_HARNESS_AB_KEY_FILE', join(homedir(), '.maka/secrets/kimi-coding-plan.key'));
   if ((await readFile(keyFile, 'utf8')).trim().length === 0) throw new Error('MAKA_HARNESS_AB_KEY_FILE is empty');
@@ -323,15 +373,17 @@ async function runLocked({ repoRoot, makaRepoPath, tasksRoot, runId, limit, runR
         }),
       },
       {
-        id: 'opencode',
-        config: config('opencode'),
+        id: competitorProfile.id,
+        config: config(competitorProfile.id),
         expectedPricingProfile: PRICING.source,
         billingMode: BILLING_MODE,
         harborRunner: createHarborTaskRunner({
           ...runnerOptions,
-          agent: 'opencode',
-          agentVersion: OPENCODE_TOOLCHAIN_SPEC.opencode.version,
-          opencodeToolchainPath,
+          agent: competitorProfile.id,
+          agentVersion: competitorProfile.version,
+          ...(competitorProfile.id === 'kimi-code'
+            ? { kimiCodeToolchainPath: competitorToolchain.path }
+            : { opencodeToolchainPath: competitorToolchain.path }),
         }),
       },
     ],

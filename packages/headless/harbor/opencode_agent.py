@@ -148,8 +148,8 @@ class MakaOpenCodeAgent(OpenCode):
         }
         if provider not in provider_env_names:
             raise ValueError(f"Unsupported Maka OpenCode benchmark provider: {provider}")
-        proxy_url = self._get_env("MAKA_OPENCODE_PROVIDER_PROXY_URL")
-        proxy_token = self._get_env("MAKA_OPENCODE_PROVIDER_PROXY_TOKEN")
+        proxy_url = self._get_env("MAKA_PROVIDER_PROXY_URL")
+        proxy_token = self._get_env("MAKA_PROVIDER_PROXY_TOKEN")
         if not proxy_url or not proxy_token:
             raise ValueError(f"{provider} requires the host provider proxy")
         env = self._provider_env(provider)

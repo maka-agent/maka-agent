@@ -156,8 +156,8 @@ test('harness A/B freezes the stored advisory evidence when resuming a run', asy
   }
 });
 
-test('harness A/B manifest uses the pinned OpenCode toolchain version', async () => {
-  const { buildHarnessAbManifest } = await import(
+test('harness A/B defaults to pinned Kimi Code and keeps OpenCode selectable', async () => {
+  const { buildHarnessAbManifest, resolveHarnessCompetitorProfile } = await import(
     new URL('../../harbor/run-harness-ab.mjs', import.meta.url).href
   );
 
@@ -167,10 +167,11 @@ test('harness A/B manifest uses the pinned OpenCode toolchain version', async ()
     toolchainFingerprint: 'tools',
   });
 
-  assert.equal(
-    manifest.arms.find((arm: { id: string }) => arm.id === 'opencode')?.metadata.version,
-    '1.17.18',
-  );
+  const competitor = manifest.arms.find((arm: { id: string }) => arm.id === 'kimi-code');
+  assert.equal(competitor?.metadata.version, '0.26.0');
+  assert.equal(competitor?.metadata.config.profile, 'kimi-code');
+  assert.equal(resolveHarnessCompetitorProfile('opencode').version, '1.17.18');
+  assert.throws(() => resolveHarnessCompetitorProfile('unknown'), /MAKA_HARNESS_AB_COMPETITOR/);
   assert.deepEqual(manifest.metadata.model, {
     provider: 'kimi-coding-plan',
     id: 'k3',

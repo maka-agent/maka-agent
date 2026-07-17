@@ -383,12 +383,12 @@ describe('createHarborTaskRunner', () => {
       await runner(runInput());
 
       assert.equal(harborEnv?.ZAI_API_KEY_FILE, undefined);
-      assert.match(harborEnv?.MAKA_OPENCODE_PROVIDER_PROXY_URL ?? '', /^http:\/\/host\.docker\.internal:\d+$/);
-      assert.match(harborEnv?.MAKA_OPENCODE_PROVIDER_PROXY_TOKEN ?? '', /^[a-f0-9]{64}$/);
-      assert.notEqual(harborEnv?.MAKA_OPENCODE_PROVIDER_PROXY_TOKEN, keyFile);
+      assert.match(harborEnv?.MAKA_PROVIDER_PROXY_URL ?? '', /^http:\/\/host\.docker\.internal:\d+$/);
+      assert.match(harborEnv?.MAKA_PROVIDER_PROXY_TOKEN ?? '', /^[a-f0-9]{64}$/);
+      assert.notEqual(harborEnv?.MAKA_PROVIDER_PROXY_TOKEN, keyFile);
       assert.doesNotMatch(JSON.stringify(harborEnv), /deepseek-key|sk-secret/);
       assert.doesNotMatch(JSON.stringify(captured.config), /ZAI_API_KEY|deepseek-key|sk-secret/);
-      const closedProxyUrl = harborEnv?.MAKA_OPENCODE_PROVIDER_PROXY_URL?.replace('host.docker.internal', '127.0.0.1');
+      const closedProxyUrl = harborEnv?.MAKA_PROVIDER_PROXY_URL?.replace('host.docker.internal', '127.0.0.1');
       assert.ok(closedProxyUrl);
       await assert.rejects(fetch(closedProxyUrl));
     });
@@ -417,9 +417,9 @@ describe('createHarborTaskRunner', () => {
           apiKeyFile: keyFile,
           agentEnv: { MAKA_BASE_URL: `http://127.0.0.1:${address.port}/coding/v1` },
           runHarbor: async (request) => {
-            const proxyUrl = request.env?.MAKA_OPENCODE_PROVIDER_PROXY_URL
+            const proxyUrl = request.env?.MAKA_PROVIDER_PROXY_URL
               ?.replace('host.docker.internal', '127.0.0.1');
-            const proxyToken = request.env?.MAKA_OPENCODE_PROVIDER_PROXY_TOKEN;
+            const proxyToken = request.env?.MAKA_PROVIDER_PROXY_TOKEN;
             assert.ok(proxyUrl && proxyToken);
             const response = await fetch(`${proxyUrl}/messages`, {
               method: 'POST',
@@ -433,6 +433,75 @@ describe('createHarborTaskRunner', () => {
 
         await runner(runInput());
         assert.equal(upstreamApiKey, 'sk-secret');
+      } finally {
+        await new Promise<void>((resolve, reject) => upstream.close((error) => error ? reject(error) : resolve()));
+      }
+    });
+  });
+
+  test('gives Kimi Code bearer auth and fills missing cell usage from the provider stream', async () => {
+    await withRun(async ({ jobsDir, repo, keyFile }) => {
+      let upstreamAuthorization = '';
+      const upstream = createServer((request, response) => {
+        upstreamAuthorization = request.headers.authorization ?? '';
+        response.writeHead(200, { 'content-type': 'text/event-stream' });
+        response.end([
+          'data: {"type":"message_start","message":{"usage":{"input_tokens":70,"cache_creation_input_tokens":10,"cache_read_input_tokens":20,"output_tokens":1}}}',
+          '',
+          'data: {"type":"message_delta","usage":{"output_tokens":25}}',
+          '',
+        ].join('\n'));
+      });
+      await new Promise<void>((resolve) => upstream.listen(0, '127.0.0.1', resolve));
+      const address = upstream.address();
+      assert.ok(address && typeof address !== 'string');
+      try {
+        const runner = createHarborTaskRunner({
+          makaRepoPath: repo,
+          jobsDir,
+          agent: 'kimi-code',
+          kimiCodeToolchainPath: '/toolchain',
+          agentVersion: '0.26.0',
+          model: 'kimi-coding-plan/k3',
+          provider: 'kimi-coding-plan',
+          reasoningEffort: 'max',
+          apiKeyFile: keyFile,
+          pricing: { inputUsdPer1M: 0, cacheReadUsdPer1M: 0, cacheWriteUsdPer1M: 0, outputUsdPer1M: 0 },
+          agentEnv: { MAKA_BASE_URL: `http://127.0.0.1:${address.port}/coding/v1` },
+          runHarbor: async (request) => {
+            const proxyUrl = request.env?.MAKA_PROVIDER_PROXY_URL
+              ?.replace('host.docker.internal', '127.0.0.1');
+            const proxyToken = request.env?.MAKA_PROVIDER_PROXY_TOKEN;
+            assert.ok(proxyUrl && proxyToken);
+            const response = await fetch(`${proxyUrl}/messages`, {
+              method: 'POST',
+              headers: { authorization: `Bearer ${proxyToken}` },
+              body: '{}',
+            });
+            assert.equal(response.status, 200);
+            await response.text();
+            return fakeRunner({
+              reward: '1\n',
+              cell: cellOutput({ tokenSummary: undefined }),
+            })(request);
+          },
+        });
+
+        const output = await runner(runInput());
+        assert.equal(upstreamAuthorization, 'Bearer sk-secret');
+        assert.deepEqual(output.cell.tokenSummary, {
+          input: 100,
+          output: 25,
+          cachedInput: 20,
+          cacheHitInput: 20,
+          cacheMissInput: 70,
+          cacheWriteInput: 10,
+          cacheMissInputSource: 'explicit',
+          reasoning: 0,
+          total: 125,
+          costUsd: 0,
+          pricingSource: 'runtime',
+        });
       } finally {
         await new Promise<void>((resolve, reject) => upstream.close((error) => error ? reject(error) : resolve()));
       }
@@ -460,7 +529,7 @@ describe('createHarborTaskRunner', () => {
       await runner(runInput());
 
       assert.equal(harborEnv?.MAKA_HOST_NO_AUTH, undefined);
-      assert.equal(harborEnv?.MAKA_OPENCODE_PROVIDER_PROXY_URL, undefined);
+      assert.equal(harborEnv?.MAKA_PROVIDER_PROXY_URL, undefined);
     });
   });
 
@@ -1185,6 +1254,37 @@ describe('buildHarborJobConfig', () => {
       (config.environment as { extra_docker_compose?: string[] }).extra_docker_compose,
       ['/repo/packages/headless/harbor/docker-compose-linux-amd64.yaml'],
     );
+  });
+
+  test('pins the Kimi Code adapter and official toolchain without serializing credentials', () => {
+    const config = buildHarborJobConfig(runInput(), {
+      makaRepoPath: '/repo',
+      jobsDir: '/jobs/x',
+      jobName: 'trial',
+      agent: 'kimi-code',
+      model: 'kimi-coding-plan/k3',
+      provider: 'kimi-coding-plan',
+      reasoningEffort: 'max',
+      agentVersion: '0.26.0',
+      kimiCodeToolchainPath: '/cache/kimi-code-0.26.0-linux-x64',
+      dockerPlatform: 'linux/amd64',
+    });
+    const agent = (config.agents as Array<Record<string, unknown>>)[0]!;
+    const env = agent.env as Record<string, string>;
+    const mounts = (config.environment as { mounts: Array<Record<string, unknown>> }).mounts;
+
+    assert.equal(agent.name, undefined);
+    assert.equal(agent.import_path, 'kimi_code_agent:MakaKimiCodeAgent');
+    assert.equal(agent.model_name, 'k3');
+    assert.deepEqual(agent.kwargs, { version: '0.26.0' });
+    assert.match(env.MAKA_KIMI_CODE_TOOLCHAIN_FINGERPRINT, /^sha256:[a-f0-9]{64}$/);
+    assert.ok(mounts.some((mount) => (
+      mount.source === '/cache/kimi-code-0.26.0-linux-x64'
+      && mount.target === '/opt/maka-kimi-code-toolchain'
+      && mount.read_only === true
+    )));
+    assert.equal(env.KIMI_API_KEY, undefined);
+    assert.equal(env.ANTHROPIC_API_KEY, undefined);
   });
 
   test('requires a prepared toolchain for OpenCode before Harbor starts', () => {
