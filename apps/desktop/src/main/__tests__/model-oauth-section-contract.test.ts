@@ -1110,6 +1110,49 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     assert.match(src, /const flow = useOAuthLoginFlow\(\{/, 'SubscriptionLoginModal must consume the shared login-flow hook');
   });
 
+  it('GitHub Copilot modal rides the shared login flow through the direct account flow (#1042)', async () => {
+    const src = await readProviderSettingsCombinedSource();
+    const hook = await readFile(OAUTH_LOGIN_FLOW_HOOK_SOURCE, 'utf8');
+    const copilotModal = src.match(/function GitHubCopilotSubscriptionModal[\s\S]*?\n\}/)?.[0] ?? '';
+
+    // The modal consumes the shared controller instead of owning a separate
+    // pending-action state machine.
+    assert.match(
+      copilotModal,
+      /const flow = useOAuthLoginFlow\(\{[\s\S]*bridge: window\.maka\.githubCopilotSubscription as unknown as OAuthLoginFlowBridge[\s\S]*direct: \{[\s\S]*login: \(\) => window\.maka\.githubCopilotSubscription\.connectExistingLogin\(\)[\s\S]*refreshTokens: \(\) => window\.maka\.githubCopilotSubscription\.refreshTokens\(\)/,
+      'GitHub Copilot modal must consume the shared login-flow hook with its direct account actions',
+    );
+    assert.doesNotMatch(
+      copilotModal,
+      /createOneShotActionGuard|pendingGuard|useRef|useMountedRef/,
+      'GitHub Copilot modal must not own a parallel pending-action guard — the shared hook provides it',
+    );
+    assert.match(copilotModal, /disabled=\{flow\.actionBusy\}/, 'Copilot account actions must share the one busy flag');
+    assert.match(copilotModal, /flow\.pendingAction === 'login' \? '导入中…' : loggedIn \? '重新导入' : '导入兼容凭据'/, 'Copilot connect must expose its specific pending copy');
+    assert.match(copilotModal, /flow\.pendingAction === 'refresh' \? '验证中…' : '重新验证'/, 'Copilot token refresh must expose its specific pending copy');
+    assert.match(copilotModal, /flow\.pendingAction === 'logout' \? '移除中…' : '移除本地登录'/, 'Copilot logout must expose its specific pending copy');
+
+    // The hook gates the direct actions through the same one-shot guard and
+    // keeps loopback semantics for the browser services.
+    assert.match(
+      hook,
+      /direct\?: OAuthDirectAccountFlow/,
+      'shared OAuth flow must accept the direct account flow as an opt-in mode',
+    );
+    assert.match(hook, /if \(!beginPendingAction\('refresh'\)\) return;/, 'shared OAuth token refresh must use the ref-backed action guard');
+    assert.match(
+      hook,
+      /const result = await direct\.login\(\);[\s\S]*if \(!oauthLoginFlowMountedRef\.current\) return;[\s\S]*await refresh\(\);/,
+      'direct login must drop late writes after unmount and refresh the snapshot afterwards',
+    );
+    assert.match(
+      hook,
+      /if \(!direct\) \{[\s\S]*const ok = await toast\.confirm/,
+      'only the browser-loopback services keep the logout confirm — Copilot never had one',
+    );
+    assert.doesNotMatch(hook, /toast\.error\('[^']+', result\.message\)/, 'direct account failures must not toast raw service messages');
+  });
+
   it('OAuth login modals surface thrown IPC/service failures instead of leaving console-only rejections', async () => {
     const src = await readProviderSettingsCombinedSource();
     // Localization helpers + the whole browser-loopback controller now live in

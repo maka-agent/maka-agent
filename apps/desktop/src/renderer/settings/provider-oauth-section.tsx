@@ -17,7 +17,6 @@ import {
 import { ProviderLogo } from './provider-display';
 import { ProviderConnectionDialog } from './provider-connection-dialog';
 import { ClaudeSubscriptionCard } from './claude-subscription-card';
-import { createOneShotActionGuard } from './oauth-login-flow-guard';
 import {
   useOAuthLoginFlow,
   subscriptionActionErrorMessage,
@@ -328,45 +327,22 @@ async function getSubscriptionSnapshot(serviceId: OAuthServiceId): Promise<Subsc
   return (await window.maka.openAiCodex.getAccountState()) as SubscriptionSnapshot;
 }
 
-type GitHubCopilotPendingAction = 'connect' | 'refresh' | 'logout';
-
 function GitHubCopilotSubscriptionModal(props: { onClose(): void }) {
-  const [state, setState] = useState<SubscriptionSnapshot | null>(null);
-  const [pendingAction, setPendingAction] = useState<GitHubCopilotPendingAction | null>(null);
-  // Same synchronous one-shot guard useOAuthLoginFlow relies on: reject a
-  // second concurrent action before React can re-render the disabled button,
-  // instead of hand-rolling a parallel pendingRef lifecycle here.
-  const pendingGuard = useRef(createOneShotActionGuard<GitHubCopilotPendingAction>()).current;
-  const mountedRef = useMountedRef();
-  const toast = useToast();
-
-  async function refreshState() {
-    const next = await window.maka.githubCopilotSubscription.getAccountState();
-    if (mountedRef.current) setState(next);
-  }
-
-  useEffect(() => { void refreshState(); }, []);
-
-  async function runAction(action: GitHubCopilotPendingAction) {
-    if (!pendingGuard.begin(action)) return;
-    setPendingAction(action);
-    try {
-      const result = action === 'connect'
-        ? await window.maka.githubCopilotSubscription.connectExistingLogin()
-        : action === 'refresh'
-          ? await window.maka.githubCopilotSubscription.refreshTokens()
-          : await window.maka.githubCopilotSubscription.logout();
-      if (!result.ok) toast.error('GitHub Copilot 账号操作失败', result.message);
-      await refreshState();
-    } catch (error) {
-      if (mountedRef.current) toast.error('GitHub Copilot 账号操作失败', subscriptionActionErrorMessage(error));
-    } finally {
-      pendingGuard.finish();
-      if (mountedRef.current) setPendingAction(null);
-    }
-  }
-
-  const loggedIn = state?.runtimeState === 'authenticated' || state?.runtimeState === 'refreshing';
+  // The shared login-flow controller owns the snapshot refresh, the
+  // synchronous one-shot pending guard, and the unmount safety; Copilot
+  // rides it through the direct account flow (one bridge call per action,
+  // no browser loopback, no logout confirm) instead of owning a separate
+  // pending-action state machine here (#1042).
+  const flow = useOAuthLoginFlow({
+    bridge: window.maka.githubCopilotSubscription as unknown as OAuthLoginFlowBridge,
+    display: { name: 'GitHub Copilot', shortName: 'GitHub Copilot' },
+    direct: {
+      login: () => window.maka.githubCopilotSubscription.connectExistingLogin(),
+      refreshTokens: () => window.maka.githubCopilotSubscription.refreshTokens(),
+    },
+  });
+  const refreshTokens = flow.refreshTokens;
+  const loggedIn = flow.state?.runtimeState === 'authenticated' || flow.state?.runtimeState === 'refreshing';
   return (
     <ProviderConnectionDialog
       title="连接 GitHub Copilot"
@@ -374,25 +350,25 @@ function GitHubCopilotSubscriptionModal(props: { onClose(): void }) {
       providerType="github-copilot"
       onClose={props.onClose}
     >
-      <div className="settingsConnectionRow" data-status={state?.runtimeState ?? 'loading'}>
+      <div className="settingsConnectionRow" data-status={flow.runtimeState}>
         <p className="settingsConnectionDetail">
           {loggedIn
             ? '已导入 GitHub Copilot 订阅账号。'
-            : state?.runtimeState === 'refresh_failed' || state?.runtimeState === 'storage_failed'
-              ? state.errorMessage
+            : flow.state?.runtimeState === 'refresh_failed' || flow.state?.runtimeState === 'storage_failed'
+              ? flow.state.errorMessage
               : '请配置具有 Copilot Requests 权限的 fine-grained PAT；普通 gh auth login 可能不包含该权限。'}
         </p>
         <div className="settingsConnectionActions">
-          <Button type="button" onClick={() => void runAction('connect')} disabled={pendingAction !== null}>
-            {pendingAction === 'connect' ? '导入中…' : loggedIn ? '重新导入' : '导入兼容凭据'}
+          <Button type="button" onClick={() => void flow.startLogin()} disabled={flow.actionBusy}>
+            {flow.pendingAction === 'login' ? '导入中…' : loggedIn ? '重新导入' : '导入兼容凭据'}
           </Button>
           {loggedIn && (
             <>
-              <Button type="button" variant="secondary" onClick={() => void runAction('refresh')} disabled={pendingAction !== null}>
-                {pendingAction === 'refresh' ? '验证中…' : '重新验证'}
+              <Button type="button" variant="secondary" onClick={() => void refreshTokens?.()} disabled={flow.actionBusy}>
+                {flow.pendingAction === 'refresh' ? '验证中…' : '重新验证'}
               </Button>
-              <Button type="button" variant="ghost" onClick={() => void runAction('logout')} disabled={pendingAction !== null}>
-                {pendingAction === 'logout' ? '移除中…' : '移除本地登录'}
+              <Button type="button" variant="ghost" onClick={() => void flow.logout()} disabled={flow.actionBusy}>
+                {flow.pendingAction === 'logout' ? '移除中…' : '移除本地登录'}
               </Button>
             </>
           )}
