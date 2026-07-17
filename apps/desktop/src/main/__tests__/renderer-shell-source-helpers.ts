@@ -48,6 +48,7 @@ const sourcePaths = [
   'model-connection-errors.ts',
   'nav-selection.ts',
   'session-list-layout.ts',
+  'locales/shell-copy.ts',
 ] as const;
 
 export type RendererShellSourcePath = typeof sourcePaths[number];

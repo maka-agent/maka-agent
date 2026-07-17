@@ -151,12 +151,12 @@ describe('project context workspace picker', () => {
     );
     assert.match(
       renderer,
-      /async function selectProjectDirectory\(\) \{[\s\S]*if \(projectPickerPendingRef\.current\) return;[\s\S]*const requestId = projectPickerRequestRef\.current \+ 1;[\s\S]*projectPickerRequestRef\.current = requestId;[\s\S]*projectPickerPendingRef\.current = true;[\s\S]*setProjectPickerPending\(true\);[\s\S]*const isCurrentProjectPickerRequest = \(\) => rendererMountedRef\.current && projectPickerRequestRef\.current === requestId;[\s\S]*window\.maka\.app\.selectProjectDirectory\(\)[\s\S]*if \(!isCurrentProjectPickerRequest\(\)\) return;/,
+      /async function selectProjectDirectory\(\) \{[\s\S]*if \(projectPickerPendingRef\.current\) return;[\s\S]*const requestId = projectPickerRequestRef\.current \+ 1;[\s\S]*projectPickerRequestRef\.current = requestId;[\s\S]*projectPickerPendingRef\.current = true;[\s\S]*setProjectPickerPending\(true\);[\s\S]*const isCurrentProjectPickerRequest = \(\) =>\s*rendererMountedRef\.current && projectPickerRequestRef\.current === requestId;[\s\S]*window\.maka\.app\.selectProjectDirectory\(\)[\s\S]*if \(!isCurrentProjectPickerRequest\(\)\) return;/,
       'project picker must synchronously reject duplicate native dialog requests before React commits disabled state',
     );
     assert.match(
       renderer,
-      /catch \(error\) \{[\s\S]*if \(isCurrentProjectPickerRequest\(\)\) \{[\s\S]*toastApi\.error\('选择工作目录失败'/,
+      /catch \(error\) \{[\s\S]*if \(isCurrentProjectPickerRequest\(\)\) \{[\s\S]*toastApi\.error\(\s*copy\.selectDirectoryFailedTitle,\s*localizedShellErrorMessage\(error, copy\.readPathFailedFallback, uiLocale\)/,
       'project picker failure feedback must stay scoped to the current mounted picker request',
     );
     assert.match(
@@ -164,8 +164,11 @@ describe('project context workspace picker', () => {
       /finally \{[\s\S]*if \(projectPickerRequestRef\.current === requestId\) \{[\s\S]*projectPickerPendingRef\.current = false;[\s\S]*if \(rendererMountedRef\.current\) setProjectPickerPending\(false\);/,
       'project picker must release only the matching pending owner after the native dialog resolves or fails',
     );
-    assert.match(renderer, /setAppInfo\(\{ projectPath: result\.projectPath, projectGit: result\.projectGit \}\)/);
-    assert.match(renderer, /toastApi\.success\('已切换工作目录', basenameFromPath\(result\.projectPath\)\)/);
+    assert.match(
+      renderer,
+      /setAppInfo\(\{\s*projectPath: result\.projectPath,\s*projectGit: result\.projectGit,?\s*\}\)/,
+    );
+    assert.match(renderer, /toastApi\.success\(copy\.directorySwitchedTitle, basenameFromPath\(result\.projectPath, uiLocale\)\)/);
     assert.match(workspacePickerBlock, /pending:\s*projectPickerPending/);
     assert.match(workspacePickerBlock, /void selectProjectDirectory\(\)/);
     assert.doesNotMatch(workspacePickerBlock, /openProjectFolder\(\)|openWorkspaceFolder\(\)|openPath\(/);
@@ -236,7 +239,7 @@ describe('project context workspace picker', () => {
     assert.match(styles, /\.maka-composer-workspace-row\s*\{[\s\S]*?width:\s*min\(var\(--maka-chat-measure\),\s*100%\)/);
     assert.match(styles, /\.maka-composer-workspace-picker\s*\{/);
     assert.match(styles, /-webkit-app-region:\s*no-drag/);
-    assert.match(renderer, /basenameFromPath\(projectInfo\.projectPath\)/);
+    assert.match(renderer, /basenameFromPath\(projectInfo\.projectPath, uiLocale\)/);
     assert.match(renderer, /branch:\s*projectInfo\?\.projectGit\.branch/);
     assert.match(renderer, /workspacePicker=\{\{/);
     assert.doesNotMatch(ui, /className="maka-project-badge"/);
@@ -250,13 +253,22 @@ describe('project context workspace picker', () => {
 
     assert.match(palette, /onOpenProjectFolder\?\(\): Promise<void> \| void/);
     assert.match(palette, /id:\s*'diag:open-project-folder'/);
-    assert.match(palette, /label:\s*'打开项目目录'/);
+    assert.match(palette, /\.\.\.staticCopy\('diag:open-project-folder'\)/);
     // #1045: run() reads folder openers from the live options ref.
     assert.match(renderer, /onOpenProjectFolder:\s*\(\)\s*=>\s*optionsRef\.current\.openProjectFolder\(\)/);
     assert.match(renderer, /onOpenWorkspace: async \(\) => \{\s*await optionsRef\.current\.openWorkspaceFolder\(\);\s*\}/);
-    assert.match(renderer, /function openPathActionErrorMessage\(error: unknown, key: 'workspace' \| 'project' \| 'skills'\): string \{[\s\S]*generalizedErrorMessageChinese\(error, `无法打开\$\{openPathActionLabel\(key\)\}，请稍后重试。`\)/);
-    assert.match(openProjectBlock, /catch \(error\) \{[\s\S]*toastApi\.error\(`无法打开\$\{openPathActionLabel\('project'\)\}`, openPathActionErrorMessage\(error, 'project'\)\)/);
-    assert.match(openWorkspaceBlock, /catch \(error\) \{[\s\S]*toastApi\.error\(`无法打开\$\{openPathActionLabel\('workspace'\)\}`, openPathActionErrorMessage\(error, 'workspace'\)\)/);
+    assert.match(
+      renderer,
+      /function openPathActionErrorMessage\([\s\S]*?key: 'workspace' \| 'project' \| 'skills',[\s\S]*?locale: UiLocale,[\s\S]*?const copy = getShellCopy\(locale\);[\s\S]*?localizedErrorMessage\(error, copy\.errors\.openPath\(copy\.paths\[key\]\), locale\)/,
+    );
+    assert.match(
+      openProjectBlock,
+      /catch \(error\) \{[\s\S]*toastApi\.error\(\s*copy\.openFailedTitle\(openPathActionLabel\('project', uiLocale\)\),\s*openPathActionErrorMessage\(error, 'project', uiLocale\)/,
+    );
+    assert.match(
+      openWorkspaceBlock,
+      /catch \(error\) \{[\s\S]*toastApi\.error\(\s*copy\.openFailedTitle\(openPathActionLabel\('workspace', uiLocale\)\),\s*openPathActionErrorMessage\(error, 'workspace', uiLocale\)/,
+    );
     assert.doesNotMatch(openProjectBlock, /cleanErrorMessage\(error\)/);
     assert.doesNotMatch(openWorkspaceBlock, /cleanErrorMessage\(error\)/);
     assert.doesNotMatch(palette, /openPath\('project'\)/);

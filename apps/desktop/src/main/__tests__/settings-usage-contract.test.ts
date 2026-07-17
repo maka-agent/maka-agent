@@ -258,7 +258,7 @@ describe('Settings usage dashboard contract', () => {
     );
     assert.match(
       settingsModal!,
-      /catch \(error\) \{[\s\S]*if \(settingsModalMountedRef\.current && ticket === usageReloadTicketRef\.current\) \{[\s\S]*toast\.error\('载入使用统计失败', settingsActionErrorMessage\(error\)\);[\s\S]*\}/,
+      /catch \(error\) \{[\s\S]*if \(settingsModalMountedRef\.current && ticket === usageReloadTicketRef\.current\) \{[\s\S]*toast\.error\(copy\.usageLoadFailed, settingsActionErrorMessage\(error, locale\)\);[\s\S]*\}/,
       'Stale or unmounted usage reload failures must not toast over a newer range',
     );
   });

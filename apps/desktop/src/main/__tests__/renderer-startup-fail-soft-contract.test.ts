@@ -30,7 +30,7 @@ describe('renderer startup fail-soft contract', () => {
     assert.match(mountEffect, /void (?:options\.|latest\.)?refreshMemoryActive\('load'\)/);
     assert.match(
       refreshMemoryActive,
-      /try \{[\s\S]*window\.maka\.memory\.getState\(\)[\s\S]*setMemoryActive\(next\.agentReadEnabled && next\.status === 'ok' && next\.content\.trim\(\)\.length > 0\)[\s\S]*\} catch \(error\) \{[\s\S]*toastApi\.error\([\s\S]*shellCopy\.memoryLoadErrorTitle[\s\S]*shellCopy\.memoryRefreshErrorTitle,[\s\S]*localizedShellErrorMessage\(error, shellCopy\.memoryErrorFallback, uiLocale\)/,
+      /try \{[\s\S]*window\.maka\.memory\.getState\(\)[\s\S]*setMemoryActive\(next\.agentReadEnabled && next\.status === 'ok' && next\.content\.trim\(\)\.length > 0\)[\s\S]*\} catch \(error\) \{[\s\S]*toastApi\.error\([\s\S]*copy\.memoryLoadErrorTitle[\s\S]*copy\.memoryRefreshErrorTitle,[\s\S]*localizedShellErrorMessage\(error, copy\.memoryErrorFallback, uiLocale\)/,
       'memory-active refresh failures must be visible without exposing raw storage details and preserve the last known header pill state',
     );
     assert.doesNotMatch(refreshMemoryActive, /toastApi\.error\(failureTitle, cleanErrorMessage\(error\)\)/);
@@ -133,7 +133,7 @@ describe('renderer startup fail-soft contract', () => {
     );
     assert.match(
       reloadSettingsBlock,
-      /catch \(error\) \{[\s\S]*if \(settingsModalMountedRef\.current && ticket === settingsReloadTicketRef\.current\) \{[\s\S]*toast\.error\('载入设置失败', settingsActionErrorMessage\(error\)\)/,
+      /catch \(error\) \{[\s\S]*if \(settingsModalMountedRef\.current && ticket === settingsReloadTicketRef\.current\) \{[\s\S]*toast\.error\(copy\.settingsLoadFailed, settingsActionErrorMessage\(error, locale\)\)/,
       'root settings load failures must not toast after close',
     );
     assert.match(
@@ -144,7 +144,7 @@ describe('renderer startup fail-soft contract', () => {
     assert.match(reloadUsageBlock, /try \{[\s\S]*window\.maka\.settings\.usageStats\(range\)/);
     assert.match(
       reloadUsageBlock,
-      /catch \(error\) \{[\s\S]*if \(settingsModalMountedRef\.current && ticket === usageReloadTicketRef\.current\) \{[\s\S]*toast\.error\('载入使用统计失败', settingsActionErrorMessage\(error\)\)/,
+      /catch \(error\) \{[\s\S]*if \(settingsModalMountedRef\.current && ticket === usageReloadTicketRef\.current\) \{[\s\S]*toast\.error\(copy\.usageLoadFailed, settingsActionErrorMessage\(error, locale\)\)/,
       'usage stats reload failures must be visible only while Settings is still open',
     );
     assert.doesNotMatch(

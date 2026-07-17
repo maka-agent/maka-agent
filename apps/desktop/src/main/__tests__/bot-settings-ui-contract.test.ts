@@ -20,16 +20,19 @@ describe('Bot settings UI contract', () => {
     // #1042: the page split into a container (bot-chat-settings-page.tsx)
     // plus overview/detail views and shared brand metadata; the bot-chat
     // surface these invariants pin is the three split sources together.
-    const [shared, overview, detail, nav, botBrand] = await Promise.all([
+    const [shared, overview, detail, nav, navCopy, botBrand] = await Promise.all([
       readRepo('apps/desktop/src/renderer/settings/bot-chat-shared.tsx'),
       readRepo('apps/desktop/src/renderer/settings/bot-chat-overview.tsx'),
       readRepo('apps/desktop/src/renderer/settings/bot-chat-detail.tsx'),
       readRepo('apps/desktop/src/renderer/settings/settings-nav.ts'),
+      readRepo('apps/desktop/src/renderer/locales/settings-navigation-copy.ts'),
       readRepo('packages/ui/src/bot-brand.ts'),
     ]);
     const page = [shared, overview, detail].join('\n');
 
-    assert.match(nav, /id: 'bot-chat', label: '远程接入'/, 'The product-facing settings label must describe the user goal, not the implementation object');
+    assert.match(nav, /id: 'bot-chat'/, 'The remote-access settings destination must remain registered');
+    assert.match(navCopy, /'bot-chat': \{ label: '远程接入'/, 'The Chinese catalog must describe the user goal, not the implementation object');
+    assert.match(navCopy, /'bot-chat': \{ label: 'Remote Access'/, 'The English catalog must provide the same destination without fallback');
     assert.match(page, /BOT_BRAND/, 'Bot settings must import shared per-platform brand presentation metadata');
     assert.match(page, /BotBrandLogo as BotBrandMark/, 'Bot settings must render the shared provider-based brand logo component');
     assert.match(page, /<BotBrandMark[\s\S]*provider=\{props\.provider\}/, 'Bot settings must pass provider directly to the local brand logo renderer');

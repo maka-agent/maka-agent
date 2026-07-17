@@ -5,7 +5,10 @@ import assert from 'node:assert/strict';
 import { readAllRendererCss } from './css-test-helpers.js';
 
 test('renderer error boundary exposes a redacted copyable diagnostic report', async () => {
-  const source = await readFile(join(process.cwd(), 'src/renderer/error-boundary.tsx'), 'utf8');
+  const [source, shellCopy] = await Promise.all([
+    readFile(join(process.cwd(), 'src/renderer/error-boundary.tsx'), 'utf8'),
+    readFile(join(process.cwd(), 'src/renderer/locales/shell-copy.ts'), 'utf8'),
+  ]);
   const css = await readAllRendererCss();
 
   assert.match(source, /import\s+\{[^}]*\bredactSecrets\b[^}]*\}\s+from\s+'@maka\/ui'/);
@@ -29,7 +32,7 @@ test('renderer error boundary exposes a redacted copyable diagnostic report', as
   assert.match(source, /if \(this\.isCurrentCopyRequest\(copyRequestId, error\)\) this\.setState\(\{ copyState: 'failed' \}\)/);
   assert.doesNotMatch(source, /await navigator\.clipboard\.writeText\(formatRendererErrorReport\(error, errorInfo\)\);\s*this\.setState\(\{ copyState: 'copied' \}\)/);
   assert.doesNotMatch(source, /\} catch \{\s*this\.setState\(\{ copyState: 'failed' \}\)/);
-  assert.match(source, /copyPending \? '复制中…'/);
+  assert.match(source, /copyPending\s*\? copy\.copyPending/);
   assert.match(source, /disabled=\{copyPending\}/);
   assert.match(source, /aria-busy=\{copyPending \? 'true' : undefined\}/);
   assert.match(source, /data-copy-state=\{copyState\}/);
@@ -42,8 +45,10 @@ test('renderer error boundary exposes a redacted copyable diagnostic report', as
   assert.match(source, /<UiButton[\s\S]*variant="default"[\s\S]*onClick=\{this\.handleReload\}/);
   assert.doesNotMatch(source, /className="maka-button/);
   assert.doesNotMatch(source, /data-variant="primary"/);
-  assert.match(source, /复制诊断信息/);
-  assert.match(source, /剪贴板不可用或被系统拒绝；可以手动选择上面的错误摘要。/);
+  assert.match(source, /copy\.copyReport/);
+  assert.match(source, /copy\.copyFailed/);
+  assert.match(shellCopy, /copyPending: '复制中…'/);
+  assert.match(shellCopy, /copyPending: 'Copying…'/);
   assert.match(css, /\.maka-error-copy-status/);
   assert.match(css, /\.maka-error-copy-action\[data-copy-state="pending"\]/);
   assert.match(css, /\.maka-error-copy-action\[data-copy-state="failed"\]/);

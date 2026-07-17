@@ -112,7 +112,7 @@ describe('Settings form accessibility labels', () => {
 
     assert.match(settings, /SettingsSelect,/);
     assert.match(settingsSelect, /SelectItem,[\s\S]*SelectPopup,[\s\S]*SelectPortal,[\s\S]*SelectPositioner,[\s\S]*SelectRoot,[\s\S]*SelectTrigger,[\s\S]*SelectValue,/);
-    assert.match(passwordInput, /import \{ Button, Input, useMountedRef, useToast \} from '@maka\/ui';/);
+    assert.match(passwordInput, /import \{[^}]*\bButton\b[^}]*\bInput\b[^}]*\buseMountedRef\b[^}]*\buseToast\b[^}]*\buseUiLocale\b[^}]*\} from '@maka\/ui';/);
     // ProvidersPanel sources its UI from the shared @maka/ui primitives;
     // tolerant of single- vs multi-line import formatting.
     const providersPanelUiImports = providersPanel.match(/import \{[^}]*\} from '@maka\/ui';/g)?.join('\n') ?? '';
@@ -198,11 +198,11 @@ describe('Settings form accessibility labels', () => {
     assert.match(passwordInput, /if \(!copyGuard\.begin\('copy'\)\) return;/);
     assert.match(passwordInput, /setCopying\(true\)/);
     assert.match(passwordInput, /if \(mountedRef\.current\) showCopiedFeedback\(\)/);
-    assert.match(passwordInput, /if \(mountedRef\.current\) toast\.error\('复制失败', '剪贴板不可用或被系统拒绝。'\)/);
+    assert.match(passwordInput, /if \(mountedRef\.current\) toast\.error\(copy\.copyFailed, copy\.clipboardUnavailable\)/);
     assert.match(passwordInput, /copyGuard\.finish\(\);[\s\S]*if \(mountedRef\.current\) setCopying\(false\)/);
     assert.match(passwordInput, /disabled=\{copying\}/);
-    assert.match(passwordInput, /aria-label=\{copying \? '复制中' : justCopied \? '已复制' : '复制'\}/);
-    assert.match(passwordInput, /toast\.error\('复制失败', '剪贴板不可用或被系统拒绝。'\)/);
+    assert.match(passwordInput, /aria-label=\{copying \? copy\.copying : justCopied \? copy\.copied : copy\.copy\}/);
+    assert.match(passwordInput, /toast\.error\(copy\.copyFailed, copy\.clipboardUnavailable\)/);
     assert.doesNotMatch(
       passwordInput,
       /const copyingRef = useRef\(false\)/,
@@ -256,7 +256,9 @@ describe('Settings form accessibility labels', () => {
         // than inline JSX attributes.
         settings.includes(`aria-label="${label}"`) ||
           settings.includes(`ariaLabel="${label}"`) ||
-          settings.includes(`ariaLabel: '${label}'`),
+        settings.includes(`ariaLabel: '${label}'`) ||
+          (label === '代理服务器地址' && settings.includes('aria-label={copy.proxyServerAddress}') && settings.includes("proxyServerAddress: '代理服务器地址'")) ||
+          (label === '代理端口' && settings.includes('aria-label={copy.proxyPort}') && settings.includes("proxyPort: '代理端口'")),
         `SettingsModal must label ${label}`,
       );
     }
@@ -275,10 +277,10 @@ describe('Settings form accessibility labels', () => {
     const settings = await readSettingsCombinedSource();
     const settingsSurface = settings.match(/function SettingsSurface\([\s\S]*?function SettingsPage/)?.[0] ?? '';
 
-    assert.match(settingsSurface, /<nav aria-label="设置分组">/);
+    assert.match(settingsSurface, /<nav aria-label=\{copy\.navigationLabel\}>/);
     assert.match(
       settingsSurface,
-      /<div key=\{group\} className="settingsNavGroup" role="group" aria-label=\{group\}>/,
+      /<div key=\{group\} className="settingsNavGroup" role="group" aria-label=\{label\}>/,
       'Settings sidebar groups must expose the visible group title to assistive tech',
     );
     assert.doesNotMatch(

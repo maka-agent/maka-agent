@@ -98,7 +98,7 @@ describe('local MEMORY.md Settings UI contract', () => {
     assert.match(pageBlock, /function focusMemoryEntryInDraft/);
     assert.match(pageBlock, /findLocalMemoryEntryDraftRange\(draft, entry\.id\)/);
     assert.match(pageBlock, /editorRef\.current\?\.setSelectionRange\(range\.start, range\.end\)/);
-    assert.match(pageBlock, /editorRef\.current\?\.scrollIntoView\(\{ block: 'center', behavior: 'smooth' \}\)/);
+    assert.match(pageBlock, /editorRef\.current\?\.scrollIntoView\(\{\s*block: 'center',\s*behavior: 'smooth',?\s*\}\)/);
     assert.match(pageBlock, /无法定位记忆/);
     assert.match(listBlock, /onFocusDraft/);
     assert.match(listBlock, /定位草稿/);
@@ -456,7 +456,7 @@ describe('local MEMORY.md Settings UI contract', () => {
     assert.match(saveBlock, /已保存并遮蔽敏感字段/);
     assert.match(saveBlock, /savedAt: Date\.now\(\)/);
     assert.match(pageBlock, /lastSaveSummary/);
-    assert.match(pageBlock, /setLastSaveSummary\(\{ title: '已保存 MEMORY\.md', detail, savedAt: Date\.now\(\) \}\)/);
+    assert.match(pageBlock, /setLastSaveSummary\(\{\s*title: '已保存 MEMORY\.md',\s*detail,\s*savedAt: Date\.now\(\),?\s*\}\)/);
     assert.match(pageBlock, /settingsMemorySaveSummary/);
     assert.match(pageBlock, /settingsMemorySaveSummaryTime/);
     assert.match(pageBlock, /保存于 <RelativeTime ts=\{lastSaveSummary\.savedAt\}/);
@@ -548,7 +548,7 @@ describe('local MEMORY.md Settings UI contract', () => {
     const createInstructionBlock = pageBlock.match(/async function createFile[\s\S]*?return \{/)?.[0] ?? '';
     const updateStatusBlock = pageBlock.match(/async function updateMemoryEntryStatus[\s\S]*?\n  }\n\n  const viewModel =/)?.[0] ?? '';
 
-    assert.match(src, /function settingsActionErrorMessage\(error: unknown\)/);
+    assert.match(src, /function settingsActionErrorMessage\(error: unknown, locale: UiLocale = 'zh'\)/);
     assert.match(reloadBlock, /catch \(error\) \{[\s\S]*toast\.error\('载入本地记忆失败', settingsActionErrorMessage\(error\)\)/);
     assert.match(saveBlock, /catch \(error\) \{[\s\S]*toast\.error\('保存 MEMORY\.md 失败', settingsActionErrorMessage\(error\)\)/);
     assert.match(resetBlock, /catch \(error\) \{[\s\S]*toast\.error\('重置 MEMORY\.md 失败', settingsActionErrorMessage\(error\)\)/);
@@ -557,7 +557,7 @@ describe('local MEMORY.md Settings UI contract', () => {
     assert.match(openFileBlock, /catch \(error\) \{[\s\S]*toast\.error\('打开失败', settingsActionErrorMessage\(error\)\)/);
     assert.match(openLatestBlock, /catch \(error\) \{[\s\S]*toast\.error\('打开上一版失败', settingsActionErrorMessage\(error\)\)/);
     assert.match(openCandidateBlock, /catch \(error\) \{[\s\S]*toast\.error\(`打开\$\{localMemoryBackupKindLabel\(backup\.kind\)\}失败`, settingsActionErrorMessage\(error\)\)/);
-    assert.match(openFolderBlock, /catch \(error\) \{[\s\S]*toast\.error\(`打开\$\{openPathActionLabel\('memory'\)\}失败`, settingsActionErrorMessage\(error\)\)/);
+    assert.match(openFolderBlock, /catch \(error\) \{[\s\S]*toast\.error\(`打开\$\{openPathActionLabel\('memory', locale\)\}失败`, settingsActionErrorMessage\(error\)\)/);
     assert.match(openInstructionBlock, /catch \(error\) \{[\s\S]*toast\.error\('打开项目指令失败', settingsActionErrorMessage\(error\)\)/);
     assert.match(createInstructionBlock, /catch \(error\) \{[\s\S]*toast\.error\('创建项目指令失败', settingsActionErrorMessage\(error\)\)/);
     assert.match(updateStatusBlock, /catch \(error\) \{[\s\S]*toast\.error\(status === 'archived' \? '归档记忆失败' : '恢复记忆失败', settingsActionErrorMessage\(error\)\)/);

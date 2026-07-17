@@ -120,7 +120,7 @@ describe('default permission mode contract', () => {
 describe('General settings page 默认权限模式 picker', () => {
   it('describes the setting itself, not the currently-selected option', async () => {
     const src = await readSettingsCombinedSource();
-    const row = src.match(/<strong>默认权限模式<\/strong>([\s\S]*?)<\/div>/)?.[1] ?? '';
+    const row = src.match(/<strong>\{copy\.defaultPermission\}<\/strong>([\s\S]*?)<\/div>/)?.[1] ?? '';
     assert.ok(row, '默认权限模式 row must exist');
 
     // Regression guard: this line used to read the SELECTED option's own
@@ -133,9 +133,11 @@ describe('General settings page 默认权限模式 picker', () => {
     );
     assert.match(
       row,
-      /<small>新对话默认使用的权限模式；可在对话内随时切换，仅影响新建对话的初始值。<\/small>/,
+      /<small>\{copy\.defaultPermissionHelp\}<\/small>/,
       '默认权限模式 row must show a fixed description of the setting itself',
     );
+    assert.match(src, /defaultPermission: '默认权限模式'/);
+    assert.match(src, /defaultPermission: 'Default permission mode'/);
   });
 
   it('renders the shared PermissionModeSelect so options and hints cannot drift from the composer picker', async () => {

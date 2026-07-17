@@ -54,7 +54,7 @@ describe('ArtifactPane async lifecycle contract', () => {
     );
     assert.match(
       refreshBlock,
-      /const next = await window\.maka\.artifacts\.list\(sessionId, \{ includeDeleted: true \}\)[\s\S]*if \(artifactPaneMountedRef\.current && requestSeq === artifactListRequestSeqRef\.current\) \{[\s\S]*recordsSessionIdRef\.current = sessionId[\s\S]*setRecordsSessionId\(sessionId\)[\s\S]*setRecords\(next\)/,
+      /const next = await window\.maka\.artifacts\.list\(sessionId, \{\s*includeDeleted: true,?\s*\}\)[\s\S]*if \(artifactPaneMountedRef\.current && requestSeq === artifactListRequestSeqRef\.current\) \{[\s\S]*recordsSessionIdRef\.current = sessionId[\s\S]*setRecordsSessionId\(sessionId\)[\s\S]*setRecords\(next\)/,
       'artifact list responses may set records only if the pane is still mounted and they are still the latest request',
     );
     assert.match(

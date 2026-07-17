@@ -41,7 +41,7 @@ describe('session open routing contract', () => {
     assert.match(handlerBlock, /const sessionId = activeIdRef\.current;/);
     assert.match(
       handlerBlock,
-      /await window\.maka\.sessions\.regenerateTurn\(sessionId, \{ sourceTurnId: turnId \}\);[\s\S]*?if \(activeIdRef\.current === sessionId\) toastApi\.info\('已发起重新生成'/,
+      /await window\.maka\.sessions\.regenerateTurn\(sessionId, \{\s*sourceTurnId: turnId,?\s*\}\);[\s\S]*?if \(activeIdRef\.current === sessionId\) toastApi\.info\('已发起重新生成'/,
       'regenerate feedback must stay owned by the source session',
     );
     assert.match(branchBlock, /const newSession = await window\.maka\.sessions\.branchFromTurn/);
@@ -59,7 +59,7 @@ describe('session open routing contract', () => {
     );
     assert.match(
       handlerBlock,
-      /catch \(error\) \{[\s\S]*if \(activeIdRef\.current !== sessionId\) return;[\s\S]*if \(isSessionWorkspaceUnavailableError\(error\)\) \{[\s\S]*showSessionWorkspaceUnavailableToast\(toastApi\);[\s\S]*toastApi\.error\('操作失败', generalizedErrorMessageChinese\(error, '对话操作失败，请稍后重试。'\)\);[\s\S]*\} finally \{[\s\S]*clearPendingTurnAction\(key\);[\s\S]*\}/,
+      /catch \(error\) \{[\s\S]*if \(activeIdRef\.current !== sessionId\) return;[\s\S]*if \(isSessionWorkspaceUnavailableError\(error\)\) \{[\s\S]*showSessionWorkspaceUnavailableToast\(toastApi, uiLocale\);[\s\S]*toastApi\.error\('操作失败', generalizedErrorMessageChinese\(error, '对话操作失败，请稍后重试。'\)\);[\s\S]*\} finally \{[\s\S]*clearPendingTurnAction\(key\);[\s\S]*\}/,
       'turn footer failures must stay owned by the source session and preserve workspace recovery copy',
     );
     assert.doesNotMatch(

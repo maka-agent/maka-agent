@@ -38,6 +38,9 @@ const sourcePaths = [
   'permission-center-page.tsx',
   'health-center-page.tsx',
   'settings-rows.tsx',
+  '../locales/settings-navigation-copy.ts',
+  '../locales/settings-preferences-copy.ts',
+  '../locales/settings-shared-copy.ts',
 ] as const;
 
 export const SETTINGS_SOURCE_REPO_PATHS: readonly string[] = sourcePaths.map(

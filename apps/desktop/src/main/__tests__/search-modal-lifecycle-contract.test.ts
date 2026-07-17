@@ -45,6 +45,7 @@ const COMPONENTS_PATH = resolve(REPO_ROOT, 'packages', 'ui', 'src', 'chat-view.t
 const CHAT_TURN_PATH = resolve(REPO_ROOT, 'packages', 'ui', 'src', 'chat-turn.tsx');
 const CHAT_SCROLL_PATH = resolve(REPO_ROOT, 'packages', 'ui', 'src', 'use-chat-scroll.ts');
 const SEARCH_MODAL_PATH = resolve(REPO_ROOT, 'packages', 'ui', 'src', 'search-modal.tsx');
+const SHELL_CONTROLS_COPY_PATH = resolve(REPO_ROOT, 'packages', 'ui', 'src', 'shell-controls-copy.ts');
 const COMMAND_PALETTE_CONTENT_PATH = join(REPO_ROOT, 'apps', 'desktop', 'src', 'renderer', 'command-palette-content-search.ts');
 
 describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', () => {
@@ -122,7 +123,7 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
 
     assert.match(
       shellSearchButton,
-      /data-maka-search-trigger="true"[\s\S]*aria-label="搜索对话"/,
+      /data-maka-search-trigger="true"[\s\S]*aria-label=\{copy\.searchConversations\}/,
       'Shell top Search trigger must be queryable for focus restoration after modal close',
     );
     assert.match(
@@ -274,7 +275,7 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
     );
     assert.match(
       searchModal,
-      /className="maka-search-modal-body" role="region" aria-label="搜索状态和结果" aria-live="polite"/,
+      /className="maka-search-modal-body" role="region" aria-label=\{copy\.statusRegionLabel\} aria-live="polite"/,
       'Search modal body region must still expose an accessible name',
     );
     assert.match(
@@ -317,7 +318,7 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
 
     assert.match(styles, /\.maka-search-modal-input::-webkit-search-cancel-button\s*\{\s*display:\s*none;/, 'Native search cancel is intentionally hidden for visual consistency');
     assert.match(searchModal, /query\.length > 0 && \(/, 'Clear button should appear only when the query has content');
-    assert.match(searchModal, /<UiButton\s+variant="quiet"\s+size="icon-sm"\s+type="button"\s+aria-label="清空搜索"/, 'Search modal must provide a governed compact clear button');
+    assert.match(searchModal, /<UiButton\s+variant="quiet"\s+size="icon-sm"\s+type="button"\s+aria-label=\{copy\.clearLabel\}/, 'Search modal must provide a governed compact clear button');
     assert.match(searchModal, /onClick=\{clearSearchQuery\}/, 'Clear search button must use the shared clear helper');
     assert.match(searchModal, /function clearSearchQuery\(\) \{[\s\S]*setQuery\(''\);[\s\S]*clearSearchState\(\);[\s\S]*inputRef\.current\?\.focus\(\);[\s\S]*\}/, 'Clear search helper must clear the query, invalidate search state, and return focus to input');
     assert.doesNotMatch(styles, /\.maka-search-modal-clear/, 'Clear search button styling belongs to the shared Button primitive');
@@ -335,7 +336,7 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
     );
     assert.match(
       searchModal,
-      /<InputGroup className="maka-search-modal-input-row" aria-label="搜索会话">[\s\S]*<InputGroupAddon>[\s\S]*<InputGroupInput[\s\S]*<InputGroupAddon align="inline-end">/,
+      /<InputGroup className="maka-search-modal-input-row" aria-label=\{copy\.conversationsLabel\}>[\s\S]*<InputGroupAddon>[\s\S]*<InputGroupInput[\s\S]*<InputGroupAddon align="inline-end">/,
       'SearchModal search field must be structured as shared primitive InputGroup + addons',
     );
     assert.doesNotMatch(
@@ -413,8 +414,8 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
 
     assert.match(searchModal, /const resultsTruncated = showResults && results\.some\(\(result\) => result\.truncated === true\)/, 'SearchModal must derive truncation state from SearchResult.truncated');
     assert.match(searchModal, /className="maka-search-modal-result-summary" aria-live="polite"/, 'Search result summary must be announced politely');
-    assert.match(searchModal, /找到 \{results\.length\} 条匹配/, 'Search results must show a count');
-    assert.match(searchModal, /结果较多，已显示前 \{results\.length\} 条/, 'Truncated result sets must say only the first results are shown');
+    assert.match(searchModal, /\{copy\.results\(results\.length\)\}/, 'Search results must show a localized count');
+    assert.match(searchModal, /\{copy\.truncatedResults\(results\.length\)\}/, 'Truncated result sets must use localized copy');
     assert.match(styles, /\.maka-search-modal-result-summary/, 'Search result summary needs dedicated styling');
   });
 
@@ -427,25 +428,33 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
   });
 
   it('search modal copy reflects session title hits as part of the supported scope', async () => {
-    const searchModal = await readFile(SEARCH_MODAL_PATH, 'utf8');
+    const [searchModal, shellControlsCopy] = await Promise.all([
+      readFile(SEARCH_MODAL_PATH, 'utf8'),
+      readFile(SHELL_CONTROLS_COPY_PATH, 'utf8'),
+    ]);
 
-    assert.match(searchModal, /placeholder="搜索会话标题和内容…"/, 'Search input placeholder must include session titles');
-    assert.match(searchModal, /aria-label="搜索会话标题和内容"/, 'Search input accessible label must include session titles');
-    assert.match(searchModal, /结果只包含会话标题和内容文本，不进入网络。/, 'Search empty-state copy must describe the actual local title/content scope');
-    assert.match(searchModal, /没有匹配的会话标题或内容。换个关键词试试。/, 'Search no-match copy must not imply title hits are unsupported');
+    assert.match(searchModal, /placeholder=\{copy\.placeholder\}/, 'Search input placeholder must come from the locale catalog');
+    assert.match(searchModal, /aria-label=\{copy\.placeholder\}/, 'Search input accessible label must come from the locale catalog');
+    assert.match(shellControlsCopy, /placeholder: '搜索会话标题和内容…'/);
+    assert.match(shellControlsCopy, /placeholder: 'Search conversation titles and content…'/);
+    assert.match(shellControlsCopy, /introduction: '开始输入以按关键词查找历史对话。结果只包含会话标题和内容文本，不进入网络。'/);
+    assert.match(shellControlsCopy, /empty: '没有匹配的会话标题或内容。换个关键词试试。'/);
   });
 
   it('search modal generic error copy is a retryable local-search state', async () => {
-    const searchModal = await readFile(SEARCH_MODAL_PATH, 'utf8');
+    const [searchModal, shellControlsCopy] = await Promise.all([
+      readFile(SEARCH_MODAL_PATH, 'utf8'),
+      readFile(SHELL_CONTROLS_COPY_PATH, 'utf8'),
+    ]);
 
     assert.match(
       searchModal,
-      /function searchModalThrownErrorMessage\(error: unknown\): string \{[\s\S]*generalizedErrorMessageChinese\(error, '搜索服务需要刷新，请重试。'\)/,
+      /function searchModalThrownErrorMessage\(error: unknown, locale: UiLocale, fallback: string\): string \{[\s\S]*generalizedErrorMessageChinese\(error, fallback\)/,
       'Thrown SearchModal errors must be routed through shared Chinese error classification/redaction',
     );
     assert.match(
       searchModal,
-      /message: searchModalThrownErrorMessage\(err\)/,
+      /message: searchModalThrownErrorMessage\(err, locale, copy\.errorFallback\)/,
       'SearchModal catch must not render raw thrown Error.message',
     );
     assert.doesNotMatch(
@@ -453,7 +462,8 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
       /err instanceof Error \? err\.message/,
       'SearchModal must not leak raw IPC/preload Error.message into visible search copy',
     );
-    assert.match(searchModal, /搜索服务需要刷新，请重试。/);
+    assert.match(shellControlsCopy, /errorFallback: '搜索服务需要刷新，请重试。'/);
+    assert.match(shellControlsCopy, /errorFallback: 'Search needs to be refreshed. Try again.'/);
     assert.doesNotMatch(searchModal, /搜索暂时不可用，请稍后重试。/, 'Search modal fallback error should not read like a generic unavailable feature');
   });
 

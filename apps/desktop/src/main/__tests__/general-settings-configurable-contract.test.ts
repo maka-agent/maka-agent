@@ -65,7 +65,7 @@ describe('General settings configurable contract', () => {
     // catalog choices, with '未设置' as the pinned empty row.
     assert.match(
       src,
-      /<ModelPicker[\s\S]*pinnedItem=\{\{ value: '', label: '未设置' \}\}[\s\S]*ariaLabel="默认模型"[\s\S]*onValueChange=/,
+      /<ModelPicker[\s\S]*pinnedItem=\{\{ value: '', label: copy\.notSet \}\}[\s\S]*ariaLabel=\{copy\.defaultModel\}[\s\S]*onValueChange=/,
       'GeneralDefaultsCard must use the shared <ModelPicker> (same popup as the composer model switcher) so the two surfaces cannot drift',
     );
     assert.match(
@@ -109,9 +109,11 @@ describe('General settings configurable contract', () => {
     );
     assert.match(
       cardBlock,
-      /catch \(error\)[\s\S]*if \(mountedRef\.current\) \{[\s\S]*toast\.error\('保存默认模型失败'/,
+      /catch \(error\)[\s\S]*if \(mountedRef\.current\) \{[\s\S]*toast\.error\(copy\.saveDefaultModelFailed, settingsActionErrorMessage\(error, locale\)\)/,
       'GeneralDefaultsCard failures must surface a localized toast and only while still mounted — silent unhandled rejection regressed the page before',
     );
+    assert.match(src, /saveDefaultModelFailed: '保存默认模型失败'/);
+    assert.match(src, /saveDefaultModelFailed: 'Could not save the default model'/);
   });
 
   it('exposes a default-model IPC that validates the model against chat-selectable catalog entries', async () => {

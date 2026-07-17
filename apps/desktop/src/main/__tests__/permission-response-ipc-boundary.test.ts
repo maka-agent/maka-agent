@@ -222,7 +222,7 @@ describe('permission response IPC boundary', () => {
     );
     assert.match(
       respond[0],
-      /catch \(error\)[\s\S]*?if \(activeIdRef\.current !== sessionId\) return;[\s\S]*?toastApi\.error\('响应失败', generalizedErrorMessageChinese\(error, '会话操作失败，请稍后重试。'\)\);/,
+      /catch \(error\)[\s\S]*?if \(activeIdRef\.current !== sessionId\) return;[\s\S]*?toastApi\.error\(\s*copy\.responseFailedTitle,\s*localizedShellErrorMessage\(error, copy\.responseFailedFallback, uiLocale\),?\s*\);/,
       'permission response failure feedback must not leak onto a different active session',
     );
     assert.doesNotMatch(
@@ -524,7 +524,7 @@ describe('permission response IPC boundary', () => {
     assert.match(sendBlock, /const turnId = crypto\.randomUUID\(\)/);
     assert.match(
       newSessionBranch,
-      /upsertSessionSummary\(session\)[\s\S]*window\.maka\.sessions\.send\(session\.id, \{ type: 'send', turnId, text,[\s\S]*if \(newChatOwner && isNewChatSendSurfaceActive\(newChatOwner\)\) \{[\s\S]*setNavSelection\(\{ section: 'sessions', filter: 'chats' \}\)[\s\S]*setActiveId\(session\.id\)[\s\S]*showOptimisticUserMessage\(session\.id, turnId, text, sendResult\.attachments, \{ replaceCurrentMessages: true \}\)[\s\S]*\}[\s\S]*if \(activeIdRef\.current === session\.id\) \{[\s\S]*refreshMessagesUntilTurn\(session\.id, turnId\)[\s\S]*\}[\s\S]*refreshSessions\(\)/,
+      /upsertSessionSummary\(session\)[\s\S]*window\.maka\.sessions\.send\(session\.id, \{\s*type: 'send',\s*turnId,\s*text,[\s\S]*if \(newChatOwner && isNewChatSendSurfaceActive\(newChatOwner\)\) \{[\s\S]*setNavSelection\(\{ section: 'sessions', filter: 'chats' \}\)[\s\S]*setActiveId\(session\.id\)[\s\S]*showOptimisticUserMessage\(session\.id, turnId, text, sendResult\.attachments, \{ replaceCurrentMessages: true \}\)[\s\S]*\}[\s\S]*if \(activeIdRef\.current === session\.id\) \{[\s\S]*refreshMessagesUntilTurn\(session\.id, turnId\)[\s\S]*\}[\s\S]*refreshSessions\(\)/,
       'normal Composer first-send must switch/show the new user turn only while the empty-chat surface still owns the async continuation',
     );
     assert.doesNotMatch(
@@ -539,17 +539,17 @@ describe('permission response IPC boundary', () => {
     );
     assert.match(
       existingSessionBranch,
-      /window\.maka\.sessions\.send\(sessionId, \{ type: 'send', turnId, text,[\s\S]*showOptimisticUserMessage\(sessionId, turnId, text, sendResult\.attachments\)[\s\S]*refreshMessagesUntilTurn\(sessionId, turnId\)/,
+      /window\.maka\.sessions\.send\(sessionId, \{\s*type: 'send',\s*turnId,\s*text,[\s\S]*showOptimisticUserMessage\(sessionId, turnId, text, sendResult\.attachments\)[\s\S]*refreshMessagesUntilTurn\(sessionId, turnId\)/,
       'existing sessions should also show the user turn immediately before waiting for persisted storage',
     );
     assert.match(
       sendBlock,
-      /catch \(error\) \{[\s\S]*removeOptimisticUserMessage\(optimisticSessionId, optimisticTurnId\)[\s\S]*toastApi\.error\('发送失败', generalizedErrorMessageChinese\(error, '消息暂时无法发送，请稍后重试。'\)\)/,
+      /catch \(error\) \{[\s\S]*removeOptimisticUserMessage\(optimisticSessionId, optimisticTurnId\)[\s\S]*toastApi\.error\(copy\.sendFailedTitle, localizedShellErrorMessage\(error, copy\.sendFailedFallback, uiLocale\)\)/,
       'send readiness failures must remove the optimistic user turn instead of leaving a fake message behind',
     );
     assert.match(
       sendBlock,
-      /if \(!sendStillOwnsCurrentSurface\) return false;[\s\S]*if \(isNoRealConnectionError\(error\)\) \{[\s\S]*const reason = noRealConnectionReasonFromError\(error\);[\s\S]*showModelSetupToast\(noRealConnectionSetupDescription\(reason\), reason\);[\s\S]*\} else \{[\s\S]*toastApi\.error\('发送失败', generalizedErrorMessageChinese\(error, '消息暂时无法发送，请稍后重试。'\)\)/,
+      /if \(!sendStillOwnsCurrentSurface\) return false;[\s\S]*if \(isNoRealConnectionError\(error\)\) \{[\s\S]*const reason = noRealConnectionReasonFromError\(error\);[\s\S]*showModelSetupToast\(noRealConnectionSetupDescription\(reason\), reason\);[\s\S]*\} else if \(isSessionWorkspaceUnavailableError\(error\)\)[\s\S]*else \{[\s\S]*toastApi\.error\(copy\.sendFailedTitle, localizedShellErrorMessage\(error, copy\.sendFailedFallback, uiLocale\)\)/,
       'both model-setup feedback and generic send-failure toast must be guarded by the active-session owner check',
     );
     assert.doesNotMatch(
@@ -570,7 +570,7 @@ describe('permission response IPC boundary', () => {
     const modelSetupToast = renderer.match(/function showModelSetupToast\(description: string, reason\?: string\) \{[\s\S]*?\n  \}/)?.[0] ?? '';
     assert.match(
       modelSetupToast,
-      /label: '打开设置 · 模型'[\s\S]*onClick: \(\) => openSettingsSection\('models'\)[\s\S]*openSettingsSection\('models'\)/,
+      /label: shellCopy\.openModelSettings[\s\S]*onClick: \(\) => openSettingsSection\('models'\)[\s\S]*openSettingsSection\('models'\)/,
       'model-setup feedback must land on Settings · Models, not the last-opened Settings tab',
     );
     assert.doesNotMatch(

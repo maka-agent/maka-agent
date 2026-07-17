@@ -1483,10 +1483,6 @@ export function getShellCopy(locale: UiLocale): ShellCopy {
   return SHELL_COPY_BY_LOCALE[locale];
 }
 
-export function isStaticCommandId(value: string): value is StaticCommandId {
-  return (STATIC_COMMAND_IDS as readonly string[]).includes(value);
-}
-
 export function localizedShellErrorMessage(error: unknown, fallback: string, locale: UiLocale): string {
   return locale === 'zh' ? generalizedErrorMessageChinese(error, fallback) : generalizedErrorMessage(error, fallback);
 }

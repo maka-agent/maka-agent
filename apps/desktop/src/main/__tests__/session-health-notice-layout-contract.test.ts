@@ -47,7 +47,7 @@ describe('session health notice layout contract (#1032)', () => {
       shell,
       /className="maka-session-health-notice"[\s\S]*?role="status"/,
     );
-    assert.match(shell, /sessionHealthNotice\.onClickTarget === 'account' \? '去账号' : '去模型'/);
+    assert.match(shell, /sessionHealthNotice\.onClickTarget === 'account'[\s\S]*\? shellCopy\.goToAccount[\s\S]*: shellCopy\.goToModels/);
   });
 
   it('does not surface routine running or event-stream recovery badges', async () => {

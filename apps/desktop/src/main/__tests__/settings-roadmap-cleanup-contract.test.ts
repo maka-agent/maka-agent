@@ -61,7 +61,7 @@ describe('Settings coming-soon cleanup contract', () => {
     // (enable toggle, execute time, section toggles, deep analysis, manual
     // trigger). The page status now describes the wired automatic analysis
     // path and keeps the local-only fallback copy in the same branch.
-    assert.match(settings, /每天自动分析本机对话，生成摘要、遗漏提醒和建议。模型按需消耗。/, 'Daily Review status should describe the shipped automatic analysis mode');
+    assert.match(settings, /每天自动分析前一天的工作内容，提供摘要与建议。/, 'Daily Review status should describe the shipped automatic analysis mode');
     assert.match(settings, /当前版本仅本地数字聚合，定时生成 \/ LLM 摘要尚未连接到后端。/, 'Daily Review fallback should still describe the local aggregate mode when the pipeline is not wired');
     assert.match(settings, /启用每日回顾/, 'Daily Review settings must surface the auto-run enable toggle');
     assert.match(settings, /执行时间/, 'Daily Review settings must surface the configurable execute time');
@@ -78,7 +78,7 @@ describe('Settings coming-soon cleanup contract', () => {
 
   it('sanitizes Settings action errors before they reach visible toasts', async () => {
     const settings = await readSettingsCombinedSource();
-    const helper = settings.match(/function settingsActionErrorMessage\(error: unknown\): string \{[\s\S]*?\n\}/);
+    const helper = settings.match(/function settingsActionErrorMessage\(error: unknown, locale: UiLocale = 'zh'\): string \{[\s\S]*?\n\}/);
 
     assert.ok(helper, 'SettingsModal must keep a shared settingsActionErrorMessage helper');
     assert.match(
@@ -104,7 +104,7 @@ describe('Settings coming-soon cleanup contract', () => {
     );
     assert.match(
       helper![0],
-      /return '未知错误，请稍后重试。'/,
+      /return getSettingsSharedCopy\(locale\)\.unknownError/,
       'Unknown non-localized Settings action errors should degrade to a Chinese fallback',
     );
   });
@@ -284,7 +284,7 @@ describe('Settings coming-soon cleanup contract', () => {
   it('keeps account model empty state framed as an add-connection action', async () => {
     const settings = await readSettingsCombinedSource();
 
-    assert.match(settings, /等待添加模型连接。可在 设置 · 模型 添加。/);
+    assert.match(settings, /等待添加模型连接。可在“设置 · 模型”添加。/);
     assert.doesNotMatch(
       settings,
       /未配置任何模型连接/,

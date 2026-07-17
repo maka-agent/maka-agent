@@ -104,18 +104,18 @@ describe('PR-SESSION-STICKY-MODEL-0 contract', () => {
     assert.match(renderer, /const sessionId = activeIdRef\.current;[\s\S]*pendingSessionModelChangesRef\.current\.has\(sessionId\)[\s\S]*window\.maka\.sessions\.setModel\(sessionId, input\)[\s\S]*finally \{[\s\S]*pendingSessionModelChangesRef\.current\.delete\(sessionId\);/);
     assert.match(
       renderer,
-      /pendingSessionModelChangesRef\.current\.add\(sessionId\);[\s\S]*setPendingSessionModelBySession\(\(current\) => \(\{ \.\.\.current, \[sessionId\]: true \}\)\);/,
+      /pendingSessionModelChangesRef\.current\.add\(sessionId\);[\s\S]*setPendingSessionModelBySession\(\(current\) => \(\{\s*\.\.\.current,\s*\[sessionId\]: true,?\s*\}\)\);/,
       'app shell must expose per-session model pending state so switching away and back does not make a guarded request look idle',
     );
     assert.match(renderer, /delete next\[sessionId\];/);
     assert.match(
       renderer,
-      /const next = await window\.maka\.sessions\.setModel\(sessionId, input\);[\s\S]*setSessions\([\s\S]*if \(activeIdRef\.current === sessionId\) \{[\s\S]*toastApi\.success\([\s\S]*已切换当前会话模型/,
+      /const next = await window\.maka\.sessions\.setModel\(sessionId, input\);[\s\S]*setSessions\([\s\S]*if \(activeIdRef\.current === sessionId\) \{[\s\S]*toastApi\.success\(copy\.modelSwitchedTitle/,
       'model switch success toast must only describe the current session when the original session is still active',
     );
     assert.match(
       renderer,
-      /catch \(error\) \{[\s\S]*if \(activeIdRef\.current === sessionId\) \{[\s\S]*toastApi\.error\('切换模型失败', generalizedErrorMessageChinese\(error, '模型暂时无法切换，请稍后重试。'\)\);[\s\S]*\}[\s\S]*\} finally/,
+      /catch \(error\) \{[\s\S]*if \(activeIdRef\.current === sessionId\) \{[\s\S]*toastApi\.error\(copy\.modelFailedTitle, localizedShellErrorMessage\(error, copy\.modelFallback, uiLocale\)\);[\s\S]*\}[\s\S]*\} finally/,
       'model switch failure toast must not surface stale failures after the user switches sessions',
     );
     assert.doesNotMatch(
