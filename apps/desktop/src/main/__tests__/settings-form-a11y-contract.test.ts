@@ -182,27 +182,32 @@ describe('Settings form accessibility labels', () => {
     const passwordInput = await readRepo('apps/desktop/src/renderer/settings/password-input.tsx');
 
     assert.match(passwordInput, /const toast = useToast\(\)/);
-    assert.match(passwordInput, /const copyingRef = useRef\(false\)/);
+    assert.match(passwordInput, /const copyGuard = useActionGuard<'copy'>\(\)/);
     assert.match(passwordInput, /const mountedRef = useMountedRef\(\)/);
     assert.match(passwordInput, /const copyFeedbackTimerRef = useRef<number \| null>\(null\)/);
     assert.match(
       passwordInput,
-      /return \(\) => \{[\s\S]*copyingRef\.current = false;[\s\S]*window\.clearTimeout\(copyFeedbackTimerRef\.current\);/,
-      'PasswordInput must clear pending copy-feedback timers and invalidate clipboard state when it unmounts',
+      /return \(\) => \{[\s\S]*if \(copyFeedbackTimerRef\.current !== null\) \{[\s\S]*window\.clearTimeout\(copyFeedbackTimerRef\.current\);[\s\S]*copyFeedbackTimerRef\.current = null;/,
+      'PasswordInput must clear pending copy-feedback timers when it unmounts (duplicate-copy release is owned by useActionGuard)',
     );
     assert.match(
       passwordInput,
       /function showCopiedFeedback\(\) \{[\s\S]*window\.clearTimeout\(copyFeedbackTimerRef\.current\);[\s\S]*setJustCopied\(true\);[\s\S]*copyFeedbackTimerRef\.current = window\.setTimeout\(\(\) => \{[\s\S]*if \(mountedRef\.current\) setJustCopied\(false\);/,
       'PasswordInput must replace stale success timers so repeated copies do not clear fresh success feedback early',
     );
-    assert.match(passwordInput, /if \(copyingRef\.current\) return;/);
+    assert.match(passwordInput, /if \(!copyGuard\.begin\('copy'\)\) return;/);
     assert.match(passwordInput, /setCopying\(true\)/);
     assert.match(passwordInput, /if \(mountedRef\.current\) showCopiedFeedback\(\)/);
     assert.match(passwordInput, /if \(mountedRef\.current\) toast\.error\('复制失败', '剪贴板不可用或被系统拒绝。'\)/);
-    assert.match(passwordInput, /if \(mountedRef\.current\) setCopying\(false\)/);
+    assert.match(passwordInput, /copyGuard\.finish\(\);[\s\S]*if \(mountedRef\.current\) setCopying\(false\)/);
     assert.match(passwordInput, /disabled=\{copying\}/);
     assert.match(passwordInput, /aria-label=\{copying \? '复制中' : justCopied \? '已复制' : '复制'\}/);
     assert.match(passwordInput, /toast\.error\('复制失败', '剪贴板不可用或被系统拒绝。'\)/);
+    assert.doesNotMatch(
+      passwordInput,
+      /const copyingRef = useRef\(false\)/,
+      'PasswordInput must not keep a private copy guard after routing through useActionGuard',
+    );
     assert.doesNotMatch(
       passwordInput,
       /clipboard unavailable; silent|catch \{\s*\/\*/,
