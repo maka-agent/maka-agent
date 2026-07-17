@@ -4,6 +4,7 @@ import type { SessionEvent } from '@maka/core';
 import {
   SessionActivityRegistry,
   drainGoalTurn,
+  type GoalTurnOutcome,
 } from '../goal-turn-lifecycle.js';
 
 function deferred<T>() {
@@ -12,7 +13,10 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-function complete(turnId: string, stopReason: 'end_turn' | 'permission_handoff' | 'error'): SessionEvent {
+function complete(
+  turnId: string,
+  stopReason: Extract<SessionEvent, { type: 'complete' }>['stopReason'],
+): SessionEvent {
   return { type: 'complete', id: `${turnId}-${stopReason}`, turnId, ts: 1, stopReason };
 }
 
@@ -57,6 +61,71 @@ describe('Goal turn lifecycle', () => {
       turnId: 'turn-1',
       reason: 'Turn is waiting for user permission.',
     });
+  });
+
+  test('classifies continuation outcomes at the lifecycle boundary', async () => {
+    const turnId = 'turn-1';
+    const cases: Array<{
+      name: string;
+      events: SessionEvent[];
+      expected: GoalTurnOutcome;
+    }> = [
+      {
+        name: 'clean completion',
+        events: [complete(turnId, 'end_turn')],
+        expected: { kind: 'completed', turnId },
+      },
+      {
+        name: 'user stop completion',
+        events: [complete(turnId, 'user_stop')],
+        expected: { kind: 'aborted', turnId },
+      },
+      {
+        name: 'abort event',
+        events: [{
+          type: 'abort',
+          id: 'abort-1',
+          turnId,
+          ts: 1,
+          reason: 'user_stop',
+        }],
+        expected: { kind: 'aborted', turnId },
+      },
+      {
+        name: 'runtime error completion',
+        events: [complete(turnId, 'error')],
+        expected: { kind: 'errored', turnId, reason: 'Turn ended with runtime_error' },
+      },
+      {
+        name: 'step limit completion',
+        events: [complete(turnId, 'step_limit')],
+        expected: {
+          kind: 'errored',
+          turnId,
+          reason: 'Turn ended with tool_step_cap_reached',
+        },
+      },
+      {
+        name: 'missing terminal event',
+        events: [],
+        expected: {
+          kind: 'errored',
+          turnId,
+          reason: 'Session turn ended without a completion event',
+        },
+      },
+    ];
+
+    for (const fixture of cases) {
+      const events = async function* (): AsyncIterable<SessionEvent> {
+        for (const event of fixture.events) yield event;
+      };
+      assert.deepEqual(
+        await drainGoalTurn({ events: events(), turnId }),
+        fixture.expected,
+        fixture.name,
+      );
+    }
   });
 
   test('settles only after a full drain and releases activity before notifying the owner', async () => {

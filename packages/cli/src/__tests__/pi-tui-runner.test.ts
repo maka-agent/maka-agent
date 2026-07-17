@@ -6011,14 +6011,7 @@ class PermissionThenErrorDriver implements MakaSessionDriver {
     await new Promise<void>((resolve) => {
       this.resolveContinue = resolve;
     });
-    yield {
-      type: 'error',
-      id: 'event-error',
-      turnId: 'turn-1',
-      ts: 2,
-      message: 'turn failed',
-      recoverable: false,
-    };
+    throw new Error('turn failed');
   }
 
   continueToError(): void {

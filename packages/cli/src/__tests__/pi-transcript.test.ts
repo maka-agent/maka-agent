@@ -5,9 +5,7 @@ import { _setColorLevelForTesting } from '../tui-ansi.js';
 import type { PipeShellOutput, PtyShellOutput, ShellRunToolResult } from '@maka/core';
 import type { SessionEvent, ToolResultContent } from '@maka/core/events';
 import type { StoredMessage } from '@maka/core/session';
-import { SessionActivityRegistry } from '@maka/runtime';
 import {
-  appendTurnFailureToTranscript,
   appendUserPrompt,
   applyShellRunViewUpdateToTranscript,
   applyMakaSessionEventToTranscript,
@@ -23,43 +21,6 @@ import {
   toggleAllToolExpansion,
   togglePendingPermissionDetails,
 } from '../pi-transcript.js';
-import { runMakaPiTuiTurn } from '../pi-tui-turn.js';
-import type { MakaPreparePromptOptions } from '../session-driver.js';
-
-function runPromptTurn(input: {
-  state: ReturnType<typeof createMakaPiTranscriptState>;
-  driver: Parameters<typeof runMakaPiTuiTurn>[0]['driver'];
-  prompt: string;
-  onChange?: () => void;
-  onError?: () => void;
-}) {
-  return runMakaPiTuiTurn({
-    driver: input.driver,
-    lifecycle: {
-      activities: new SessionActivityRegistry(),
-      beginExternalTurn: () => ({
-        kind: 'registered',
-        settle: async () => {},
-      }),
-    },
-    request: { kind: 'external', prompt: input.prompt, sessionId: null },
-    shouldAbort: () => false,
-    onStart: () => {
-      appendUserPrompt(input.state, input.prompt);
-      input.onChange?.();
-    },
-    onEvent: (event) => {
-      applyMakaSessionEventToTranscript(input.state, event);
-      if (event.type === 'error') input.onError?.();
-      input.onChange?.();
-    },
-    onFailure: (error) => {
-      appendTurnFailureToTranscript(input.state, error);
-      input.onError?.();
-      input.onChange?.();
-    },
-  });
-}
 
 // Pin the color level so ANSI-escape assertions are hermetic. Detection reads
 // process.env.TERM/COLORTERM at module load, so ambient terminal capability
@@ -130,122 +91,6 @@ describe('Maka Pi TUI transcript', () => {
     );
   });
 
-  test('streams a submitted prompt through the session driver into transcript state', async () => {
-    const state = createMakaPiTranscriptState();
-    const driver = new RecordingDriver([
-      event({
-        type: 'text_delta',
-        messageId: 'message-1',
-        text: 'Hello from Maka',
-      }),
-      event({ type: 'complete', stopReason: 'end_turn' }),
-    ]);
-    let changes = 0;
-
-    await runPromptTurn({
-      state,
-      driver,
-      prompt: 'hi',
-      onChange: () => {
-        changes++;
-      },
-    });
-
-    assert.deepEqual(driver.prompts, ['hi']);
-    assert.deepEqual(state.entries.map((entry) => entry.kind), ['user', 'assistant']);
-    assert.equal(state.entries[0]?.kind === 'user' ? state.entries[0].text : '', 'hi');
-    assert.equal(state.entries[1]?.kind === 'assistant' ? state.entries[1].text : '', 'Hello from Maka');
-    assert.ok(changes >= 2);
-  });
-
-  // Goal kill-switch (B1): the turn outcome must distinguish a clean end from a
-  // user-stop / abort / error so the runner can skip goal auto-continuation and
-  // never re-inject after the user interrupts (or after a failing turn).
-  test('reports a clean turn with the terminal event identity', async () => {
-    const state = createMakaPiTranscriptState();
-    const driver = new RecordingDriver([event({ type: 'complete', stopReason: 'end_turn' })]);
-    const outcome = await runPromptTurn({ state, driver, prompt: 'hi' });
-    assert.deepEqual(outcome, { kind: 'completed', turnId: 'turn-1' });
-  });
-
-  test('treats EOF without a terminal event as an errored turn', async () => {
-    const state = createMakaPiTranscriptState();
-    const outcome = await runPromptTurn({
-      state,
-      driver: new RecordingDriver([]),
-      prompt: 'hi',
-    });
-
-    assert.deepEqual(outcome, {
-      kind: 'errored',
-      turnId: 'turn-1',
-      reason: 'Session turn ended without a completion event',
-    });
-    assert.ok(state.entries.some(
-      (entry) => entry.kind === 'notice'
-        && entry.level === 'error'
-        && entry.text === 'Session turn ended without a completion event',
-    ));
-  });
-
-  test('reports a user_stop completion as aborted (Stop affordance)', async () => {
-    const state = createMakaPiTranscriptState();
-    const driver = new RecordingDriver([event({ type: 'complete', stopReason: 'user_stop' })]);
-    const outcome = await runPromptTurn({ state, driver, prompt: 'hi' });
-    assert.deepEqual(outcome, { kind: 'aborted', turnId: 'turn-1' });
-  });
-
-  test('reports an abort event as aborted', async () => {
-    const state = createMakaPiTranscriptState();
-    const driver = new RecordingDriver([event({ type: 'abort', reason: 'user_stop' })]);
-    const outcome = await runPromptTurn({ state, driver, prompt: 'hi' });
-    assert.deepEqual(outcome, { kind: 'aborted', turnId: 'turn-1' });
-  });
-
-  test('reports a terminal permission handoff as suspended', async () => {
-    const state = createMakaPiTranscriptState();
-    const driver = new RecordingDriver([
-      event({
-        type: 'permission_request',
-        requestId: 'permission-1',
-        toolUseId: 'tool-1',
-        toolName: 'Bash',
-        category: 'shell_unsafe',
-        reason: 'shell_dangerous',
-        args: {},
-      }),
-      event({ type: 'complete', stopReason: 'permission_handoff' }),
-    ]);
-
-    const outcome = await runPromptTurn({ state, driver, prompt: 'hi' });
-
-    assert.deepEqual(outcome, {
-      kind: 'suspended',
-      turnId: 'turn-1',
-      reason: 'Turn is waiting for user permission.',
-    });
-  });
-
-  test('reports a stream error event as errored', async () => {
-    const state = createMakaPiTranscriptState();
-    const driver = new RecordingDriver([event({ type: 'error', recoverable: false, message: 'boom' })]);
-    let errorRaised = false;
-    const outcome = await runPromptTurn({ state, driver, prompt: 'hi', onError: () => { errorRaised = true; } });
-    assert.deepEqual(outcome, { kind: 'errored', turnId: 'turn-1', reason: 'boom' });
-    assert.equal(errorRaised, true);
-  });
-
-  test('reports a complete{stopReason:error} finish as errored (non-throwing error, e.g. content-filter)', async () => {
-    const state = createMakaPiTranscriptState();
-    const driver = new RecordingDriver([event({ type: 'complete', stopReason: 'error' })]);
-    const outcome = await runPromptTurn({ state, driver, prompt: 'hi' });
-    assert.deepEqual(outcome, {
-      kind: 'errored',
-      turnId: 'turn-1',
-      reason: 'Turn ended with runtime_error',
-    });
-  });
-
   test('shows a fixed system notice when the configured step limit is reached', () => {
     const state = createMakaPiTranscriptState();
 
@@ -270,39 +115,6 @@ describe('Maka Pi TUI transcript', () => {
       level: 'info',
       text: 'Reached the configured step limit. The task may be incomplete. Send “continue” to resume.',
     }]);
-  });
-
-  test('step_limit prevents automatic goal continuation', async () => {
-    const state = createMakaPiTranscriptState();
-    const driver = new RecordingDriver([event({ type: 'complete', stopReason: 'step_limit' })]);
-
-    const outcome = await runPromptTurn({ state, driver, prompt: 'hi' });
-
-    assert.deepEqual(outcome, {
-      kind: 'errored',
-      turnId: 'turn-1',
-      reason: 'Turn ended with tool_step_cap_reached',
-    });
-  });
-
-  test('reports a thrown event stream as errored', async () => {
-    const state = createMakaPiTranscriptState();
-    const driver = {
-      async preparePrompt() {
-        return preparedTurn((async function* (): AsyncIterable<SessionEvent> {
-          yield event({
-            type: 'permission_request', requestId: 'permission-1', toolUseId: 'tool-1',
-            toolName: 'Bash', category: 'shell_unsafe', reason: 'shell_dangerous', args: {},
-          });
-          throw new Error('network down');
-        })());
-      },
-    };
-    const outcome = await runPromptTurn({ state, driver, prompt: 'hi' });
-    assert.equal(outcome.kind, 'errored');
-    assert.equal(outcome.kind === 'errored' ? outcome.reason : '', 'network down');
-    assert.equal(state.pendingInteraction, undefined);
-    assert.deepEqual(state.queuedInteractions, []);
   });
 
   test('reports completed manual compact runs when there was nothing to compact', async () => {
@@ -3682,28 +3494,14 @@ function ptyOutput(overrides: Partial<PtyShellOutput> = {}): PtyShellOutput {
 }
 
 class RecordingDriver {
-  readonly prompts: string[] = [];
   compactCalls = 0;
 
   constructor(private readonly events: SessionEvent[]) {}
-
-  async preparePrompt(prompt: string, options?: MakaPreparePromptOptions) {
-    this.prompts.push(options?.modelText ?? prompt);
-    return preparedTurn(replayEvents(this.events));
-  }
 
   async *compactSession(): AsyncIterable<SessionEvent> {
     this.compactCalls += 1;
     for (const event of this.events) yield event;
   }
-}
-
-function preparedTurn(events: AsyncIterable<SessionEvent>) {
-  return { sessionId: 'session-1', turnId: 'turn-1', events };
-}
-
-async function* replayEvents(events: readonly SessionEvent[]): AsyncIterable<SessionEvent> {
-  for (const sessionEvent of events) yield sessionEvent;
 }
 
 function event(input: { type: SessionEvent['type'] } & Record<string, unknown>): SessionEvent {
