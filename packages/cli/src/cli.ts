@@ -212,7 +212,7 @@ async function runFirstRunOnboarding(workspaceRoot: string): Promise<boolean> {
   const credentialStore = createFileCredentialStore(workspaceRoot);
   let configured = false;
   await runMakaPiTui({
-    driver: createFirstRunSessionDriver(process.cwd()),
+    driver: createFirstRunSessionDriver(),
     title: 'Maka',
     cwd: process.cwd(),
     model: '',
@@ -244,17 +244,12 @@ async function runFirstRunOnboarding(workspaceRoot: string): Promise<boolean> {
 
 /** A minimal session driver for the first-run wizard. The wizard never runs an
  *  agent turn (the editor only collects the API key via the onboarding
- *  intercept), so runtime/chat methods are unreachable stubs. runMakaPiTui does
- *  not touch driver.runtime during first-run. */
-function createFirstRunSessionDriver(cwd: string): MakaSessionDriver {
+ *  intercept), so runtime/chat methods are unreachable stubs. */
+function createFirstRunSessionDriver(): MakaSessionDriver {
   const notReady = async (): Promise<never> => {
     throw new Error('first-run onboarding: no agent turn before a connection exists');
   };
   return {
-    runtime: undefined,
-    cwd,
-    llmConnectionSlug: '',
-    model: '',
     getSessionId: () => null,
     listSessions: async () => [],
     preparePrompt: notReady,
@@ -269,7 +264,7 @@ function createFirstRunSessionDriver(cwd: string): MakaSessionDriver {
     rewindToTurn: notReady,
     startNewSession: () => {},
     stop: async () => {},
-  } as unknown as MakaSessionDriver;
+  };
 }
 
 async function readPackageVersion(): Promise<string> {

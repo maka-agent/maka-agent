@@ -140,9 +140,6 @@ export interface MakaPiTuiInput {
   /** First-run mode: auto-open the onboarding wizard on launch instead of
    *  waiting for /setup (used when the CLI starts with no configured connection). */
   firstRun?: boolean;
-  /** First-run callback fired after onboarding.setup succeeds, so the host
-   *  can retry context creation and relaunch the normal TUI. */
-  onConfigured?: () => void;
 }
 
 export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
@@ -804,7 +801,6 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       void input.onboarding?.setup({ providerType: entry.providerType, apiKey: prompt }).then(
         () => {
           if (input.firstRun) {
-            input.onConfigured?.();
             beginClose();
             return;
           }
