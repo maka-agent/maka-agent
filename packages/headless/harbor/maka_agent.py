@@ -77,6 +77,15 @@ def _host_node_process_env(cell_env: dict[str, str]) -> dict[str, str]:
     return env
 
 
+# 2^53 - 1, matches JS Number.MAX_SAFE_INTEGER so the TS host and this adapter
+# agree on the upper bound for MAKA_CELL_TIMEOUT_SEC; an over-long digit string
+# is malformed, not a giant timeout.
+_MAX_SAFE_INTEGER = 9007199254740991
+# ASCII decimal positive integer literal only; [0-9] (not \d) rejects Unicode
+# digits on both sides. Matches the TS host's lenientPositiveIntEnv.
+_POSITIVE_INT_RE = re.compile(r"[1-9][0-9]*")
+
+
 class MakaAgent(BaseInstalledAgent):
     """Run Maka inside the Harbor task container and expose the shared cell output."""
 
@@ -267,17 +276,26 @@ class MakaAgent(BaseInstalledAgent):
         slow-but-healthy tasks into infra failures, so the operator can raise it
         via MAKA_CELL_TIMEOUT_SEC; a malformed value falls back to the default.
 
-        Accepted syntax is a decimal positive integer literal (no sign, no
-        leading zero, no exponent or decimal form), matching the TS host's
-        lenientPositiveIntEnv so both sides agree on exactly which strings are
-        valid: "1e3", "1.0", "+1800", "01800" all fall back to the default.
+        Accepted syntax is an ASCII decimal positive integer literal (no sign,
+        no leading zero, no exponent/decimal form, no Unicode digits), and the
+        value is capped at 2^53 - 1 (JS Number.MAX_SAFE_INTEGER). This matches
+        the TS host's lenientPositiveIntEnv so both sides agree on exactly which
+        strings are valid: "1e3", "1.0", "+1800", "01800", "1٢", and over-long
+        digit strings all fall back to the default.
         """
         raw = self._get_env("MAKA_CELL_TIMEOUT_SEC")
         if not raw:
             return self._DEFAULT_CELL_TIMEOUT_SEC
-        if re.fullmatch(r"[1-9]\d*", raw.strip()) is None:
+        stripped = raw.strip()
+        if _POSITIVE_INT_RE.fullmatch(stripped) is None:
             return self._DEFAULT_CELL_TIMEOUT_SEC
-        return int(raw.strip())
+        try:
+            value = int(stripped)
+        except ValueError:
+            # CPython caps integer-string conversion length; an over-long value
+            # is malformed, not a giant timeout.
+            return self._DEFAULT_CELL_TIMEOUT_SEC
+        return value if value <= _MAX_SAFE_INTEGER else self._DEFAULT_CELL_TIMEOUT_SEC
 
     def _cell_settlement_grace_sec(self) -> int:
         raw = self._get_env("MAKA_CELL_SETTLEMENT_GRACE_SEC")

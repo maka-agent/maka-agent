@@ -1421,14 +1421,17 @@ with tempfile.TemporaryDirectory() as tmp:
     assert gateway_env["MAKA_CONTEXT_FOO"] == "1", gateway_env
 
     # Cell wall-clock timeout is operator-configurable with a safe default and a
-    # fallback for malformed or non-positive values. Both sides accept a decimal
-    # positive integer literal only (regex [1-9]\d*), so "+1800"/"01800" miss.
+    # fallback for malformed or non-positive values. Both sides accept an ASCII
+    # decimal positive integer literal only (regex [1-9][0-9]*) capped at 2^53-1,
+    # so "+1800"/"01800"/"1٢"/over-long digit strings all miss.
     assert MakaAgent(Path(tmp))._cell_timeout_sec() == 900
     assert MakaAgent(Path(tmp), extra_env={"MAKA_CELL_TIMEOUT_SEC": "1800"})._cell_timeout_sec() == 1800
     assert MakaAgent(Path(tmp), extra_env={"MAKA_CELL_TIMEOUT_SEC": "oops"})._cell_timeout_sec() == 900
     assert MakaAgent(Path(tmp), extra_env={"MAKA_CELL_TIMEOUT_SEC": "0"})._cell_timeout_sec() == 900
     assert MakaAgent(Path(tmp), extra_env={"MAKA_CELL_TIMEOUT_SEC": "+1800"})._cell_timeout_sec() == 900
     assert MakaAgent(Path(tmp), extra_env={"MAKA_CELL_TIMEOUT_SEC": "01800"})._cell_timeout_sec() == 900
+    assert MakaAgent(Path(tmp), extra_env={"MAKA_CELL_TIMEOUT_SEC": "1٢"})._cell_timeout_sec() == 900
+    assert MakaAgent(Path(tmp), extra_env={"MAKA_CELL_TIMEOUT_SEC": "9" * 5000})._cell_timeout_sec() == 900
     assert MakaAgent(Path(tmp))._cell_soft_timeout_ms() == 870000
     assert MakaAgent(Path(tmp), extra_env={
         "MAKA_CELL_TIMEOUT_SEC": "1800",
