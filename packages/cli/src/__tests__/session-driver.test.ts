@@ -45,6 +45,28 @@ describe('Maka session driver', () => {
     assert.deepEqual(events.map((event) => event.type), ['text_delta', 'complete']);
   });
 
+  test('titles and displayText use the typed prompt when modelText is a composed envelope', async () => {
+    const runtime = new RecordingRuntime();
+    const driver = createMakaSessionDriver({
+      runtime,
+      cwd: '/repo',
+      llmConnectionSlug: 'anthropic',
+      model: 'claude-sonnet-4-5',
+      newId: nextId('turn'),
+    });
+
+    const typed = '/skill:alpha 帮我整理';
+    const composed = 'The user explicitly invoked…\n\n<user-message>\n帮我整理\n</user-message>';
+    await collect(driver.sendPrompt(typed, { modelText: composed }));
+
+    assert.equal(runtime.created[0]?.name, typed);
+    assert.deepEqual(runtime.sent[0]?.input, {
+      turnId: 'turn-1',
+      text: composed,
+      displayText: typed,
+    });
+  });
+
   test('can still create a bypass session when explicitly requested', async () => {
     const runtime = new RecordingRuntime();
     const driver = createMakaSessionDriver({

@@ -302,7 +302,9 @@ export function formatSearchResultSummary(message: StoredMessage): string {
 export function collectSearchableText(message: StoredMessage): string | undefined {
   switch (message.type) {
     case 'user':
-      return message.text;
+      // Prefer the human-facing view so skill-invocation envelopes do not
+      // dominate local search hits for what the user actually typed.
+      return message.displayText ?? message.text;
     case 'assistant':
       // Search result snippets are a transcript surface. Assistant
       // reasoning/thinking may be rendered separately in the live chat,

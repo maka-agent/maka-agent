@@ -161,6 +161,7 @@ Body.`);
     const skillSectionEnd = text.indexOf('</invoked-skill>');
     assert.ok(text.startsWith('The user explicitly invoked'), 'trust framing opens the message');
     assert.match(text, /lower priority than system, developer, safety, and permission rules/);
+    assert.match(text, /do not call the Skill tool again for these skills/);
     assert.match(text, /<invoked-skill id="weekly-report" name="写周报">\n# 写周报\n按模板整理。\n<\/invoked-skill>/);
     assert.match(text, /<invoked-skill id="data_crunch_" name="Data _Crunch_">/, 'attributes are sanitized');
     assert.ok(text.indexOf('data_crunch_') > skillSectionEnd - 400, 'block order is request order');

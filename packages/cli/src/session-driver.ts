@@ -5,6 +5,7 @@ import type { PermissionMode, PermissionResponse } from '@maka/core/permission';
 import type { UserQuestionResponse } from '@maka/core/user-question';
 import type { BranchFromTurnInput, CreateSessionInput, UserMessageInput } from '@maka/core/runtime-inputs';
 import type { SessionSummary, StoredMessage } from '@maka/core/session';
+import { userFacingText } from '@maka/core/session';
 import type { ThinkingLevel } from '@maka/core/model-thinking';
 
 export interface MakaSessionRuntime {
@@ -62,7 +63,13 @@ export interface MakaSessionSwitchResult {
 export interface MakaSessionDriver {
   listSessions(): Promise<SessionSummary[]>;
   getSessionResumeAvailability?(session: SessionSummary): Promise<SessionResumeAvailability>;
-  sendPrompt(prompt: string): AsyncIterable<SessionEvent>;
+  /**
+   * Open a turn with `prompt` as the human-facing text (session title on first
+   * turn, rewind refill, transcript). When `options.modelText` differs, the
+   * runtime stores that as model-facing `text` and persists `prompt` as
+   * `displayText` (explicit skill invocation, #1148).
+   */
+  sendPrompt(prompt: string, options?: { modelText?: string }): AsyncIterable<SessionEvent>;
   compactSession(): AsyncIterable<SessionEvent>;
   /**
    * Queue the text for mid-turn injection at the next step boundary. Returns
@@ -149,11 +156,17 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
     this.permissionMode = input.permissionMode ?? 'ask';
   }
 
-  async *sendPrompt(prompt: string): AsyncIterable<SessionEvent> {
+  async *sendPrompt(prompt: string, options?: { modelText?: string }): AsyncIterable<SessionEvent> {
+    // Session title and human surfaces always use the typed prompt; the model
+    // may receive a composed envelope via modelText.
     const sessionId = await this.ensureSession(prompt);
+    const modelText = options?.modelText ?? prompt;
     yield* this.input.runtime.sendMessage(sessionId, {
       turnId: this.newId(),
-      text: prompt,
+      text: modelText,
+      ...(options?.modelText !== undefined && options.modelText !== prompt
+        ? { displayText: prompt }
+        : {}),
     });
   }
 
@@ -287,7 +300,7 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
     const order: string[] = [];
     for (const message of messages) {
       if (message.type !== 'user' || promptByTurn.has(message.turnId)) continue;
-      promptByTurn.set(message.turnId, message.text);
+      promptByTurn.set(message.turnId, userFacingText(message));
       order.push(message.turnId);
     }
     return order
@@ -301,11 +314,12 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
     // branch drops this turn, so it must be captured first. The full text (not
     // the one-line label) is refilled into the editor for an edit-and-resend.
     const messages = await this.input.runtime.getMessages(this.sessionId);
-    const prompt = messages.find(
+    const userMessage = messages.find(
       (message): message is Extract<StoredMessage, { type: 'user' }> =>
         message.type === 'user' && message.turnId === turnId,
-    )?.text;
-    if (prompt === undefined) throw new Error(`Cannot rewind to turn ${turnId}: no user prompt.`);
+    );
+    if (userMessage === undefined) throw new Error(`Cannot rewind to turn ${turnId}: no user prompt.`);
+    const prompt = userFacingText(userMessage);
     // Branch to the state just before the turn (copies transcript + ledger up to,
     // but not including, it), then switch onto the branch. switchSession
     // re-validates folder/connection and loads the branched messages, so the

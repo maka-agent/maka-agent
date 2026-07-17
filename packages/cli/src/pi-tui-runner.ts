@@ -253,7 +253,6 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   };
 
   interface PreparedSkillPrompt {
-    displayText: string;
     sendText: string;
     loadedNames: string[];
     warnings: string[];
@@ -264,7 +263,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   // prompt — skill resolution must never block a send (issue decision: warn at
   // most; failed tokens stay as literal text).
   const prepareSkillInvocation = async (prompt: string): Promise<PreparedSkillPrompt> => {
-    const passthrough: PreparedSkillPrompt = { displayText: prompt, sendText: prompt, loadedNames: [], warnings: [] };
+    const passthrough: PreparedSkillPrompt = { sendText: prompt, loadedNames: [], warnings: [] };
     if (!input.skills) return passthrough;
     const tokens = parseSkillInvocationTokens(prompt);
     if (tokens.length === 0) return passthrough;
@@ -293,7 +292,6 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       }
       const stripped = stripSkillInvocationTokens(prompt, new Set(okRequests.map((request) => request.toLowerCase())));
       return {
-        displayText: prompt,
         sendText: composeSkillInvocationMessage({ userText: stripped, skills: loaded }),
         loadedNames: loaded.map((skill) => skill.name),
         warnings,
@@ -585,11 +583,15 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     void submitPreparedUserPrompt(prompt);
   };
 
-  // Resolve skill-invocation tokens, then open the turn. The async prep holds
-  // `busy` so a second submit can't race it; runAgentTurn re-asserts the flag
-  // for the turn itself.
+  // Resolve skill-invocation tokens, then open the turn. Hold both `busy` and
+  // `editor.disableSubmit` for the async prep window: pi-tui clears the draft
+  // before onSubmit, so a second Enter during prep must not be accepted (it
+  // would be dropped by the busy guard with the draft already gone).
+  // runAgentTurn re-asserts busy for the turn itself and re-enables submit so
+  // mid-turn Enter can still steer.
   const submitPreparedUserPrompt = async (prompt: string) => {
     busy = true;
+    editor.disableSubmit = true;
     try {
       const prepared = await prepareSkillInvocation(prompt);
       for (const warning of prepared.warnings) {
@@ -602,10 +604,13 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
           text: `已加载技能：${prepared.loadedNames.join('、')}`,
         });
       }
-      busy = false;
+      // Hand off to the turn: runAgentTurn re-asserts busy and re-enables
+      // submit so mid-turn Enter can steer. Clearing disableSubmit only there
+      // keeps the prep window closed until the turn owns the flags.
       runAgentTurn(prompt, prepared.sendText === prompt ? undefined : { sendText: prepared.sendText });
     } catch (error) {
       busy = false;
+      editor.disableSubmit = false;
       reportError(error);
     }
   };
@@ -736,8 +741,9 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     startTurnElapsedTicker();
     interruptRequested = false;
     lastTurnEscapeAt = 0;
-    // The editor stays submittable during a turn so Enter steers the running
-    // turn (see editor.onSubmit) instead of being swallowed.
+    // Re-enable submit after skill-prep's disableSubmit hold: Enter must steer
+    // a running turn (see editor.onSubmit) instead of being swallowed.
+    editor.disableSubmit = false;
     terminal.setProgress(true);
     attention.promptTurnStarted();
     requestRender();

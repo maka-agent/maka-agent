@@ -181,11 +181,27 @@ export interface UserMessage {
   id: string;
   turnId: string;
   ts: number;
+  /**
+   * Model-facing turn text (and the default human-facing text). May be a
+   * composed envelope when the client injected content such as explicit
+   * skill instructions; see `displayText`.
+   */
   text: string;
+  /**
+   * Human-facing text when it differs from `text`. Presentation layers
+   * (transcript, rewind, previews, search) should prefer this. Absent on
+   * legacy rows and on turns where the model text is what the user typed.
+   */
+  displayText?: string;
   attachments?: AttachmentRef[];
   /** Non-user trigger source (automation fire). Lets the chat mark turns the
    *  user did not hand-type. Mirrors TurnOrigin in runtime-inputs. */
   origin?: { kind: 'automation'; automationId: string };
+}
+
+/** Prefer the human-facing view of a user message when one was stored. */
+export function userFacingText(message: Pick<UserMessage, 'text' | 'displayText'>): string {
+  return message.displayText ?? message.text;
 }
 
 export interface AssistantMessage {

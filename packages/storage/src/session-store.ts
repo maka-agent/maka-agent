@@ -573,7 +573,9 @@ function lastMessagePreview(messages: StoredMessage[]): string | undefined {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index]!;
     if (message.type === 'user') {
-      const text = normalizePreviewText(message.text);
+      // Prefer the human-facing view when the stored model text is a composed
+      // envelope (e.g. explicit skill invocation).
+      const text = normalizePreviewText(message.displayText ?? message.text);
       if (text) return truncatePreview(text);
       if (message.attachments && message.attachments.length > 0) return '附件';
     }
@@ -595,13 +597,19 @@ function truncatePreview(text: string, maxLength = 96): string {
   return `${chars.slice(0, maxLength - 1).join('')}…`;
 }
 
-export function createUserMessage(input: { turnId: string; text: string; attachments?: UserMessage['attachments'] }): UserMessage {
+export function createUserMessage(input: {
+  turnId: string;
+  text: string;
+  displayText?: string;
+  attachments?: UserMessage['attachments'];
+}): UserMessage {
   return {
     type: 'user',
     id: randomUUID(),
     turnId: input.turnId,
     ts: Date.now(),
     text: input.text,
+    ...(input.displayText !== undefined ? { displayText: input.displayText } : {}),
     attachments: input.attachments,
   };
 }

@@ -1015,7 +1015,6 @@ export {
   resolveSkillDiscoveryPaths,
   buildSkillsPromptFragment,
   loadSkillInstructions,
-  loadSkillInstructionsFromScan,
   buildSkillAgentTool,
   gateSkillsByHostCapabilities,
   parseSkillFrontMatter,

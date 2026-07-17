@@ -358,6 +358,9 @@ export class AgentRun {
         turnId: this.turnId,
         ts: userMessageTs,
         text: this.input.userInput.text,
+        ...(this.input.userInput.displayText !== undefined
+          ? { displayText: this.input.userInput.displayText }
+          : {}),
         ...(this.input.userInput.attachments ? { attachments: this.input.userInput.attachments } : {}),
         ...(this.input.userInput.origin ? { origin: this.input.userInput.origin } : {}),
       };

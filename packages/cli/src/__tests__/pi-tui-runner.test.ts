@@ -4131,9 +4131,11 @@ describe('Maka Pi TUI runner', () => {
       terminal.input('\r');
       await waitFor(() => driver.prompts.length === 1);
 
+      assert.equal(driver.displayPrompts[0], '/skill:alpha 帮我整理', 'human-facing prompt keeps the typed tokens');
       const sent = driver.prompts[0];
       assert.match(sent, /<invoked-skill id="alpha" name="Alpha">/);
       assert.match(sent, /# Alpha\nAlpha body\./);
+      assert.match(sent, /do not call the Skill tool again for these skills/);
       assert.ok(
         sent.endsWith('<user-message>\n帮我整理\n</user-message>'),
         `composed message carries the stripped user text: ${sent}`,
@@ -5193,7 +5195,10 @@ function pipeOutput(stdout = '', stderr = '') {
 }
 
 class SlashCommandDriver implements MakaSessionDriver {
+  /** Model-facing text (options.modelText when set, else the typed prompt). */
   readonly prompts: string[] = [];
+  /** Human-facing typed prompt for every sendPrompt call. */
+  readonly displayPrompts: string[] = [];
   readonly models: string[] = [];
   readonly modelConnections: Array<string | undefined> = [];
   readonly permissionModes: PermissionMode[] = [];
@@ -5218,8 +5223,9 @@ class SlashCommandDriver implements MakaSessionDriver {
       : { available: false, reason: 'Missing working directory' };
   }
 
-  async *sendPrompt(prompt: string): AsyncIterable<SessionEvent> {
-    this.prompts.push(prompt);
+  async *sendPrompt(prompt: string, options?: { modelText?: string }): AsyncIterable<SessionEvent> {
+    this.displayPrompts.push(prompt);
+    this.prompts.push(options?.modelText ?? prompt);
     yield {
       type: 'complete',
       id: 'event-complete',

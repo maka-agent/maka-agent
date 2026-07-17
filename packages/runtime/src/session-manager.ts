@@ -735,6 +735,7 @@ export class SessionManager {
     yield* this.sendMessage(sessionId, {
       turnId: input.turnId ?? this.deps.newId(),
       text: user.text,
+      ...(user.displayText !== undefined ? { displayText: user.displayText } : {}),
       ...(user.attachments ? { attachments: user.attachments } : {}),
       parentTurnId: source.turnId,
       regeneratedFromTurnId: source.turnId,

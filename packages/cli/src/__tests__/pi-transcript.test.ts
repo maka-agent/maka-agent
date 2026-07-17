@@ -3610,8 +3610,8 @@ class RecordingDriver {
 
   constructor(private readonly events: SessionEvent[]) {}
 
-  async *sendPrompt(prompt: string): AsyncIterable<SessionEvent> {
-    this.prompts.push(prompt);
+  async *sendPrompt(prompt: string, options?: { modelText?: string }): AsyncIterable<SessionEvent> {
+    this.prompts.push(options?.modelText ?? prompt);
     for (const event of this.events) yield event;
   }
 

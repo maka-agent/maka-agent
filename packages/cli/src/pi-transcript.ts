@@ -439,7 +439,12 @@ export async function submitPromptToTranscript(input: {
   // events; well-formed runtime streams emit exactly one.
   let outcome: TurnOutcome | undefined;
   try {
-    for await (const event of input.driver.sendPrompt(input.sendText ?? input.prompt)) {
+    for await (const event of input.driver.sendPrompt(
+      input.prompt,
+      input.sendText !== undefined && input.sendText !== input.prompt
+        ? { modelText: input.sendText }
+        : undefined,
+    )) {
       const failed = event.type === 'complete'
         && failureClassFromCompleteStopReason(event.stopReason) !== undefined;
       if (event.type === 'error' || failed) {
@@ -781,7 +786,7 @@ export function applyMakaSessionEventToTranscript(
 function chatItemToTranscriptEntries(item: ChatItem): MakaPiTranscriptEntry[] {
   switch (item.kind) {
     case 'user':
-      return [{ kind: 'user', text: item.message.text }];
+      return [{ kind: 'user', text: item.message.displayText ?? item.message.text }];
     case 'assistant': {
       const entries: MakaPiTranscriptEntry[] = [];
       // Stored thinking happened before the reply text, so it resumes above it.

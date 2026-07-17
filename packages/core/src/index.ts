@@ -169,6 +169,7 @@ export {
   isSessionStatus,
   isSessionBlockedReason,
   isTurnStatus,
+  userFacingText,
 } from './session.js';
 
 // model-thinking.ts
