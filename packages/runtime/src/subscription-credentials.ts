@@ -79,6 +79,10 @@ export type OAuthSubscriptionRefreshAndPersistOutcome =
   | { outcome: 'refresh-failed'; error: unknown }
   | { outcome: 'storage-failed'; error: unknown };
 
+export type OAuthSubscriptionResolveAndPersistOutcome =
+  | { outcome: 'current'; tokens: OAuthSubscriptionTokens }
+  | OAuthSubscriptionRefreshAndPersistOutcome;
+
 export type RefreshAndPersistOAuthSubscriptionTokensInput = {
   slug: string;
   credentialStore: OAuthSubscriptionCredentialStore;
@@ -91,6 +95,9 @@ export type RefreshAndPersistOAuthSubscriptionTokensInput = {
     refreshTokens: (tokens: OAuthSubscriptionTokens) => Promise<OAuthSubscriptionTokens>;
   }
 );
+
+export type ResolveAndPersistOAuthSubscriptionTokensInput =
+  RefreshAndPersistOAuthSubscriptionTokensInput & { refreshSkewMs?: number };
 
 const CLAUDE_CLIENT_ID = '9d1c250a-e61b-44d9-88ed-5944d1962f5e';
 const CLAUDE_TOKEN_ENDPOINT = 'https://platform.claude.com/v1/oauth/token';
@@ -110,28 +117,33 @@ export async function resolveOAuthSubscriptionAccessToken(
 export async function resolveOAuthSubscriptionTokens(
   input: ResolveOAuthSubscriptionAccessTokenInput,
 ): Promise<OAuthSubscriptionTokens | null> {
-  const raw = await input.credentialStore.getSecret(input.slug, 'oauth_token');
-  if (!raw) return null;
-  const tokens = parseOAuthSubscriptionTokens(raw);
-  if (!tokens) return null;
-
-  const now = input.now ?? (() => Date.now());
-  if (tokens.expires_at - now() > TOKEN_REFRESH_SKEW_MS) return tokens;
-  if (!input.credentialStore.compareAndSetSecret && !input.credentialStore.setSecret) return null;
-
-  const result = await refreshAndPersistOAuthSubscriptionTokensFromRaw(
-    {
-      providerType: input.providerType,
-      slug: input.slug,
-      credentialStore: input.credentialStore,
-      now,
-      fetchFn: input.fetchFn ?? fetch,
-    },
-    raw,
-  );
-  return result.outcome === 'refreshed' || result.outcome === 'superseded'
+  const result = await resolveAndPersistOAuthSubscriptionTokens(input);
+  return result.outcome === 'current' || result.outcome === 'refreshed' || result.outcome === 'superseded'
     ? result.tokens
     : null;
+}
+
+export async function resolveAndPersistOAuthSubscriptionTokens(
+  input: ResolveAndPersistOAuthSubscriptionTokensInput,
+): Promise<OAuthSubscriptionResolveAndPersistOutcome> {
+  let raw: string | null;
+  try {
+    raw = await input.credentialStore.getSecret(input.slug, 'oauth_token');
+  } catch (error) {
+    return { outcome: 'storage-failed', error };
+  }
+  if (raw === null) return { outcome: 'logged-out' };
+
+  const tokens = parseOAuthSubscriptionTokens(raw);
+  if (!tokens) {
+    return { outcome: 'storage-failed', error: new Error('Stored OAuth token is invalid.') };
+  }
+  const now = input.now ?? (() => Date.now());
+  if (tokens.expires_at - now() > (input.refreshSkewMs ?? TOKEN_REFRESH_SKEW_MS)) {
+    return { outcome: 'current', tokens };
+  }
+
+  return refreshAndPersistOAuthSubscriptionTokensFromRaw(input, raw);
 }
 
 export async function refreshAndPersistOAuthSubscriptionTokens(

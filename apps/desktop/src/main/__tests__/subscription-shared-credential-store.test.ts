@@ -91,6 +91,22 @@ describe('OAuth subscription token authority (shared CredentialStore)', () => {
         `${name} must not keep the in-process epoch guard superseded by cross-process CAS`,
       );
     });
+
+    it(`${name} delegates automatic refresh decisions to the same runtime transaction`, async () => {
+      const src = await readFile(resolve(OAUTH_DIR, file), 'utf8');
+      const accessTokenMethod = src.match(/async getAccessTokenInternal\([^]*?\n  \}/u)?.[0];
+      assert.ok(accessTokenMethod, `${name} getAccessTokenInternal body must exist`);
+      assert.match(
+        accessTokenMethod,
+        /resolveAndPersistOAuthSubscriptionTokens\(\{/,
+        `${name} automatic refresh must preserve the runtime transaction's first-read CAS basis`,
+      );
+      assert.doesNotMatch(
+        accessTokenMethod,
+        /tokens\.expires_at/,
+        `${name} must not make an expiry decision before entering the runtime transaction`,
+      );
+    });
   }
 
   it('no production OAuth path invokes safeStorage (#1125 acceptance)', async () => {

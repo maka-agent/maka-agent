@@ -487,6 +487,7 @@ export {
   parseOAuthSubscriptionTokens,
   refreshAndPersistOAuthSubscriptionTokens,
   refreshOAuthSubscriptionTokens,
+  resolveAndPersistOAuthSubscriptionTokens,
   resolveOAuthSubscriptionAccessToken,
   resolveOAuthSubscriptionTokens,
   createGitHubCopilotAccountTokens,
@@ -498,8 +499,10 @@ export type {
   OAuthSubscriptionCredentialStore,
   OAuthSubscriptionProvider,
   OAuthSubscriptionRefreshAndPersistOutcome,
+  OAuthSubscriptionResolveAndPersistOutcome,
   OAuthSubscriptionTokens,
   RefreshAndPersistOAuthSubscriptionTokensInput,
+  ResolveAndPersistOAuthSubscriptionTokensInput,
   ResolveOAuthSubscriptionAccessTokenInput,
 } from './subscription-credentials.js';
 export { buildSubscriptionModelFetch } from './subscription-model-fetch.js';

@@ -10,6 +10,7 @@ import {
   createGitHubCopilotAccountTokens,
   parseOAuthSubscriptionTokens,
   refreshAndPersistOAuthSubscriptionTokens,
+  resolveAndPersistOAuthSubscriptionTokens,
   resolveOAuthSubscriptionTokens,
 } from '../subscription-credentials.js';
 
@@ -221,6 +222,49 @@ describe('OAuth refresh persistence transaction', () => {
 
     assert.equal(tokens?.access_token, 'winner-access');
     assert.equal(commits, 0, 'a resolve triggered by the old basis must not commit over the winner');
+    assert.equal(current, winner);
+  });
+
+  test('a custom automatic refresh keeps its expiry-decision read as the commit basis', async () => {
+    const initial = JSON.stringify({
+      access_token: 'old-access',
+      refresh_token: 'old-refresh',
+      expires_at: 1_000,
+    });
+    const winner = JSON.stringify({
+      access_token: 'winner-access',
+      refresh_token: 'winner-refresh',
+      expires_at: 20_000_000,
+    });
+    let current = initial;
+    let commits = 0;
+
+    const result = await resolveAndPersistOAuthSubscriptionTokens({
+      slug: 'cursor-subscription',
+      credentialStore: {
+        getSecret: async () => current,
+        compareAndSetSecret: async (_slug, _kind, expected, value) => {
+          if (expected !== current) return { committed: false, current };
+          commits += 1;
+          current = value;
+          return { committed: true };
+        },
+      },
+      now: () => 10_000_000,
+      refreshSkewMs: 0,
+      refreshTokens: async () => {
+        current = winner;
+        return {
+          access_token: 'redundant-access',
+          refresh_token: 'redundant-refresh',
+          expires_at: 20_000_000,
+        };
+      },
+    });
+
+    assert.equal(result.outcome, 'superseded');
+    assert.equal(result.outcome === 'superseded' ? result.tokens.access_token : null, 'winner-access');
+    assert.equal(commits, 0, 'the old expiry-decision basis must not commit over the winner');
     assert.equal(current, winner);
   });
 

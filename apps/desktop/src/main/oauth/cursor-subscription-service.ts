@@ -32,7 +32,11 @@ import {
   type SubscriptionActionFailureReason,
   type SubscriptionActionResult,
 } from '@maka/core';
-import { refreshAndPersistOAuthSubscriptionTokens } from '@maka/runtime';
+import {
+  refreshAndPersistOAuthSubscriptionTokens,
+  resolveAndPersistOAuthSubscriptionTokens,
+  type OAuthSubscriptionRefreshAndPersistOutcome,
+} from '@maka/runtime';
 import {
   CURSOR_OAUTH_CONFIG,
   buildCursorLoginUrl,
@@ -272,21 +276,7 @@ export class CursorSubscriptionService {
         credentialStore: this.credentialStore,
         refreshTokens: (tokens) => this.requestRefresh(tokens.refresh_token),
       });
-      if (result.outcome === 'refreshed' || result.outcome === 'superseded') {
-        this.lastRefreshFailedMessage = null;
-        return { ok: true };
-      }
-      const message = result.outcome === 'logged-out'
-        ? '登录状态已变更，本次刷新结果已丢弃。'
-        : result.outcome === 'storage-failed'
-          ? '访问 Cursor OAuth 共享凭据失败，请检查 credentials.json 权限后重试。'
-          : result.error instanceof Error ? result.error.message : '刷新失败，请重新登录。';
-      this.lastRefreshFailedMessage = message;
-      return {
-        ok: false,
-        reason: result.outcome === 'storage-failed' ? 'storage_failed' : 'refresh_failed',
-        message,
-      };
+      return this.applyRefreshOutcome(result);
     } finally {
       this.refreshing = false;
     }
@@ -325,20 +315,46 @@ export class CursorSubscriptionService {
    * process — never IPC it out.
    */
   async getAccessTokenInternal(): Promise<string | null> {
-    const tokens = await this.loadTokens();
-    if (!tokens) return null;
-    if (tokens.expires_at <= this.now()) {
-      const refreshed = await this.refreshTokens();
-      if (!refreshed.ok) return null;
-      const next = await this.loadTokens();
-      return next?.access_token ?? null;
+    this.refreshing = true;
+    try {
+      const result = await resolveAndPersistOAuthSubscriptionTokens({
+        slug: 'cursor-subscription',
+        credentialStore: this.credentialStore,
+        now: this.now,
+        refreshSkewMs: 0,
+        refreshTokens: (tokens) => this.requestRefresh(tokens.refresh_token),
+      });
+      if (result.outcome === 'current') return result.tokens.access_token;
+      const action = this.applyRefreshOutcome(result);
+      return action.ok && (result.outcome === 'refreshed' || result.outcome === 'superseded')
+        ? result.tokens.access_token
+        : null;
+    } finally {
+      this.refreshing = false;
     }
-    return tokens.access_token;
   }
 
   // -----------------------------------------------------------
   // INTERNALS
   // -----------------------------------------------------------
+
+  private applyRefreshOutcome(result: OAuthSubscriptionRefreshAndPersistOutcome): SubscriptionActionResult {
+    if (result.outcome === 'refreshed' || result.outcome === 'superseded') {
+      this.lastRefreshFailedMessage = null;
+      return { ok: true };
+    }
+    const message = result.outcome === 'logged-out'
+      ? '登录状态已变更，本次刷新结果已丢弃。'
+      : result.outcome === 'storage-failed'
+        ? '访问 Cursor OAuth 共享凭据失败，请检查 credentials.json 权限后重试。'
+        : result.error instanceof Error ? result.error.message : '刷新失败，请重新登录。';
+    this.lastRefreshFailedMessage = message;
+    return {
+      ok: false,
+      reason: result.outcome === 'storage-failed' ? 'storage_failed' : 'refresh_failed',
+      message,
+    };
+  }
 
   private deriveRuntimeState(): CursorRuntimeState {
     if (this.refreshing) return 'refreshing';

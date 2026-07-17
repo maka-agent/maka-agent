@@ -46,6 +46,8 @@ import {
 } from '@maka/core';
 import {
   refreshAndPersistOAuthSubscriptionTokens,
+  resolveAndPersistOAuthSubscriptionTokens,
+  type OAuthSubscriptionRefreshAndPersistOutcome,
 } from '@maka/runtime';
 import {
   deleteSharedOAuthTokens,
@@ -410,23 +412,7 @@ export class ClaudeSubscriptionService {
         now: this.now,
         fetchFn: this.fetchFn,
       });
-      if (result.outcome === 'refreshed' || result.outcome === 'superseded') {
-        this.lastRefreshFailedMessage = null;
-        this.lastStorageFailedMessage = null;
-        return { ok: true };
-      }
-      if (result.outcome === 'storage-failed') {
-        const message = '访问 Claude OAuth 共享凭据失败，请检查 credentials.json 权限后重试。';
-        this.lastRefreshFailedMessage = null;
-        this.lastStorageFailedMessage = message;
-        return { ok: false, reason: 'storage_failed', message };
-      }
-      this.lastStorageFailedMessage = null;
-      const message = result.outcome === 'logged-out'
-        ? '登录状态已变更，本次刷新结果已丢弃。'
-        : result.error instanceof Error ? result.error.message : '刷新失败，请重新登录。';
-      this.lastRefreshFailedMessage = message;
-      return { ok: false, reason: 'refresh_failed', message };
+      return this.applyRefreshOutcome(result);
     } finally {
       this.refreshing = false;
     }
@@ -533,15 +519,23 @@ export class ClaudeSubscriptionService {
    * Used by the future subscription send-path (PR-OAUTH-SUBSCRIPTION-1).
    */
   async getAccessTokenInternal(): Promise<string | null> {
-    const tokens = await this.loadTokens();
-    if (!tokens) return null;
-    if (tokens.expires_at - this.now() <= TOKEN_REFRESH_SKEW_MS) {
-      const refreshed = await this.refreshTokens();
-      if (!refreshed.ok) return null;
-      const next = await this.loadTokens();
-      return next?.access_token ?? null;
+    this.refreshing = true;
+    try {
+      const result = await resolveAndPersistOAuthSubscriptionTokens({
+        providerType: 'claude-subscription',
+        slug: 'claude-subscription',
+        credentialStore: this.credentialStore,
+        now: this.now,
+        fetchFn: this.fetchFn,
+      });
+      if (result.outcome === 'current') return result.tokens.access_token;
+      const action = this.applyRefreshOutcome(result);
+      return action.ok && (result.outcome === 'refreshed' || result.outcome === 'superseded')
+        ? result.tokens.access_token
+        : null;
+    } finally {
+      this.refreshing = false;
     }
-    return tokens.access_token;
   }
 
   /**
@@ -563,6 +557,26 @@ export class ClaudeSubscriptionService {
   // -----------------------------------------------------------
   // INTERNALS
   // -----------------------------------------------------------
+
+  private applyRefreshOutcome(result: OAuthSubscriptionRefreshAndPersistOutcome): SubscriptionActionResult {
+    if (result.outcome === 'refreshed' || result.outcome === 'superseded') {
+      this.lastRefreshFailedMessage = null;
+      this.lastStorageFailedMessage = null;
+      return { ok: true };
+    }
+    if (result.outcome === 'storage-failed') {
+      const message = '访问 Claude OAuth 共享凭据失败，请检查 credentials.json 权限后重试。';
+      this.lastRefreshFailedMessage = null;
+      this.lastStorageFailedMessage = message;
+      return { ok: false, reason: 'storage_failed', message };
+    }
+    this.lastStorageFailedMessage = null;
+    const message = result.outcome === 'logged-out'
+      ? '登录状态已变更，本次刷新结果已丢弃。'
+      : result.error instanceof Error ? result.error.message : '刷新失败，请重新登录。';
+    this.lastRefreshFailedMessage = message;
+    return { ok: false, reason: 'refresh_failed', message };
+  }
 
   private deriveRuntimeState(
     tokens: PersistedTokens,
