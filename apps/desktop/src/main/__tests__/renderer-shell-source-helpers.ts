@@ -39,6 +39,7 @@ const sourcePaths = [
   'use-shell-expert-teams.ts',
   'use-shell-memory-pill.ts',
   'use-shell-layout.ts',
+  'use-settings-modal.ts',
   'app-shell-visual-smoke.ts',
   'cached-theme-bootstrap.ts',
   'chat-model-selection.ts',
