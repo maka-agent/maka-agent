@@ -35,6 +35,7 @@ import type { OnboardingSnapshot } from '../global';
 import { ProviderLogo } from './settings/provider-display';
 import { ProviderBrandMark } from './settings/provider-brand-marks';
 import { useShellAppearance } from './use-shell-appearance';
+import { useShellSearch } from './use-shell-search';
 import { useSessionGoal } from './use-session-goal';
 import { deriveStaleSessionIds } from './stale-sessions';
 import { deriveProjectGroups } from './session-project-grouping';
@@ -221,28 +222,7 @@ export function AppShell({
   const persistedComposerDefaults = loadComposerDefaults();
   const [helpOpen, closeHelp, openHelp] = useKeyboardHelp();
   const [paletteOpen, openPalette, closePalette] = useCommandPalette();
-  // Search modal state. Sidebar `搜索` opens the real thread-search
-  // modal; result selection below can also hand ChatView a turn anchor
-  // so the hit is visible after session navigation.
-  const [searchModalOpen, setSearchModalOpen] = useState(false);
-  // Funnel bridge: query handed from the palette's 查看全部结果 row into the
-  // search modal. Topbar opens reset it so a plain open starts blank.
-  const [searchModalInitialQuery, setSearchModalInitialQuery] = useState('');
-  const [searchScrollTarget, setSearchScrollTarget] = useState<{
-    sessionId: string;
-    turnId: string;
-    nonce: number;
-  } | null>(null);
   const [viewMode, setViewMode] = useState<SessionViewMode>('status');
-  function closeSearchModal(options?: { restoreFocus?: boolean }) {
-    setSearchModalOpen(false);
-    if (options?.restoreFocus === false) return;
-    window.requestAnimationFrame(() => {
-      document
-        .querySelector<HTMLButtonElement>('[data-maka-search-trigger="true"]')
-        ?.focus({ preventScroll: true });
-    });
-  }
   const composerRef = useRef<ComposerHandle>(null);
   const rendererMountedRef = useRef(true);
   // Active autonomous goal for the current session drives the header
@@ -513,13 +493,17 @@ export function AppShell({
      change. Stable refs + memos keep the timers alive. */
   const openSessionInChatRef = useRef(openSessionInChat);
   openSessionInChatRef.current = openSessionInChat;
-  const searchModalDeps = useMemo(
-    () => ({ searchThread: (request: Parameters<typeof window.maka.search.thread>[0]) => window.maka.search.thread(request) }),
-    [],
-  );
-  const searchModalOnNavigate = useCallback((sessionId: string, turnId?: string) => {
-    openSessionInChatRef.current(sessionId, turnId);
-  }, []);
+  const {
+    searchModalOpen,
+    setSearchModalOpen,
+    searchModalInitialQuery,
+    setSearchModalInitialQuery,
+    searchScrollTarget,
+    setSearchScrollTarget,
+    closeSearchModal,
+    searchModalDeps,
+    searchModalOnNavigate,
+  } = useShellSearch({ openSessionInChatRef });
   const paletteOnSelectSession = useCallback((sessionId: string, turnId?: string) => {
     openSessionInChatRef.current(sessionId, turnId);
   }, []);
