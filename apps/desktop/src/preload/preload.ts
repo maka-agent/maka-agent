@@ -330,6 +330,9 @@ contextBridge.exposeInMainWorld('maka', {
     listStatuses(): Promise<McpServerStatus[]> {
       return ipcRenderer.invoke('mcp:listStatuses');
     },
+    setConfig(config: McpConfigFile): Promise<McpConfigFile> {
+      return ipcRenderer.invoke('mcp:setConfig', config);
+    },
     upsert(serverId: string, config: McpServerConfig): Promise<McpConfigFile> {
       return ipcRenderer.invoke('mcp:upsert', serverId, config);
     },

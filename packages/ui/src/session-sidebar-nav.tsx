@@ -1,5 +1,5 @@
 import type { PlanReminder } from '@maka/core';
-import { Blocks, CalendarCheck, Settings, SquarePen, Timer } from './icons.js';
+import { Blocks, CalendarCheck, Plug, Settings, SquarePen, Timer } from './icons.js';
 import type { NavSelection } from './nav-selection.js';
 import { cn } from './ui.js';
 import { cva } from 'class-variance-authority';
@@ -37,7 +37,7 @@ const navRowVariants = cva(
   },
 );
 
-type ModuleNavId = 'daily-review' | 'skills' | 'automations';
+type ModuleNavId = 'daily-review' | 'skills' | 'mcp' | 'automations';
 
 const settingsButtonClass =
   'w-full min-w-0 gap-2 rounded-sm border-0 bg-transparent px-1.5 py-1.5 ' +
@@ -56,6 +56,7 @@ export function SessionSidebarNav(props: {
   const moduleNavLabel: Record<ModuleNavId, string> = {
     automations: copy.automations,
     skills: copy.skills,
+    mcp: copy.mcp,
     'daily-review': copy.dailyReview,
   };
   const isModuleActive = (id: ModuleNavId) => props.selection.section === id;
@@ -94,17 +95,6 @@ export function SessionSidebarNav(props: {
       </BaseButton>
       <BaseButton
         className={cn('maka-nav-row', navRowVariants())}
-        data-active={isModuleActive('skills')}
-        aria-current={isModuleActive('skills') ? 'page' : undefined}
-        aria-label={moduleNavLabel.skills}
-        type="button"
-        onClick={() => selectModule('skills')}
-      >
-        <Blocks className="maka-nav-icon" aria-hidden="true" />
-        <span>{moduleNavLabel.skills}</span>
-      </BaseButton>
-      <BaseButton
-        className={cn('maka-nav-row', navRowVariants())}
         data-active={isModuleActive('automations')}
         aria-current={isModuleActive('automations') ? 'page' : undefined}
         type="button"
@@ -121,6 +111,31 @@ export function SessionSidebarNav(props: {
           </small>
         )}
       </BaseButton>
+      <div className="maka-sidebar-nav-group" role="group" aria-label={copy.extensions}>
+        <div className="maka-sidebar-nav-group-label">{copy.extensions}</div>
+        <BaseButton
+          className={cn('maka-nav-row maka-nav-row-nested', navRowVariants())}
+          data-active={isModuleActive('skills')}
+          aria-current={isModuleActive('skills') ? 'page' : undefined}
+          aria-label={moduleNavLabel.skills}
+          type="button"
+          onClick={() => selectModule('skills')}
+        >
+          <Blocks className="maka-nav-icon" aria-hidden="true" />
+          <span>{moduleNavLabel.skills}</span>
+        </BaseButton>
+        <BaseButton
+          className={cn('maka-nav-row maka-nav-row-nested', navRowVariants())}
+          data-active={isModuleActive('mcp')}
+          aria-current={isModuleActive('mcp') ? 'page' : undefined}
+          aria-label={moduleNavLabel.mcp}
+          type="button"
+          onClick={() => selectModule('mcp')}
+        >
+          <Plug className="maka-nav-icon" aria-hidden="true" />
+          <span>{moduleNavLabel.mcp}</span>
+        </BaseButton>
+      </div>
     </nav>
   );
 }

@@ -1,0 +1,542 @@
+.maka-mcp-page {
+  grid-template-rows: auto minmax(0, 1fr);
+  align-content: start;
+}
+
+.maka-mcp-header {
+  align-items: center;
+}
+
+.maka-mcp-workspace {
+  width: min(100%, 900px);
+  min-height: 0;
+  margin-inline: auto;
+  display: grid;
+  grid-template-rows: auto auto auto;
+  align-self: start;
+  align-content: start;
+  gap: var(--space-4);
+}
+
+.maka-mcp-hero {
+  min-height: 116px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-8);
+  padding: var(--space-5) var(--space-6);
+  overflow: hidden;
+  border: var(--border-width-hairline) solid var(--border);
+  border-radius: var(--radius-surface);
+  background: var(--background-elevated);
+}
+
+.maka-mcp-hero > div:first-child {
+  max-width: 520px;
+  display: grid;
+  gap: var(--space-2);
+}
+
+.maka-mcp-hero strong {
+  color: var(--foreground);
+  font-size: 1.2em;
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--leading-tight);
+}
+
+.maka-mcp-hero span {
+  color: var(--foreground-secondary);
+  font-size: var(--font-size-ui);
+  line-height: var(--leading-normal);
+}
+
+.maka-mcp-hero-signal {
+  min-width: 240px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  color: var(--foreground-secondary);
+}
+
+.maka-mcp-hero-signal svg {
+  width: 38px;
+  height: 38px;
+  padding: var(--space-2);
+  border: var(--border-width-hairline) solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--background);
+}
+
+.maka-mcp-hero-signal span {
+  width: 24px;
+  height: 1px;
+  background: var(--border);
+}
+
+.maka-mcp-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  border-bottom: var(--border-width-hairline) solid var(--border);
+}
+
+.maka-mcp-tabs {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.maka-mcp-tabs button {
+  position: relative;
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0 1px;
+  border: 0;
+  background: transparent;
+  color: var(--muted-foreground);
+  font: inherit;
+  font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-medium);
+}
+
+.maka-mcp-tabs button::after {
+  position: absolute;
+  right: 0;
+  bottom: -1px;
+  left: 0;
+  height: 2px;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  content: '';
+}
+
+.maka-mcp-tabs button[data-active="true"] {
+  color: var(--foreground);
+  font-weight: var(--font-weight-semibold);
+}
+
+.maka-mcp-tabs button[data-active="true"]::after {
+  background: var(--foreground);
+}
+
+.maka-mcp-tabs button span {
+  min-width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding-inline: var(--space-1);
+  border-radius: var(--radius-pill);
+  background: var(--state-hover-bg);
+  font-size: var(--font-size-caption);
+  font-variant-numeric: tabular-nums;
+}
+
+.maka-mcp-search {
+  width: min(300px, 38vw);
+  height: var(--h-control-md);
+  margin-bottom: var(--space-2);
+}
+
+.maka-mcp-tab-panel {
+  min-height: 0;
+}
+
+.maka-mcp-market-grid {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+  align-content: start;
+  gap: var(--space-3);
+  overflow: auto;
+  padding: var(--space-0-5);
+}
+
+.maka-mcp-market-card {
+  min-width: 0;
+  min-height: 144px;
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: var(--border-width-hairline) solid var(--border);
+  border-radius: var(--radius-surface);
+  background: var(--background);
+  transition: border-color var(--duration-base) var(--ease-out-strong), background-color var(--duration-base) var(--ease-out-strong);
+}
+
+.maka-mcp-market-card:hover {
+  border-color: oklch(from var(--foreground) l c h / 0.16);
+  background: var(--background-elevated);
+}
+
+.maka-mcp-market-icon {
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-control);
+  background: var(--muted);
+  color: var(--foreground-secondary);
+}
+
+.maka-mcp-market-icon svg {
+  width: 22px;
+  height: 22px;
+}
+
+.maka-mcp-market-copy {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: var(--space-1);
+}
+
+.maka-mcp-market-copy strong {
+  color: var(--foreground);
+  font-size: var(--font-size-heading);
+  font-weight: var(--font-weight-semibold);
+}
+
+.maka-mcp-market-copy small {
+  color: var(--muted-foreground);
+  font-size: var(--font-size-caption);
+}
+
+.maka-mcp-market-copy p {
+  display: -webkit-box;
+  margin: var(--space-1) 0 0;
+  overflow: hidden;
+  color: var(--foreground-secondary);
+  font-size: var(--font-size-ui);
+  line-height: var(--leading-normal);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.maka-mcp-server-list {
+  margin: 0;
+  padding: 0;
+  min-height: 0;
+  display: grid;
+  align-self: start;
+  align-content: start;
+  border: var(--border-width-hairline) solid var(--border);
+  border-radius: var(--radius-surface);
+  background: var(--background);
+}
+
+.maka-mcp-server-row {
+  min-width: 0;
+  padding: var(--space-4) var(--space-5);
+  border-bottom: var(--border-width-hairline) solid var(--border);
+}
+
+.maka-mcp-server-row:last-child {
+  border-bottom: 0;
+}
+
+.maka-mcp-server-summary {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.maka-mcp-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted-foreground);
+}
+
+.maka-mcp-status-dot[data-tone="success"] { background: var(--success); }
+.maka-mcp-status-dot[data-tone="info"] { background: var(--info); }
+.maka-mcp-status-dot[data-tone="destructive"] { background: var(--destructive); }
+
+.maka-mcp-server-identity {
+  min-width: 0;
+  display: grid;
+  gap: var(--space-1);
+}
+
+.maka-mcp-server-identity > div {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.maka-mcp-server-identity strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--foreground);
+  font-size: var(--font-size-heading);
+  font-weight: var(--font-weight-semibold);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.maka-mcp-server-identity > span {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-size: var(--font-size-caption);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.maka-mcp-server-identity code,
+.maka-mcp-tool-list code,
+.maka-mcp-server-details pre,
+.maka-mcp-json-form textarea {
+  font-family: var(--font-mono);
+}
+
+.maka-mcp-server-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.maka-mcp-server-error {
+  margin: var(--space-3) 0 0 var(--space-5);
+  color: var(--destructive-text);
+  font-size: var(--font-size-ui);
+}
+
+.maka-mcp-server-details {
+  margin: var(--space-3) 0 0 var(--space-5);
+  color: var(--muted-foreground);
+  font-size: var(--font-size-caption);
+}
+
+.maka-mcp-server-details summary,
+.maka-mcp-advanced summary {
+  width: max-content;
+  color: var(--foreground-secondary);
+  font-size: var(--font-size-ui);
+}
+
+.maka-mcp-tool-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1-5);
+  margin-top: var(--space-2);
+}
+
+.maka-mcp-tool-list code {
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-control);
+  background: var(--muted);
+  color: var(--foreground-secondary);
+}
+
+.maka-mcp-server-details pre {
+  max-height: 132px;
+  margin: var(--space-2) 0 0;
+  padding: var(--space-3);
+  overflow: auto;
+  border-radius: var(--radius-control);
+  background: oklch(from var(--destructive) l c h / 0.06);
+  color: var(--destructive-text);
+  white-space: pre-wrap;
+}
+
+.maka-mcp-empty,
+.maka-mcp-loading {
+  min-height: 240px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: var(--space-2);
+  padding: var(--space-8);
+  color: var(--muted-foreground);
+  text-align: center;
+}
+
+.maka-mcp-empty > svg {
+  width: 32px;
+  height: 32px;
+  margin-bottom: var(--space-2);
+  color: var(--foreground-secondary);
+}
+
+.maka-mcp-empty strong {
+  color: var(--foreground);
+  font-size: var(--font-size-heading);
+}
+
+.maka-mcp-empty span {
+  max-width: 52ch;
+  font-size: var(--font-size-ui);
+  line-height: var(--leading-normal);
+}
+
+.maka-mcp-editor-dialog {
+  width: min(92vw, var(--maka-chat-measure));
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+
+.maka-mcp-editor-mode {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4) 0;
+}
+
+.maka-mcp-editor-mode button,
+.maka-mcp-kind-picker button {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  border: var(--border-width-hairline) solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--background);
+  color: var(--foreground-secondary);
+  font: inherit;
+  font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-medium);
+}
+
+.maka-mcp-editor-mode button[data-active="true"],
+.maka-mcp-kind-picker button[data-active="true"] {
+  border-color: var(--border-strong);
+  background: var(--state-selected-bg);
+  color: var(--foreground);
+}
+
+.maka-mcp-editor-mode svg,
+.maka-mcp-kind-picker svg {
+  width: 16px;
+  height: 16px;
+}
+
+.maka-mcp-manual-form,
+.maka-mcp-json-form {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: var(--space-4);
+  overflow: hidden;
+  padding-top: var(--space-4);
+}
+
+.maka-mcp-kind-picker {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2);
+  padding-inline: var(--space-4);
+}
+
+.maka-mcp-form-fields {
+  min-height: 0;
+  display: grid;
+  align-content: start;
+  gap: var(--space-4);
+  overflow: auto;
+  padding: 0 var(--space-4) var(--space-1);
+}
+
+.maka-mcp-form-fields textarea {
+  min-height: 96px;
+  font-family: var(--font-mono);
+}
+
+.maka-mcp-advanced {
+  border-top: var(--border-width-hairline) solid var(--border);
+  padding-top: var(--space-3);
+}
+
+.maka-mcp-advanced > div {
+  display: grid;
+  gap: var(--space-4);
+  padding-top: var(--space-4);
+}
+
+.maka-mcp-advanced select {
+  width: 100%;
+  min-height: var(--h-control-md);
+  padding-inline: var(--space-3);
+  border: var(--border-width-hairline) solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--background);
+  color: var(--foreground);
+}
+
+.maka-mcp-json-form > label {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(260px, 1fr);
+  gap: var(--space-2);
+  padding-inline: var(--space-4);
+}
+
+.maka-mcp-json-form > label > span {
+  color: var(--foreground);
+  font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-medium);
+}
+
+.maka-mcp-json-form textarea {
+  min-height: 260px;
+  resize: none;
+  line-height: var(--leading-normal);
+}
+
+.maka-mcp-json-form > p {
+  margin: 0;
+  padding-inline: var(--space-4);
+  color: var(--muted-foreground);
+  font-size: var(--font-size-caption);
+  line-height: var(--leading-normal);
+}
+
+.maka-mcp-editor-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-top: var(--border-width-hairline) solid var(--border);
+}
+
+@media (max-width: 760px) {
+  .maka-mcp-header,
+  .maka-mcp-controls {
+    align-items: stretch;
+  }
+
+  .maka-mcp-hero-signal {
+    display: none;
+  }
+
+  .maka-mcp-controls {
+    display: grid;
+  }
+
+  .maka-mcp-search {
+    width: 100%;
+  }
+
+  .maka-mcp-server-summary {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .maka-mcp-server-actions {
+    grid-column: 2 / -1;
+    justify-content: flex-end;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .maka-mcp-market-card {
+    transition-duration: 0.01ms;
+  }
+}

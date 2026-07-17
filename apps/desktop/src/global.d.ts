@@ -217,6 +217,7 @@ declare global {
       mcp: {
         getConfig(): Promise<McpConfigFile>;
         listStatuses(): Promise<McpServerStatus[]>;
+        setConfig(config: McpConfigFile): Promise<McpConfigFile>;
         upsert(serverId: string, config: McpServerConfig): Promise<McpConfigFile>;
         remove(serverId: string): Promise<McpConfigFile>;
         test(serverId: string): Promise<McpTestResult>;

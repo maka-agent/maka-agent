@@ -249,6 +249,14 @@ export function buildCommandList(args: {
       run: () => select({ section: 'skills' }),
     });
     cmds.push({
+      id: 'nav:mcp',
+      kind: 'action',
+      ...staticCopy('nav:mcp'),
+      Icon: Plug,
+      keywords: [...copy.staticKeywords['nav:mcp']],
+      run: () => select({ section: 'mcp' }),
+    });
+    cmds.push({
       id: 'nav:daily-review',
       kind: 'action',
       ...staticCopy('nav:daily-review'),

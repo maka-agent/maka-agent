@@ -13,9 +13,10 @@ const EXPECTED_MODULE_PAGE_IMPORTS = [
   './module-pages/capability-audit.css',
   './module-pages/module-shell.css',
   './module-pages/skills.css',
+  './module-pages/mcp.css',
 ];
 
-const MODULE_OWNER_SELECTOR_RE = /\.(?:maka-(?:plan|skill|module|capability)|maka-panel-detail)\b/;
+const MODULE_OWNER_SELECTOR_RE = /\.(?:maka-(?:plan|skill|mcp|module|capability)|maka-panel-detail)\b/;
 const FORBIDDEN_MODULE_SELECTOR_RE = /:where\(\s*input|\.settingsSelect|\.maka-chat-(?:header|status)|\.maka-model-switcher|\.detailPane\b/;
 
 function readCssImports(source: string): string[] {

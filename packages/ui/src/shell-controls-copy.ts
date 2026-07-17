@@ -8,7 +8,9 @@ type ShellControlsCopy = {
     mainLabel: string;
     newTask: string;
     automations: string;
+    extensions: string;
     skills: string;
+    mcp: string;
     dailyReview: string;
     settings: string;
     pendingReminders(count: number): string;
@@ -40,7 +42,9 @@ const SHELL_CONTROLS_COPY_BY_LOCALE = {
       mainLabel: '主导航',
       newTask: '新任务',
       automations: '定时任务',
+      extensions: '扩展',
       skills: '技能',
+      mcp: 'MCP',
       dailyReview: '每日回顾',
       settings: '设置',
       pendingReminders: (count: number) => `定时任务，${count} 个未完成提醒`,
@@ -70,7 +74,9 @@ const SHELL_CONTROLS_COPY_BY_LOCALE = {
       mainLabel: 'Main navigation',
       newTask: 'New task',
       automations: 'Automations',
+      extensions: 'Extensions',
       skills: 'Skills',
+      mcp: 'MCP',
       dailyReview: 'Daily Review',
       settings: 'Settings',
       pendingReminders: (count: number) => `Automations, ${count} unfinished ${count === 1 ? 'reminder' : 'reminders'}`,

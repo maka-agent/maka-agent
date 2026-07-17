@@ -15,7 +15,7 @@ test('MCP IPC reconciles config before invalidating idle backends and emitting s
     ipcMain: { handle(channel, handler) { handlers.set(channel, handler as (...args: any[]) => Promise<any>); } },
     store: {
       get: async () => config,
-      set: async (next) => { config = next; return next; },
+      set: async (next) => { calls.push('store'); config = next; return next; },
       upsert: async (serverId, server) => {
         calls.push('store');
         config = { version: 1, mcpServers: { ...config.mcpServers, [serverId]: server } };
@@ -42,6 +42,18 @@ test('MCP IPC reconciles config before invalidating idle backends and emitting s
   assert.ok(upsert);
   const result = await upsert({}, 'fixture', { command: 'node' });
   assert.deepEqual(result.mcpServers.fixture, { command: 'node' });
+  assert.deepEqual(calls, ['store', 'sync', 'refresh', 'emit']);
+
+  calls.length = 0;
+  const setConfig = handlers.get('mcp:setConfig');
+  assert.ok(setConfig);
+  const imported = await setConfig({}, {
+    version: 1,
+    mcpServers: { remote: { url: 'https://example.com/mcp', enabled: false } },
+  });
+  assert.deepEqual(imported.mcpServers, {
+    remote: { url: 'https://example.com/mcp', enabled: false },
+  });
   assert.deepEqual(calls, ['store', 'sync', 'refresh', 'emit']);
 
   calls.length = 0;

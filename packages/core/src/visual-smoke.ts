@@ -276,7 +276,7 @@ export interface VisualSmokeState {
    * to screenshot non-session sidebar content without adding a real
    * router path.
    */
-  sidebarSection?: 'sessions' | 'automations' | 'skills' | 'daily-review';
+  sidebarSection?: 'sessions' | 'automations' | 'skills' | 'mcp' | 'daily-review';
   /**
    * Fixture-only sidebar collapsed override. Screenshot runs use a
    * fresh userData dir, while the real app defaults to the collapsed

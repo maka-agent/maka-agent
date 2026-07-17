@@ -32,6 +32,7 @@ import { useCommandPalette } from './command-palette';
 import { ChatMessageSurface } from './chat-message-surface';
 import { ChatComposerRegion } from './chat-composer-region';
 import { ChatWorkbar } from './chat-workbar';
+import { McpPage } from './mcp-page';
 import { useOnboardingSnapshot } from './use-onboarding-snapshot';
 import type { OnboardingSnapshot } from '../global';
 import { ProviderLogo } from './settings/provider-display';
@@ -1278,6 +1279,8 @@ function AppShellContent({
               ? 'cron'
               : navSelection.section === 'skills'
                 ? 'skills'
+                : navSelection.section === 'mcp'
+                  ? 'mcp'
                 : navSelection.section === 'sessions'
                   ? 'im_hub'
                   : navSelection.section
@@ -1324,6 +1327,8 @@ function AppShellContent({
                   onSetSkillEnabled={(skillId, enabled) => setSkillEnabled(skillId, enabled)}
                   onDeleteSkill={(skillId) => deleteSkill(skillId)}
                 />
+              ) : navSelection.section === 'mcp' ? (
+                <McpPage />
               ) : navSelection.section === 'automations' ? (
                 <AutomationsPage
                   skills={skills}

@@ -1,6 +1,6 @@
 # Maka MCP runtime architecture
 
-状态：V1 implemented and verified（2026-07-15）
+状态：V1 implemented and verified（2026-07-18）
 
 ## 1. 目标与边界
 
@@ -12,7 +12,7 @@ V1 支持：
 - `tools/list` pagination、`notifications/tools/list_changed`、tool call timeout 和 abort。
 - text、image、audio、embedded resource、resource link content；MCP `isError` 进入 Maka error path。
 - workspace-scoped `mcp.json`，采用通用的 `mcpServers` 配置结构。
-- Desktop CRUD、test、reconnect、status/tool list，以及配置变化后的 backend cache invalidation。
+- 首页侧边栏「扩展 > MCP」模块，提供市场模板、搜索、JSON import、CRUD、test、status/tool list，以及配置变化后的 backend cache invalidation。
 
 V1 不包含 OAuth browser flow、resources UI、resource subscription 和给 subprocess 使用的 loopback proxy。它们属于 V2；协议层保留 transport 和 content contracts，避免返工。
 
@@ -30,7 +30,7 @@ V1 不包含 OAuth browser flow、resources UI、resource subscription 和给 su
 
 ```mermaid
 flowchart LR
-  UI["Desktop Settings / IPC"] --> Store["McpConfigStore"]
+  UI["Desktop 扩展 / MCP / IPC"] --> Store["McpConfigStore"]
   Store --> Manager["McpClientManager singleton"]
   Manager --> Transport["stdio / Streamable HTTP / SSE"]
   Manager --> Adapter["buildMcpTools"]
@@ -93,7 +93,7 @@ timeout 默认值：remote connect 30s、stdio connect 60s、list 15s、call 10m
 2. `isError`、timeout、abort、startup failure 和经过 secret redaction 的 stderr diagnostics 有自动化覆盖。
 3. config store 能拒绝非法输入、并发写不损坏、POSIX mode 为 `0600`。
 4. tool name 在 64 chars 内稳定、无 collision；不可信 annotations 无法降低权限，model output aggregate bounds 有测试。
-5. Desktop 可添加、编辑、启停、测试和删除 server；状态与 tools 可见。
+5. Desktop 首页侧边栏仅在「扩展」分组下提供「技能」和「MCP」；MCP 模块可搜索市场模板、JSON import、添加、编辑、启停、测试和删除 server，状态与 tools 可见。
 6. 更新配置后新 turn 看见新 tools，删除后 tools 消失。
 7. targeted tests、workspace typecheck/build、full tests 和 Electron smoke 均通过。
 

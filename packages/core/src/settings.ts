@@ -52,7 +52,6 @@ export const SETTINGS_SECTIONS = [
   'memory',
   'daily-review',
   'models',
-  'mcp',
   'usage',
   'voice',
   'open-gateway',

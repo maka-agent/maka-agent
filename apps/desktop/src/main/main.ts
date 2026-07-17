@@ -944,7 +944,7 @@ function modelSupportsVision(connection: LlmConnection, model: string): boolean 
 }
 
 backends.register('ai-sdk', async (ctx) => {
-  // MCP is optional. A corrupt mcp.json remains visible through Settings,
+  // MCP is optional. A corrupt mcp.json remains visible in the MCP module,
   // but must not prevent builtin-only conversations from creating a backend.
   await ensureMcpReady().catch(() => {});
   const { connection, apiKey, model } = await getReadyConnection(ctx.header.llmConnectionSlug, ctx.header.model);
