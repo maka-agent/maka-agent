@@ -15,8 +15,9 @@ const SCAN_ROOTS = ['packages', 'apps'];
 // var — re-introduces a parallel containment implementation; new callers must
 // import `isPathInside` from `@maka/runtime` (or `./path-containment.js` inside
 // the runtime package). The strict-interior family (`isInsideOrSamePath` /
-// `isInsideCwd`, where the target may not equal root) is a deliberately
-// different semantic and stays allowed. `pathWithinRoot` is intentionally NOT
+// `isInsideCwd`) is a deliberately different semantic and stays allowed;
+// unifying it with `isPathInside` is tracked separately (out of scope for #1145).
+// `pathWithinRoot` is intentionally NOT
 // retired: `packages/core` has same-named helpers that do POSIX policy-string
 // prefix matching (`trimTrailingSlashes` + `startsWith`), not `node:path`
 // relative containment, so the name is not a reliable signal across packages.
