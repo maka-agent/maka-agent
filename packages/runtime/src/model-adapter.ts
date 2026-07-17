@@ -185,7 +185,7 @@ export class ModelAdapter {
       activeTools: input.activeTools,
       ...(input.prepareStep ? { prepareStep: input.prepareStep } : {}),
       experimental_repairToolCall: input.repairToolCall,
-      system: input.system,
+      ...(input.system ? { system: input.system } : {}),
       providerOptions: this.input.providerOptions,
       // streamText defaults to one step when stopWhen is omitted. Its exported
       // non-stopping condition is required for an unbounded tool loop.
