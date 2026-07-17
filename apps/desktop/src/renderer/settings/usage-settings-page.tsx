@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import type { AppSettings, UpdateAppSettingsResult, UsageRange, UsageStats } from '@maka/core';
 import { Button, Input, Segmented, SettingsSelect, SettingsSwitch as Switch, useToast } from '@maka/ui';
 import { RefreshCcw } from '@maka/ui/icons';
 import { MetricCard } from './settings-metric-card';
 import { settingsActionErrorMessage } from './settings-error-copy';
+import { useActionGuard } from './use-action-guard';
 import { useOptimisticSettingsDraft } from './use-optimistic-settings-draft';
 
 export function UsageSettingsPage(props: {
@@ -15,7 +16,7 @@ export function UsageSettingsPage(props: {
 }) {
   const persistedUsage = props.settings.usage;
   const [refreshing, setRefreshing] = useState(false);
-  const usageRefreshRunningRef = useRef(false);
+  const usageRefreshGuard = useActionGuard<'refresh'>();
   const stats = props.stats;
   const toast = useToast();
   const {
@@ -28,12 +29,6 @@ export function UsageSettingsPage(props: {
     (patch) => props.onUpdate({ usage: patch }).then((result) => result.settings.usage),
     { onError: (error) => toast.error('保存使用统计设置失败', settingsActionErrorMessage(error)) },
   );
-
-  useEffect(() => {
-    return () => {
-      usageRefreshRunningRef.current = false;
-    };
-  }, []);
 
   const normalizedModelFilter = usageDraft.modelFilter.trim().toLowerCase();
   const hasRequestFilters = usageDraft.status !== 'all' || normalizedModelFilter.length > 0;
@@ -60,13 +55,12 @@ export function UsageSettingsPage(props: {
   }
 
   async function refresh() {
-    if (usageRefreshRunningRef.current) return;
-    usageRefreshRunningRef.current = true;
+    if (!usageRefreshGuard.begin('refresh')) return;
     setRefreshing(true);
     try {
       await props.onReload(usageDraftRef.current.range);
     } finally {
-      usageRefreshRunningRef.current = false;
+      usageRefreshGuard.finish();
       if (usagePageMountedRef.current) {
         setRefreshing(false);
       }

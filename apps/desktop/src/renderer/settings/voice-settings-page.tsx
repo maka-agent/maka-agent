@@ -3,6 +3,7 @@ import { Volume2 } from '@maka/ui/icons';
 import type { VoicePermissionStatus } from '@maka/core';
 import { defaultVoiceCaptureCaps, validateVoiceCaptureRequest } from '@maka/core';
 import { Button, PageHeader, formatBytes, useMountedRef, useToast } from '@maka/ui';
+import { useActionGuard } from './use-action-guard';
 
 type VoiceSmokeState =
   | { status: 'idle'; message: string }
@@ -18,7 +19,7 @@ export function VoiceModelsSettingsPage() {
     message: '等待运行本机录音自检。',
   });
   const [isBusy, setIsBusy] = useState(false);
-  const captureSmokeBusyRef = useRef(false);
+  const captureSmokeGuard = useActionGuard<'smoke'>();
   const voicePageMountedRef = useMountedRef();
   const activeVoiceCaptureStreamRef = useRef<MediaStream | null>(null);
   const toast = useToast();
@@ -29,7 +30,6 @@ export function VoiceModelsSettingsPage() {
     return () => {
       activeVoiceCaptureStreamRef.current?.getTracks().forEach((track) => track.stop());
       activeVoiceCaptureStreamRef.current = null;
-      captureSmokeBusyRef.current = false;
     };
   }, []);
 
@@ -44,7 +44,7 @@ export function VoiceModelsSettingsPage() {
   }, []);
 
   async function runCaptureSmoke() {
-    if (captureSmokeBusyRef.current) return;
+    if (captureSmokeGuard.current !== null) return;
     if (!navigator.mediaDevices?.getUserMedia) {
       setPermission('unsupported');
       setSmoke({ status: 'error', message: '当前运行环境不支持浏览器麦克风 API。' });
@@ -56,7 +56,7 @@ export function VoiceModelsSettingsPage() {
       return;
     }
 
-    captureSmokeBusyRef.current = true;
+    captureSmokeGuard.begin('smoke');
     setIsBusy(true);
     setSmoke({ status: 'checking', message: '正在请求 macOS / 浏览器麦克风权限…' });
     let stream: MediaStream | null = null;
@@ -121,7 +121,7 @@ export function VoiceModelsSettingsPage() {
       if (activeVoiceCaptureStreamRef.current === stream) {
         activeVoiceCaptureStreamRef.current = null;
       }
-      captureSmokeBusyRef.current = false;
+      captureSmokeGuard.finish();
       if (voicePageMountedRef.current) {
         setIsBusy(false);
       }

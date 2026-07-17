@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { PersonalizationSettingsPage } from './appearance-settings-page';
 import type {
   AppSettings,
@@ -29,6 +29,7 @@ import { buildCatalogChatModelChoices } from '../model-catalog-choices';
 import { PasswordInput } from './password-input';
 import { SettingsRows } from './settings-rows';
 import { settingsActionErrorMessage } from './settings-error-copy';
+import { useActionGuard, useKeyedActionGuard } from './use-action-guard';
 import { useOptimisticSettingsDraft } from './use-optimistic-settings-draft';
 
 export function GeneralSettingsPage(props: {
@@ -120,17 +121,9 @@ function GeneralDefaultsCard(props: {
 }) {
   const toast = useToast();
   const mountedRef = useMountedRef();
-  const savingRef = useRef(false);
+  const persistGuard = useKeyedActionGuard<'default-model' | 'permission-mode'>();
   const [saving, setSaving] = useState(false);
-  const savingPermissionModeRef = useRef(false);
   const [savingPermissionMode, setSavingPermissionMode] = useState(false);
-
-  useEffect(() => {
-    return () => {
-      savingRef.current = false;
-      savingPermissionModeRef.current = false;
-    };
-  }, []);
 
   const modelChoices = useMemo(() => buildCatalogChatModelChoices(props.connections), [props.connections]);
   const modelGroups = useMemo(() => modelMenuGroups(modelChoices), [modelChoices]);
@@ -147,8 +140,8 @@ function GeneralDefaultsCard(props: {
   }, [modelChoices, selectedValue]);
 
   async function persistDefault(nextValue: string) {
-    if (savingRef.current) return;
-    savingRef.current = true;
+    const releaseSave = persistGuard.begin('default-model');
+    if (!releaseSave) return;
     setSaving(true);
     try {
       const parsed = parseModelChoiceValue(nextValue);
@@ -163,9 +156,7 @@ function GeneralDefaultsCard(props: {
         toast.error('保存默认模型失败', settingsActionErrorMessage(error));
       }
     } finally {
-      if (savingRef.current) {
-        savingRef.current = false;
-      }
+      releaseSave();
       if (mountedRef.current) setSaving(false);
     }
   }
@@ -175,8 +166,8 @@ function GeneralDefaultsCard(props: {
     // alone can't fully prevent overlapping saves (React disables it a tick
     // after the click), and overlapping settings.update calls have no
     // ordering guarantee.
-    if (savingPermissionModeRef.current) return;
-    savingPermissionModeRef.current = true;
+    const releaseSave = persistGuard.begin('permission-mode');
+    if (!releaseSave) return;
     setSavingPermissionMode(true);
     try {
       await props.onUpdate({ chatDefaults: { permissionMode: nextMode } });
@@ -185,7 +176,7 @@ function GeneralDefaultsCard(props: {
         toast.error('保存默认权限模式失败', settingsActionErrorMessage(error));
       }
     } finally {
-      savingPermissionModeRef.current = false;
+      releaseSave();
       if (mountedRef.current) setSavingPermissionMode(false);
     }
   }
@@ -246,7 +237,7 @@ function NetworkProxySection(props: {
 }) {
   const persistedProxy = props.settings.network.proxy;
   const [testing, setTesting] = useState(false);
-  const proxyTestRunningRef = useRef(false);
+  const proxyTestGuard = useActionGuard<'test'>();
   const toast = useToast();
   const {
     draft: proxyDraft,
@@ -259,19 +250,12 @@ function NetworkProxySection(props: {
     { onError: (error) => toast.error('保存网络设置失败', settingsActionErrorMessage(error)) },
   );
 
-  useEffect(() => {
-    return () => {
-      proxyTestRunningRef.current = false;
-    };
-  }, []);
-
   function updateProxy(patch: Partial<NetworkProxySettings>) {
     return update(patch);
   }
 
   async function testProxy() {
-    if (proxyTestRunningRef.current) return;
-    proxyTestRunningRef.current = true;
+    if (!proxyTestGuard.begin('test')) return;
     setTesting(true);
     try {
       const result = await window.maka.settings.testNetworkProxy(toProxyTestInput(proxyDraftRef.current));
@@ -286,7 +270,7 @@ function NetworkProxySection(props: {
         toast.error('代理测试出错', settingsActionErrorMessage(error));
       }
     } finally {
-      proxyTestRunningRef.current = false;
+      proxyTestGuard.finish();
       if (networkPageMountedRef.current) {
         setTesting(false);
       }

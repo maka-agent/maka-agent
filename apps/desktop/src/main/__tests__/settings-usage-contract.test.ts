@@ -223,8 +223,8 @@ describe('Settings usage dashboard contract', () => {
     );
     assert.match(
       usagePage,
-      /useEffect\(\(\) => \{[\s\S]*return \(\) => \{[\s\S]*usageRefreshRunningRef\.current = false;/,
-      'Usage settings cleanup must release manual refresh ownership (the hook invalidates saves)',
+      /const usageRefreshGuard = useActionGuard<'refresh'>\(\)/,
+      'Usage settings must hold its manual refresh guard from the shared hook (which releases it on unmount and invalidates saves)',
     );
     // Save-response staleness + rollback after unmount are owned by the shared
     // optimistic draft hook and covered by its controller unit test; the page
@@ -236,7 +236,7 @@ describe('Settings usage dashboard contract', () => {
     );
     assert.match(
       usagePage,
-      /finally \{[\s\S]*usageRefreshRunningRef\.current = false;[\s\S]*if \(usagePageMountedRef\.current\) \{[\s\S]*setRefreshing\(false\);/,
+      /finally \{[\s\S]*usageRefreshGuard\.finish\(\);[\s\S]*if \(usagePageMountedRef\.current\) \{[\s\S]*setRefreshing\(false\);/,
       'Manual usage refresh cleanup must not write React pending state after unmount',
     );
   });
@@ -270,18 +270,18 @@ describe('Settings usage dashboard contract', () => {
     assert.ok(usagePage, 'Usage settings page block must exist');
     assert.match(
       usagePage![0],
-      /const usageRefreshRunningRef = useRef\(false\);/,
-      'Manual usage refresh needs a ref gate so fast double-clicks cannot duplicate reloads before React disables the button',
+      /const usageRefreshGuard = useActionGuard<'refresh'>\(\)/,
+      'Manual usage refresh needs a synchronous guard so fast double-clicks cannot duplicate reloads before React disables the button',
     );
     assert.match(
       usagePage![0],
-      /async function refresh\(\) \{\s*if \(usageRefreshRunningRef\.current\) return;[\s\S]*usageRefreshRunningRef\.current = true;[\s\S]*await props\.onReload\(usageDraftRef\.current\.range\)/,
+      /async function refresh\(\) \{\s*if \(!usageRefreshGuard\.begin\('refresh'\)\) return;[\s\S]*await props\.onReload\(usageDraftRef\.current\.range\)/,
       'Manual usage refresh must lock synchronously and read the latest local draft range',
     );
     assert.match(
       usagePage![0],
-      /finally \{[\s\S]*usageRefreshRunningRef\.current = false;[\s\S]*setRefreshing\(false\);[\s\S]*\}/,
-      'Manual usage refresh must release the ref gate after reload settles',
+      /finally \{[\s\S]*usageRefreshGuard\.finish\(\);[\s\S]*setRefreshing\(false\);[\s\S]*\}/,
+      'Manual usage refresh must release the guard after reload settles',
     );
     assert.doesNotMatch(
       usagePage![0],

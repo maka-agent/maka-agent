@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import type { AppSettings, UpdateAppSettingsResult, WebSearchCredentialStatus } from '@maka/core';
 import { normalizeSearchUrl, webSearchCredentialStatusFromResponse } from '@maka/core';
 import { Button, Chip, Input, RelativeTime, SettingsSwitch as Switch, redactSecrets, useMountedRef, useToast } from '@maka/ui';
 import { PasswordInput } from './password-input';
 import { settingsActionErrorMessage } from './settings-error-copy';
 import { SettingsRows } from './settings-rows';
+import { useKeyedActionGuard } from './use-action-guard';
 
 /**
  * PR-WEB-SEARCH-TAVILY-0: Settings → 联网搜索.
@@ -37,21 +38,9 @@ export function WebSearchSettingsPage(props: {
   const [liveQueryResults, setLiveQueryResults] = useState<readonly { title: string; url: string; snippet: string; source: string }[] | null>(null);
   const [liveQueryError, setLiveQueryError] = useState<string | null>(null);
   const webSearchMountedRef = useMountedRef();
-  const pendingWebSearchEnabledRef = useRef(false);
-  const pendingCredentialActionRef = useRef<'save' | 'clear' | null>(null);
-  const testingRef = useRef(false);
-  const liveQueryRunningRef = useRef(false);
+  const webSearchActionGuard = useKeyedActionGuard<'set-enabled' | 'credential' | 'test' | 'live-query'>();
   const liveQueryInputRef = useRef(liveQuery);
   const toast = useToast();
-
-  useEffect(() => {
-    return () => {
-      pendingWebSearchEnabledRef.current = false;
-      pendingCredentialActionRef.current = null;
-      testingRef.current = false;
-      liveQueryRunningRef.current = false;
-    };
-  }, []);
 
   function updateLiveQuery(next: string) {
     liveQueryInputRef.current = next;
@@ -65,13 +54,14 @@ export function WebSearchSettingsPage(props: {
   }
 
   async function runCredentialAction(action: 'save' | 'clear', run: () => Promise<void>) {
-    if (pendingCredentialActionRef.current !== null || testingRef.current) return;
-    pendingCredentialActionRef.current = action;
+    if (webSearchActionGuard.has('credential') || webSearchActionGuard.has('test')) return;
+    const releaseCredential = webSearchActionGuard.begin('credential');
+    if (!releaseCredential) return;
     setPendingCredentialAction(action);
     try {
       await run();
     } finally {
-      pendingCredentialActionRef.current = null;
+      releaseCredential();
       if (webSearchMountedRef.current) {
         setPendingCredentialAction(null);
       }
@@ -94,13 +84,13 @@ export function WebSearchSettingsPage(props: {
   }
 
   async function setEnabled(enabled: boolean) {
-    if (pendingWebSearchEnabledRef.current) return;
-    pendingWebSearchEnabledRef.current = true;
+    const releaseEnabled = webSearchActionGuard.begin('set-enabled');
+    if (!releaseEnabled) return;
     setPendingWebSearchEnabled(true);
     try {
       await updateWebSearch({ enabled });
     } finally {
-      pendingWebSearchEnabledRef.current = false;
+      releaseEnabled();
       if (webSearchMountedRef.current) {
         setPendingWebSearchEnabled(false);
       }
@@ -144,8 +134,9 @@ export function WebSearchSettingsPage(props: {
   }
 
   async function runTest() {
-    if (testingRef.current || pendingCredentialActionRef.current !== null) return;
-    testingRef.current = true;
+    if (webSearchActionGuard.has('test') || webSearchActionGuard.has('credential')) return;
+    const releaseTest = webSearchActionGuard.begin('test');
+    if (!releaseTest) return;
     setTesting(true);
     const usesDraftKey = draftKey.trim().length > 0;
     const testedCredentialVersion = tavily.credentialVersion;
@@ -168,7 +159,7 @@ export function WebSearchSettingsPage(props: {
         toast.error('Tavily 测试出错', settingsActionErrorMessage(err));
       }
     } finally {
-      testingRef.current = false;
+      releaseTest();
       if (webSearchMountedRef.current) {
         setTesting(false);
       }
@@ -176,11 +167,12 @@ export function WebSearchSettingsPage(props: {
   }
 
   async function runLiveQuery() {
-    if (liveQueryRunningRef.current) return;
+    if (webSearchActionGuard.has('live-query')) return;
     const queryOwner = liveQueryInputRef.current;
     const trimmed = queryOwner.trim();
     if (trimmed.length === 0) return;
-    liveQueryRunningRef.current = true;
+    const releaseLiveQuery = webSearchActionGuard.begin('live-query');
+    if (!releaseLiveQuery) return;
     setLiveQueryRunning(true);
     setLiveQueryError(null);
     setLiveQueryResults(null);
@@ -208,7 +200,7 @@ export function WebSearchSettingsPage(props: {
         setLiveQueryError(settingsActionErrorMessage(err));
       }
     } finally {
-      liveQueryRunningRef.current = false;
+      releaseLiveQuery();
       if (webSearchMountedRef.current) {
         setLiveQueryRunning(false);
       }

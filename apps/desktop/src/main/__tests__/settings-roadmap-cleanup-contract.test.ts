@@ -250,20 +250,19 @@ describe('Settings coming-soon cleanup contract', () => {
     const permissionPage = settings.match(/function PermissionCenterPage\(\)[\s\S]*?function CapabilityRow/)?.[0] ?? '';
 
     assert.match(permissionPage, /const \[pendingPermAction, setPendingPermAction\] = useState<string \| null>\(null\)/);
-    assert.match(permissionPage, /const pendingPermActionRef = useRef<string \| null>\(null\)/);
     assert.match(
       permissionPage,
-      /return \(\) => \{[\s\S]*pendingPermActionRef\.current = null;/,
-      'Permission Center must release the pending action owner when Settings closes',
+      /const permissionActionGuard = useActionGuard<string>\(\)/,
+      'Permission Center must hold the pending action owner in the shared guard (released on unmount)',
     );
     assert.match(
       permissionPage,
-      /const actionKey = `\$\{permId\}:\$\{kind\}`;[\s\S]*if \(pendingPermActionRef\.current\) return;[\s\S]*pendingPermActionRef\.current = actionKey;[\s\S]*setPendingPermAction\(actionKey\);/,
+      /const actionKey = `\$\{permId\}:\$\{kind\}`;[\s\S]*if \(!permissionActionGuard\.begin\(actionKey\)\) return;[\s\S]*setPendingPermAction\(actionKey\);/,
       'Permission Center must synchronously reject same-frame duplicate permission actions before React commits disabled state',
     );
     assert.match(
       permissionPage,
-      /finally \{[\s\S]*if \(pendingPermActionRef\.current === actionKey\) \{[\s\S]*pendingPermActionRef\.current = null;[\s\S]*\}[\s\S]*if \(mountedRef\.current\) setPendingPermAction\(null\);/,
+      /finally \{[\s\S]*if \(permissionActionGuard\.current === actionKey\) \{[\s\S]*permissionActionGuard\.finish\(\);[\s\S]*\}[\s\S]*if \(mountedRef\.current\) setPendingPermAction\(null\);/,
       'Permission Center must release only the action it owns and avoid state writes after unmount',
     );
     assert.match(permissionPage, /busy=\{pendingPermAction !== null\}/);

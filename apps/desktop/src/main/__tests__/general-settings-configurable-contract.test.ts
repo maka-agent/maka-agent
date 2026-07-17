@@ -85,7 +85,7 @@ describe('General settings configurable contract', () => {
     );
   });
 
-  it('guards GeneralDefaultsCard with the same mounted-ref + savingRef ownership pattern used elsewhere in SettingsModal', async () => {
+  it('guards GeneralDefaultsCard with the same mounted-ref + shared action-guard ownership pattern used elsewhere in SettingsModal', async () => {
     const src = await readSettingsCombinedSource();
     // Capture the function's body up to the next top-level `function`
     // declaration so per-card guards are checked inside the component.
@@ -99,13 +99,13 @@ describe('General settings configurable contract', () => {
     );
     assert.match(
       cardBlock,
-      /const savingRef = useRef\(false\);/,
-      'GeneralDefaultsCard must use a synchronous savingRef so rapid duplicate selects do not race a previous in-flight save',
+      /const persistGuard = useKeyedActionGuard<'default-model' \| 'permission-mode'>\(\)/,
+      'GeneralDefaultsCard must use a synchronous guard from the shared hook so rapid duplicate selects do not race a previous in-flight save',
     );
     assert.match(
       cardBlock,
-      /if \(savingRef\.current\) return;[\s\S]*savingRef\.current = true;[\s\S]*setSaving\(true\);[\s\S]*await window\.maka\.connections\.setDefaultModel/,
-      'GeneralDefaultsCard must take the synchronous savingRef lock before awaiting the IPC; React state alone is not enough to block double-clicks',
+      /const releaseSave = persistGuard\.begin\('default-model'\);[\s\S]*if \(!releaseSave\) return;[\s\S]*setSaving\(true\);[\s\S]*await window\.maka\.connections\.setDefaultModel/,
+      'GeneralDefaultsCard must take the synchronous guard lock before awaiting the IPC; React state alone is not enough to block double-clicks',
     );
     assert.match(
       cardBlock,

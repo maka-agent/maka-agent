@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type Ref } from 'react';
 import { Check, Copy, Eye, EyeOff } from '@maka/ui/icons';
 import { Button, Input, useMountedRef, useToast } from '@maka/ui';
+import { useActionGuard } from './use-action-guard';
 
 /**
  * PR-BOT-SETTINGS-PASSWORD-EYE-0 / PR-BOT-SETTINGS-PASSWORD-COPY-0 /
@@ -31,13 +32,12 @@ export function PasswordInput(props: {
   const [visible, setVisible] = useState(false);
   const [justCopied, setJustCopied] = useState(false);
   const [copying, setCopying] = useState(false);
-  const copyingRef = useRef(false);
+  const copyGuard = useActionGuard<'copy'>();
   const mountedRef = useMountedRef();
   const copyFeedbackTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     return () => {
-      copyingRef.current = false;
       if (copyFeedbackTimerRef.current !== null) {
         window.clearTimeout(copyFeedbackTimerRef.current);
         copyFeedbackTimerRef.current = null;
@@ -58,8 +58,7 @@ export function PasswordInput(props: {
 
   async function copyValue() {
     if (!props.value) return;
-    if (copyingRef.current) return;
-    copyingRef.current = true;
+    if (!copyGuard.begin('copy')) return;
     setCopying(true);
     try {
       await navigator.clipboard.writeText(props.value);
@@ -67,7 +66,7 @@ export function PasswordInput(props: {
     } catch {
       if (mountedRef.current) toast.error('复制失败', '剪贴板不可用或被系统拒绝。');
     } finally {
-      copyingRef.current = false;
+      copyGuard.finish();
       if (mountedRef.current) setCopying(false);
     }
   }

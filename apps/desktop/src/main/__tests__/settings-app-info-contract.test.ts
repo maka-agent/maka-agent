@@ -71,17 +71,12 @@ describe('Settings app-info loading contract', () => {
     const dataBlock = blockBetween('function DataSettingsPage', 'function PersonalizationSettingsPage');
 
     assert.match(dataBlock, /const \[pendingDataAction, setPendingDataAction\] = useState<string \| null>\(null\)/);
-    assert.match(dataBlock, /const pendingDataActionRef = useRef<string \| null>\(null\)/);
+    assert.match(dataBlock, /const dataActionGuard = useActionGuard<string>\(\)/);
     assert.match(dataBlock, /const dataPageMountedRef = useMountedRef\(\)/);
     assert.match(
       dataBlock,
-      /useEffect\(\(\) => \{[\s\S]*return \(\) => \{[\s\S]*pendingDataActionRef\.current = null;[\s\S]*\};[\s\S]*\}, \[toast\]\);/,
-      'Data page actions must be invalidated when the page unmounts',
-    );
-    assert.match(
-      dataBlock,
-      /async function runDataAction\(action: string, run: \(\) => Promise<void>\) \{[\s\S]*if \(pendingDataActionRef\.current\) return;[\s\S]*pendingDataActionRef\.current = action;[\s\S]*setPendingDataAction\(action\);[\s\S]*await run\(\);[\s\S]*pendingDataActionRef\.current = null;[\s\S]*if \(dataPageMountedRef\.current\) \{[\s\S]*setPendingDataAction\(null\);[\s\S]*\}/,
-      'Data page open/copy actions need a shared pending guard and must not clean UI state after unmount',
+      /async function runDataAction\(action: string, run: \(\) => Promise<void>\) \{[\s\S]*if \(!dataActionGuard\.begin\(action\)\) return;[\s\S]*setPendingDataAction\(action\);[\s\S]*await run\(\);[\s\S]*dataActionGuard\.finish\(\);[\s\S]*if \(dataPageMountedRef\.current\) \{[\s\S]*setPendingDataAction\(null\);[\s\S]*\}/,
+      'Data page open/copy actions need a shared pending guard and must not clean UI state after unmount (the shared guard hook releases on unmount)',
     );
     assert.match(
       dataBlock,
@@ -153,17 +148,17 @@ describe('Settings app-info loading contract', () => {
     const aboutBlock = blockBetween('function AboutSettingsPage', 'function SettingsSkeleton');
 
     assert.match(aboutBlock, /const \[copyingEnvSummary, setCopyingEnvSummary\] = useState\(false\)/);
-    assert.match(aboutBlock, /const copyingEnvSummaryRef = useRef\(false\)/);
+    assert.match(aboutBlock, /const envSummaryCopyGuard = useActionGuard<'copy'>\(\)/);
     assert.match(aboutBlock, /const aboutPageMountedRef = useMountedRef\(\)/);
     assert.match(
       aboutBlock,
-      /useEffect\(\(\) => \{[\s\S]*return \(\) => \{[\s\S]*copyingEnvSummaryRef\.current = false;[\s\S]*\};[\s\S]*\}, \[toast\]\);/,
-      'About page copy actions must be invalidated when the page unmounts',
+      /async function copyEnvSummary\(\) \{[\s\S]*if \(!envSummaryCopyGuard\.begin\('copy'\)\) return;[\s\S]*setCopyingEnvSummary\(true\);/,
+      'About page environment copy should not allow repeated clipboard requests (the shared guard hook releases on unmount)',
     );
     assert.match(
       aboutBlock,
-      /async function copyEnvSummary\(\) \{[\s\S]*if \(copyingEnvSummaryRef\.current\) return;[\s\S]*copyingEnvSummaryRef\.current = true;[\s\S]*setCopyingEnvSummary\(true\);[\s\S]*await navigator\.clipboard\.writeText\(summary\);[\s\S]*if \(aboutPageMountedRef\.current\) \{[\s\S]*toast\.success\('已复制环境信息', '可直接粘贴到问题报告'\);[\s\S]*\}[\s\S]*catch \{[\s\S]*if \(aboutPageMountedRef\.current\) \{[\s\S]*toast\.error\('复制失败', '剪贴板不可用或被系统拒绝。'\);[\s\S]*\}[\s\S]*finally \{[\s\S]*copyingEnvSummaryRef\.current = false;[\s\S]*if \(aboutPageMountedRef\.current\) \{[\s\S]*setCopyingEnvSummary\(false\);[\s\S]*\}/,
-      'About page environment copy should not allow repeated clipboard requests and must not update UI after unmount',
+      /await navigator\.clipboard\.writeText\(summary\);[\s\S]*if \(aboutPageMountedRef\.current\) \{[\s\S]*toast\.success\('已复制环境信息', '可直接粘贴到问题报告'\);[\s\S]*\}[\s\S]*catch \{[\s\S]*if \(aboutPageMountedRef\.current\) \{[\s\S]*toast\.error\('复制失败', '剪贴板不可用或被系统拒绝。'\);[\s\S]*\}[\s\S]*finally \{[\s\S]*envSummaryCopyGuard\.finish\(\);[\s\S]*if \(aboutPageMountedRef\.current\) \{[\s\S]*setCopyingEnvSummary\(false\);[\s\S]*\}/,
+      'About page environment copy must not update UI after unmount',
     );
     assert.match(aboutBlock, /disabled=\{copyingEnvSummary\}/);
     assert.match(aboutBlock, /copyingEnvSummary \? '复制中…' : '复制环境信息'/);

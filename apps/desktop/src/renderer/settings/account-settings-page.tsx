@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { ConnectionTestResult, LlmConnection } from '@maka/core';
 import { deriveProviderAuthContractFromConnection, generalizedErrorMessageChinese } from '@maka/core';
 import { PROVIDER_DEFAULTS, providerAuthRequiresSecret } from '@maka/core/llm-connections';
@@ -16,6 +16,7 @@ import {
 import { SettingsRows, SettingRow } from './settings-rows';
 import { settingsActionErrorMessage } from './settings-error-copy';
 import { connectionLastTestMessageDisplay } from './provider-panel-shared';
+import { useActionGuard } from './use-action-guard';
 
 type AccountSecretProbeStatus = boolean | 'loading' | 'error';
 type AccountSecretProbeResult =
@@ -53,15 +54,9 @@ export function AccountSettingsPage(props: {
   const [secretMap, setSecretMap] = useState<Record<string, AccountSecretProbeStatus>>({});
   const [secretProbeError, setSecretProbeError] = useState<string | null>(null);
   const [testingSlug, setTestingSlug] = useState<string | null>(null);
-  const testingSlugRef = useRef<string | null>(null);
+  const connectionTestGuard = useActionGuard<string>();
   const accountPageMountedRef = useMountedRef();
   const toast = useToast();
-
-  useEffect(() => {
-    return () => {
-      testingSlugRef.current = null;
-    };
-  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -93,12 +88,11 @@ export function AccountSettingsPage(props: {
   }, [props.connections]);
 
   async function testConnection(slug: string) {
-    if (testingSlugRef.current !== null) return;
-    testingSlugRef.current = slug;
+    if (!connectionTestGuard.begin(slug)) return;
     setTestingSlug(slug);
     try {
       const result = await window.maka.connections.test(slug);
-      if (!accountPageMountedRef.current || testingSlugRef.current !== slug) return;
+      if (!accountPageMountedRef.current || connectionTestGuard.current !== slug) return;
       if (result.ok) {
         toast.success('连接已验证', `延迟 ${result.latencyMs ?? '?'} ms${result.modelTested ? ' · ' + result.modelTested : ''}`);
       } else {
@@ -107,27 +101,27 @@ export function AccountSettingsPage(props: {
     } catch (error) {
       // Main is supposed to return a structured result; if something escapes
       // to throw form, surface the generalized message anyway.
-      if (accountPageMountedRef.current && testingSlugRef.current === slug) {
+      if (accountPageMountedRef.current && connectionTestGuard.current === slug) {
         toast.error('测试出错', settingsActionErrorMessage(error));
       }
     } finally {
       // Pull the freshest lastTestStatus/lastTestAt/lastTestMessage so the
       // row re-renders with the new derived status without a Settings reopen.
-      if (accountPageMountedRef.current && testingSlugRef.current === slug) {
+      if (accountPageMountedRef.current && connectionTestGuard.current === slug) {
         try {
           await props.onRefresh();
         } catch (error) {
-          if (accountPageMountedRef.current && testingSlugRef.current === slug) {
+          if (accountPageMountedRef.current && connectionTestGuard.current === slug) {
             toast.error('刷新模型连接状态失败', settingsActionErrorMessage(error));
           }
         } finally {
-          testingSlugRef.current = null;
+          connectionTestGuard.finish();
           if (accountPageMountedRef.current) {
             setTestingSlug(null);
           }
         }
-      } else if (testingSlugRef.current === slug) {
-        testingSlugRef.current = null;
+      } else if (connectionTestGuard.current === slug) {
+        connectionTestGuard.finish();
       }
     }
   }

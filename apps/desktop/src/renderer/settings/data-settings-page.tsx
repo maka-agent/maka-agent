@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { ConfigCategory } from '@maka/storage';
 import { Button, SettingsSelect, SettingsSwitch as Switch, clearGlobalInputHistory, useMountedRef, useToast } from '@maka/ui';
 import { openPathFailureCopy, openPathActionLabel } from '../open-path';
 import { SettingsRows, SettingRow } from './settings-rows';
 import { settingsActionErrorMessage } from './settings-error-copy';
+import { useActionGuard } from './use-action-guard';
 
 const CONFIG_CATEGORY_OPTIONS: ReadonlyArray<{
   id: ConfigCategory;
@@ -44,7 +45,7 @@ export function DataSettingsPage() {
   const [info, setInfo] = useState<Awaited<ReturnType<typeof window.maka.app.info>> | null>(null);
   const [infoError, setInfoError] = useState<string | null>(null);
   const [pendingDataAction, setPendingDataAction] = useState<string | null>(null);
-  const pendingDataActionRef = useRef<string | null>(null);
+  const dataActionGuard = useActionGuard<string>();
   const dataPageMountedRef = useMountedRef();
   const toast = useToast();
   const [selectedCategories, setSelectedCategories] = useState<Set<ConfigCategory>>(
@@ -69,18 +70,16 @@ export function DataSettingsPage() {
     });
     return () => {
       cancelled = true;
-      pendingDataActionRef.current = null;
     };
   }, [toast]);
 
   async function runDataAction(action: string, run: () => Promise<void>) {
-    if (pendingDataActionRef.current) return;
-    pendingDataActionRef.current = action;
+    if (!dataActionGuard.begin(action)) return;
     setPendingDataAction(action);
     try {
       await run();
     } finally {
-      pendingDataActionRef.current = null;
+      dataActionGuard.finish();
       if (dataPageMountedRef.current) {
         setPendingDataAction(null);
       }

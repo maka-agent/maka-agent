@@ -16,6 +16,7 @@ import {
   memoryOriginLabel,
 } from './memory-settings-labels';
 import { deriveMemorySettingsViewModel } from './memory-settings-view-model';
+import { useKeyedActionGuard } from './use-action-guard';
 
 export interface MemoryDocumentControllerProps {
   settings: AppSettings;
@@ -45,8 +46,10 @@ export function useMemoryDocumentController(props: MemoryDocumentControllerProps
   const [pendingMemoryWriteAction, setPendingMemoryWriteAction] = useState<MemoryWriteAction | null>(null);
   const [pendingMemoryActions, setPendingMemoryActions] = useState<Set<string>>(() => new Set());
   const editorRef = useRef<HTMLTextAreaElement | null>(null);
-  const memoryWriteBusyRef = useRef(false);
-  const pendingMemoryActionKeysRef = useRef<Set<string>>(new Set());
+  // One keyed guard holds both the single write latch (key 'write', the old
+  // memoryWriteBusyRef) and the per-action latches (the old
+  // pendingMemoryActionKeysRef set) with owner-checked releases.
+  const memoryActionGuard = useKeyedActionGuard<string>();
   const memoryPageMountedRef = useRef(false);
   const memoryPageLifecycleRef = useRef(0);
   const memoryReloadTicketRef = useRef(0);
@@ -60,8 +63,6 @@ export function useMemoryDocumentController(props: MemoryDocumentControllerProps
       if (memoryPageLifecycleRef.current !== lifecycle) return;
       memoryPageMountedRef.current = false;
       memoryReloadTicketRef.current += 1;
-      memoryWriteBusyRef.current = false;
-      pendingMemoryActionKeysRef.current.clear();
     };
   }, []);
 
@@ -73,9 +74,9 @@ export function useMemoryDocumentController(props: MemoryDocumentControllerProps
     action: MemoryWriteAction,
     run: (isCurrent: () => boolean) => Promise<T>,
   ): Promise<T | undefined> {
-    if (memoryWriteBusyRef.current) return undefined;
+    const releaseWrite = memoryActionGuard.begin('write');
+    if (!releaseWrite) return undefined;
     const lifecycle = memoryPageLifecycleRef.current;
-    memoryWriteBusyRef.current = true;
     setPendingMemoryWriteAction(action);
     setBusy(true);
     try {
@@ -84,7 +85,7 @@ export function useMemoryDocumentController(props: MemoryDocumentControllerProps
       if (!isMemoryPageCurrent(lifecycle)) return undefined;
       throw error;
     } finally {
-      memoryWriteBusyRef.current = false;
+      releaseWrite();
       if (isMemoryPageCurrent(lifecycle)) {
         setPendingMemoryWriteAction(null);
         setBusy(false);
@@ -96,9 +97,9 @@ export function useMemoryDocumentController(props: MemoryDocumentControllerProps
     key: string,
     action: (isCurrent: () => boolean) => Promise<T>,
   ): Promise<T | undefined> {
-    if (pendingMemoryActionKeysRef.current.has(key)) return undefined;
+    const release = memoryActionGuard.begin(key);
+    if (!release) return undefined;
     const lifecycle = memoryPageLifecycleRef.current;
-    pendingMemoryActionKeysRef.current.add(key);
     setPendingMemoryActions((current) => new Set(current).add(key));
     try {
       return await action(() => isMemoryPageCurrent(lifecycle));
@@ -106,7 +107,7 @@ export function useMemoryDocumentController(props: MemoryDocumentControllerProps
       if (!isMemoryPageCurrent(lifecycle)) return undefined;
       throw error;
     } finally {
-      pendingMemoryActionKeysRef.current.delete(key);
+      release();
       if (isMemoryPageCurrent(lifecycle)) {
         setPendingMemoryActions((current) => {
           const next = new Set(current);

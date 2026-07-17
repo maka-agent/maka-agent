@@ -153,8 +153,8 @@ describe('General settings page 默认权限模式 picker', () => {
     assert.ok(fn, 'persistPermissionMode must exist');
     assert.match(
       fn,
-      /if \(savingPermissionModeRef\.current\) return;/,
-      'overlapping settings.update calls have no ordering guarantee -- the ref guard must reject re-entrant saves like persistDefault does',
+      /const releaseSave = persistGuard\.begin\('permission-mode'\);[\s\S]*if \(!releaseSave\) return;/,
+      'overlapping settings.update calls have no ordering guarantee -- the shared keyed guard must reject re-entrant saves like persistDefault does',
     );
   });
 });

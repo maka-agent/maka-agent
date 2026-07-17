@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { AppSettings, OpenGatewayRuntimeStatus, UpdateAppSettingsResult } from '@maka/core';
 import { Button, Input, NumberField, NumberFieldInput, SettingsSelect, SettingsSwitch as Switch, Textarea, useToast } from '@maka/ui';
 import { PasswordInput } from './password-input';
 import { MetricCard } from './settings-metric-card';
 import { SettingsRows, SettingRow } from './settings-rows';
 import { settingsActionErrorMessage } from './settings-error-copy';
+import { useActionGuard } from './use-action-guard';
 import { useOptimisticSettingsDraft } from './use-optimistic-settings-draft';
 
 export function OpenGatewaySettingsPage(props: {
@@ -17,7 +18,7 @@ export function OpenGatewaySettingsPage(props: {
   const [tokenDraft, setTokenDraft] = useState(persistedGateway.token);
   const [eventSessionId, setEventSessionId] = useState('');
   const [copyingGatewayAction, setCopyingGatewayAction] = useState<string | null>(null);
-  const copyingGatewayActionRef = useRef<string | null>(null);
+  const gatewayCopyGuard = useActionGuard<string>();
   const toast = useToast();
   const {
     draft: gatewayDraft,
@@ -32,12 +33,6 @@ export function OpenGatewaySettingsPage(props: {
       onReconcile: (next) => setTokenDraft(next.token),
     },
   );
-
-  useEffect(() => {
-    return () => {
-      copyingGatewayActionRef.current = null;
-    };
-  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -86,8 +81,7 @@ export function OpenGatewaySettingsPage(props: {
   }
 
   async function copyGatewayText(action: string, text: string, successTitle: string, successDetail: string) {
-    if (copyingGatewayActionRef.current) return;
-    copyingGatewayActionRef.current = action;
+    if (!gatewayCopyGuard.begin(action)) return;
     setCopyingGatewayAction(action);
     try {
       await navigator.clipboard.writeText(text);
@@ -99,7 +93,7 @@ export function OpenGatewaySettingsPage(props: {
         toast.error('复制失败', '剪贴板不可用或被系统拒绝。');
       }
     } finally {
-      copyingGatewayActionRef.current = null;
+      gatewayCopyGuard.finish();
       if (openGatewayMountedRef.current) {
         setCopyingGatewayAction(null);
       }

@@ -56,14 +56,9 @@ describe('Office document capability contract', () => {
     assert.match(settings, /复制 macOS\/Linux 安装命令/);
     assert.match(settings, /<div className="settingsCapabilityGuidanceActions" role="group" aria-label="Office 文档安装辅助">/);
     assert.doesNotMatch(settings, /<div className="settingsCapabilityGuidanceActions" aria-label="Office 文档安装辅助">/);
-    assert.match(settings, /copyingOfficeCliInstallRef\.current/, 'OfficeCLI install copy action must have a ref-backed double-click guard');
-    assert.match(settings, /if \(copyingOfficeCliInstallRef\.current\) return;/);
+    assert.match(settings, /const copyOfficeCliInstallGuard = useActionGuard<'copy'>\(\)/, 'OfficeCLI install copy action must have a guard-backed double-click guard from the shared hook');
+    assert.match(settings, /if \(!copyOfficeCliInstallGuard\.begin\('copy'\)\) return;/);
     assert.match(settings, /const capabilityRowMountedRef = useMountedRef\(\);/);
-    assert.match(
-      settings,
-      /useEffect\(\(\) => \{[\s\S]*return \(\) => \{[\s\S]*copyingOfficeCliInstallRef\.current = false;/,
-      'OfficeCLI install copy action must release ownership when its capability row unmounts',
-    );
     assert.match(settings, /disabled=\{copyingOfficeCliInstall\}/);
     assert.match(settings, /copyingOfficeCliInstall \? '复制中…' : '复制 macOS\/Linux 安装命令'/);
     assert.match(
@@ -78,8 +73,8 @@ describe('Office document capability contract', () => {
     );
     assert.match(
       settings,
-      /finally \{[\s\S]*copyingOfficeCliInstallRef\.current = false;[\s\S]*if \(capabilityRowMountedRef\.current\) \{[\s\S]*setCopyingOfficeCliInstall\(false\);/,
-      'OfficeCLI install copy cleanup must not write React pending state after unmount',
+      /finally \{[\s\S]*copyOfficeCliInstallGuard\.finish\(\);[\s\S]*if \(capabilityRowMountedRef\.current\) \{[\s\S]*setCopyingOfficeCliInstall\(false\);/,
+      'OfficeCLI install copy cleanup must not write React pending state after unmount (the shared guard hook releases on unmount)',
     );
     assert.match(settings, /iOfficeAI\/OfficeCLI\/releases/);
     assert.doesNotMatch(settings, /execFile\(|spawn\(|child_process/);

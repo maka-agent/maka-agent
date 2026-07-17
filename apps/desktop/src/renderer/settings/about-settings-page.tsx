@@ -1,9 +1,10 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { Sparkles } from '@maka/ui/icons';
 import { Button, PageHeader, useMountedRef, useToast } from '@maka/ui';
 import { SettingsRows, SettingRow } from './settings-rows';
 import { settingsActionErrorMessage } from './settings-error-copy';
 import { SettingsSkeletonStack } from './settings-skeleton';
+import { useActionGuard } from './use-action-guard';
 
 type AppInfo = Awaited<ReturnType<typeof window.maka.app.info>>;
 
@@ -17,7 +18,7 @@ export function AboutSettingsPage() {
   const [info, setInfo] = useState<AppInfo | null>(null);
   const [infoError, setInfoError] = useState<string | null>(null);
   const [copyingEnvSummary, setCopyingEnvSummary] = useState(false);
-  const copyingEnvSummaryRef = useRef(false);
+  const envSummaryCopyGuard = useActionGuard<'copy'>();
   const aboutPageMountedRef = useMountedRef();
   const toast = useToast();
   const envSummaryHelpId = useId();
@@ -40,7 +41,6 @@ export function AboutSettingsPage() {
     });
     return () => {
       cancelled = true;
-      copyingEnvSummaryRef.current = false;
     };
   }, [toast]);
 
@@ -73,8 +73,7 @@ export function AboutSettingsPage() {
 
   async function copyEnvSummary() {
     if (!info) return;
-    if (copyingEnvSummaryRef.current) return;
-    copyingEnvSummaryRef.current = true;
+    if (!envSummaryCopyGuard.begin('copy')) return;
     setCopyingEnvSummary(true);
     // Markdown block ready to paste into a problem report. Deliberately excludes
     // workspacePath since that can leak the OS username; user can still copy
@@ -103,7 +102,7 @@ export function AboutSettingsPage() {
         toast.error('复制失败', '剪贴板不可用或被系统拒绝。');
       }
     } finally {
-      copyingEnvSummaryRef.current = false;
+      envSummaryCopyGuard.finish();
       if (aboutPageMountedRef.current) {
         setCopyingEnvSummary(false);
       }

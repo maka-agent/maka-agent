@@ -272,53 +272,48 @@ describe('Daily Review copy feedback contract', () => {
     const saveBlock = blockBetween(pageBlock, 'async function patchConfig', 'async function triggerRun');
     const runBlock = blockBetween(pageBlock, 'async function triggerRun', 'const effectiveConfig');
 
-    assert.match(pageBlock, /const savingKeyRef = useRef<string \| null>\(null\)/);
-    assert.match(pageBlock, /const runningModeRef = useRef<DailyReviewMode \| null>\(null\)/);
-    assert.match(
-      pageBlock,
-      /return \(\) => \{\s*savingKeyRef\.current = null;\s*runningModeRef\.current = null;\s*\};/,
-      'Daily Review Settings async owners must be invalidated when Settings closes',
-    );
+    assert.match(pageBlock, /const saveConfigGuard = useActionGuard<string>\(\)/);
+    assert.match(pageBlock, /const runModeGuard = useActionGuard<DailyReviewMode>\(\)/);
     assert.match(
       saveBlock,
-      /if \(!dailyReviewIpc\.setConfig \|\| !config \|\| savingKeyRef\.current !== null\) return;\s*savingKeyRef\.current = key;\s*setSavingKey\(key\);/,
+      /if \(!dailyReviewIpc\.setConfig \|\| !config \|\| saveConfigGuard\.current !== null\) return;\s*saveConfigGuard\.begin\(key\);\s*setSavingKey\(key\);/,
       'Daily Review config saves must synchronously reject same-frame duplicate writes before React disables controls',
     );
     assert.match(
       saveBlock,
-      /const next = await dailyReviewIpc\.setConfig\(patch\);\s*if \(mountedRef\.current && savingKeyRef\.current === key\) setConfig\(next\);/,
+      /const next = await dailyReviewIpc\.setConfig\(patch\);\s*if \(mountedRef\.current && saveConfigGuard\.current === key\) setConfig\(next\);/,
       'Late config save responses must only update the still-mounted owning settings page',
     );
     assert.match(
       saveBlock,
-      /if \(mountedRef\.current && savingKeyRef\.current === key\) \{\s*toast\.error\('保存每日回顾设置失败', settingsActionErrorMessage\(err\)\);\s*\}/,
+      /if \(mountedRef\.current && saveConfigGuard\.current === key\) \{\s*toast\.error\('保存每日回顾设置失败', settingsActionErrorMessage\(err\)\);\s*\}/,
       'Late config save failures must not toast after Settings closes or ownership changes',
     );
     assert.match(
       saveBlock,
-      /finally \{\s*if \(savingKeyRef\.current === key\) \{\s*savingKeyRef\.current = null;\s*\}\s*if \(mountedRef\.current\) setSavingKey\(null\);/,
+      /finally \{\s*if \(saveConfigGuard\.current === key\) \{\s*saveConfigGuard\.finish\(\);\s*\}\s*if \(mountedRef\.current\) setSavingKey\(null\);/,
       'Daily Review config save owners must be released by the matching request only',
     );
     assert.match(pageBlock, /const formDisabled = !hasConfigIpc \|\| loading \|\| Boolean\(loadError\) \|\| !effectiveConfig \|\| savingKey !== null;/);
 
     assert.match(
       runBlock,
-      /if \(!dailyReviewIpc\.runOnce \|\| runningModeRef\.current !== null\) return;\s*runningModeRef\.current = mode;\s*setRunningMode\(mode\);/,
+      /if \(!dailyReviewIpc\.runOnce \|\| runModeGuard\.current !== null\) return;\s*runModeGuard\.begin\(mode\);\s*setRunningMode\(mode\);/,
       'Manual Daily Review runs must synchronously reject duplicate starts before React disables buttons',
     );
     assert.match(
       runBlock,
-      /if \(mountedRef\.current && runningModeRef\.current === mode\) \{\s*toast\.success\(mode === 'daily' \? '已生成每日回顾' : '已生成深度分析', '可在「每日回顾」面板查看。'\);\s*\}/,
+      /if \(mountedRef\.current && runModeGuard\.current === mode\) \{\s*toast\.success\(mode === 'daily' \? '已生成每日回顾' : '已生成深度分析', '可在「每日回顾」面板查看。'\);\s*\}/,
       'Manual run success feedback must be owned by the still-mounted request',
     );
     assert.match(
       runBlock,
-      /if \(mountedRef\.current && runningModeRef\.current === mode\) \{\s*toast\.error\('生成回顾失败', settingsActionErrorMessage\(err\)\);\s*\}/,
+      /if \(mountedRef\.current && runModeGuard\.current === mode\) \{\s*toast\.error\('生成回顾失败', settingsActionErrorMessage\(err\)\);\s*\}/,
       'Manual run failure feedback must be owned by the still-mounted request',
     );
     assert.match(
       runBlock,
-      /finally \{\s*if \(runningModeRef\.current === mode\) \{\s*runningModeRef\.current = null;\s*\}\s*if \(mountedRef\.current\) setRunningMode\(null\);/,
+      /finally \{\s*if \(runModeGuard\.current === mode\) \{\s*runModeGuard\.finish\(\);\s*\}\s*if \(mountedRef\.current\) setRunningMode\(null\);/,
       'Manual run owners must be released by the matching request only',
     );
     assert.match(pageBlock, /disabled=\{runningMode !== null\}/);

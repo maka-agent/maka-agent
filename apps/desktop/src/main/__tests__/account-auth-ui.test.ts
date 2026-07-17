@@ -228,22 +228,17 @@ describe('Account settings credential probe UI', () => {
 
     assert.match(
       page,
-      /const testingSlugRef = useRef<string \| null>\(null\)/,
-      'Account page connection tests need a synchronous duplicate-click guard, not only React state',
+      /const connectionTestGuard = useActionGuard<string>\(\)/,
+      'Account page connection tests need a synchronous duplicate-click guard from the shared hook, not only React state',
     );
     assert.match(
       page,
-      /const accountPageMountedRef = useMountedRef\(\);[\s\S]*useEffect\(\(\) => \{[\s\S]*return \(\) => \{[\s\S]*testingSlugRef\.current = null;/,
-      'Account page must release test ownership when Settings closes',
-    );
-    assert.match(
-      page,
-      /async function testConnection\(slug: string\) \{[\s\S]*if \(testingSlugRef\.current !== null\) return;[\s\S]*testingSlugRef\.current = slug;[\s\S]*await window\.maka\.connections\.test\(slug\)[\s\S]*if \(!accountPageMountedRef\.current \|\| testingSlugRef\.current !== slug\) return;/,
+      /async function testConnection\(slug: string\) \{[\s\S]*if \(!connectionTestGuard\.begin\(slug\)\) return;[\s\S]*await window\.maka\.connections\.test\(slug\)[\s\S]*if \(!accountPageMountedRef\.current \|\| connectionTestGuard\.current !== slug\) return;/,
       'Account page connection test must set the duplicate-click guard before awaiting IPC',
     );
     assert.match(
       page,
-      /finally \{[\s\S]*if \(accountPageMountedRef\.current && testingSlugRef\.current === slug\) \{[\s\S]*try \{[\s\S]*await props\.onRefresh\(\);[\s\S]*\} catch \(error\) \{[\s\S]*if \(accountPageMountedRef\.current && testingSlugRef\.current === slug\) \{[\s\S]*toast\.error\('刷新模型连接状态失败', settingsActionErrorMessage\(error\)\);[\s\S]*\} finally \{[\s\S]*testingSlugRef\.current = null;[\s\S]*if \(accountPageMountedRef\.current\) \{[\s\S]*setTestingSlug\(null\);/,
+      /finally \{[\s\S]*if \(accountPageMountedRef\.current && connectionTestGuard\.current === slug\) \{[\s\S]*try \{[\s\S]*await props\.onRefresh\(\);[\s\S]*\} catch \(error\) \{[\s\S]*if \(accountPageMountedRef\.current && connectionTestGuard\.current === slug\) \{[\s\S]*toast\.error\('刷新模型连接状态失败', settingsActionErrorMessage\(error\)\);[\s\S]*\} finally \{[\s\S]*connectionTestGuard\.finish\(\);[\s\S]*if \(accountPageMountedRef\.current\) \{[\s\S]*setTestingSlug\(null\);/,
       'Account page connection test must keep the button pending through status refresh and surface refresh failures',
     );
     assert.doesNotMatch(
@@ -264,28 +259,28 @@ describe('Account settings credential probe UI', () => {
     );
     assert.match(
       page,
-      /return \(\) => \{[\s\S]*testingSlugRef\.current = null;/,
-      'Account page cleanup must release an in-flight connection test owner',
+      /const connectionTestGuard = useActionGuard<string>\(\)/,
+      'Account page must hold its in-flight connection test owner in the shared guard (released on unmount)',
     );
     assert.match(
       page,
-      /const result = await window\.maka\.connections\.test\(slug\);[\s\S]*if \(!accountPageMountedRef\.current \|\| testingSlugRef\.current !== slug\) return;[\s\S]*if \(result\.ok\) \{/,
+      /const result = await window\.maka\.connections\.test\(slug\);[\s\S]*if \(!accountPageMountedRef\.current \|\| connectionTestGuard\.current !== slug\) return;[\s\S]*if \(result\.ok\) \{/,
       'Connection test success/failure toasts must not fire after unmount',
     );
     assert.match(
       page,
-      /catch \(error\) \{[\s\S]*if \(accountPageMountedRef\.current && testingSlugRef\.current === slug\) \{[\s\S]*toast\.error\('测试出错', settingsActionErrorMessage\(error\)\);/,
+      /catch \(error\) \{[\s\S]*if \(accountPageMountedRef\.current && connectionTestGuard\.current === slug\) \{[\s\S]*toast\.error\('测试出错', settingsActionErrorMessage\(error\)\);/,
       'Thrown connection-test errors must not toast after unmount',
     );
     assert.match(
       page,
-      /finally \{[\s\S]*if \(accountPageMountedRef\.current && testingSlugRef\.current === slug\) \{[\s\S]*await props\.onRefresh\(\);/,
+      /finally \{[\s\S]*if \(accountPageMountedRef\.current && connectionTestGuard\.current === slug\) \{[\s\S]*await props\.onRefresh\(\);/,
       'Post-test status refresh must not run after the account page unmounts',
     );
     assert.match(
       page,
-      /testingSlugRef\.current = null;[\s\S]*if \(accountPageMountedRef\.current\) \{[\s\S]*setTestingSlug\(null\);/,
-      'Connection-test cleanup must release the ref but not write React pending state after unmount',
+      /connectionTestGuard\.finish\(\);[\s\S]*if \(accountPageMountedRef\.current\) \{[\s\S]*setTestingSlug\(null\);/,
+      'Connection-test cleanup must release the guard but not write React pending state after unmount',
     );
   });
 

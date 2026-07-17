@@ -106,18 +106,18 @@ describe('Settings network and gateway persistence contract', () => {
 
     assert.match(
       networkBlock,
-      /const proxyTestRunningRef = useRef\(false\);/,
-      'Network proxy test needs a ref gate so fast double-clicks cannot duplicate proxy test IPC before React disables the button',
+      /const proxyTestGuard = useActionGuard<'test'>\(\)/,
+      'Network proxy test needs a synchronous guard so fast double-clicks cannot duplicate proxy test IPC before React disables the button',
     );
     assert.match(
       networkBlock,
-      /async function testProxy\(\) \{\s*if \(proxyTestRunningRef\.current\) return;[\s\S]*proxyTestRunningRef\.current = true;[\s\S]*window\.maka\.settings\.testNetworkProxy\(toProxyTestInput\(proxyDraftRef\.current\)\)/,
+      /async function testProxy\(\) \{\s*if \(!proxyTestGuard\.begin\('test'\)\) return;[\s\S]*window\.maka\.settings\.testNetworkProxy\(toProxyTestInput\(proxyDraftRef\.current\)\)/,
       'Network proxy test must lock synchronously and test the latest local draft snapshot, not the previous render value',
     );
     assert.match(
       networkBlock,
-      /finally \{[\s\S]*proxyTestRunningRef\.current = false;[\s\S]*setTesting\(false\);[\s\S]*\}/,
-      'Network proxy test must release the ref gate after the IPC settles',
+      /finally \{[\s\S]*proxyTestGuard\.finish\(\);[\s\S]*setTesting\(false\);[\s\S]*\}/,
+      'Network proxy test must release the guard after the IPC settles',
     );
     assert.doesNotMatch(
       networkBlock,
@@ -139,8 +139,8 @@ describe('Settings network and gateway persistence contract', () => {
     );
     assert.match(
       networkBlock,
-      /useEffect\(\(\) => \{[\s\S]*return \(\) => \{[\s\S]*proxyTestRunningRef\.current = false;/,
-      'Network proxy cleanup must release test ownership when Settings closes (the hook invalidates save tickets)',
+      /const proxyTestGuard = useActionGuard<'test'>\(\)/,
+      'Network proxy test ownership must come from the shared action-guard hook (released on unmount; the draft hook invalidates save tickets)',
     );
     // Save-response staleness + rollback after unmount are owned by the shared
     // optimistic draft hook and covered by its controller unit test; the page
@@ -162,8 +162,8 @@ describe('Settings network and gateway persistence contract', () => {
     );
     assert.match(
       networkBlock,
-      /finally \{[\s\S]*proxyTestRunningRef\.current = false;[\s\S]*if \(networkPageMountedRef\.current\) \{[\s\S]*setTesting\(false\);/,
-      'Network proxy test cleanup must release the ref but not write React state after unmount',
+      /finally \{[\s\S]*proxyTestGuard\.finish\(\);[\s\S]*if \(networkPageMountedRef\.current\) \{[\s\S]*setTesting\(false\);/,
+      'Network proxy test cleanup must release the guard but not write React state after unmount',
     );
   });
 
@@ -252,8 +252,8 @@ describe('Settings network and gateway persistence contract', () => {
     );
     assert.match(
       gatewayBlock,
-      /useEffect\(\(\) => \{[\s\S]*return \(\) => \{[\s\S]*copyingGatewayActionRef\.current = null;/,
-      'Open Gateway cleanup must release copy ownership when Settings closes (the hook invalidates save tickets)',
+      /const gatewayCopyGuard = useActionGuard<string>\(\)/,
+      'Open Gateway copy ownership must come from the shared action-guard hook (released on unmount; the draft hook invalidates save tickets)',
     );
     // Save-response staleness, draft rollback, token mirroring, and pending
     // state are owned by the shared optimistic draft hook (unit-tested on its
