@@ -1,6 +1,9 @@
 import type { UiCatalog, UiLocale } from '@maka/core';
 
 type ShellControlsCopy = {
+  shared: {
+    close: string;
+  };
   navigation: {
     mainLabel: string;
     newTask: string;
@@ -32,6 +35,7 @@ type ShellControlsCopy = {
 
 const SHELL_CONTROLS_COPY_BY_LOCALE = {
   zh: {
+    shared: { close: '关闭' },
     navigation: {
       mainLabel: '主导航',
       newTask: '新任务',
@@ -61,6 +65,7 @@ const SHELL_CONTROLS_COPY_BY_LOCALE = {
     },
   },
   en: {
+    shared: { close: 'Close' },
     navigation: {
       mainLabel: 'Main navigation',
       newTask: 'New task',

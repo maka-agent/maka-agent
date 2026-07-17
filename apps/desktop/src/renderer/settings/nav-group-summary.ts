@@ -15,10 +15,10 @@
  * (通用 / 扩展与集成 / 高级设置) where one big group carries most
  * items instead of 5 tiny ones.
  */
-export type SettingsNavGroup = '通用' | 'AI 与集成' | '系统';
+export type SettingsNavGroup = 'general' | 'ai-integrations' | 'system';
 
 /**
  * The render order used by the Settings modal sidebar. Lives here so the
  * nav-group enum and its presentation order stay in one place.
  */
-export const NAV_GROUP_ORDER: SettingsNavGroup[] = ['通用', 'AI 与集成', '系统'];
+export const NAV_GROUP_ORDER: SettingsNavGroup[] = ['general', 'ai-integrations', 'system'];
