@@ -416,6 +416,90 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('an armed key prompt routes a slash command instead of swallowing it as the key', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const setupCalls: Array<unknown> = [];
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'bypass',
+      terminal,
+      onboarding: {
+        setup: async (req) => {
+          setupCalls.push(req);
+          return {};
+        },
+      },
+    });
+
+    await delay(20);
+    terminal.input('/setup');
+    terminal.input('\r');
+    terminal.input('\r'); // pick the highlighted provider -> arms the key prompt
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), 'API key') !== null;
+      } catch {
+        return false;
+      }
+    });
+
+    // A slash command typed while armed must be routed as a command, not stored
+    // as the API key (otherwise /exit, /model, etc. become persisted secrets).
+    terminal.input('/setup');
+    terminal.input('\r');
+    await delay(60);
+    assert.equal(setupCalls.length, 0);
+
+    process.emit('SIGTERM');
+    await Promise.race([
+      run,
+      delay(500).then(() => {
+        throw new Error('TUI did not close after SIGTERM');
+      }),
+    ]);
+  });
+
+  test('first-run picker cancel closes the TUI without configuring', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: '',
+      connectionSlug: '',
+      permissionMode: 'bypass',
+      terminal,
+      firstRun: true,
+      onboarding: {
+        setup: async () => ({}),
+      },
+    });
+
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), 'Set Up Provider') !== null;
+      } catch {
+        return false;
+      }
+    });
+
+    // Esc cancels the picker; in first-run mode that closes the TUI (the host
+    // sees no configured connection) rather than dropping into a driver-less editor.
+    terminal.input('\x1b');
+    await Promise.race([
+      run,
+      delay(500).then(() => {
+        throw new Error('TUI did not close on first-run picker cancel');
+      }),
+    ]);
+  });
+
   test('first-run mode auto-opens the provider picker without typing /setup', async () => {
     const terminal = new FakeTerminal();
     const driver = new SlashCommandDriver();

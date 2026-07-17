@@ -796,6 +796,13 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   editor.onSubmit = (prompt) => {
     if (pendingKeyEntry) {
       const entry = pendingKeyEntry;
+      // A slash command while the key prompt is armed is routed as a command,
+      // not swallowed as an API key (e.g. /exit must still work).
+      if (prompt.startsWith('/')) {
+        pendingKeyEntry = undefined;
+        handleSlashCommand(prompt);
+        return;
+      }
       pendingKeyEntry = undefined;
       const providerLabel = PROVIDER_DEFAULTS[entry.providerType]?.label ?? entry.providerType;
       void input.onboarding?.setup({ providerType: entry.providerType, apiKey: prompt }).then(
@@ -833,6 +840,12 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
           requestRender();
         },
       );
+      return;
+    }
+    if (input.firstRun) {
+      // First-run mode: no agent turn is possible before a connection exists.
+      // Re-open the picker so the only exits are configure or cancel (Esc).
+      showSetupPicker();
       return;
     }
     if (turnRunning) {
@@ -1192,7 +1205,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     rightLabel: string,
     items: SelectItem[],
     onSelect: (item: SelectItem) => void,
-    options: { minPrimaryColumnWidth: number; maxPrimaryColumnWidth: number; selectedIndex?: number; hint?: string },
+    options: { minPrimaryColumnWidth: number; maxPrimaryColumnWidth: number; selectedIndex?: number; hint?: string; onCancel?: () => void },
   ): void => {
     const list = new SelectList(items, 10, selectListTheme(), {
       minPrimaryColumnWidth: options.minPrimaryColumnWidth,
@@ -1207,6 +1220,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     };
     list.onCancel = () => {
       overlay?.hide();
+      options.onCancel?.();
     };
     overlay = showBottomPicker(picker);
   };
@@ -1237,7 +1251,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
         });
         requestRender();
       },
-      { minPrimaryColumnWidth: 16, maxPrimaryColumnWidth: 32 },
+      { minPrimaryColumnWidth: 16, maxPrimaryColumnWidth: 32, onCancel: input.firstRun ? () => beginClose() : undefined },
     );
   };
 
