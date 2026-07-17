@@ -1,6 +1,6 @@
 import type { LlmConnection } from '@maka/core';
 import { generalizedErrorMessageChinese } from '@maka/core';
-import { buildCatalogDailyReviewModelOptions } from './model-catalog-choices';
+import { buildCatalogDailyReviewModelOptions } from './model-catalog-choices.js';
 
 export const DAILY_REVIEW_CONFIG_MODEL_VALUE = '__maka_daily_review_config_model__';
 

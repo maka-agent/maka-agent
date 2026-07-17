@@ -8,7 +8,7 @@ const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');
 
 describe('deep research command entrypoint contract', () => {
   it('command palette exposes a normal action for starting deep research', async () => {
-    const src = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/renderer/command-palette.tsx'), 'utf8');
+    const src = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/renderer/command-palette-commands.ts'), 'utf8');
 
     assert.match(src, /onStartDeepResearch\?\(\): Promise<void> \| void/);
     assert.match(src, /id:\s*'action:new-deep-research'/);

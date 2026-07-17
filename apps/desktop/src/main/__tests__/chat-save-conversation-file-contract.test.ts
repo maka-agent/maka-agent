@@ -11,7 +11,7 @@ describe('Chat save-conversation-to-file contract (PR-CMD-PALETTE-SAVE-CONVERSAT
   it('exposes the save-conversation IPC, preload bridge, and command palette entry', async () => {
     const main = await readMainProcessCombinedSource();
     const preload = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/preload/preload.ts'), 'utf8');
-    const palette = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/renderer/command-palette.tsx'), 'utf8');
+    const palette = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/renderer/command-palette-commands.ts'), 'utf8');
     const renderer = await readRendererShellCombinedSource();
     const globalDts = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/global.d.ts'), 'utf8');
 

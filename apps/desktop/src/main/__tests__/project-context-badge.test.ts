@@ -237,7 +237,7 @@ describe('project context workspace picker', () => {
   });
 
   it('adds a command palette action for the same guarded project open path', async () => {
-    const palette = await readRepo('apps/desktop/src/renderer/command-palette.tsx');
+    const palette = await readRepo('apps/desktop/src/renderer/command-palette-commands.ts');
     const renderer = await readRendererShellCombinedSource();
     const openProjectBlock = renderer.match(/async function openProjectFolder\(\)[\s\S]*?async function openWorkspaceFolder/)?.[0] ?? '';
     const openWorkspaceBlock = renderer.match(/async function openWorkspaceFolder\(\)[\s\S]*?function createSkillFailureCopy/)?.[0] ?? '';
@@ -245,8 +245,9 @@ describe('project context workspace picker', () => {
     assert.match(palette, /onOpenProjectFolder\?\(\): Promise<void> \| void/);
     assert.match(palette, /id:\s*'diag:open-project-folder'/);
     assert.match(palette, /label:\s*'打开项目目录'/);
-    assert.match(renderer, /onOpenProjectFolder:\s*\(\) => openProjectFolder\(\)/);
-    assert.match(renderer, /onOpenWorkspace: async \(\) => \{\s*await openWorkspaceFolder\(\);\s*\}/);
+    // #1045: run() reads folder openers from the live options ref.
+    assert.match(renderer, /onOpenProjectFolder:\s*\(\)\s*=>\s*optionsRef\.current\.openProjectFolder\(\)/);
+    assert.match(renderer, /onOpenWorkspace: async \(\) => \{\s*await optionsRef\.current\.openWorkspaceFolder\(\);\s*\}/);
     assert.match(renderer, /function openPathActionErrorMessage\(error: unknown, key: 'workspace' \| 'project' \| 'skills'\): string \{[\s\S]*generalizedErrorMessageChinese\(error, `无法打开\$\{openPathActionLabel\(key\)\}，请稍后重试。`\)/);
     assert.match(openProjectBlock, /catch \(error\) \{[\s\S]*toastApi\.error\(`无法打开\$\{openPathActionLabel\('project'\)\}`, openPathActionErrorMessage\(error, 'project'\)\)/);
     assert.match(openWorkspaceBlock, /catch \(error\) \{[\s\S]*toastApi\.error\(`无法打开\$\{openPathActionLabel\('workspace'\)\}`, openPathActionErrorMessage\(error, 'workspace'\)\)/);

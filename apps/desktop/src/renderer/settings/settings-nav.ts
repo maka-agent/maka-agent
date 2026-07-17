@@ -17,11 +17,11 @@ import {
   type LucideProps,
 } from '@maka/ui/icons';
 import type { SettingsSection } from '@maka/core';
-import { safeLocalStorageGet } from '../browser-storage';
+import { safeLocalStorageGet } from '../browser-storage.js';
 import {
   NAV_GROUP_ORDER,
   type SettingsNavGroup,
-} from './nav-group-summary';
+} from './nav-group-summary.js';
 
 type SettingsNavItem = {
   id: SettingsSection;

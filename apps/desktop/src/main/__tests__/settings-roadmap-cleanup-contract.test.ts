@@ -26,7 +26,7 @@ describe('Settings coming-soon cleanup contract', () => {
   it('does not expose nav-level comingSoon state or command-palette soon hints', async () => {
     const settings = await readSettingsCombinedSource();
     const providers = await readProviderSettingsCombinedSource();
-    const palette = await readRepo('apps/desktop/src/renderer/command-palette.tsx');
+    const palette = await readRepo('apps/desktop/src/renderer/command-palette-commands.ts');
     const styles = await readRendererContractCss();
     const providerCatalog = await readRepo('packages/core/src/llm-connections.ts');
     assert.doesNotMatch(settings, /comingSoon\??:/, 'Settings nav items must not carry stale comingSoon flags');

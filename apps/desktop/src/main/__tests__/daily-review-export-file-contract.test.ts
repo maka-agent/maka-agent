@@ -12,7 +12,7 @@ describe('Daily Review export-to-file contract (PR-DAILY-REVIEW-EXPORT-FILE-0)',
   it('exposes the save-to-file IPC, preload bridge, and command palette entry', async () => {
     const main = await readMainProcessCombinedSource();
     const preload = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/preload/preload.ts'), 'utf8');
-    const palette = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/renderer/command-palette.tsx'), 'utf8');
+    const palette = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/renderer/command-palette-commands.ts'), 'utf8');
     const renderer = await readRendererShellCombinedSource();
     const ui = await readFile(resolve(REPO_ROOT, 'packages/ui/src/daily-review-panel.tsx'), 'utf8');
     const modulePages = await readFile(resolve(REPO_ROOT, 'packages/ui/src/module-pages.tsx'), 'utf8');

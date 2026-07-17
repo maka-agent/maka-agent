@@ -209,13 +209,14 @@ describe('Command palette accessibility and visible copy', () => {
   });
 
   it('keeps the primary command hints in Chinese product copy', async () => {
-    const src = await readRepo('apps/desktop/src/renderer/command-palette.tsx');
+    const src = await readRepo('apps/desktop/src/renderer/command-palette-commands.ts');
     assert.match(src, /label: '新建对话',[^\n]*\n\s*hint: '开始新的会话',/);
     assert.doesNotMatch(src, /hint: 'New chat'/, 'visible command palette hints must not leak English fallback copy');
   });
 
   it('gates command execution so Enter/click cannot run the same palette action twice', async () => {
     const src = await readRepo('apps/desktop/src/renderer/command-palette.tsx');
+    const commandsSrc = await readRepo('apps/desktop/src/renderer/command-palette-commands.ts');
     const mainSrc = await readRendererShellCombinedSource();
     const commandTypes = await readRepo('apps/desktop/src/renderer/command-palette-types.ts');
     // #520 PR8: onInputKeyDown is gone (Autocomplete owns ArrowUp/Down/Enter),
@@ -233,7 +234,7 @@ describe('Command palette accessibility and visible copy', () => {
       'CommandPalette commit() must synchronously drop duplicate activations, await async actions, and close from finally',
     );
     assert.doesNotMatch(
-      src,
+      commandsSrc,
       /run: \(\) => void args\./,
       'buildCommandList must return host callback promises instead of voiding them before commit() can await',
     );

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useMemo, useRef } from 'react';
+import { lazy, Suspense, useCallback } from 'react';
 import type {
   LlmConnection,
   SettingsSection,
@@ -9,7 +9,7 @@ import type {
 import { SearchModal } from '@maka/ui';
 import { KeyboardHelpModal } from './keyboard-help';
 import { CommandPalette } from './command-palette';
-import { buildAppShellCommandList, type AppShellCommandListOptions } from './app-shell-command-actions';
+import { useAppShellCommands, type AppShellCommandListOptions } from './app-shell-command-actions';
 import type { UiLocaleUpdateGate } from './settings/ui-locale-update-gate';
 
 // Settings is a large surface (providers, OAuth, network, bots, daily-review,
@@ -94,20 +94,9 @@ export function AppShellOverlays(props: {
     themePref,
   } = props;
 
-  /* #1045: keep the palette's command list identity stable while it is open.
-   * app-shell rebuilds commandOptions on every render (streaming ticks
-   * included), which used to rebuild the whole command list per render and
-   * bust every memo inside CommandPalette. The palette is modal, so its
-   * visible inputs cannot change from user action while it is open — rebuild
-   * only on the open/close transition, reading the latest options snapshot
-   * through a ref (same stable-ref pattern as openSessionInChatRef in
-   * app-shell.tsx). */
-  const commandOptionsRef = useRef(commandOptions);
-  commandOptionsRef.current = commandOptions;
-  const commands = useMemo(
-    () => buildAppShellCommandList(commandOptionsRef.current),
-    [paletteOpen],
-  );
+  // #1045: base commands freeze per open/close; session rows stay live on
+  // visibleSessions/activeId. run() closures read latest options via ref.
+  const commands = useAppShellCommands(paletteOpen, commandOptions);
   const openSearchModal = useCallback(
     (query: string) => {
       closePalette();
