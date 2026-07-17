@@ -48,7 +48,9 @@ test('chip converge (#520 PR9)', async () => {
     'apps/desktop/src/renderer/settings/web-search-settings-page.tsx',
     'apps/desktop/src/renderer/settings/memory-settings-page.tsx',
     'apps/desktop/src/renderer/settings/account-settings-page.tsx',
-    'apps/desktop/src/renderer/settings/provider-oauth-section.tsx',
+    // #1042: the Chip call sites in the OAuth section moved with
+    // ClaudeSubscriptionCard into its own file.
+    'apps/desktop/src/renderer/settings/claude-subscription-card.tsx',
     // Round 1 convergence (#520 follow-up): hand-rolled status-chip recipes
     // collapsed onto Chip. These call sites GAIN Chip coverage — the retired
     // CSS labels (settingsBotStatusPill, providerCatalogBadge.is-state, and

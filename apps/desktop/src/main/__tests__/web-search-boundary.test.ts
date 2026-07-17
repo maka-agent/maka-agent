@@ -34,6 +34,7 @@ const RENDERER_FILES = [
   'apps/desktop/src/renderer/settings/provider-connection-detail.tsx',
   'apps/desktop/src/renderer/settings/provider-display.tsx',
   'apps/desktop/src/renderer/settings/provider-oauth-section.tsx',
+  'apps/desktop/src/renderer/settings/claude-subscription-card.tsx',
   'apps/desktop/src/renderer/settings/provider-panel-shared.ts',
   'apps/desktop/src/preload/preload.ts',
 ];
