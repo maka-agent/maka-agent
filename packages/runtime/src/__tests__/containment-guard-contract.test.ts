@@ -6,17 +6,22 @@ import { describe, it } from 'node:test';
 const REPO_ROOT = resolve(import.meta.dirname, '../../../..');
 const PATH_CONTAINMENT_HOME = resolve(REPO_ROOT, 'packages/runtime/src/path-containment.ts');
 
-// Production source roots that may define path-containment predicates.
-const SCAN_ROOTS = ['packages/runtime/src', 'packages/headless/src', 'packages/storage/src', 'apps/desktop/src/main'];
+// Scan every TypeScript source tree under the monorepo; `walk` prunes tests,
+// build output, deps, worktrees, and Playwright e2e.
+const SCAN_ROOTS = ['packages', 'apps'];
 
 // Names retired in #1145 when every "inside or equal to root" caller moved to
-// the shared `isPathInside`. Defining one again re-introduces a parallel
-// containment implementation; new callers must import `isPathInside` from
-// `@maka/runtime` (or `./path-containment.js` inside the runtime package). The
-// strict-interior family (`isInsideOrSamePath` / `isInsideCwd`, where the target
-// may not equal root) is a deliberately different semantic and stays allowed.
-const RETIRED = ['isInside', 'isContainedPath', 'isInsidePosix', 'pathWithinRoot'];
-const RETIRED_RE = new RegExp(`(?:export\\s+)?function\\s+(${RETIRED.join('|')})\\b`);
+// the shared `isPathInside`. Defining one again — as a function, const, let, or
+// var — re-introduces a parallel containment implementation; new callers must
+// import `isPathInside` from `@maka/runtime` (or `./path-containment.js` inside
+// the runtime package). The strict-interior family (`isInsideOrSamePath` /
+// `isInsideCwd`, where the target may not equal root) is a deliberately
+// different semantic and stays allowed. `pathWithinRoot` is intentionally NOT
+// retired: `packages/core` has same-named helpers that do POSIX policy-string
+// prefix matching (`trimTrailingSlashes` + `startsWith`), not `node:path`
+// relative containment, so the name is not a reliable signal across packages.
+const RETIRED = ['isInside', 'isContainedPath', 'isInsidePosix'];
+const RETIRED_RE = new RegExp(`(?:export\\s+)?(?:function|(?:const|let|var))\\s+(${RETIRED.join('|')})\\b`);
 
 async function* walk(dir: string): AsyncGenerator<string> {
   let entries;
@@ -26,10 +31,10 @@ async function* walk(dir: string): AsyncGenerator<string> {
     return;
   }
   for (const entry of entries) {
-    if (['node_modules', '__tests__', 'dist', '.worktree', '.pi'].includes(entry.name)) continue;
+    if (['node_modules', '__tests__', 'dist', '.worktree', '.pi', 'e2e'].includes(entry.name)) continue;
     const full = resolve(dir, entry.name);
     if (entry.isDirectory()) yield* walk(full);
-    else if (entry.name.endsWith('.ts')) yield full;
+    else if (entry.name.endsWith('.ts') || entry.name.endsWith('.tsx')) yield full;
   }
 }
 
