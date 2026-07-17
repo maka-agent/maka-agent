@@ -594,6 +594,9 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     editor.disableSubmit = true;
     try {
       const prepared = await prepareSkillInvocation(prompt);
+      // Prep is async (skill scan). If the TUI closed mid-scan (double Ctrl-C /
+      // SIGTERM), do not open a turn after the shell is gone.
+      if (closed) return;
       for (const warning of prepared.warnings) {
         state.entries.push({ kind: 'notice', level: 'info', text: warning });
       }
@@ -609,6 +612,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       // keeps the prep window closed until the turn owns the flags.
       runAgentTurn(prompt, prepared.sendText === prompt ? undefined : { sendText: prepared.sendText });
     } catch (error) {
+      if (closed) return;
       busy = false;
       editor.disableSubmit = false;
       reportError(error);

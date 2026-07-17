@@ -68,6 +68,11 @@ describe('skill invocation tokens', () => {
     );
   });
 
+  test('preserves indented code after a token-only line (no global trim)', () => {
+    const stripped = stripSkillInvocationTokens('/skill:alpha\n    make target\n', new Set(['alpha']));
+    assert.equal(stripped, '    make target\n');
+  });
+
   test('detects the autocomplete prefix at the cursor', () => {
     assert.deepEqual(skillInvocationPrefixAt(['帮我 /skill:we 整理'], 0, 12), {
       prefix: '/skill:we',

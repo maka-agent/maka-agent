@@ -98,6 +98,13 @@ export interface RuntimeEventTextContent {
   kind: 'text';
   text: string;
   /**
+   * Human-facing text when it differs from `text` (e.g. the typed
+   * `/skill:…` prompt while `text` is the composed skill-injection
+   * envelope). Model-history projections MUST ignore this and use `text`
+   * only; UI/transcript/rewind projections should prefer it when present.
+   */
+  displayText?: string;
+  /**
    * Optional user-bound attachments carried with the text turn. Adapters
    * MUST preserve these when converting legacy UserMessage rows so
    * RuntimeEvent history does not silently degrade multimodal/file turns

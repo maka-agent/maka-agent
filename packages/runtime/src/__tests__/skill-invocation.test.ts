@@ -176,6 +176,17 @@ Body.`);
     assert.doesNotMatch(text, /<user-message>/);
     assert.ok(text.endsWith('The user provided no additional task text; follow the skill instructions above.'));
   });
+
+  it('preserves significant leading indentation in the user-message body', () => {
+    const text = composeSkillInvocationMessage({
+      userText: '    make target',
+      skills: [fakeLoadedSkill({ id: 'alpha', name: 'Alpha', instructions: '# A' })],
+    });
+    assert.ok(
+      text.endsWith('<user-message>\n    make target\n</user-message>'),
+      `expected indented body preserved, got: ${text}`,
+    );
+  });
 });
 
 function fakeLoadedSkill(overrides: Partial<LoadedSkillInstructions>): LoadedSkillInstructions {

@@ -196,6 +196,20 @@ describe('storedMessageToRuntimeEvent', () => {
     });
   });
 
+  test('user message displayText round-trips through RuntimeEvent draft projection', () => {
+    const typed = '/skill:alpha 帮我整理';
+    const envelope = 'The user explicitly invoked…\n\n<user-message>\n帮我整理\n</user-message>';
+    const e = storedMessageToRuntimeEvent(
+      { ...user('u-skill', envelope), displayText: typed },
+      ctx,
+    );
+    expect(e).not.toBeNull();
+    if (!e) return;
+    expect(e.content).toEqual({ kind: 'text', text: envelope, displayText: typed });
+    const draft = runtimeEventToStoredMessageDraft(e);
+    expect(draft).toMatchObject({ type: 'user', text: envelope, displayText: typed });
+  });
+
   test('assistant message (text only) → role model, text content; thinking dropped', () => {
     const e = storedMessageToRuntimeEvent(assistant('a1', 'hi'), ctx);
     if (!e) throw new Error('expected event');

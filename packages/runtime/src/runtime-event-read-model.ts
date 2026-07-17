@@ -389,6 +389,7 @@ function projectText(
       turnId: event.turnId,
       ts: event.ts,
       text: event.content.text,
+      ...(event.content.displayText !== undefined ? { displayText: event.content.displayText } : {}),
       ...(event.content.attachments !== undefined && event.content.attachments.length > 0
         ? { attachments: event.content.attachments }
         : {}),
@@ -959,6 +960,7 @@ function semanticMessage(message: StoredMessage): unknown {
         type: message.type,
         turnId: message.turnId,
         text: message.text,
+        displayText: message.displayText,
         attachments: message.attachments ?? [],
       };
     case 'assistant':

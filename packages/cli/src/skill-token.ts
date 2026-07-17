@@ -51,9 +51,12 @@ export function parseSkillInvocationTokens(text: string): SkillInvocationToken[]
 
 /**
  * Remove every occurrence of the named tokens from `text`. Only lines that
- * actually contained a removed token are tidied (whitespace collapsed,
- * dropped if left empty) — every other line passes through byte-identical,
- * so code blocks and intentional spacing elsewhere are untouched.
+ * actually contained a removed token are tidied (adjacent whitespace
+ * collapsed around the hole; the line is dropped if left empty) — every
+ * other line passes through byte-identical, so code blocks and intentional
+ * spacing elsewhere are untouched. The result is NOT global-trimmed: leading
+ * or trailing whitespace that is not itself a removed-token line is kept so
+ * indented code/YAML after a token-only line survives.
  */
 export function stripSkillInvocationTokens(text: string, names: ReadonlySet<string>): string {
   const pattern = new RegExp(SKILL_INVOCATION_TOKEN_SOURCE, 'g');
@@ -70,10 +73,13 @@ export function stripSkillInvocationTokens(text: string, names: ReadonlySet<stri
       out.push(line);
       continue;
     }
+    // Collapse spaces left by the token hole on this line only. Untouched
+    // lines (including indented code after a token-only line) stay byte-identical
+    // because we never global-trim the joined result.
     const tidied = stripped.replace(/[ \t]+/g, ' ').trim();
     if (tidied.length > 0) out.push(tidied);
   }
-  return out.join('\n').trim();
+  return out.join('\n');
 }
 
 /**

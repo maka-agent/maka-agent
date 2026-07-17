@@ -241,6 +241,42 @@ function equivalentLegacyMessages(): StoredMessage[] {
 }
 
 describe('projectRuntimeEventsToStoredMessages', () => {
+  test('projects user displayText from RuntimeEvent text content', () => {
+    const typed = '/skill:alpha 帮我整理';
+    const envelope = 'The user explicitly invoked…\n\n<user-message>\n帮我整理\n</user-message>';
+    const out = projectRuntimeEventsToStoredMessages([
+      ev({
+        id: 'evt-user-skill',
+        ts: ts + 1,
+        role: 'user',
+        author: 'user',
+        content: { kind: 'text', text: envelope, displayText: typed },
+        refs: { storedMessageId: 'user-skill' },
+      }),
+    ], { runHeaders: [header] });
+    expect(out.messages).toEqual([
+      {
+        type: 'user',
+        id: 'user-skill',
+        turnId,
+        ts: ts + 1,
+        text: envelope,
+        displayText: typed,
+      },
+    ]);
+    const compare = compareRuntimeReadModelMessages(out.messages, [
+      {
+        type: 'user',
+        id: 'user-skill',
+        turnId,
+        ts: ts + 1,
+        text: envelope,
+        displayText: typed,
+      },
+    ]);
+    expect(compare.diagnostics).toEqual([]);
+  });
+
   test('full RuntimeEvent turn projects legacy-compatible rows', () => {
     const out = projectRuntimeEventsToStoredMessages(baseEvents(), { runHeaders: [header] });
 

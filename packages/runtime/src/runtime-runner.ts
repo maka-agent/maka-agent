@@ -111,6 +111,8 @@ export interface InitialUserRuntimeEventInput {
   ts: number;
   branch?: string;
   text: string;
+  /** Human-facing view when it differs from `text`; see RuntimeEventTextContent. */
+  displayText?: string;
   attachments?: InvocationRequest['attachments'];
 }
 
@@ -336,6 +338,7 @@ export function buildInitialUserRuntimeEvent(input: InitialUserRuntimeEventInput
     content: {
       kind: 'text',
       text: input.text,
+      ...(input.displayText !== undefined ? { displayText: input.displayText } : {}),
       ...(input.attachments !== undefined && input.attachments.length > 0
         ? { attachments: input.attachments }
         : {}),

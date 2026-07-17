@@ -95,10 +95,12 @@ export function composeSkillInvocationMessage(input: {
       ].join('\n'),
     );
   }
-  const userText = input.userText.trim();
+  // Empty-check with trim, but insert the original userText so leading/trailing
+  // indentation (e.g. four-space code after a token-only line) is preserved.
+  const hasUserText = input.userText.trim().length > 0;
   parts.push(
-    userText.length > 0
-      ? `<user-message>\n${userText}\n</user-message>`
+    hasUserText
+      ? `<user-message>\n${input.userText}\n</user-message>`
       : 'The user provided no additional task text; follow the skill instructions above.',
   );
   return parts.join('\n\n');
