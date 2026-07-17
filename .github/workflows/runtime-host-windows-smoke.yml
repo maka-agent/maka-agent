@@ -1,0 +1,20 @@
+name: Runtime Host Windows smoke
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  runtime-host-windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm --workspace @maka/core run build
+      - run: npm --workspace @maka/storage test
+      - run: npm --workspace @maka/runtime-host test
