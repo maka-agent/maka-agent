@@ -28,6 +28,13 @@ export class MakaAutocompleteProvider implements AutocompleteProvider {
   private readonly slashCommands: readonly MakaSlashCommandMetadata[];
   private readonly listSkills?: () => Promise<readonly InvocableSkillEntry[]>;
 
+  // The kind of suggestions last returned by getSuggestions: 'skill' when the
+  // active list was mid-message `/skill:` completions, null otherwise. The
+  // Editor runs getSuggestions before applyCompletion and snapshot-guards the
+  // request, so this reliably disambiguates a mid-message skill selection (no
+  // `/` in prefix) from a file selection sharing the same prefix.
+  private lastSlashKind: 'skill' | null = null;
+
   constructor(
     basePath: string,
     slashCommands: readonly MakaSlashCommandMetadata[],
@@ -44,11 +51,14 @@ export class MakaAutocompleteProvider implements AutocompleteProvider {
     cursorCol: number,
     options: { signal: AbortSignal; force?: boolean },
   ): Promise<AutocompleteSuggestions | null> {
-    // `/skill:<query>` takes precedence everywhere — including at line start,
+    this.lastSlashKind = null;
+    // `/skill:<query>` takes precedence everywhere - including at line start,
     // where it would otherwise parse as a (non-matching) slash command — and
     // it suppresses file completion: the token charset looks path-like.
     const skillPrefix = skillInvocationPrefixAt(lines, cursorLine, cursorCol);
     if (skillPrefix !== null && this.listSkills && !options.force) {
+      // Skill completion is first-line only, matching pi-tui's isSlashMenuAllowed.
+      if (cursorLine !== 0) return null;
       const query = skillPrefix.query.toLowerCase();
       const skills = await this.listSkills();
       if (options.signal.aborted) return null;
@@ -61,7 +71,18 @@ export class MakaAutocompleteProvider implements AutocompleteProvider {
           label: `/skill:${skill.id}`,
           description: skill.description ? `${skill.name} · ${skill.description}` : skill.name,
         }));
-      return items.length > 0 ? { items, prefix: skillPrefix.prefix } : null;
+      if (items.length > 0) {
+        // Line-start keeps `/skill:query` so pi-tui auto-submits on select (the
+        // existing "select to invoke" UX). Mid-message drops the `/skill:` head
+        // (just the query) so selection inserts and returns instead of
+        // submitting - pi-tui submits only when `autocompletePrefix` starts with `/`.
+        this.lastSlashKind = 'skill';
+        const currentLine = lines[cursorLine] || '';
+        const textBeforeCursor = currentLine.slice(0, cursorCol);
+        const atLineStart = textBeforeCursor.slice(0, textBeforeCursor.length - skillPrefix.prefix.length).trim() === '';
+        return { items, prefix: atLineStart ? skillPrefix.prefix : skillPrefix.query };
+      }
+      return null;
     }
     if (skillPrefix !== null && !options.force) {
       // Inside a token but no skill surface: never fall through to path completion.
@@ -78,6 +99,43 @@ export class MakaAutocompleteProvider implements AutocompleteProvider {
           description: command.description,
         }));
       return items.length > 0 ? { items, prefix: slashPrefix } : null;
+    }
+    // A bare mid-message `/`-token (not `/skill:`, handled above): offer
+    // `/skill:xxx` completions so typing `/` surfaces skills immediately. Plain
+    // commands are not offered here - they only execute at line start.
+    const midSlash = midMessageSlashToken(lines, cursorLine, cursorCol);
+    if (midSlash !== null && this.listSkills && !options.force) {
+      // Keep the raw query as the replacement prefix; toLowerCase can change
+      // UTF-16 length (e.g. "İ" -> "i̇", len 1 -> 2), and applyCompletion slices
+      // by prefix.length, so a lowercased prefix would over-delete the original.
+      const rawQuery = midSlash.slice(1);
+      const query = rawQuery.toLowerCase();
+      const skills = await this.listSkills();
+      if (options.signal.aborted) return null;
+      const items = skills
+        .filter((skill) =>
+          skill.id.toLowerCase().startsWith(query)
+          || skill.name.toLowerCase().includes(query))
+        .map((skill) => ({
+          value: `skill:${skill.id}`,
+          label: `/skill:${skill.id}`,
+          description: skill.description ? `${skill.name} · ${skill.description}` : skill.name,
+        }));
+      if (items.length > 0) {
+        // Prefix is the raw text after `/` (no leading `/`) so pi-tui's
+        // select-confirm guard does not auto-submit. applyCompletion reuses the
+        // mid-message skill path: beforePrefix ends with `/`, item.value is
+        // `skill:<id>`, so `${beforePrefix}${item.value} ` yields `/skill:<id> `.
+        this.lastSlashKind = 'skill';
+        return { items, prefix: rawQuery };
+      }
+      // No skill matched. Do NOT fall through to the file provider: a mid-message
+      // `/`-token's file completion would carry a `/`-prefixed prefix, and pi-tui's
+      // select-confirm guard auto-submits when `prefix.startsWith("/")` - so
+      // selecting it would send the unfinished message. Mid-message `/`-path
+      // completion was not available before this PR either (pi-tui excludes `/`
+      // from triggerCharacters), so returning null restores the prior behavior.
+      return null;
     }
     return this.fileProvider.getSuggestions(lines, cursorLine, cursorCol, options);
   }
@@ -109,6 +167,19 @@ export class MakaAutocompleteProvider implements AutocompleteProvider {
         cursorCol: beforePrefix.length + item.value.length + 2,
       };
     }
+    if (this.lastSlashKind === 'skill') {
+      // Mid-message skill: prefix is just the query (no `/skill:`); the
+      // `/skill:` head sits at the end of beforePrefix. Insert
+      // `/skill:<value> ` and leave the cursor after the space; pi-tui will not
+      // auto-submit because the prefix did not start with `/`.
+      const nextLines = [...lines];
+      nextLines[cursorLine] = `${beforePrefix}${item.value} ${currentLine.slice(cursorCol)}`;
+      return {
+        lines: nextLines,
+        cursorLine,
+        cursorCol: beforePrefix.length + item.value.length + 1,
+      };
+    }
     return this.fileProvider.applyCompletion(lines, cursorLine, cursorCol, item, prefix);
   }
 
@@ -131,6 +202,20 @@ function slashCommandPrefix(lines: string[], cursorLine: number, cursorCol: numb
   const currentLine = lines[cursorLine] || '';
   const textBeforeCursor = currentLine.slice(0, cursorCol);
   return textBeforeCursor.startsWith('/') && !textBeforeCursor.includes(' ') ? textBeforeCursor : null;
+}
+
+// A `/`-token that begins mid-message (after whitespace) on the first line,
+// excluding the `/skill:` form (handled by skillInvocationPrefixAt above) and
+// line-start (handled by slashCommandPrefix). Used to offer `/skill:xxx`
+// completions from a bare `/` so typing `/` surfaces skills immediately.
+function midMessageSlashToken(lines: string[], cursorLine: number, cursorCol: number): string | null {
+  if (cursorLine !== 0) return null;
+  const currentLine = lines[cursorLine] || '';
+  const textBeforeCursor = currentLine.slice(0, cursorCol);
+  const match = /(?:\s)(\/\S*)$/.exec(textBeforeCursor);
+  if (!match) return null;
+  const token = match[1];
+  return token.startsWith('/skill:') ? null : token;
 }
 
 export class PickerOverlay implements Component {
