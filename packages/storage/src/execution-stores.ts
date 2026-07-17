@@ -22,32 +22,41 @@ import { createSessionStore, type SessionStore } from './session-store.js';
 import {
   assertStorageRootLease,
   runWithStorageRootLease,
+  StorageRootAuthorityError,
+  type StorageRootKind,
   type StorageRootLease,
 } from './root-authority.js';
+
+const executionStoresWriterBrand: unique symbol = Symbol('ExecutionStoresWriter');
+const executionStoresReaderBrand: unique symbol = Symbol('ExecutionStoresReader');
+const executionStoresWriterKinds = new WeakMap<object, StorageRootKind>();
+const executionStoresReaderKinds = new WeakMap<object, StorageRootKind>();
 
 export type {
   RootTurnAdmission,
   RootTurnAdmissionInput,
 } from './agent-run-store.js';
 
-export type InteractiveExecutionSessionWriter = SessionStore;
-export type InteractiveExecutionAgentRunWriter = DurableAgentRunStore;
-export type InteractiveExecutionRuntimeEventWriter = DurableRuntimeEventStore;
+export type ExecutionSessionWriter = SessionStore;
+export type ExecutionAgentRunWriter = DurableAgentRunStore;
+export type ExecutionRuntimeEventWriter = DurableRuntimeEventStore;
 
-export interface InteractiveExecutionStoresWriter {
-  sessionStore: InteractiveExecutionSessionWriter;
-  agentRunStore: InteractiveExecutionAgentRunWriter;
-  runtimeEventStore: InteractiveExecutionRuntimeEventWriter;
+export interface ExecutionStoresWriter<K extends StorageRootKind> {
+  readonly kind: K;
+  readonly [executionStoresWriterBrand]: K;
+  readonly sessionStore: Readonly<ExecutionSessionWriter>;
+  readonly agentRunStore: Readonly<ExecutionAgentRunWriter>;
+  readonly runtimeEventStore: Readonly<ExecutionRuntimeEventWriter>;
 }
 
-export interface InteractiveExecutionSessionReader {
+export interface ExecutionSessionReader {
   list(filter?: SessionListFilter): Promise<SessionSummary[]>;
   readHeader(sessionId: string): Promise<SessionHeader>;
   readMessages(sessionId: string): Promise<StoredMessage[]>;
   listTurns(sessionId: string): Promise<TurnRecord[]>;
 }
 
-export interface InteractiveExecutionAgentRunReader {
+export interface ExecutionAgentRunReader {
   readRun(sessionId: string, runId: string): Promise<AgentRunHeader>;
   listSessionRuns(sessionId: string): Promise<AgentRunHeader[]>;
   readEvents(sessionId: string, runId: string): Promise<AgentRunEvent[]>;
@@ -58,29 +67,66 @@ export interface InteractiveExecutionAgentRunReader {
   readRootTurnAdmission(sessionId: string, turnId: string): Promise<RootTurnAdmission | undefined>;
 }
 
-export interface InteractiveExecutionRuntimeEventReader {
+export interface ExecutionRuntimeEventReader {
   readRuntimeEvents(sessionId: string, runId: string): Promise<RuntimeEvent[]>;
   readImmutableRuntimeEvents(sessionId: string, runId: string): Promise<RuntimeEvent[]>;
   readSessionRuntimeEvents(sessionId: string): Promise<RuntimeEvent[]>;
 }
 
-export interface InteractiveExecutionStoresReader {
-  sessionStore: InteractiveExecutionSessionReader;
-  agentRunStore: InteractiveExecutionAgentRunReader;
-  runtimeEventStore: InteractiveExecutionRuntimeEventReader;
+export interface ExecutionStoresReader<K extends StorageRootKind> {
+  readonly kind: K;
+  readonly [executionStoresReaderBrand]: K;
+  readonly sessionStore: Readonly<ExecutionSessionReader>;
+  readonly agentRunStore: Readonly<ExecutionAgentRunReader>;
+  readonly runtimeEventStore: Readonly<ExecutionRuntimeEventReader>;
+}
+
+export function authenticateExecutionStoresWriter<K extends StorageRootKind>(
+  stores: ExecutionStoresWriter<K>,
+  expectedKind: K,
+): ExecutionStoresWriter<K> {
+  if (executionStoresWriterKinds.get(stores) !== expectedKind) {
+    throw invalidExecutionStores(expectedKind, 'write');
+  }
+  return stores;
+}
+
+export function authenticateExecutionStoresReader<K extends StorageRootKind>(
+  stores: ExecutionStoresReader<K>,
+  expectedKind: K,
+): ExecutionStoresReader<K> {
+  if (executionStoresReaderKinds.get(stores) !== expectedKind) {
+    throw invalidExecutionStores(expectedKind, 'read');
+  }
+  return stores;
 }
 
 export async function openInteractiveExecutionStoresForWrite(
   lease: StorageRootLease<'interactive', 'write'>,
-): Promise<InteractiveExecutionStoresWriter> {
-  await assertStorageRootLease(lease, 'interactive', 'write');
+): Promise<ExecutionStoresWriter<'interactive'>> {
+  return openExecutionStoresForWrite(lease, 'interactive');
+}
+
+export async function openHeadlessExecutionStoresForWrite(
+  lease: StorageRootLease<'headless', 'write'>,
+): Promise<ExecutionStoresWriter<'headless'>> {
+  return openExecutionStoresForWrite(lease, 'headless');
+}
+
+async function openExecutionStoresForWrite<K extends StorageRootKind>(
+  lease: StorageRootLease<K, 'write'>,
+  kind: K,
+): Promise<ExecutionStoresWriter<K>> {
+  await assertStorageRootLease(lease, kind, 'write');
   const sessionStore = createSessionStore(lease.canonicalPath);
   const agentRunStore = createAgentRunStore(lease.canonicalPath);
   const runtimeEventStore = createRuntimeEventStore(lease.canonicalPath);
   const run = <T>(operation: () => Promise<T>) =>
-    runWithStorageRootLease(lease, 'interactive', 'write', operation);
+    runWithStorageRootLease(lease, kind, 'write', operation);
 
-  return {
+  const stores: ExecutionStoresWriter<K> = {
+    kind,
+    [executionStoresWriterBrand]: kind,
     sessionStore: {
       create: (input) => run(() => sessionStore.create(input)),
       list: (filter) => run(() => sessionStore.list(filter)),
@@ -146,19 +192,37 @@ export async function openInteractiveExecutionStoresForWrite(
         run(() => runtimeEventStore.readSessionRuntimeEvents(sessionId)),
     },
   };
+  freezeExecutionStoresFacade(stores);
+  executionStoresWriterKinds.set(stores, kind);
+  return stores;
 }
 
 export async function openInteractiveExecutionStoresForRead(
   lease: StorageRootLease<'interactive', 'read'>,
-): Promise<InteractiveExecutionStoresReader> {
-  await assertStorageRootLease(lease, 'interactive', 'read');
+): Promise<ExecutionStoresReader<'interactive'>> {
+  return openExecutionStoresForRead(lease, 'interactive');
+}
+
+export async function openHeadlessExecutionStoresForRead(
+  lease: StorageRootLease<'headless', 'read'>,
+): Promise<ExecutionStoresReader<'headless'>> {
+  return openExecutionStoresForRead(lease, 'headless');
+}
+
+async function openExecutionStoresForRead<K extends StorageRootKind>(
+  lease: StorageRootLease<K, 'read'>,
+  kind: K,
+): Promise<ExecutionStoresReader<K>> {
+  await assertStorageRootLease(lease, kind, 'read');
   const sessionStore = createSessionStore(lease.canonicalPath);
   const agentRunStore = createAgentRunStore(lease.canonicalPath);
   const runtimeEventStore = createRuntimeEventStore(lease.canonicalPath);
   const run = <T>(operation: () => Promise<T>) =>
-    runWithStorageRootLease(lease, 'interactive', 'read', operation);
+    runWithStorageRootLease(lease, kind, 'read', operation);
 
-  return {
+  const stores: ExecutionStoresReader<K> = {
+    kind,
+    [executionStoresReaderBrand]: kind,
     sessionStore: {
       list: (filter) => run(() => sessionStore.list(filter)),
       readHeader: (sessionId) => run(() => sessionStore.readHeaderSnapshot(sessionId)),
@@ -183,4 +247,28 @@ export async function openInteractiveExecutionStoresForRead(
         run(() => runtimeEventStore.readSessionRuntimeEvents(sessionId)),
     },
   };
+  freezeExecutionStoresFacade(stores);
+  executionStoresReaderKinds.set(stores, kind);
+  return stores;
+}
+
+function freezeExecutionStoresFacade(stores: {
+  readonly sessionStore: object;
+  readonly agentRunStore: object;
+  readonly runtimeEventStore: object;
+}): void {
+  Object.freeze(stores.sessionStore);
+  Object.freeze(stores.agentRunStore);
+  Object.freeze(stores.runtimeEventStore);
+  Object.freeze(stores);
+}
+
+function invalidExecutionStores(
+  kind: StorageRootKind,
+  access: 'read' | 'write',
+): StorageRootAuthorityError {
+  return new StorageRootAuthorityError(
+    'invalid_lease',
+    `Expected authentic ${kind} ${access} execution stores`,
+  );
 }

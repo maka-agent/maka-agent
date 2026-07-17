@@ -2,9 +2,10 @@ import { randomUUID } from 'node:crypto';
 import type { AgentRunHeader } from '@maka/core/agent-run';
 import type { SessionHeader, StoredMessage } from '@maka/core/session';
 import { classifyTerminalRuntimeLedger, type SessionManager } from '@maka/runtime';
-import type {
-  InteractiveExecutionStoresWriter,
-  RootTurnAdmission,
+import {
+  authenticateExecutionStoresWriter,
+  type ExecutionStoresWriter,
+  type RootTurnAdmission,
 } from '@maka/storage/execution-stores';
 import type {
   OperationOutcome,
@@ -54,13 +55,16 @@ export class RootTurnCoordinator {
   readonly #activeBySession = new Map<string, ActiveRootTurn>();
   readonly #sessionGateTails = new Map<string, Promise<void>>();
   readonly #recoveryAdmissionsBySession = new Map<string, readonly RootTurnAdmission[]>();
+  private readonly stores: ExecutionStoresWriter<'interactive'>;
 
   constructor(
     private readonly manager: SessionManager,
-    private readonly stores: InteractiveExecutionStoresWriter,
+    stores: ExecutionStoresWriter<'interactive'>,
     private readonly acquireRecoveryResidency: () => RuntimeHostResidency,
     private readonly requestHostDrain: () => void,
-  ) {}
+  ) {
+    this.stores = authenticateExecutionStoresWriter(stores, 'interactive');
+  }
 
   async prepareRecovery(): Promise<void> {
     const sessions = await this.stores.sessionStore.listForRecovery();
