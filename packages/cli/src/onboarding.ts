@@ -84,5 +84,9 @@ export function listApiKeyOnboardableProviders(): OnboardableProvider[] {
         requiresBaseUrl: !def.baseUrl,
         fallbackModels: def.fallbackModels,
       };
-    });
+    })
+    // Phase 1 collects only an API key; providers without a default baseUrl
+    // cannot be completed by this wizard and would wedge a fresh install, so
+    // exclude them until the base-URL prompt lands (phase 2).
+    .filter((provider) => !provider.requiresBaseUrl);
 }

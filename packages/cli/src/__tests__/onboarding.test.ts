@@ -188,14 +188,21 @@ describe('listApiKeyOnboardableProviders', () => {
     }
   });
 
-  test('flags providers without a default baseUrl so the wizard can prompt for one', () => {
+  test('excludes providers that require a user-supplied baseUrl (phase 1)', () => {
     const providers = listApiKeyOnboardableProviders();
     const anthropic = providers.find((p) => p.providerType === 'anthropic');
 
     // anthropic ships a default baseUrl, so the wizard skips that field for it.
     assert.equal(anthropic?.requiresBaseUrl, false);
-    // at least one catalog provider needs a user-supplied endpoint.
-    assert.ok(providers.some((p) => p.requiresBaseUrl));
+    // Phase 1 cannot collect a base URL, so providers without a default one are
+    // not onboardable yet (they would wedge the install — see PR #1177 review).
+    for (const provider of providers) {
+      assert.equal(
+        provider.requiresBaseUrl,
+        false,
+        `${provider.providerType} requires a base URL and must be excluded until the wizard can prompt for one`,
+      );
+    }
   });
 });
 
