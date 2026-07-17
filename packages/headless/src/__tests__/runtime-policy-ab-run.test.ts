@@ -335,6 +335,45 @@ describe('runRuntimePolicyAbComparison', () => {
       ]);
     });
   });
+
+  test('does not reuse runtime-policy outcomes after billing semantics change', async () => {
+    await withDir(async (dir) => {
+      const promptPath = join(dir, 'system-prompt.md');
+      const resultsJsonlPath = join(dir, 'results.jsonl');
+      await writeFile(promptPath, 'shared prompt\n', 'utf8');
+      const common = {
+        runId: 'runtime-ab-run',
+        runRoot: dir,
+        config,
+        systemPromptPath: promptPath,
+        resultsJsonlPath,
+        evaluationTasks: [{ id: 't1', path: '/tasks/t1' }],
+        reps: 1,
+        arms: [
+          { id: 'prune-off', contextEnv: { MAKA_CONTEXT_BUDGET: 'off' } },
+          { id: 'prune-on', contextEnv: { MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE: 'on' } },
+        ] as const,
+        now: () => 100,
+        newId: idFactory(),
+      };
+      let calls = 0;
+      const harborRunner = async (input: HarborTaskRunInput) => {
+        calls += 1;
+        return harborOutput(input);
+      };
+
+      await runRuntimePolicyAbComparison({ ...common, executionProfile, harborRunner });
+      assert.equal(calls, 2);
+
+      calls = 0;
+      await runRuntimePolicyAbComparison({
+        ...common,
+        executionProfile: { ...executionProfile, billingMode: 'account-plan' },
+        harborRunner,
+      });
+      assert.equal(calls, 2);
+    });
+  });
 });
 
 function harborOutput(input: HarborTaskRunInput): HarborTaskRunOutput {

@@ -5,7 +5,7 @@ import {
   type HarborTaskRunner,
 } from './fixed-prompt-controller.js';
 import { renderAbComparisonMarkdown } from './ab-render.js';
-import { buildAbRunManifest } from './ab-manifest.js';
+import { buildAbRunManifest, buildRunManifestFingerprint } from './ab-manifest.js';
 import { runAbComparison } from './ab-run.js';
 import type { AbArmSpec, AbComparisonSummary, AbRunManifest, AbRunManifestInput } from './ab-types.js';
 import type { Config } from './contracts.js';
@@ -207,15 +207,26 @@ function runtimePolicySharedConfigFingerprint(config: Config): string {
   return `sha256:${createHash('sha256').update(canonicalJson(effectiveConfig)).digest('hex')}`;
 }
 
+function runtimePolicyExecutionFingerprint(profile: RuntimePolicyAbExecutionProfile): string {
+  const {
+    observedCostStopUsd: _observedCostStopUsd,
+    maxConcurrentAttempts: _maxConcurrentAttempts,
+    ...cellSemantics
+  } = profile;
+  return buildRunManifestFingerprint(cellSemantics);
+}
+
 function runtimePolicyResumeFingerprint(input: {
   sharedConfigFingerprint: string;
+  executionProfileFingerprint: string;
   sharedAgentEnvFingerprint: string;
   armContextEnvFingerprint: string;
   callerResumeFingerprint?: string;
 }): string {
   return `sha256:${createHash('sha256').update(canonicalJson({
-    version: 'maka-runtime-policy-resume-v1',
+    version: 'maka-runtime-policy-resume-v2',
     sharedConfigFingerprint: input.sharedConfigFingerprint,
+    executionProfileFingerprint: input.executionProfileFingerprint,
     sharedAgentEnvFingerprint: input.sharedAgentEnvFingerprint,
     armContextEnvFingerprint: input.armContextEnvFingerprint,
     callerResumeFingerprint: input.callerResumeFingerprint,
@@ -223,11 +234,12 @@ function runtimePolicyResumeFingerprint(input: {
 }
 
 export function runtimePolicyArmResumeFingerprint(
-  input: Pick<RunRuntimePolicyAbComparisonInput, 'config' | 'sharedAgentEnv' | 'resumeFingerprint'>,
+  input: Pick<RunRuntimePolicyAbComparisonInput, 'config' | 'executionProfile' | 'sharedAgentEnv' | 'resumeFingerprint'>,
   arm: RuntimePolicyAbArmInput,
 ): string {
   return runtimePolicyResumeFingerprint({
     sharedConfigFingerprint: runtimePolicySharedConfigFingerprint(input.config),
+    executionProfileFingerprint: runtimePolicyExecutionFingerprint(input.executionProfile),
     sharedAgentEnvFingerprint: sharedAgentEnvFingerprint(sanitizeSharedAgentEnv(input.sharedAgentEnv ?? {})),
     armContextEnvFingerprint: contextEnvFingerprint(sanitizeContextEnv(arm.contextEnv)),
     callerResumeFingerprint: input.resumeFingerprint,
