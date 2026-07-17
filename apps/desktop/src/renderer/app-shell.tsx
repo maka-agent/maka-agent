@@ -114,6 +114,8 @@ import { useKeyedPendingRegistry } from './use-pending-action-registry';
 import { useAppShellComposerAttachments } from './use-app-shell-composer-attachments';
 import { useComposerMentions } from './use-composer-mentions';
 import { useAppShellSessionWorkspace } from './use-app-shell-session-workspace';
+import { useShellExpertTeams } from './use-shell-expert-teams';
+import { useShellMemoryPill } from './use-shell-memory-pill';
 import { useShellConnections } from './use-shell-connections';
 import { useShellChatModel } from './use-shell-chat-model';
 import { useShellLiveTurn } from './use-shell-live-turn';
@@ -201,13 +203,11 @@ export function AppShell({
     pendingPermissionModeBySession,
     pendingSessionModelBySession,
   } = sessionUiState;
-  // PR-MEMORY-VISIBILITY-INDICATOR-0: surface a small pill in the
-  // chat header when xuan's MEMORY.md is being injected into the
-  // agent's system prompt (PR-MEMORY-PROMPT-INJECT-0). Refreshed
-  // when activeId changes (we re-fetch on every chat switch) and
-  // whenever the Settings modal closes (the user may have toggled
-  // the agentReadEnabled switch).
-  const [memoryActive, setMemoryActive] = useState(false);
+  // PR-MEMORY-VISIBILITY-INDICATOR-0: chat-header memory pill (MEMORY.md
+  // injected into the system prompt). State and the fire-and-forget refresh
+  // live in `useShellMemoryPill`; recompute is triggered on mount (bootstrap
+  // subscriptions) and when Settings closes (closeSettings).
+  const { memoryActive, refreshMemoryActive } = useShellMemoryPill({ toastApi });
   const {
     connections,
     connectionsRevision,
@@ -623,16 +623,9 @@ export function AppShell({
     setQuickChatPending,
     toastApi,
   });
-  // Built-in expert teams for the composer "+" menu. Loaded once — the catalog
-  // is static, so a failure just leaves the 专家团 entry hidden.
-  const [expertTeams, setExpertTeams] = useState<readonly { id: string; name: string; description?: string }[]>([]);
-  useEffect(() => {
-    let cancelled = false;
-    void window.maka.expertTeam.list()
-      .then((result) => { if (!cancelled) setExpertTeams(result.teams); })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, []);
+  // Built-in expert teams for the composer "+" menu - loaded once via
+  // `useShellExpertTeams` (static catalog; a failure just hides the 专家团 entry).
+  const expertTeams = useShellExpertTeams();
   const onboardingState = onboarding.snapshot?.state;
   const onboardingSettled = hasSettledInitialOnboarding(onboarding.snapshot?.milestones ?? []);
   // Seed sessions from the onboarding snapshot on first load — the snapshot
@@ -1084,15 +1077,6 @@ export function AppShell({
         .querySelector<HTMLInputElement>('[data-maka-plan-title-input="true"]')
         ?.focus({ preventScroll: false });
     });
-  }
-
-  async function refreshMemoryActive(failureTitle = '刷新本地记忆状态失败') {
-    try {
-      const next = await window.maka.memory.getState();
-      setMemoryActive(next.agentReadEnabled && next.status === 'ok' && next.content.trim().length > 0);
-    } catch (error) {
-      toastApi.error(failureTitle, generalizedErrorMessageChinese(error, '本地记忆状态暂时无法刷新，请稍后重试。'));
-    }
   }
 
   function openSettings() {
