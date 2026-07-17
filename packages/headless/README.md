@@ -182,22 +182,21 @@ node packages/headless/harbor/run-terminal-bench-smoke.mjs --profile maka-heavy 
 node packages/headless/harbor/run-terminal-bench-smoke.mjs --compare --task '*sqlite-with-gcov'
 ```
 
-## GLM-5.2 harness comparison
+## K3 harness comparison
 
-`harbor/run-harness-ab.mjs` compares Maka and OpenCode 1.17.18 on the same Terminal-Bench 2.1 tasks with GLM-5.2 Max. The task root must match the 89 task ids and canonical task-tree fingerprint of the frozen official revision; a matching Harbor export with one task directory per id is accepted directly. The A/B task order is frozen independently of Oracle evidence. Maka keeps active and stale tool-result pruning enabled while semantic compact is explicitly disabled in both the manifest and runtime environment.
+`harbor/run-harness-ab.mjs` compares Maka with the official Kimi Code 0.26.0 CLI on Kimi K3 Max. Set `MAKA_HARNESS_AB_COMPETITOR=opencode` to select the pinned OpenCode 1.17.18 arm instead. The task root must match the 89 task ids and canonical task-tree fingerprint of the frozen official Terminal-Bench 2.1 revision; a matching export with one task directory per id is accepted directly. The A/B task order is frozen independently of Oracle evidence. Maka keeps active and stale tool-result pruning enabled while semantic compact is explicitly disabled in both the manifest and runtime environment.
 
 Validate the frozen task source and preview the A/B plan without reading a key or starting Harbor:
 
 ```sh
 MAKA_HARNESS_AB_OUT_DIR=/path/to/out \
 MAKA_HARNESS_AB_TASKS_ROOT=/path/to/terminal-bench-2.1-tasks \
-MAKA_HARNESS_AB_RUN_ID=glm-5.2-harness-ab \
-MAKA_HARNESS_AB_LIMIT=30 \
+MAKA_HARNESS_AB_LIMIT=5 \
 MAKA_HARNESS_AB_DRY_RUN=1 \
 node packages/headless/harbor/run-harness-ab.mjs
 ```
 
-For a live run, remove `MAKA_HARNESS_AB_DRY_RUN` and set `MAKA_HARNESS_AB_KEY_FILE` to a credential file outside git. Maka reads it in its host-side cell; OpenCode receives only a short-lived host proxy capability, never the provider key or key-file path. `MAKA_HARNESS_AB_LIMIT=2` runs an operational canary, `30` runs the deterministic pilot prefix, and `89` runs the complete frozen profile. Only missing cells run. The immutable manifest rejects configuration changes.
+For a live run, remove `MAKA_HARNESS_AB_DRY_RUN` and set `MAKA_HARNESS_AB_KEY_FILE` to a credential file outside git. Both arms receive only a short-lived host proxy capability, never the provider key or key-file path. `MAKA_HARNESS_AB_LIMIT=5` runs the operational canary; rerun the same run id with `89` to continue the same WAL through the complete frozen profile. Four task pairs run concurrently, for at most eight active attempts. Only missing cells run, and the immutable manifest rejects configuration changes.
 
 Oracle evidence is advisory. To consume a CI-issued registry snapshot, set both `MAKA_HARNESS_AB_ORACLE_REGISTRY_URL` and `MAKA_HARNESS_AB_ORACLE_REGISTRY_FINGERPRINT`. The runner downloads the lightweight pinned snapshot, validates its content and per-task identities, and records `passed`, `failed`, `timed_out`, `infra_failed`, `stale`, or `missing` annotations in the manifest and report. Missing, stale, failed, unavailable, invalid, or unresolvable evidence emits warnings but never invokes Oracle, changes task selection, blocks new A/B execution, or changes statistical inclusion. A resumed run reuses the advisory snapshot frozen in its existing manifest instead of resolving current registry state again. Legacy manifests retain their historical Oracle-gated `qualification` metadata as read-only history; the current runner does not append new cells to a run created by the old qualification profile.
 
@@ -205,7 +204,7 @@ The manual `.github/workflows/oracle-evidence-audit.yml` workflow is the only CI
 
 For an unattended run, invoke `node packages/headless/harbor/run-harness-ab-detached.mjs` with the same environment. It detaches the worker from the terminal and atomically journals `running`, `completed`, or `failed` in `background-run.json`; stdout and stderr go to `background-run.log`.
 
-Outputs are `harness-ab-report.json`, `.csv`, and `.md`. Report schema v2 records scheduled, attempted, model-scored, unscored (including the infrastructure-failed subset), and missing-final-usage cell coverage while keeping paired Pass@1 and fully metered cache-aware API-equivalent cost on separate denominators. A fully attempted schedule with honest evidence gaps finishes as `completed_with_gaps`; an unattempted suffix remains `incomplete`. Reports do not claim fixed-plan spend or publish results.
+Outputs are `harness-ab-report.json`, `.csv`, and `.md`. Report schema v3 records scheduled, attempted, model-scored, unscored (including the infrastructure-failed subset), and missing-final-usage cell coverage while keeping paired Pass@1 and token economy on separate denominators. Account-plan runs record zero cost and use real token totals as the economy measure. Evidence gaps finish as `completed_with_gaps` and fail the completion assertion; an unattempted suffix remains `incomplete`. Reports do not claim fixed-plan spend or publish results.
 
 ## Attention semantic-compaction A/B
 

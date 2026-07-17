@@ -123,6 +123,13 @@ export function resolveHarnessCompetitorProfile(raw = 'kimi-code') {
   return profile;
 }
 
+export function resolveHarnessAbRunId(competitorProfile, explicitRunId) {
+  return explicitRunId
+    || (competitorProfile.id === 'kimi-code'
+      ? DEFAULT_HARNESS_AB_RUN_ID
+      : `k3-maka-vs-${competitorProfile.id}-tbench-2.1-full-v1`);
+}
+
 function envPath(name, fallback) {
   const raw = process.env[name] || fallback;
   if (!raw) throw new Error(`${name} is required`);
@@ -217,10 +224,7 @@ export async function main() {
   const outDir = envPath('MAKA_HARNESS_AB_OUT_DIR');
   const tasksRoot = envPath('MAKA_HARNESS_AB_TASKS_ROOT', join(homedir(), '.cache/harbor/tasks'));
   const competitorProfile = resolveHarnessCompetitorProfile(process.env.MAKA_HARNESS_AB_COMPETITOR || 'kimi-code');
-  const runId = process.env.MAKA_HARNESS_AB_RUN_ID
-    || (competitorProfile.id === 'kimi-code'
-      ? DEFAULT_HARNESS_AB_RUN_ID
-      : `k3-maka-vs-${competitorProfile.id}-tbench-2.1-full-v1`);
+  const runId = resolveHarnessAbRunId(competitorProfile, process.env.MAKA_HARNESS_AB_RUN_ID);
   const limit = runLimit(process.env.MAKA_HARNESS_AB_LIMIT);
   const runRoot = resolveFixedPromptRunRoot(outDir, runId, 'MAKA_HARNESS_AB_RUN_ID');
   await withHarnessAbRunLock(runRoot, async () => {

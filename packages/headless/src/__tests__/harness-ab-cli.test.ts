@@ -232,6 +232,34 @@ test('detached harness launcher persists a terminal failed journal after the wor
   }
 });
 
+test('detached OpenCode launcher and worker share the competitor default run id', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'maka-harness-ab-detached-opencode-'));
+  try {
+    const outDir = join(dir, 'out');
+    const runId = 'k3-maka-vs-opencode-tbench-2.1-full-v1';
+    const scriptPath = new URL('../../harbor/run-harness-ab-detached.mjs', import.meta.url);
+    await execFileAsync(process.execPath, [scriptPath.pathname], {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        MAKA_HARNESS_AB_OUT_DIR: outDir,
+        MAKA_HARNESS_AB_COMPETITOR: 'opencode',
+        MAKA_HARNESS_AB_TASKS_ROOT: join(dir, 'missing-tasks'),
+        MAKA_HARNESS_AB_LIMIT: '5',
+        MAKA_HARNESS_AB_DRY_RUN: '1',
+      },
+    });
+
+    const journal = await waitForJournal(
+      join(outDir, runId, 'background-run.json'),
+      (value) => value.status === 'failed',
+    );
+    assert.equal(journal.exitCode, 1);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('duplicate detached launch does not overwrite the active run journal', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'maka-harness-ab-detached-'));
   try {
