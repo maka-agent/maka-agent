@@ -579,7 +579,7 @@ export function applyMakaSessionEventToTranscript(
           // error even when its payload is a well-formed (still running) run.
           if (event.isError) tool.status = 'error';
         } else {
-          tool.status = event.isError ? 'error' : 'done';
+          tool.status = toolResultTranscriptStatus(event.content, event.isError);
           tool.result = event.content;
           tool.output = formatToolResultContent(event.content);
           tool.durationMs = event.durationMs;
@@ -597,7 +597,7 @@ export function applyMakaSessionEventToTranscript(
           output: formatToolResultContent(event.content),
           resultVersion: 1,
           durationMs: event.durationMs,
-          status: event.isError ? 'error' : 'done',
+          status: toolResultTranscriptStatus(event.content, event.isError),
           expanded: state.expandAllTools,
         });
       }
@@ -768,6 +768,9 @@ function toolActivityToTranscriptEntry(item: ToolActivityItem): MakaPiToolEntry 
     status: transcriptToolStatus(item.status),
     expanded: false,
   };
+  if (item.result?.kind === 'subagent') {
+    entry.status = subagentTranscriptStatus(item.result.status);
+  }
   // A failed call keeps its error status and raw payload: applying the shell_run
   // as the card's own result would let a still-running or settled payload
   // overwrite the error and swallow the failure on replay. This mirrors the live
@@ -811,6 +814,31 @@ function transcriptToolStatus(status: ToolActivityItem['status']): MakaPiToolEnt
     case 'pending':
     case 'waiting_permission':
     case 'running':
+      return 'running';
+  }
+}
+
+function toolResultTranscriptStatus(
+  result: ToolResultContent,
+  isError: boolean,
+): MakaPiToolEntry['status'] {
+  return result.kind === 'subagent'
+    ? subagentTranscriptStatus(result.status)
+    : isError ? 'error' : 'done';
+}
+
+function subagentTranscriptStatus(
+  status: Extract<ToolResultContent, { kind: 'subagent' }>['status'],
+): MakaPiToolEntry['status'] {
+  switch (status) {
+    case 'completed':
+      return 'done';
+    case 'failed':
+      return 'failed';
+    case 'cancelled':
+      return 'aborted';
+    case 'running':
+    case 'waiting_permission':
       return 'running';
   }
 }

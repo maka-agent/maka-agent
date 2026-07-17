@@ -17,12 +17,16 @@ import {
   buildAskUserQuestionTool,
   buildBuiltinTools,
   buildRuntimeEventModelReplayPlan,
+  buildChildAgentTools,
   createBuiltinSandboxManager,
   createFilesystemWorkerLaunchSpecProvider,
   FilesystemWorkerClient,
   buildDefaultContextBudgetPolicy,
   buildSkillAgentTool,
   buildGoalTools,
+  buildSubagentProjectionTools,
+  buildSubagentSpawnTool,
+  buildSubagentToolGroup,
   buildLlmHistorySummarizer,
   cleanupLegacyHistoryCompactArtifacts,
   buildProviderOptions,
@@ -39,6 +43,7 @@ import {
   type InvocationResult,
   type ShellRunUpdate,
   type SkillSource,
+  type ToolAvailabilityConfig,
 } from '@maka/runtime';
 import {
   createAgentRunStore,
@@ -70,7 +75,7 @@ export interface MakaCliRuntimeContext {
   target: ReadySessionTarget;
   /** Selectable models across every ready connection, for the `/model` picker. */
   modelChoices: ModelChoice[];
-  /** Tools passed to the backend (builtins + automation + goals + Skill). */
+  /** Tools passed to the backend, including TUI-only interactive and subagent tools. */
   tools: MakaTool[];
   /**
    * Explicit skill invocation surface (issue #1148): the discovery source +
@@ -207,6 +212,20 @@ export async function createMakaCliRuntimeContext(
       enableFileToolAdditionalPermissions: true,
     } : {}),
   });
+  // Child sessions get fresh file-only tools. In particular, their Read tool
+  // cannot inspect parent runtime resources and no write/shell/agent tool is
+  // present for the catalog allowlist to select.
+  const childAgentTools = input.surface === 'tui'
+    ? buildChildAgentTools(buildBuiltinTools({
+        snapshotImage: createReadImageSnapshotter(artifactStore),
+        ...(sandboxManager ? { sandboxManager } : {}),
+        ...(filesystemWorker ? {
+          filesystemWorker,
+          enableBashAdditionalPermissions: true,
+          enableFileToolAdditionalPermissions: true,
+        } : {}),
+      }))
+    : [];
   const automationManager = new AutomationManager({
     generateId: () => randomUUID(),
     now: () => Date.now(),
@@ -426,19 +445,41 @@ export async function createMakaCliRuntimeContext(
         getTokenCount: (sessionId: string) => goalTokenCache.get(sessionId) ?? 0,
       })
     : [];
+  const subagentTools = input.surface === 'tui'
+    ? [buildSubagentSpawnTool(), ...buildSubagentProjectionTools()]
+    : [];
+  const toolAvailability: ToolAvailabilityConfig | undefined = input.surface === 'tui'
+    ? {
+        economy: !process.env.MAKA_DISABLE_DEFERRED_TOOLS,
+        groups: [buildSubagentToolGroup()],
+      }
+    : undefined;
   // CLI host capability surface for the skill-compatibility gate: the tool
   // names registered on this host. The CLI has no Office tools, so bundled
   // Office skills (requiredTools includes OfficeDocument/OfficeDocumentEdit)
   // are hard-hidden here without seeding them — desktop owns Office seeding.
   const surfaceTools = input.surface === 'tui' ? [buildAskUserQuestionTool()] : [];
   const host: HostCapabilities = {
-    toolNames: new Set([...tools, automationTool, ...goalTools, ...surfaceTools].map((tool) => tool.name)),
+    toolNames: new Set([
+      ...tools,
+      automationTool,
+      ...goalTools,
+      ...subagentTools,
+      ...surfaceTools,
+    ].map((tool) => tool.name)),
   };
   const skillTool = buildSkillAgentTool(
     ({ cwd }) => resolveSkillDiscoveryPaths(cwd, input.workspaceRoot),
     host,
   );
-  const allTools = [...tools, automationTool, ...goalTools, skillTool, ...surfaceTools];
+  const allTools = [
+    ...tools,
+    automationTool,
+    ...goalTools,
+    skillTool,
+    ...subagentTools,
+    ...surfaceTools,
+  ];
 
   backends.register('ai-sdk', async (ctx) => {
     const header = input.sessionCwdOverride?.sessionId === ctx.sessionId
@@ -474,6 +515,12 @@ export async function createMakaCliRuntimeContext(
       permissionEngine,
       modelFactory: (modelInput) => getAIModel({ ...modelInput, fetch: modelFetch }),
       tools: allTools,
+      toolAvailability,
+      ...(input.surface === 'tui' ? {
+        spawnChildAgent: (childInput) => runtime.spawnChildAgent(ctx.sessionId, childInput),
+        listChildAgents: () => runtime.listChildAgents(ctx.sessionId),
+        readChildAgentOutput: (childInput) => runtime.readChildAgentOutput(ctx.sessionId, childInput),
+      } : {}),
       providerOptions: buildProviderOptions(ready.connection, ready.model, header.thinkingLevel),
       contextBudget: buildDefaultContextBudgetPolicy(ready.connection, {
         name: 'cli-default-history-budget',
@@ -526,6 +573,7 @@ export async function createMakaCliRuntimeContext(
     runtimeEventStore,
     shellRuns,
     backends,
+    ...(input.surface === 'tui' ? { childTools: childAgentTools } : {}),
     runtimeInvocationObserver: input.runtimeInvocationObserver,
     cleanupHistoryCompactArtifacts: async (cleanupInput) => {
       await cleanupLegacyHistoryCompactArtifacts({

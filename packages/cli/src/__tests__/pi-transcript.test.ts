@@ -1314,6 +1314,79 @@ describe('Maka Pi TUI transcript', () => {
     assert.match(expanded, /step two/);
   });
 
+  test('folds concurrent child lifecycles into their parent agent cards', () => {
+    const state = createMakaPiTranscriptState();
+    for (const [toolUseId, profile] of [
+      ['agent-a', 'local_read'],
+      ['agent-b', 'web_research'],
+      ['agent-c', 'local_read'],
+    ] as const) {
+      applyMakaSessionEventToTranscript(state, event({
+        type: 'tool_start', toolUseId, toolName: 'agent_spawn', args: { profile, task: `Run ${profile}` },
+      }));
+    }
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_output_delta', toolUseId: 'agent-a', seq: 1, stream: 'stdout',
+      chunk: 'Child tool started: Read\n', redacted: false,
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_output_delta', toolUseId: 'agent-b', seq: 1, stream: 'stdout',
+      chunk: 'Child tool started: WebSearch\n', redacted: false,
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result', toolUseId: 'agent-a', isError: false,
+      content: subagentResult({ agentName: 'Local Read', turnId: 'child-a', summary: 'local result' }),
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result', toolUseId: 'agent-b', isError: true,
+      content: subagentResult({
+        agentName: 'Web Research', turnId: 'child-b', status: 'failed', summary: 'network failed',
+      }),
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result', toolUseId: 'agent-c', isError: true,
+      content: subagentResult({
+        agentName: 'Local Read', turnId: 'child-c', status: 'cancelled', summary: 'stopped',
+      }),
+    }));
+
+    const tools = state.entries.filter((entry) => entry.kind === 'tool');
+    assert.deepEqual(tools.map((tool) => [tool.toolUseId, tool.status]), [
+      ['agent-a', 'done'],
+      ['agent-b', 'failed'],
+      ['agent-c', 'aborted'],
+    ]);
+    assert.equal(toggleAllToolExpansion(state), true);
+    const rendered = renderMakaPiTranscript(state, meta(), 120).map(stripAnsi).join('\n');
+    assert.match(rendered, /Child tool started: Read/);
+    assert.match(rendered, /Child tool started: WebSearch/);
+    assert.match(rendered, /local result/);
+    assert.match(rendered, /network failed/);
+    assert.match(rendered, /stopped/);
+  });
+
+  test('restores one parent card with its child terminal state', () => {
+    const state = createMakaPiTranscriptState();
+    replaceTranscriptWithStoredMessages(state, [
+      {
+        type: 'tool_call', id: 'agent-a', turnId: 'turn-1', ts: 1,
+        toolName: 'agent_spawn', args: { profile: 'local_read', task: 'Inspect.' },
+      },
+      {
+        type: 'tool_result', id: 'agent-result', turnId: 'turn-1', ts: 2,
+        toolUseId: 'agent-a', isError: true,
+        content: subagentResult({
+          agentName: 'Local Read', turnId: 'child-a', status: 'cancelled', summary: 'stopped',
+        }),
+      },
+    ] satisfies StoredMessage[]);
+
+    const tools = state.entries.filter((entry) => entry.kind === 'tool');
+    assert.equal(tools.length, 1);
+    assert.equal(tools[0]?.toolUseId, 'agent-a');
+    assert.equal(tools[0]?.status, 'aborted');
+  });
+
   test('keeps a background Bash card running until the process settles', () => {
     const state = createMakaPiTranscriptState();
     applyMakaSessionEventToTranscript(state, event({
@@ -3511,6 +3584,21 @@ function event(input: { type: SessionEvent['type'] } & Record<string, unknown>):
     ts: 1,
     ...input,
   } as SessionEvent;
+}
+
+function subagentResult(
+  overrides: Partial<Extract<ToolResultContent, { kind: 'subagent' }>> = {},
+): Extract<ToolResultContent, { kind: 'subagent' }> {
+  return {
+    kind: 'subagent',
+    agentName: 'Local Read',
+    turnId: 'child-turn',
+    status: 'completed',
+    permissionMode: 'explore',
+    summary: 'done',
+    artifactIds: [],
+    ...overrides,
+  };
 }
 
 function stripAnsi(text: string): string {
