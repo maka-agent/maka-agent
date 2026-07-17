@@ -2,7 +2,7 @@ import {
   resolveExistingStorageRoot,
   tryAcquireInteractiveRootOwner,
 } from '@maka/storage/root-authority';
-import { NonServingRuntimeHost } from './host-kernel.js';
+import { RuntimeHostKernel } from './host-kernel.js';
 
 export interface RuntimeHostCandidateOptions {
   rootPath: string;
@@ -13,7 +13,7 @@ export interface RuntimeHostCandidateOptions {
 
 export type RuntimeHostCandidateResult =
   | { kind: 'loser' }
-  | { kind: 'winner'; host: NonServingRuntimeHost };
+  | { kind: 'winner'; host: RuntimeHostKernel };
 
 export async function startRuntimeHostCandidate(
   options: RuntimeHostCandidateOptions,
@@ -25,7 +25,7 @@ export async function startRuntimeHostCandidate(
   });
   const owner = await tryAcquireInteractiveRootOwner(capability);
   if (!owner) return { kind: 'loser' };
-  const host = await NonServingRuntimeHost.start({
+  const host = await RuntimeHostKernel.start({
     owner,
     idleGraceMs: options.idleGraceMs,
     handshakeTimeoutMs: options.handshakeTimeoutMs,

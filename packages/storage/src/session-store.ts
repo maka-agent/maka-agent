@@ -1,7 +1,8 @@
-import { mkdir, open, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdir, open, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
+import { appendJsonl } from './jsonl-append.js';
 import { chainWrite } from './write-queue.js';
 import {
   deriveTurnRecords,
@@ -26,8 +27,15 @@ const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 export interface SessionStore {
   create(input: CreateSessionInput): Promise<SessionHeader>;
   list(filter?: SessionListFilter): Promise<SessionSummary[]>;
+  listForRecovery(): Promise<SessionHeader[]>;
   /** Read only the durable header without triggering connection-lock self-healing. */
   readHeaderSnapshot(sessionId: string): Promise<SessionHeader>;
+  /** Read durable messages without triggering connection-lock self-healing. */
+  readMessagesSnapshot(sessionId: string): Promise<StoredMessage[]>;
+  /** Read messages for startup recovery, rejecting durable JSONL corruption. */
+  readMessagesForRecovery(sessionId: string): Promise<StoredMessage[]>;
+  /** Derive durable turns without triggering connection-lock self-healing. */
+  listTurnsSnapshot(sessionId: string): Promise<TurnRecord[]>;
   readHeader(sessionId: string): Promise<SessionHeader>;
   readMessages(sessionId: string): Promise<StoredMessage[]>;
   listTurns(sessionId: string): Promise<TurnRecord[]>;
@@ -114,7 +122,7 @@ class FileSessionStore implements SessionStore {
   async list(filter?: SessionListFilter): Promise<SessionSummary[]> {
     let entries;
     try {
-      entries = await import('node:fs/promises').then((fs) => fs.readdir(this.sessionsRoot, { withFileTypes: true }));
+      entries = await readdir(this.sessionsRoot, { withFileTypes: true });
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
       throw error;
@@ -175,6 +183,24 @@ class FileSessionStore implements SessionStore {
     return summaries;
   }
 
+  async listForRecovery(): Promise<SessionHeader[]> {
+    let entries;
+    try {
+      entries = await readdir(this.sessionsRoot, { withFileTypes: true });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+      throw error;
+    }
+    const headers: SessionHeader[] = [];
+    for (const entry of entries) {
+      if (!entry.isDirectory() || !isSafeSessionId(entry.name)) {
+        throw new Error(`Invalid Session entry: ${entry.name}`);
+      }
+      headers.push(await this.readHeaderOnly(entry.name));
+    }
+    return headers.sort((a, b) => a.id.localeCompare(b.id));
+  }
+
   async readHeader(sessionId: string): Promise<SessionHeader> {
     const { header, messages } = await this.readFileParts(sessionId);
     if (!header.connectionLocked && messages.some((message) => message.type === 'user')) {
@@ -195,6 +221,18 @@ class FileSessionStore implements SessionStore {
     return messages;
   }
 
+  async readMessagesSnapshot(sessionId: string): Promise<StoredMessage[]> {
+    return (await this.readFileParts(sessionId)).messages;
+  }
+
+  async readMessagesForRecovery(sessionId: string): Promise<StoredMessage[]> {
+    return (await this.readFilePartsUnlocked(sessionId, true)).messages;
+  }
+
+  async listTurnsSnapshot(sessionId: string): Promise<TurnRecord[]> {
+    return deriveTurnRecords(await this.readMessagesSnapshot(sessionId));
+  }
+
   async listTurns(sessionId: string): Promise<TurnRecord[]> {
     return deriveTurnRecords(await this.readMessages(sessionId));
   }
@@ -206,9 +244,8 @@ class FileSessionStore implements SessionStore {
   async appendMessages(sessionId: string, messages: StoredMessage[]): Promise<void> {
     if (messages.length === 0) return;
     await this.withQueue(sessionId, async () => {
-      await mkdir(this.sessionDir(sessionId), { recursive: true });
       const payload = messages.map((message) => JSON.stringify(message)).join('\n') + '\n';
-      await import('node:fs/promises').then((fs) => fs.appendFile(this.sessionPath(sessionId), payload, 'utf8'));
+      await appendJsonl(this.sessionPath(sessionId), payload, { requireExistingRecord: true });
     });
   }
 
@@ -352,7 +389,10 @@ class FileSessionStore implements SessionStore {
     return this.readFilePartsUnlocked(sessionId);
   }
 
-  private async readFilePartsUnlocked(sessionId: string): Promise<{ header: SessionHeader; messages: StoredMessage[] }> {
+  private async readFilePartsUnlocked(
+    sessionId: string,
+    strict = false,
+  ): Promise<{ header: SessionHeader; messages: StoredMessage[] }> {
     const text = await readFile(this.sessionPath(sessionId), 'utf8');
     const rawLines = text.split('\n');
     const endsWithNewline = text.endsWith('\n');
@@ -368,6 +408,10 @@ class FileSessionStore implements SessionStore {
         messages.push(normalizeStoredMessageForRead(JSON.parse(entry.line)));
       } catch (error) {
         if (!endsWithNewline && entry.lineNumber === lastLineNumber) continue;
+        if (strict) {
+          const detail = error instanceof Error ? error.message : String(error);
+          throw new Error(`Session ${sessionId} has a corrupt JSONL record at line ${entry.lineNumber}: ${detail}`);
+        }
         messages.push(createJsonlCorruptionNote(header, entry.lineNumber, error));
       }
     }

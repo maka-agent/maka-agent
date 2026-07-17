@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { appendFile, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
+import { appendFile, link, mkdir, open, readFile, readdir, rename, rm, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import { appendJsonl } from './jsonl-append.js';
 import { chainWrite } from './write-queue.js';
 import {
   AGENT_RUN_STATUSES,
@@ -14,6 +15,62 @@ import {
 } from '@maka/core';
 
 const SAFE_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
+const EXCLUSIVE_TEMP_SUFFIX_PATTERN = /^\d+\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.tmp$/;
+
+export const ROOT_TURN_ADMISSION_SCHEMA_VERSION = 1 as const;
+
+export interface RootTurnAdmissionInput {
+  text: string;
+}
+
+export interface RootTurnAdmission {
+  schemaVersion: typeof ROOT_TURN_ADMISSION_SCHEMA_VERSION;
+  sessionId: string;
+  turnId: string;
+  runId: string;
+  userMessageId: string;
+  normalizedInput: RootTurnAdmissionInput;
+  admittedAt: number;
+}
+
+export interface AdmitRootTurnInput {
+  sessionId: string;
+  turnId: string;
+  proposedRunId: string;
+  proposedUserMessageId: string;
+  normalizedInput: RootTurnAdmissionInput;
+  admittedAt: number;
+}
+
+export type AdmitRootTurnResult =
+  | { kind: 'admitted'; admission: RootTurnAdmission }
+  | { kind: 'existing'; admission: RootTurnAdmission }
+  | { kind: 'conflict'; admission: RootTurnAdmission };
+
+export interface RootTurnAdmissionStore {
+  admitRootTurn(input: AdmitRootTurnInput): Promise<AdmitRootTurnResult>;
+  readRootTurnAdmission(sessionId: string, turnId: string): Promise<RootTurnAdmission | undefined>;
+  listRootTurnAdmissionsForRecovery(sessionId: string): Promise<RootTurnAdmission[]>;
+}
+
+export interface DurableAgentRunStore extends AgentRunStore, RootTurnAdmissionStore {
+  listSessionRunsForRecovery(sessionId: string): Promise<AgentRunHeader[]>;
+  readEventsForRecovery(sessionId: string, runId: string): Promise<AgentRunEvent[]>;
+  readEventProjection(
+    sessionId: string,
+    type: AgentRunEventType,
+  ): Promise<AgentRunEvent | null | undefined>;
+  repairEventProjection(
+    sessionId: string,
+    type: AgentRunEventType,
+    event: AgentRunEvent | null,
+    options?: { replaceEventId?: string },
+  ): Promise<void>;
+}
+
+export interface DurableRuntimeEventStore extends RuntimeEventStore {
+  readImmutableRuntimeEvents(sessionId: string, runId: string): Promise<RuntimeEvent[]>;
+}
 
 interface RuntimePartialSnapshot {
   version: 1;
@@ -21,15 +78,15 @@ interface RuntimePartialSnapshot {
   afterEventId?: string;
 }
 
-export function createAgentRunStore(workspaceRoot: string): AgentRunStore {
+export function createAgentRunStore(workspaceRoot: string): DurableAgentRunStore {
   return new FileAgentRunStore(workspaceRoot);
 }
 
-export function createRuntimeEventStore(workspaceRoot: string): RuntimeEventStore {
+export function createRuntimeEventStore(workspaceRoot: string): DurableRuntimeEventStore {
   return new FileRuntimeEventStore(workspaceRoot);
 }
 
-class FileAgentRunStore implements AgentRunStore {
+class FileAgentRunStore implements DurableAgentRunStore {
   private readonly sessionsRoot: string;
   private readonly writeQueues = new Map<string, Promise<void>>();
   private readonly projectionWriteQueues = new Map<string, Promise<void>>();
@@ -42,8 +99,11 @@ class FileAgentRunStore implements AgentRunStore {
     assertSafeId(header.sessionId, 'Invalid session id');
     assertSafeId(header.runId, 'Invalid run id');
     await this.withQueue(header.sessionId, header.runId, async () => {
-      await mkdir(this.runDir(header.sessionId, header.runId), { recursive: true });
-      await writeAtomic(this.runPath(header.sessionId, header.runId), JSON.stringify(header, sanitizeJson) + '\n');
+      const created = await writeExclusiveAtomic(
+        this.runPath(header.sessionId, header.runId),
+        JSON.stringify(header, sanitizeJson) + '\n',
+      );
+      if (!created) throw new Error(`Agent run already exists: ${header.runId}`);
     });
     await this.withProjectionQueue(header.sessionId, 'history_compact_checkpoint_recorded', async () => {
       await this.initializeEventProjectionUnlocked(
@@ -55,6 +115,82 @@ class FileAgentRunStore implements AgentRunStore {
       // Projection initialization is derived state; recovery can rebuild it from the run ledger.
     });
     return header;
+  }
+
+  async admitRootTurn(input: AdmitRootTurnInput): Promise<AdmitRootTurnResult> {
+    assertSafeId(input.sessionId, 'Invalid session id');
+    assertSafeId(input.turnId, 'Invalid turn id');
+    assertSafeId(input.proposedRunId, 'Invalid run id');
+    assertSafeId(input.proposedUserMessageId, 'Invalid user message id');
+    const normalizedInput = normalizeRootTurnAdmissionInput(input.normalizedInput);
+    if (!Number.isSafeInteger(input.admittedAt) || input.admittedAt < 0) {
+      throw new Error('Invalid root turn admission timestamp');
+    }
+    const admission: RootTurnAdmission = {
+      schemaVersion: ROOT_TURN_ADMISSION_SCHEMA_VERSION,
+      sessionId: input.sessionId,
+      turnId: input.turnId,
+      runId: input.proposedRunId,
+      userMessageId: input.proposedUserMessageId,
+      normalizedInput,
+      admittedAt: input.admittedAt,
+    };
+    const path = this.rootTurnAdmissionPath(input.sessionId, input.turnId);
+    const created = await writeExclusiveAtomic(path, JSON.stringify(admission) + '\n');
+    if (created) return { kind: 'admitted', admission };
+    const existing = await this.readRootTurnAdmission(input.sessionId, input.turnId);
+    if (!existing) throw new Error(`Root turn admission disappeared: ${input.turnId}`);
+    return existing.normalizedInput.text === normalizedInput.text
+      ? { kind: 'existing', admission: existing }
+      : { kind: 'conflict', admission: existing };
+  }
+
+  async readRootTurnAdmission(
+    sessionId: string,
+    turnId: string,
+  ): Promise<RootTurnAdmission | undefined> {
+    assertSafeId(sessionId, 'Invalid session id');
+    assertSafeId(turnId, 'Invalid turn id');
+    let raw: string;
+    try {
+      raw = await readFile(this.rootTurnAdmissionPath(sessionId, turnId), 'utf8');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+      throw error;
+    }
+    return normalizeRootTurnAdmission(JSON.parse(raw), sessionId, turnId);
+  }
+
+  async listRootTurnAdmissionsForRecovery(sessionId: string): Promise<RootTurnAdmission[]> {
+    assertSafeId(sessionId, 'Invalid session id');
+    const admissionsRoot = this.rootTurnAdmissionsRoot(sessionId);
+    let entries;
+    try {
+      entries = await readdir(admissionsRoot, { withFileTypes: true });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+      throw error;
+    }
+    const admissions: RootTurnAdmission[] = [];
+    let removedStagingFile = false;
+    for (const entry of entries) {
+      if (!entry.isFile()) {
+        throw new Error(`Invalid root turn admission entry: ${entry.name}`);
+      }
+      const turnId = turnIdFromAdmissionFile(entry.name);
+      if (turnId) {
+        admissions.push(await this.readRootTurnAdmission(sessionId, turnId) as RootTurnAdmission);
+        continue;
+      }
+      if (isRootTurnAdmissionTemp(entry.name)) {
+        await rm(join(admissionsRoot, entry.name), { force: true });
+        removedStagingFile = true;
+        continue;
+      }
+      throw new Error(`Invalid root turn admission entry: ${entry.name}`);
+    }
+    if (removedStagingFile) await syncDirectory(admissionsRoot);
+    return admissions.sort((a, b) => a.admittedAt - b.admittedAt || a.turnId.localeCompare(b.turnId));
   }
 
   async updateRun(sessionId: string, runId: string, patch: Partial<AgentRunHeader>): Promise<AgentRunHeader> {
@@ -94,6 +230,33 @@ class FileAgentRunStore implements AgentRunStore {
     return headers.sort((a, b) => a.createdAt - b.createdAt || a.runId.localeCompare(b.runId));
   }
 
+  async listSessionRunsForRecovery(sessionId: string): Promise<AgentRunHeader[]> {
+    assertSafeId(sessionId, 'Invalid session id');
+    const runsRoot = this.runsRoot(sessionId);
+    let entries;
+    try {
+      entries = await readdir(runsRoot, { withFileTypes: true });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+      throw error;
+    }
+    const headers: AgentRunHeader[] = [];
+    for (const entry of entries) {
+      if (!entry.isDirectory() || !isSafeId(entry.name)) {
+        throw new Error(`Invalid AgentRun entry for session ${sessionId}: ${entry.name}`);
+      }
+      try {
+        headers.push(await this.readRunUnlocked(sessionId, entry.name));
+      } catch (error) {
+        if (isMissingFile(error) && await this.removeUncommittedRunDirectory(sessionId, entry.name)) {
+          continue;
+        }
+        throw error;
+      }
+    }
+    return headers.sort((a, b) => a.createdAt - b.createdAt || a.runId.localeCompare(b.runId));
+  }
+
   async appendEvent(sessionId: string, runId: string, event: AgentRunEvent): Promise<void> {
     assertSafeId(sessionId, 'Invalid session id');
     assertSafeId(runId, 'Invalid run id');
@@ -122,11 +285,23 @@ class FileAgentRunStore implements AgentRunStore {
   private async appendRunEvent(sessionId: string, runId: string, event: AgentRunEvent): Promise<void> {
     await this.withQueue(sessionId, runId, async () => {
       await mkdir(this.runDir(sessionId, runId), { recursive: true });
-      await appendFile(this.eventsPath(sessionId, runId), JSON.stringify(event, sanitizeJson) + '\n', 'utf8');
+      await appendJsonl(this.eventsPath(sessionId, runId), JSON.stringify(event, sanitizeJson) + '\n');
     });
   }
 
   async readEvents(sessionId: string, runId: string): Promise<AgentRunEvent[]> {
+    return this.readEventsWithPolicy(sessionId, runId, false);
+  }
+
+  async readEventsForRecovery(sessionId: string, runId: string): Promise<AgentRunEvent[]> {
+    return this.readEventsWithPolicy(sessionId, runId, true);
+  }
+
+  private async readEventsWithPolicy(
+    sessionId: string,
+    runId: string,
+    strict: boolean,
+  ): Promise<AgentRunEvent[]> {
     assertSafeId(sessionId, 'Invalid session id');
     assertSafeId(runId, 'Invalid run id');
     let text: string;
@@ -149,6 +324,12 @@ class FileAgentRunStore implements AgentRunStore {
         events.push(JSON.parse(entry.line) as AgentRunEvent);
       } catch (error) {
         if (!endsWithNewline && entry.lineNumber === lastLineNumber) continue;
+        if (strict) {
+          const detail = error instanceof Error ? error.message : String(error);
+          throw new Error(
+            `AgentRun ${runId} has a corrupt JSONL record at line ${entry.lineNumber}: ${detail}`,
+          );
+        }
         events.push({
           type: 'event_corrupt',
           id: `run-event-corrupt-${entry.lineNumber}`,
@@ -223,6 +404,25 @@ class FileAgentRunStore implements AgentRunStore {
 
   private eventProjectionPath(sessionId: string, type: AgentRunEventType): string {
     return join(this.sessionsRoot, sessionId, 'projections', `${type}.json`);
+  }
+
+  private rootTurnAdmissionPath(sessionId: string, turnId: string): string {
+    return join(this.rootTurnAdmissionsRoot(sessionId), `${turnId}.json`);
+  }
+
+  private rootTurnAdmissionsRoot(sessionId: string): string {
+    return join(this.sessionsRoot, sessionId, 'turn-admissions');
+  }
+
+  private async removeUncommittedRunDirectory(sessionId: string, runId: string): Promise<boolean> {
+    const directory = this.runDir(sessionId, runId);
+    const entries = await readdir(directory, { withFileTypes: true });
+    if (entries.some((entry) => !entry.isFile() || !isExclusiveWriteTemp(entry.name, 'run.json'))) {
+      return false;
+    }
+    await rm(directory, { recursive: true });
+    await syncDirectory(this.runsRoot(sessionId));
+    return true;
   }
 
   private withQueue(sessionId: string, runId: string, operation: () => Promise<void>): Promise<void> {
@@ -378,7 +578,10 @@ class FileRuntimeEventStore implements RuntimeEventStore {
         }
         return;
       }
-      await appendFile(this.runtimeEventsPath(sessionId, runId), JSON.stringify(event, sanitizeJson) + '\n', 'utf8');
+      await appendJsonl(
+        this.runtimeEventsPath(sessionId, runId),
+        JSON.stringify(event, sanitizeJson) + '\n',
+      );
       const completedPartialKey = completedPartialRuntimeStreamKey(event);
       if (completedPartialKey) {
         await rm(this.runtimePartialPath(sessionId, runId, completedPartialKey), { force: true }).catch(() => {
@@ -640,12 +843,141 @@ async function writeAtomic(path: string, content: string): Promise<void> {
   await rename(tempPath, path);
 }
 
+async function writeExclusiveAtomic(path: string, content: string): Promise<boolean> {
+  const directory = dirname(path);
+  await ensureDirectoryDurable(directory);
+  const tempPath = `${path}.${process.pid}.${randomUUID()}.tmp`;
+  const handle = await open(tempPath, 'wx', 0o600);
+  try {
+    await handle.writeFile(content, 'utf8');
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+  try {
+    await link(tempPath, path);
+    await unlink(tempPath);
+    await syncDirectory(directory);
+    return true;
+  } catch (error) {
+    await unlink(tempPath).catch(() => {});
+    if ((error as NodeJS.ErrnoException).code === 'EEXIST') return false;
+    throw error;
+  }
+}
+
+async function ensureDirectoryDurable(path: string): Promise<void> {
+  const firstCreated = await mkdir(path, { recursive: true });
+  if (!firstCreated) return;
+  let created = path;
+  while (true) {
+    await syncDirectory(dirname(created));
+    if (created === firstCreated) return;
+    const parent = dirname(created);
+    if (parent === created) {
+      throw new Error(`Unable to locate newly created directory ancestor for ${path}`);
+    }
+    created = parent;
+  }
+}
+
+async function syncDirectory(path: string): Promise<void> {
+  if (process.platform === 'win32') return;
+  const handle = await open(path, 'r');
+  try {
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+}
+
 function assertSafeId(value: string, message: string): void {
   if (!isSafeId(value)) throw new Error(message);
 }
 
 function isSafeId(value: string): boolean {
   return SAFE_ID_PATTERN.test(value);
+}
+
+function normalizeRootTurnAdmission(
+  value: unknown,
+  sessionId: string,
+  turnId: string,
+): RootTurnAdmission {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(`Invalid root turn admission for turn ${turnId}: expected an object`);
+  }
+  const record = value as Record<string, unknown>;
+  const valid = record.schemaVersion === ROOT_TURN_ADMISSION_SCHEMA_VERSION
+    && record.sessionId === sessionId
+    && record.turnId === turnId
+    && typeof record.runId === 'string'
+    && isSafeId(record.runId)
+    && typeof record.userMessageId === 'string'
+    && isSafeId(record.userMessageId)
+    && Number.isSafeInteger(record.admittedAt)
+    && (record.admittedAt as number) >= 0
+    && hasExactKeys(record, [
+      'schemaVersion',
+      'sessionId',
+      'turnId',
+      'runId',
+      'userMessageId',
+      'normalizedInput',
+      'admittedAt',
+    ]);
+  if (!valid) {
+    throw new Error(`Invalid root turn admission for turn ${turnId}: malformed fields`);
+  }
+  return {
+    schemaVersion: ROOT_TURN_ADMISSION_SCHEMA_VERSION,
+    sessionId,
+    turnId,
+    runId: record.runId as string,
+    userMessageId: record.userMessageId as string,
+    normalizedInput: normalizeRootTurnAdmissionInput(record.normalizedInput),
+    admittedAt: record.admittedAt as number,
+  };
+}
+
+function normalizeRootTurnAdmissionInput(value: unknown): RootTurnAdmissionInput {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Invalid root turn normalized input: expected an object');
+  }
+  const record = value as Record<string, unknown>;
+  if (!hasExactKeys(record, ['text']) || typeof record.text !== 'string' || record.text.length === 0) {
+    throw new Error('Invalid root turn normalized input');
+  }
+  return { text: record.text };
+}
+
+function turnIdFromAdmissionFile(name: string): string | undefined {
+  if (!name.endsWith('.json')) return undefined;
+  const turnId = name.slice(0, -'.json'.length);
+  return isSafeId(turnId) ? turnId : undefined;
+}
+
+function isRootTurnAdmissionTemp(name: string): boolean {
+  const marker = '.json.';
+  const markerIndex = name.indexOf(marker);
+  if (markerIndex < 1) return false;
+  return isSafeId(name.slice(0, markerIndex))
+    && EXCLUSIVE_TEMP_SUFFIX_PATTERN.test(name.slice(markerIndex + marker.length));
+}
+
+function isExclusiveWriteTemp(name: string, targetName: string): boolean {
+  const prefix = `${targetName}.`;
+  return name.startsWith(prefix)
+    && EXCLUSIVE_TEMP_SUFFIX_PATTERN.test(name.slice(prefix.length));
+}
+
+function hasExactKeys(record: Record<string, unknown>, expected: readonly string[]): boolean {
+  const keys = Object.keys(record);
+  return keys.length === expected.length && expected.every((key) => Object.hasOwn(record, key));
+}
+
+function isMissingFile(error: unknown): boolean {
+  return (error as NodeJS.ErrnoException | undefined)?.code === 'ENOENT';
 }
 
 function normalizeAgentRunHeader(value: unknown, sessionId: string, runId: string): AgentRunHeader {

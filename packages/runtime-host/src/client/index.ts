@@ -1,5 +1,6 @@
 export {
   connectRuntimeHost,
+  RuntimeHostOperationError,
   type ConnectRuntimeHostInput,
   type ConnectRuntimeHostResult,
   type RuntimeHostConnection,

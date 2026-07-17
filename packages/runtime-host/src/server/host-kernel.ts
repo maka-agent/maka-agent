@@ -12,16 +12,26 @@ import {
 } from '../control/registration.js';
 import {
   decodeClientFrame,
+  HOST_OPERATION_SPECS,
   negotiateProtocol,
   RUNTIME_HOST_PROTOCOL_VERSION,
   RUNTIME_HOST_REGISTRATION_SCHEMA_VERSION,
   type ClientHello,
+  type HostOperationErrorCode,
   type HostHandshakeResult,
   type HostLifecycleState,
   type HostRegistration,
-  type HostStatusResponse,
+  type RequestFrame,
 } from '../protocol/index.js';
 import { FramedTransport } from '../transport/framed-transport.js';
+import {
+  dispatchOperation,
+  operationFailureResponse,
+  type ConnectionContext,
+  type DomainOperationHandlerMap,
+  type OperationResidency,
+  type OperationHandlerMap,
+} from './operation-dispatcher.js';
 
 const DEFAULT_IDLE_GRACE_MS = 30_000;
 const DEFAULT_HANDSHAKE_TIMEOUT_MS = 5_000;
@@ -32,37 +42,71 @@ const HOST_PROTOCOL = {
   max: RUNTIME_HOST_PROTOCOL_VERSION,
 } as const;
 
-export interface NonServingRuntimeHostOptions {
+export type RuntimeHostResidency = OperationResidency;
+
+export interface RuntimeHostCompositionContext {
+  owner: InteractiveRootOwner;
+  acquireResidency(): RuntimeHostResidency;
+  requestDrain(): void;
+}
+
+export interface RuntimeHostComposition {
+  readonly handlers: DomainOperationHandlerMap;
+  recover(): Promise<void>;
+  close(): Promise<void>;
+}
+
+export type RuntimeHostCompositionFactory = (
+  context: RuntimeHostCompositionContext,
+) => Promise<RuntimeHostComposition>;
+
+export interface RuntimeHostKernelOptions {
   owner: InteractiveRootOwner;
   idleGraceMs?: number;
   handshakeTimeoutMs?: number;
+  compositionFactory?: RuntimeHostCompositionFactory;
 }
 
-export class NonServingRuntimeHost {
+type AcceptedConnectionContext = Omit<ConnectionContext, 'acquireResidency'>;
+
+interface OperationLease {
+  acquireResidency(): RuntimeHostResidency;
+  seal(): void;
+  finish(): void;
+}
+
+export class RuntimeHostKernel {
   readonly hostEpoch = randomUUID();
   readonly closed: Promise<void>;
-  readonly #options: NonServingRuntimeHostOptions;
+  readonly #options: RuntimeHostKernelOptions;
   readonly #createdAt = new Date().toISOString();
   readonly #server: Server;
   readonly #handshakingTransports = new Set<FramedTransport>();
   readonly #acceptedTransports = new Set<FramedTransport>();
   readonly #operationDrainWaiters = new Set<() => void>();
+  readonly #residencyDrainWaiters = new Set<() => void>();
   readonly #idleGraceMs: number;
   readonly #handshakeTimeoutMs: number;
   #endpoint: RuntimeHostEndpoint | undefined;
   #state: HostLifecycleState = 'starting';
   #activeOperations = 0;
+  #activeCommandOperations = 0;
+  #activeResidencies = 0;
+  #composition: RuntimeHostComposition | undefined;
+  #operationHandlers: OperationHandlerMap;
   #idleTimer: NodeJS.Timeout | undefined;
+  #shutdownRequested = false;
   #shutdownTask: Promise<void> | undefined;
   #resolveClosed!: () => void;
   #rejectClosed!: (error: unknown) => void;
 
-  private constructor(options: NonServingRuntimeHostOptions) {
+  private constructor(options: RuntimeHostKernelOptions) {
     assertDuration(options.idleGraceMs ?? DEFAULT_IDLE_GRACE_MS, 'idleGraceMs', 0);
     assertDuration(options.handshakeTimeoutMs ?? DEFAULT_HANDSHAKE_TIMEOUT_MS, 'handshakeTimeoutMs', 1);
     this.#idleGraceMs = options.idleGraceMs ?? DEFAULT_IDLE_GRACE_MS;
     this.#handshakeTimeoutMs = options.handshakeTimeoutMs ?? DEFAULT_HANDSHAKE_TIMEOUT_MS;
     this.#options = options;
+    this.#operationHandlers = this.#createOperationHandlers(unavailableDomainHandlers());
     this.closed = new Promise((resolve, reject) => {
       this.#resolveClosed = resolve;
       this.#rejectClosed = reject;
@@ -70,14 +114,15 @@ export class NonServingRuntimeHost {
     this.#server = createServer((socket) => this.#accept(socket));
   }
 
-  static async start(options: NonServingRuntimeHostOptions): Promise<NonServingRuntimeHost> {
+  static async start(options: RuntimeHostKernelOptions): Promise<RuntimeHostKernel> {
     const owner = authenticateInteractiveRootOwner(options.owner);
-    let host: NonServingRuntimeHost | undefined;
+    let host: RuntimeHostKernel | undefined;
     try {
-      host = new NonServingRuntimeHost({
+      host = new RuntimeHostKernel({
         owner,
         idleGraceMs: options.idleGraceMs,
         handshakeTimeoutMs: options.handshakeTimeoutMs,
+        compositionFactory: options.compositionFactory,
       });
       await host.#start();
       return host;
@@ -102,7 +147,14 @@ export class NonServingRuntimeHost {
   }
 
   close(): Promise<void> {
-    return this.#commitShutdown();
+    this.#requestDrain();
+    return this.closed;
+  }
+
+  #requestDrain(): void {
+    this.#shutdownRequested = true;
+    this.#cancelIdle();
+    this.#commitRequestedShutdownIfQuiescent();
   }
 
   async #start(): Promise<void> {
@@ -114,6 +166,17 @@ export class NonServingRuntimeHost {
     await listen(this.#server, this.#endpoint.path);
     await this.#endpoint.prepareAfterListen();
     await this.#publishRegistration();
+    if (this.#options.compositionFactory) {
+      this.#state = 'recovering';
+      await this.#publishRegistration();
+      this.#composition = await this.#options.compositionFactory({
+        owner: this.#options.owner,
+        acquireResidency: () => this.#acquireResidency(),
+        requestDrain: () => this.#requestDrain(),
+      });
+      this.#operationHandlers = this.#createOperationHandlers(this.#composition.handlers);
+      await this.#composition.recover();
+    }
     this.#state = 'ready';
     await this.#publishRegistration();
     this.#scheduleIdleIfNeeded();
@@ -131,15 +194,22 @@ export class NonServingRuntimeHost {
     let connectionAccepted = false;
     try {
       const frame = decodeClientFrame(await transport.read(this.#handshakeTimeoutMs));
-      if (frame.kind !== 'hello') throw new Error('First Runtime Host frame must be a hello');
+      if (!('kind' in frame) || frame.kind !== 'hello') {
+        throw new Error('First Runtime Host frame must be a hello');
+      }
       const result = await this.#admitHandshake(frame, transport);
-      connectionAccepted = result.kind === 'accepted';
       await transport.write(result);
-      if (!connectionAccepted) {
+      if (result.kind !== 'accepted') {
         transport.destroyAfterFlush();
         return;
       }
-      await this.#serveAcceptedConnection(transport);
+      connectionAccepted = true;
+      await this.#serveAcceptedConnection(transport, {
+        hostEpoch: this.hostEpoch,
+        connectionId: result.connectionId,
+        surface: frame.surface,
+        principal: 'local_os_user',
+      });
     } catch {
       transport.destroy();
     } finally {
@@ -147,27 +217,33 @@ export class NonServingRuntimeHost {
     }
   }
 
-  async #serveAcceptedConnection(transport: FramedTransport): Promise<void> {
+  async #serveAcceptedConnection(
+    transport: FramedTransport,
+    connection: AcceptedConnectionContext,
+  ): Promise<void> {
     while (true) {
       const frame = decodeClientFrame(await transport.read(0));
-      if (frame.kind !== 'status') throw new Error('Unexpected bootstrap frame after handshake');
-      if (!await this.#beginStatusOperation()) {
-        transport.destroy();
-        return;
+      if ('kind' in frame) throw new Error('Unexpected handshake frame after acceptance');
+      const admission = await this.#beginOperation(frame);
+      if (typeof admission === 'string') {
+        await transport.write(operationFailureResponse(
+          frame,
+          admission,
+          admission === 'host_draining'
+            ? 'Runtime Host is draining'
+            : 'Runtime Host is not ready',
+        ));
+        continue;
       }
-      let response: HostStatusResponse;
       try {
-        response = {
-          kind: 'status',
-          requestId: frame.requestId,
-          hostEpoch: this.hostEpoch,
-          state: this.#state,
-          connections: this.#acceptedTransports.size,
-          activeOperations: this.#activeOperations,
-        };
+        const response = await dispatchOperation(frame, this.#operationHandlers, {
+          ...connection,
+          acquireResidency: () => admission.acquireResidency(),
+        });
+        admission.seal();
         await transport.write(response);
       } finally {
-        this.#finishOperation();
+        admission.finish();
       }
     }
   }
@@ -212,14 +288,47 @@ export class NonServingRuntimeHost {
     if (!this.#acceptedTransports.delete(transport)) {
       throw new Error('Runtime Host connection residency underflow');
     }
-    this.#scheduleIdleIfNeeded();
+    this.#settleLifecycleAfterWork();
   }
 
-  async #beginStatusOperation(): Promise<boolean> {
-    if (!await this.#hasLiveOwnerOrDrain() || this.#state === 'draining') return false;
+  async #beginOperation(frame: RequestFrame): Promise<OperationLease | HostOperationErrorCode> {
+    if (!await this.#hasLiveOwnerOrDrain() || this.#state === 'draining') return 'host_draining';
+    if (this.#shutdownRequested && HOST_OPERATION_SPECS[frame.operation].mode === 'command') {
+      return 'host_draining';
+    }
+    if (HOST_OPERATION_SPECS[frame.operation].admission !== 'bootstrap' && this.#state !== 'ready') {
+      return 'host_not_ready';
+    }
     this.#activeOperations += 1;
+    const command = HOST_OPERATION_SPECS[frame.operation].mode === 'command';
+    if (command) this.#activeCommandOperations += 1;
     this.#cancelIdle();
-    return true;
+    let sealed = false;
+    let finished = false;
+    const seal = () => {
+      if (sealed) return;
+      sealed = true;
+      if (command) {
+        if (this.#activeCommandOperations === 0) {
+          throw new Error('Runtime Host command operation residency underflow');
+        }
+        this.#activeCommandOperations -= 1;
+        this.#settleLifecycleAfterWork();
+      }
+    };
+    return {
+      acquireResidency: () => {
+        if (sealed || finished) throw new Error('Runtime Host operation lease has ended');
+        return this.#acquireResidency();
+      },
+      seal,
+      finish: () => {
+        if (finished) throw new Error('Runtime Host operation lease already ended');
+        finished = true;
+        seal();
+        this.#finishOperation();
+      },
+    };
   }
 
   async #hasLiveOwnerOrDrain(): Promise<boolean> {
@@ -244,7 +353,42 @@ export class NonServingRuntimeHost {
       for (const resolve of this.#operationDrainWaiters) resolve();
       this.#operationDrainWaiters.clear();
     }
-    this.#scheduleIdleIfNeeded();
+    this.#settleLifecycleAfterWork();
+  }
+
+  #acquireResidency(): RuntimeHostResidency {
+    this.#activeResidencies += 1;
+    this.#cancelIdle();
+    let active = true;
+    return {
+      release: () => {
+        if (!active) return;
+        active = false;
+        if (this.#activeResidencies === 0) throw new Error('Runtime Host residency underflow');
+        this.#activeResidencies -= 1;
+        if (this.#activeResidencies === 0) {
+          for (const resolve of this.#residencyDrainWaiters) resolve();
+          this.#residencyDrainWaiters.clear();
+        }
+        this.#settleLifecycleAfterWork();
+      },
+    };
+  }
+
+  #createOperationHandlers(domainHandlers: DomainOperationHandlerMap): OperationHandlerMap {
+    return {
+      'host.status': async () => ({
+        ok: true,
+        result: {
+          hostEpoch: this.hostEpoch,
+          state: this.#state,
+          connections: this.#acceptedTransports.size,
+          activeOperations: this.#activeOperations,
+          activeResidencies: this.#activeResidencies,
+        },
+      }),
+      ...domainHandlers,
+    };
   }
 
   #waitForOperations(): Promise<void> {
@@ -252,7 +396,13 @@ export class NonServingRuntimeHost {
     return new Promise((resolve) => this.#operationDrainWaiters.add(resolve));
   }
 
+  #waitForResidencies(): Promise<void> {
+    if (this.#activeResidencies === 0) return Promise.resolve();
+    return new Promise((resolve) => this.#residencyDrainWaiters.add(resolve));
+  }
+
   #scheduleIdleIfNeeded(): void {
+    if (this.#shutdownRequested) return;
     if (!this.#isTrueIdle() || this.#idleTimer) return;
     this.#idleTimer = setTimeout(() => {
       this.#idleTimer = undefined;
@@ -264,7 +414,8 @@ export class NonServingRuntimeHost {
   #isTrueIdle(): boolean {
     return this.#state === 'ready'
       && this.#acceptedTransports.size === 0
-      && this.#activeOperations === 0;
+      && this.#activeOperations === 0
+      && this.#activeResidencies === 0;
   }
 
   #cancelIdle(): void {
@@ -273,8 +424,22 @@ export class NonServingRuntimeHost {
     this.#idleTimer = undefined;
   }
 
+  #settleLifecycleAfterWork(): void {
+    if (this.#shutdownRequested) {
+      this.#commitRequestedShutdownIfQuiescent();
+      return;
+    }
+    this.#scheduleIdleIfNeeded();
+  }
+
+  #commitRequestedShutdownIfQuiescent(): void {
+    if (this.#activeCommandOperations !== 0) return;
+    void this.#commitShutdown().catch(() => undefined);
+  }
+
   #commitShutdown(): Promise<void> {
     if (!this.#shutdownTask) {
+      this.#shutdownRequested = true;
       this.#state = 'draining';
       this.#cancelIdle();
       this.#shutdownTask = this.#closeResources();
@@ -299,6 +464,8 @@ export class NonServingRuntimeHost {
     }
     for (const transport of handshaking) transport.destroy();
     await operationDrain;
+    await this.#composition?.close().catch((error: unknown) => errors.push(error));
+    await this.#waitForResidencies();
     for (const transport of accepted) transport.destroy();
     await serverClosed;
     await this.#endpoint?.cleanup().catch((error: unknown) => errors.push(error));
@@ -313,6 +480,7 @@ export class NonServingRuntimeHost {
     for (const transport of this.#handshakingTransports) transport.destroy();
     for (const transport of this.#acceptedTransports) transport.destroy();
     await closeServer(this.#server).catch(() => undefined);
+    await this.#composition?.close().catch(() => undefined);
     await this.#endpoint?.cleanup().catch(() => undefined);
     await removeHostRegistration(this.#options.owner.controlDirectory, this.hostEpoch).catch(() => undefined);
     await this.#options.owner.close();
@@ -394,4 +562,19 @@ function assertDuration(value: number, label: string, minimum: 0 | 1): void {
   if (!Number.isSafeInteger(value) || value < minimum || value > 120_000) {
     throw new RangeError(`${label} must be an integer between ${minimum} and 120000`);
   }
+}
+
+function unavailableDomainHandlers(): DomainOperationHandlerMap {
+  const unavailable = {
+    ok: false,
+    error: {
+      code: 'operation_unavailable',
+      message: 'Runtime Host operation is unavailable in this composition',
+    },
+  } as const;
+  return {
+    'turn.start': async () => unavailable,
+    'turn.query': async () => unavailable,
+    'turn.stop': async () => unavailable,
+  };
 }

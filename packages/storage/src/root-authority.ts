@@ -88,6 +88,7 @@ interface LeaseRecord<
 > extends CapabilityRecord<K> {
   access: A;
   isActive: () => boolean;
+  beginOperation: () => () => void;
 }
 
 interface RootMarker {
@@ -314,6 +315,26 @@ export async function assertStorageRootLease<
   requireLease(lease, expectedKind, expectedAccess);
 }
 
+export async function runWithStorageRootLease<
+  K extends StorageRootKind,
+  A extends StorageRootAccess,
+  T,
+>(
+  lease: StorageRootLease<K, A>,
+  expectedKind: K,
+  expectedAccess: A,
+  operation: (canonicalPath: string) => Promise<T>,
+): Promise<T> {
+  const record = requireLease(lease, expectedKind, expectedAccess);
+  const finishOperation = record.beginOperation();
+  try {
+    await assertRootIdentity(record);
+    return await operation(record.canonicalPath);
+  } finally {
+    finishOperation();
+  }
+}
+
 export async function assertStorageRootCapability<K extends StorageRootKind>(
   capability: StorageRootCapability<K>,
   expectedKind: K,
@@ -385,7 +406,25 @@ async function acquireInteractiveRootLock(
   }
 
   let active = true;
+  let activeOperations = 0;
+  const operationDrainWaiters = new Set<() => void>();
   let closePromise: Promise<void> | undefined;
+  const beginOperation = () => {
+    if (!active) throw invalidLease(capabilityRecord.kind, access);
+    activeOperations += 1;
+    let finished = false;
+    return () => {
+      if (finished) return;
+      finished = true;
+      activeOperations -= 1;
+      if (activeOperations !== 0) return;
+      for (const resolve of operationDrainWaiters) resolve();
+      operationDrainWaiters.clear();
+    };
+  };
+  const waitForOperations = () => activeOperations === 0
+    ? Promise.resolve()
+    : new Promise<void>((resolve) => operationDrainWaiters.add(resolve));
   const close = () => {
     if (closePromise) return closePromise;
     active = false;
@@ -393,6 +432,7 @@ async function acquireInteractiveRootLock(
       'lock_failed',
       'Unable to close the interactive storage root lock',
       async () => {
+        await waitForOperations();
         releaseLock(handle);
         await handle.close();
       },
@@ -406,6 +446,7 @@ async function acquireInteractiveRootLock(
     controlDirectory,
     lockPath,
     () => active,
+    beginOperation,
     close,
   );
 }
@@ -417,11 +458,12 @@ function createInteractiveRootLock(
   controlDirectory: string,
   lockPath: string,
   isActive: () => boolean,
+  beginOperation: () => () => void,
   close: () => Promise<void>,
 ): InteractiveRootOwner | InteractiveRootReader {
   const lock = Object.freeze({
     capability,
-    lease: createLease(capabilityRecord, access, isActive),
+    lease: createLease(capabilityRecord, access, isActive, beginOperation),
     controlDirectory,
     lockPath,
     get closed() {
@@ -437,6 +479,10 @@ function createLease<K extends StorageRootKind, A extends StorageRootAccess>(
   capability: CapabilityRecord<K>,
   access: A,
   isActive: () => boolean,
+  beginOperation: () => () => void = () => {
+    if (!isActive()) throw invalidLease(capability.kind, access);
+    return () => {};
+  },
 ): StorageRootLease<K, A> {
   const lease = Object.freeze({
     kind: capability.kind,
@@ -444,7 +490,7 @@ function createLease<K extends StorageRootKind, A extends StorageRootAccess>(
     canonicalPath: capability.canonicalPath,
     rootId: capability.rootId,
   }) as StorageRootLease<K, A>;
-  leases.set(lease, { ...capability, access, isActive });
+  leases.set(lease, { ...capability, access, isActive, beginOperation });
   return lease;
 }
 
@@ -469,12 +515,19 @@ function requireLease<K extends StorageRootKind, A extends StorageRootAccess>(
 ): LeaseRecord<K, A> {
   const record = leases.get(lease);
   if (!record || record.kind !== expectedKind || record.access !== expectedAccess || !record.isActive()) {
-    throw new StorageRootAuthorityError(
-      'invalid_lease',
-      `Expected an active ${expectedKind} ${expectedAccess} storage root lease`,
-    );
+    throw invalidLease(expectedKind, expectedAccess);
   }
   return record as LeaseRecord<K, A>;
+}
+
+function invalidLease(
+  kind: StorageRootKind,
+  access: StorageRootAccess,
+): StorageRootAuthorityError {
+  return new StorageRootAuthorityError(
+    'invalid_lease',
+    `Expected an active ${kind} ${access} storage root lease`,
+  );
 }
 
 async function assertRootIdentity(record: CapabilityRecord): Promise<void> {

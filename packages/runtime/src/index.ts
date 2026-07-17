@@ -10,6 +10,9 @@ export type {
   CompactSessionInput,
   SessionManagerDeps,
   SessionStore,
+  StrictRecoveryAgentRunStore,
+  StrictRecoverySessionStore,
+  StrictRecoveryStores,
   BackendFactory,
   BackendFactoryContext,
   SpawnChildAgentInput,
@@ -18,6 +21,7 @@ export type {
   AgentListResult,
   AgentOutputInput,
   AgentOutputResult,
+  StopSessionInput,
 } from './session-manager.js';
 
 export { PermissionEngine, createDefaultPermissionEngineDeps } from './permission-engine.js';
@@ -842,6 +846,8 @@ export type {
   RuntimeEventTerminalFact,
   RuntimeEventTerminalFactResult,
 } from './runtime-event-read-model.js';
+export { classifyTerminalRuntimeLedger } from './terminal-run-commit.js';
+export type { TerminalRuntimeLedgerClassification } from './terminal-run-commit.js';
 export {
   RuntimeReadModel,
   RuntimeReadModelError,
@@ -855,10 +861,12 @@ export { RuntimeKernel } from './runtime-kernel.js';
 export type {
   RuntimeKernelDeps,
   RuntimeKernelLike,
+  TurnStartOptions,
 } from './runtime-kernel.js';
 export { AgentRun } from './agent-run.js';
 export type {
   AgentRunActiveSession,
+  AgentRunDurability,
   AgentRunLineage,
 } from './agent-run.js';
 

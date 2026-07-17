@@ -1,11 +1,21 @@
 import { TextDecoder } from 'node:util';
+import { invalidProtocolFrame, RuntimeHostProtocolError } from './errors.js';
+import {
+  decodeRequestFrame,
+  decodeResponseFrame,
+  type HostLifecycleState,
+  type RequestFrame,
+  type ResponseFrame,
+} from './operations.js';
+
+export { RuntimeHostProtocolError } from './errors.js';
+export * from './operations.js';
 
 export const RUNTIME_HOST_REGISTRATION_SCHEMA_VERSION = 1 as const;
 export const RUNTIME_HOST_PROTOCOL_VERSION = 1 as const;
 export const RUNTIME_HOST_MAX_FRAME_BYTES = 64 * 1024;
 
 export type ClientSurface = 'desktop' | 'tui' | 'run' | 'bot' | 'open_gateway' | 'inspect';
-export type HostLifecycleState = 'starting' | 'containing' | 'recovering' | 'ready' | 'draining';
 
 export interface ProtocolRange {
   min: number;
@@ -44,22 +54,8 @@ export interface HostDraining {
 
 export type HostHandshakeResult = HostAccepted | HostIncompatible | HostDraining;
 
-export interface HostStatusRequest {
-  kind: 'status';
-  requestId: string;
-}
-
-export interface HostStatusResponse {
-  kind: 'status';
-  requestId: string;
-  hostEpoch: string;
-  state: HostLifecycleState;
-  connections: number;
-  activeOperations: number;
-}
-
-export type ClientFrame = ClientHello | HostStatusRequest;
-export type HostFrame = HostHandshakeResult | HostStatusResponse;
+export type ClientFrame = ClientHello | RequestFrame;
+export type HostFrame = HostHandshakeResult | ResponseFrame;
 
 export interface HostRegistration {
   kind: 'maka-runtime-host';
@@ -72,16 +68,6 @@ export interface HostRegistration {
   state: HostLifecycleState;
   pid: number;
   createdAt: string;
-}
-
-export class RuntimeHostProtocolError extends Error {
-  constructor(
-    readonly code: 'invalid_frame' | 'frame_too_large' | 'invalid_utf8' | 'invalid_json',
-    message: string,
-  ) {
-    super(message);
-    this.name = 'RuntimeHostProtocolError';
-  }
 }
 
 export function negotiateProtocol(client: ProtocolRange, host: ProtocolRange): number | undefined {
@@ -115,10 +101,7 @@ export function decodeClientFrame(value: unknown): ClientFrame {
       protocolMax,
     } satisfies ClientHello;
   }
-  if (frame.kind === 'status') {
-    return { kind: 'status', requestId: requireId(frame.requestId, 'requestId') };
-  }
-  throw invalidFrame('Unknown client frame kind');
+  return decodeRequestFrame(frame);
 }
 
 export function decodeHostFrame(value: unknown): HostFrame {
@@ -148,17 +131,7 @@ export function decodeHostFrame(value: unknown): HostFrame {
   if (frame.kind === 'draining') {
     return { kind: 'draining', hostEpoch: requireId(frame.hostEpoch, 'hostEpoch') };
   }
-  if (frame.kind === 'status') {
-    return {
-      kind: 'status',
-      requestId: requireId(frame.requestId, 'requestId'),
-      hostEpoch: requireId(frame.hostEpoch, 'hostEpoch'),
-      state: requireHostState(frame.state),
-      connections: requireCount(frame.connections, 'connections'),
-      activeOperations: requireCount(frame.activeOperations, 'activeOperations'),
-    } satisfies HostStatusResponse;
-  }
-  throw invalidFrame('Unknown host frame kind');
+  return decodeResponseFrame(frame);
 }
 
 export function decodeHostRegistration(value: unknown): HostRegistration {
@@ -293,5 +266,5 @@ function requireReplacement(value: unknown): HostIncompatible['replacement'] {
 }
 
 function invalidFrame(message: string): RuntimeHostProtocolError {
-  return new RuntimeHostProtocolError('invalid_frame', message);
+  return invalidProtocolFrame(message);
 }

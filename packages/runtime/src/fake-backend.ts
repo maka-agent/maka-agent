@@ -150,6 +150,11 @@ export class FakeBackend implements AgentBackend {
     // subscription before this deterministic fake emits the request.
     await sleep(100);
     const turnId = input.turnId;
+    if (this.stopped) {
+      yield { type: 'abort', id: randomUUID(), turnId, ts: Date.now(), reason: 'user_stop' };
+      yield { type: 'complete', id: randomUUID(), turnId, ts: Date.now(), stopReason: 'user_stop' };
+      return;
+    }
     const toolUseId = randomUUID();
     const requestId = randomUUID();
     const stepId = randomUUID();

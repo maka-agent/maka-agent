@@ -24,7 +24,7 @@ import {
   RuntimeHostProtocolError,
 } from '../protocol/index.js';
 import {
-  NonServingRuntimeHost,
+  RuntimeHostKernel,
   startRuntimeHostCandidate,
   type RuntimeHostCandidateOptions,
   type RuntimeHostCandidateResult,
@@ -60,10 +60,15 @@ describe('non-serving Runtime Host kernel', () => {
       const connected = await connectRuntimeHost({ ...paths, rootPath: paths.root, surface: 'tui', protocol: PROTOCOL_1 });
       assert.equal(connected.kind, 'connected');
       if (connected.kind !== 'connected') return;
-      const status = await connected.connection.status();
-      assert.equal(status.hostEpoch, winner.host.hostEpoch);
-      assert.equal(status.state, 'ready');
-      assert.equal(status.connections, 1);
+      const statuses = await Promise.all([
+        connected.connection.status(),
+        connected.connection.status(),
+      ]);
+      for (const status of statuses) {
+        assert.equal(status.hostEpoch, winner.host.hostEpoch);
+        assert.equal(status.state, 'ready');
+        assert.equal(status.connections, 1);
+      }
       await connected.connection.close();
       await winner.host.closed;
 
@@ -422,7 +427,7 @@ describe('non-serving Runtime Host kernel', () => {
       };
 
       await assert.rejects(
-        () => NonServingRuntimeHost.start({ owner: copiedOwner }),
+        () => RuntimeHostKernel.start({ owner: copiedOwner }),
         (error: unknown) => error instanceof StorageRootAuthorityError
           && error.code === 'invalid_owner',
       );
@@ -449,7 +454,7 @@ describe('non-serving Runtime Host kernel', () => {
       await rename(paths.root, movedRoot);
       await mkdir(paths.root);
       await assert.rejects(
-        () => NonServingRuntimeHost.start({ owner }),
+        () => RuntimeHostKernel.start({ owner }),
         (error: unknown) => error instanceof StorageRootAuthorityError
           && error.code === 'root_identity_changed',
       );
@@ -555,6 +560,7 @@ describe('non-serving Runtime Host kernel', () => {
           protocolMax: 1,
         });
         const handshake = decodeHostFrame(await transport.read(2_000));
+        assert.ok('kind' in handshake);
         assert.equal(handshake.kind, 'accepted');
         incompleteSocket.write('{"kind":"hello"');
         await new Promise<void>((resolve) => setImmediate(resolve));
@@ -595,8 +601,9 @@ describe('non-serving Runtime Host kernel', () => {
         let blockedResponseObserved = false;
         for (let index = 0; index < 10_000 && !nonReadingSocket.destroyed; index += 1) {
           nonReadingSocket.write(`${JSON.stringify({
-            kind: 'status',
             requestId: `non-reading-${index}`,
+            operation: 'host.status',
+            input: {},
           })}\n`);
           const status = await observer.connection.status(2_000);
           if (status.activeOperations <= 1) continue;
@@ -1217,6 +1224,7 @@ async function openNonReadingStatusSocket(path: string): Promise<Socket> {
       protocolMax: 1,
     })}\n`);
   });
+  assert.ok('kind' in handshake);
   assert.equal(handshake.kind, 'accepted');
   socket.on('error', () => undefined);
   return socket;

@@ -19,7 +19,13 @@ import { isDeepStrictEqual } from 'node:util';
 import type { ChildAgentTurnInput, UserMessageInput } from '@maka/core/runtime-inputs';
 import type { PermissionResponse } from '@maka/core/permission';
 import type { UserQuestionResponse } from '@maka/core/user-question';
-import { AgentRun, type AgentRunActiveSession, type AgentRunBeginResult, type AgentRunLineage } from './agent-run.js';
+import {
+  AgentRun,
+  type AgentRunActiveSession,
+  type AgentRunBeginResult,
+  type AgentRunDurability,
+  type AgentRunLineage,
+} from './agent-run.js';
 import { AiSdkFlow, mapSessionEventToRuntimeEvent } from './ai-sdk-flow.js';
 import type { AgentBackend, SteeringLease } from '@maka/core/backend-types';
 import type { AgentTeamExecutionContext, MakaTool } from './tool-runtime.js';
@@ -46,7 +52,7 @@ import {
 import { shouldAppendContextCompactionFailedOpenNote } from './context-budget.js';
 
 export interface RuntimeKernelLike {
-  startTurn(sessionId: string, input: UserMessageInput): AsyncIterable<SessionEvent>;
+  startTurn(sessionId: string, input: UserMessageInput, options?: TurnStartOptions): AsyncIterable<SessionEvent>;
   compactSession(sessionId: string, input?: CompactSessionInput): AsyncIterable<SessionEvent>;
   startChildTurn(sessionId: string, input: ChildAgentTurnInput): AsyncIterable<SessionEvent>;
   stopSession(sessionId: string, input?: StopSessionInput): Promise<void>;
@@ -63,6 +69,13 @@ export interface RuntimeKernelLike {
   hasActiveRuns(sessionId: string): boolean;
   updateCachedHeader(sessionId: string, header: SessionHeader): void;
   disposeBackend(sessionId: string): Promise<void>;
+}
+
+export interface TurnStartOptions {
+  runId?: string;
+  userMessageId?: string;
+  durability?: AgentRunDurability;
+  onRunStarted?: (runId: string) => void | Promise<void>;
 }
 
 /**
@@ -183,6 +196,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
   async *startTurn(
     sessionId: string,
     input: UserMessageInput,
+    options: TurnStartOptions = {},
   ): AsyncIterable<SessionEvent> {
     this.pendingTurnStarts.set(sessionId, (this.pendingTurnStarts.get(sessionId) ?? 0) + 1);
     let pending = true;
@@ -192,6 +206,9 @@ export class RuntimeKernel implements RuntimeKernelLike {
         sessionId,
         header,
         userInput: input,
+        runId: options.runId,
+        userMessageId: options.userMessageId,
+        durability: options.durability,
         store: this.deps.store,
         runStore: this.deps.runStore,
         runtimeEventStore: this.deps.runtimeEventStore,
@@ -216,7 +233,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
         },
       });
 
-      yield* this.runAgentTurn(sessionId, input, run, true);
+      yield* this.runAgentTurn(sessionId, input, run, true, options.onRunStarted);
     } finally {
       if (pending) this.finishPendingTurnStart(sessionId, false);
     }
@@ -400,6 +417,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
     input: UserMessageInput,
     run: AgentRun,
     steering = false,
+    onRunStarted?: (runId: string) => void | Promise<void>,
   ): AsyncIterable<SessionEvent> {
     const sessionEvents = new AsyncEventQueue<SessionEvent>();
     const abortController = new AbortController();
@@ -407,6 +425,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
     let begin: AgentRunBeginResult;
     try {
       begin = await run.begin();
+      await onRunStarted?.(run.runId);
     } catch (error) {
       await run.recordFailure(error);
       await run.finalize();

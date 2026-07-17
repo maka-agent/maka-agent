@@ -12,6 +12,7 @@ import {
   resolveExistingStorageRoot,
   resolveRootControlNamespace,
   resolveStorageRoot,
+  runWithStorageRootLease,
   STORAGE_ROOT_MARKER_FILE,
   StorageRootAuthorityError,
   tryAcquireInteractiveRootOwner,
@@ -269,6 +270,48 @@ describe('storage root authority', () => {
         () => assertStorageRootLease(forgedLease, 'interactive', 'write'),
         (error: unknown) => error instanceof StorageRootAuthorityError && error.code === 'invalid_lease',
       );
+    });
+  });
+
+  test('keeps the owner lock until an admitted lease operation drains', async () => {
+    await withRoots(async ({ root }) => {
+      const capability = await resolveStorageRoot({ path: root, kind: 'interactive' });
+      const owner = await tryAcquireInteractiveRootOwner(capability);
+      assert.ok(owner);
+      if (!owner) return;
+
+      let releaseOperation!: () => void;
+      const operationBlocked = new Promise<void>((resolve) => {
+        releaseOperation = resolve;
+      });
+      let operationAdmitted!: () => void;
+      const admitted = new Promise<void>((resolve) => {
+        operationAdmitted = resolve;
+      });
+      const operation = runWithStorageRootLease(
+        owner.lease,
+        'interactive',
+        'write',
+        async () => {
+          operationAdmitted();
+          await operationBlocked;
+        },
+      );
+      await admitted;
+
+      const closing = owner.close();
+      assert.equal(owner.closed, true);
+      assert.equal(await tryAcquireInteractiveRootOwner(capability), undefined);
+      await assert.rejects(
+        () => runWithStorageRootLease(owner.lease, 'interactive', 'write', async () => {}),
+        (error: unknown) => error instanceof StorageRootAuthorityError && error.code === 'invalid_lease',
+      );
+
+      releaseOperation();
+      await Promise.all([operation, closing]);
+      const successor = await tryAcquireInteractiveRootOwner(capability);
+      assert.ok(successor);
+      await successor?.close();
     });
   });
 

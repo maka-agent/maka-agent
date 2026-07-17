@@ -67,10 +67,15 @@ export type AgentRunLineage = Partial<Pick<
   'parentRunId' | 'parentTurnId' | 'retriedFromTurnId' | 'regeneratedFromTurnId' | 'branchOfTurnId' | 'parentSessionId'
 >>;
 
+export type AgentRunDurability = 'best_effort' | 'required';
+
 export interface AgentRunInput {
   sessionId: string;
   header: SessionHeader;
   userInput: UserMessageInput;
+  runId?: string;
+  userMessageId?: string;
+  durability?: AgentRunDurability;
   store: SessionStore;
   runStore?: AgentRunStore;
   runtimeEventStore?: RuntimeEventStore;
@@ -137,7 +142,10 @@ export class AgentRun {
     if (input.runStore && !input.runtimeEventStore) {
       throw new Error('RuntimeEventStore is required when AgentRunStore is configured');
     }
-    this.runId = input.newId();
+    if (input.durability === 'required' && (!input.runStore || !input.runtimeEventStore)) {
+      throw new Error('Required AgentRun durability needs AgentRunStore and RuntimeEventStore');
+    }
+    this.runId = input.runId ?? input.newId();
     this.sessionId = input.sessionId;
     this.turnId = input.userInput.turnId;
     this.header = input.header;
@@ -349,7 +357,7 @@ export class AgentRun {
 
     let initialRuntimeEventId: string;
     if (this.recordsSessionMessages()) {
-      const userMessageId = this.input.newId();
+      const userMessageId = this.input.userMessageId ?? this.input.newId();
       const userMessageTs = this.input.now();
       initialRuntimeEventId = userMessageId;
       const userMsg: UserMessage = {
@@ -373,7 +381,9 @@ export class AgentRun {
     }
 
     const initialRuntimeEvent = this.buildInitialRuntimeEvent(initialRuntimeEventId, this.lastTs);
-    await this.recordRuntimeEvents([initialRuntimeEvent]);
+    await this.recordRuntimeEvents([initialRuntimeEvent], {
+      requireDurableWrite: this.requiresDurablePersistence(),
+    });
 
     if (!this.header.connectionLocked) {
       this.header = await this.input.hooks.updateHeader(this.sessionId, { connectionLocked: true });
@@ -683,8 +693,13 @@ export class AgentRun {
       });
     } catch (error) {
       this.runStoreAvailable = false;
+      if (this.requiresDurablePersistence()) throw error;
       this.enqueueTraceWriteFailure(error);
     }
+  }
+
+  private requiresDurablePersistence(): boolean {
+    return this.input.durability === 'required';
   }
 
   private async buildPriorRuntimeContext(): Promise<PriorRuntimeContext | undefined> {
@@ -785,8 +800,7 @@ export class AgentRun {
 
   private async markRunStarted(ts: number): Promise<void> {
     if (!this.input.runStore || !this.runStoreAvailable) return;
-    this.enqueueRunStore('mark run started', async () => {
-      await this.input.runStore?.updateRun(this.sessionId, this.runId, { status: 'running', updatedAt: ts });
+    const write = this.enqueueRunStore('mark run started', async () => {
       await this.input.runStore?.appendEvent(this.sessionId, this.runId, {
         type: 'run_started',
         id: this.input.newId(),
@@ -795,7 +809,9 @@ export class AgentRun {
         turnId: this.turnId,
         ts,
       });
-    });
+      await this.input.runStore?.updateRun(this.sessionId, this.runId, { status: 'running', updatedAt: ts });
+    }, { rethrow: this.requiresDurablePersistence() });
+    if (this.requiresDurablePersistence()) await write;
   }
 
   private recordStatusFromTransition(

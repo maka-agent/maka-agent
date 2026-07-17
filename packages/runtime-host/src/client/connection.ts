@@ -10,14 +10,24 @@ import { readHostRegistration, RuntimeHostRegistrationError } from '../control/r
 import {
   decodeHostFrame,
   type ClientSurface,
+  type HostOperationErrorCode,
   type HostIncompatible,
   type HostRegistration,
-  type HostStatusResponse,
+  type HostStatusResult,
+  type OperationInput,
+  type OperationKey,
+  type OperationOutput,
   type ProtocolRange,
+  type RequestFrame,
+  type ResponseFrame,
+  type TurnQueryInput,
+  type TurnSnapshot,
+  type TurnStartInput,
+  type TurnStopInput,
   requireClientInstanceId,
   validateProtocolRange,
 } from '../protocol/index.js';
-import { FramedTransport } from '../transport/framed-transport.js';
+import { FramedTransport, RuntimeHostTransportError } from '../transport/framed-transport.js';
 
 const DEFAULT_CONNECT_TIMEOUT_MS = 500;
 const DEFAULT_HANDSHAKE_TIMEOUT_MS = 2_000;
@@ -69,8 +79,34 @@ export interface RuntimeHostConnection {
   readonly connectionId: string;
   readonly selectedProtocol: number;
   readonly closed: Promise<void>;
-  status(timeoutMs?: number): Promise<HostStatusResponse>;
+  request<K extends OperationKey>(
+    operation: K,
+    input: OperationInput<K>,
+    timeoutMs?: number,
+  ): Promise<OperationOutput<K>>;
+  status(timeoutMs?: number): Promise<HostStatusResult>;
+  startTurn(input: TurnStartInput, timeoutMs?: number): Promise<TurnSnapshot>;
+  queryTurn(input: TurnQueryInput, timeoutMs?: number): Promise<TurnSnapshot>;
+  stopTurn(input: TurnStopInput, timeoutMs?: number): Promise<TurnSnapshot>;
   close(): Promise<void>;
+}
+
+export class RuntimeHostOperationError extends Error {
+  constructor(
+    readonly operation: OperationKey,
+    readonly code: HostOperationErrorCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'RuntimeHostOperationError';
+  }
+}
+
+interface PendingRequest {
+  operation: OperationKey;
+  resolve(value: unknown): void;
+  reject(error: Error): void;
+  timer: NodeJS.Timeout;
 }
 
 class RuntimeHostConnectionImpl implements RuntimeHostConnection {
@@ -79,7 +115,7 @@ class RuntimeHostConnectionImpl implements RuntimeHostConnection {
   readonly selectedProtocol: number;
   readonly closed: Promise<void>;
   readonly #transport: FramedTransport;
-  #requestTail: Promise<void> = Promise.resolve();
+  readonly #pendingRequests = new Map<string, PendingRequest>();
   #terminalError: Error | undefined;
 
   constructor(
@@ -95,34 +131,103 @@ class RuntimeHostConnectionImpl implements RuntimeHostConnection {
     this.connectionId = accepted.connectionId;
     this.selectedProtocol = accepted.selectedProtocol;
     this.closed = this.#transport.closed;
+    void this.#readResponses();
   }
 
-  status(timeoutMs = DEFAULT_HANDSHAKE_TIMEOUT_MS): Promise<HostStatusResponse> {
+  request<K extends OperationKey>(
+    operation: K,
+    input: OperationInput<K>,
+    timeoutMs = DEFAULT_HANDSHAKE_TIMEOUT_MS,
+  ): Promise<OperationOutput<K>> {
     const boundedTimeoutMs = requireTimeout(timeoutMs, 'timeoutMs');
-    const request = async () => {
-      if (this.#terminalError) throw this.#terminalError;
-      const requestId = randomUUID();
-      try {
-        await this.#transport.write({ kind: 'status', requestId });
-        const frame = decodeHostFrame(await this.#transport.read(boundedTimeoutMs));
-        if (frame.kind !== 'status' || frame.requestId !== requestId || frame.hostEpoch !== this.hostEpoch) {
-          throw new Error('Runtime Host returned a mismatched status response');
-        }
-        return frame;
-      } catch (error) {
-        this.#terminalError = error instanceof Error ? error : new Error(String(error));
-        this.#transport.destroy();
-        throw this.#terminalError;
-      }
-    };
-    const result = this.#requestTail.then(request, request);
-    this.#requestTail = result.then(() => undefined, () => undefined);
+    if (this.#terminalError) return Promise.reject(this.#terminalError);
+    const requestId = randomUUID();
+    const result = new Promise<OperationOutput<K>>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.#fail(new RuntimeHostTransportError(
+          'read_timeout',
+          `Timed out waiting for Runtime Host ${operation} response`,
+        ));
+      }, boundedTimeoutMs);
+      this.#pendingRequests.set(requestId, {
+        operation,
+        resolve: (value) => resolve(value as OperationOutput<K>),
+        reject,
+        timer,
+      });
+    });
+    const frame = { requestId, operation, input } as RequestFrame;
+    void this.#transport.write(frame).catch((error: unknown) => this.#fail(asError(error)));
     return result;
+  }
+
+  async status(timeoutMs?: number): Promise<HostStatusResult> {
+    const status = await this.request('host.status', {}, timeoutMs);
+    if (status.hostEpoch !== this.hostEpoch) {
+      const error = new Error('Runtime Host returned status for a different Host Epoch');
+      this.#fail(error);
+      throw error;
+    }
+    return status;
+  }
+
+  startTurn(input: TurnStartInput, timeoutMs?: number): Promise<TurnSnapshot> {
+    return this.request('turn.start', input, timeoutMs);
+  }
+
+  queryTurn(input: TurnQueryInput, timeoutMs?: number): Promise<TurnSnapshot> {
+    return this.request('turn.query', input, timeoutMs);
+  }
+
+  stopTurn(input: TurnStopInput, timeoutMs?: number): Promise<TurnSnapshot> {
+    return this.request('turn.stop', input, timeoutMs);
   }
 
   async close(): Promise<void> {
     this.#transport.destroy();
     await this.#transport.closed;
+  }
+
+  async #readResponses(): Promise<void> {
+    try {
+      while (true) {
+        const frame = decodeHostFrame(await this.#transport.read(0));
+        if ('kind' in frame) throw new Error('Runtime Host returned a handshake frame after acceptance');
+        this.#acceptResponse(frame);
+      }
+    } catch (error) {
+      this.#fail(asError(error));
+    }
+  }
+
+  #acceptResponse(frame: ResponseFrame): void {
+    const pending = this.#pendingRequests.get(frame.requestId);
+    if (!pending || pending.operation !== frame.operation) {
+      this.#fail(new Error('Runtime Host returned an unmatched operation response'));
+      return;
+    }
+    this.#pendingRequests.delete(frame.requestId);
+    clearTimeout(pending.timer);
+    if (frame.ok) {
+      pending.resolve(frame.result);
+      return;
+    }
+    pending.reject(new RuntimeHostOperationError(
+      frame.operation,
+      frame.error.code,
+      frame.error.message,
+    ));
+  }
+
+  #fail(error: Error): void {
+    if (this.#terminalError) return;
+    this.#terminalError = error;
+    for (const pending of this.#pendingRequests.values()) {
+      clearTimeout(pending.timer);
+      pending.reject(error);
+    }
+    this.#pendingRequests.clear();
+    this.#transport.destroy();
   }
 }
 
@@ -239,7 +344,7 @@ export async function connectResolvedRuntimeHost(
     const handshake = decodeHostFrame(
       await transport.read(0),
     );
-    if (handshake.kind === 'status') throw new Error('Runtime Host returned status before handshake');
+    if (!('kind' in handshake)) throw new Error('Runtime Host returned an operation response before handshake');
     if (handshake.hostEpoch !== registration.hostEpoch) {
       transport.destroy();
       return { kind: 'unavailable', reason: 'epoch_mismatch', registration };
@@ -359,4 +464,8 @@ function readRegistrationBeforeDeadline(
       },
     );
   });
+}
+
+function asError(error: unknown): Error {
+  return error instanceof Error ? error : new Error(String(error));
 }

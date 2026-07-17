@@ -78,7 +78,7 @@ import type {
   InvocationResult,
   InvocationSource,
 } from './invocation-context.js';
-import { RuntimeKernel, type RuntimeKernelLike } from './runtime-kernel.js';
+import { RuntimeKernel, type RuntimeKernelLike, type TurnStartOptions } from './runtime-kernel.js';
 import type { HistoryCompactCleanupRequest } from './runtime-kernel.js';
 import {
   buildStatusPatch,
@@ -189,6 +189,21 @@ export interface SessionStore {
   setFlagged(sessionId: string, isFlagged: boolean): Promise<void>;
   rename(sessionId: string, name: string): Promise<void>;
   remove(sessionId: string): Promise<void>;
+}
+
+export interface StrictRecoverySessionStore extends SessionStore {
+  listForRecovery(): Promise<SessionHeader[]>;
+  readMessagesForRecovery(sessionId: string): Promise<StoredMessage[]>;
+}
+
+export interface StrictRecoveryAgentRunStore extends AgentRunStore {
+  listSessionRunsForRecovery(sessionId: string): Promise<AgentRunHeader[]>;
+  readEventsForRecovery(sessionId: string, runId: string): Promise<AgentRunEvent[]>;
+}
+
+export interface StrictRecoveryStores {
+  sessionStore: StrictRecoverySessionStore;
+  agentRunStore: StrictRecoveryAgentRunStore;
 }
 
 // ============================================================================
@@ -368,31 +383,55 @@ export class SessionManager {
   }
 
   async recoverInterruptedSessions(): Promise<string[]> {
-    const interrupted = (await this.deps.store.list())
+    return this.recoverInterruptedSessionsWithPolicy({ kind: 'best_effort' });
+  }
+
+  async recoverInterruptedSessionsStrict(stores: StrictRecoveryStores): Promise<string[]> {
+    if (stores.sessionStore !== this.deps.store || stores.agentRunStore !== this.deps.runStore) {
+      throw new Error('Strict recovery stores must match the SessionManager composition');
+    }
+    return this.recoverInterruptedSessionsWithPolicy({ kind: 'strict', stores });
+  }
+
+  private async recoverInterruptedSessionsWithPolicy(
+    policy: RecoveryPolicy,
+  ): Promise<string[]> {
+    const interrupted = (await listSessionsForRecovery(this.deps.store, policy))
       .filter((session) => session.status !== 'archived');
     const recovered = new Set<string>();
     for (const session of interrupted) {
       if (this.runtimeKernel.hasActiveRuns(session.id)) continue;
       if (this.deps.shellRuns) {
-        const recoveredShellRuns = await this.deps.shellRuns.recoverOrphanedSession(session.id).catch(() => 0);
+        const recoveredShellRuns = await recoverOr(
+          policy,
+          () => this.deps.shellRuns!.recoverOrphanedSession(session.id),
+          0,
+        );
         if (recoveredShellRuns > 0) recovered.add(session.id);
       }
       let messages: StoredMessage[] = [];
       let messagesReadable = true;
       try {
-        messages = await this.deps.store.readMessages(session.id);
-      } catch {
+        messages = policy.kind === 'strict'
+          ? await policy.stores.sessionStore.readMessagesForRecovery(session.id)
+          : await this.deps.store.readMessages(session.id);
+      } catch (error) {
+        if (policy.kind === 'strict') throw error;
         messagesReadable = false;
       }
 
       if (this.deps.runStore) {
-        const runRecovery = await this.recoverAgentRunsFromLedger(session.id).catch(() => undefined);
+        const runRecovery = await recoverOr(
+          policy,
+          () => this.recoverAgentRunsFromLedger(session.id, policy),
+          undefined,
+        );
         if (runRecovery?.hasLedger) {
           if (runRecovery.recovered) {
-            await this.updateStatus(session.id, 'active').catch(() => {});
+            await recoverOr(policy, () => this.updateStatus(session.id, 'active'), undefined);
             recovered.add(session.id);
           } else if (!messagesReadable && (session.status === 'running' || session.status === 'waiting_for_user')) {
-            await this.updateStatus(session.id, 'active').catch(() => {});
+            await recoverOr(policy, () => this.updateStatus(session.id, 'active'), undefined);
             recovered.add(session.id);
           }
           continue;
@@ -405,7 +444,7 @@ export class SessionManager {
           // run the user started while this session's recovery was in
           // flight, so we never stomp a live run's status.
           if (this.runtimeKernel.hasActiveRuns(session.id)) continue;
-          await this.updateStatus(session.id, 'active').catch(() => {});
+          await recoverOr(policy, () => this.updateStatus(session.id, 'active'), undefined);
           recovered.add(session.id);
         }
         continue;
@@ -414,9 +453,13 @@ export class SessionManager {
       const recoveries = interruptedTurnRecoveries(messages);
       if (recoveries.length === 0) continue;
       for (const recovery of recoveries) {
-        await this.appendTurnState(session.id, recovery.turnId, 'failed', recovery.lineage, {
-          errorClass: recovery.errorClass,
-        }).catch(() => {});
+        await recoverOr(
+          policy,
+          () => this.appendTurnState(session.id, recovery.turnId, 'failed', recovery.lineage, {
+            errorClass: recovery.errorClass,
+          }),
+          undefined,
+        );
       }
       if (session.status === 'running' || session.status === 'waiting_for_user') {
         // Same double-check as above: a message sent mid-recovery owns
@@ -425,7 +468,7 @@ export class SessionManager {
           recovered.add(session.id);
           continue;
         }
-        await this.updateStatus(session.id, 'active').catch(() => {});
+        await recoverOr(policy, () => this.updateStatus(session.id, 'active'), undefined);
       }
       recovered.add(session.id);
     }
@@ -558,8 +601,9 @@ export class SessionManager {
   async *sendMessage(
     sessionId: string,
     input: UserMessageInput,
+    options: TurnStartOptions = {},
   ): AsyncIterable<SessionEvent> {
-    yield* this.runtimeKernel.startTurn(sessionId, input);
+    yield* this.runtimeKernel.startTurn(sessionId, input, options);
   }
 
   async *compactSession(
@@ -1045,32 +1089,59 @@ export class SessionManager {
 
   private async recoverAgentRunsFromLedger(
     sessionId: string,
+    policy: RecoveryPolicy = { kind: 'best_effort' },
   ): Promise<{ hasLedger: boolean; recovered: boolean }> {
     if (!this.deps.runStore || !this.deps.runtimeEventStore) return { hasLedger: false, recovered: false };
-    const runs = await this.deps.runStore.listSessionRuns(sessionId);
+    const runs = policy.kind === 'strict'
+      ? await policy.stores.agentRunStore.listSessionRunsForRecovery(sessionId)
+      : await this.deps.runStore.listSessionRuns(sessionId);
     if (runs.length === 0) return { hasLedger: false, recovered: false };
 
     let recovered = false;
     for (const run of runs) {
+      if (policy.kind === 'strict') {
+        await policy.stores.agentRunStore.readEventsForRecovery(sessionId, run.runId);
+      }
       const inspected = await inspectAgentRunReadModel(
         this.deps.runStore,
         this.deps.runtimeEventStore,
         { sessionId, runId: run.runId, header: run },
       );
-      if (inspected.sourceHealth.runtimeLedger === 'read_failed') continue;
+      if (inspected.sourceHealth.runtimeLedger === 'read_failed') {
+        if (policy.kind === 'strict') {
+          throw new Error(`RuntimeEvent ledger is unreadable for run ${run.runId}`);
+        }
+        continue;
+      }
+      if (
+        policy.kind === 'strict'
+        && inspected.diagnostics.some((diagnostic) =>
+          diagnostic.code === 'operational_ledger_read_failed'
+          || diagnostic.code === 'operational_event_corrupt'
+        )
+      ) {
+        throw new Error(`AgentRun event ledger is unreadable for run ${run.runId}`);
+      }
       const terminalLedger = classifyTerminalRuntimeLedger(run, inspected.runtimeEvents);
-      if (terminalLedger.kind === 'ambiguous') continue;
+      if (terminalLedger.kind === 'ambiguous') {
+        if (policy.kind === 'strict') {
+          throw new Error(`RuntimeEvent ledger has ambiguous terminal facts for run ${run.runId}`);
+        }
+        continue;
+      }
       if (isTerminalRunStatus(run.status) && !inspected.terminalRuntimeFact) {
         const repaired = await this.repairMissingTerminalFactOnce(sessionId, run.runId);
         if (repaired) {
           recovered = true;
+        } else if (policy.kind === 'strict') {
+          throw new Error(`Unable to repair the terminal RuntimeEvent fact for run ${run.runId}`);
         }
         continue;
       }
       const runtimeDecision = this.classifyRuntimeEventRecovery(inspected);
       const decision = runtimeDecision ?? classifyAgentRunRecovery(run, inspected.events);
       if (!decision) continue;
-      if (await this.applyAgentRunRecovery(sessionId, decision, inspected)) {
+      if (await this.applyAgentRunRecovery(sessionId, decision, inspected, policy)) {
         recovered = true;
       }
     }
@@ -1088,6 +1159,7 @@ export class SessionManager {
     sessionId: string,
     decision: AgentRunRecoveryDecision,
     inspected: AgentRunInspectModel,
+    policy: RecoveryPolicy = { kind: 'best_effort' },
   ): Promise<boolean> {
     if (!this.deps.runStore || !this.deps.runtimeEventStore) return false;
     const ts = this.deps.now();
@@ -1125,15 +1197,26 @@ export class SessionManager {
         runEventData: { recovered: true, ...decision.diagnostic },
         existingEvents: inspected.events,
       });
-    } catch {
+    } catch (error) {
+      if (policy.kind === 'strict') throw error;
       return false;
     }
 
-    await this.appendTerminalTurnStateIfNeeded(sessionId, decision, terminalTurnStatus(status), {
-      ts,
-      ...(failureClass ? { errorClass: failureClass } : {}),
-      ...(abortSource ? { abortSource } : {}),
-    }).catch(() => {});
+    await recoverOr(
+      policy,
+      () => this.appendTerminalTurnStateIfNeeded(
+        sessionId,
+        decision,
+        terminalTurnStatus(status),
+        {
+          ts,
+          ...(failureClass ? { errorClass: failureClass } : {}),
+          ...(abortSource ? { abortSource } : {}),
+        },
+        policy,
+      ),
+      undefined,
+    );
     return true;
   }
 
@@ -1142,12 +1225,43 @@ export class SessionManager {
     decision: AgentRunRecoveryDecision,
     status: TurnRecord['status'],
     options: { ts: number; errorClass?: string; abortSource?: string },
+    policy: RecoveryPolicy = { kind: 'best_effort' },
   ): Promise<void> {
     if (decision.lineage.parentRunId) return;
-    const messages = await this.deps.store.readMessages(sessionId).catch(() => []);
+    const messages = await recoverOr(
+      policy,
+      () => this.deps.store.readMessages(sessionId),
+      [] as StoredMessage[],
+    );
     const latest = latestTurnState(messages, decision.turnId);
     if (latest && isTerminalTurnStatus(latest.status) && latest.status === status) return;
     await this.appendTurnState(sessionId, decision.turnId, status, decision.lineage, options);
+  }
+}
+
+type RecoveryPolicy =
+  | { kind: 'best_effort' }
+  | { kind: 'strict'; stores: StrictRecoveryStores };
+
+function listSessionsForRecovery(
+  store: SessionStore,
+  policy: RecoveryPolicy,
+): Promise<Array<SessionHeader | SessionSummary>> {
+  return policy.kind === 'strict'
+    ? policy.stores.sessionStore.listForRecovery()
+    : store.list();
+}
+
+async function recoverOr<T>(
+  policy: RecoveryPolicy,
+  operation: () => Promise<T>,
+  fallback: T,
+): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    if (policy.kind === 'strict') throw error;
+    return fallback;
   }
 }
 
