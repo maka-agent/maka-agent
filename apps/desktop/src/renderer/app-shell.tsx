@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import type {
   ChatDefaultPermissionMode,
   PermissionMode,
@@ -29,22 +29,12 @@ import { useKeyboardHelp } from './keyboard-help';
 import { useCommandPalette } from './command-palette';
 import { ChatMessageSurface } from './chat-message-surface';
 import { ChatComposerRegion } from './chat-composer-region';
+import { ChatWorkbar } from './chat-workbar';
 import { useOnboardingSnapshot } from './use-onboarding-snapshot';
 import type { OnboardingSnapshot } from '../global';
 import { ProviderLogo } from './settings/provider-display';
 import { ProviderBrandMark } from './settings/provider-brand-marks';
 import { createUiLocaleUpdateGate } from './settings/ui-locale-update-gate';
-// The session workbar owns the task ledger, embedded browser, and artifact
-// preview. Keep the combined auxiliary surface out of the first chat paint.
-const SessionWorkbar = lazy(() => import('./session-workbar').then((m) => ({ default: m.SessionWorkbar })));
-
-function SessionWorkbarFallback() {
-  return (
-    <aside className="maka-session-workbar" role="status" aria-busy="true" aria-label="正在加载会话工作栏">
-      <div className="maka-lazy-fallback" data-surface="panel">正在加载会话工作栏…</div>
-    </aside>
-  );
-}
 import { useSessionGoal } from './use-session-goal';
 import { deriveStaleSessionIds } from './stale-sessions';
 import { deriveProjectGroups } from './session-project-grouping';
@@ -59,10 +49,6 @@ import {
   SESSION_LIST_EXPANDED_MAX_WIDTH,
   SESSION_LIST_EXPANDED_MIN_WIDTH,
 } from './session-list-layout';
-import {
-  SESSION_WORKBAR_MAX_WIDTH,
-  SESSION_WORKBAR_MIN_WIDTH,
-} from './session-workbar-layout';
 import {
   modelSetupToastCopy,
 } from './model-connection-errors';
@@ -1518,32 +1504,17 @@ export function AppShell({
               />
             </div>
             {navSelection.section === 'sessions' && activeId && !workbarCollapsed && (
-              <>
-                <div
-                  className="maka-workbar-resize-handle"
-                  role="separator"
-                  aria-label="调整会话工作栏宽度"
-                  aria-orientation="vertical"
-                  aria-valuemin={SESSION_WORKBAR_MIN_WIDTH}
-                  aria-valuemax={SESSION_WORKBAR_MAX_WIDTH}
-                  aria-valuenow={workbarWidth}
-                  tabIndex={0}
-                  onPointerDown={startWorkbarResize}
-                  onKeyDown={onWorkbarResizeHandleKeyDown}
-                />
-                <Suspense fallback={<SessionWorkbarFallback />}>
-                  <SessionWorkbar
-                    key={activeId}
-                    sessionId={activeId}
-                    browserLive={liveBrowserSessionIds.includes(activeId)}
-                    hidden={hasModalOpen}
-                    width={workbarWidth}
-                    onDismiss={() => setWorkbarCollapsed(true)}
-                    activeTab={workbarTab}
-                    onActiveTabChange={setWorkbarTab}
-                  />
-                </Suspense>
-              </>
+              <ChatWorkbar
+                activeId={activeId}
+                browserLive={liveBrowserSessionIds.includes(activeId)}
+                hidden={hasModalOpen}
+                width={workbarWidth}
+                onDismiss={() => setWorkbarCollapsed(true)}
+                activeTab={workbarTab}
+                onActiveTabChange={setWorkbarTab}
+                startWorkbarResize={startWorkbarResize}
+                onWorkbarResizeHandleKeyDown={onWorkbarResizeHandleKeyDown}
+              />
             )}
           </div>
           </MakaUriContext.Provider>
