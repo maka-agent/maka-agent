@@ -76,7 +76,7 @@ class MakaKimiCodeAgent(BaseInstalledAgent):
                     "mkdir -p /tmp/maka-kimi-code; "
                     f"{shlex.quote(str(_TOOLCHAIN_NODE))} "
                     f"{shlex.quote(str(_TOOLCHAIN_ENTRYPOINT))} "
-                    "--yolo --output-format stream-json --prompt "
+                    "--output-format stream-json --prompt "
                     f"{shlex.quote(instruction)} "
                     f"> {shlex.quote(str(_OUTPUT_PATH))} "
                     "2> /logs/agent/kimi-code.stderr.txt"

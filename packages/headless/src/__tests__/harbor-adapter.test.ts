@@ -2163,7 +2163,8 @@ with tempfile.TemporaryDirectory() as tmp:
     assert install_env["MAKA_EXPECTED_TOOLCHAIN_FINGERPRINT"] == "sha256:" + "a" * 64, install_env
     asyncio.run(agent.run("hi", environment, object()))
     run_command, run_env = commands[-1]
-    assert "--yolo --output-format stream-json --prompt" in run_command, run_command
+    assert "--output-format stream-json --prompt" in run_command, run_command
+    assert "--yolo" not in run_command, run_command
     assert "templated: hi" in run_command, run_command
     assert run_env["KIMI_MODEL_NAME"] == "k3", run_env
     assert run_env["KIMI_MODEL_API_KEY"] == "ephemeral-token", run_env

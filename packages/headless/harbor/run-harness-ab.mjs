@@ -95,7 +95,7 @@ export const HARNESS_COMPETITOR_PROFILES = Object.freeze({
     config: Object.freeze({
       adapter: 'kimi_code_agent:MakaKimiCodeAgent',
       outputFormat: 'stream-json',
-      permissions: 'yolo',
+      permissions: 'prompt-auto',
       attemptPolicy: 'single',
       billingMode: BILLING_MODE,
     }),

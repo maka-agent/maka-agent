@@ -27,7 +27,11 @@ import {
   resolveHarnessOracleWatchdogTimeoutMs,
   type HarnessOracleTaskResult,
 } from './harness-oracle-policy.js';
-import { startProviderAuthProxy, type ProviderTokenUsage } from './provider-auth-proxy.js';
+import {
+  startProviderAuthProxy,
+  type ProviderTokenUsage,
+  type ProviderUsageProtocol,
+} from './provider-auth-proxy.js';
 import {
   providerBaseUrlFromEnv,
   providerCredentialEnv,
@@ -749,8 +753,9 @@ async function hostSideProviderRuntime(options: HarborTaskRunnerOptions): Promis
   close?: () => Promise<void>;
 } | null> {
   const provider = options.provider ?? 'deepseek';
-  if (options.agent === 'opencode' && provider === 'github-copilot') {
-    throw new Error('GitHub Copilot Harbor runs use the Maka host agent; the OpenCode Harbor adapter does not support this provider');
+  if (usesHostProviderProxy(options.agent) && provider === 'github-copilot') {
+    const adapter = options.agent === 'kimi-code' ? 'Kimi Code' : 'OpenCode';
+    throw new Error(`GitHub Copilot Harbor runs use the Maka host agent; the ${adapter} Harbor adapter does not support this provider`);
   }
   const githubToken = provider === 'github-copilot'
     ? options.apiKeyFile
@@ -780,6 +785,7 @@ async function hostSideProviderRuntime(options: HarborTaskRunnerOptions): Promis
       upstreamBaseUrl: baseUrl,
       apiKeyFile,
       authMode: options.agent === 'kimi-code' ? 'bearer' : providerProxyAuthMode(provider),
+      usageProtocol: providerProxyUsageProtocol(options.agent, provider),
     });
     return {
       env: {
@@ -847,6 +853,17 @@ function providerProxyAuthMode(provider: string): 'bearer' | 'x-api-key' {
     && definition.runtimeAdapter.auth === 'api-key'
     ? 'x-api-key'
     : 'bearer';
+}
+
+function providerProxyUsageProtocol(
+  agent: HarborTaskRunnerOptions['agent'],
+  provider: string,
+): ProviderUsageProtocol | undefined {
+  if (agent === 'kimi-code') return 'openai-chat-sse';
+  const definition = (PROVIDER_DEFAULTS as Partial<Record<string, (typeof PROVIDER_DEFAULTS)[ProviderType]>>)[provider];
+  if (definition?.runtimeAdapter.kind === 'anthropic') return 'anthropic-sse';
+  if (definition?.runtimeAdapter.kind === 'openai-compatible') return 'openai-chat-sse';
+  return undefined;
 }
 
 async function resolveGitHubCopilotHostCredential(

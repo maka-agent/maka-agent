@@ -359,6 +359,27 @@ describe('createHarborTaskRunner', () => {
     });
   });
 
+  test('rejects the unsupported Kimi Code Harbor route before creating a Copilot auth proxy', async () => {
+    await withRun(async ({ jobsDir, repo, keyFile }) => {
+      const runner = createHarborTaskRunner({
+        makaRepoPath: repo,
+        jobsDir,
+        agent: 'kimi-code',
+        kimiCodeToolchainPath: '/toolchain',
+        agentVersion: '0.26.0',
+        model: 'github-copilot/gpt-5.4',
+        provider: 'github-copilot',
+        apiKeyFile: keyFile,
+      });
+
+      await assert.rejects(runner(runInput()), (error: unknown) => {
+        assert.ok(error instanceof HarborInfraError);
+        assert.match(error.detail ?? '', /Kimi Code Harbor adapter does not support this provider/);
+        return true;
+      });
+    });
+  });
+
   test('gives OpenCode an ephemeral host proxy without exposing the provider key file', async () => {
     await withRun(async ({ jobsDir, repo, keyFile }) => {
       const captured: { config?: Record<string, unknown> } = {};
@@ -446,9 +467,9 @@ describe('createHarborTaskRunner', () => {
         upstreamAuthorization = request.headers.authorization ?? '';
         response.writeHead(200, { 'content-type': 'text/event-stream' });
         response.end([
-          'data: {"type":"message_start","message":{"usage":{"input_tokens":70,"cache_creation_input_tokens":10,"cache_read_input_tokens":20,"output_tokens":1}}}',
+          'data: {"id":"chatcmpl-1","choices":[],"usage":{"prompt_tokens":100,"completion_tokens":25,"prompt_tokens_details":{"cached_tokens":20}}}',
           '',
-          'data: {"type":"message_delta","usage":{"output_tokens":25}}',
+          'data: [DONE]',
           '',
         ].join('\n'));
       });
@@ -473,7 +494,7 @@ describe('createHarborTaskRunner', () => {
               ?.replace('host.docker.internal', '127.0.0.1');
             const proxyToken = request.env?.MAKA_PROVIDER_PROXY_TOKEN;
             assert.ok(proxyUrl && proxyToken);
-            const response = await fetch(`${proxyUrl}/messages`, {
+            const response = await fetch(`${proxyUrl}/chat/completions`, {
               method: 'POST',
               headers: { authorization: `Bearer ${proxyToken}` },
               body: '{}',
@@ -494,8 +515,8 @@ describe('createHarborTaskRunner', () => {
           output: 25,
           cachedInput: 20,
           cacheHitInput: 20,
-          cacheMissInput: 70,
-          cacheWriteInput: 10,
+          cacheMissInput: 80,
+          cacheWriteInput: 0,
           cacheMissInputSource: 'explicit',
           reasoning: 0,
           total: 125,
@@ -1299,6 +1320,34 @@ describe('buildHarborJobConfig', () => {
         agentVersion: '1.17.18',
       }),
       /opencodeToolchainPath is required for the OpenCode adapter/,
+    );
+  });
+
+  test('requires the pinned Kimi Code toolchain before Harbor starts', () => {
+    assert.throws(
+      () => buildHarborJobConfig(runInput(), {
+        makaRepoPath: '/repo',
+        jobsDir: '/jobs/x',
+        jobName: 'trial',
+        agent: 'kimi-code',
+        model: 'kimi-coding-plan/k3',
+        provider: 'kimi-coding-plan',
+        agentVersion: '0.26.0',
+      }),
+      /kimiCodeToolchainPath is required for the Kimi Code adapter/,
+    );
+    assert.throws(
+      () => buildHarborJobConfig(runInput(), {
+        makaRepoPath: '/repo',
+        jobsDir: '/jobs/x',
+        jobName: 'trial',
+        agent: 'kimi-code',
+        model: 'kimi-coding-plan/k3',
+        provider: 'kimi-coding-plan',
+        agentVersion: '0.25.0',
+        kimiCodeToolchainPath: '/toolchain',
+      }),
+      /Kimi Code adapter version must match toolchain version 0\.26\.0/,
     );
   });
 

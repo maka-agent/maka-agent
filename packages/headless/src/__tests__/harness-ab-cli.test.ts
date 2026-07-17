@@ -170,6 +170,7 @@ test('harness A/B defaults to pinned Kimi Code and keeps OpenCode selectable', a
   const competitor = manifest.arms.find((arm: { id: string }) => arm.id === 'kimi-code');
   assert.equal(competitor?.metadata.version, '0.26.0');
   assert.equal(competitor?.metadata.config.profile, 'kimi-code');
+  assert.equal(competitor?.metadata.config.permissions, 'prompt-auto');
   assert.equal(resolveHarnessCompetitorProfile('opencode').version, '1.17.18');
   assert.throws(() => resolveHarnessCompetitorProfile('unknown'), /MAKA_HARNESS_AB_COMPETITOR/);
   assert.deepEqual(manifest.metadata.model, {

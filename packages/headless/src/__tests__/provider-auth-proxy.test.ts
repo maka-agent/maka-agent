@@ -121,6 +121,7 @@ test('provider auth proxy totals Anthropic streaming usage without changing the 
     upstreamBaseUrl: `http://127.0.0.1:${address.port}`,
     apiKeyFile: keyFile,
     advertisedHost: '127.0.0.1',
+    usageProtocol: 'anthropic-sse',
   });
 
   try {
@@ -136,6 +137,84 @@ test('provider auth proxy totals Anthropic streaming usage without changing the 
       cacheWrite: 10,
       output: 25,
     });
+  } finally {
+    await proxy.close();
+    await new Promise<void>((resolve, reject) => upstream.close((error) => error ? reject(error) : resolve()));
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('provider auth proxy totals OpenAI chat streaming usage without changing the response bytes', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'maka-provider-proxy-openai-usage-'));
+  const stream = [
+    'data: {"id":"chatcmpl-1","choices":[],"usage":{"prompt_tokens":100,"completion_tokens":25,"prompt_tokens_details":{"cached_tokens":20}}}',
+    '',
+    'data: [DONE]',
+    '',
+  ].join('\n');
+  const upstream = createServer((_request, response) => {
+    response.writeHead(200, { 'content-type': 'text/event-stream' });
+    response.write(stream.slice(0, 73));
+    response.end(stream.slice(73));
+  });
+  await new Promise<void>((resolve) => upstream.listen(0, '127.0.0.1', resolve));
+  const address = upstream.address();
+  assert.ok(address && typeof address !== 'string');
+  const keyFile = join(dir, 'provider-key');
+  await writeFile(keyFile, 'provider-secret-key\n', 'utf8');
+  const proxy = await startProviderAuthProxy({
+    upstreamBaseUrl: `http://127.0.0.1:${address.port}`,
+    apiKeyFile: keyFile,
+    advertisedHost: '127.0.0.1',
+    usageProtocol: 'openai-chat-sse',
+  });
+
+  try {
+    const response = await fetch(`${proxy.baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${proxy.token}` },
+      body: '{}',
+    });
+    assert.equal(await response.text(), stream);
+    assert.deepEqual(proxy.usage(), {
+      input: 100,
+      cacheRead: 20,
+      cacheWrite: 0,
+      output: 25,
+    });
+  } finally {
+    await proxy.close();
+    await new Promise<void>((resolve, reject) => upstream.close((error) => error ? reject(error) : resolve()));
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('provider auth proxy keeps unknown streaming usage schemas missing', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'maka-provider-proxy-unknown-usage-'));
+  const upstream = createServer((_request, response) => {
+    response.writeHead(200, { 'content-type': 'text/event-stream' });
+    response.end('data: {"choices":[],"usage":{"unknown_tokens":99}}\n\n');
+  });
+  await new Promise<void>((resolve) => upstream.listen(0, '127.0.0.1', resolve));
+  const address = upstream.address();
+  assert.ok(address && typeof address !== 'string');
+  const keyFile = join(dir, 'provider-key');
+  await writeFile(keyFile, 'provider-secret-key\n', 'utf8');
+  const proxy = await startProviderAuthProxy({
+    upstreamBaseUrl: `http://127.0.0.1:${address.port}`,
+    apiKeyFile: keyFile,
+    advertisedHost: '127.0.0.1',
+    usageProtocol: 'openai-chat-sse',
+  });
+
+  try {
+    const response = await fetch(`${proxy.baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${proxy.token}` },
+      body: '{}',
+    });
+    await response.text();
+    assert.equal(proxy.usage(), null);
   } finally {
     await proxy.close();
     await new Promise<void>((resolve, reject) => upstream.close((error) => error ? reject(error) : resolve()));

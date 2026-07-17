@@ -18,12 +18,14 @@ export interface ProviderTokenUsage {
 }
 
 export type ProviderAuthProxyMode = 'bearer' | 'x-api-key';
+export type ProviderUsageProtocol = 'anthropic-sse' | 'openai-chat-sse';
 
 export async function startProviderAuthProxy(input: {
   upstreamBaseUrl: string;
   apiKeyFile: string;
   advertisedHost?: string;
   authMode?: ProviderAuthProxyMode;
+  usageProtocol?: ProviderUsageProtocol;
 }): Promise<ProviderAuthProxy> {
   const upstreamBaseUrl = new URL(input.upstreamBaseUrl);
   if (upstreamBaseUrl.protocol !== 'https:' && upstreamBaseUrl.protocol !== 'http:') {
@@ -46,6 +48,7 @@ export async function startProviderAuthProxy(input: {
       providerKey,
       token,
       authMode,
+      usageProtocol: input.usageProtocol,
       usage,
       signal: controller.signal,
     }).finally(() => activeRequests.delete(controller));
@@ -89,6 +92,7 @@ async function forwardProviderRequest(input: {
   providerKey: string;
   token: string;
   authMode: ProviderAuthProxyMode;
+  usageProtocol?: ProviderUsageProtocol;
   usage: ProviderUsageAccumulator;
   signal: AbortSignal;
 }): Promise<void> {
@@ -126,8 +130,9 @@ async function forwardProviderRequest(input: {
       if (!HOP_BY_HOP_HEADERS.has(name.toLowerCase())) responseHeaders[name] = value;
     });
     input.response.writeHead(upstreamResponse.status, responseHeaders);
-    const responseUsage = upstreamResponse.headers.get('content-type')?.includes('text/event-stream')
-      ? new AnthropicSseUsageParser()
+    const responseUsage = input.usageProtocol
+      && upstreamResponse.headers.get('content-type')?.includes('text/event-stream')
+      ? new SseUsageParser(input.usageProtocol)
       : null;
     if (upstreamResponse.body) {
       for await (const chunk of upstreamResponse.body) {
@@ -162,14 +167,13 @@ class ProviderUsageAccumulator {
   }
 }
 
-class AnthropicSseUsageParser {
+class SseUsageParser {
   private readonly decoder = new TextDecoder();
   private buffer = '';
-  private input = 0;
-  private cacheRead = 0;
-  private cacheWrite = 0;
-  private output = 0;
+  private readonly usage: ProviderTokenUsage = { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 };
   private sawUsage = false;
+
+  constructor(private readonly protocol: ProviderUsageProtocol) {}
 
   push(chunk: Uint8Array): void {
     this.buffer += this.decoder.decode(chunk, { stream: true });
@@ -179,14 +183,7 @@ class AnthropicSseUsageParser {
   finish(): ProviderTokenUsage | null {
     this.buffer += this.decoder.decode();
     this.consumeCompleteLines(true);
-    return this.sawUsage
-      ? {
-          input: this.input + this.cacheRead + this.cacheWrite,
-          cacheRead: this.cacheRead,
-          cacheWrite: this.cacheWrite,
-          output: this.output,
-        }
-      : null;
+    return this.sawUsage ? { ...this.usage } : null;
   }
 
   private consumeCompleteLines(flush = false): void {
@@ -203,19 +200,58 @@ class AnthropicSseUsageParser {
         continue;
       }
       if (!isRecord(event)) continue;
-      const usage = isRecord(event.usage)
-        ? event.usage
-        : isRecord(event.message) && isRecord(event.message.usage)
-          ? event.message.usage
-          : null;
+      const usage = this.protocol === 'anthropic-sse'
+        ? anthropicUsage(event)
+        : openAiChatUsage(event);
       if (!usage) continue;
       this.sawUsage = true;
-      this.input = Math.max(this.input, nonNegativeNumber(usage.input_tokens));
-      this.cacheRead = Math.max(this.cacheRead, nonNegativeNumber(usage.cache_read_input_tokens));
-      this.cacheWrite = Math.max(this.cacheWrite, nonNegativeNumber(usage.cache_creation_input_tokens));
-      this.output = Math.max(this.output, nonNegativeNumber(usage.output_tokens));
+      this.usage.input = Math.max(this.usage.input, usage.input);
+      this.usage.cacheRead = Math.max(this.usage.cacheRead, usage.cacheRead);
+      this.usage.cacheWrite = Math.max(this.usage.cacheWrite, usage.cacheWrite);
+      this.usage.output = Math.max(this.usage.output, usage.output);
     }
   }
+}
+
+function anthropicUsage(event: Record<string, unknown>): ProviderTokenUsage | null {
+  const usage = isRecord(event.usage)
+    ? event.usage
+    : isRecord(event.message) && isRecord(event.message.usage)
+      ? event.message.usage
+      : null;
+  if (!usage || !hasAnyNumber(usage, [
+    'input_tokens',
+    'cache_read_input_tokens',
+    'cache_creation_input_tokens',
+    'output_tokens',
+  ])) return null;
+  const cacheRead = nonNegativeNumber(usage.cache_read_input_tokens);
+  const cacheWrite = nonNegativeNumber(usage.cache_creation_input_tokens);
+  return {
+    input: nonNegativeNumber(usage.input_tokens) + cacheRead + cacheWrite,
+    cacheRead,
+    cacheWrite,
+    output: nonNegativeNumber(usage.output_tokens),
+  };
+}
+
+function openAiChatUsage(event: Record<string, unknown>): ProviderTokenUsage | null {
+  if (!isRecord(event.usage) || !hasAnyNumber(event.usage, ['prompt_tokens', 'completion_tokens'])) return null;
+  const details = isRecord(event.usage.prompt_tokens_details) ? event.usage.prompt_tokens_details : null;
+  return {
+    input: nonNegativeNumber(event.usage.prompt_tokens),
+    cacheRead: nonNegativeNumber(details?.cached_tokens),
+    cacheWrite: 0,
+    output: nonNegativeNumber(event.usage.completion_tokens),
+  };
+}
+
+function hasAnyNumber(record: Record<string, unknown>, keys: readonly string[]): boolean {
+  return keys.some((key) => (
+    typeof record[key] === 'number'
+    && Number.isFinite(record[key])
+    && (record[key] as number) >= 0
+  ));
 }
 
 function nonNegativeNumber(value: unknown): number {
