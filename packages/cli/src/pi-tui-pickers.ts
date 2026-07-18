@@ -457,9 +457,7 @@ export function onboardableProviderPickerItems(
   return providers.map((provider) => ({
     value: provider.providerType,
     label: provider.label,
-    description: provider.requiresBaseUrl
-      ? `${provider.providerType} · custom endpoint`
-      : provider.providerType,
+    description: provider.providerType,
   }));
 }
 
@@ -628,7 +626,14 @@ export class OnboardingWizard implements Component {
   }
 
   private handleKeyInput(data: string): void {
-    if (matchesKey(data, Key.escape) || matchesKey(data, Key.ctrl('c'))) {
+    // Ctrl+C cancels the whole wizard (the overlay cancel contract binds both
+    // keys); Esc only returns to the provider search. Both fire while a probe
+    // is in flight, matching pi-tui `tui.select.cancel = [escape, ctrl+c]`.
+    if (matchesKey(data, Key.ctrl('c'))) {
+      this.input.onCancel();
+      return;
+    }
+    if (matchesKey(data, Key.escape)) {
       this.phase = 'search';
       this.picked = undefined;
       this.status = { kind: 'prompt' };

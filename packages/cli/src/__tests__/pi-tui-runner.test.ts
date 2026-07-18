@@ -808,6 +808,120 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('first-run wizard reopens on Alt+Enter after a slash escape (no agent turn)', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    let preparePromptCalls = 0;
+    driver.preparePrompt = async () => {
+      preparePromptCalls += 1;
+      throw new Error('first-run onboarding: no agent turn before a connection exists');
+    };
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: '',
+      connectionSlug: '',
+      permissionMode: 'bypass',
+      terminal,
+      firstRun: true,
+      onboarding: { setup: async () => ({}) },
+    });
+
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), 'Set Up Provider') !== null;
+      } catch {
+        return false;
+      }
+    });
+    terminal.input('\r'); // pick provider -> key phase
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), 'API key') !== null;
+      } catch {
+        return false;
+      }
+    });
+
+    // Slash escapes and closes the wizard; Alt+Enter must go through the same
+    // submitPrompt choke point as Enter and reopen the wizard, not hand the
+    // prompt to a connection-less driver.
+    terminal.input('/help');
+    terminal.input('\r');
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), 'Keybindings') !== null;
+      } catch {
+        return false;
+      }
+    });
+
+    terminal.input('hello');
+    terminal.input('\x1b\r'); // Alt+Enter
+    await delay(40);
+    assert.equal(preparePromptCalls, 0);
+    assert.ok(plainTerminalOutput(terminal.screenOutput()).includes('Set Up Provider'));
+
+    process.emit('SIGTERM');
+    await Promise.race([
+      run,
+      delay(500).then(() => { throw new Error('TUI did not close after SIGTERM'); }),
+    ]);
+  });
+
+  test('first-run /exit in the main editor after a slash escape still exits the TUI', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: '',
+      connectionSlug: '',
+      permissionMode: 'bypass',
+      terminal,
+      firstRun: true,
+      onboarding: { setup: async () => ({}) },
+    });
+
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), 'Set Up Provider') !== null;
+      } catch {
+        return false;
+      }
+    });
+    terminal.input('\r'); // pick provider -> key phase
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), 'API key') !== null;
+      } catch {
+        return false;
+      }
+    });
+
+    // Slash escape in the key field closes the wizard and shows help.
+    terminal.input('/help');
+    terminal.input('\r');
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), 'Keybindings') !== null;
+      } catch {
+        return false;
+      }
+    });
+
+    // Now the main editor is active. /exit must reach the command layer, not
+    // be swallowed by the first-run guard that would reopen the wizard.
+    terminal.input('/exit');
+    terminal.input('\r');
+    await Promise.race([
+      run,
+      delay(500).then(() => { throw new Error('/exit did not close the first-run TUI'); }),
+    ]);
+  });
+
   test('onboarding wizard cancels on Ctrl+C as well as Esc (first-run closes the TUI)', async () => {
     const terminal = new FakeTerminal();
     const driver = new SlashCommandDriver();
@@ -837,6 +951,46 @@ describe('Maka Pi TUI runner', () => {
     await Promise.race([
       run,
       delay(500).then(() => { throw new Error('Ctrl+C did not close the first-run wizard'); }),
+    ]);
+  });
+
+  test('onboarding wizard key-phase Ctrl+C cancels while Esc returns to search', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: '',
+      connectionSlug: '',
+      permissionMode: 'bypass',
+      terminal,
+      firstRun: true,
+      onboarding: { setup: async () => ({}) },
+    });
+
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), 'Set Up Provider') !== null;
+      } catch {
+        return false;
+      }
+    });
+    terminal.input('\r'); // pick provider -> key phase
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), 'API key') !== null;
+      } catch {
+        return false;
+      }
+    });
+
+    // In the key phase, Ctrl+C cancels the whole wizard (first-run closes the
+    // TUI), matching the overlay cancel contract; Esc only returns to search.
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(500).then(() => { throw new Error('Ctrl+C did not close the first-run wizard from the key phase'); }),
     ]);
   });
 

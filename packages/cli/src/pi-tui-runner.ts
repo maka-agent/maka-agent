@@ -645,6 +645,15 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     const idleMs = Date.now() - lastActivityAt;
     editor.addToHistory(prompt);
     if (handleSlashCommand(prompt)) return;
+    // First-run has no connection, so the wizard is the only surface. This is
+    // the single choke point for idle submits (Enter, Alt+Enter, steer
+    // fallback): reopen the wizard instead of opening a turn against a
+    // connection-less driver. Slash commands above already routed to the
+    // command layer (/exit still exits, /help still shows help).
+    if (input.firstRun) {
+      showSetupWizard();
+      return;
+    }
     // Refreshed only for a prompt that actually opens a turn: a slash command
     // (e.g. /help) typed on the way back from idle must not consume the idle
     // gap the next real prompt is measuring.
@@ -835,14 +844,6 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   let wizardAttempt = 0;
 
   editor.onSubmit = (prompt) => {
-    if (input.firstRun) {
-      // First-run has no connection, so the wizard is the only surface. A
-      // submit here — including after a slash command escaped the key field —
-      // must reopen the wizard instead of handing control to a connection-less
-      // driver whose turns only hard-error.
-      showSetupWizard();
-      return;
-    }
     if (turnRunning) {
       steerRunningTurn(prompt);
       return;
@@ -1253,7 +1254,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     requestRender();
     void input.onboarding.setup({ providerType, apiKey }).then(
       (result) => {
-        if (wizard !== targetWizard || attempt !== wizardAttempt) return;
+        if (closed || wizard !== targetWizard || attempt !== wizardAttempt) return;
         if (result.testError) {
           // Probe failed: re-arm the key field in place — the upsert rotates
           // the key, so retrying does not throw "slug already exists".
@@ -1277,7 +1278,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
         requestRender();
       },
       (error) => {
-        if (wizard !== targetWizard || attempt !== wizardAttempt) return;
+        if (closed || wizard !== targetWizard || attempt !== wizardAttempt) return;
         wizard.setResult({ kind: 'error', text: `配置失败：${error instanceof Error ? error.message : String(error)}` });
         requestRender();
       },
