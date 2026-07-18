@@ -3,8 +3,8 @@ import { Buffer } from 'node:buffer';
 import { createHash } from 'node:crypto';
 import { describe, test } from 'node:test';
 import type { ModelMessage } from 'ai';
-import { MockLanguageModelV3, simulateReadableStream } from 'ai/test';
-import type { LanguageModelV3StreamPart } from '@ai-sdk/provider';
+import { MockLanguageModelV4, simulateReadableStream } from 'ai/test';
+import type { LanguageModelV4StreamPart } from '@ai-sdk/provider';
 import type { AgentRunHeader, AttachmentByteReader, BackendSendInput, LlmConnection, SessionHeader, StorageRef } from '@maka/core';
 import type { SessionEvent } from '@maka/core/events';
 import type { RuntimeEvent } from '@maka/core/runtime-event';
@@ -483,7 +483,7 @@ describe('AiSdkBackend model history', () => {
     const prompt = compactPrompt(model) as Array<{ role: string; content: unknown }>;
     const currentUser = prompt[prompt.length - 1];
     const parts = currentUser.content as Array<{ type: string; image?: unknown; mediaType?: string; text?: string; data?: unknown }>;
-    // ai-sdk LanguageModelV3 normalizes CoreMessage image parts into generic
+    // AI SDK LanguageModelV4 normalizes ModelMessage file parts into generic
     // file parts at the provider boundary (mediaType carries image/png); the
     // image bytes must reach the provider as a non-text image/png part.
     const imageLike = parts.find((p) => p.type !== 'text' && p.mediaType === 'image/png');
@@ -719,7 +719,7 @@ describe('AiSdkBackend model history', () => {
       .map((entry) => entry?.output)
       .filter((output) => output?.type === 'content');
     const imageData = toolOutputs.filter((output) =>
-      output.value.some((part: any) => part.type === 'image-data' && part.mediaType === 'image/png'));
+      output.value.some((part: any) => part.type === 'file' && part.mediaType === 'image/png'));
     const degraded = toolOutputs.filter((output) =>
       output.value.some((part: any) => part.type === 'text' && /image budget/.test(part.text)));
     assert.equal(imageData.length, 2, `expected two hydrated image tool results, got: ${JSON.stringify(toolOutputs)}`);
@@ -896,7 +896,7 @@ describe('AiSdkBackend model history', () => {
     const prompt = compactPrompt(model) as Array<{ role: string; content: any[] }>;
     const result = prompt.find((message) => message.role === 'tool')?.content[0]?.output;
     assert.equal(result.type, 'content');
-    assert.ok(result.value.some((part: any) => part.type === 'image-data' && part.mediaType === 'image/png'));
+    assert.ok(result.value.some((part: any) => part.type === 'file' && part.mediaType === 'image/png'));
   });
 
   test('sends a live image tool result to the next provider step', async () => {
@@ -905,7 +905,7 @@ describe('AiSdkBackend model history', () => {
       'base64',
     );
     let calls = 0;
-    const model = new MockLanguageModelV3({
+    const model = new MockLanguageModelV4({
       doStream: async () => {
         calls += 1;
         return {
@@ -919,7 +919,7 @@ describe('AiSdkBackend model history', () => {
               : [
                   { type: 'stream-start', warnings: [] },
                   { type: 'finish', finishReason: { unified: 'stop', raw: 'stop' }, usage: emptyUsage() },
-                ]) as LanguageModelV3StreamPart[],
+                ]) as LanguageModelV4StreamPart[],
             initialDelayInMs: null,
             chunkDelayInMs: null,
           }),
@@ -947,7 +947,7 @@ describe('AiSdkBackend model history', () => {
 
     const nextPrompt = model.doStreamCalls[1]?.prompt as Array<{ role: string; content: any[] }>;
     const result = nextPrompt.find((message) => message.role === 'tool')?.content[0]?.output;
-    assert.ok(result.value.some((part: any) => part.type === 'image-data' && part.mediaType === 'image/png'));
+    assert.ok(result.value.some((part: any) => part.type === 'file' && part.mediaType === 'image/png'));
   });
 
   test('does not read image bytes for a non-vision model', async () => {
@@ -2985,9 +2985,9 @@ describe('AiSdkBackend model history', () => {
   test('aborting the model stream mid-flight routes to the abort path instead of false success', async () => {
     const gate = makeGate();
     let streamReachedGate = false;
-    const model = new MockLanguageModelV3({
+    const model = new MockLanguageModelV4({
       doStream: {
-        stream: new ReadableStream<LanguageModelV3StreamPart>({
+        stream: new ReadableStream<LanguageModelV4StreamPart>({
           async start(controller) {
             controller.enqueue({ type: 'stream-start', warnings: [] });
             controller.enqueue({ type: 'text-start', id: 'text-1' });
@@ -3143,9 +3143,9 @@ describe('AiSdkBackend model history', () => {
     // ledger. The gate releases only after the backend has emitted the partial
     // text_delta, so consumption-before-error is deterministic.
     const gate = makeGate();
-    const model = new MockLanguageModelV3({
+    const model = new MockLanguageModelV4({
       doStream: {
-        stream: new ReadableStream<LanguageModelV3StreamPart>({
+        stream: new ReadableStream<LanguageModelV4StreamPart>({
           async start(controller) {
             controller.enqueue({ type: 'stream-start', warnings: [] });
             controller.enqueue({ type: 'text-start', id: 'text-1' });
@@ -4387,7 +4387,7 @@ describe('AiSdkBackend usage telemetry', () => {
   test('reports an explicit step limit without making an auxiliary model call', async () => {
     const appended: StoredMessage[] = [];
     let streamCalls = 0;
-    const model = new MockLanguageModelV3({
+    const model = new MockLanguageModelV4({
       doGenerate: {
         content: [{ type: 'text', text: 'Completed the edits; verification is still pending. Send continue to resume.' }],
         finishReason: { unified: 'stop', raw: 'stop' },
@@ -4460,10 +4460,10 @@ describe('AiSdkBackend usage telemetry', () => {
     const llmRecords: LlmCallRecord[] = [];
     const usageCheckpoints: Array<{ inputTokens: number; outputTokens: number }> = [];
     let streamCalls = 0;
-    const model = new MockLanguageModelV3({
+    const model = new MockLanguageModelV4({
       doStream: async () => {
         streamCalls += 1;
-        const chunks: LanguageModelV3StreamPart[] = streamCalls === 1
+        const chunks: LanguageModelV4StreamPart[] = streamCalls === 1
           ? [
               { type: 'stream-start', warnings: [] },
               {
@@ -4598,7 +4598,7 @@ describe('AiSdkBackend usage telemetry', () => {
 
   test('does not record fabricated zero telemetry when provider usage is unavailable', async () => {
     const llmRecords: LlmCallRecord[] = [];
-    const model = new MockLanguageModelV3({
+    const model = new MockLanguageModelV4({
       doStream: {
         stream: simulateReadableStream({
           chunks: [
@@ -4639,7 +4639,7 @@ describe('AiSdkBackend usage telemetry', () => {
 
   test('keeps checkpoint cost unknown when model pricing is unavailable', async () => {
     const usageCheckpoints: Array<{ costUsd?: number }> = [];
-    const model = new MockLanguageModelV3({
+    const model = new MockLanguageModelV4({
       doStream: async () => ({
         stream: simulateReadableStream({
           chunks: [
@@ -4689,11 +4689,11 @@ describe('AiSdkBackend usage telemetry', () => {
     const largeBody = 'SECRET_PAYLOAD_SHOULD_BE_ARCHIVED'.repeat(200);
     let streamCalls = 0;
     const prompts: unknown[] = [];
-    const model = new MockLanguageModelV3({
+    const model = new MockLanguageModelV4({
       doStream: async ({ prompt }) => {
         streamCalls += 1;
         prompts.push(prompt);
-        const chunks: LanguageModelV3StreamPart[] = streamCalls === 1
+        const chunks: LanguageModelV4StreamPart[] = streamCalls === 1
           ? [
               { type: 'stream-start', warnings: [] },
               {
@@ -4799,13 +4799,13 @@ describe('AiSdkBackend usage telemetry', () => {
     const largeBody = 'ACTIVE_FULL_COMPACT_RAW_TOOL_OUTPUT'.repeat(200);
     let streamCalls = 0;
     let secondProviderRequestSawRecordedBlock = false;
-    const model = new MockLanguageModelV3({
+    const model = new MockLanguageModelV4({
       doStream: async () => {
         streamCalls += 1;
         if (streamCalls === 2) {
           secondProviderRequestSawRecordedBlock = recordedBlocks.length === 1;
         }
-        const chunks: LanguageModelV3StreamPart[] = streamCalls === 1
+        const chunks: LanguageModelV4StreamPart[] = streamCalls === 1
           ? [
               { type: 'stream-start', warnings: [] },
               {
@@ -4993,7 +4993,7 @@ describe('AiSdkBackend usage telemetry', () => {
     const largeBody = 'SEMANTIC_COMPACT_RAW_TOOL_OUTPUT'.repeat(180);
     let streamCalls = 0;
     let archiveCalls = 0;
-    const model = new MockLanguageModelV3({
+    const model = new MockLanguageModelV4({
       doGenerate: {
         content: [{
           type: 'text',
@@ -5014,7 +5014,7 @@ describe('AiSdkBackend usage telemetry', () => {
       },
       doStream: async () => {
         streamCalls += 1;
-        const chunks: LanguageModelV3StreamPart[] = streamCalls === 1
+        const chunks: LanguageModelV4StreamPart[] = streamCalls === 1
           ? [
               { type: 'stream-start', warnings: [] },
               {
@@ -5191,10 +5191,10 @@ describe('AiSdkBackend usage telemetry', () => {
     const rawOne = 'ACTIVE_FULL_COMPACT_BOUNDARY_RAW_ONE'.repeat(160);
     const rawTwo = 'ACTIVE_FULL_COMPACT_BOUNDARY_RAW_TWO'.repeat(160);
     let streamCalls = 0;
-    const model = new MockLanguageModelV3({
+    const model = new MockLanguageModelV4({
       doStream: async () => {
         streamCalls += 1;
-        const chunks: LanguageModelV3StreamPart[] = streamCalls === 1
+        const chunks: LanguageModelV4StreamPart[] = streamCalls === 1
           ? [
               { type: 'stream-start', warnings: [] },
               {
@@ -5289,10 +5289,10 @@ describe('AiSdkBackend usage telemetry', () => {
     const llmRecords: LlmCallRecord[] = [];
     const largeBody = 'VALIDATE_ONLY_RAW_TOOL_OUTPUT'.repeat(80);
     let streamCalls = 0;
-    const model = new MockLanguageModelV3({
+    const model = new MockLanguageModelV4({
       doStream: async () => {
         streamCalls += 1;
-        const chunks: LanguageModelV3StreamPart[] = streamCalls === 1
+        const chunks: LanguageModelV4StreamPart[] = streamCalls === 1
           ? [
               { type: 'stream-start', warnings: [] },
               {
@@ -5394,7 +5394,7 @@ describe('AiSdkBackend usage telemetry', () => {
       cacheReadUsdPer1M: 0.3,
       cacheWriteUsdPer1M: 3.75,
     };
-    const chunks: LanguageModelV3StreamPart[] = [
+    const chunks: LanguageModelV4StreamPart[] = [
       { type: 'stream-start', warnings: [] },
       { type: 'text-start', id: 'text-1' },
       { type: 'text-delta', id: 'text-1', delta: 'hello' },
@@ -5417,7 +5417,7 @@ describe('AiSdkBackend usage telemetry', () => {
         },
       },
     ];
-    const model = new MockLanguageModelV3({
+    const model = new MockLanguageModelV4({
       doStream: {
         stream: simulateReadableStream({
           chunks,
@@ -5790,7 +5790,7 @@ describe('AiSdkBackend request-shape diagnostics', () => {
   test('volatile turn-tail facts do not churn the durable prefix hash', async () => {
     const events: SessionEvent[] = [];
     const llmRecords: LlmCallRecord[] = [];
-    const models: MockLanguageModelV3[] = [];
+    const models: MockLanguageModelV4[] = [];
     let date = '2026-05-29';
     const backend = new AiSdkBackend({
       sessionId: 'session-1',
@@ -6061,7 +6061,7 @@ describe('AiSdkBackend RunTrace', () => {
   test('records turn, model, usage, and completion trace events without changing SessionEvents', async () => {
     const trace: RunTraceEvent[] = [];
     const events: SessionEvent[] = [];
-    const model = new MockLanguageModelV3({
+    const model = new MockLanguageModelV4({
       doStream: {
         stream: simulateReadableStream({
           chunks: [
@@ -6133,7 +6133,7 @@ describe('AiSdkBackend RunTrace', () => {
 
   test('trace recorder failures are best-effort and do not change model execution', async () => {
     const events: SessionEvent[] = [];
-    const model = new MockLanguageModelV3({
+    const model = new MockLanguageModelV4({
       doStream: {
         stream: simulateReadableStream({
           chunks: [
@@ -7336,7 +7336,7 @@ describe('AiSdkBackend loop-gate turn wiring', () => {
 
 describe('AiSdkBackend thinking persistence', () => {
   test('emits a non-partial thinking_complete that survives read-model projection and materialization', async () => {
-    const chunks: LanguageModelV3StreamPart[] = [
+    const chunks: LanguageModelV4StreamPart[] = [
       { type: 'stream-start', warnings: [] },
       { type: 'reasoning-start', id: 'r1' },
       { type: 'reasoning-delta', id: 'r1', delta: 'Let me ' },
@@ -7356,7 +7356,7 @@ describe('AiSdkBackend thinking persistence', () => {
         },
       },
     ];
-    const model = new MockLanguageModelV3({
+    const model = new MockLanguageModelV4({
       doStream: {
         stream: simulateReadableStream({ chunks, initialDelayInMs: null, chunkDelayInMs: null }),
       },
@@ -7435,7 +7435,7 @@ describe('AiSdkBackend thinking persistence', () => {
   });
 
   test('persists reasoning for a thinking-only turn that produces no final text', async () => {
-    const chunks: LanguageModelV3StreamPart[] = [
+    const chunks: LanguageModelV4StreamPart[] = [
       { type: 'stream-start', warnings: [] },
       { type: 'reasoning-start', id: 'r1' },
       { type: 'reasoning-delta', id: 'r1', delta: 'silent ' },
@@ -7451,7 +7451,7 @@ describe('AiSdkBackend thinking persistence', () => {
         },
       },
     ];
-    const model = new MockLanguageModelV3({
+    const model = new MockLanguageModelV4({
       doStream: {
         stream: simulateReadableStream({ chunks, initialDelayInMs: null, chunkDelayInMs: null }),
       },
@@ -7540,7 +7540,7 @@ describe('AiSdkBackend thinking persistence', () => {
       updatedAt: 1,
     };
     // Turn 1: produce a signed thinking + text turn through the real backend.
-    const firstChunks: LanguageModelV3StreamPart[] = [
+    const firstChunks: LanguageModelV4StreamPart[] = [
       { type: 'stream-start', warnings: [] },
       { type: 'reasoning-start', id: 'r1' },
       { type: 'reasoning-delta', id: 'r1', delta: 'deep thought' },
@@ -7558,7 +7558,7 @@ describe('AiSdkBackend thinking persistence', () => {
         },
       },
     ];
-    const firstModel = new MockLanguageModelV3({
+    const firstModel = new MockLanguageModelV4({
       doStream: {
         stream: simulateReadableStream({ chunks: firstChunks, initialDelayInMs: null, chunkDelayInMs: null }),
       },
@@ -7830,7 +7830,7 @@ describe('AiSdkBackend thinking persistence', () => {
     // is empty (only a standalone signature-carrier delta, no reasoning-delta
     // with text). The block must still persist + replay so the signature
     // round-trips; gating on thinking text alone would silently drop it.
-    const firstChunks: LanguageModelV3StreamPart[] = [
+    const firstChunks: LanguageModelV4StreamPart[] = [
       { type: 'stream-start', warnings: [] },
       { type: 'reasoning-start', id: 'r1' },
       // No text delta — only the signature carrier.
@@ -7848,7 +7848,7 @@ describe('AiSdkBackend thinking persistence', () => {
         },
       },
     ];
-    const firstModel = new MockLanguageModelV3({
+    const firstModel = new MockLanguageModelV4({
       doStream: {
         stream: simulateReadableStream({ chunks: firstChunks, initialDelayInMs: null, chunkDelayInMs: null }),
       },
@@ -7947,7 +7947,7 @@ describe('AiSdkBackend thinking persistence', () => {
     (backend as unknown as {
       modelAdapter: { startStream: (input: FakeStreamInput) => Promise<unknown> };
     }).modelAdapter.startStream = async (input: FakeStreamInput) => ({
-      fullStream: (async function* () {
+      stream: (async function* () {
         // Step 1 (pure tool): execute mid-step, then close the step.
         await input.tools['Read']!.execute({ path: 'a.md' }, { toolCallId: 'tool-1', abortSignal: input.abortSignal });
         yield { type: 'finish-step', finishReason: { unified: 'tool-calls', raw: 'tool_calls' } };
@@ -7957,7 +7957,7 @@ describe('AiSdkBackend thinking persistence', () => {
         yield { type: 'reasoning-delta', delta: '', providerMetadata: { anthropic: { signature: 'sig-last' } } };
       })(),
       usage: Promise.resolve(undefined),
-      totalUsage: Promise.resolve(undefined),
+      finalStep: Promise.resolve(undefined),
       finishReason: Promise.resolve('tool-calls'),
     });
 
@@ -7982,10 +7982,10 @@ describe('AiSdkBackend thinking persistence', () => {
     // Each step must persist its own AssistantMessage with its own signature, and
     // the step-1 tool_start must carry the step-1 assistant id.
     let streamCalls = 0;
-    const model = new MockLanguageModelV3({
+    const model = new MockLanguageModelV4({
       doStream: async () => {
         streamCalls += 1;
-        const chunks: LanguageModelV3StreamPart[] = streamCalls === 1
+        const chunks: LanguageModelV4StreamPart[] = streamCalls === 1
           ? [
               { type: 'stream-start', warnings: [] },
               { type: 'reasoning-start', id: 'r1' },
@@ -8183,7 +8183,7 @@ function archiveGatedTurnEvents(
 }
 
 describe('AiSdkBackend steering durability and identity', () => {
-  const steeringBackend = (model: MockLanguageModelV3): AiSdkBackend =>
+  const steeringBackend = (model: MockLanguageModelV4): AiSdkBackend =>
     new AiSdkBackend({
       sessionId: 'session-1',
       header: header(),
@@ -8499,8 +8499,8 @@ describe('AiSdkBackend steering durability and identity', () => {
   });
 });
 
-function textCompletionModel(text: string): MockLanguageModelV3 {
-  const chunks: LanguageModelV3StreamPart[] = [
+function textCompletionModel(text: string): MockLanguageModelV4 {
+  const chunks: LanguageModelV4StreamPart[] = [
     { type: 'stream-start', warnings: [] },
     { type: 'text-start', id: 'text-1' },
     { type: 'text-delta', id: 'text-1', delta: text },
@@ -8523,7 +8523,7 @@ function textCompletionModel(text: string): MockLanguageModelV3 {
       },
     },
   ];
-  return new MockLanguageModelV3({
+  return new MockLanguageModelV4({
     doStream: {
       stream: simulateReadableStream({
         chunks,
@@ -8534,8 +8534,8 @@ function textCompletionModel(text: string): MockLanguageModelV3 {
   });
 }
 
-function completionModel(): MockLanguageModelV3 {
-  const chunks: LanguageModelV3StreamPart[] = [
+function completionModel(): MockLanguageModelV4 {
+  const chunks: LanguageModelV4StreamPart[] = [
     { type: 'stream-start', warnings: [] },
     {
       type: 'finish',
@@ -8555,7 +8555,7 @@ function completionModel(): MockLanguageModelV3 {
       },
     },
   ];
-  return new MockLanguageModelV3({
+  return new MockLanguageModelV4({
     doStream: {
       stream: simulateReadableStream({
         chunks,
@@ -8574,7 +8574,7 @@ function emptyUsage() {
 }
 
 function imageReplayBackend(
-  model: MockLanguageModelV3,
+  model: MockLanguageModelV4,
   options: { supportsVision: boolean; readAttachmentBytes: AttachmentByteReader },
 ): AiSdkBackend {
   return new AiSdkBackend({
@@ -8611,15 +8611,15 @@ function imageReplayInput(): BackendSendInput {
 }
 
 function countingToolLoopModel(toolCallsBeforeStop?: number): {
-  model: MockLanguageModelV3;
+  model: MockLanguageModelV4;
   callCount: () => number;
 } {
   let calls = 0;
-  const model = new MockLanguageModelV3({
+  const model = new MockLanguageModelV4({
     doStream: async () => {
       calls += 1;
       const shouldStop = toolCallsBeforeStop !== undefined && calls > toolCallsBeforeStop;
-      const chunks: LanguageModelV3StreamPart[] = shouldStop
+      const chunks: LanguageModelV4StreamPart[] = shouldStop
         ? [
             { type: 'stream-start', warnings: [] },
             { type: 'text-start', id: 'text-final' },
@@ -8743,7 +8743,7 @@ function synthesisBlock(input: {
   };
 }
 
-function compactPrompt(model: MockLanguageModelV3): unknown {
+function compactPrompt(model: MockLanguageModelV4): unknown {
   return model.doStreamCalls[0]?.prompt.map((message) => ({
     role: message.role,
     content: message.content,
@@ -8796,18 +8796,18 @@ function countActiveFullCompactMarkers(text: string): number {
   return text.match(/<maka_active_full_compact_block/g)?.length ?? 0;
 }
 
-function modelCallSettings(model: MockLanguageModelV3): unknown {
+function modelCallSettings(model: MockLanguageModelV4): unknown {
   const call = model.doStreamCalls[0] as unknown as Record<string, unknown> | undefined;
   if (!call) return {};
   const { prompt: _prompt, ...rest } = call;
   return rest;
 }
 
-function modelToolNames(model: MockLanguageModelV3): string[] {
+function modelToolNames(model: MockLanguageModelV4): string[] {
   return sortedModelToolNames(Object.keys(modelTools(model)));
 }
 
-function modelTools(model: MockLanguageModelV3): Record<string, unknown> {
+function modelTools(model: MockLanguageModelV4): Record<string, unknown> {
   const call = model.doStreamCalls[0] as unknown as Record<string, unknown> | undefined;
   const tools = call?.tools;
   if (!tools) return {};

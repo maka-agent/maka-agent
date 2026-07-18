@@ -101,7 +101,7 @@ export function createMainGoalWiring(deps: CreateMainGoalWiringDeps): MainGoalWi
           // Ceiling, not a target — the verdict is tiny JSON. Kept well above the
           // JSON size so any model-side reasoning before the JSON doesn't consume
           // the whole budget and return empty text (finishReason=length). 250 was
-          // too tight once the cap is actually honored (AI SDK v6 maxOutputTokens).
+          // too tight once the cap is honored by the AI SDK.
           maxOutputTokens: 1024,
         });
         return result.text;

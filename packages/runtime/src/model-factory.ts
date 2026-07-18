@@ -1,9 +1,16 @@
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createCohere } from '@ai-sdk/cohere';
-import { createGoogleGenerativeAI } from '@ai-sdk/google';
+import { createGoogle } from '@ai-sdk/google';
 import { createOpenAI } from '@ai-sdk/openai';
 import { createOpenAICompatible, type MetadataExtractor } from '@ai-sdk/openai-compatible';
-import { isJSONArray, type JSONArray, type LanguageModelV3, type SharedV3ProviderOptions } from '@ai-sdk/provider';
+import {
+  isJSONArray,
+  type JSONArray,
+  type LanguageModelV4,
+  type LanguageModelV4StreamPart,
+  type SharedV4ProviderMetadata,
+  type SharedV4ProviderOptions,
+} from '@ai-sdk/provider';
 import { type LlmConnection, type ProviderType } from '@maka/core/llm-connections';
 import { openAiAdapterApiProtocol } from '@maka/core/model-metadata';
 import type { ThinkingLevel } from '@maka/core/model-thinking';
@@ -24,12 +31,12 @@ export interface ModelFactoryInput {
 
 const ANTHROPIC_BETA =
   'interleaved-thinking-2025-05-14,fine-grained-tool-streaming-2025-05-14';
-export function getAIModel(input: ModelFactoryInput): LanguageModelV3 {
+export function getAIModel(input: ModelFactoryInput): LanguageModelV4 {
   const { connection, apiKey, modelId, fetch } = input;
   const { adapter, baseUrl: baseURL } = resolveModelRuntime(connection, modelId);
 
   if (adapter.kind === 'google' && adapter.normalizeBaseUrl === false) {
-    return createGoogleGenerativeAI({ apiKey, baseURL }).chat(modelId);
+    return createGoogle({ apiKey, baseURL }).chat(modelId);
   }
 
   switch (adapter.kind) {
@@ -91,7 +98,7 @@ export function getAIModel(input: ModelFactoryInput): LanguageModelV3 {
     }
 
     case 'google':
-      return createGoogleGenerativeAI({
+      return createGoogle({
         apiKey,
         baseURL: googleV1BetaBaseUrl(baseURL),
       }).chat(modelId);
@@ -193,20 +200,20 @@ function reasoningDetailsFromBody(body: unknown): JSONArray | undefined {
   return undefined;
 }
 
-function attachReasoningDetails(model: LanguageModelV3): LanguageModelV3 {
+function attachReasoningDetails(model: LanguageModelV4): LanguageModelV4 {
   return new Proxy(model, {
     get(target, property, receiver) {
       if (property === 'doGenerate') {
-        return async (...args: Parameters<LanguageModelV3['doGenerate']>) => {
+        return async (...args: Parameters<LanguageModelV4['doGenerate']>) => {
           const result = await target.doGenerate(...args);
           const details = reasoningDetailsFromMetadata(result.providerMetadata);
           return details ? { ...result, content: withReasoningDetails(result.content, details) } : result;
         };
       }
       if (property === 'doStream') {
-        return async (...args: Parameters<LanguageModelV3['doStream']>) => {
+        return async (...args: Parameters<LanguageModelV4['doStream']>) => {
           const result = await target.doStream(...args);
-          let pendingToolCalls: Array<Extract<Awaited<ReturnType<LanguageModelV3['doStream']>>['stream'] extends ReadableStream<infer Chunk> ? Chunk : never, { type: 'tool-call' }>> = [];
+          let pendingToolCalls: Array<Extract<LanguageModelV4StreamPart, { type: 'tool-call' }>> = [];
           const stream = result.stream.pipeThrough(new TransformStream({
             transform(chunk, controller) {
               if (chunk.type === 'tool-call') {
@@ -235,12 +242,12 @@ function attachReasoningDetails(model: LanguageModelV3): LanguageModelV3 {
   });
 }
 
-function reasoningDetailsFromMetadata(metadata: SharedV3ProviderOptions | undefined): JSONArray | undefined {
+function reasoningDetailsFromMetadata(metadata: SharedV4ProviderMetadata | undefined): JSONArray | undefined {
   const details = metadata?.zenmux?.reasoningDetails;
   return isJSONArray(details) ? details : undefined;
 }
 
-function withReasoningDetails<Content extends { type: string; providerMetadata?: SharedV3ProviderOptions }>(
+function withReasoningDetails<Content extends { type: string; providerMetadata?: SharedV4ProviderMetadata }>(
   content: Content[],
   details: JSONArray,
 ): Content[] {
@@ -266,7 +273,7 @@ export function buildProviderOptions(
   connection: LlmConnection,
   modelId: string,
   thinkingLevel?: ThinkingLevel,
-): SharedV3ProviderOptions {
+): SharedV4ProviderOptions {
   const thinkingOptions = thinkingOptionsForModel(connection.providerType, modelId);
   const variants = thinkingVariantsForModel(connection.providerType, modelId);
   const level = thinkingLevel && variants.includes(thinkingLevel) ? thinkingLevel : undefined;

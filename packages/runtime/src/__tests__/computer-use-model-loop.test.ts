@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import type { LanguageModelV3StreamPart, LanguageModelV3Usage } from '@ai-sdk/provider';
+import type { LanguageModelV4StreamPart, LanguageModelV4Usage } from '@ai-sdk/provider';
 import type {
   LlmConnection,
   SessionEvent,
@@ -8,7 +8,7 @@ import type {
   StoredMessage,
   ToolInvocationRecord,
 } from '@maka/core';
-import { MockLanguageModelV3, simulateReadableStream } from 'ai/test';
+import { MockLanguageModelV4, simulateReadableStream } from 'ai/test';
 
 import { AiSdkBackend } from '../ai-sdk-backend.js';
 import {
@@ -19,7 +19,7 @@ import {
 } from '../computer-use-tools.js';
 import { PermissionEngine } from '../permission-engine.js';
 
-const ZERO_USAGE: LanguageModelV3Usage = {
+const ZERO_USAGE: LanguageModelV4Usage = {
   inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
   outputTokens: { total: 1, text: 1, reasoning: 0 },
 };
@@ -38,7 +38,7 @@ describe('AiSdkBackend Computer Use model loop', () => {
       const computerBackend = fakeComputerBackend(value, []);
       const [computerTool] = buildComputerUseTools({ backend: computerBackend });
       let declaredTools: unknown;
-      const model = new MockLanguageModelV3({
+      const model = new MockLanguageModelV4({
         doStream: async (options) => {
           declaredTools = options.tools;
           return {
@@ -79,7 +79,7 @@ describe('AiSdkBackend Computer Use model loop', () => {
     const modelPrompts: unknown[] = [];
     const modelTools: unknown[] = [];
     let modelStep = 0;
-    const model = new MockLanguageModelV3({
+    const model = new MockLanguageModelV4({
       doStream: async (options) => {
         modelPrompts.push(options.prompt);
         modelTools.push(options.tools);
@@ -178,7 +178,7 @@ describe('AiSdkBackend Computer Use model loop', () => {
     const computerBackend = fakeComputerBackend(value, backendCalls);
     const [computerTool] = buildComputerUseTools({ backend: computerBackend });
     let modelStep = 0;
-    const model = new MockLanguageModelV3({
+    const model = new MockLanguageModelV4({
       doStream: async (options) => {
         modelStep += 1;
         const chunks = modelStep === 1
@@ -338,7 +338,7 @@ function fakeComputerBackend(
 }
 
 function createRuntime(input: {
-  model: MockLanguageModelV3;
+  model: MockLanguageModelV4;
   computerTool: ReturnType<typeof buildComputerUseTools>[number];
   messages: StoredMessage[];
   telemetry: ToolInvocationRecord[];
@@ -364,7 +364,7 @@ function createRuntime(input: {
   });
 }
 
-function toolCall(id: string, args: Record<string, unknown>): LanguageModelV3StreamPart[] {
+function toolCall(id: string, args: Record<string, unknown>): LanguageModelV4StreamPart[] {
   return [
     { type: 'stream-start', warnings: [] },
     {
@@ -381,7 +381,7 @@ function toolCall(id: string, args: Record<string, unknown>): LanguageModelV3Str
   ];
 }
 
-function textCompletion(text: string): LanguageModelV3StreamPart[] {
+function textCompletion(text: string): LanguageModelV4StreamPart[] {
   return [
     { type: 'stream-start', warnings: [] },
     { type: 'text-start', id: 'final-text' },

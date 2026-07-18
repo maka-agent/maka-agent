@@ -64,7 +64,12 @@ export interface PrepareStepLike {
    * provider-visible tool schema for the step.
    */
   activeTools?: readonly string[];
-  experimental_context: unknown;
+  instructions?: unknown;
+  initialInstructions?: unknown;
+  initialMessages?: ModelMessage[];
+  responseMessages?: unknown[];
+  runtimeContext?: unknown;
+  toolsContext?: unknown;
 }
 
 export interface PrepareStepResultLike {
@@ -72,9 +77,10 @@ export interface PrepareStepResultLike {
   messages?: ModelMessage[];
   model?: unknown;
   toolChoice?: unknown;
-  system?: unknown;
+  instructions?: unknown;
   providerOptions?: Record<string, unknown>;
-  experimental_context?: unknown;
+  runtimeContext?: unknown;
+  toolsContext?: unknown;
 }
 
 export type PrepareStepFunctionLike = (
@@ -167,16 +173,16 @@ export class ModelAdapter {
     const ai = await import('ai').catch((err) => {
       throw new Error(`Failed to load 'ai' package. Run \`npm install ai\`. Inner: ${(err as Error).message}`);
     });
-    const { streamText, stepCountIs, isLoopFinished } = ai as unknown as {
+    const { streamText, isStepCount, isLoopFinished } = ai as unknown as {
       streamText: (opts: Record<string, unknown>) => StreamTextResult;
-      stepCountIs: (n: number) => unknown;
+      isStepCount: (n: number) => unknown;
       isLoopFinished: () => unknown;
     };
 
     const maxSteps = input.maxSteps ?? this.input.maxSteps;
     const configuredStop = maxSteps === undefined
       ? isLoopFinished()
-      : stepCountIs(maxSteps);
+      : isStepCount(maxSteps);
     const stopAfterStep = input.stopAfterStep;
     return streamText({
       model: input.model,
@@ -184,8 +190,8 @@ export class ModelAdapter {
       tools: input.tools,
       activeTools: input.activeTools,
       ...(input.prepareStep ? { prepareStep: input.prepareStep } : {}),
-      experimental_repairToolCall: input.repairToolCall,
-      ...(input.system ? { system: input.system } : {}),
+      repairToolCall: input.repairToolCall,
+      ...(input.system ? { instructions: input.system } : {}),
       providerOptions: this.input.providerOptions,
       // streamText defaults to one step when stopWhen is omitted. Its exported
       // non-stopping condition is required for an unbounded tool loop.
@@ -195,7 +201,7 @@ export class ModelAdapter {
       abortSignal: input.abortSignal,
       // The SDK default onError console.errors the raw error object (stack,
       // request bodies), which lands on the terminal outside the TUI
-      // transcript. Stream failures already surface through the fullStream
+      // transcript. Stream failures already surface through the stream
       // `error` chunk → ErrorEvent path, so silence the default.
       onError: () => {},
     });
@@ -209,28 +215,29 @@ export class ModelAdapter {
       generateText: (opts: Record<string, unknown>) => Promise<{
         text?: string;
         usage?: AiSdkUsageLike;
-        totalUsage?: AiSdkUsageLike;
         finishReason?: unknown;
         providerMetadata?: unknown;
-        response?: { id?: string };
+        finalStep?: { response?: { id?: string } };
       }>;
     };
 
     const result = await generateText({
       model: input.model,
-      system: input.system,
+      instructions: input.system,
       messages: input.messages,
       maxOutputTokens: input.maxOutputTokens,
       abortSignal: input.abortSignal,
     });
-    const usage = normalizeAiSdkUsage(result.totalUsage ?? result.usage, {
+    const usage = normalizeAiSdkUsage(result.usage, {
       rawFinishReason: result.finishReason,
     });
     return {
       text: result.text ?? '',
       ...(usage ? { usage } : {}),
       ...(result.finishReason !== undefined ? { finishReason: rawFinishReasonString(result.finishReason) } : {}),
-      ...(typeof result.response?.id === 'string' ? { providerRequestId: result.response.id } : {}),
+      ...(typeof result.finalStep?.response?.id === 'string'
+        ? { providerRequestId: result.finalStep.response.id }
+        : {}),
     };
   }
 
@@ -284,14 +291,14 @@ export class ModelAdapter {
       }
       case 'reasoning-start':
         break;
-      // Step boundaries (AI SDK v6 emits `start-step` / `finish-step`; older
-      // `step-finish` kept for compatibility) and the terminal `finish` carry no
+      // Step boundaries (`start-step` / `finish-step`) and the terminal
+      // `finish` carry no
       // text/thinking to stream. The backend owns step accounting: it counts and
       // flushes one AssistantMessage per step and rotates the messageId at each
       // `finish-step`. Handling them here would double-count, so they are no-ops.
       case 'start-step':
       case 'finish-step':
-      case 'step-finish':
+      case 'step-finish': // legacy replay fixture compatibility
       case 'finish':
         break;
       case 'tool-call':
@@ -377,9 +384,9 @@ function reasoningSignatureFromChunk(chunk: AiSdkStreamChunk): string | undefine
 }
 
 export interface StreamTextResult {
-  fullStream: AsyncIterable<AiSdkStreamChunk>;
+  stream: AsyncIterable<AiSdkStreamChunk>;
   usage: Promise<AiSdkUsageLike | undefined>;
-  totalUsage?: Promise<AiSdkUsageLike | undefined>;
+  finalStep: Promise<{ usage?: AiSdkUsageLike } | undefined>;
   finishReason: Promise<unknown>;
 }
 

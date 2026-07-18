@@ -8,7 +8,7 @@ export { HistoryCompactSummarizerError } from './history-compact-error.js';
 
 export interface AiSdkGenerateTextOptions {
   model: unknown;
-  system: string;
+  instructions: string;
   messages: ModelMessage[];
   providerOptions?: Record<string, unknown>;
   maxOutputTokens?: number;
@@ -79,7 +79,7 @@ export function buildLlmHistorySummarizer(options: BuildLlmHistorySummarizerOpti
       const generateText = options.generateText ?? (await loadAiSdkGenerateText());
       const result = await generateText({
         model: options.resolveModel(),
-        system: SUMMARIZATION_SYSTEM_PROMPT,
+        instructions: SUMMARIZATION_SYSTEM_PROMPT,
         messages,
         ...(options.providerOptions !== undefined ? { providerOptions: options.providerOptions } : {}),
         ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),

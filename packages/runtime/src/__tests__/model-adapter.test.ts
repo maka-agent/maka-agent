@@ -106,7 +106,7 @@ describe('ModelAdapter stream and error normalization', () => {
     assert.equal(error?.message, 'Rate limit exceeded');
   });
 
-  test('treats AI SDK v6 step boundaries (start-step / finish-step) as no-ops', () => {
+  test('treats AI SDK 7 step boundaries (start-step / finish-step) as no-ops', () => {
     const events: SessionEvent[] = [];
     const queue = new AsyncEventQueue<SessionEvent>();
     const adapter = newAdapter();
@@ -303,7 +303,7 @@ describe('ModelAdapter stream and error normalization', () => {
     );
 
     // Stream error parts are NOT Error instances: each provider enqueues its
-    // parsed error value as `{type:'error', error}` on the fullStream, and the
+    // parsed error value as `{type:'error', error}` on the stream, and the
     // classifier must accept the real shapes (review round-8 P1-1):
     // OpenAI Chat emits the INNER error object (openai-chat-language-model.ts:479)…
     assert.equal(
@@ -591,7 +591,7 @@ describe('ModelAdapter stream and error normalization', () => {
     );
   });
 
-  test('derives totals from the public AI SDK 6 detail shape', () => {
+  test('derives totals from the legacy scalar detail shape', () => {
     const usage = {
       inputTokens: undefined,
       outputTokens: undefined,

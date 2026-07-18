@@ -62,7 +62,12 @@ import {
 
 export type ToolModelOutputPart =
   | { type: 'text'; text: string }
-  | { type: 'image-data'; data: string; mediaType: string };
+  | {
+      type: 'file';
+      data: { type: 'data'; data: string | Uint8Array };
+      mediaType: string;
+      filename?: string;
+    };
 
 export interface ToolModelOutput {
   type: 'content';

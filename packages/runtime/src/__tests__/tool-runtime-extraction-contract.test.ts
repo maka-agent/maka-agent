@@ -85,7 +85,7 @@ describe('ModelAdapter extraction contract', () => {
     assert.match(backend, /this\.modelAdapter\.resolveModel\(\)/);
     assert.match(backend, /this\.modelAdapter\.startStream\(/);
     assert.match(backend, /this\.modelAdapter\.handleStreamChunk\(/);
-    assert.match(backend, /normalizeAiSdkUsage\(await \(result\.totalUsage \?\? result\.usage\),[\s\S]*?rawFinishReason[\s\S]*?\)/);
+    assert.match(backend, /normalizeAiSdkUsage\(await result\.usage,[\s\S]*?rawFinishReason[\s\S]*?\)/);
     assert.match(backend, /this\.modelAdapter\.classifyError\(/);
     assert.match(
       backend,
@@ -99,7 +99,7 @@ describe('ModelAdapter extraction contract', () => {
     );
 
     assert.doesNotMatch(backend, /await import\('ai'\)/);
-    assert.doesNotMatch(backend, /const \{ streamText, stepCountIs \}/);
+    assert.doesNotMatch(backend, /const \{ streamText, isStepCount \}/);
     assert.doesNotMatch(backend, /switch \(chunk\.type\)/);
     assert.doesNotMatch(backend, /case 'reasoning-delta'/);
     assert.doesNotMatch(backend, /function finiteToken/);
@@ -116,7 +116,7 @@ describe('ModelAdapter extraction contract', () => {
     // The step budget stays adapter-owned, with a per-call override so the
     // backend's reactive overflow retry passes only the remaining budget.
     assert.match(adapter, /input\.maxSteps \?\? this\.input\.maxSteps/);
-    assert.match(adapter, /stepCountIs\(maxSteps\)/);
+    assert.match(adapter, /isStepCount\(maxSteps\)/);
     assert.match(adapter, /handleStreamChunk\(/);
     assert.match(adapter, /switch \(chunk\.type\)/);
     assert.match(adapter, /case 'reasoning-delta'/);

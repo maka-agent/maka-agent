@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import type { IncomingMessage } from 'node:http';
 import { after, describe, test } from 'node:test';
 import type { LlmConnection } from '@maka/core';
-import { generateText, stepCountIs, streamText, tool } from 'ai';
+import { generateText, isStepCount, streamText, tool } from 'ai';
 import { z } from 'zod';
 import { fetchProviderModels } from '../model-fetcher.js';
 import { buildProviderOptions, getAIModel } from '../model-factory.js';
@@ -189,7 +189,7 @@ describe('models.dev provider conformance', () => {
     const result = await generateText({
       model: getAIModel({ connection, apiKey: 'opencode-test-key', modelId }),
       prompt: 'Call echo with hello.',
-      stopWhen: stepCountIs(2),
+      stopWhen: isStepCount(2),
       tools: {
         echo: tool({
           description: 'Echo text',
@@ -275,7 +275,7 @@ describe('models.dev provider conformance', () => {
     const result = await generateText({
       model: getAIModel({ connection, apiKey: 'zenmux-test-key', modelId }),
       prompt: 'Call echo with hello.',
-      stopWhen: stepCountIs(2),
+      stopWhen: isStepCount(2),
       tools: {
         echo: tool({
           description: 'Echo text',
@@ -438,7 +438,7 @@ describe('models.dev provider conformance', () => {
       model: getAIModel({ connection, apiKey: 'vercel-test-key', modelId }),
       prompt: 'Call echo with hello.',
       providerOptions: buildProviderOptions(connection, modelId, 'high') as Record<string, Record<string, string>>,
-      stopWhen: stepCountIs(2),
+      stopWhen: isStepCount(2),
       tools: {
         echo: tool({
           description: 'Echo text',
@@ -547,7 +547,7 @@ describe('models.dev provider conformance', () => {
       model: getAIModel({ connection, apiKey: 'ollama-cloud-test-key', modelId }),
       prompt: 'Call echo with hello.',
       providerOptions: buildProviderOptions(connection, modelId, 'high'),
-      stopWhen: stepCountIs(2),
+      stopWhen: isStepCount(2),
       tools: {
         echo: tool({
           description: 'Echo text',
@@ -694,7 +694,7 @@ describe('models.dev provider conformance', () => {
       model: getAIModel({ connection, apiKey: 'deepinfra-test-key', modelId: models[0]!.id }),
       providerOptions: buildProviderOptions(connection, modelId, 'high'),
       prompt: 'Call echo with hello.',
-      stopWhen: stepCountIs(2),
+      stopWhen: isStepCount(2),
       tools: {
         echo: tool({
           description: 'Echo text',
@@ -795,7 +795,7 @@ describe('models.dev provider conformance', () => {
       model: getAIModel({ connection, apiKey: 'groq-test-key', modelId: models[0]!.id }),
       providerOptions: buildProviderOptions(connection, modelId, 'high'),
       prompt: 'Call echo with hello.',
-      stopWhen: stepCountIs(2),
+      stopWhen: isStepCount(2),
       tools: {
         echo: tool({
           description: 'Echo text',
@@ -896,7 +896,7 @@ describe('models.dev provider conformance', () => {
       model: getAIModel({ connection, apiKey: 'openrouter-test-key', modelId: models[0]!.id }),
       providerOptions: buildProviderOptions(connection, modelId, 'high'),
       prompt: 'Call echo with hello.',
-      stopWhen: stepCountIs(2),
+      stopWhen: isStepCount(2),
       tools: {
         echo: tool({
           description: 'Echo text',
@@ -1000,7 +1000,7 @@ describe('models.dev provider conformance', () => {
       }),
       providerOptions: buildProviderOptions(connection, modelId, 'high'),
       prompt: 'Call echo with hello.',
-      stopWhen: stepCountIs(2),
+      stopWhen: isStepCount(2),
       tools: {
         echo: tool({
           description: 'Echo text',
@@ -1125,7 +1125,7 @@ describe('models.dev provider conformance', () => {
     const result = await generateText({
       model: getAIModel({ connection, apiKey: 'hf-test-token', modelId }),
       prompt: 'Call echo with hello.',
-      stopWhen: stepCountIs(2),
+      stopWhen: isStepCount(2),
       tools: {
         echo: tool({
           description: 'Echo text',
@@ -1224,7 +1224,7 @@ describe('models.dev provider conformance', () => {
     const result = await generateText({
       model: getAIModel({ connection, apiKey: 'tencent-coding-plan-test-key', modelId }),
       prompt: 'Call echo with hello.',
-      stopWhen: stepCountIs(2),
+      stopWhen: isStepCount(2),
       tools: {
         echo: tool({
           description: 'Echo text',
@@ -1336,7 +1336,7 @@ describe('models.dev provider conformance', () => {
     const result = await generateText({
       model: getAIModel({ connection, apiKey: 'volcengine-coding-plan-test-key', modelId }),
       prompt: 'Call echo with hello.',
-      stopWhen: stepCountIs(2),
+      stopWhen: isStepCount(2),
       tools: {
         echo: tool({
           description: 'Echo text',
@@ -1447,7 +1447,7 @@ describe('models.dev provider conformance', () => {
       model: getAIModel({ connection, apiKey: 'tencent-token-plan-test-key', modelId }),
       prompt: 'Call echo with hello.',
       providerOptions: buildProviderOptions(connection, modelId, 'high') as Record<string, Record<string, string>>,
-      stopWhen: stepCountIs(2),
+      stopWhen: isStepCount(2),
       tools: {
         echo: tool({
           description: 'Echo text',
@@ -1555,7 +1555,7 @@ describe('models.dev provider conformance', () => {
     const result = await generateText({
       model: getAIModel({ connection, apiKey: stepfun.apiKey, modelId: models[0]!.id }),
       prompt: 'Call echo with hello.',
-      stopWhen: stepCountIs(2),
+      stopWhen: isStepCount(2),
       tools: {
         echo: tool({
           description: 'Echo text',
@@ -1673,7 +1673,7 @@ describe('models.dev provider conformance', () => {
     const result = await generateText({
       model: getAIModel({ connection, apiKey: stepfunPlan.apiKey, modelId: models[0]!.id }),
       prompt: 'Call echo with hello.',
-      stopWhen: stepCountIs(2),
+      stopWhen: isStepCount(2),
       tools: {
         echo: tool({
           description: 'Echo text',
@@ -1772,7 +1772,7 @@ describe('models.dev provider conformance', () => {
       model: getAIModel({ connection, apiKey: 'ark-test-key', modelId: models[0]!.id }),
       prompt: 'Call echo with hello.',
       providerOptions: buildProviderOptions(connection, modelId),
-      stopWhen: stepCountIs(2),
+      stopWhen: isStepCount(2),
       tools: {
         echo: tool({
           description: 'Echo text',

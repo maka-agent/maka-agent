@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import { setImmediate as flushMacrotask } from 'node:timers/promises';
-import { MockLanguageModelV3, simulateReadableStream } from 'ai/test';
-import type { LanguageModelV3StreamPart } from '@ai-sdk/provider';
+import { MockLanguageModelV4, simulateReadableStream } from 'ai/test';
+import type { LanguageModelV4StreamPart } from '@ai-sdk/provider';
 import type { LlmConnection, SessionHeader } from '@maka/core';
 import type { SessionEvent } from '@maka/core/events';
 import type { RuntimeEvent } from '@maka/core/runtime-event';
@@ -29,7 +29,7 @@ const OVERFLOW_MESSAGE = 'prompt is too long: 213462 tokens > 200000 maximum';
  *  - 'gated'    → a call to the gated `Big` tool
  *  - 'done'     → final assistant text, finish stop
  *  - 'overflow' → the provider rejects with a context-length 400 (doStream
- *                 throws; the SDK surfaces it as a fullStream error chunk and
+ *                 throws; the SDK surfaces it as a stream error chunk and
  *                 rejects finishReason — the fake-end_turn latent-bug path)
  *  - 'overflowPart' → OpenAI CHAT in-stream failure exactly as the locked
  *                 provider transform produces it: the error part value is the
@@ -94,7 +94,7 @@ interface ReactiveLlmCall {
 
 interface ReactiveFixture {
   backend: AiSdkBackend;
-  model: MockLanguageModelV3;
+  model: MockLanguageModelV4;
   recorded: HistoryCompactCheckpoint[];
   toolExecutions: string[];
   summarizerCalls: () => number;
@@ -124,14 +124,14 @@ function buildReactiveFixture(options: ReactiveFixtureOptions): ReactiveFixture 
     toolName: string,
     args: object,
     leadingText?: string,
-  ): LanguageModelV3StreamPart[] => [
+  ): LanguageModelV4StreamPart[] => [
     { type: 'stream-start', warnings: [] },
     ...(leadingText
       ? ([
           { type: 'text-start', id: `step-text-${call}` },
           { type: 'text-delta', id: `step-text-${call}`, delta: leadingText },
           { type: 'text-end', id: `step-text-${call}` },
-        ] satisfies LanguageModelV3StreamPart[])
+        ] satisfies LanguageModelV4StreamPart[])
       : []),
     { type: 'tool-call', toolCallId: `tool-${call}`, toolName, input: JSON.stringify(args) },
     {
@@ -144,14 +144,14 @@ function buildReactiveFixture(options: ReactiveFixtureOptions): ReactiveFixture 
         : usage(100, 20),
     },
   ];
-  const doneChunks = (): LanguageModelV3StreamPart[] => [
+  const doneChunks = (): LanguageModelV4StreamPart[] => [
     { type: 'stream-start', warnings: [] },
     { type: 'text-start', id: 'text-1' },
     { type: 'text-delta', id: 'text-1', delta: 'done' },
     { type: 'text-end', id: 'text-1' },
     { type: 'finish', finishReason: { unified: 'stop', raw: 'stop' }, usage: usage(120, 10) },
   ];
-  const streamForCall = (call: number): ReadableStream<LanguageModelV3StreamPart> => {
+  const streamForCall = (call: number): ReadableStream<LanguageModelV4StreamPart> => {
     const kind = options.script[call - 1];
     if (kind === 'overflow') {
       throw Object.assign(new Error(OVERFLOW_MESSAGE), { name: 'AI_APICallError', statusCode: 400 });
@@ -163,7 +163,7 @@ function buildReactiveFixture(options: ReactiveFixtureOptions): ReactiveFixture 
       throw new TypeError('terminated');
     }
     if (kind === 'terminatedMidBody') {
-      return new ReadableStream<LanguageModelV3StreamPart>({
+      return new ReadableStream<LanguageModelV4StreamPart>({
         start(controller) {
           controller.enqueue({ type: 'stream-start', warnings: [] });
           controller.error(new TypeError('terminated'));
@@ -171,7 +171,7 @@ function buildReactiveFixture(options: ReactiveFixtureOptions): ReactiveFixture 
       });
     }
     if (kind === 'partialThenTerminated') {
-      return new ReadableStream<LanguageModelV3StreamPart>({
+      return new ReadableStream<LanguageModelV4StreamPart>({
         start(controller) {
           controller.enqueue({ type: 'stream-start', warnings: [] });
           controller.enqueue({ type: 'text-start', id: 'partial-text' });
@@ -202,7 +202,7 @@ function buildReactiveFixture(options: ReactiveFixtureOptions): ReactiveFixture 
           { type: 'stream-start', warnings: [] },
           { type: 'error', error: errorValue },
           { type: 'finish', finishReason: trailerReason, usage: usage(0, 0) },
-        ] satisfies LanguageModelV3StreamPart[],
+        ] satisfies LanguageModelV4StreamPart[],
         initialDelayInMs: null,
         chunkDelayInMs: null,
       });
@@ -216,10 +216,10 @@ function buildReactiveFixture(options: ReactiveFixtureOptions): ReactiveFixture 
       : doneChunks();
     return simulateReadableStream({ chunks, initialDelayInMs: null, chunkDelayInMs: null });
   };
-  const model = new MockLanguageModelV3({
+  const model = new MockLanguageModelV4({
     doStream: async (
       streamOptions: { abortSignal?: AbortSignal },
-    ): Promise<{ stream: ReadableStream<LanguageModelV3StreamPart> }> => {
+    ): Promise<{ stream: ReadableStream<LanguageModelV4StreamPart> }> => {
       await options.beforeStream?.(model.doStreamCalls.length);
       if (streamOptions.abortSignal?.aborted) {
         throw Object.assign(new Error('aborted'), { name: 'AbortError' });
@@ -388,7 +388,7 @@ function complete(fixture: ReactiveFixture): Extract<SessionEvent, { type: 'comp
 describe('reactive overflow recovery in the streaming backend', () => {
   test('a request-level context-length 400 ends as a real error, never a fake end_turn', async () => {
     // The latent bug: a provider that rejects the request (doStream throws) is
-    // surfaced as a fullStream error chunk while finishReason rejects. The old
+    // surfaced as a stream error chunk while finishReason rejects. The old
     // path caught that rejection as `stop` and emitted a CompleteEvent with
     // end_turn plus success telemetry — a silent fabrication. Without the
     // mid-turn seam there is nothing to recover, so the honest terminal is a
@@ -488,7 +488,7 @@ describe('reactive overflow recovery in the streaming backend', () => {
     assert.deepEqual(fixture.toolExecutions, ['one.md']);
     // Send-level usage owner (review P1-2): the terminal record carries BOTH
     // attempts' completed steps — the first attempt's tool step (100/20) plus
-    // the retry's final step (120/10) — not just the last attempt's totalUsage.
+    // the retry's final step (120/10) — not just the last attempt's cumulative usage.
     const lastCall = fixture.llmCalls.at(-1);
     assert.equal(lastCall?.status, 'success');
     assert.equal(lastCall?.inputTokens, 220);
@@ -573,7 +573,7 @@ describe('reactive overflow recovery in the streaming backend', () => {
 
   test('an unusable first-attempt step usage fails the whole record closed even when the retry succeeds', async () => {
     // Review P1-2, fail-closed direction: the first attempt's completed step
-    // has an unusable usage sample. The retry's totalUsage is valid but covers
+    // has an unusable usage sample. The retry's cumulative usage is valid but covers
     // only the retry, so recording it as the whole send would fabricate a
     // partial cost as complete (#972). No record at all is the truthful
     // outcome; the turn itself still completes.

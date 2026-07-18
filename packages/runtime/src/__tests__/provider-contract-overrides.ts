@@ -14,7 +14,7 @@
 
 import assert from 'node:assert/strict';
 import type { LlmConnection } from '@maka/core';
-import { generateText, stepCountIs, streamText, tool } from 'ai';
+import { generateText, isStepCount, streamText, tool } from 'ai';
 import { z } from 'zod';
 import { fetchProviderModels } from '../model-fetcher.js';
 import { getAIModel } from '../model-factory.js';
@@ -238,7 +238,7 @@ async function runGitHubCopilotWire(): Promise<void> {
       fetch: modelFetch,
     }),
     prompt: 'Call echo with hello.',
-    stopWhen: stepCountIs(2),
+    stopWhen: isStepCount(2),
     tools: {
       echo: tool({
         description: 'Echo text',
@@ -436,7 +436,7 @@ async function runFireworksDiscovery(): Promise<void> {
   const result = await generateText({
     model: getAIModel({ connection, apiKey: 'fireworks-test-key', modelId }),
     prompt: 'Call echo with hello.',
-    stopWhen: stepCountIs(2),
+    stopWhen: isStepCount(2),
     tools: {
       echo: tool({
         description: 'Echo text',
@@ -540,7 +540,7 @@ async function assertOllamaModelContract(
         execute: async ({ text }) => ({ text }),
       }),
     },
-    stopWhen: stepCountIs(2),
+    stopWhen: isStepCount(2),
   });
 
   assert.equal(result.text, 'Echoed hello.');
@@ -650,7 +650,7 @@ async function runCohereDiscovery(): Promise<void> {
   const result = await generateText({
     model: getAIModel({ connection, apiKey: 'cohere-test-key', modelId: models[0]!.id }),
     prompt: 'Call echo with hello.',
-    stopWhen: stepCountIs(2),
+    stopWhen: isStepCount(2),
     tools: {
       echo: tool({
         description: 'Echo text',
@@ -758,7 +758,7 @@ async function runZenMuxSignedReasoningReplay(): Promise<void> {
   const result = streamText({
     model: getAIModel({ connection, apiKey: 'zenmux-test-key', modelId }),
     prompt: 'Call echo with hello.',
-    stopWhen: stepCountIs(2),
+    stopWhen: isStepCount(2),
     tools: {
       echo: tool({
         description: 'Echo text',

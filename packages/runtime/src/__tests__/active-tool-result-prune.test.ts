@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import { z } from 'zod';
-import { MockLanguageModelV3, convertArrayToReadableStream } from 'ai/test';
-import type { LanguageModelV3StreamPart, LanguageModelV3Usage } from '@ai-sdk/provider';
+import { MockLanguageModelV4, convertArrayToReadableStream } from 'ai/test';
+import type { LanguageModelV4StreamPart, LanguageModelV4Usage } from '@ai-sdk/provider';
 import type { ModelMessage } from 'ai';
 
 import {
@@ -14,7 +14,7 @@ import { ModelAdapter } from '../model-adapter.js';
 import { ToolAvailabilityRuntime, LOAD_TOOLS_NAME } from '../tool-availability.js';
 import type { MakaTool } from '../tool-runtime.js';
 
-const ZERO_USAGE: LanguageModelV3Usage = {
+const ZERO_USAGE: LanguageModelV4Usage = {
   inputTokens: { total: 0, noCache: 0, cacheRead: 0, cacheWrite: 0 },
   outputTokens: { total: 0, text: 0, reasoning: 0 },
 };
@@ -66,7 +66,7 @@ describe('active current-turn tool-result pruning', () => {
       stepNumber: 1,
       model: {},
       messages: originalMessages,
-      experimental_context: undefined,
+      runtimeContext: undefined,
     });
 
     assert.deepEqual(result?.activeTools, ['Read', LOAD_TOOLS_NAME]);
@@ -79,11 +79,11 @@ describe('active current-turn tool-result pruning', () => {
     const archiveRequests: Array<{ serializedResult: string; bodySha256: string; toolCallId: string }> = [];
     const prompts: unknown[] = [];
     let step = 0;
-    const model = new MockLanguageModelV3({
+    const model = new MockLanguageModelV4({
       doStream: async ({ prompt }) => {
         step += 1;
         prompts.push(prompt);
-        const parts: LanguageModelV3StreamPart[] = step === 1
+        const parts: LanguageModelV4StreamPart[] = step === 1
           ? [
               { type: 'stream-start', warnings: [] },
               { type: 'tool-call', toolCallId: 'tool-1', toolName: 'Read', input: JSON.stringify({}) },
@@ -131,7 +131,7 @@ describe('active current-turn tool-result pruning', () => {
       abortSignal: new AbortController().signal,
       repairToolCall: async () => null,
     });
-    await drain(result.fullStream);
+    await drain(result.stream);
 
     assert.equal(prompts.length, 2, 'expected a tool step and a follow-up step');
     assert.equal(archiveRequests.length, 1);
@@ -373,10 +373,10 @@ describe('active current-turn tool-result pruning', () => {
     );
     const plan = runtime.prepare([]);
     const toolsPerStep: string[][] = [];
-    const model = new MockLanguageModelV3({
+    const model = new MockLanguageModelV4({
       doStream: async ({ tools }) => {
         toolsPerStep.push((tools ?? []).map((tool) => tool.name));
-        const parts: LanguageModelV3StreamPart[] = toolsPerStep.length === 1
+        const parts: LanguageModelV4StreamPart[] = toolsPerStep.length === 1
           ? [
               { type: 'stream-start', warnings: [] },
               { type: 'tool-call', toolCallId: 'load-1', toolName: LOAD_TOOLS_NAME, input: JSON.stringify({ group: 'rive' }) },
@@ -419,7 +419,7 @@ describe('active current-turn tool-result pruning', () => {
       abortSignal: new AbortController().signal,
       repairToolCall: async () => null,
     });
-    await drain(result.fullStream);
+    await drain(result.stream);
 
     assert.ok(!toolsPerStep[0]?.includes('RiveWorkflow'), 'step 0 hides the group tool');
     assert.ok(toolsPerStep[1]?.includes('RiveWorkflow'), 'step 1 advertises the loaded group tool');

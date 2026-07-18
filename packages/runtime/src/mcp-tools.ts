@@ -109,7 +109,11 @@ function mcpResultToModelOutput(output: unknown): ToolModelOutput {
       && imageCount < MAX_NATIVE_IMAGES
       && imageChars + block.data.length <= MAX_NATIVE_IMAGE_BASE64_CHARS
     ) {
-      value.push({ type: 'image-data', data: block.data, mediaType: block.mimeType });
+      value.push({
+        type: 'file',
+        data: { type: 'data', data: block.data },
+        mediaType: block.mimeType,
+      });
       imageCount += 1;
       imageChars += block.data.length;
     } else appendSummary(summarizeNonVisualBlock(block));

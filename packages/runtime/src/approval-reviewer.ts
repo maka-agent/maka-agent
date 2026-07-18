@@ -175,7 +175,7 @@ export class AiSdkAutoApprovalReviewer implements AutoApprovalReviewer {
           const result = await awaitWithAbort(
             generateText({
               model: this.input.resolveModel(),
-              system: AUTO_REVIEW_SYSTEM_PROMPT,
+              instructions: AUTO_REVIEW_SYSTEM_PROMPT,
               messages: [{ role: 'user', content: buildReviewPrompt(input) }],
               maxOutputTokens: 500,
               abortSignal: controller.signal,
