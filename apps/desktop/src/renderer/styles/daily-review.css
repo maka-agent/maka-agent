@@ -1,289 +1,111 @@
-/* Daily Review page-card chrome — recipe parity with
-   Skills + Plan shells (1px hairline border + 6px radius + 4% lift + inner
-   highlight). Was flat (transparent) which felt orphaned next to the other
-   module pages. */
+/* Unboxed (maintainer 2026-07-18): the outer card chrome wrapped the whole
+   每日回顾 module in a second frame the MCP page never had — the inner surfaces
+   (report bodies, stat tiles, alerts) already carry their own borders, so the
+   wrapper read as a box-in-box. Plain layout container now; padding 0 so
+   content sits flush with the module header like the skills / MCP pages. Width
+   converged 980 -> 900 to track the module header's `min(100%, 900px)` measure.
+
+   IA redesign (2026-07-18): the PageHeader now lives INSIDE the panel (so the
+   生成 actions ride its actions slot with the panel's run state), followed by a
+   single time-scope row, the always-on 概览 section, and the stacked 报告
+   section. The old two-floating-control-rows + broken master-detail layout is
+   gone. */
 .maka-module-main .maka-daily-review-panel {
-    max-width: 980px;
-    width: 100%;
+    width: min(100%, 900px);
     margin-inline: auto;
-    background: var(--card-bg);
-    border: var(--border-width-hairline) solid var(--card-border-color);
-    border-radius: var(--radius-surface);
-    box-shadow:
-      var(--card-shadow),
-      var(--card-highlight);
-  }
-/* IA restructure: header is now the single time-context bar —
-   stepper + day label on the left, 今日/本周/本月 tabs on the right
-   (the tabs used to float mid-page above the stats). */
-.maka-daily-review-header {
-    display: flex;
-    align-items: center;
-    /* P2-10: range picker + stepper are one time-control cluster on the
-       left (was space-between, which split them to opposite corners). */
-    justify-content: flex-start;
-    flex-wrap: wrap;
-    gap: var(--space-3);
-    padding: var(--space-0-5) var(--space-0-5) var(--space-1-5);
-    border-bottom: var(--border-width-hairline) solid var(--foreground-10);
+    padding: 0;
   }
 
-.maka-daily-review-header-time {
-    display: flex;
-    align-items: center;
-    gap: var(--space-1);
-    min-width: 0;
-  }
+.maka-daily-review-panel {
+  min-height: 0;
+  overflow: auto;
+  display: grid;
+  align-content: start;
+  gap: var(--space-5);
+  padding: var(--space-4) var(--space-5) var(--space-5);
+}
 
-/* PR-DAILY-REVIEW-FULL-0: info banner explaining the feature, plus a
-   manual-trigger row. Banner uses the page-card recipe with a softer
-   tint so it reads as supporting context, not a primary surface. */
-.maka-daily-review-quick-runs {
-  /* WAWQAQ msg `3871e56b` 2026-06-25: "按钮的位置也不对。按道理一般都
-     是在右边，现在都是直接靠近文本的。"
-     The 生成每日回顾 / 生成深度分析 buttons were sitting flex-start
-     (left-aligned), hugging the explanatory paragraph above. Right-
-     align them with `justify-content: flex-end` so they read as the
-     panel's primary actions. */
-  display: flex;
+/* ── PageHeader actions: the 生成 cluster ───────────────────────────────
+   The analysis-model select is a COMPACT generation option that sits with the
+   two 生成 buttons (not a page-wide row). `width="compact"` caps the trigger;
+   this only handles the cluster's flow + wrap. */
+.maka-daily-review-generate {
+  display: inline-flex;
   align-items: center;
-  flex-wrap: wrap;
   justify-content: flex-end;
+  /* Single row on desktop: the three run controls stay together and the
+     subtitle column shrinks + wraps beside them (nowrap + flex:none keeps the
+     browser from collapsing the cluster onto a second line while free header
+     width still exists). The ≤820px module breakpoint re-enables wrap once the
+     header stacks into a grid and the cluster owns a full row. */
+  flex-wrap: nowrap;
   gap: var(--space-2);
-  padding: var(--space-0-5) 0 var(--space-1-5);
-  border-bottom: var(--border-width-hairline) solid var(--foreground-10);
+  flex: none;
+}
+
+@media (max-width: 820px) {
+  .maka-daily-review-generate {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
 }
 
 .maka-daily-review-model-select {
-  margin-right: auto;
+  /* Keep the follow-settings label from stretching the header actions row;
+     the primitive's compact bucket already caps it, this just holds shape. */
+  flex: 0 1 auto;
 }
 
 .maka-daily-review-quick-run {
   white-space: nowrap;
 }
 
-.maka-daily-review-archives {
-    display: grid;
-    gap: var(--space-1-5);
-    padding: var(--space-2) 0 var(--space-2-5);
-    border-bottom: var(--border-width-hairline) solid var(--foreground-10);
-  }
-
-.maka-daily-review-archives-header {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: var(--space-2);
-  }
-
-.maka-daily-review-archive-count {
-    font-size: var(--font-size-caption);
-    color: var(--muted-foreground);
-    font-variant-numeric: tabular-nums;
-  }
-
-.maka-daily-review-archive-layout {
-    display: grid;
-    grid-template-columns: minmax(180px, 0.34fr) minmax(0, 1fr);
-    gap: var(--space-2);
-    align-items: start;
-  }
-
-.maka-daily-review-archive-list {
-    /* PR-DAILYREVIEW-ARCHIVE-ROW-A11Y-0 (round 7/30): changed
-       from `<div role="list">` to semantic `<ul>`. Reset the
-       UA's default list bullet + padding-left so the visual
-       layout stays grid-driven. */
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: grid;
-    gap: var(--space-0-5);
-    min-width: 0;
-  }
-
-.maka-daily-review-archive-list > li {
-    margin: 0;
-    padding: 0;
-  }
-
-/* Migrated onto the Item primitive (round 2): hover 4% / selected 6.5%
-   fills + the stacked title-over-meta column now come from Item +
-   ItemContent, so this rule keeps only geometry (padding, radius) and the
-   selected-state border accent. `data-selected` is Item's selected hook. */
-.maka-daily-review-archive-row {
-  border: var(--border-width-hairline) solid transparent;
-  border-radius: var(--radius-control);
-  min-width: 0;
-  padding: var(--space-1-5) var(--space-2);
+/* ── One time-scope row: range segmented + day stepper as ONE cluster ──── */
+.maka-daily-review-scope {
+  display: flex;
+  align-items: center;
+  /* Range picker + stepper are one time-control cluster on the left — they are
+     both time navigation, so they read as a single group (was two widgets at
+     opposite page corners). */
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: var(--space-3);
 }
-
-.maka-daily-review-archive-row[data-selected] {
-  border-color: var(--border-strong);
-}
-
-.maka-daily-review-archive-row-title {
-    min-width: 0;
-    color: var(--foreground);
-    font-size: var(--font-size-ui);
-    font-weight: var(--font-weight-semibold);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-.maka-daily-review-archive-row-meta {
-    min-width: 0;
-    color: var(--muted-foreground);
-    font-size: var(--font-size-caption);
-    font-variant-numeric: tabular-nums;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-.maka-daily-review-archive-body {
-    display: grid;
-    gap: var(--space-2);
-    min-width: 0;
-    padding: var(--space-2-5) var(--space-3);
-    border: var(--border-width-hairline) solid var(--card-border-color);
-    border-radius: var(--radius-surface);
-    background: oklch(from var(--foreground) l c h / 0.025);
-    box-shadow: var(--card-highlight);
-  }
-
-.maka-daily-review-archive-body[data-empty="true"],
-  .maka-daily-review-archive-empty {
-    color: var(--muted-foreground);
-    font-size: var(--font-size-ui);
-    line-height: var(--leading-normal);
-  }
-
-.maka-daily-review-archive-body-header {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: var(--space-2-5);
-  }
-
-.maka-daily-review-archive-body-header h4 {
-    margin: 0;
-    color: var(--foreground);
-    font-size: var(--font-size-ui);
-    font-weight: var(--font-weight-semibold);
-    letter-spacing: var(--tracking-normal);
-  }
-
-.maka-daily-review-archive-body-header p {
-    margin: var(--space-0-5) 0 0;
-    color: var(--muted-foreground);
-    font-size: var(--font-size-caption);
-    line-height: var(--leading-normal);
-    overflow-wrap: anywhere;
-  }
-
-/* .maka-daily-review-archive-status is now the Chip primitive (squared status
-   label); tone→alpha from chip.tsx, ok/failed/no_model mapping from
-   dailyReviewArchiveChipTone in daily-review-panel.tsx. The status Chip keeps
-   flex:none so it never shrinks against the archive header title. */
-.maka-daily-review-archive-status {
-    flex: none;
-  }
-
-.maka-daily-review-archive-error {
-    margin: 0;
-    color: var(--destructive, var(--foreground));
-    font-size: var(--font-size-ui);
-    line-height: var(--leading-normal);
-  }
-
-.maka-daily-review-archive-sections {
-    display: grid;
-    /* Section rhythm: 8px title→body inside a section, 16px + hairline
-       BETWEEN sections — the four report blocks (对话摘要/遗漏提醒/
-       使用洞察/代码建议) previously sat at a uniform 8px cadence and
-       read as one undifferentiated slab. Divider over nested cards per
-       the anti-nested-box rule. */
-    gap: var(--space-4);
-  }
-
-.maka-daily-review-archive-section {
-    display: grid;
-    gap: var(--space-1);
-  }
-
-.maka-daily-review-archive-section + .maka-daily-review-archive-section {
-    border-top: var(--border-width-hairline) solid var(--foreground-10);
-    padding-top: var(--space-3);
-  }
-
-.maka-daily-review-archive-section h5 {
-    margin: 0;
-    color: var(--muted-foreground);
-    font-size: var(--font-size-caption);
-    font-weight: var(--font-weight-semibold);
-    letter-spacing: var(--tracking-normal);
-  }
-
-.maka-daily-review-archive-section p {
-    margin: 0;
-    color: var(--foreground-secondary);
-    font-size: var(--font-size-ui);
-    line-height: var(--leading-normal);
-    overflow-wrap: anywhere;
-    white-space: pre-wrap;
-  }
-
-/* Markdown-rendered report body: same type scale as the plain <p> it
-   replaced; restore list markers (Tailwind preflight strips them — see
-   the chat-bubble fix) and keep block rhythm tight inside a section. */
-.maka-daily-review-archive-section-body {
-    color: var(--foreground-secondary);
-    font-size: var(--font-size-ui);
-    line-height: var(--leading-normal);
-    overflow-wrap: anywhere;
-  }
-
-.maka-daily-review-archive-section-body p {
-    margin: 0 0 var(--space-1-5);
-  }
-
-.maka-daily-review-archive-section-body p:last-child,
-.maka-daily-review-archive-section-body ul:last-child,
-.maka-daily-review-archive-section-body ol:last-child {
-    margin-bottom: 0;
-  }
-
-.maka-daily-review-archive-section-body ul,
-.maka-daily-review-archive-section-body ol {
-    margin: 0 0 var(--space-1-5);
-    padding-left: var(--space-5);
-  }
-
-.maka-daily-review-archive-section-body ul { list-style: disc; }
-.maka-daily-review-archive-section-body ol { list-style: decimal; }
-
-.maka-daily-review-day {
-    text-align: center;
-    font-weight: var(--font-weight-semibold);
-    font-size: var(--font-size-ui);
-    font-variant-numeric: tabular-nums;
-    letter-spacing: var(--tracking-normal);
-    color: var(--foreground);
-  }
 
 .maka-daily-review-range-tabs,
-  .maka-daily-review-actions {
-    display: flex;
-    gap: var(--space-1);
-    min-width: 0;
-  }
-
-/* Export row sits directly above the stats it exports. */
 .maka-daily-review-actions {
-    justify-content: flex-end;
-  }
+  display: flex;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.maka-daily-review-scope-stepper {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.maka-daily-review-day {
+  text-align: center;
+  font-weight: var(--font-weight-semibold);
+  font-size: var(--font-size-ui);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--tracking-normal);
+  color: var(--foreground);
+}
+
+/* ── 概览 section (always rendered) ─────────────────────────────────────── */
+.maka-daily-review-overview {
+  display: grid;
+  gap: var(--space-3);
+}
+
+/* Export row sits in the 概览 SectionHeader action slot, right-aligned. */
+.maka-daily-review-actions {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
 
 .maka-daily-review-copy,
 .maka-daily-review-append,
@@ -291,32 +113,6 @@
   white-space: nowrap;
 }
 
-.maka-daily-review-alert {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-2);
-    padding: var(--space-2) var(--space-2-5);
-    border: var(--border-width-hairline) solid oklch(from var(--warning, var(--info)) l c h / 0.3);
-    border-radius: var(--radius-surface);
-    background: oklch(from var(--warning, var(--info)) l c h / 0.08);
-    color: var(--warning-text, var(--foreground));
-    font-size: var(--font-size-ui);
-  }
-
-.maka-daily-review-alert > span {
-    min-width: 0;
-  }
-
-.maka-daily-review-alert-retry {
-  flex: none;
-}
-
-@media (max-width: 720px) {
-    .maka-daily-review-archive-layout {
-      grid-template-columns: 1fr;
-    }
-}
 .maka-daily-review-totals {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
@@ -336,41 +132,15 @@
     background: oklch(from var(--destructive, var(--warning, var(--info))) l c h / 0.06);
   }
 
-/* PR-DAILY-REVIEW-EYEBROW-RHYTHM-0 (WAWQAQ msg `7f0ec4a5`): granularity
-   bump. Each section now starts with a prominent eyebrow badge above
-   the title and a leading accent bar to the left, applying the editorial
-   "minimalist-ui §5 keystroke badges" + "design-taste-frontend §3
-   eyebrow + accent bar" rules from the skills audit. Visible every time
-   the user opens Daily Review. */
+/* Convergence (maintainer 2026-07-18): all section titles render through the
+   SectionHeader primitive (as="h4" accent), so the page shares one
+   section-header language. The wrapper keeps only the between-section divider
+   rhythm; divider token `--foreground-10` matches the module dividers. */
 .maka-daily-review-section {
     display: grid;
     gap: var(--space-2);
     padding: var(--space-3) 0 0;
-    border-top: var(--border-width-hairline) solid oklch(from var(--foreground) l c h / 0.07);
-  }
-.maka-daily-review-section:first-of-type {
-    border-top: 0;
-    padding-top: var(--space-1);
-  }
-.maka-daily-review-section-title {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-2);
-    font-size: var(--font-size-caption);
-    font-weight: var(--font-weight-semibold);
-    letter-spacing: var(--tracking-widest);
-    text-transform: uppercase;
-    color: var(--foreground-secondary);
-    margin: 0;
-  }
-.maka-daily-review-section-title::before {
-    content: '';
-    display: inline-block;
-    width: 3px;
-    height: 12px;
-    border-radius: var(--radius-pill);
-    background: oklch(from var(--status-running) l c h / 0.85);
-    flex-shrink: 0;
+    border-top: var(--border-width-hairline) solid var(--foreground-10);
   }
 .maka-daily-review-list {
     list-style: none;
@@ -458,11 +228,10 @@
     padding: var(--space-2) var(--space-1);
   }
 
-/* Unlayered on purpose: the shared `.maka-empty-state` base
-   (onboarding.css) is unlayered `position: absolute` centering, and
-   unlayered rules always beat @layer rules — inside @layer components
-   this override silently never applied, so the "no activity" card
-   floated over the archived-report pane as a translucent overlay. */
+/* Unlayered on purpose: the shared `.maka-empty-state` base (onboarding.css)
+   is unlayered `position: absolute` centering, and unlayered rules always beat
+   @layer rules — inside @layer components this override silently never applied,
+   so the empty card floated as a translucent overlay. Reset it to in-flow. */
 .maka-daily-review-panel .maka-daily-review-summary-empty {
   position: static;
   left: auto;
@@ -473,25 +242,189 @@
   align-content: center;
 }
 
-/* Designer audit P0-4: one-line stand-in for the full empty-state card when
-   saved reports already occupy the page — a second full-height empty card
-   below them read as a broken section. */
-.maka-daily-review-activity-note {
-  margin: 0;
-  padding: var(--space-2) var(--space-1);
-  color: var(--muted-foreground);
-  font-size: var(--font-size-ui);
+/* Convergence (maintainer 2026-07-18): the retry alert re-implemented the
+   warning surface by hand; the `warning` variant already owns border / tint /
+   radius / padding + the description↔action split, so the shared primitive
+   renders it. Only the retry button keeps `flex: none` so it never shrinks. */
+.maka-daily-review-alert-retry {
+  flex: none;
 }
 
-/* Daily-review sidebar panel body. Relocated from tool-stream.css — issue #546 PR1. */
-/* ────────────────────────────────────────────────────────────────
-   PR-DAILY-REVIEW-MVP-0: 每日回顾 sidebar panel.
-   ──────────────────────────────────────────────────────────────── */
-.maka-daily-review-panel {
-  min-height: 0;
-  overflow: auto;
-  display: grid;
-  align-content: start;
-  gap: var(--space-2);
-  padding: var(--space-4) var(--space-5) var(--space-5);
-}
+/* ── 报告 section: stacked, newest-first, expand-in-place surfaces ──────── */
+.maka-daily-review-reports {
+    display: grid;
+    gap: var(--space-2-5);
+    padding: var(--space-4) 0 0;
+    border-top: var(--border-width-hairline) solid var(--foreground-10);
+  }
+
+.maka-daily-review-archive-count {
+    font-size: var(--font-size-caption);
+    color: var(--muted-foreground);
+    font-variant-numeric: tabular-nums;
+  }
+
+.maka-daily-review-report-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: var(--space-2);
+    min-width: 0;
+  }
+
+.maka-daily-review-report-list > li {
+    margin: 0;
+    padding: 0;
+    min-width: 0;
+  }
+
+/* Each report is one full-width surface. The meta head is always visible; the
+   selected report expands its body below. One frame only (no box-in-box): the
+   body sections divide with hairlines, not nested cards. */
+.maka-daily-review-report {
+    display: grid;
+    min-width: 0;
+    border: var(--border-width-hairline) solid var(--card-border-color);
+    border-radius: var(--radius-surface);
+    background: oklch(from var(--foreground) l c h / 0.025);
+    box-shadow: var(--card-highlight);
+    overflow: hidden;
+  }
+
+.maka-daily-review-report[data-selected] {
+    border-color: var(--border-strong);
+  }
+
+/* The whole meta head is the select/expand target. Reset native button chrome;
+   layout is title-column + optional exception chip. */
+.maka-daily-review-report-head {
+    appearance: none;
+    background: none;
+    border: 0;
+    font: inherit;
+    text-align: left;
+    width: 100%;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-2-5);
+    padding: var(--space-2-5) var(--space-3);
+    color: var(--foreground);
+    transition: background var(--duration-base) var(--ease-out-strong);
+  }
+
+.maka-daily-review-report-head:hover {
+    background: var(--state-hover-bg);
+  }
+
+.maka-daily-review-report[data-selected] .maka-daily-review-report-head {
+    background: var(--state-selected-bg);
+  }
+
+@media (prefers-reduced-motion: reduce) {
+    .maka-daily-review-report-head {
+      transition: background 0ms;
+    }
+  }
+
+.maka-daily-review-report-heading {
+    display: grid;
+    gap: var(--space-0-5);
+    min-width: 0;
+  }
+
+.maka-daily-review-report-title {
+    min-width: 0;
+    color: var(--foreground);
+    font-size: var(--font-size-ui);
+    font-weight: var(--font-weight-semibold);
+    letter-spacing: var(--tracking-normal);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+.maka-daily-review-archive-row-meta {
+    min-width: 0;
+    color: var(--muted-foreground);
+    font-size: var(--font-size-caption);
+    font-variant-numeric: tabular-nums;
+    line-height: var(--leading-normal);
+    overflow-wrap: anywhere;
+  }
+
+/* Exception-only status chip (#651): only failed / no_model raise it, so it
+   never shrinks against the report title. */
+.maka-daily-review-report-status {
+    flex: none;
+  }
+
+/* Expanded body: sits under the meta head inside the same surface, separated
+   by a hairline so it reads as the report's continuation, not a nested card. */
+.maka-daily-review-report-body {
+    display: grid;
+    gap: var(--space-2);
+    min-width: 0;
+    padding: var(--space-1) var(--space-3) var(--space-3);
+    border-top: var(--border-width-hairline) solid var(--foreground-10);
+  }
+
+.maka-daily-review-archive-empty {
+    color: var(--muted-foreground);
+    font-size: var(--font-size-ui);
+    line-height: var(--leading-normal);
+  }
+
+.maka-daily-review-archive-error {
+    margin: 0;
+    color: var(--destructive, var(--foreground));
+    font-size: var(--font-size-ui);
+    line-height: var(--leading-normal);
+  }
+
+.maka-daily-review-archive-sections {
+    display: grid;
+    /* Section rhythm: the four report blocks (对话摘要/遗漏提醒/使用洞察/
+       代码建议) divide with 16px + hairline BETWEEN sections so they don't
+       read as one undifferentiated slab. */
+    gap: var(--space-3);
+  }
+
+.maka-daily-review-archive-section {
+    display: grid;
+    gap: var(--space-1-5);
+  }
+
+.maka-daily-review-archive-section + .maka-daily-review-archive-section {
+    border-top: var(--border-width-hairline) solid var(--foreground-10);
+    padding-top: var(--space-3);
+  }
+
+/* Markdown-rendered report body: restore list markers (Tailwind preflight
+   strips them — see the chat-bubble fix) and keep block rhythm tight. */
+.maka-daily-review-archive-section-body {
+    color: var(--foreground-secondary);
+    font-size: var(--font-size-ui);
+    line-height: var(--leading-normal);
+    overflow-wrap: anywhere;
+  }
+
+.maka-daily-review-archive-section-body p {
+    margin: 0 0 var(--space-1-5);
+  }
+
+.maka-daily-review-archive-section-body p:last-child,
+.maka-daily-review-archive-section-body ul:last-child,
+.maka-daily-review-archive-section-body ol:last-child {
+    margin-bottom: 0;
+  }
+
+.maka-daily-review-archive-section-body ul,
+.maka-daily-review-archive-section-body ol {
+    margin: 0 0 var(--space-1-5);
+    padding-left: var(--space-5);
+  }
+
+.maka-daily-review-archive-section-body ul { list-style: disc; }
+.maka-daily-review-archive-section-body ol { list-style: decimal; }

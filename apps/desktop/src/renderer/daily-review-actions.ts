@@ -29,7 +29,9 @@ export function buildDailyReviewRunModelOptions(
   connections: readonly LlmConnection[],
 ): Array<readonly [string, string]> {
   return [
-    [DAILY_REVIEW_CONFIG_MODEL_VALUE, '使用设置中的分析模型'],
+    // Compact default option for the panel's inline 分析模型 picker — a run
+    // with no explicit override falls back to the model configured in Settings.
+    [DAILY_REVIEW_CONFIG_MODEL_VALUE, '跟随设置'],
     ...buildCatalogDailyReviewModelOptions(connections, ''),
   ];
 }
