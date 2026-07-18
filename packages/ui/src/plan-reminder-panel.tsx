@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button as BaseButton } from '@base-ui/react/button';
 import { useMountedRef } from './use-mounted-ref.js';
+import { useToast } from './toast.js';
 import {
   ArchiveRestore,
   Clock,
@@ -21,6 +22,7 @@ import type {
 import {
   deriveCapabilityAuditReport,
   formatPlanReminderDeliveryTarget,
+  generalizedErrorMessageChinese,
 } from '@maka/core';
 import {
   PLAN_REMINDER_EXAMPLE_TEMPLATES,
@@ -50,11 +52,11 @@ import {
   TabsRoot,
   TabsTrigger,
 } from './ui.js';
+import { SettingsSwitch } from './primitives/settings-switch.js';
 import { Badge } from './primitives/badge.js';
 import { Chip, type ChipProps } from './primitives/chip.js';
 import { PageHeader } from './primitives/page-header.js';
 import { Input } from './primitives/input.js';
-import { Alert, AlertTitle } from './primitives/alert.js';
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from './primitives/menu.js';
 import { EmptyState } from './empty-state.js';
 import { CapabilityAuditStrip } from './capability-audit-strip.js';
@@ -78,6 +80,13 @@ function planRunStatusChipTone(
 export function PlanReminderPanel(props: {
   reminders: PlanReminder[];
   auditReport?: CapabilityAuditReport;
+  /**
+   * Current persisted 保持系统唤醒 state. `undefined` means the capability is
+   * unavailable (bridge absent / older main) — the row hides entirely.
+   */
+  keepSystemAwake?: boolean;
+  /** Persist a new keep-awake value; rejects on failure so the row reverts. */
+  onKeepSystemAwakeChange?: (next: boolean) => Promise<void>;
   onRefresh?(): void | Promise<void>;
   onCreate?(input: PlanReminderDraftInput): boolean | Promise<boolean> | void | Promise<void>;
   onUpdate?(id: string, patch: PlanReminderUpdatePatch): boolean | Promise<boolean> | void | Promise<void>;
@@ -110,6 +119,17 @@ export function PlanReminderPanel(props: {
   const [listSort, setListSort] = useState<PlanReminderSort>('created-desc');
   const [listQuery, setListQuery] = useState('');
   const [refreshPending, setRefreshPending] = useState(false);
+  const toast = useToast();
+  // 保持系统唤醒 capability control. Available only when the host wires both
+  // the current value and the setter (bridge present); otherwise the row
+  // hides. Local optimistic state drives the switch, initialized from the
+  // persisted snapshot and re-synced when the prop changes (but never while a
+  // write is in flight, so a slow snapshot can't clobber the optimistic flip).
+  const keepSystemAwakeSupported =
+    props.keepSystemAwake !== undefined && typeof props.onKeepSystemAwakeChange === 'function';
+  const [keepSystemAwakeChecked, setKeepSystemAwakeChecked] = useState(props.keepSystemAwake ?? false);
+  const [keepSystemAwakePending, setKeepSystemAwakePending] = useState(false);
+  const keepSystemAwakePendingRef = useRef(false);
   const normalizedListQuery = normalizePlanReminderSearchQuery(listQuery);
   const searchMatchedReminders = normalizedListQuery
     ? props.reminders.filter((reminder) => planReminderMatchesSearch(reminder, normalizedListQuery))
@@ -138,8 +158,37 @@ export function PlanReminderPanel(props: {
     return () => {
       refreshPendingRef.current = false;
       pendingActionKeysRef.current = new Set();
+      keepSystemAwakePendingRef.current = false;
     };
   }, []);
+
+  // Re-sync the switch to the persisted snapshot when it changes (external
+  // edit, relaunch), unless a local write is mid-flight — the optimistic
+  // value wins until the write settles.
+  useEffect(() => {
+    if (keepSystemAwakePendingRef.current) return;
+    if (props.keepSystemAwake !== undefined) setKeepSystemAwakeChecked(props.keepSystemAwake);
+  }, [props.keepSystemAwake]);
+
+  async function toggleKeepSystemAwake(next: boolean) {
+    if (!props.onKeepSystemAwakeChange || keepSystemAwakePendingRef.current) return;
+    keepSystemAwakePendingRef.current = true;
+    setKeepSystemAwakePending(true);
+    setKeepSystemAwakeChecked(next); // optimistic
+    try {
+      await props.onKeepSystemAwakeChange(next);
+    } catch (error) {
+      // Revert to reflect REALITY, and surface the failure in Chinese.
+      if (planReminderMountedRef.current) setKeepSystemAwakeChecked(!next);
+      toast.error(
+        '无法更新保持系统唤醒',
+        generalizedErrorMessageChinese(error, '更新保持系统唤醒设置失败，请稍后重试。'),
+      );
+    } finally {
+      keepSystemAwakePendingRef.current = false;
+      if (planReminderMountedRef.current) setKeepSystemAwakePending(false);
+    }
+  }
 
   function openReminderDialog(seed: PlanReminderFormSeed) {
     setFormSeed(seed);
@@ -238,19 +287,28 @@ export function PlanReminderPanel(props: {
             the empty state (quick-start), so the populated/default view matches
             the reference's clean flow. */}
 
-        {/* Designer audit P1-5: the 保持系统唤醒·即将支持 tag was removed —
-            unshipped features don't belong in first-screen chrome. Reintroduce
-            the control (as a real Switch) when the wake-lock lands. */}
-        <Alert variant="info" className="maka-plan-system-alert">
-          <div className="maka-plan-system-alert-main">
-            <Info aria-hidden="true" />
-            <div>
-              {/* Designer audit P2-12: one sentence, the one that matters —
-                  the queue/run-history mechanics line was engineering trivia. */}
-              <AlertTitle>计划提醒只在本机唤醒时运行</AlertTitle>
+        {/* Designer audit P1-5 follow-through: the earlier placeholder tag
+            (removed for placeholder honesty) is now shipped as a REAL control.
+            Status-color restraint keeps this informational-expected capability
+            row neutral (passive surface + switch), not a saturated banner. The
+            row hides entirely when the host can't wire the toggle. */}
+        {keepSystemAwakeSupported && (
+          <div className="maka-plan-system-awake" data-tone="passive">
+            <div className="maka-plan-system-awake-main">
+              <Info size={15} aria-hidden="true" />
+              <span>定时任务仅在电脑保持唤醒时运行</span>
+            </div>
+            <div className="maka-plan-system-awake-control">
+              <span className="maka-plan-system-awake-label">保持系统唤醒</span>
+              <SettingsSwitch
+                ariaLabel="保持系统唤醒"
+                checked={keepSystemAwakeChecked}
+                disabled={keepSystemAwakePending}
+                onChange={(next) => void toggleKeepSystemAwake(next)}
+              />
             </div>
           </div>
-        </Alert>
+        )}
 
         <CapabilityAuditStrip report={auditReport} />
 
