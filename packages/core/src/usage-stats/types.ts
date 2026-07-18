@@ -341,6 +341,17 @@ export interface ContextBudgetDiagnostic {
   historyRewriteGate?: string;
 }
 
+export interface ToolInvocationResultSummary {
+  kind: string;
+  status?: string;
+  itemCount?: number;
+  startedItemCount?: number;
+  completedItemCount?: number;
+  failedItemCount?: number;
+  cancelledItemCount?: number;
+  artifactCount?: number;
+}
+
 export interface ToolInvocationRecord {
   sessionId?: string;
   turnId?: string;
@@ -352,6 +363,8 @@ export interface ToolInvocationRecord {
   status: 'success' | 'error' | 'aborted';
   errorClass?: string;
   argsSummary?: string;
+  /** Bounded structured-result projection for diagnostics; never raw output. */
+  resultSummary?: ToolInvocationResultSummary;
   bytesIn?: number;
   bytesOut?: number;
   startedAt: number;

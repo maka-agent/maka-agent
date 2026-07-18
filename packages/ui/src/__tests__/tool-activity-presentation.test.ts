@@ -806,6 +806,63 @@ describe('tool activity presentation', () => {
     assert.equal((markup.match(/data-slot="tool-output"/g) ?? []).length, 0);
   });
 
+  it('renders a bounded swarm card and maps aggregate cancellation to the activity label', () => {
+    const longSummary = 'x'.repeat(600);
+    const markup = renderToStaticMarkup(createElement(ToolActivity, {
+      open: true,
+      items: [{
+        toolUseId: 'tool-agent-swarm',
+        toolName: 'agent_swarm',
+        displayName: 'Agent Swarm',
+        status: 'interrupted',
+        args: {},
+        result: {
+          kind: 'agent_swarm',
+          status: 'cancelled',
+          items: [
+            {
+              itemId: 'auth',
+              index: 0,
+              profile: 'local_read',
+              started: true,
+              turnId: 'turn-auth',
+              runId: 'run-auth',
+              status: 'completed',
+              summary: longSummary,
+              artifactIds: ['artifact-auth'],
+              durationMs: 1250,
+            },
+            {
+              itemId: 'tests',
+              index: 1,
+              profile: 'local_read',
+              started: false,
+              status: 'cancelled',
+              summary: 'Cancelled before start.',
+              artifactIds: [],
+              failureClass: 'ParentCancelled',
+            },
+          ],
+          startedAt: 1,
+          completedAt: 1251,
+          durationMs: 1250,
+        },
+      } satisfies ToolActivityItem],
+    }));
+
+    assert.match(markup, /data-kind="agent_swarm"/);
+    assert.match(markup, /Agent Swarm/);
+    assert.match(markup, /2 个任务/);
+    assert.match(markup, /1 完成/);
+    assert.match(markup, /1 取消/);
+    assert.match(markup, /run run-auth/);
+    assert.match(markup, /turn turn-auth/);
+    assert.match(markup, /ParentCancelled/);
+    assert.match(markup, />已取消</);
+    assert.doesNotMatch(markup, /x{300}/);
+    assert.equal((markup.match(/data-slot="tool-output"/g) ?? []).length, 0);
+  });
+
   it('surfaces terminal cancel and runtime truncation flags', () => {
     const cancelled = renderToStaticMarkup(createElement(ToolActivity, {
       items: [{

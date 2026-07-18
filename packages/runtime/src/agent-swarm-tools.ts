@@ -2,6 +2,7 @@ import { redactSecrets } from "@maka/core/redaction";
 import {
 	TASK_ID_MAX_CHARS,
 	isSafeTaskId,
+	projectAgentSwarmResult,
 	type ToolResultContent,
 } from "@maka/core";
 import { z } from "zod";
@@ -87,6 +88,23 @@ export function buildAgentSwarmTool(
 			}
 
 			const startedAt = now();
+			traceAgentSwarm(ctx, "tool_started", "batch_started", {
+				itemCount: prepared.items.length,
+				maxConcurrency: prepared.maxConcurrency,
+			});
+			for (
+				let index = Math.min(prepared.maxConcurrency, prepared.items.length);
+				index < prepared.items.length;
+				index += 1
+			) {
+				const item = prepared.items[index]!;
+				traceAgentSwarm(ctx, "tool_started", "item_queued", {
+					itemId: item.itemId,
+					index: item.index,
+					profile: item.profile,
+					boundary: "local_swarm_concurrency",
+				});
+			}
 			const readyRefs: Array<StartedChildRef | undefined> = Array.from({
 				length: prepared.items.length,
 			});
@@ -98,6 +116,12 @@ export function buildAgentSwarmTool(
 			const rows = await runBoundedSwarm(
 				prepared.items,
 				async (item, { index }) => {
+					traceAgentSwarm(ctx, "tool_started", "item_started", {
+						itemId: item.itemId,
+						index: item.index,
+						profile: item.profile,
+						boundary: "local_swarm_concurrency",
+					});
 					ctx.emitOutput(
 						"stdout",
 						`Agent swarm item ${item.itemId} started: ${item.definition.name}\n`,
@@ -115,12 +139,34 @@ export function buildAgentSwarmTool(
 							},
 						})) as SpawnChildAgentResult;
 						childResults[index] = result;
+						traceAgentSwarm(
+							ctx,
+							result.status === "failed" ? "tool_failed" : "tool_completed",
+							"item_completed",
+							{
+								itemId: item.itemId,
+								index: item.index,
+								profile: item.profile,
+								status: result.status,
+								turnId: result.turnId,
+								...(result.runId ? { runId: result.runId } : {}),
+								durationMs: result.durationMs,
+								artifactCount: result.artifactIds.length,
+							},
+						);
 						ctx.emitOutput(
 							result.status === "failed" ? "stderr" : "stdout",
 							`Agent swarm item ${item.itemId}: ${result.status}\n`,
 						);
 						return result;
 					} catch (error) {
+						traceAgentSwarm(ctx, "tool_failed", "item_completed", {
+							itemId: item.itemId,
+							index: item.index,
+							profile: item.profile,
+							status: ctx.abortSignal.aborted ? "cancelled" : "failed",
+							failureClass: boundedFailureClass(error, "ChildAgentError"),
+						});
 						ctx.emitOutput(
 							"stderr",
 							`Agent swarm item ${item.itemId} failed: ${boundedSwarmError(error)}\n`,
@@ -145,7 +191,7 @@ export function buildAgentSwarmTool(
 			const completedAt = now();
 			const status = aggregateAgentSwarmStatus(items);
 			ctx.emitOutput("stdout", `Agent swarm: ${status}\n`);
-			return {
+			const result: AgentSwarmToolResult = {
 				kind: "agent_swarm",
 				status,
 				items,
@@ -153,8 +199,24 @@ export function buildAgentSwarmTool(
 				completedAt,
 				durationMs: Math.max(0, completedAt - startedAt),
 			};
+			traceAgentSwarm(ctx, "tool_completed", "batch_completed", {
+				...projectAgentSwarmResult(result),
+			});
+			return result;
 		},
 	};
+}
+
+function traceAgentSwarm(
+	ctx: MakaToolContext,
+	type: "tool_started" | "tool_completed" | "tool_failed",
+	stage: "batch_started" | "item_queued" | "item_started" | "item_completed" | "batch_completed",
+	data: Record<string, unknown>,
+): void {
+	ctx.emitRunTrace?.(type, `Agent swarm ${stage.replaceAll("_", " ")}`, {
+		swarmStage: stage,
+		...data,
+	});
 }
 
 function agentSwarmInputSchema() {

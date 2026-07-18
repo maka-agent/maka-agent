@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { formatToolResultContent } from '../pi-transcript-format.js';
 
-test('formats an agent swarm without exposing internal child references', () => {
+test('formats an agent swarm with bounded child evidence references', () => {
   const output = formatToolResultContent({
     kind: 'agent_swarm',
     status: 'partial',
@@ -38,15 +38,13 @@ test('formats an agent swarm without exposing internal child references', () => 
   assert.equal(
     output,
     [
-      'Agent swarm: partial',
-      'auth: completed\nAuth boundaries are documented.',
-      'storage: failed\nStorage inspection failed.',
+      'Agent swarm: partial · 2 items · 1 completed · 1 failed · 0 cancelled · 1 artifacts · 10ms',
+      'auth: completed · local_read · 1 artifacts · run run-auth · turn turn-auth\nAuth boundaries are documented.',
+      'storage: failed · local_read · 0 artifacts\nStorage inspection failed.',
     ].join('\n\n'),
   );
-  assert.doesNotMatch(
-    output,
-    /turn-auth|run-auth|artifact-auth|local-read/,
-  );
+  assert.match(output, /run run-auth · turn turn-auth/);
+  assert.doesNotMatch(output, /artifact-auth|local-read/);
 });
 
 test('bounds individual and aggregate agent swarm text', () => {

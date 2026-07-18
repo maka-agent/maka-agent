@@ -1,4 +1,4 @@
-import { type ToolResultContent } from '@maka/core';
+import { projectAgentSwarmResult, type ToolResultContent } from '@maka/core';
 import { Check, Copy } from '../icons.js';
 import { useClipboardCopyFeedback } from '../clipboard-feedback.js';
 import { previewVariants } from '../primitives/chat.js';
@@ -8,6 +8,10 @@ import { formatBytes, formatDuration } from './preview-utils.js';
 
 type SubagentResult = Extract<ToolResultContent, { kind: 'subagent' }>;
 type ExploreAgentResult = Extract<ToolResultContent, { kind: 'explore_agent' }>;
+type AgentSwarmResult = Extract<ToolResultContent, { kind: 'agent_swarm' }>;
+
+const AGENT_SWARM_SUMMARY_MAX_CHARS = 280;
+const AGENT_SWARM_PREVIEW_MAX_ITEMS = 32;
 
 const SUBAGENT_STATUS_LABEL: Record<SubagentResult['status'], string> = {
   completed: '已完成',
@@ -16,6 +20,85 @@ const SUBAGENT_STATUS_LABEL: Record<SubagentResult['status'], string> = {
   running: '运行中',
   waiting_permission: '等待权限',
 };
+
+const AGENT_SWARM_STATUS_LABEL: Record<
+  AgentSwarmResult['status'] | AgentSwarmResult['items'][number]['status'],
+  string
+> = {
+  completed: '已完成',
+  partial: '部分完成',
+  failed: '失败',
+  cancelled: '已取消',
+};
+
+export function AgentSwarmPreview(props: {
+  result: AgentSwarmResult;
+}) {
+  const { result } = props;
+  const projection = projectAgentSwarmResult(result);
+  const rows = result.items.slice(0, AGENT_SWARM_PREVIEW_MAX_ITEMS);
+  const hiddenRows = Math.max(0, result.items.length - rows.length);
+  const meta = [
+    AGENT_SWARM_STATUS_LABEL[result.status],
+    `${projection.completedItemCount} 完成`,
+    projection.failedItemCount > 0 ? `${projection.failedItemCount} 失败` : '',
+    projection.cancelledItemCount > 0 ? `${projection.cancelledItemCount} 取消` : '',
+    projection.artifactCount > 0 ? `${projection.artifactCount} 个产物` : '',
+    formatDuration(result.durationMs) ? `耗时 ${formatDuration(result.durationMs)}` : '',
+  ].filter(Boolean).join(' · ');
+
+  return (
+    <div
+      className={cn(previewVariants({ part: 'overlay' }), previewVariants({ part: 'agent' }))}
+      data-kind="agent_swarm"
+      data-status={result.status}
+    >
+      <header className={previewVariants({ part: 'agent-head' })}>
+        <strong>Agent Swarm</strong>
+        <small>{projection.itemCount} 个任务 · {meta}</small>
+      </header>
+      <section className={previewVariants({ part: 'agent-section' })} aria-label="Agent Swarm 结果">
+        <ul>
+          {rows.map((item) => {
+            const duration = formatDuration(item.durationMs);
+            const summary = boundedAgentSwarmSummary(item.summary);
+            const rowMeta = [
+              AGENT_SWARM_STATUS_LABEL[item.status],
+              item.profile,
+              duration ? `耗时 ${duration}` : '',
+              item.artifactIds.length > 0 ? `${item.artifactIds.length} 个产物` : '',
+            ].filter(Boolean).join(' · ');
+            const refs = [
+              item.runId ? `run ${redactSecrets(item.runId)}` : '',
+              item.turnId ? `turn ${redactSecrets(item.turnId)}` : '',
+            ].filter(Boolean).join(' · ');
+
+            return (
+              <li key={`${item.index}:${item.itemId}`} data-status={item.status}>
+                <code>{redactSecrets(item.itemId)}</code>
+                <small>{rowMeta}</small>
+                {summary.length > 0 && <p>{redactSecrets(summary)}</p>}
+                {item.failureClass && (
+                  <span className="text-[color:var(--destructive)]">
+                    {redactSecrets(item.failureClass)}
+                  </span>
+                )}
+                {refs && <code title={refs}>{refs}</code>}
+              </li>
+            );
+          })}
+        </ul>
+        {hiddenRows > 0 && <small>另有 {hiddenRows} 个任务未显示</small>}
+      </section>
+    </div>
+  );
+}
+
+function boundedAgentSwarmSummary(summary: string): string {
+  const normalized = summary.trim();
+  if (normalized.length <= AGENT_SWARM_SUMMARY_MAX_CHARS) return normalized;
+  return `${normalized.slice(0, AGENT_SWARM_SUMMARY_MAX_CHARS - 1)}…`;
+}
 
 export function SubagentPreview(props: {
   result: SubagentResult;

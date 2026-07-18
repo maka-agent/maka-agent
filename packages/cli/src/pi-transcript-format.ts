@@ -5,7 +5,7 @@ import {
   type MarkdownTheme,
 } from '@earendil-works/pi-tui';
 import type { ToolResultContent } from '@maka/core/events';
-import { ptyHumanTerminalText, type ShellOutput } from '@maka/core';
+import { projectAgentSwarmResult, ptyHumanTerminalText, type ShellOutput } from '@maka/core';
 import { ansi } from './tui-ansi.js';
 
 export function renderIndented(text: string, width: number, indent: number): string[] {
@@ -69,13 +69,32 @@ export function formatToolResultContent(content: ToolResultContent): string {
       return content.report ?? content.summary ?? content.message ?? `Inspected ${content.filesInspected} files`;
     case 'subagent':
       return content.summary;
-    case 'agent_swarm':
+    case 'agent_swarm': {
+      const projection = projectAgentSwarmResult(content);
       return limitText([
-        `Agent swarm: ${content.status}`,
-        ...content.items.map(
-          (item) => `${item.itemId}: ${item.status}\n${limitText(item.summary, 1_000)}`,
-        ),
+        [
+          `Agent swarm: ${projection.status}`,
+          `${projection.itemCount} items`,
+          `${projection.completedItemCount} completed`,
+          `${projection.failedItemCount} failed`,
+          `${projection.cancelledItemCount} cancelled`,
+          `${projection.artifactCount} artifacts`,
+          `${projection.durationMs}ms`,
+        ].join(' · '),
+        ...content.items.map((item) => [
+          [
+            `${item.itemId}: ${item.status}`,
+            item.profile,
+            item.durationMs !== undefined ? `${item.durationMs}ms` : '',
+            `${item.artifactIds.length} artifacts`,
+            item.runId ? `run ${item.runId}` : '',
+            item.turnId ? `turn ${item.turnId}` : '',
+            item.failureClass ?? '',
+          ].filter(Boolean).join(' · '),
+          limitText(item.summary, 1_000),
+        ].join('\n')),
       ].join('\n\n'), 16_000);
+    }
     case 'rive_workflow':
       return content.summary;
     case 'archived_tool_result':

@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import type { LlmConnection, SessionEvent, SessionHeader } from "@maka/core";
+import type {
+	LlmConnection,
+	SessionEvent,
+	SessionHeader,
+	ToolInvocationRecord,
+} from "@maka/core";
 import {
 	AGENT_SWARM_DEFAULT_CONCURRENCY,
 	AGENT_SWARM_MAX_CONCURRENCY,
@@ -21,6 +26,7 @@ import {
 import { buildChildAgentTools, AGENT_TOOL_NAMES } from "../subagent-tools.js";
 import type { SpawnChildAgentResult } from "../session-manager.js";
 import { PermissionEngine } from "../permission-engine.js";
+import type { RunTraceLike } from "../run-trace.js";
 import {
 	MAX_ACTIVE_CHILD_AGENT_RUNS_PER_TURN,
 	ToolRuntime,
@@ -160,6 +166,7 @@ describe("AgentSwarm adapter", () => {
 		);
 		const started: number[] = [];
 		const completionOrder: number[] = [];
+		const traceEvents: TestTraceEvent[] = [];
 		const pending = (async () =>
 			await tool.impl(
 				{
@@ -167,6 +174,9 @@ describe("AgentSwarm adapter", () => {
 					max_concurrency: 3,
 				},
 				context({
+					emitRunTrace: (type, message, data) => {
+						traceEvents.push({ type, message, data });
+					},
 					spawnChildAgent: async (input) => {
 						const index = Number(input.prompt.slice("task-".length));
 						started.push(index);
@@ -236,6 +246,33 @@ describe("AgentSwarm adapter", () => {
 			},
 			{ startedAt: 100, completedAt: 180, durationMs: 80 },
 		);
+		assert.deepEqual(
+			traceEvents
+				.filter((event) => event.data?.swarmStage === "item_completed")
+				.map((event) => ({
+					index: Number(event.data?.index),
+					status: event.data?.status,
+				}))
+				.sort((left, right) => left.index - right.index)
+				.map((event) => event.status),
+			["completed", "failed", "completed"],
+		);
+		assert.deepEqual(
+			traceEvents.find(
+				(event) => event.data?.swarmStage === "batch_completed",
+			)?.data,
+			{
+				swarmStage: "batch_completed",
+				status: "partial",
+				itemCount: 3,
+				startedItemCount: 3,
+				completedItemCount: 2,
+				failedItemCount: 1,
+				cancelledItemCount: 0,
+				artifactCount: 3,
+				durationMs: 80,
+			},
+		);
 	});
 
 	test("isolates a thrown child startup while retaining successful siblings", async () => {
@@ -273,6 +310,7 @@ describe("AgentSwarm adapter", () => {
 		const controller = new AbortController();
 		const tool = buildAgentSwarmTool();
 		const started: number[] = [];
+		const traceEvents: TestTraceEvent[] = [];
 		const pending = invokeAgentSwarm(
 			tool,
 			{
@@ -281,6 +319,9 @@ describe("AgentSwarm adapter", () => {
 			},
 			context({
 				abortSignal: controller.signal,
+				emitRunTrace: (type, message, data) => {
+					traceEvents.push({ type, message, data });
+				},
 				spawnChildAgent: async (input) => {
 					const index = Number(input.prompt.slice("task-".length));
 					started.push(index);
@@ -338,12 +379,30 @@ describe("AgentSwarm adapter", () => {
 				},
 			],
 		);
+		assert.equal(
+			traceEvents.filter(
+				(event) => event.data?.swarmStage === "item_queued",
+			).length,
+			2,
+		);
+		const batchTrace = traceEvents.find(
+			(event) => event.data?.swarmStage === "batch_completed",
+		)?.data;
+		assert.equal(batchTrace?.status, "cancelled");
+		assert.equal(batchTrace?.itemCount, 4);
+		assert.equal(batchTrace?.startedItemCount, 2);
+		assert.equal(batchTrace?.completedItemCount, 0);
+		assert.equal(batchTrace?.failedItemCount, 0);
+		assert.equal(batchTrace?.cancelledItemCount, 4);
+		assert.equal(batchTrace?.artifactCount, 2);
+		assert.equal(typeof batchTrace?.durationMs, "number");
 	});
 
 	test("composes local width with the shared child-run permit pool", async () => {
 		const active = new Set<string>();
 		const started: string[] = [];
 		const releases = new Map<string, () => void>();
+		const traceEvents: TestTraceEvent[] = [];
 		let maxActive = 0;
 		const runtime = buildRuntime(async (input) => {
 			started.push(input.prompt);
@@ -360,7 +419,7 @@ describe("AgentSwarm adapter", () => {
 					resolve(childResultForPrompt(input.prompt));
 				});
 			});
-		});
+		}, { traceEvents });
 		const single = executeTool(
 			runtime,
 			singleChildProbeTool(),
@@ -398,13 +457,78 @@ describe("AgentSwarm adapter", () => {
 		for (const release of releases.values()) release();
 		await Promise.all([single, swarm]);
 		assert.equal(active.size, 0);
+		assert.ok(
+			traceEvents.some(
+				(event) =>
+					event.data?.boundary === "shared_child_run_permit" &&
+					event.data?.stage === "waiting",
+			),
+		);
+		assert.ok(
+			traceEvents.some(
+				(event) =>
+					event.data?.boundary === "child_run_execution" &&
+					event.data?.stage === "started",
+			),
+		);
+		assert.ok(
+			traceEvents.some(
+				(event) => event.data?.swarmStage === "batch_completed",
+			),
+		);
+	});
+
+	test("traces subagent admission rejection separately from child-run capacity", async () => {
+		const traceEvents: TestTraceEvent[] = [];
+		const releases: Array<() => void> = [];
+		let starts = 0;
+		const runtime = buildRuntime(
+			async () => {
+				starts += 1;
+				const index = starts;
+				return await new Promise((resolve) => {
+					releases.push(() => resolve(childResult(index)));
+				});
+			},
+			{ traceEvents },
+		);
+		const tool = singleChildProbeTool();
+		const pending = Array.from(
+			{ length: MAX_ACTIVE_CHILD_AGENT_RUNS_PER_TURN + 1 },
+			(_, index) =>
+				executeTool(
+					runtime,
+					tool,
+					{},
+					new AbortController(),
+					[],
+					`tool-admission-${index}`,
+				),
+		);
+
+		await waitFor(() => starts === MAX_ACTIVE_CHILD_AGENT_RUNS_PER_TURN);
+		assert.deepEqual(await pending.at(-1), {
+			error: "只读探索并发过多：同一轮最多 5 个子代理。请等待已有探索完成后再继续。",
+		});
+		assert.ok(
+			traceEvents.some(
+				(event) =>
+					event.data?.boundary === "subagent_tool_admission" &&
+					event.data?.errorClass === "RuntimeLimit",
+			),
+		);
+		for (const release of releases) release();
+		await Promise.all(pending.slice(0, -1));
 	});
 
 	test("persists partial as settled and cancellation as interrupted", async () => {
 		const events: SessionEvent[] = [];
+		const telemetry: ToolInvocationRecord[] = [];
 		const runtime = buildRuntime(async (input) => {
 			const index = Number(input.prompt.slice("task-".length));
 			return childResult(index, index === 1 ? "failed" : "completed");
+		}, {
+			recordToolInvocation: (record) => telemetry.push(record),
 		});
 		const swarmTool = {
 			...buildAgentSwarmTool(),
@@ -450,6 +574,25 @@ describe("AgentSwarm adapter", () => {
 					event.type === "tool_result" && event.toolUseId === "tool-cancelled",
 			)?.isError,
 			true,
+		);
+		assert.deepEqual(
+			telemetry.find((record) => record.toolCallId === "tool-partial")
+				?.resultSummary,
+			{
+				kind: "agent_swarm",
+				status: "partial",
+				itemCount: 2,
+				startedItemCount: 2,
+				completedItemCount: 1,
+				failedItemCount: 1,
+				cancelledItemCount: 0,
+				artifactCount: 2,
+			},
+		);
+		assert.equal(
+			telemetry.find((record) => record.toolCallId === "tool-cancelled")
+				?.resultSummary?.status,
+			"cancelled",
 		);
 	});
 
@@ -597,6 +740,10 @@ function buildRuntime(
 	options: {
 		permissionEngine?: PermissionEngine;
 		permissionMode?: SessionHeader["permissionMode"];
+		traceEvents?: TestTraceEvent[];
+		recordToolInvocation?: ConstructorParameters<
+			typeof ToolRuntime
+		>[0]["recordToolInvocation"];
 	} = {},
 ): ToolRuntime {
 	const permissionEngine =
@@ -618,7 +765,27 @@ function buildRuntime(
 		getPermissionPauseTarget: () => null,
 		getCurrentRunId: () => "parent-run",
 		spawnChildAgent,
+		...(options.traceEvents
+			? { getRunTrace: () => testTrace(options.traceEvents!) }
+			: {}),
+		...(options.recordToolInvocation
+			? { recordToolInvocation: options.recordToolInvocation }
+			: {}),
 	});
+}
+
+interface TestTraceEvent {
+	type: string;
+	message: string;
+	data?: Record<string, unknown>;
+}
+
+function testTrace(events: TestTraceEvent[]): RunTraceLike {
+	return {
+		emit: (_phase, type, message, data) => {
+			events.push({ type, message, data });
+		},
+	};
 }
 
 async function executeTool(

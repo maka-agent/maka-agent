@@ -12,7 +12,7 @@ import { previewVariants } from '../primitives/chat.js';
 import { redactSecrets } from '../redact.js';
 import { useUiLocale } from '../locale-context.js';
 import { cn } from '../ui.js';
-import { ExploreAgentPreview, SubagentPreview } from './agent-preview.js';
+import { AgentSwarmPreview, ExploreAgentPreview, SubagentPreview } from './agent-preview.js';
 import { formatQuietJsonValue } from './builtin-preview.js';
 import { TOOL_LINE_CAP, capLines, formatUserVisibleToolText } from './preview-utils.js';
 
@@ -93,6 +93,10 @@ export function ToolResultPreview(props: {
 
   if (content.kind === 'subagent') {
     return <SubagentPreview result={content} />;
+  }
+
+  if (content.kind === 'agent_swarm') {
+    return <AgentSwarmPreview result={content} />;
   }
 
   if (content.kind === 'rive_workflow') {

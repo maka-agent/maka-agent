@@ -72,6 +72,13 @@ export {
   toolResultActivityStatus,
 } from './tool-result-status.js';
 
+// agent-swarm.ts — bounded projection over the canonical settled tool result.
+export type {
+  AgentSwarmResult,
+  AgentSwarmResultProjection,
+} from './agent-swarm.js';
+export { projectAgentSwarmResult } from './agent-swarm.js';
+
 // runtime-event.ts — canonical Runtime v2 event contract.
 // Subpath `@maka/core/runtime-event` is the canonical import; these barrel
 // re-exports are for convenience.
@@ -1210,6 +1217,7 @@ export type {
   PromptSegmentKind,
   TimeRange,
   ToolInvocationRecord,
+  ToolInvocationResultSummary,
   UsageBucket,
   UsageGroupBy,
   UsageLogRow,
