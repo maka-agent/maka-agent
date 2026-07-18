@@ -33,7 +33,7 @@ const ANTHROPIC_BETA =
   'interleaved-thinking-2025-05-14,fine-grained-tool-streaming-2025-05-14';
 export function getAIModel(input: ModelFactoryInput): LanguageModelV4 {
   const { connection, apiKey, modelId, fetch } = input;
-  const { adapter, baseUrl: baseURL } = resolveModelRuntime(connection, modelId);
+  const { adapter, baseUrl: baseURL, apiProtocol } = resolveModelRuntime(connection, modelId);
 
   if (adapter.kind === 'google' && adapter.normalizeBaseUrl === false) {
     return createGoogle({ apiKey, baseURL }).chat(modelId);
@@ -64,7 +64,6 @@ export function getAIModel(input: ModelFactoryInput): LanguageModelV4 {
       }).responses(modelId);
 
     case 'github-copilot': {
-      const apiProtocol = connection.models?.find((model) => model.id === modelId)?.apiProtocol;
       if (apiProtocol === 'openai-responses') {
         return createOpenAI({ apiKey, baseURL, fetch }).responses(modelId);
       }

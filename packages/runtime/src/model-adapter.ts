@@ -181,7 +181,11 @@ export class ModelAdapter {
     };
 
     const maxSteps = input.maxSteps ?? this.input.maxSteps;
-    const maxOutputTokens = selectedModelMaxOutputTokens(this.input.connection, this.input.modelId);
+    const maxOutputTokens = selectedModelMaxOutputTokens(
+      this.input.connection,
+      this.input.modelId,
+      this.input.providerOptions,
+    );
     const configuredStop = maxSteps === undefined
       ? isLoopFinished()
       : isStepCount(maxSteps);
@@ -350,9 +354,29 @@ export class ModelAdapter {
   }
 }
 
-function selectedModelMaxOutputTokens(connection: LlmConnection, modelId: string): number | undefined {
-  return connection.models?.find((model) => model.id === modelId)?.maxOutputTokens
+function selectedModelMaxOutputTokens(
+  connection: LlmConnection,
+  modelId: string,
+  providerOptions: Record<string, unknown> | undefined,
+): number | undefined {
+  const { adapter, apiProtocol } = resolveModelRuntime(connection, modelId);
+  const usesAnthropicMessages = adapter.kind === 'anthropic'
+    || adapter.kind === 'claude-subscription'
+    || (adapter.kind === 'github-copilot' && apiProtocol === 'anthropic-messages');
+  if (!usesAnthropicMessages) return undefined;
+  const wireOutputLimit = connection.models?.find((model) => model.id === modelId)?.maxOutputTokens
     ?? lookupModelMetadata(connection.providerType, modelId).maxOutputTokens;
+  if (wireOutputLimit === undefined) return undefined;
+  return wireOutputLimit - fixedAnthropicThinkingBudget(providerOptions);
+}
+
+function fixedAnthropicThinkingBudget(providerOptions: Record<string, unknown> | undefined): number {
+  const anthropic = providerOptions?.anthropic;
+  if (!anthropic || typeof anthropic !== 'object' || Array.isArray(anthropic)) return 0;
+  const thinking = (anthropic as { thinking?: unknown }).thinking;
+  if (!thinking || typeof thinking !== 'object' || Array.isArray(thinking)) return 0;
+  const { type, budgetTokens } = thinking as { type?: unknown; budgetTokens?: unknown };
+  return type === 'enabled' && typeof budgetTokens === 'number' ? budgetTokens : 0;
 }
 
 export interface ModelAdapterRuntimeEventReplaySupport {

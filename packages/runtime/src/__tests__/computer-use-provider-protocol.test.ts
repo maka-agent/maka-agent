@@ -30,7 +30,10 @@ describe('Anthropic-compatible Computer Use product loops', () => {
       baseSuffix: '/coding',
       expectedPath: '/coding/v1/messages',
       auth: 'x-api-key',
+      expectedAuth: 'test-key',
       expectedThinking: 'enabled',
+      expectedWireOutputLimit: 32_768,
+      apiProtocol: undefined,
     },
     {
       providerType: 'kimi-coding-plan',
@@ -38,7 +41,10 @@ describe('Anthropic-compatible Computer Use product loops', () => {
       baseSuffix: '/coding',
       expectedPath: '/coding/v1/messages',
       auth: 'x-api-key',
+      expectedAuth: 'test-key',
       expectedThinking: 'adaptive',
+      expectedWireOutputLimit: 131_072,
+      apiProtocol: undefined,
     },
     {
       providerType: 'minimax-coding-plan',
@@ -46,7 +52,21 @@ describe('Anthropic-compatible Computer Use product loops', () => {
       baseSuffix: '/anthropic',
       expectedPath: '/anthropic/v1/messages',
       auth: 'x-api-key',
+      expectedAuth: 'test-key',
       expectedThinking: undefined,
+      expectedWireOutputLimit: 128_000,
+      apiProtocol: undefined,
+    },
+    {
+      providerType: 'github-copilot',
+      modelId: 'future-claude-model',
+      baseSuffix: '/copilot',
+      expectedPath: '/copilot/v1/messages',
+      auth: 'authorization',
+      expectedAuth: 'Bearer test-key',
+      expectedThinking: undefined,
+      expectedWireOutputLimit: 128_000,
+      apiProtocol: 'anthropic-messages',
     },
   ] as const) {
     test(`${provider.providerType}/${provider.modelId} completes a multi-step semantic model loop`, async () => {
@@ -54,7 +74,7 @@ describe('Anthropic-compatible Computer Use product loops', () => {
       const server = await startJsonServer(async (request, response) => {
         assert.equal(request.method, 'POST');
         assert.equal(request.url, provider.expectedPath);
-        assert.equal(request.headers[provider.auth], 'test-key');
+        assert.equal(request.headers[provider.auth], provider.expectedAuth);
         const body = JSON.parse(await readBody(request)) as Record<string, unknown>;
         assert.equal(body.model, provider.modelId);
         requestBodies.push(body);
@@ -88,6 +108,8 @@ describe('Anthropic-compatible Computer Use product loops', () => {
         provider.providerType,
         `${server.url}${provider.baseSuffix}`,
         provider.modelId,
+        provider.apiProtocol,
+        provider.expectedWireOutputLimit,
       );
       const runtime = new AiSdkBackend({
         sessionId: `session-${provider.providerType}`,
@@ -149,6 +171,13 @@ describe('Anthropic-compatible Computer Use product loops', () => {
           assert.deepEqual(body.output_config, { effort: 'max' });
         }
       }
+      for (const body of requestBodies) {
+        assert.equal(
+          body.max_tokens,
+          provider.expectedWireOutputLimit,
+          'Anthropic-compatible requests must honor their model wire output limit',
+        );
+      }
       assert.ok(
         containsToolResult(requestBodies[3]?.messages, 'toolu-3'),
         'final semantic tool result must be reinjected into the closing provider request',
@@ -168,7 +197,7 @@ describe('Anthropic-compatible Computer Use product loops', () => {
       const server = await startJsonServer(async (request, response) => {
         assert.equal(request.method, 'POST');
         assert.equal(request.url, provider.expectedPath);
-        assert.equal(request.headers[provider.auth], 'test-key');
+        assert.equal(request.headers[provider.auth], provider.expectedAuth);
         const body = JSON.parse(await readBody(request)) as Record<string, unknown>;
         assert.equal(body.model, provider.modelId);
         requestBodies.push(body);
@@ -203,6 +232,8 @@ describe('Anthropic-compatible Computer Use product loops', () => {
           provider.providerType,
           `${server.url}${provider.baseSuffix}`,
           provider.modelId,
+          provider.apiProtocol,
+          provider.expectedWireOutputLimit,
         ),
         apiKey: 'test-key',
         modelId: provider.modelId,
@@ -489,6 +520,8 @@ function connection(
   providerType: LlmConnection['providerType'],
   baseUrl: string,
   model: string,
+  apiProtocol?: 'anthropic-messages',
+  maxOutputTokens?: number,
 ): LlmConnection {
   return {
     slug: providerType,
@@ -496,6 +529,7 @@ function connection(
     providerType,
     baseUrl,
     defaultModel: model,
+    ...(apiProtocol ? { models: [{ id: model, apiProtocol, maxOutputTokens }] } : {}),
     enabled: true,
     createdAt: 1,
     updatedAt: 1,

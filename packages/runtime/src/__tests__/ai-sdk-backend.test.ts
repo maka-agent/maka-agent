@@ -114,6 +114,151 @@ describe('AiSdkBackend model history', () => {
     assert.equal(model.doStreamCalls[0]?.maxOutputTokens, 131_072);
   });
 
+  test('prefers the connection-advertised Kimi output limit over catalog metadata', async () => {
+    const model = completionModel();
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: {
+        slug: 'kimi-coding-plan',
+        name: 'Kimi Coding Plan',
+        providerType: 'kimi-coding-plan',
+        defaultModel: 'k3',
+        models: [{ id: 'k3', maxOutputTokens: 65_536 }],
+        enabled: true,
+        createdAt: 1,
+        updatedAt: 1,
+      },
+      apiKey: 'sk-test',
+      modelId: 'k3',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    await drain(backend.send({
+      turnId: 'turn-current',
+      text: 'current user',
+      context: [],
+    }));
+
+    assert.equal(model.doStreamCalls[0]?.maxOutputTokens, 65_536);
+  });
+
+  test('honors a Copilot account output limit on its Anthropic messages wire', async () => {
+    const model = completionModel();
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: {
+        slug: 'github-copilot',
+        name: 'GitHub Copilot',
+        providerType: 'github-copilot',
+        defaultModel: 'future-claude-model',
+        models: [{
+          id: 'future-claude-model',
+          apiProtocol: 'anthropic-messages',
+          maxOutputTokens: 128_000,
+        }],
+        enabled: true,
+        createdAt: 1,
+        updatedAt: 1,
+      },
+      apiKey: 'github-account-token',
+      modelId: 'future-claude-model',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    await drain(backend.send({
+      turnId: 'turn-current',
+      text: 'current user',
+      context: [],
+    }));
+
+    assert.equal(model.doStreamCalls[0]?.maxOutputTokens, 128_000);
+  });
+
+  test('reserves Kimi fixed thinking inside the provider wire output limit', async () => {
+    const model = completionModel();
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: {
+        slug: 'kimi-coding-plan',
+        name: 'Kimi Coding Plan',
+        providerType: 'kimi-coding-plan',
+        defaultModel: 'kimi-for-coding',
+        enabled: true,
+        createdAt: 1,
+        updatedAt: 1,
+      },
+      apiKey: 'sk-test',
+      modelId: 'kimi-for-coding',
+      providerOptions: {
+        anthropic: {
+          thinking: { type: 'enabled', budgetTokens: 1_024 },
+          effort: 'max',
+        },
+      },
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    await drain(backend.send({
+      turnId: 'turn-current',
+      text: 'current user',
+      context: [],
+    }));
+
+    // Anthropic's adapter adds budgetTokens to maxOutputTokens on the wire.
+    assert.equal(model.doStreamCalls[0]?.maxOutputTokens, 32_768 - 1_024);
+  });
+
+  test('leaves OpenAI-compatible output limits to their provider adapter', async () => {
+    const model = completionModel();
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: {
+        slug: 'mistral',
+        name: 'Mistral',
+        providerType: 'mistral',
+        defaultModel: 'mistral-large-latest',
+        enabled: true,
+        createdAt: 1,
+        updatedAt: 1,
+      },
+      apiKey: 'sk-test',
+      modelId: 'mistral-large-latest',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    await drain(backend.send({
+      turnId: 'turn-current',
+      text: 'current user',
+      context: [],
+    }));
+
+    assert.equal(model.doStreamCalls[0]?.maxOutputTokens, undefined);
+  });
+
   test('prefers RuntimeEvent prior messages and appends current user once', async () => {
     const model = completionModel();
     const backend = new AiSdkBackend({
