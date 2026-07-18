@@ -194,24 +194,25 @@
   box-shadow: inset 0 0 0 1px oklch(from var(--foreground) l c h / 0.06);
 }
 
-/* Color marks (Slack/Figma/Google Calendar/Supabase) keep their own fills via
-   <img>; monochrome marks (Vercel/LINE) inherit the plate foreground through a
-   currentColor mask. Both sit at the same 64% ratio as the provider plates. */
-.maka-mcp-market-icon img,
-.maka-mcp-market-icon .maka-mcp-brand-mask {
+/* Library brand marks (simple-icons) render as inline <svg>. Light theme fills
+   each with its official brand hex, carried on the --mcp-brand-fill custom
+   property set per-mark in mcp-brand-marks.tsx. Marks sit at the same 64% ratio
+   as the provider plates. */
+.maka-mcp-market-icon .maka-mcp-brand-mark {
   width: 64%;
   height: 64%;
   display: block;
+  fill: var(--mcp-brand-fill);
 }
 
-.maka-mcp-brand-mask {
-  background: currentColor;
-  mask-position: center;
-  mask-repeat: no-repeat;
-  mask-size: contain;
+/* Dark theme: near-black brand marks (Vercel ▲, Notion, Slack aubergine) are
+   flagged data-contrast="low" by the luminance gate and inherit the plate's
+   light foreground instead of vanishing on the dark neutral plate. */
+.dark .maka-mcp-market-icon .maka-mcp-brand-mark[data-contrast="low"] {
+  fill: currentColor;
 }
 
-/* Text-mark brands with no official asset keep their tinted plate. */
+/* Text-mark brands with no library mark (钉钉/飞书) keep their tinted plate. */
 .maka-mcp-market-icon[data-brand="dingtalk"] {
   background: color-mix(in oklab, var(--brand-dingtalk) 12%, var(--background));
   color: color-mix(in oklab, var(--brand-dingtalk) 72%, var(--foreground));

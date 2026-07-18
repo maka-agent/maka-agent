@@ -89,20 +89,30 @@ const STROKE_EXCEPTION_FILES = new Set([
 // Governance: inline hand-drawn `<svg>` literals are an anti-pattern —
 // generic UI glyphs must ride the @maka/ui/icons lucide funnel so they share
 // one stroke, one sizing seam, and one family. The ONLY files allowed to hold
-// a raw `<svg>` are the vendored *brand* marks (each audited below); they carry
-// official multi-color logo geometry that no generic icon can stand in for:
+// a raw `<svg>` are the vendored/library *brand* marks (each audited below);
+// they carry official logo geometry that no generic icon can stand in for:
 //   - packages/ui/src/bot-brand-logo.tsx — Telegram/Feishu/WeCom/… channel
 //     brand logos (the icon-set-no-direct-lucide contract pins each provider
 //     to a local SVG component, so this file MUST keep inline SVG).
 //   - apps/desktop/src/renderer/settings/provider-brand-marks.tsx — the LLM
 //     provider brand marks (SiliconCloud, Ollama, xAI, …); every path here is
 //     byte-provenance-pinned above to an upstream brand package.
+//   - apps/desktop/src/renderer/mcp-brand-marks.tsx — the MCP catalog brand
+//     marks. This is the SANCTIONED pattern for library-sourced marks: the
+//     `<svg>` is an inert MOUNTING SHELL that wraps a `<path d={si.path}/>`
+//     whose geometry comes straight from the `simple-icons` library (official
+//     brand paths, not hand-drawn art). Lucide ships no brand icons, so these
+//     marks cannot route through @maka/ui/icons. The rot-guard below still
+//     holds because the file genuinely contains an inline `<svg>`.
 // packages/ui/src/icons.tsx is NOT listed: it is a pure lucide re-export with
 // zero `<svg>` literals, so it needs no exemption. Any NEW raw `<svg>` under
-// the two source trees must fail this suite and move to @maka/ui/icons.
+// the two source trees must fail this suite and move to @maka/ui/icons — unless
+// it is a library/vendored brand mark added to this allowlist with the same
+// justification (inert shell around library-sourced path geometry).
 const INLINE_SVG_ALLOWLIST = new Set([
   resolve(REPO_ROOT, 'packages/ui/src/bot-brand-logo.tsx'),
   resolve(REPO_ROOT, 'apps/desktop/src/renderer/settings/provider-brand-marks.tsx'),
+  resolve(REPO_ROOT, 'apps/desktop/src/renderer/mcp-brand-marks.tsx'),
 ]);
 
 async function walkTsx(dir: string): Promise<string[]> {
