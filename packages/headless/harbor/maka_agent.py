@@ -23,11 +23,14 @@ from harbor.models.trajectories import Agent, FinalMetrics, Step, Trajectory
 from harbor.models.trial.paths import EnvironmentPaths
 from harbor.utils.trajectory_utils import format_trajectory_json
 
+from process_scope import (
+    COMMAND_SCOPE_ENV as _COMMAND_SCOPE_ENV,
+    COMMAND_SCOPE_ROOT as _COMMAND_SCOPE_ROOT,
+    scoped_command as _scoped_command,
+    scoped_command_cleanup_command as _scoped_command_cleanup_command,
+    scoped_process_cleanup_command as _scoped_process_cleanup_command,
+)
 from trial_pricing import estimate_cost, pricing_from_env
-
-
-_COMMAND_SCOPE_ENV = "MAKA_HARBOR_COMMAND_SCOPE"
-_COMMAND_SCOPE_ROOT = "/tmp/maka-harbor-command-scopes"
 
 # Default wall-clock budget for a single bridged tool command when the client
 # does not request its own timeout. Matches the in-container executor floor
@@ -356,11 +359,11 @@ class MakaAgent(BaseInstalledAgent):
             run_log_path.write_bytes(stdout + stderr)
             if process.returncode == 124:
                 # run-host-cell uses 124 only after it has settled the runtime at
-                # the soft deadline and persisted maka-cell-output.json. Reclaim
-                # any command still bridged into the task before returning, or
-                # executor teardown can consume Harbor's outer timeout instead of
-                # letting it grade the task's final filesystem state.
-                executor.mark_reclaim_active_commands()
+                # the soft deadline and persisted maka-cell-output.json. Freeze the
+                # task before grading by reclaiming every process started through
+                # this cell, including background commands that already returned
+                # to the model but can still mutate packages or workspace files.
+                executor.mark_reclaim_scoped_processes()
                 return
             if process.returncode != 0:
                 message = (stderr or stdout).decode("utf-8", errors="replace").strip()
@@ -915,8 +918,8 @@ class _ToolExecutorServer:
         self._future_command_ids: dict[concurrent.futures.Future[Any], str] = {}
         self._futures_lock = threading.Lock()
         self._accepting_requests = False
-        self._reclaim_active_commands = False
         self._reclaim_scoped_processes = False
+        self._command_cleanup_error: BaseException | None = None
         self.token = secrets.token_urlsafe(32)
         self.command_scope = secrets.token_urlsafe(24)
         self.url = ""
@@ -950,51 +953,31 @@ class _ToolExecutorServer:
         """
         self._reclaim_scoped_processes = True
 
-    def mark_reclaim_active_commands(self) -> None:
-        """Make teardown stop only commands still bridged into the task.
-
-        A settled deadline must unblock executor teardown without killing
-        services that completed commands intentionally left for the verifier.
-        """
-        self._reclaim_active_commands = True
-
     async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
         stop_error: BaseException | None = None
         cleanup_error: BaseException | None = None
         reclaim_scope = exc_type is not None or self._reclaim_scoped_processes
         try:
-            cleanup_error = await self._stop_server(
-                reclaim_scoped_processes=reclaim_scope,
-                reclaim_active_commands=(
-                    self._reclaim_active_commands and not reclaim_scope
-                ),
-            )
+            cleanup_error = await self._stop_server(reclaim_scoped_processes=reclaim_scope)
         except BaseException as error:
             stop_error = error
         if stop_error is not None and not reclaim_scope:
             cleanup_error = await self._cleanup_all_scoped_processes()
+        with self._futures_lock:
+            command_cleanup_error = self._command_cleanup_error
         if stop_error is not None:
             raise stop_error
         if cleanup_error is not None:
             raise cleanup_error
+        if command_cleanup_error is not None:
+            raise command_cleanup_error
 
-    async def _stop_server(
-        self, *, reclaim_scoped_processes: bool, reclaim_active_commands: bool
-    ) -> BaseException | None:
+    async def _stop_server(self, *, reclaim_scoped_processes: bool) -> BaseException | None:
         with self._futures_lock:
             self._accepting_requests = False
             futures = list(self._futures)
-            active_command_ids = [
-                command_id
-                for future in futures
-                if (command_id := self._future_command_ids.get(future)) is not None
-            ]
         if reclaim_scoped_processes:
             cleanup_error = await self._drain_futures_with_cleanup(futures)
-        elif reclaim_active_commands:
-            cleanup_error = await self._drain_futures_with_cleanup(
-                futures, command_ids=active_command_ids
-            )
         else:
             cleanup_error = await self._drain_futures(futures)
         if self._server is not None:
@@ -1016,10 +999,9 @@ class _ToolExecutorServer:
     async def _drain_futures_with_cleanup(
         self,
         futures: list[concurrent.futures.Future[Any]],
-        command_ids: list[str] | None = None,
     ) -> BaseException | None:
         while any(not future.done() for future in futures):
-            cleanup_error = await self._cleanup_processes(command_ids)
+            cleanup_error = await self._cleanup_processes(None)
             if cleanup_error is not None:
                 for future in futures:
                     future.cancel()
@@ -1027,7 +1009,7 @@ class _ToolExecutorServer:
                 return cleanup_error
             await asyncio.sleep(0.2)
         await self._drain_futures(futures)
-        return await self._cleanup_processes(command_ids)
+        return await self._cleanup_processes(None)
 
     async def _cleanup_processes(
         self, command_ids: list[str] | None
@@ -1067,6 +1049,8 @@ class _ToolExecutorServer:
         if handler.headers.get("authorization") != f"Bearer {self.token}":
             _write_http(handler, 401, {"error": "unauthorized"})
             return
+        command_id: str | None = None
+        future: concurrent.futures.Future[Any] | None = None
         try:
             length = int(handler.headers.get("content-length") or "0")
             payload = json.loads(handler.rfile.read(length).decode("utf-8"))
@@ -1109,71 +1093,29 @@ class _ToolExecutorServer:
                 "stderr": _exec_stderr(result),
             })
         except Exception as exc:  # noqa: BLE001 - RPC boundary returns tool failure text.
+            if command_id is not None and future is not None:
+                cleanup_error = self._cleanup_failed_command(command_id)
+                if cleanup_error is not None:
+                    with self._futures_lock:
+                        if self._command_cleanup_error is None:
+                            self._command_cleanup_error = cleanup_error
             _write_http(handler, 500, {"error": str(exc)})
+
+    def _cleanup_failed_command(self, command_id: str) -> BaseException | None:
+        assert self._loop is not None
+        cleanup = asyncio.run_coroutine_threadsafe(
+            self._cleanup_processes([command_id]),
+            self._loop,
+        )
+        try:
+            return cleanup.result(timeout=30)
+        except BaseException as error:
+            return error
 
     def _discard_future(self, future: concurrent.futures.Future[Any]) -> None:
         with self._futures_lock:
             self._futures.discard(future)
             self._future_command_ids.pop(future, None)
-
-
-def _scoped_command(command: str, scope: str, command_id: str) -> str:
-    scope_dir = shlex.quote(f"{_COMMAND_SCOPE_ROOT}/{scope}")
-    pgid_path = shlex.quote(f"{_COMMAND_SCOPE_ROOT}/{scope}/{command_id}.pgid")
-    return (
-        f"mkdir -p -- {scope_dir}; set -m; "
-        f"env {_COMMAND_SCOPE_ENV}={shlex.quote(scope)} bash -lc {shlex.quote(command)} & "
-        "command_pid=$!; "
-        f"printf '%s\\n' \"$command_pid\" > {pgid_path}; "
-        "wait \"$command_pid\"; command_status=$?; "
-        f"kill -0 -- \"-$command_pid\" 2>/dev/null || rm -f -- {pgid_path}; "
-        "exit \"$command_status\""
-    )
-
-
-def _scoped_process_cleanup_command(scope: str, signal: str) -> str:
-    if signal not in ("TERM", "KILL"):
-        raise ValueError(f"unsupported cleanup signal: {signal}")
-    marker = shlex.quote(f"{_COMMAND_SCOPE_ENV}={scope}")
-    scope_dir = shlex.quote(f"{_COMMAND_SCOPE_ROOT}/{scope}")
-    return (
-        f"for pgid_file in {scope_dir}/*.pgid; do "
-        "[ -r \"$pgid_file\" ] || continue; "
-        "pgid=$(cat -- \"$pgid_file\"); "
-        "case $pgid in ''|*[!0-9]*) continue;; esac; "
-        f"kill -{signal} -- \"-$pgid\" 2>/dev/null || true; "
-        "done; "
-        "for env_file in /proc/[0-9]*/environ; do "
-        "[ -r \"$env_file\" ] || continue; "
-        f"if tr '\\000' '\\n' < \"$env_file\" | grep -Fqx -- {marker}; then "
-        "pid=${env_file#/proc/}; pid=${pid%/environ}; "
-        f"kill -{signal} \"$pid\" 2>/dev/null || true; "
-        "fi; done"
-        + (f"; rm -rf -- {scope_dir}" if signal == "KILL" else "")
-    )
-
-
-def _scoped_command_cleanup_command(
-    scope: str, command_ids: list[str], signal: str
-) -> str:
-    if signal not in ("TERM", "KILL"):
-        raise ValueError(f"unsupported cleanup signal: {signal}")
-    pgid_paths = [
-        shlex.quote(f"{_COMMAND_SCOPE_ROOT}/{scope}/{command_id}.pgid")
-        for command_id in command_ids
-    ]
-    if not pgid_paths:
-        return ":"
-    paths = " ".join(pgid_paths)
-    command = (
-        f"for pgid_file in {paths}; do "
-        "[ -r \"$pgid_file\" ] || continue; "
-        "pgid=$(cat -- \"$pgid_file\"); "
-        "case $pgid in ''|*[!0-9]*) continue;; esac; "
-        f"kill -{signal} -- \"-$pgid\" 2>/dev/null || true; "
-        "done"
-    )
-    return command + (f"; rm -f -- {paths}" if signal == "KILL" else "")
 
 
 def _write_http(handler: BaseHTTPRequestHandler, status: int, payload: dict[str, Any]) -> None:
