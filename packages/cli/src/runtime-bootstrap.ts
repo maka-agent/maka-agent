@@ -1,6 +1,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import type { ModelMessage } from 'ai';
 import {
   AiSdkBackend,
   AutomationManager,
@@ -8,17 +9,24 @@ import {
   BackendRegistry,
   GoalManager,
   PermissionEngine,
+  RuntimeReadModel,
   SessionManager,
   ShellRunProcessManager,
+  applyRuntimeEventContextBudget,
   buildAutomationTool,
   buildAskUserQuestionTool,
   buildBuiltinTools,
+  buildRuntimeEventModelReplayPlan,
+  buildChildAgentTools,
   createBuiltinSandboxManager,
   createFilesystemWorkerLaunchSpecProvider,
   FilesystemWorkerClient,
   buildDefaultContextBudgetPolicy,
   buildSkillAgentTool,
   buildGoalTools,
+  buildSubagentProjectionTools,
+  buildSubagentSpawnTool,
+  buildSubagentToolGroup,
   buildLlmHistorySummarizer,
   cleanupLegacyHistoryCompactArtifacts,
   buildProviderOptions,
@@ -26,6 +34,7 @@ import {
   evaluateAutomationCanFire,
   getAIModel,
   loadHistoryCompactBlocksFromArtifacts,
+  replayPlanItemsToModelMessages,
   resolveSkillDiscoveryPaths,
   resolveSelectedModelContextWindow,
   type AutomationDefinition,
@@ -34,6 +43,7 @@ import {
   type InvocationResult,
   type ShellRunUpdate,
   type SkillSource,
+  type ToolAvailabilityConfig,
 } from '@maka/runtime';
 import {
   createAgentRunStore,
@@ -56,6 +66,7 @@ import type { ModelChoice, ReadySessionTarget } from './connection-target.js';
 import { listReadyModelChoices, resolveDefaultSessionTarget, resolveSessionTargetForSlug } from './connection-target.js';
 import { buildCliSystemPrompt, buildCliTurnTailPrompt } from './cli-system-prompt.js';
 import { CliGoalContinuation } from './cli-goal-continuation.js';
+import { RECAP_INSTRUCTION, cleanRecapText } from './session-recap.js';
 
 export interface MakaCliRuntimeContext {
   workspaceRoot: string;
@@ -64,7 +75,7 @@ export interface MakaCliRuntimeContext {
   target: ReadySessionTarget;
   /** Selectable models across every ready connection, for the `/model` picker. */
   modelChoices: ModelChoice[];
-  /** Tools passed to the backend (builtins + automation + goals + Skill). */
+  /** Tools passed to the backend, including TUI-only interactive and subagent tools. */
   tools: MakaTool[];
   /**
    * Explicit skill invocation surface (issue #1148): the discovery source +
@@ -79,9 +90,24 @@ export interface MakaCliRuntimeContext {
   listShellRunUpdates(sessionId: string): Promise<ShellRunUpdate[]>;
   goalManager: GoalManager;
   goalContinuation: CliGoalContinuation;
+  /** One-sentence session recap generator (issue #1055), shared by `/recap` and idle-return auto-recap. */
+  recap: SessionRecapGenerator;
   close(): Promise<void>;
   /** API-key onboarding surface for the /setup wizard (#1098). */
   onboarding: MakaOnboardingSurface;
+}
+
+/**
+ * Generates a one-sentence recap of a session so far, using a tool-free model
+ * call whose exchange is never written to the session's own history. Never
+ * throws — failures resolve to `{ ok: false }` so callers can surface them
+ * without a try/catch.
+ */
+export interface SessionRecapGenerator {
+  generate(
+    sessionId: string,
+    reason: 'manual' | 'idle',
+  ): Promise<{ ok: true; text: string; raw: string } | { ok: false; error: string }>;
 }
 
 export interface CreateMakaCliRuntimeContextInput {
@@ -132,6 +158,11 @@ export async function createMakaCliRuntimeContext(
   const connectionStore = createConnectionStore(input.workspaceRoot);
   const credentialStore = createFileCredentialStore(input.workspaceRoot);
   const settingsStore = createSettingsStore(input.workspaceRoot);
+  // Authoritative RuntimeEvent read model (issue #1055's session-recap
+  // generator projects through this instead of re-deriving its own lossy
+  // StoredMessage-based projection). Built once and shared — mirrors
+  // SessionManager's own construction in session-manager.ts's readModel().
+  const runtimeReadModel = new RuntimeReadModel({ runStore, runtimeEventStore, projectionCache: store });
   const targetInput = {
     connectionStore,
     credentialStore,
@@ -181,6 +212,20 @@ export async function createMakaCliRuntimeContext(
       enableFileToolAdditionalPermissions: true,
     } : {}),
   });
+  // Child sessions get fresh file-only tools. In particular, their Read tool
+  // cannot inspect parent runtime resources and no write/shell/agent tool is
+  // present for the catalog allowlist to select.
+  const childAgentTools = input.surface === 'tui'
+    ? buildChildAgentTools(buildBuiltinTools({
+        snapshotImage: createReadImageSnapshotter(artifactStore),
+        ...(sandboxManager ? { sandboxManager } : {}),
+        ...(filesystemWorker ? {
+          filesystemWorker,
+          enableBashAdditionalPermissions: true,
+          enableFileToolAdditionalPermissions: true,
+        } : {}),
+      }))
+    : [];
   const automationManager = new AutomationManager({
     generateId: () => randomUUID(),
     now: () => Date.now(),
@@ -287,6 +332,112 @@ export async function createMakaCliRuntimeContext(
     },
     getTokenCount: (sessionId: string) => goalTokenCache.get(sessionId) ?? 0,
   });
+
+  // One-sentence session recap (issue #1055): a tool-free model call over the
+  // session's own history, never written back to it. Mirrors the goal
+  // evaluator's connection resolution + call shape above.
+  const recap: SessionRecapGenerator = {
+    async generate(sessionId, reason) {
+      let modelId = '';
+      // The actual bounded request sent to the model (projection + budget trim
+      // + trailing instruction), persisted verbatim to the artifact below.
+      let requestMessages: ModelMessage[] = [];
+      let rawText = '';
+      let cleaned = '';
+      let errorMessage: string | undefined;
+      try {
+        // Authoritative RuntimeEvent projection (issue #1182 review): reuses
+        // the same read model, budget policy, and replay-plan projection the
+        // backend uses for its own history, instead of re-deriving a lossy
+        // StoredMessage-based one.
+        const view = await runtimeReadModel.getSessionView(sessionId);
+        const header = await store.readHeader(sessionId);
+        const ready = await resolveSessionTargetForSlug(header.llmConnectionSlug, {
+          connectionStore,
+          credentialStore,
+          requestedModel: header.model,
+        });
+        modelId = ready.model;
+        const modelFetch = buildSubscriptionModelFetch({
+          connection: ready.connection,
+          sessionId: 'session-recap',
+          modelId: ready.model,
+          ...(ready.connection.providerType === 'claude-subscription' ? {
+            claude: {
+              cloakEnabled: isMakaClaudeSubscriptionCloakEnabled(),
+              deviceId: await getOrCreateCliClaudeDeviceId(input.workspaceRoot),
+              accountUuid: ready.oauthTokens?.account_uuid ?? '',
+            },
+          } : {}),
+        });
+        const contextWindow = resolveSelectedModelContextWindow(ready.connection, ready.model);
+        // Same budget-policy construction the backend uses (buildDefaultContextBudgetPolicy
+        // + applyRuntimeEventContextBudget), with the cap overridden to the
+        // recap-specific 85%-of-window-minus-4096 semantics. An unknown context
+        // window skips trimming entirely rather than guessing a cap.
+        let trimmedEvents = view.events;
+        if (contextWindow !== undefined) {
+          const budgetPolicy = buildDefaultContextBudgetPolicy(ready.connection, {
+            name: 'session-recap-history-budget',
+            modelId: ready.model,
+          });
+          if (budgetPolicy?.maxHistoryEstimatedTokens !== undefined) {
+            budgetPolicy.maxHistoryEstimatedTokens = Math.floor(contextWindow * 0.85) - 4096;
+          }
+          trimmedEvents = applyRuntimeEventContextBudget(view.events, budgetPolicy)?.events ?? view.events;
+        }
+        const plan = buildRuntimeEventModelReplayPlan(trimmedEvents);
+        requestMessages = replayPlanItemsToModelMessages(plan.items);
+        requestMessages.push({ role: 'user', content: RECAP_INSTRUCTION });
+        const ai = await import('ai') as unknown as {
+          generateText(opts: Record<string, unknown>): Promise<{ text: string }>;
+        };
+        const result = await ai.generateText({
+          model: getAIModel({
+            connection: ready.connection,
+            apiKey: ready.apiKey ?? '',
+            modelId: ready.model,
+            fetch: modelFetch,
+          }),
+          messages: requestMessages,
+          providerOptions: buildProviderOptions(ready.connection, ready.model, header.thinkingLevel),
+          maxOutputTokens: 1024,
+        });
+        rawText = result.text;
+        cleaned = cleanRecapText(rawText);
+        return { ok: true as const, text: cleaned, raw: rawText };
+      } catch (error) {
+        errorMessage = error instanceof Error ? error.message : String(error);
+        return { ok: false as const, error: errorMessage };
+      } finally {
+        try {
+          await artifactStore.create({
+            sessionId,
+            turnId: randomUUID(),
+            name: 'recap-request.json',
+            kind: 'file',
+            content: JSON.stringify(
+              {
+                reason,
+                model: modelId,
+                messageCount: requestMessages.length,
+                messages: requestMessages,
+                raw: rawText,
+                cleaned,
+                ...(errorMessage ? { error: errorMessage } : {}),
+              },
+              null,
+              2,
+            ),
+            ...(cleaned ? { summary: cleaned.slice(0, 100) } : {}),
+          });
+        } catch {
+          // Best-effort persistence; recap must work even if the artifact store fails.
+        }
+      }
+    },
+  };
+
   const goalTools = input.surface === 'tui'
     ? buildGoalTools({
         goalManager,
@@ -294,19 +445,41 @@ export async function createMakaCliRuntimeContext(
         getTokenCount: (sessionId: string) => goalTokenCache.get(sessionId) ?? 0,
       })
     : [];
+  const subagentTools = input.surface === 'tui'
+    ? [buildSubagentSpawnTool(), ...buildSubagentProjectionTools()]
+    : [];
+  const toolAvailability: ToolAvailabilityConfig | undefined = input.surface === 'tui'
+    ? {
+        economy: !process.env.MAKA_DISABLE_DEFERRED_TOOLS,
+        groups: [buildSubagentToolGroup()],
+      }
+    : undefined;
   // CLI host capability surface for the skill-compatibility gate: the tool
   // names registered on this host. The CLI has no Office tools, so bundled
   // Office skills (requiredTools includes OfficeDocument/OfficeDocumentEdit)
   // are hard-hidden here without seeding them — desktop owns Office seeding.
   const surfaceTools = input.surface === 'tui' ? [buildAskUserQuestionTool()] : [];
   const host: HostCapabilities = {
-    toolNames: new Set([...tools, automationTool, ...goalTools, ...surfaceTools].map((tool) => tool.name)),
+    toolNames: new Set([
+      ...tools,
+      automationTool,
+      ...goalTools,
+      ...subagentTools,
+      ...surfaceTools,
+    ].map((tool) => tool.name)),
   };
   const skillTool = buildSkillAgentTool(
     ({ cwd }) => resolveSkillDiscoveryPaths(cwd, input.workspaceRoot),
     host,
   );
-  const allTools = [...tools, automationTool, ...goalTools, skillTool, ...surfaceTools];
+  const allTools = [
+    ...tools,
+    automationTool,
+    ...goalTools,
+    skillTool,
+    ...subagentTools,
+    ...surfaceTools,
+  ];
 
   backends.register('ai-sdk', async (ctx) => {
     const header = input.sessionCwdOverride?.sessionId === ctx.sessionId
@@ -342,6 +515,12 @@ export async function createMakaCliRuntimeContext(
       permissionEngine,
       modelFactory: (modelInput) => getAIModel({ ...modelInput, fetch: modelFetch }),
       tools: allTools,
+      toolAvailability,
+      ...(input.surface === 'tui' ? {
+        spawnChildAgent: (childInput) => runtime.spawnChildAgent(ctx.sessionId, childInput),
+        listChildAgents: () => runtime.listChildAgents(ctx.sessionId),
+        readChildAgentOutput: (childInput) => runtime.readChildAgentOutput(ctx.sessionId, childInput),
+      } : {}),
       providerOptions: buildProviderOptions(ready.connection, ready.model, header.thinkingLevel),
       contextBudget: buildDefaultContextBudgetPolicy(ready.connection, {
         name: 'cli-default-history-budget',
@@ -394,6 +573,7 @@ export async function createMakaCliRuntimeContext(
     runtimeEventStore,
     shellRuns,
     backends,
+    ...(input.surface === 'tui' ? { childTools: childAgentTools } : {}),
     runtimeInvocationObserver: input.runtimeInvocationObserver,
     cleanupHistoryCompactArtifacts: async (cleanupInput) => {
       await cleanupLegacyHistoryCompactArtifacts({
@@ -486,6 +666,7 @@ export async function createMakaCliRuntimeContext(
     goalManager,
     goalContinuation,
     onboarding: createApiKeyOnboardingSurface({ connectionStore, credentialStore, fetchModels: fetchProviderModels }),
+    recap,
     close: async () => {
       // Stop the automation scheduler's timer (else it keeps the process alive
       // and ticks into a stopped session), then terminate background shell runs.

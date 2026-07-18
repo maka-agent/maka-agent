@@ -451,15 +451,15 @@ describe('permission response IPC boundary', () => {
     );
     assert.match(
       quickChatHandler[0],
-      /if \(isShellSurfaceOwnerActive\(owner\)\) \{[\s\S]*toastApi\.error\('开始对话失败', result\.message\);[\s\S]*\}[\s\S]*?return false;/,
-      'send failures must return false and only toast while the launching surface is still active',
+      /if \(isShellSurfaceOwnerActive\(owner\)\) \{[\s\S]*toastApi\.error\([\s\S]*copy\.quickChatFailedTitle,[\s\S]*uiLocale === 'zh' \? result\.message : copy\.quickChatFailedFallback,[\s\S]*\);[\s\S]*\}[\s\S]*?return false;/,
+      'send failures must return false and localize the toast while the launching surface is still active',
     );
     assert.match(
       quickChatHandler[0],
-      /if \(isShellSurfaceOwnerActive\(owner\)\) \{[\s\S]*toastApi\.error\('开始对话失败', generalizedErrorMessageChinese\(error, '对话暂时无法开始，请稍后重试。'\)\);[\s\S]*\}[\s\S]*?return false;/,
-      'quick chat thrown failures should use a generalized fallback only while the launching surface is still active',
+      /if \(isShellSurfaceOwnerActive\(owner\)\) \{[\s\S]*toastApi\.error\([\s\S]*copy\.quickChatFailedTitle,[\s\S]*localizedShellErrorMessage\(error, copy\.quickChatFailedFallback, uiLocale\),[\s\S]*\);[\s\S]*\}[\s\S]*?return false;/,
+      'quick chat thrown failures should use the locale-aware generalized fallback only while the launching surface is still active',
     );
-    assert.doesNotMatch(quickChatHandler[0], /toastApi\.error\('开始对话失败', cleanErrorMessage\(error\)\)/);
+    assert.doesNotMatch(quickChatHandler[0], /toastApi\.error\('开始对话失败'/);
     assert.match(
       quickChatHandler[0],
       /quickChatPendingRef\.current = false;[\s\S]*?setQuickChatPending\(false\)/,

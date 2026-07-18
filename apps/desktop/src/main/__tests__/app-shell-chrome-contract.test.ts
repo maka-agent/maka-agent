@@ -61,11 +61,15 @@ describe('app shell chrome contract', () => {
     assert.match(combined, /aria-label=\{workbarLabel\}/);
   });
 
-  it('keeps the workbar toggle unavailable until a session is active', async () => {
+  it('renders the workbar toggle only when a session is active', async () => {
     const combined = await readRendererShellCombinedSource();
 
+    // The toggle used to render disabled on module pages (MCP / skills / …)
+    // where no workbar exists — a dead button in the topbar. It now
+    // unmounts entirely when unavailable.
     assert.match(combined, /workbarAvailable: boolean/);
-    assert.match(combined, /<UiButton variant="quiet" size="icon-sm" disabled=\{!props\.workbarAvailable\} \/>/);
-    assert.match(combined, /aria-expanded=\{props\.workbarAvailable && !props\.workbarCollapsed\}/);
+    assert.match(combined, /\{props\.workbarAvailable && \([\s\S]*?onClick=\{props\.onToggleWorkbar\}/);
+    assert.doesNotMatch(combined, /disabled=\{!props\.workbarAvailable\}/);
+    assert.match(combined, /aria-expanded=\{!props\.workbarCollapsed\}/);
   });
 });

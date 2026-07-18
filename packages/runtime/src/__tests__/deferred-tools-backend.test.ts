@@ -3,7 +3,7 @@ import { describe, test } from 'node:test';
 import { z } from 'zod';
 import { MockLanguageModelV3, convertArrayToReadableStream } from 'ai/test';
 import type { LanguageModelV3StreamPart, LanguageModelV3Usage } from '@ai-sdk/provider';
-import type { LlmConnection, SessionHeader } from '@maka/core';
+import type { LlmConnection, SessionEvent, SessionHeader } from '@maka/core';
 import type { LlmCallRecord } from '@maka/core/usage-stats/types';
 import type { RuntimeEvent } from '@maka/core/runtime-event';
 
@@ -323,6 +323,7 @@ describe('AiSdkBackend deferred agent tools', () => {
       },
       prompt: 'Inspect the runtime tests.',
       abortSignal: assertAbortSignal(spawnCalls[0]),
+      onEvent: assertOnEvent(spawnCalls[0]),
     });
   });
 });
@@ -511,6 +512,17 @@ function assertAbortSignal(value: unknown): AbortSignal {
     'spawn input carries an AbortSignal',
   );
   return value.abortSignal;
+}
+
+function assertOnEvent(value: unknown): (event: SessionEvent) => void {
+  assert.ok(
+    value &&
+      typeof value === 'object' &&
+      'onEvent' in value &&
+      typeof value.onEvent === 'function',
+    'spawn input carries a child event observer',
+  );
+  return value.onEvent as (event: SessionEvent) => void;
 }
 
 // ---------------------------------------------------------------------------

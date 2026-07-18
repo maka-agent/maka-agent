@@ -138,6 +138,7 @@ export interface MakaToolContext {
     spec: AgentSpec;
     prompt: string;
     onReady?: (input: { turnId: string; agentId: string; agentName: string }) => void | Promise<void>;
+    onEvent?: (event: SessionEvent) => void;
   }) => Promise<unknown>;
   listChildAgents?: () => Promise<unknown>;
   readChildAgentOutput?: (input: { runId?: string; turnId?: string; maxEvents?: number }) => Promise<unknown>;
@@ -210,6 +211,7 @@ export interface ToolRuntimeInput {
     prompt: string;
     abortSignal: AbortSignal;
     onReady?: (input: { turnId: string; agentId: string; agentName: string }) => void | Promise<void>;
+    onEvent?: (event: SessionEvent) => void;
   }) => Promise<unknown>;
   listChildAgents?: () => Promise<unknown>;
   readChildAgentOutput?: (input: { runId?: string; turnId?: string; maxEvents?: number }) => Promise<unknown>;
@@ -1287,6 +1289,7 @@ export class ToolRuntime {
         prompt: input.prompt,
         abortSignal,
         ...(input.onReady ? { onReady: input.onReady } : {}),
+        ...(input.onEvent ? { onEvent: input.onEvent } : {}),
       }) ?? Promise.reject(new Error('spawnChildAgent is unavailable')),
     };
   }

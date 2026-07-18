@@ -105,7 +105,7 @@ async function loadAiSdkGenerateText(): Promise<AiSdkGenerateTextLike> {
 
 type ReplayPlanItems = ReturnType<typeof buildRuntimeEventModelReplayPlan>['items'];
 
-function replayPlanItemsToModelMessages(items: ReplayPlanItems): ModelMessage[] {
+export function replayPlanItemsToModelMessages(items: ReplayPlanItems): ModelMessage[] {
   const out: ModelMessage[] = [];
   for (const item of items) {
     if (item.kind === 'text') {

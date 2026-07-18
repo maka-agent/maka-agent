@@ -12,12 +12,17 @@ import {
 } from '@maka/storage';
 import {
   BackendRegistry,
+  AGENT_LIST_TOOL_NAME,
+  AGENT_OUTPUT_TOOL_NAME,
+  AGENT_SPAWN_TOOL_NAME,
+  AGENT_TOOL_GROUP_ID,
   GOAL_CLEAR_TOOL_NAME,
   GOAL_PAUSE_TOOL_NAME,
   GOAL_RESUME_TOOL_NAME,
   GOAL_SET_TOOL_NAME,
   GOAL_STATUS_TOOL_NAME,
   type AiSdkBackendInput,
+  type MakaTool,
   type SessionStore,
   type ShellRunUpdate,
 } from '@maka/runtime';
@@ -236,9 +241,76 @@ describe('Maka CLI runtime bootstrap', () => {
           run.tools.some((candidate) => goalToolNames.includes(candidate.name)),
           false,
         );
+        const agentToolNames = [
+          AGENT_SPAWN_TOOL_NAME,
+          AGENT_LIST_TOOL_NAME,
+          AGENT_OUTPUT_TOOL_NAME,
+        ];
+        assert.deepEqual(
+          agentToolNames.filter((name) => tui.tools.some((candidate) => candidate.name === name)),
+          agentToolNames,
+        );
+        assert.equal(
+          run.tools.some((candidate) => agentToolNames.includes(candidate.name)),
+          false,
+        );
       } finally {
         await tui.close();
         await run.close();
+      }
+    });
+  });
+
+  test('wires TUI subagent capabilities and a child-safe tool surface', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      const connectionStore = createConnectionStore(workspaceRoot);
+      await connectionStore.create({
+        slug: 'local',
+        name: 'Local Ollama',
+        providerType: 'ollama',
+        defaultModel: 'llama3.2',
+      });
+
+      const context = await createMakaCliRuntimeContext({
+        surface: 'tui',
+        workspaceRoot,
+        cwd: '/repo',
+      });
+      try {
+        const session = await context.runtime.createSession({
+          cwd: context.cwd,
+          backend: 'ai-sdk',
+          llmConnectionSlug: context.target.connection.slug,
+          model: context.target.model,
+          permissionMode: 'bypass',
+        });
+        const runtimeDeps = (context.runtime as unknown as RuntimeWithPrivateDeps).deps;
+        const header = await runtimeDeps.store.readHeader(session.id);
+        const backend = await runtimeDeps.backends.build('ai-sdk', {
+          sessionId: session.id,
+          workspaceRoot,
+          header,
+          store: runtimeDeps.store,
+        });
+        const backendInput = (backend as unknown as { input: AiSdkBackendInput }).input;
+
+        assert.equal(typeof backendInput.spawnChildAgent, 'function');
+        assert.equal(typeof backendInput.listChildAgents, 'function');
+        assert.equal(typeof backendInput.readChildAgentOutput, 'function');
+        assert.deepEqual(backendInput.toolAvailability, {
+          economy: !process.env.MAKA_DISABLE_DEFERRED_TOOLS,
+          groups: [{
+            id: AGENT_TOOL_GROUP_ID,
+            label: 'Agent',
+            description: 'Spawn and inspect foreground child agents.',
+            toolNames: [AGENT_SPAWN_TOOL_NAME, AGENT_LIST_TOOL_NAME, AGENT_OUTPUT_TOOL_NAME],
+          }],
+        });
+        assert.deepEqual(runtimeDeps.childTools?.map((tool) => tool.name), ['Read', 'Glob', 'Grep']);
+        assert.equal(runtimeDeps.childTools?.some((tool) => ['Bash', 'Write', 'Edit', AGENT_SPAWN_TOOL_NAME].includes(tool.name)), false);
+        assert.equal(context.skills.host.toolNames.has(AGENT_SPAWN_TOOL_NAME), true);
+      } finally {
+        await context.close();
       }
     });
   });
@@ -629,6 +701,7 @@ interface RuntimeWithPrivateDeps {
     backends: BackendRegistry;
     store: SessionStore;
     runtimeInvocationObserver?: (result: unknown) => void | Promise<void>;
+    childTools?: readonly MakaTool[];
   };
 }
 

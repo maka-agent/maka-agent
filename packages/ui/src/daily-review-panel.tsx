@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button as BaseButton } from '@base-ui/react/button';
 import { useMountedRef } from './use-mounted-ref.js';
-import { CalendarDays } from './icons.js';
+import { CalendarDays, ChevronLeft, ChevronRight } from './icons.js';
 import { SettingsSelect } from './primitives/settings-select.js';
 import type {
   DailyReviewArchive,
@@ -313,7 +313,7 @@ export function DailyReviewPanel(props: {
             onClick={() => setOffsetDays((n) => n - range)}
             aria-label={`查看更早一${stepperLabel}`}
           >
-            ‹
+            <ChevronLeft aria-hidden="true" />
           </UiButton>
           <div className="maka-daily-review-day">{dayLabel}</div>
           <UiButton
@@ -325,7 +325,7 @@ export function DailyReviewPanel(props: {
             disabled={offsetDays >= 0}
             aria-label={`查看更晚一${stepperLabel}`}
           >
-            ›
+            <ChevronRight aria-hidden="true" />
           </UiButton>
         </div>
       </header>
@@ -589,7 +589,7 @@ export function DailyReviewPanel(props: {
 
           {visibleSummary.sessions.length > 0 && (
             <section className="maka-daily-review-section" aria-label="活跃对话">
-              <h4 className="maka-daily-review-section-title">活跃对话</h4>
+              <SectionHeader as="h4" accent title="活跃对话" />
               <ul className="maka-daily-review-list" aria-label="活跃对话列表">
                 {visibleSummary.sessions.map((session) => (
                   <li key={session.id} className="maka-daily-review-list-item">
@@ -718,7 +718,7 @@ function DailyReviewTotalsCell(props: { label: string; value: string; tone?: 'er
 function DailyReviewTopList(props: { title: string; entries: ReadonlyArray<DailyReviewTopEntry> }) {
   return (
     <section className="maka-daily-review-section" aria-label={props.title}>
-      <h4 className="maka-daily-review-section-title">{props.title}</h4>
+      <SectionHeader as="h4" accent title={props.title} />
       <ul className="maka-daily-review-list" aria-label={`${props.title}列表`}>
         {props.entries.map((entry) => (
           <li key={entry.key} className="maka-daily-review-list-item">

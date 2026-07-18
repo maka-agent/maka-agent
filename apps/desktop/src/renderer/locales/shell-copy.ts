@@ -140,6 +140,11 @@ type ShellCopy = {
     responseFailedTitle: string;
     responseFailedFallback: string;
     refreshFailedTitle: string;
+    quickChatFailedTitle: string;
+    quickChatFailedFallback: string;
+    expertTeamFailedTitle: string;
+    expertTeamFailedFallback: string;
+    expertTeamNotFound: string;
   };
   projectActions: {
     currentProject: string;
@@ -356,7 +361,6 @@ type ShellCopy = {
     expandSidebar: string;
     collapseSidebar: string;
     newTask: string;
-    workbarUnavailable: string;
     expandWorkbar: string;
     collapseWorkbar: string;
     workspaceActions: string;
@@ -633,6 +637,11 @@ const SHELL_COPY_BY_LOCALE = {
       responseFailedTitle: '响应失败',
       responseFailedFallback: '会话操作失败，请稍后重试。',
       refreshFailedTitle: '刷新对话失败',
+      quickChatFailedTitle: '开始对话失败',
+      quickChatFailedFallback: '对话暂时无法开始，请稍后重试。',
+      expertTeamFailedTitle: '开始专家团失败',
+      expertTeamFailedFallback: '专家团暂时无法开始，请稍后重试。',
+      expertTeamNotFound: '找不到该专家团。',
     },
     projectActions: {
       currentProject: '当前项目',
@@ -987,7 +996,6 @@ const SHELL_COPY_BY_LOCALE = {
       expandSidebar: '展开侧边栏',
       collapseSidebar: '收起侧边栏',
       newTask: '新任务',
-      workbarUnavailable: '暂无可用的会话工作栏',
       expandWorkbar: '展开会话工作栏',
       collapseWorkbar: '收起会话工作栏',
       workspaceActions: '工作区辅助操作',
@@ -1047,6 +1055,11 @@ const SHELL_COPY_BY_LOCALE = {
       responseFailedTitle: 'Response failed',
       responseFailedFallback: 'The conversation action failed. Try again later.',
       refreshFailedTitle: 'Could not refresh conversation',
+      quickChatFailedTitle: 'Could not start conversation',
+      quickChatFailedFallback: 'The conversation could not be started. Try again later.',
+      expertTeamFailedTitle: 'Could not start expert team',
+      expertTeamFailedFallback: 'The expert team could not be started. Try again later.',
+      expertTeamNotFound: 'That expert team could not be found.',
     },
     projectActions: {
       currentProject: 'Current project',
@@ -1443,7 +1456,6 @@ const SHELL_COPY_BY_LOCALE = {
       expandSidebar: 'Expand sidebar',
       collapseSidebar: 'Collapse sidebar',
       newTask: 'New task',
-      workbarUnavailable: 'No conversation workbar is available',
       expandWorkbar: 'Expand conversation workbar',
       collapseWorkbar: 'Collapse conversation workbar',
       workspaceActions: 'Workspace actions',

@@ -58,9 +58,12 @@ export async function setupApiKeyConnection(
     if (!existing) await input.connectionStore.remove(input.slug);
     throw error;
   }
-  await input.connectionStore.setDefault(input.slug);
   try {
     const models = await input.fetchModels(connection, input.apiKey);
+    // Only a verified connection becomes the default: a probe failure leaves
+    // the host's getDefault() accurate so a cancelled first-run attempt does
+    // not trap the next launch out of onboarding.
+    await input.connectionStore.setDefault(input.slug);
     return { connection, models };
   } catch (error) {
     return { connection, models: [], testError: error instanceof Error ? error.message : String(error) };

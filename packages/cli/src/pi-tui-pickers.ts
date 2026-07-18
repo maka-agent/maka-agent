@@ -19,10 +19,11 @@ import type { UserQuestionOption } from '@maka/core';
 import { PERMISSION_MODES, type PermissionMode } from '@maka/core/permission';
 import type { ThinkingLevel } from '@maka/core/model-thinking';
 import type { InvocableSkillEntry } from '@maka/runtime';
+import type { ProviderType } from '@maka/core/llm-connections';
 import type { ModelChoice } from './connection-target.js';
 import type { OnboardableProvider } from './onboarding.js';
 import { skillInvocationPrefixAt } from './skill-token.js';
-import { ansi, editorTheme, stripAnsi } from './tui-ansi.js';
+import { ansi, editorTheme, selectListTheme, stripAnsi } from './tui-ansi.js';
 
 export class MakaAutocompleteProvider implements AutocompleteProvider {
   private readonly fileProvider: CombinedAutocompleteProvider;
@@ -197,6 +198,9 @@ export interface MakaSlashCommandMetadata {
 
 export interface MakaSlashCommand extends MakaSlashCommandMetadata {
   run(parts: string[]): void;
+  /** Alternate names that dispatch to this command without appearing in
+   *  completion or the /help menu (e.g. /quit as an alias of /exit). */
+  aliases?: readonly string[];
 }
 
 function slashCommandPrefix(lines: string[], cursorLine: number, cursorCol: number): string | null {
@@ -456,9 +460,7 @@ export function onboardableProviderPickerItems(
   return providers.map((provider) => ({
     value: provider.providerType,
     label: provider.label,
-    description: provider.requiresBaseUrl
-      ? `${provider.providerType} · custom endpoint`
-      : provider.providerType,
+    description: provider.providerType,
   }));
 }
 
@@ -495,4 +497,217 @@ function padLine(text: string, width: number): string {
   const safeWidth = Math.max(1, width);
   const trimmed = visibleWidth(text) > safeWidth ? truncateToWidth(text, safeWidth, '') : text;
   return `${trimmed}${' '.repeat(Math.max(0, safeWidth - visibleWidth(trimmed)))}`;
+}
+
+export type OnboardingWizardPhase = 'search' | 'key';
+
+export type OnboardingWizardStatus =
+  | { kind: 'prompt' }
+  | { kind: 'verifying' }
+  | { kind: 'error'; text: string };
+
+export interface OnboardingWizardInput {
+  providers: readonly OnboardableProvider[];
+  /** search→key: the user picked a provider. The runner records it for setup. */
+  onPickProvider: (providerType: ProviderType) => void;
+  /** key submit: the runner runs onboarding.setup with the recorded provider. */
+  onSubmitKey: (apiKey: string) => void;
+  /** search Esc: the runner closes the wizard (and the TUI on first run). */
+  onCancel: () => void;
+  /** key Esc: the wizard already returned to search; the runner may react. */
+  onBack: () => void;
+}
+
+/**
+ * One input field, two phases. The same overlay is the search box (filter the
+ * provider list as you type) and then the key field, so onboarding never pushes
+ * its prompt/verifying/failure notices into the transcript. Status lives in a
+ * single status line beside the field instead of the top entry flow (#1098 UX).
+ */
+export class OnboardingWizard implements Component {
+  private phase: OnboardingWizardPhase = 'search';
+  private picked: OnboardableProvider | undefined;
+  private status: OnboardingWizardStatus = { kind: 'prompt' };
+  private readonly searchEditor: Editor;
+  private readonly keyEditor: Editor;
+  private filtered: readonly OnboardableProvider[];
+  private list: SelectList;
+
+  constructor(
+    private readonly tui: TUI,
+    private readonly input: OnboardingWizardInput,
+  ) {
+    this.filtered = input.providers;
+    this.list = this.buildList();
+    this.searchEditor = new Editor(tui, editorTheme(), { paddingX: 0 });
+    // editor.onChange fires on every keystroke: refilter the provider list in
+    // place. SelectList has no setItems, so rebuild it; the next render picks
+    // the new instance up.
+    this.searchEditor.onChange = (text) => this.applyQuery(text);
+    this.keyEditor = new Editor(tui, editorTheme(), { paddingX: 0 });
+    this.keyEditor.onSubmit = (value) => {
+      if (this.picked && value) this.input.onSubmitKey(value);
+    };
+  }
+
+  private buildList(): SelectList {
+    const list = new SelectList(
+      onboardableProviderPickerItems(this.filtered),
+      10,
+      selectListTheme(),
+      { minPrimaryColumnWidth: 16, maxPrimaryColumnWidth: 32 },
+    );
+    list.onSelect = (item) => {
+      const provider = this.filtered.find((p) => p.providerType === item.value);
+      if (!provider) return;
+      this.picked = provider;
+      this.phase = 'key';
+      this.status = { kind: 'prompt' };
+      this.keyEditor.setText('');
+      this.keyEditor.disableSubmit = false;
+      this.searchEditor.setText('');
+      this.input.onPickProvider(provider.providerType);
+    };
+    return list;
+  }
+
+  private applyQuery(text: string): void {
+    const query = text.trim().toLowerCase();
+    const next = query
+      ? this.input.providers.filter((p) =>
+        p.label.toLowerCase().includes(query) || p.providerType.toLowerCase().includes(query))
+      : this.input.providers;
+    if (next === this.filtered) return;
+    this.filtered = next;
+    this.list = this.buildList();
+  }
+
+  /** Runner hook: the probe is in flight. Lock the key field and show progress. */
+  setVerifying(): void {
+    if (this.phase !== 'key') return;
+    this.status = { kind: 'verifying' };
+    this.keyEditor.disableSubmit = true;
+  }
+
+  /** Runner hook: the probe settled. An error re-arms the key field in place. */
+  setResult(result: { kind: 'error'; text: string }): void {
+    this.status = result;
+    if (result.kind === 'error') {
+      this.keyEditor.disableSubmit = false;
+      this.keyEditor.setText('');
+    }
+  }
+
+  invalidate(): void {
+    this.searchEditor.invalidate();
+    this.keyEditor.invalidate();
+    this.list.invalidate();
+  }
+
+  handleInput(data: string): void {
+    if (this.phase === 'key') {
+      this.handleKeyInput(data);
+      return;
+    }
+    if (matchesKey(data, Key.escape) || matchesKey(data, Key.ctrl('c'))) {
+      this.input.onCancel();
+      return;
+    }
+    // Arrows and Enter drive the list (selecting a provider); everything else
+    // is typed into the search field. The search editor therefore never owns
+    // history navigation during the wizard.
+    if (matchesKey(data, Key.up) || matchesKey(data, Key.down)) {
+      this.list.handleInput(data);
+      return;
+    }
+    if (matchesKey(data, Key.enter) || matchesKey(data, Key.return)) {
+      if (isKeyRepeat(data)) return;
+      this.list.handleInput(data);
+      return;
+    }
+    this.searchEditor.handleInput(data);
+  }
+
+  private handleKeyInput(data: string): void {
+    // Ctrl+C cancels the whole wizard (the overlay cancel contract binds both
+    // keys); Esc only returns to the provider search. Both fire while a probe
+    // is in flight, matching pi-tui `tui.select.cancel = [escape, ctrl+c]`.
+    if (matchesKey(data, Key.ctrl('c'))) {
+      this.input.onCancel();
+      return;
+    }
+    if (matchesKey(data, Key.escape)) {
+      this.phase = 'search';
+      this.picked = undefined;
+      this.status = { kind: 'prompt' };
+      this.keyEditor.setText('');
+      this.keyEditor.disableSubmit = false;
+      this.input.onBack();
+      return;
+    }
+    // The probe owns the key field while it is in flight: disableSubmit only
+    // blocks Enter, so swallow the rest too — otherwise typed text renders and
+    // is then silently wiped by the error path's setText('').
+    if (this.status.kind === 'verifying') return;
+    this.keyEditor.handleInput(data);
+  }
+
+  render(width: number): string[] {
+    const safeWidth = Math.max(1, width);
+    return this.phase === 'search' ? this.renderSearch(safeWidth) : this.renderKey(safeWidth);
+  }
+
+  private renderSearch(width: number): string[] {
+    this.searchEditor.focused = true;
+    this.keyEditor.focused = false;
+    return [
+      padLine(`Set Up Provider ${ansi.dim('· 1/2')} ${ansi.accent(String(this.filtered.length))}`, width),
+      padLine(ansi.dim('搜索服务商，↑↓ 选择 · Enter 确认 · Esc 取消'), width),
+      padLine('', width),
+      ...this.renderFieldRow(this.searchEditor, '搜索', width),
+      padLine('', width),
+      ...(this.filtered.length === 0
+        ? [padLine(ansi.dim('没有匹配的服务商'), width)]
+        : this.list.render(width).map((line) => formatPickerItemLine(line, width))),
+      padLine(ansi.accent('-'.repeat(width)), width),
+    ];
+  }
+
+  private renderKey(width: number): string[] {
+    this.searchEditor.focused = false;
+    // The cursor stays hidden while the probe is in flight; only an editable
+    // or errored key field takes focus.
+    this.keyEditor.focused = this.status.kind === 'prompt' || this.status.kind === 'error';
+    const label = this.picked?.label ?? '';
+    return [
+      padLine(`Set Up Provider ${ansi.dim('· 2/2')} ${ansi.accent(label)}`, width),
+      padLine(ansi.dim('输入 API key · 仅本机存储 · Esc 返回选择服务商'), width),
+      padLine('', width),
+      ...this.renderFieldRow(this.keyEditor, 'API key', width),
+      padLine('', width),
+      padLine(this.renderStatusLine(), width),
+      padLine(ansi.accent('-'.repeat(width)), width),
+    ];
+  }
+
+  private renderStatusLine(): string {
+    switch (this.status.kind) {
+      case 'prompt': return ansi.dim('Enter 提交');
+      case 'verifying': return `${ansi.yellow('⠋')} 正在验证 key…`;
+      case 'error': return ansi.red(`✗ ${this.status.text}`);
+    }
+  }
+
+  private renderFieldRow(editor: Editor, label: string, width: number): string[] {
+    const prefix = `${label} `;
+    const prefixWidth = visibleWidth(prefix);
+    const contentWidth = Math.max(1, width - prefixWidth);
+    const editorLines = editor.render(contentWidth).slice(1, -1);
+    if (editorLines.length === 0) {
+      return [padLine(prefix, width)];
+    }
+    return editorLines.map((line, index) => (
+      padLine(`${index === 0 ? prefix : ' '.repeat(prefixWidth)}${line}`, width)
+    ));
+  }
 }

@@ -3211,11 +3211,13 @@ describe('SessionManager permission mode updates', () => {
     const [parentRun] = await runStore.listSessionRuns(session.id);
     if (!parentRun) throw new Error('parent run was not recorded');
 
+    const observed: SessionEvent[] = [];
     const result = await manager.spawnChildAgent(session.id, {
       turnId: 'child-turn',
       parentRunId: parentRun.runId,
       spec: { id: LOCAL_READ_AGENT_ID, name: 'Researcher', systemPrompt: 'read only' },
       prompt: 'produce a large report',
+      onEvent: (event) => observed.push(event),
     });
 
     expect(result.status).toBe('completed');
@@ -3224,6 +3226,9 @@ describe('SessionManager permission mode updates', () => {
     expect(result.summary.startsWith('…')).toBe(true);
     expect(result.summary.includes('chunk-000')).toBe(false);
     expect(result.summary.includes('chunk-511')).toBe(true);
+    expect(observed).toHaveLength(513);
+    expect(observed[0]?.type).toBe('text_delta');
+    expect(observed.at(-1)?.type).toBe('complete');
   });
 
   test('stopSession cancels active child runs and disposes their backend', async () => {

@@ -62,11 +62,11 @@ export function PersonalizationSettingsPage(props: {
   const [uiLocale, setUiLocale] = useState<UiLocalePreference>(value.uiLocale);
   const toast = useToast();
   const personalizationMountedRef = useMountedRef();
-  // Last-write-wins persist queue, mirrored on NetworkProxySection below:
-  // a monotonic ticket disambiguates overlapping in-flight saves so a stale
-  // response can't clobber a newer one, and a pending-count keeps the sync
-  // effect from resetting local state mid-edit.
+  // The shared ticket limits stale failure feedback. Locale reconciliation
+  // has separate ownership because a later display-name or tone save must not
+  // suppress rollback of a failed language preference.
   const persistTicketRef = useRef(0);
+  const localePersistTicketRef = useRef(0);
   const persistPendingCountRef = useRef(0);
   // Debounce timer for the tone textarea; flushed immediately on blur.
   const toneDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -76,6 +76,7 @@ export function PersonalizationSettingsPage(props: {
       // Invalidate any in-flight save's late UI write, and drop the pending
       // debounced flush so it can't fire after the panel closes.
       persistTicketRef.current += 1;
+      localePersistTicketRef.current += 1;
       if (toneDebounceRef.current) {
         clearTimeout(toneDebounceRef.current);
         toneDebounceRef.current = null;
@@ -101,22 +102,24 @@ export function PersonalizationSettingsPage(props: {
     setUiLocale(value.uiLocale);
   }, [value.displayName, value.assistantTone, value.uiLocale]);
 
-  // Shared persist path for every personalization field. Newest write wins:
-  // each call bumps the ticket, and only the response whose ticket is still
-  // current is allowed to apply side effects (locale) — a slow earlier save
-  // resolving after a newer one is discarded.
+  // Shared persist path for every personalization field. Locale has its own
+  // last-write-wins lane so unrelated saves cannot steal rollback ownership.
   async function persistPersonalization(patch: Partial<PersonalizationSettings>) {
     const ticket = ++persistTicketRef.current;
+    const localeTicket = patch.uiLocale === undefined ? null : ++localePersistTicketRef.current;
     persistPendingCountRef.current += 1;
     try {
       const result = await props.onUpdate({ personalization: patch });
-      if (!personalizationMountedRef.current || ticket !== persistTicketRef.current) return;
-      if (patch.uiLocale !== undefined) {
+      if (!personalizationMountedRef.current) return;
+      if (localeTicket !== null && localeTicket === localePersistTicketRef.current) {
         setUiLocale(result.settings.personalization.uiLocale);
       }
     } catch (error) {
-      if (personalizationMountedRef.current && ticket === persistTicketRef.current) {
-        if (patch.uiLocale !== undefined) setUiLocale(value.uiLocale);
+      if (!personalizationMountedRef.current) return;
+      if (localeTicket !== null && localeTicket === localePersistTicketRef.current) {
+        setUiLocale(value.uiLocale);
+      }
+      if (ticket === persistTicketRef.current) {
         toast.error(copy.saveFailed, settingsActionErrorMessage(error, locale));
       }
     } finally {

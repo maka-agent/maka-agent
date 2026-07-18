@@ -25,7 +25,8 @@ import {
 import type { GoalTurnOutcome, SessionActivityLease } from '@maka/runtime';
 import type { ModelChoice } from './connection-target.js';
 import { listApiKeyOnboardableProviders, type MakaOnboardingSurface } from './onboarding.js';
-import type { MakaCliSkillSurface } from './runtime-bootstrap.js';
+import type { MakaCliSkillSurface, SessionRecapGenerator } from './runtime-bootstrap.js';
+import { AUTO_RECAP_DISPLAY_LIMIT_BYTES, shouldAutoRecap } from './session-recap.js';
 import {
   composeSkillInvocationMessage,
   listInvocableSkills,
@@ -81,9 +82,9 @@ import {
 } from './pi-tui-layout.js';
 import {
   MakaAutocompleteProvider,
+  OnboardingWizard,
   PickerOverlay,
   UserQuestionOverlay,
-  onboardableProviderPickerItems,
   modelChoicePickerItems,
   modelPickerItems,
   permissionModePickerItems,
@@ -140,6 +141,20 @@ export interface MakaPiTuiInput {
   /** First-run mode: auto-open the onboarding wizard on launch instead of
    *  waiting for /setup (used when the CLI starts with no configured connection). */
   firstRun?: boolean;
+  /**
+   * One-sentence session recap generator (issue #1055). Powers `/recap` and
+   * the idle-return auto-recap. Omitting it disables both — `/recap` reports
+   * unavailability and no auto-recap is ever scheduled.
+   */
+  recap?: SessionRecapGenerator;
+  /**
+   * When present, the runner switches onto this session as its first action
+   * (before entering the interactive loop), reusing the same `switchSession`
+   * path as `/session <id>`. A failed switch (missing session, stale cwd)
+   * surfaces as a transcript notice and the runner falls back to the fresh
+   * session the driver was created with.
+   */
+  resumeSessionId?: string;
 }
 
 export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
@@ -163,6 +178,19 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   let closed = false;
   let currentActivityCompletion: Promise<void> | undefined;
   let permissionResponseInFlightRequestId: string | null = null;
+  // Session recap (issue #1055): an in-flight lock shared by manual and
+  // automatic recap calls, an activity clock for idle-return detection, a
+  // watermark so auto-recap fires at most once per newly reached main turn,
+  // and a sequence counter bumped once per submitted prompt so an idle recap
+  // can detect it was superseded by a later prompt while it was generating.
+  let recapInFlight = false;
+  let lastActivityAt = Date.now();
+  // Session-scoped watermark: null (or a stale sessionId) is equivalent to a
+  // fresh session that has never had a recap (count 0). Prevents a recap
+  // triggered in session A from suppressing the first eligible recap in a
+  // later session B that happens to reach the same main-turn count.
+  let recapWatermark: { sessionId: string; mainTurnCount: number } | null = null;
+  let promptSeq = 0;
   const beginActivity = () => {
     let finish!: () => void;
     const completion = new Promise<void>((resolve) => { finish = resolve; });
@@ -620,8 +648,33 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       requestRender();
       return;
     }
+    if (isExitPrompt(prompt)) {
+      beginGracefulClose();
+      return;
+    }
+    // Captured BEFORE lastActivityAt is refreshed, so the idle gap measures up
+    // to (not including) this very submission.
+    const idleMs = Date.now() - lastActivityAt;
     editor.addToHistory(prompt);
     if (handleSlashCommand(prompt)) return;
+    // First-run has no connection, so the wizard is the only surface. This is
+    // the single choke point for idle submits (Enter, Alt+Enter, steer
+    // fallback): reopen the wizard instead of opening a turn against a
+    // connection-less driver. Slash commands above already routed to the
+    // command layer (/exit still exits, /help still shows help).
+    if (input.firstRun) {
+      showSetupWizard();
+      return;
+    }
+    // Refreshed only for a prompt that actually opens a turn: a slash command
+    // (e.g. /help) typed on the way back from idle must not consume the idle
+    // gap the next real prompt is measuring.
+    lastActivityAt = Date.now();
+    // This prompt is about to open a turn, so it counts toward the sequence
+    // an in-flight idle recap is watching — including when this very prompt
+    // is the idle-return submission that triggers the recap below.
+    promptSeq += 1;
+    maybeTriggerAutoRecap(idleMs);
     if (!input.skills || parseSkillInvocationTokens(prompt).length === 0) {
       void runAgentTurn({
         kind: 'external',
@@ -791,74 +844,26 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     requestRender();
   };
 
-  let pendingKeyEntry: { providerType: ProviderType } | undefined;
+  // Onboarding wizard (#1098 UX redesign): one overlay spans provider search
+  // → API key entry, keeping every prompt/verifying/failure notice beside the
+  // input field instead of the transcript entry flow.
+  let wizardOverlay: OverlayHandle | undefined;
+  let wizard: OnboardingWizard | undefined;
+  let wizardProviderType: ProviderType | undefined;
+  // Monotonic attempt id: each setup submit captures one, and any transition
+  // that abandons the in-flight attempt (back, re-pick, close) increments it so
+  // a late probe settlement cannot clobber a newer attempt.
+  let wizardAttempt = 0;
 
   editor.onSubmit = (prompt) => {
-    if (pendingKeyEntry) {
-      const entry = pendingKeyEntry;
-      // A slash command while the key prompt is armed is routed as a command,
-      // not swallowed as an API key (e.g. /exit must still work).
-      if (prompt.startsWith('/')) {
-        pendingKeyEntry = undefined;
-        handleSlashCommand(prompt);
-        return;
-      }
-      pendingKeyEntry = undefined;
-      if (!input.onboarding) {
-        // Minimal host without an onboarding surface cannot collect a key.
-        state.entries.push({
-          kind: 'notice',
-          level: 'error',
-          text: 'Onboarding 不可用：当前运行环境未提供配置入口。',
-        });
-        requestRender();
-        return;
-      }
-      const providerLabel = PROVIDER_DEFAULTS[entry.providerType]?.label ?? entry.providerType;
-      void input.onboarding.setup({ providerType: entry.providerType, apiKey: prompt }).then(
-        (result) => {
-          if (result.testError) {
-            // Saved but the probe failed (wrong key / offline). Re-arm the key
-            // prompt so the user retries in place — the upsert rotates the key.
-            state.entries.push({
-              kind: 'notice',
-              level: 'error',
-              text: `API key 验证失败：${result.testError}。请检查后重新输入。`,
-            });
-            pendingKeyEntry = entry;
-            requestRender();
-            return;
-          }
-          if (input.firstRun) {
-            beginClose();
-            return;
-          }
-          state.entries.push({
-            kind: 'notice',
-            level: 'info',
-            text: `已配置 ${providerLabel}。新连接将在下次启动 maka 时生效。`,
-          });
-          requestRender();
-        },
-        (error) => {
-          pendingKeyEntry = entry;
-          state.entries.push({
-            kind: 'notice',
-            level: 'error',
-            text: `配置失败：${error instanceof Error ? error.message : String(error)}`,
-          });
-          requestRender();
-        },
-      );
-      return;
-    }
-    if (input.firstRun) {
-      // First-run mode: no agent turn is possible before a connection exists.
-      // Re-open the picker so the only exits are configure or cancel (Esc).
-      showSetupPicker();
-      return;
-    }
     if (turnRunning) {
+      // A quit/exit form typed while a turn is running must close the TUI, not
+      // steer it into the model as prompt text (review finding on turnRunning
+      // input routing): check it before handing off to steering.
+      if (isExitPrompt(prompt)) {
+        beginGracefulClose();
+        return;
+      }
       steerRunningTurn(prompt);
       return;
     }
@@ -891,6 +896,9 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       editor.disableSubmit = false;
       terminal.setProgress(false);
       attention.promptTurnEnded();
+      // A turn ending is activity too — resets the idle clock the next
+      // submission's auto-recap check measures against.
+      lastActivityAt = Date.now();
     };
 
     return runMakaPiTuiTurn({
@@ -1070,12 +1078,32 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   // runner state (model/connection/thinking/transcript/scroll).
   const applySwitchResult = async ({ summary, messages }: MakaSessionSwitchResult): Promise<void> => {
     cwd = summary.cwd ?? cwd;
+    const previousModel = model;
     model = summary.model;
     const previousConnectionSlug = connectionSlug;
     connectionSlug = summary.llmConnectionSlug;
-    providerType = input.modelChoices?.find((choice) => (
+    const matchingChoice = input.modelChoices?.find((choice) => (
       choice.connectionSlug === summary.llmConnectionSlug
-    ))?.providerType ?? (previousConnectionSlug === summary.llmConnectionSlug ? providerType : undefined);
+    ));
+    providerType = matchingChoice?.providerType
+      ?? (previousConnectionSlug === summary.llmConnectionSlug ? providerType : undefined);
+    // Statusline ctx total for the now-active session (review finding: a
+    // switch/rewind onto a different connection or model left the previous
+    // session's window in place). Mirrors setModel/setModelChoice's own
+    // lookup above. An exact match (connection + model) updates the window;
+    // no match with the target actually changed means the resumed model was
+    // curated out of modelChoices (a legitimate state for old sessions) —
+    // clear the window rather than keep showing the previous session's ctx
+    // total under a different model. No match but the target didn't change
+    // (e.g. rewind within the same session) leaves the window untouched.
+    const contextWindowMatch = input.modelChoices?.find((choice) => (
+      choice.connectionSlug === summary.llmConnectionSlug && choice.model === summary.model
+    ));
+    if (contextWindowMatch) {
+      modelContextWindow = contextWindowMatch.contextWindow;
+    } else if (previousConnectionSlug !== summary.llmConnectionSlug || previousModel !== summary.model) {
+      modelContextWindow = undefined;
+    }
     permissionMode = summary.permissionMode;
     thinkingLevel = summary.thinkingLevel;
     thinkingLevels = providerType ? thinkingVariantsForModel(providerType, summary.model) : [];
@@ -1235,7 +1263,68 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     overlay = showBottomPicker(picker);
   };
 
-  const showSetupPicker = () => {
+  const closeWizard = (): void => {
+    wizardAttempt += 1; // drop any in-flight setup before clearing the slots
+    wizardOverlay?.hide();
+    wizardOverlay = undefined;
+    wizard = undefined;
+    wizardProviderType = undefined;
+  };
+
+  // Key submit from the wizard. Slash commands route as commands (so /exit
+  // still escapes the wizard) instead of being stored as an API key; every
+  // in-flight state stays inside the wizard overlay, never the transcript.
+  const submitWizardKey = (apiKey: string): void => {
+    const providerType = wizardProviderType;
+    if (!providerType || !wizard) return;
+    if (apiKey.startsWith('/')) {
+      closeWizard();
+      handleSlashCommand(apiKey);
+      return;
+    }
+    if (!input.onboarding) {
+      wizard.setResult({ kind: 'error', text: 'Onboarding 不可用：当前运行环境未提供配置入口。' });
+      requestRender();
+      return;
+    }
+    const targetWizard = wizard;
+    const attempt = ++wizardAttempt;
+    targetWizard.setVerifying();
+    requestRender();
+    void input.onboarding.setup({ providerType, apiKey }).then(
+      (result) => {
+        if (closed || wizard !== targetWizard || attempt !== wizardAttempt) return;
+        if (result.testError) {
+          // Probe failed: re-arm the key field in place — the upsert rotates
+          // the key, so retrying does not throw "slug already exists".
+          wizard.setResult({ kind: 'error', text: `API key 验证失败：${result.testError}。请检查后重新输入。` });
+          requestRender();
+          return;
+        }
+        const label = PROVIDER_DEFAULTS[providerType]?.label ?? providerType;
+        if (input.firstRun) {
+          beginClose();
+          return;
+        }
+        // The wizard's in-flight notices never reached the transcript; only the
+        // completed configuration is recorded as an event for the next launch.
+        closeWizard();
+        state.entries.push({
+          kind: 'notice',
+          level: 'info',
+          text: `已配置 ${label}。新连接将在下次启动 maka 时生效。`,
+        });
+        requestRender();
+      },
+      (error) => {
+        if (closed || wizard !== targetWizard || attempt !== wizardAttempt) return;
+        wizard.setResult({ kind: 'error', text: `配置失败：${error instanceof Error ? error.message : String(error)}` });
+        requestRender();
+      },
+    );
+  };
+
+  const showSetupWizard = (): void => {
     const providers = listApiKeyOnboardableProviders();
     if (providers.length === 0) {
       state.entries.push({
@@ -1246,23 +1335,145 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       requestRender();
       return;
     }
-    showSelectPicker(
-      'Set Up Provider',
-      String(providers.length),
-      onboardableProviderPickerItems(providers),
-      (item) => {
-        const providerType = item.value as ProviderType;
-        const label = PROVIDER_DEFAULTS[providerType]?.label ?? providerType;
-        pendingKeyEntry = { providerType };
+    wizardOverlay?.hide();
+    wizard = new OnboardingWizard(tui, {
+      providers,
+      onPickProvider: (providerType) => {
+        wizardProviderType = providerType;
+        wizardAttempt += 1; // a new pick supersedes any in-flight attempt
+        requestRender();
+      },
+      onSubmitKey: submitWizardKey,
+      onCancel: () => {
+        closeWizard();
+        // First-run has no connection to fall back to: cancelling the wizard
+        // closes the TUI so the host surfaces its missing-default guidance.
+        if (input.firstRun) beginClose();
+      },
+      onBack: () => {
+        wizardProviderType = undefined;
+        wizardAttempt += 1; // abandoning the key field invalidates its probe
+        requestRender();
+      },
+    });
+    wizardOverlay = showBottomPicker(wizard);
+  };
+
+  // One-sentence session recap (issue #1055). Shared by the manual /recap
+  // command and idle-return auto-recap; both paths route through the same
+  // in-flight lock so at most one recap call runs at a time.
+  const runRecap = async (reason: 'manual' | 'idle'): Promise<void> => {
+    // Captured synchronously on entry, so for the idle path this already
+    // includes the seq bump from the very prompt that triggered this call
+    // (submitPrompt bumps promptSeq before invoking maybeTriggerAutoRecap).
+    // Only a prompt submitted *after* this point — i.e. later than the one
+    // that triggered the recap — should make the result stale.
+    const seqAtStart = promptSeq;
+    // Captured synchronously on entry, before any await: /session, /new, and
+    // rewind never bump promptSeq, so a session switch mid-generate must be
+    // caught by comparing sessionIds directly rather than relying on seq.
+    const sessionIdAtStart = input.driver.getSessionId();
+    if (!input.recap) {
+      if (reason === 'manual') {
+        state.entries.push({
+          kind: 'notice',
+          level: 'error',
+          text: 'Recap is not available in this environment.',
+        });
+        requestRender();
+      }
+      return;
+    }
+    if (recapInFlight) {
+      if (reason === 'manual') {
+        state.entries.push({
+          kind: 'notice',
+          level: 'error',
+          text: 'Recap already running.',
+        });
+        requestRender();
+      }
+      return;
+    }
+    // Locked synchronously, before any await: two /recap invocations
+    // submitted back-to-back must not both pass the recapInFlight check above
+    // before either sets it. The rest of the body is one try/finally so every
+    // early return (including "Nothing to recap yet" and a null session)
+    // releases the lock.
+    recapInFlight = true;
+    try {
+      const mainTurnCount = (await input.driver.listRewindTargets()).length;
+      if (reason === 'manual' && mainTurnCount < 1) {
         state.entries.push({
           kind: 'notice',
           level: 'info',
-          text: `请输入 ${label} 的 API key，按回车提交（仅本机存储）。`,
+          text: 'Nothing to recap yet.',
         });
         requestRender();
-      },
-      { minPrimaryColumnWidth: 16, maxPrimaryColumnWidth: 32, onCancel: input.firstRun ? () => beginClose() : undefined },
-    );
+        return;
+      }
+      if (!sessionIdAtStart) return;
+
+      const result = await input.recap.generate(sessionIdAtStart, reason);
+
+      // The active session must still be the one this recap started for —
+      // checked before ANY display (success notice or manual failure notice).
+      // /session, /new, or a rewind switched the active session while
+      // generate() was in flight: the session this result belongs to is gone
+      // from view, so surfacing it (success or error) would land on the wrong
+      // session. Drop it silently regardless of manual/idle.
+      if (input.driver.getSessionId() !== sessionIdAtStart) return;
+
+      if (!result.ok) {
+        if (reason === 'manual') {
+          state.entries.push({
+            kind: 'notice',
+            level: 'error',
+            text: `Recap failed: ${result.error}`,
+          });
+          requestRender();
+        }
+        return;
+      }
+
+      if (reason === 'idle') {
+        // Below the display threshold suppresses the notice (still persisted by
+        // the generator); a prompt submitted after seqAtStart while the call
+        // was in flight means a later prompt has superseded this recap — drop
+        // it silently either way.
+        if (Buffer.byteLength(result.raw, 'utf8') > AUTO_RECAP_DISPLAY_LIMIT_BYTES) return;
+        if (promptSeq !== seqAtStart) return;
+      }
+
+      state.entries.push({
+        kind: 'notice',
+        level: 'info',
+        text: `Recap: ${result.text}`,
+      });
+      requestRender();
+    } finally {
+      recapInFlight = false;
+    }
+  };
+
+  // Fire-and-forget idle-return check: a normal prompt submitted after a long
+  // enough gap auto-triggers a recap, without blocking the turn it opens.
+  const maybeTriggerAutoRecap = (idleMs: number): void => {
+    if (!input.recap) return;
+    void (async () => {
+      try {
+        const sessionId = input.driver.getSessionId();
+        const mainTurnCount = (await input.driver.listRewindTargets()).length;
+        const lastRecapMainTurnCount = sessionId && recapWatermark?.sessionId === sessionId
+          ? recapWatermark.mainTurnCount
+          : 0;
+        if (!shouldAutoRecap({ idleMs, mainTurnCount, lastRecapMainTurnCount })) return;
+        if (sessionId) recapWatermark = { sessionId, mainTurnCount };
+        void runRecap('idle');
+      } catch {
+        // Best-effort: auto-recap must never surface an error to the user.
+      }
+    })();
   };
 
   const compactSession = async () => {
@@ -1373,7 +1584,12 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     // Derive the command list from the registry so /help never drifts from the
     // real commands. Keybindings are not commands, so they are listed by hand.
     const commands = slashCommands
-      .map((command) => `  /${command.name} — ${command.description}`)
+      .map((command) => {
+        const aliasSuffix = command.aliases && command.aliases.length > 0
+          ? ` (${command.aliases.map((alias) => `/${alias}`).join(', ')})`
+          : '';
+        return `  /${command.name}${aliasSuffix} — ${command.description}`;
+      })
       .join('\n');
     const keybindings = [
       '  Ctrl+O — expand or collapse all tool output',
@@ -1526,6 +1742,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     {
       name: 'exit',
       description: 'Exit Maka',
+      aliases: ['quit'],
       run: () => {
         beginGracefulClose();
       },
@@ -1573,7 +1790,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
           requestRender();
           return;
         }
-        showSetupPicker();
+        showSetupWizard();
       },
     },
     {
@@ -1657,6 +1874,13 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       },
     },
     {
+      name: 'recap',
+      description: 'One-sentence recap of the session so far',
+      run: () => {
+        void runRecap('manual');
+      },
+    },
+    {
       name: 'rename',
       description: 'Rename current session',
       run: (parts: string[]) => {
@@ -1713,7 +1937,10 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
 
   const handleSlashCommand = (prompt: string): boolean => {
     const parts = prompt.trim().split(/\s+/);
-    const command = slashCommands.find((candidate) => `/${candidate.name}` === parts[0]);
+    const command = slashCommands.find((candidate) => (
+      `/${candidate.name}` === parts[0]
+      || candidate.aliases?.some((alias) => `/${alias}` === parts[0])
+    ));
     if (!command) return false;
     command.run(parts);
     return true;
@@ -1914,9 +2141,24 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     // to the enable sequence (a focus-in `\x1b[I`) is echoed by the cooked-mode
     // line discipline and leaks onto the screen as a stray `^[[I` on launch.
     terminal.write(ENABLE_FOCUS_REPORTING);
-    if (input.firstRun) showSetupPicker();
+    if (input.firstRun) showSetupWizard();
   } catch (error) {
     beginClose(error instanceof Error ? error : new Error(String(error)));
+  }
+
+  if (input.resumeSessionId) {
+    void runControl(async () => {
+      try {
+        await switchSession(input.resumeSessionId!);
+      } catch (error) {
+        state.entries.push({
+          kind: 'notice',
+          level: 'error',
+          text: `Could not resume session ${input.resumeSessionId}: ${error instanceof Error ? error.message : String(error)}. Starting fresh.`,
+        });
+        requestRender();
+      }
+    });
   }
 
   return closedPromise;
@@ -1927,12 +2169,21 @@ const BOTTOM_PICKER_MARGIN_ROWS = 4;
 // The editor's autocomplete window height. Sized to fit the whole slash-command
 // menu (10 today) with headroom, so a bare `/` shows every command rather than
 // scrolling a subset.
-const EDITOR_AUTOCOMPLETE_MAX_VISIBLE = 12;
+const EDITOR_AUTOCOMPLETE_MAX_VISIBLE = 13;
 
 // A short, stable slice of a session id — enough to tell two same-named
 // sessions apart in the picker without showing the full unreadable uuid.
 function shortSessionId(id: string): string {
   return id.slice(0, 8);
+}
+
+// Matches only the four exact "close the TUI" spellings — bare `quit`/`exit`
+// and their slash forms — never a prefix or a phrase merely containing one, so
+// it can gate both the idle submit path and mid-turn input without swallowing
+// an in-turn steering message that happens to mention "quit".
+function isExitPrompt(prompt: string): boolean {
+  const trimmed = prompt.trim();
+  return trimmed === 'quit' || trimmed === 'exit' || trimmed === '/quit' || trimmed === '/exit';
 }
 
 // Two Escapes this close together read as one deliberate "stop the turn".

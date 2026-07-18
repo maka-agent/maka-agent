@@ -9,9 +9,11 @@ import { describe, test } from 'node:test';
 import { createSessionStore } from '@maka/storage';
 import {
   parseMakaCliArgs,
+  formatResumeHint,
   formatStartupConnectionError,
   formatMakaCliFatalError,
   resolveMakaCliExitCode,
+  resolveTuiResumeTarget,
 } from '../cli.js';
 
 const execFileAsync = promisify(execFile);
@@ -21,9 +23,10 @@ const legacyCliPath = new URL('../../../headless/dist/cli.js', import.meta.url).
 function runCliProcess(
   entrypoint: string,
   args: string[],
+  env: NodeJS.ProcessEnv = process.env,
 ): Promise<{ code: number | null; stdout: string; stderr: string }> {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [entrypoint, ...args]);
+    const child = spawn(process.execPath, [entrypoint, ...args], { env });
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString('utf8'); });
@@ -85,6 +88,43 @@ describe('Maka CLI args', () => {
       message: 'Unexpected argument: headless',
       exitCode: 2,
     });
+  });
+
+  test('resumes a session by id through --resume', () => {
+    assert.deepEqual(parseMakaCliArgs(['--resume', 'abc'], '0.1.0'), {
+      kind: 'tui',
+      resumeSessionId: 'abc',
+    });
+  });
+
+  test('rejects --resume without a session id', () => {
+    assert.deepEqual(parseMakaCliArgs(['--resume'], '0.1.0'), {
+      kind: 'error',
+      message: '--resume requires a session id',
+      exitCode: 2,
+    });
+  });
+
+  test('rejects --resume when the next token is another flag', () => {
+    assert.deepEqual(parseMakaCliArgs(['--resume', '--help'], '0.1.0'), {
+      kind: 'error',
+      message: '--resume requires a session id',
+      exitCode: 2,
+    });
+  });
+
+  test('rejects --resume with a trailing extra argument', () => {
+    assert.deepEqual(parseMakaCliArgs(['--resume', 'abc', 'extra'], '0.1.0'), {
+      kind: 'error',
+      message: 'Unexpected argument: extra',
+      exitCode: 2,
+    });
+  });
+
+  test('runs the plain TUI without a resumeSessionId', () => {
+    const command = parseMakaCliArgs([], '0.1.0');
+    assert.deepEqual(command, { kind: 'tui' });
+    assert.equal((command as { resumeSessionId?: string }).resumeSessionId, undefined);
   });
 
   test('uses the command exit code when no earlier exit reason exists', () => {
@@ -248,6 +288,55 @@ describe('Maka CLI args', () => {
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('resolveTuiResumeTarget', () => {
+  test('anchors the resumed session\'s stored connection and model', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-cli-resume-target-'));
+    try {
+      const session = await createSessionStore(root).create({
+        cwd: '/tmp/some-workspace',
+        name: 'Resume target',
+        backend: 'ai-sdk',
+        llmConnectionSlug: 'some-connection',
+        model: 'some-model',
+        permissionMode: 'ask',
+      });
+
+      const result = await resolveTuiResumeTarget(root, session.id);
+
+      assert.deepEqual(result, {
+        requestedConnectionSlug: 'some-connection',
+        requestedModel: 'some-model',
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('returns undefined for a session that does not exist, so startup falls back to the default connection', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-cli-resume-target-missing-'));
+    try {
+      const result = await resolveTuiResumeTarget(root, 'nonexistent-session');
+
+      assert.equal(result, undefined);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('formatResumeHint', () => {
+  test('returns null when there is no session to resume', () => {
+    assert.equal(formatResumeHint(null), null);
+  });
+
+  test('formats the exact resume command for a session id', () => {
+    assert.equal(
+      formatResumeHint('session-123'),
+      'Resume this session with:\n  maka --resume session-123',
+    );
   });
 });
 

@@ -358,6 +358,7 @@ describe('subagent tools', () => {
     const tool = buildSubagentSpawnTool();
     const abortController = new AbortController();
     const calls: unknown[] = [];
+    const output: Array<{ stream: string; chunk: string }> = [];
 
     const result = await tool.impl({
       profile: LOCAL_READ_AGENT_PROFILE,
@@ -368,9 +369,17 @@ describe('subagent tools', () => {
       cwd: '/tmp/cwd',
       toolCallId: 'tool-1',
       abortSignal: abortController.signal,
-      emitOutput: () => {},
+      emitOutput: (stream, chunk) => output.push({ stream, chunk }),
       spawnChildAgent: async (input) => {
         calls.push(input);
+        input.onEvent?.({
+          type: 'tool_start', id: 'child-start', turnId: 'child-turn', ts: 1,
+          toolUseId: 'child-tool', toolName: 'Read', displayName: 'Read file', args: { path: 'secret.txt' },
+        });
+        input.onEvent?.({
+          type: 'tool_result', id: 'child-result', turnId: 'child-turn', ts: 2,
+          toolUseId: 'child-tool', isError: false, content: { kind: 'text', text: 'secret body' },
+        });
         return {
           agentId: input.spec.id,
           agentName: input.spec.name,
@@ -386,14 +395,27 @@ describe('subagent tools', () => {
     expect(tool.name).toBe(AGENT_SPAWN_TOOL_NAME);
     expect(tool.categoryHint).toBe('subagent');
     expect(tool.permissionRequired).toBe(true);
-    expect(calls).toEqual([{
-      spec: {
-        id: LOCAL_READ_AGENT_ID,
-        name: 'Local Read',
-        systemPrompt: LOCAL_READ_AGENT_DEFINITION.systemPrompt,
-      },
-      prompt: 'Inspect the runtime tests.',
-    }]);
+    expect(calls).toHaveLength(1);
+    const call = calls[0] as {
+      spec: unknown;
+      prompt: string;
+      onEvent?: (event: SessionEvent) => void;
+    };
+    expect(call.spec).toEqual({
+      id: LOCAL_READ_AGENT_ID,
+      name: 'Local Read',
+      systemPrompt: LOCAL_READ_AGENT_DEFINITION.systemPrompt,
+    });
+    expect(call.prompt).toBe('Inspect the runtime tests.');
+    expect(typeof call.onEvent).toBe('function');
+    expect(output).toEqual([
+      { stream: 'stdout', chunk: 'Starting child agent: Local Read\n' },
+      { stream: 'stdout', chunk: 'Child tool started: Read file\n' },
+      { stream: 'stdout', chunk: 'Child tool finished: Read file\n' },
+      { stream: 'stdout', chunk: 'Child agent Local Read: completed\n' },
+    ]);
+    expect(JSON.stringify(output)).not.toContain('secret.txt');
+    expect(JSON.stringify(output)).not.toContain('secret body');
     expect(result).toEqual({
       kind: 'subagent',
       agentId: LOCAL_READ_AGENT_ID,
@@ -404,6 +426,54 @@ describe('subagent tools', () => {
       summary: 'done',
       artifactIds: [],
     });
+  });
+
+  test('agent_spawn bounds projected child tool activity', async () => {
+    const tool = buildSubagentSpawnTool();
+    const output: string[] = [];
+
+    await tool.impl({
+      profile: LOCAL_READ_AGENT_PROFILE,
+      task: 'Inspect many files.',
+    }, {
+      sessionId: 'session-1', turnId: 'parent-turn', cwd: '/tmp', toolCallId: 'tool-1',
+      abortSignal: new AbortController().signal,
+      emitOutput: (_stream, chunk) => output.push(chunk),
+      spawnChildAgent: async (input) => {
+        for (let index = 0; index < 100; index += 1) {
+          input.onEvent?.({
+            type: 'tool_start', id: `start-${index}`, turnId: 'child-turn', ts: index,
+            toolUseId: `child-tool-${index}`, toolName: 'Read', args: { path: `${index}.txt` },
+          });
+        }
+        return {
+          agentId: input.spec.id, agentName: input.spec.name, turnId: 'child-turn',
+          status: 'completed', permissionMode: 'explore', summary: 'done', artifactIds: [],
+        };
+      },
+    });
+
+    expect(output).toHaveLength(66);
+    expect(output[0]).toBe('Starting child agent: Local Read\n');
+    expect(output.at(-1)).toBe('Child agent Local Read: completed\n');
+  });
+
+  test('agent_spawn bounds projected startup failures', async () => {
+    const tool = buildSubagentSpawnTool();
+    const output: string[] = [];
+
+    await expectRejects(Promise.resolve(tool.impl({
+      profile: LOCAL_READ_AGENT_PROFILE,
+      task: 'Fail.',
+    }, {
+      sessionId: 'session-1', turnId: 'parent-turn', cwd: '/tmp', toolCallId: 'tool-1',
+      abortSignal: new AbortController().signal,
+      emitOutput: (_stream, chunk) => output.push(chunk),
+      spawnChildAgent: async () => { throw new Error('x'.repeat(10_000)); },
+    })), /^x+$/);
+
+    expect(output).toHaveLength(2);
+    expect((output[1]?.length ?? Number.POSITIVE_INFINITY) < 1_100).toBe(true);
   });
 
   test('agent_spawn delegates web_research through the catalog definition', async () => {
@@ -436,14 +506,19 @@ describe('subagent tools', () => {
       },
     });
 
-    expect(calls).toEqual([{
-      spec: {
-        id: WEB_RESEARCH_AGENT_ID,
-        name: 'Web Research',
-        systemPrompt: WEB_RESEARCH_AGENT_DEFINITION.systemPrompt,
-      },
-      prompt: 'Find current sources.',
-    }]);
+    expect(calls).toHaveLength(1);
+    const call = calls[0] as {
+      spec: unknown;
+      prompt: string;
+      onEvent?: (event: SessionEvent) => void;
+    };
+    expect(call.spec).toEqual({
+      id: WEB_RESEARCH_AGENT_ID,
+      name: 'Web Research',
+      systemPrompt: WEB_RESEARCH_AGENT_DEFINITION.systemPrompt,
+    });
+    expect(call.prompt).toBe('Find current sources.');
+    expect(typeof call.onEvent).toBe('function');
     expect(result).toMatchObject({
       kind: 'subagent',
       agentId: WEB_RESEARCH_AGENT_ID,

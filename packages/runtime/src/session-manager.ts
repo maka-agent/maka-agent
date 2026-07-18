@@ -107,6 +107,8 @@ export interface SpawnChildAgentInput {
   prompt: string;
   abortSignal?: AbortSignal;
   onReady?: (input: { turnId: string; agentId: string; agentName: string }) => void | Promise<void>;
+  /** Presentation-only observer for projecting child activity into a parent surface. */
+  onEvent?: (event: SessionEvent) => void;
 }
 
 export interface SpawnChildAgentResult {
@@ -654,6 +656,11 @@ export class SessionManager {
         const next = await iterator.next();
         if (next.done) break;
         summary.add(next.value);
+        try {
+          input.onEvent?.(next.value);
+        } catch {
+          // A presentation observer must not change the child run outcome.
+        }
       }
     } finally {
       input.abortSignal?.removeEventListener('abort', onAbort);
