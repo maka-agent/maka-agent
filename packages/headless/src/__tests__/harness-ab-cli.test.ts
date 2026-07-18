@@ -157,7 +157,12 @@ test('harness A/B freezes the stored advisory evidence when resuming a run', asy
 });
 
 test('harness A/B defaults to pinned Kimi Code and keeps OpenCode selectable', async () => {
-  const { buildHarnessAbManifest, resolveHarnessCompetitorProfile } = await import(
+  const {
+    buildHarnessAbManifest,
+    resolveHarnessAbRunId,
+    resolveHarnessCompetitorProfile,
+    resolveHarnessCompetitorToolchainPath,
+  } = await import(
     new URL('../../harbor/run-harness-ab.mjs', import.meta.url).href
   );
 
@@ -189,6 +194,15 @@ test('harness A/B defaults to pinned Kimi Code and keeps OpenCode selectable', a
   assert.equal(manifest.metadata.order.pilotTaskCount, 5);
   assert.equal(manifest.maxConcurrency, 4);
   assert.equal(manifest.maxConcurrentAttempts, 8);
+  const kimiProfile = resolveHarnessCompetitorProfile('kimi-code');
+  assert.equal(
+    resolveHarnessAbRunId(kimiProfile),
+    'k3-maka-vs-kimi-code-tbench-2.1-full-v2',
+  );
+  assert.match(
+    resolveHarnessCompetitorToolchainPath('/run', kimiProfile),
+    new RegExp(`kimi-code-0\\.26\\.0-${kimiProfile.toolchainFingerprint.slice(7, 19)}-linux-x64$`),
+  );
   for (const arm of manifest.arms) {
     assert.equal(arm.metadata.config.billingMode, 'account-plan');
   }

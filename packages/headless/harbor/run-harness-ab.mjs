@@ -62,7 +62,7 @@ import {
 const execFileAsync = promisify(execFile);
 
 const EXPECTED_SOURCE_TASKS = TERMINAL_BENCH_2_1_TASK_IDS.length;
-export const DEFAULT_HARNESS_AB_RUN_ID = 'k3-maka-vs-kimi-code-tbench-2.1-full-v1';
+export const DEFAULT_HARNESS_AB_RUN_ID = 'k3-maka-vs-kimi-code-tbench-2.1-full-v2';
 const CANARY_TASKS = 5;
 const PROVIDER = 'kimi-coding-plan';
 const MODEL = 'k3';
@@ -128,6 +128,15 @@ export function resolveHarnessAbRunId(competitorProfile, explicitRunId) {
     || (competitorProfile.id === 'kimi-code'
       ? DEFAULT_HARNESS_AB_RUN_ID
       : `k3-maka-vs-${competitorProfile.id}-tbench-2.1-full-v1`);
+}
+
+export function resolveHarnessCompetitorToolchainPath(runRoot, competitorProfile) {
+  const fingerprintPrefix = competitorProfile.toolchainFingerprint.slice('sha256:'.length, 'sha256:'.length + 12);
+  return join(
+    runRoot,
+    'toolchains',
+    `${competitorProfile.id}-${competitorProfile.version}-${fingerprintPrefix}-linux-x64`,
+  );
 }
 
 function envPath(name, fallback) {
@@ -309,13 +318,13 @@ async function runLocked({ repoRoot, makaRepoPath, tasksRoot, runId, limit, runR
     ? {
         path: process.env.MAKA_HARNESS_AB_KIMI_CODE_TOOLCHAIN
           ? resolve(process.env.MAKA_HARNESS_AB_KIMI_CODE_TOOLCHAIN)
-          : join(runRoot, 'toolchains', `kimi-code-${KIMI_CODE_TOOLCHAIN_SPEC.kimiCode.version}-linux-x64`),
+          : resolveHarnessCompetitorToolchainPath(runRoot, competitorProfile),
         prepare: prepareKimiCodeToolchain,
       }
     : {
         path: process.env.MAKA_HARNESS_AB_OPENCODE_TOOLCHAIN
           ? resolve(process.env.MAKA_HARNESS_AB_OPENCODE_TOOLCHAIN)
-          : join(runRoot, 'toolchains', `opencode-${OPENCODE_TOOLCHAIN_SPEC.opencode.version}-linux-x64`),
+          : resolveHarnessCompetitorToolchainPath(runRoot, competitorProfile),
         prepare: prepareOpenCodeToolchain,
       };
   await competitorToolchain.prepare(competitorToolchain.path);
