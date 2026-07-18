@@ -288,23 +288,12 @@
   white-space: nowrap;
 }
 
-.maka-daily-review-alert {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-2);
-    padding: var(--space-2) var(--space-2-5);
-    border: var(--border-width-hairline) solid oklch(from var(--warning, var(--info)) l c h / 0.3);
-    border-radius: var(--radius-surface);
-    background: oklch(from var(--warning, var(--info)) l c h / 0.08);
-    color: var(--warning-text, var(--foreground));
-    font-size: var(--font-size-ui);
-  }
-
-.maka-daily-review-alert > span {
-    min-width: 0;
-  }
-
+/* Convergence (maintainer 2026-07-18): the retry alert re-implemented the
+   warning surface (flex row + hairline border + tinted bg + radius) by hand,
+   fighting the Alert primitive's own grid slot layout. The `warning` variant
+   already owns border / tint / radius / padding and the description↔action
+   split, so the bespoke chrome is dropped — the shared primitive renders it.
+   Only the retry button keeps `flex: none` so it never shrinks. */
 .maka-daily-review-alert-retry {
   flex: none;
 }
@@ -333,41 +322,23 @@
     background: oklch(from var(--destructive, var(--warning, var(--info))) l c h / 0.06);
   }
 
-/* PR-DAILY-REVIEW-EYEBROW-RHYTHM-0 (WAWQAQ msg `7f0ec4a5`): granularity
-   bump. Each section now starts with a prominent eyebrow badge above
-   the title and a leading accent bar to the left, applying the editorial
-   "minimalist-ui §5 keystroke badges" + "design-taste-frontend §3
-   eyebrow + accent bar" rules from the skills audit. Visible every time
-   the user opens Daily Review. */
+/* Convergence (maintainer 2026-07-18): the 活跃对话 / 模型使用 / 工具调用
+   section titles were a hand-rolled uppercase eyebrow with a bespoke accent
+   bar — the exact dialect section-header.tsx was built to retire — while the
+   已生成报告 header on the same page already spoke the SectionHeader
+   primitive. All section titles now render through SectionHeader (as="h4"
+   accent), so the whole page shares one section-header language. The wrapper
+   keeps only the between-section divider rhythm; the divider token converges
+   to `--foreground-10` to match the header / quick-runs / archives dividers. */
 .maka-daily-review-section {
     display: grid;
     gap: var(--space-2);
     padding: var(--space-3) 0 0;
-    border-top: var(--border-width-hairline) solid oklch(from var(--foreground) l c h / 0.07);
+    border-top: var(--border-width-hairline) solid var(--foreground-10);
   }
 .maka-daily-review-section:first-of-type {
     border-top: 0;
     padding-top: var(--space-1);
-  }
-.maka-daily-review-section-title {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-2);
-    font-size: var(--font-size-caption);
-    font-weight: var(--font-weight-semibold);
-    letter-spacing: var(--tracking-widest);
-    text-transform: uppercase;
-    color: var(--foreground-secondary);
-    margin: 0;
-  }
-.maka-daily-review-section-title::before {
-    content: '';
-    display: inline-block;
-    width: 3px;
-    height: 12px;
-    border-radius: var(--radius-pill);
-    background: oklch(from var(--status-running) l c h / 0.85);
-    flex-shrink: 0;
   }
 .maka-daily-review-list {
     list-style: none;
