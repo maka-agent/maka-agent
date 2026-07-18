@@ -61,6 +61,7 @@ import { AppShellTopbarActions, AppShellWorkspaceTopActions } from './app-shell-
 import { AppShellOverlays } from './app-shell-overlays';
 import { createAppShellDailyReviewBridge } from './app-shell-daily-review-bridge';
 import { useAppShellModuleData } from './use-module-data';
+import { useKeepSystemAwake } from './use-keep-system-awake';
 import { useAppShellProjectContext } from './use-project-context';
 import { createAppShellSessionEventHandlers } from './app-shell-session-events';
 import { createAppShellVisualSmokeActions } from './app-shell-visual-smoke';
@@ -772,6 +773,11 @@ function AppShellContent({
     toastApi,
   });
 
+  // 保持系统唤醒 capability for the 定时任务 page: reads/writes
+  // settings.system.keepSystemAwake over the existing settings bridge. When
+  // the bridge is absent the panel hides the row (fail-soft).
+  const keepSystemAwakeController = useKeepSystemAwake();
+
   // Composer mention popups: `/` skills (enabled only) + `@` workspace file
   // search. The hook owns the window.maka IPC wrapper so app-shell keeps no
   // inline mention state.
@@ -1333,6 +1339,16 @@ function AppShellContent({
                 <AutomationsPage
                   skills={skills}
                   reminders={planReminders}
+                  keepSystemAwake={
+                    keepSystemAwakeController.supported
+                      ? keepSystemAwakeController.keepSystemAwake
+                      : undefined
+                  }
+                  onKeepSystemAwakeChange={
+                    keepSystemAwakeController.supported
+                      ? keepSystemAwakeController.setKeepSystemAwake
+                      : undefined
+                  }
                     onRefresh={() =>
                       refreshPlanReminders({
                         shouldShowError: isAutomationsSurfaceActive,

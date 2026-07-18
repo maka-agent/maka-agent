@@ -70,6 +70,8 @@ export function SkillsPage(props: {
 export function AutomationsPage(props: {
   skills?: SkillEntry[];
   reminders?: PlanReminder[];
+  keepSystemAwake?: boolean;
+  onKeepSystemAwakeChange?: (next: boolean) => Promise<void>;
   onRefresh?: () => void | Promise<void>;
   onCreate?(input: PlanReminderDraftInput): boolean | Promise<boolean> | void | Promise<void>;
   onUpdate?(id: string, patch: PlanReminderUpdatePatch): boolean | Promise<boolean> | void | Promise<void>;
