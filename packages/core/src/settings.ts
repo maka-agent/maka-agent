@@ -305,6 +305,22 @@ export interface NotificationSettings {
   runComplete: boolean;
 }
 
+/**
+ * System-level power behavior (Settings surface: the 定时任务 page's
+ * capability row). Scheduled tasks are driven by an in-process timer; when
+ * the machine sleeps, that timer is frozen and reminders silently never
+ * fire. `keepSystemAwake` lets the user hold a power-save blocker so
+ * background scheduled work keeps running.
+ *
+ * The main process owns the actual Electron `powerSaveBlocker`
+ * (`prevent-app-suspension`, which keeps the system awake WITHOUT forcing
+ * the display on). This flag is the pure product on/off toggle, mirroring
+ * `notifications.runComplete`.
+ */
+export interface SystemSettings {
+  keepSystemAwake: boolean;
+}
+
 export interface AppSettings {
   schemaVersion: 1;
   network: NetworkSettings;
@@ -320,6 +336,7 @@ export interface AppSettings {
   privacy: PrivacySettings;
   chatDefaults: ChatDefaultsSettings;
   notifications: NotificationSettings;
+  system: SystemSettings;
 }
 
 export interface UsageRequestLog {
@@ -387,6 +404,7 @@ export type UpdateAppSettingsInput = Partial<{
   privacy: Partial<PrivacySettings>;
   chatDefaults: Partial<ChatDefaultsSettings>;
   notifications: Partial<NotificationSettings>;
+  system: Partial<SystemSettings>;
   webSearch: Partial<{
     enabled: boolean;
     defaultProvider: WebSearchProvider;
@@ -511,6 +529,11 @@ export function createDefaultSettings(): AppSettings {
     notifications: {
       runComplete: true,
     },
+    system: {
+      // Off by default: holding a power-save blocker is an explicit,
+      // battery-affecting opt-in, not a silent default.
+      keepSystemAwake: false,
+    },
   };
 }
 
@@ -587,6 +610,10 @@ export function mergeSettings(current: AppSettings, patch: UpdateAppSettingsInpu
     notifications: {
       ...current.notifications,
       ...(patch.notifications ?? {}),
+    },
+    system: {
+      ...current.system,
+      ...(patch.system ?? {}),
     },
     webSearch: mergeWebSearchSettings(current.webSearch, patch.webSearch),
   };
@@ -672,6 +699,7 @@ export function normalizeSettings(input: unknown): AppSettings {
     privacy: value.privacy,
     chatDefaults: value.chatDefaults,
     notifications: value.notifications,
+    system: value.system,
   });
   // PR110b: milestones bypass the generic patch surface so we can
   // sanitize them with the closed-enum + at-most-one validator on
@@ -748,6 +776,16 @@ export function normalizeSettings(input: unknown): AppSettings {
     notifications: {
       runComplete:
         typeof base.notifications.runComplete === 'boolean' ? base.notifications.runComplete : true,
+    },
+    // Fail-closed boolean coercion, same reasoning as
+    // `notifications.runComplete`: a non-boolean `keepSystemAwake` (from a
+    // hand-edited or legacy settings.json) must not reach the main-process
+    // power-save-blocker gate as a truthy/falsy non-boolean. Default a
+    // missing/garbage value to `false` — never silently hold a power
+    // blocker the user did not opt into.
+    system: {
+      keepSystemAwake:
+        typeof base.system.keepSystemAwake === 'boolean' ? base.system.keepSystemAwake : false,
     },
   };
 }

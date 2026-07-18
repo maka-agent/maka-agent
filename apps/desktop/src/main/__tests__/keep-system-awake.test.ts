@@ -1,0 +1,123 @@
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  createKeepSystemAwakeController,
+  type PowerSaveBlockerLike,
+} from '../keep-system-awake.js';
+
+/**
+ * Fake Electron `powerSaveBlocker`: hands out incrementing ids and tracks
+ * which are live, so the controller's start/stop bookkeeping can be asserted
+ * without an Electron runtime (same philosophy as notifications-policy tests).
+ */
+function createFakeBlocker() {
+  const started = new Set<number>();
+  const startCalls: Array<'prevent-app-suspension' | 'prevent-display-sleep'> = [];
+  const stopCalls: number[] = [];
+  let nextId = 0;
+  const blocker: PowerSaveBlockerLike = {
+    start(type) {
+      startCalls.push(type);
+      const id = nextId++;
+      started.add(id);
+      return id;
+    },
+    stop(id) {
+      stopCalls.push(id);
+      started.delete(id);
+    },
+    isStarted(id) {
+      return started.has(id);
+    },
+  };
+  return { blocker, started, startCalls, stopCalls };
+}
+
+describe('keep-system-awake controller', () => {
+  it('starts a prevent-app-suspension blocker when enabled', () => {
+    const fake = createFakeBlocker();
+    const controller = createKeepSystemAwakeController(fake.blocker);
+
+    controller.apply(true);
+
+    assert.deepEqual(fake.startCalls, ['prevent-app-suspension']);
+    assert.equal(controller.isActive(), true);
+    assert.equal(fake.started.size, 1);
+  });
+
+  it('does NOT force the display on (never uses prevent-display-sleep)', () => {
+    const fake = createFakeBlocker();
+    const controller = createKeepSystemAwakeController(fake.blocker);
+
+    controller.apply(true);
+
+    assert.ok(
+      !fake.startCalls.includes('prevent-display-sleep'),
+      'background scheduled work must not keep the monitor lit',
+    );
+  });
+
+  it('guards double-start: re-applying enabled does not leak a second blocker', () => {
+    const fake = createFakeBlocker();
+    const controller = createKeepSystemAwakeController(fake.blocker);
+
+    controller.apply(true);
+    controller.apply(true);
+    controller.apply(true);
+
+    assert.equal(fake.startCalls.length, 1, 'blocker must start exactly once');
+    assert.equal(fake.started.size, 1);
+    assert.equal(controller.isActive(), true);
+  });
+
+  it('stops the blocker when disabled', () => {
+    const fake = createFakeBlocker();
+    const controller = createKeepSystemAwakeController(fake.blocker);
+
+    controller.apply(true);
+    controller.apply(false);
+
+    assert.equal(fake.stopCalls.length, 1);
+    assert.equal(fake.started.size, 0);
+    assert.equal(controller.isActive(), false);
+  });
+
+  it('disabling when nothing is held is a no-op', () => {
+    const fake = createFakeBlocker();
+    const controller = createKeepSystemAwakeController(fake.blocker);
+
+    controller.apply(false);
+
+    assert.equal(fake.startCalls.length, 0);
+    assert.equal(fake.stopCalls.length, 0);
+    assert.equal(controller.isActive(), false);
+  });
+
+  it('re-enabling after a stop starts a fresh blocker', () => {
+    const fake = createFakeBlocker();
+    const controller = createKeepSystemAwakeController(fake.blocker);
+
+    controller.apply(true);
+    controller.apply(false);
+    controller.apply(true);
+
+    assert.equal(fake.startCalls.length, 2, 'a fresh blocker id is acquired after stop');
+    assert.equal(fake.started.size, 1);
+    assert.equal(controller.isActive(), true);
+  });
+
+  it('re-acquires a blocker when the previous id was released underneath it', () => {
+    const fake = createFakeBlocker();
+    const controller = createKeepSystemAwakeController(fake.blocker);
+
+    controller.apply(true);
+    // Simulate the blocker being torn down out of band (e.g. teardown race):
+    // the controller still believes it holds id 0, but it is no longer live.
+    fake.started.clear();
+    assert.equal(controller.isActive(), false);
+
+    controller.apply(true);
+    assert.equal(fake.startCalls.length, 2);
+    assert.equal(controller.isActive(), true);
+  });
+});

@@ -385,6 +385,38 @@ describe('run-completion notification settings contract', () => {
   });
 });
 
+describe('keep-system-awake settings contract', () => {
+  test('createDefaultSettings leaves keep-system-awake off by default', () => {
+    const defaults = createDefaultSettings();
+    expect(defaults.system.keepSystemAwake).toBe(false);
+  });
+
+  test('migration: settings.json without a system section defaults to off', () => {
+    const legacy = { appearance: { theme: 'dark' as const } };
+    const normalized = normalizeSettings(legacy);
+    expect(normalized.system.keepSystemAwake).toBe(false);
+  });
+
+  test('mergeSettings carries the toggle through the patch surface', () => {
+    const current = createDefaultSettings();
+    const patched = mergeSettings(current, { system: { keepSystemAwake: true } });
+    expect(patched.system.keepSystemAwake).toBe(true);
+  });
+
+  test('fail-closed: a non-boolean keepSystemAwake normalizes back to off', () => {
+    for (const bad of [1, 0, 'yes', null, {}, []]) {
+      const malformed = { system: { keepSystemAwake: bad } };
+      const normalized = normalizeSettings(malformed);
+      expect(normalized.system.keepSystemAwake).toBe(false);
+    }
+  });
+
+  test('a valid enabled toggle survives normalize untouched', () => {
+    const normalized = normalizeSettings({ system: { keepSystemAwake: true } });
+    expect(normalized.system.keepSystemAwake).toBe(true);
+  });
+});
+
 describe('fixed toast position settings contract', () => {
   test('createDefaultSettings does not persist a toastPosition setting', () => {
     const defaults = createDefaultSettings();
