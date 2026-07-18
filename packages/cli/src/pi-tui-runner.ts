@@ -1078,6 +1078,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   // runner state (model/connection/thinking/transcript/scroll).
   const applySwitchResult = async ({ summary, messages }: MakaSessionSwitchResult): Promise<void> => {
     cwd = summary.cwd ?? cwd;
+    const previousModel = model;
     model = summary.model;
     const previousConnectionSlug = connectionSlug;
     connectionSlug = summary.llmConnectionSlug;
@@ -1089,12 +1090,20 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     // Statusline ctx total for the now-active session (review finding: a
     // switch/rewind onto a different connection or model left the previous
     // session's window in place). Mirrors setModel/setModelChoice's own
-    // lookup above; a miss (model not in the choice list) leaves
-    // modelContextWindow unchanged rather than erroring.
+    // lookup above. An exact match (connection + model) updates the window;
+    // no match with the target actually changed means the resumed model was
+    // curated out of modelChoices (a legitimate state for old sessions) —
+    // clear the window rather than keep showing the previous session's ctx
+    // total under a different model. No match but the target didn't change
+    // (e.g. rewind within the same session) leaves the window untouched.
     const contextWindowMatch = input.modelChoices?.find((choice) => (
       choice.connectionSlug === summary.llmConnectionSlug && choice.model === summary.model
     ));
-    if (contextWindowMatch) modelContextWindow = contextWindowMatch.contextWindow;
+    if (contextWindowMatch) {
+      modelContextWindow = contextWindowMatch.contextWindow;
+    } else if (previousConnectionSlug !== summary.llmConnectionSlug || previousModel !== summary.model) {
+      modelContextWindow = undefined;
+    }
     permissionMode = summary.permissionMode;
     thinkingLevel = summary.thinkingLevel;
     thinkingLevels = providerType ? thinkingVariantsForModel(providerType, summary.model) : [];

@@ -13,7 +13,7 @@ import {
   formatStartupConnectionError,
   formatMakaCliFatalError,
   resolveMakaCliExitCode,
-  resolveTuiResumeBootstrap,
+  resolveTuiResumeTarget,
 } from '../cli.js';
 
 const execFileAsync = promisify(execFile);
@@ -289,28 +289,11 @@ describe('Maka CLI args', () => {
       await rm(tempDir, { recursive: true, force: true });
     }
   });
-
-  test('exits with a stderr error and never launches the TUI when --resume targets a missing session', async () => {
-    const home = await mkdtemp(join(tmpdir(), 'maka-cli-resume-missing-'));
-    try {
-      const result = await runCliProcess(cliPath, ['--resume', 'missing-session'], {
-        ...process.env,
-        HOME: home,
-        XDG_CONFIG_HOME: join(home, '.config'),
-      });
-
-      assert.equal(result.code, 1);
-      assert.match(result.stderr, /session not found: missing-session/);
-      assert.equal(result.stdout, '');
-    } finally {
-      await rm(home, { recursive: true, force: true });
-    }
-  });
 });
 
-describe('resolveTuiResumeBootstrap', () => {
-  test('anchors the resumed session\'s stored connection, model, and cwd', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'maka-cli-resume-bootstrap-'));
+describe('resolveTuiResumeTarget', () => {
+  test('anchors the resumed session\'s stored connection and model', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-cli-resume-target-'));
     try {
       const session = await createSessionStore(root).create({
         cwd: '/tmp/some-workspace',
@@ -321,30 +304,23 @@ describe('resolveTuiResumeBootstrap', () => {
         permissionMode: 'ask',
       });
 
-      const result = await resolveTuiResumeBootstrap(root, session.id);
+      const result = await resolveTuiResumeTarget(root, session.id);
 
       assert.deepEqual(result, {
-        kind: 'ready',
-        bootstrap: {
-          cwd: '/tmp/some-workspace',
-          requestedConnectionSlug: 'some-connection',
-          requestedModel: 'some-model',
-        },
+        requestedConnectionSlug: 'some-connection',
+        requestedModel: 'some-model',
       });
     } finally {
       await rm(root, { recursive: true, force: true });
     }
   });
 
-  test('reports a clear error for a session that does not exist', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'maka-cli-resume-bootstrap-missing-'));
+  test('returns undefined for a session that does not exist, so startup falls back to the default connection', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-cli-resume-target-missing-'));
     try {
-      const result = await resolveTuiResumeBootstrap(root, 'nonexistent-session');
+      const result = await resolveTuiResumeTarget(root, 'nonexistent-session');
 
-      assert.deepEqual(result, {
-        kind: 'error',
-        message: 'session not found: nonexistent-session',
-      });
+      assert.equal(result, undefined);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

@@ -3876,6 +3876,58 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('switching to a session whose model was curated out of modelChoices clears the stale ctx total', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new CuratedOutModelSwitchDriver();
+    const modelChoices: ModelChoice[] = [
+      {
+        connectionSlug: 'claude-subscription',
+        connectionName: 'Claude',
+        providerType: 'claude-subscription',
+        model: 'claude-sonnet-4-5',
+        isDefaultConnection: true,
+        contextWindow: 1_000,
+      },
+    ];
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      modelChoices,
+      modelContextWindow: 1_000,
+      terminal,
+    });
+
+    terminal.input('/session session-2');
+    terminal.input('\r');
+    await waitFor(() => terminal.output().includes('Resumed session "Existing chat"'));
+    // The switched-to session's model ("legacy-model") is not in modelChoices,
+    // so no exact contextWindowMatch exists for it.
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('legacy-model'));
+
+    terminal.input('go');
+    terminal.input('\r');
+    await waitFor(() => driver.prompts.length === 1);
+    // The driver's promptEvents completes near-instantly (no manual gating),
+    // so give the token_usage + complete events time to drain and render.
+    await delay(20);
+
+    // Bug under test: the pre-switch session's 1_000 window must not survive
+    // to render a (wrong) ctx total against the curated-out model's usage.
+    assert.doesNotMatch(plainTerminalOutput(terminal.output()), /ctx \d/);
+
+    exitMaka(terminal);
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close during test cleanup');
+      }),
+    ]);
+  });
+
   test('hydrates a resumed background Bash card from durable shell-run state', async () => {
     const terminal = new FakeTerminal();
     const ref = 'maka://runtime/background-tasks/bg-1';
@@ -7237,6 +7289,33 @@ class ModelSwitchDriver extends SlashCommandDriver {
       ...fakeSessionSummary('session-2', '/repo'),
       llmConnectionSlug: 'conn-b',
       model: 'model-b',
+    }]);
+  }
+
+  override async *promptEvents(_prompt: string, turnId = 'turn-1'): AsyncIterable<SessionEvent> {
+    yield {
+      type: 'token_usage',
+      id: 'event-token-usage',
+      turnId,
+      ts: 1,
+      input: 150_000,
+      output: 0,
+      contextRemaining: 50_000,
+    };
+    yield { type: 'complete', id: 'event-complete', turnId, ts: 2, stopReason: 'end_turn' };
+  }
+}
+
+// Switches onto a session with the *same* connection but a model that has
+// been curated out of modelChoices (a legitimate state for old sessions —
+// see applySwitchResult). No exact contextWindowMatch exists, so the stale
+// window from the pre-switch session must be cleared, not kept.
+class CuratedOutModelSwitchDriver extends SlashCommandDriver {
+  constructor() {
+    super([{
+      ...fakeSessionSummary('session-2', '/repo'),
+      llmConnectionSlug: 'claude-subscription',
+      model: 'legacy-model',
     }]);
   }
 

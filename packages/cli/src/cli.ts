@@ -106,17 +106,12 @@ export function formatResumeHint(sessionId: string | null): string | null {
   return `Resume this session with:\n  maka --resume ${sessionId}`;
 }
 
-/** The subset of a resumed session's stored header the TUI needs to anchor
- *  startup before `createMakaCliRuntimeContext` resolves any connection. */
-export interface TuiResumeBootstrap {
-  cwd: string;
+/** The connection/model a resumed session's stored header requests, used to
+ *  anchor startup before `createMakaCliRuntimeContext` resolves any connection. */
+export interface TuiResumeTarget {
   requestedConnectionSlug: string;
   requestedModel: string;
 }
-
-export type ResolveTuiResumeBootstrapResult =
-  | { kind: 'ready'; bootstrap: TuiResumeBootstrap }
-  | { kind: 'error'; message: string };
 
 /**
  * Pre-check a `--resume` target before the runtime context — and its
@@ -126,28 +121,30 @@ export type ResolveTuiResumeBootstrapResult =
  * `switchSession`); a session resumed on a non-default (or the only ready)
  * connection could misfire onboarding or fail outright before `switchSession`
  * ever ran. Reading the stored header here lets startup anchor the
- * connection/model/cwd to the session being resumed instead, so the later
+ * connection/model to the session being resumed instead, so the later
  * `switchSession` call (still exercising the same transcript/header
- * validation) has a live driver to switch. Mirrors `maka run --resume`'s
- * session-not-found error text (see run-session-selection.ts).
+ * validation) has a live driver to switch.
+ *
+ * Returns `undefined` when the header can't be read (session missing,
+ * corrupt, etc.) — that failure is not reported here. `runMakaPiTui`'s
+ * `switchSession` call already owns the user-visible resume-failure path
+ * (a "Could not resume session ...: ... Starting fresh." notice, falling
+ * back to a fresh session); this pre-check silently falls back to starting
+ * the TUI against the default connection so that path runs and reports it.
  */
-export async function resolveTuiResumeBootstrap(
+export async function resolveTuiResumeTarget(
   workspaceRoot: string,
   sessionId: string,
-): Promise<ResolveTuiResumeBootstrapResult> {
+): Promise<TuiResumeTarget | undefined> {
   const store = createSessionStore(workspaceRoot);
   try {
     const header = await store.readHeader(sessionId);
     return {
-      kind: 'ready',
-      bootstrap: {
-        cwd: header.cwd ?? process.cwd(),
-        requestedConnectionSlug: header.llmConnectionSlug,
-        requestedModel: header.model,
-      },
+      requestedConnectionSlug: header.llmConnectionSlug,
+      requestedModel: header.model,
     };
   } catch {
-    return { kind: 'error', message: `session not found: ${sessionId}` };
+    return undefined;
   }
 }
 
@@ -178,23 +175,17 @@ export async function runMakaCli(argv: string[] = process.argv.slice(2)): Promis
       return command.exitCode;
     case 'tui': {
       const workspaceRoot = resolveMakaWorkspaceRoot();
-      let resumeBootstrap: TuiResumeBootstrap | undefined;
-      if (command.resumeSessionId) {
-        const resolved = await resolveTuiResumeBootstrap(workspaceRoot, command.resumeSessionId);
-        if (resolved.kind === 'error') {
-          process.stderr.write(`${resolved.message}\n`);
-          return 1;
-        }
-        resumeBootstrap = resolved.bootstrap;
-      }
+      const resumeTarget = command.resumeSessionId
+        ? await resolveTuiResumeTarget(workspaceRoot, command.resumeSessionId)
+        : undefined;
       const contextInput = {
         surface: 'tui' as const,
         workspaceRoot,
-        cwd: resumeBootstrap?.cwd ?? process.cwd(),
-        ...(resumeBootstrap
+        cwd: process.cwd(),
+        ...(resumeTarget
           ? {
-              requestedConnectionSlug: resumeBootstrap.requestedConnectionSlug,
-              requestedModel: resumeBootstrap.requestedModel,
+              requestedConnectionSlug: resumeTarget.requestedConnectionSlug,
+              requestedModel: resumeTarget.requestedModel,
             }
           : {}),
       };
