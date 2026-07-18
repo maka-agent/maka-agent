@@ -1,7 +1,7 @@
 import { createRoot } from 'react-dom/client';
 import { App } from './app';
 import { applyCachedThemeBeforeMount } from './cached-theme-bootstrap';
-import type { OnboardingSnapshot } from '../global';
+import type { OnboardingSnapshot } from '../preload/bridge-contract.js';
 import './styles.css';
 
 const ONBOARDING_SNAPSHOT_RETRY_DELAY_MS = 150;

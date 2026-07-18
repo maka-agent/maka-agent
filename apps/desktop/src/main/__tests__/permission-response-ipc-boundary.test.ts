@@ -46,7 +46,7 @@ describe('permission response IPC boundary', () => {
 
   it('exposes the user-question response through preload and the renderer type boundary', async () => {
     const preload = await readFile(fileURLToPath(new URL('../../../src/preload/preload.ts', import.meta.url)), 'utf8');
-    const globalTypes = await readFile(fileURLToPath(new URL('../../../src/global.d.ts', import.meta.url)), 'utf8');
+    const globalTypes = await readFile(fileURLToPath(new URL('../../../src/preload/bridge-contract.d.ts', import.meta.url)), 'utf8');
 
     assert.match(preload, /respondToUserQuestion\(sessionId: string, response: UserQuestionResponse\)/);
     assert.match(preload, /ipcRenderer\.invoke\('sessions:respondToUserQuestion', sessionId, response\)/);

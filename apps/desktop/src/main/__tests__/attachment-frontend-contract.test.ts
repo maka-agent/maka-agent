@@ -47,6 +47,7 @@ describe('attachment frontend contract', () => {
   it('dragged/pasted blobs are sent as bytes and never round-trip a renderer path', async () => {
     const preload = await readRepo('apps/desktop/src/preload/preload.ts');
     const globals = await readRepo('apps/desktop/src/global.d.ts');
+    const bridge = await readRepo('apps/desktop/src/preload/bridge-contract.d.ts');
     const chatActions = await readRepo('apps/desktop/src/renderer/app-shell-chat-actions.ts');
 
     // No webUtils.getPathForFile: a renderer-supplied path is untrustworthy.
@@ -54,7 +55,8 @@ describe('attachment frontend contract', () => {
     // preload encodes File blobs to bytes via the shared encoder before IPC.
     assert.match(preload, /encodeIngestItems/);
     // sessions.send carries attachmentItems (File or approvalId), not pre-ingested refs.
-    assert.match(globals, /attachmentItems\?: RendererIngestInput\[\]/);
+    assert.match(globals, /maka: MakaBridge/);
+    assert.match(bridge, /attachmentItems\?: RendererIngestInput\[\]/);
     // renderer maps pending attachments to ingest items at send time.
     assert.match(chatActions, /toIngestItems\(pending\)/);
     assert.match(chatActions, /sessions\.send[\s\S]*attachmentItems/);
@@ -62,7 +64,7 @@ describe('attachment frontend contract', () => {
 
   it('new-chat composer stages attachments via opaque approval tokens and ingests at send time', async () => {
     const preload = await readRepo('apps/desktop/src/preload/preload.ts');
-    const globals = await readRepo('apps/desktop/src/global.d.ts');
+    const globals = await readRepo('apps/desktop/src/preload/bridge-contract.d.ts');
     const appShell = await readRepo('apps/desktop/src/renderer/app-shell.tsx');
     const chatActions = await readRepo('apps/desktop/src/renderer/app-shell-chat-actions.ts');
 

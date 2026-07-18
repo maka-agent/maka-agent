@@ -68,7 +68,7 @@ describe('project context workspace picker', () => {
     const appIpc = await readRepo(APP_IPC);
     const controller = await readRepo(CONTROLLER);
     const preload = await readRepo('apps/desktop/src/preload/preload.ts');
-    const globalTypes = await readRepo('apps/desktop/src/global.d.ts');
+    const globalTypes = await readRepo('apps/desktop/src/preload/bridge-contract.d.ts');
 
     assert.match(main, /fallbackRoots: \(\) => \[process\.cwd\(\), app\.getAppPath\(\)\]/);
     assert.match(appIpc, /projectGit:\s*await resolveProjectGitInfo\(projectPath\)/);
@@ -87,7 +87,7 @@ describe('project context workspace picker', () => {
     const controller = await readRepo(CONTROLLER);
     const mainWindow = await readRepo(MAIN_WINDOW);
     const preload = await readRepo('apps/desktop/src/preload/preload.ts');
-    const globalTypes = await readRepo('apps/desktop/src/global.d.ts');
+    const globalTypes = await readRepo('apps/desktop/src/preload/bridge-contract.d.ts');
     const renderer = await readRendererShellCombinedSource();
     const workspacePickerBlock = renderer.match(/workspacePicker=\{\{[\s\S]*?\n\s*\}\}/)?.[0] ?? '';
 

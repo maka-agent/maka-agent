@@ -19,7 +19,7 @@
     "build:preload": "esbuild src/preload/preload.ts --bundle --platform=node --format=cjs --outfile=dist/preload/preload.cjs --external:electron",
     "build:overlay": "node ../../scripts/build-cursor-overlay.mjs",
     "build:renderer": "vite build && node ../../scripts/check-third-party-notices.mjs",
-    "typecheck": "tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.renderer.json --noEmit && tsc -p tsconfig.storybook.json --noEmit",
+    "typecheck": "tsc -p tsconfig.preload.json --noEmit && tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.renderer.json --noEmit && tsc -p tsconfig.storybook.json --noEmit",
     "typecheck:stories": "tsc -p tsconfig.storybook.json --noEmit",
     "pretest": "npm --workspace @maka/core run build && npm --workspace @maka/storage run build && npm --workspace @maka/mcp run build && npm --workspace @maka/runtime run build && npm --workspace @maka/computer-use run build && npm --workspace @maka/ui run build && npm run test:checks",
     "test": "npm run clean:main && npm run build:main && node --test \"dist/main/**/*.test.js\"",

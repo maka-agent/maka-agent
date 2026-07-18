@@ -283,7 +283,7 @@ describe('Bot settings UI contract', () => {
     const styles = await readRendererContractCss();
     const main = await readRepo('apps/desktop/src/main/main.ts');
     const preload = await readRepo('apps/desktop/src/preload/preload.ts');
-    const globalTypes = await readRepo('apps/desktop/src/global.d.ts');
+    const globalTypes = await readRepo('apps/desktop/src/preload/bridge-contract.d.ts');
     const scanLogin = await readRepo('apps/desktop/src/main/wechat-scan-login.ts');
     const desktopPackage = await readRepo('apps/desktop/package.json');
 

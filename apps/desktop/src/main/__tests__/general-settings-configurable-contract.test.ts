@@ -7,7 +7,7 @@ import { readMainProcessCombinedSource } from './main-process-contract-source-he
 
 const REPO_ROOT = resolve(process.cwd(), '..', '..');
 const PRELOAD_SOURCE = join(REPO_ROOT, 'apps', 'desktop', 'src', 'preload', 'preload.ts');
-const GLOBAL_DTS = join(REPO_ROOT, 'apps', 'desktop', 'src', 'global.d.ts');
+const GLOBAL_DTS = join(REPO_ROOT, 'apps', 'desktop', 'src', 'preload', 'bridge-contract.d.ts');
 
 /**
  * PR-GENERAL-DEFAULTS-CONFIGURABLE-0 (WAWQAQ msg `d3ea9a33` 2026-06-26).

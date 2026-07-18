@@ -15,7 +15,7 @@ describe('desktop task ledger contract', () => {
     const [main, preload, globalTypes, hook] = await Promise.all([
       source('apps/desktop/src/main/main.ts'),
       source('apps/desktop/src/preload/preload.ts'),
-      source('apps/desktop/src/global.d.ts'),
+      source('apps/desktop/src/preload/bridge-contract.d.ts'),
       source('apps/desktop/src/renderer/use-session-tasks.ts'),
     ]);
     assert.match(main, /ipcMain\.handle\('tasks:list'/);

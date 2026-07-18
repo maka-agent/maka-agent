@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import { encodeIngestItems } from '../attachment-ingest-payload.js';
+import { encodeIngestItems } from '../../preload/attachment-ingest-payload.js';
 
 describe('encodeIngestItems', () => {
   test('rejects more than 8 items without reading any file bytes', async () => {

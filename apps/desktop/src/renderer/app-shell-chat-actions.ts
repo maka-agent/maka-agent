@@ -13,6 +13,7 @@ import {
   type LiveTurnProjection,
   type NavSelection,
 } from '@maka/ui';
+import type { RendererIngestInput } from '../preload/bridge-contract.js';
 import { messageRefreshErrorMessage } from './app-shell-copy.js';
 import { getShellCopy, localizedShellErrorMessage } from './locales/shell-copy.js';
 import { preflightAttachmentItems } from './attachment-preflight.js';

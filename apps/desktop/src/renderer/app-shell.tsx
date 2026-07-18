@@ -34,7 +34,7 @@ import { ChatComposerRegion } from './chat-composer-region';
 import { ChatWorkbar } from './chat-workbar';
 import { McpPage } from './mcp-page';
 import { useOnboardingSnapshot } from './use-onboarding-snapshot';
-import type { OnboardingSnapshot } from '../global';
+import type { OnboardingSnapshot } from '../preload/bridge-contract.js';
 import { ProviderLogo } from './settings/provider-display';
 import { ProviderBrandMark } from './settings/provider-brand-marks';
 import { getShellCopy, localizedShellErrorMessage } from './locales/shell-copy';
