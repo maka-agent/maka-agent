@@ -252,20 +252,23 @@ export function createHarborTaskRunner(options: HarborTaskRunnerOptions): Harbor
         tail(result.stderr || result.stdout),
       );
     }
-    if (result.exitCode !== 0) {
+    let trialDir: string;
+    try {
+      trialDir = await findTrialDir(jobDir, basename(input.task.path));
+    } catch (error) {
+      if (result.exitCode === 0) throw error;
       throw new HarborInfraError(
         `harbor run exited ${result.exitCode} for task ${input.task.id}`,
         tail(result.stderr || result.stdout),
       );
     }
-
-    const trialDir = await findTrialDir(jobDir, basename(input.task.path));
     const cellOutputPath = join(trialDir, TRIAL_CELL_OUTPUT);
     const rewardPath = join(trialDir, TRIAL_REWARD);
     const resultPath = join(trialDir, TRIAL_RESULT);
     const hostEventsPath = join(trialDir, TRIAL_RUNTIME_EVENTS);
 
     const trialException = await readTrialException(resultPath);
+    let completeTimedOutTrial = false;
     if (trialException && isBudgetExhaustedTrialException(trialException)) {
       const [rewardArtifact, verifierArtifact, cellArtifact] = await Promise.all([
         readOptionalText(rewardPath),
@@ -280,6 +283,13 @@ export function createHarborTaskRunner(options: HarborTaskRunnerOptions): Harbor
           artifactRefs ?? undefined,
         );
       }
+      completeTimedOutTrial = true;
+    }
+    if (result.exitCode !== 0 && !completeTimedOutTrial) {
+      throw new HarborInfraError(
+        `harbor run exited ${result.exitCode} for task ${input.task.id}`,
+        tail(result.stderr || result.stdout),
+      );
     }
     const reward = await readReward(rewardPath, resultPath, input.task.id);
     const rawCell = await readCellOutput(cellOutputPath, input.task.id);

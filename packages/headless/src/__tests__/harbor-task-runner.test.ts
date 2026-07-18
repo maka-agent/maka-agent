@@ -72,6 +72,7 @@ interface FakeOptions {
   executionIdentity?: HarborCellExecutionIdentity;
   usageCheckpoint?: HarborCellOutput['tokenSummary'];
   exitCode?: number;
+  exitCodeAfterArtifacts?: number;
   events?: string;
   verifierStdout?: string;
   verifierOutcome?: Record<string, unknown> | null;
@@ -143,7 +144,11 @@ function fakeRunner(opts: FakeOptions): HarborProcessRunner {
     await writeFile(join(trialDir, 'agent', 'runtime-events.jsonl'), opts.events ?? '{"type":"x"}\n', 'utf8');
     await mkdir(join(trialDir, 'agent', 'maka-storage', 'sessions', 'sess', 'runs', 'run'), { recursive: true });
     await writeFile(join(trialDir, 'agent', 'maka-storage', 'sessions', 'sess', 'runs', 'run', 'events.jsonl'), '{"type":"tool_failed"}\n', 'utf8');
-    return { exitCode: 0, stdout: 'ok', stderr: '' };
+    return {
+      exitCode: opts.exitCodeAfterArtifacts ?? 0,
+      stdout: opts.exitCodeAfterArtifacts ? '' : 'ok',
+      stderr: opts.exitCodeAfterArtifacts ? 'trial failed' : '',
+    };
   };
 }
 
@@ -861,6 +866,72 @@ describe('createHarborTaskRunner', () => {
       assert.equal(output.harbor.verifier?.outcome, 'passed');
       assert.deepEqual(output.cell.tokenSummary, timedCell.tokenSummary);
       assert.deepEqual(output.cell.executionIdentity, timedCell.executionIdentity);
+    });
+  });
+
+  test('treats a non-zero Harbor exit with an incomplete agent-timeout trial as budget exhausted', async () => {
+    await withRun(async ({ jobsDir, repo }) => {
+      const executionIdentity = {
+        llmConnectionSlug: 'deepseek',
+        model: 'deepseek-v4-flash',
+        systemPromptHash: 'sha256:abc',
+        pricingProfile: 'test-profile',
+      };
+      const runner = createHarborTaskRunner({
+        makaRepoPath: repo,
+        jobsDir,
+        model: 'deepseek/deepseek-v4-flash',
+        runHarbor: fakeRunner({
+          exitCodeAfterArtifacts: 1,
+          cell: null,
+          executionIdentity,
+          trialResult: {
+            exception_info: {
+              exception_type: 'AgentTimeoutError',
+              exception_message: 'Agent execution timed out after 900.0 seconds',
+            },
+          },
+        }),
+      });
+
+      await assert.rejects(runner(runInput()), (error: unknown) => {
+        assert.ok(error instanceof FixedPromptBudgetExhaustedError);
+        assert.deepEqual(error.artifactRefs?.executionIdentity, executionIdentity);
+        return true;
+      });
+    });
+  });
+
+  test('returns the official verifier result after a non-zero Harbor timeout exit', async () => {
+    await withRun(async ({ jobsDir, repo }) => {
+      const timedCell = cellOutput({
+        executionIdentity: {
+          llmConnectionSlug: 'deepseek',
+          model: 'deepseek-v4-flash',
+          systemPromptHash: 'sha256:abc',
+          pricingProfile: 'test-profile',
+        },
+      });
+      const runner = createHarborTaskRunner({
+        makaRepoPath: repo,
+        jobsDir,
+        model: 'deepseek/deepseek-v4-flash',
+        runHarbor: fakeRunner({
+          exitCodeAfterArtifacts: 1,
+          reward: '1\n',
+          cell: timedCell,
+          trialResult: {
+            exception_info: {
+              exception_type: 'AgentTimeoutError',
+              exception_message: 'Agent execution timed out after 60.0 seconds',
+            },
+          },
+        }),
+      });
+
+      const output = await runner(runInput());
+      assert.equal(output.harbor.reward, 1);
+      assert.equal(output.harbor.verifier?.outcome, 'passed');
     });
   });
 
