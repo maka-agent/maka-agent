@@ -1839,6 +1839,9 @@ function deriveToolResultStatus(
     if (content.status === 'cancelled') return 'aborted';
     return 'error';
   }
+  if (content.kind === 'agent_swarm') {
+    return content.status === 'cancelled' ? 'aborted' : 'success';
+  }
   if (content.kind === 'rive_workflow' && content.ok === false) return 'error';
   if (content.kind === 'web_search_error') return 'error';
   if (content.kind === 'office_document' && content.ok === false) {

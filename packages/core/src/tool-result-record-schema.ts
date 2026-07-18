@@ -17,6 +17,7 @@ import { isStorageRef } from './interaction-record-schema.js';
 
 type Result<K extends ToolResultContent['kind']> = Extract<ToolResultContent, { kind: K }>;
 type ExploreResult = Result<'explore_agent'>;
+type AgentSwarmResult = Result<'agent_swarm'>;
 type RiveResult = Result<'rive_workflow'>;
 
 const TEXT_SHAPE = defineObjectShape<Result<'text'>>()(['kind', 'text'], []);
@@ -117,6 +118,15 @@ const EXPLORE_MATCH_SHAPE = defineObjectShape<ExploreMatch>()(
 const SUBAGENT_SHAPE = defineObjectShape<Result<'subagent'>>()(
   ['kind', 'agentName', 'turnId', 'status', 'permissionMode', 'summary', 'artifactIds'],
   ['agentId', 'runId', 'startedAt', 'completedAt', 'durationMs', 'eventCount', 'failureClass'],
+);
+const AGENT_SWARM_SHAPE = defineObjectShape<AgentSwarmResult>()(
+  ['kind', 'status', 'items', 'startedAt', 'completedAt', 'durationMs'],
+  [],
+);
+type AgentSwarmItem = AgentSwarmResult['items'][number];
+const AGENT_SWARM_ITEM_SHAPE = defineObjectShape<AgentSwarmItem>()(
+  ['itemId', 'index', 'profile', 'started', 'status', 'summary', 'artifactIds'],
+  ['agentId', 'agentName', 'turnId', 'runId', 'startedAt', 'completedAt', 'durationMs', 'failureClass'],
 );
 const RIVE_SHAPE = defineObjectShape<RiveResult>()(
   ['kind', 'ok', 'action', 'command', 'ids', 'summary'],
@@ -268,11 +278,48 @@ function isNonShellToolResultContent(value: unknown): value is ToolResultContent
         isOptionalFiniteNumber(value.eventCount) &&
         isOptionalString(value.failureClass)
       );
+    case 'agent_swarm':
+      return isAgentSwarmResult(value);
     case 'rive_workflow':
       return isRiveResult(value);
     default:
       return false;
   }
+}
+
+function isAgentSwarmResult(value: Record<string, unknown>): value is AgentSwarmResult {
+  return (
+    hasExactShape(value, AGENT_SWARM_SHAPE) &&
+    ['completed', 'partial', 'cancelled'].includes(value.status as string) &&
+    Array.isArray(value.items) &&
+    value.items.every(isAgentSwarmItem) &&
+    isFiniteNumber(value.startedAt) &&
+    isFiniteNumber(value.completedAt) &&
+    isFiniteNumber(value.durationMs)
+  );
+}
+
+function isAgentSwarmItem(value: unknown): value is AgentSwarmItem {
+  return (
+    isRecord(value) &&
+    hasExactShape(value, AGENT_SWARM_ITEM_SHAPE) &&
+    typeof value.itemId === 'string' &&
+    Number.isSafeInteger(value.index) &&
+    Number(value.index) >= 0 &&
+    typeof value.profile === 'string' &&
+    typeof value.started === 'boolean' &&
+    isOptionalString(value.agentId) &&
+    isOptionalString(value.agentName) &&
+    isOptionalString(value.turnId) &&
+    isOptionalString(value.runId) &&
+    ['completed', 'failed', 'cancelled'].includes(value.status as string) &&
+    typeof value.summary === 'string' &&
+    isStringArray(value.artifactIds) &&
+    isOptionalFiniteNumber(value.startedAt) &&
+    isOptionalFiniteNumber(value.completedAt) &&
+    isOptionalFiniteNumber(value.durationMs) &&
+    isOptionalString(value.failureClass)
+  );
 }
 
 function isExploreResult(value: Record<string, unknown>): value is ExploreResult {

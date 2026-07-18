@@ -14,6 +14,7 @@ export function isCancelledToolResultContent(
   if (content.kind === 'terminal' || content.kind === 'shell_run') {
     return content.status === 'cancelled';
   }
+  if (content.kind === 'agent_swarm') return content.status === 'cancelled';
   return false;
 }
 

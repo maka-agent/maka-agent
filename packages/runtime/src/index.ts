@@ -416,6 +416,17 @@ export type {
   AgentWriteBackMode,
 } from './agent-catalog.js';
 export {
+  AGENT_SWARM_DEFAULT_CONCURRENCY,
+  AGENT_SWARM_MAX_CONCURRENCY,
+  AGENT_SWARM_MAX_ITEMS,
+  AGENT_SWARM_TOOL_NAME,
+  buildAgentSwarmTool,
+} from './agent-swarm-tools.js';
+export type {
+  AgentSwarmToolInput,
+  AgentSwarmToolResult,
+} from './agent-swarm-tools.js';
+export {
   AGENT_LIST_TOOL_NAME,
   AGENT_OUTPUT_TOOL_NAME,
   AGENT_SPAWN_TOOL_NAME,

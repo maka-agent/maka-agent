@@ -349,6 +349,30 @@ export type ToolResultContent =
       failureClass?: string;
     }
   | {
+      kind: 'agent_swarm';
+      status: 'completed' | 'partial' | 'cancelled';
+      items: ReadonlyArray<{
+        itemId: string;
+        index: number;
+        profile: string;
+        started: boolean;
+        agentId?: string;
+        agentName?: string;
+        turnId?: string;
+        runId?: string;
+        status: 'completed' | 'failed' | 'cancelled';
+        summary: string;
+        artifactIds: readonly string[];
+        startedAt?: number;
+        completedAt?: number;
+        durationMs?: number;
+        failureClass?: string;
+      }>;
+      startedAt: number;
+      completedAt: number;
+      durationMs: number;
+    }
+  | {
       kind: 'rive_workflow';
       ok: boolean;
       action: string;

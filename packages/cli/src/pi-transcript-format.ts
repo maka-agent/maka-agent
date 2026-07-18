@@ -69,6 +69,8 @@ export function formatToolResultContent(content: ToolResultContent): string {
       return content.report ?? content.summary ?? content.message ?? `Inspected ${content.filesInspected} files`;
     case 'subagent':
       return content.summary;
+    case 'agent_swarm':
+      return `Agent swarm: ${content.status}`;
     case 'rive_workflow':
       return content.summary;
     case 'archived_tool_result':
