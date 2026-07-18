@@ -78,21 +78,24 @@ async function seedClaudeSession(
   return path;
 }
 
-async function seedCodexSqlite(
-  home: string,
-  threads: {
-    id: string;
-    cwd: string;
-    title?: string;
-    updatedAtMs?: number;
-    archived?: number;
-    source?: string;
-    rolloutRelPath?: string;
-  }[],
-): Promise<void> {
+type CodexThreadSeed = {
+  id: string;
+  cwd: string;
+  title?: string;
+  updatedAtMs?: number;
+  archived?: number;
+  source?: string;
+  rolloutRelPath?: string;
+};
+
+function seedCodexSqlite(home: string, threads: CodexThreadSeed[]): Promise<void> {
+  return seedCodexSqliteGen(home, 3, threads);
+}
+
+async function seedCodexSqliteGen(home: string, gen: number, threads: CodexThreadSeed[]): Promise<void> {
   const codexRoot = join(home, '.codex');
   await mkdir(join(codexRoot, 'sessions', '2026', '07', '18'), { recursive: true });
-  const db = new DatabaseSync(join(codexRoot, 'state_3.sqlite'));
+  const db = new DatabaseSync(join(codexRoot, `state_${gen}.sqlite`));
   db.exec(`CREATE TABLE threads (
     id TEXT PRIMARY KEY, rollout_path TEXT, cwd TEXT, title TEXT,
     first_user_message TEXT, updated_at_ms INTEGER, git_branch TEXT,
@@ -254,6 +257,43 @@ describe('foreign session store — Codex scan', () => {
     const store = createForeignSessionStore({ homeDir: home, env: {} });
     const all = await store.listSessions();
     assert.deepEqual(all.map((s) => s.id), []);
+  });
+
+  it('applies the cwd filter in SQL so a LIMIT of newer other-project rows cannot hide it', async () => {
+    const home = await tempHome();
+    const threads = [];
+    // 120 newer threads in /other, then one older thread in /target. If cwd
+    // were filtered only after a LIMIT, the target row would be truncated away.
+    for (let i = 0; i < 120; i++) {
+      threads.push({ id: `o${String(i).padStart(3, '0')}`, cwd: '/other', updatedAtMs: NOW - 1000 * i });
+    }
+    threads.push({ id: 'target', cwd: '/target', title: 'the one', updatedAtMs: NOW - 10_000_000 });
+    await seedCodexSqlite(home, threads);
+    const store = createForeignSessionStore({ homeDir: home, env: {} });
+    const found = await store.listSessions({ cwd: '/target' });
+    assert.deepEqual(found.map((s) => s.id), ['target']);
+  });
+
+  it('treats the first usable DB as authoritative: an all-archived newest gen does not resurface older rows', async () => {
+    const home = await tempHome();
+    // Newest gen (state_5) has only an archived thread; an older gen has an
+    // active one. The archived-in-newest session must stay hidden.
+    await seedCodexSqliteGen(home, 5, [{ id: 'archived-now', cwd: '/repo', archived: 1 }]);
+    await seedCodexSqliteGen(home, 2, [{ id: 'stale-active', cwd: '/repo', title: 'old' }]);
+    const store = createForeignSessionStore({ homeDir: home, env: {} });
+    assert.deepEqual((await store.listSessions()).map((s) => s.id), []);
+  });
+
+  it('descends to an older generation only when the newest DB lacks the threads schema', async () => {
+    const home = await tempHome();
+    await seedCodexSqliteGen(home, 2, [{ id: 'real', cwd: '/repo', title: 'real' }]);
+    // Newest gen has no threads table → unusable → skip to gen 2.
+    const codexRoot = join(home, '.codex');
+    const badDb = new DatabaseSync(join(codexRoot, 'state_9.sqlite'));
+    badDb.exec('CREATE TABLE other (x TEXT)');
+    badDb.close();
+    const store = createForeignSessionStore({ homeDir: home, env: {} });
+    assert.deepEqual((await store.listSessions()).map((s) => s.id), ['real']);
   });
 
   it('drops a thread whose rollout filename uuid does not match the row id', async () => {

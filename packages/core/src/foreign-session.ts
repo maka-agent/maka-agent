@@ -284,6 +284,18 @@ export function claudeUserMessageText(record: Record<string, unknown>): string |
   return joined.length > 0 ? joined : undefined;
 }
 
+/**
+ * User-authored text for the digest — like {@link claudeUserMessageText} but
+ * drops `isMeta` and `isCompactSummary` records. Those carry Claude's own
+ * injected context / generated compaction summaries, not text the human
+ * typed, so per the #1057 safety contract they must never enter the handoff
+ * as user-authored messages.
+ */
+export function claudeUserAuthoredText(record: Record<string, unknown>): string | undefined {
+  if (record.isMeta === true || record.isCompactSummary === true) return undefined;
+  return claudeUserMessageText(record);
+}
+
 /** Assistant text blocks from a Claude `assistant` record (no tool calls). */
 export function claudeAssistantText(record: Record<string, unknown>): string | undefined {
   return claudeUserMessageText(record);
@@ -521,14 +533,19 @@ export function stripEnvelopeTags(text: string): string {
 /**
  * Render a digest as an explicitly-untrusted data block for the handoff
  * prompt. The envelope wording mirrors the memory/turn-tail discipline:
- * contents are reference data, never instructions. Every foreign-authored
- * value — including cwd and file paths — is envelope-stripped AND
- * JSON-stringified so it stays a quoted scalar that cannot break out of the
- * block (cf. renderSafeTaskLedgerText). `source` and `updated_at` are the
- * only unquoted fields; both are Maka-controlled enums/timestamps.
+ * contents are reference data, never instructions. `safe()` is the
+ * authoritative gate every foreign-authored scalar passes through here —
+ * regardless of how the digest was built — sanitizing (NFC, control/bidi/
+ * zero-width) and redacting secrets, then stripping envelope tags (to a
+ * fixpoint) and JSON-stringifying so the value stays a quoted, break-out-proof
+ * scalar (cf. renderSafeTaskLedgerText). This covers the fields that reach the
+ * digest less filtered than messages do — `cwd`, `gitBranch`, and file paths.
+ * `source` and `updated_at` are the only unquoted fields; both are
+ * Maka-controlled enums/timestamps.
  */
 export function renderForeignSessionDigestForPrompt(digest: ForeignSessionDigest): string {
-  const safe = (text: string): string => JSON.stringify(stripEnvelopeTags(text));
+  const safe = (text: string): string =>
+    JSON.stringify(stripEnvelopeTags(redactSecrets(sanitizeForeignText(text, FOREIGN_SESSION_MESSAGE_MAX_CODE_POINTS))));
   const lines: string[] = [
     '<foreign-session-digest>',
     `source=${digest.source}`,

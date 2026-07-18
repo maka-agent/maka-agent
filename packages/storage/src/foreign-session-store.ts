@@ -35,7 +35,7 @@ import {
   FOREIGN_SESSION_TITLE_WINDOW_BYTES,
   claudeAssistantText,
   claudeToolFilePaths,
-  claudeUserMessageText,
+  claudeUserAuthoredText,
   codexRolloutMessage,
   codexRolloutSessionMeta,
   collectClaudeMeta,
@@ -215,23 +215,18 @@ class FileForeignSessionStore implements ForeignSessionStore {
   ): Promise<ForeignSessionSummary[]> {
     // Try state DBs newest-generation first. A DB that cannot be opened or
     // lacks the threads schema (rows === undefined) is skipped so a freshly
-    // created, not-yet-migrated newest generation doesn't hide an older
-    // populated one. But a DB that opens and returns rows IS authoritative:
-    // if those rows filter to empty (a cwd with no Codex threads, or an
-    // all-archived project) that is a real "no sessions" — returning it keeps
-    // the scan cheap and, critically, prevents the rollout walk from
-    // resurrecting archived sessions (rollout files carry no archived flag).
-    let sawUsableDb = false;
+    // created generation missing the schema doesn't shadow an older usable
+    // one. The FIRST usable DB is authoritative — its result is returned even
+    // when empty. Descending past it on an empty result would resurface stale
+    // rows from an older generation (e.g. a session archived in the newest DB
+    // reappearing active in an older one), and would send every no-match-cwd
+    // listing down the expensive rollout walk.
     for (const dbPath of await codexStateDbsNewestFirst(this.codexRoot)) {
-      const rows = await readCodexThreadRows(dbPath);
+      const rows = await readCodexThreadRows(dbPath, options.cwd);
       if (rows === undefined) continue;
-      sawUsableDb = true;
-      const sessions = await this.codexRowsToSummaries(rows, options, now);
-      if (sessions.length > 0) return sessions;
+      return this.codexRowsToSummaries(rows, options, now);
     }
-    // Every usable DB was empty → authoritative "no DB-backed sessions". Only
-    // when there is NO usable DB at all do we fall back to the rollout walk.
-    if (sawUsableDb) return [];
+    // No usable state DB at all → fall back to the rollout directory walk.
     return this.listCodexSessionsFromRollouts(options, now);
   }
 
@@ -377,7 +372,10 @@ class FileForeignSessionStore implements ForeignSessionStore {
       }
       if (summary.source === 'claude-code') {
         if (record.type === 'user' && record.isSidechain !== true) {
-          const text = claudeUserMessageText(record);
+          // claudeUserAuthoredText drops isMeta / isCompactSummary records so
+          // Claude's own injected context and generated compaction summaries
+          // never enter the handoff as user-authored text.
+          const text = claudeUserAuthoredText(record);
           if (text !== undefined) pushDigestMessage(acc, 'user', text);
         } else if (record.type === 'assistant') {
           const text = claudeAssistantText(record);
@@ -492,7 +490,7 @@ const CODEX_SOURCE_SQL_VALUES = ['cli', 'vscode', '{"custom":"atlas"}', '{"custo
  * so the caller descends to an older generation. An empty array is a real
  * "this DB has no matching threads".
  */
-async function readCodexThreadRows(dbPath: string): Promise<CodexThreadRow[] | undefined> {
+async function readCodexThreadRows(dbPath: string, cwdFilter?: string): Promise<CodexThreadRow[] | undefined> {
   try {
     const sqlite = await import('node:sqlite');
     const db = new sqlite.DatabaseSync(dbPath, { readOnly: true });
@@ -523,6 +521,13 @@ async function readCodexThreadRows(dbPath: string): Promise<CodexThreadRow[] | u
       if (columns.has('source')) {
         where.push(`source IN (${CODEX_SOURCE_SQL_VALUES.map(() => '?').join(', ')})`);
         params.push(...CODEX_SOURCE_SQL_VALUES);
+      }
+      // Filter cwd IN SQL, before LIMIT: otherwise a multi-project store with
+      // many newer threads from other directories fills the LIMIT window and
+      // the target project's older thread never reaches the JS-side filter.
+      if (cwdFilter !== undefined && columns.has('cwd')) {
+        where.push('cwd = ?');
+        params.push(normalizePath(cwdFilter));
       }
       const orderColumn = columns.has('updated_at_ms')
         ? 'updated_at_ms'

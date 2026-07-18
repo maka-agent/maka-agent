@@ -760,6 +760,7 @@ export {
   claudeAssistantText,
   claudeFirstPromptCandidate,
   claudeToolFilePaths,
+  claudeUserAuthoredText,
   claudeUserMessageText,
   codexRolloutMessage,
   codexRolloutSessionMeta,
