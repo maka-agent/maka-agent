@@ -1,6 +1,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import type { ModelMessage } from 'ai';
 import {
   AiSdkBackend,
   AutomationManager,
@@ -8,11 +9,14 @@ import {
   BackendRegistry,
   GoalManager,
   PermissionEngine,
+  RuntimeReadModel,
   SessionManager,
   ShellRunProcessManager,
+  applyRuntimeEventContextBudget,
   buildAutomationTool,
   buildAskUserQuestionTool,
   buildBuiltinTools,
+  buildRuntimeEventModelReplayPlan,
   createBuiltinSandboxManager,
   createFilesystemWorkerLaunchSpecProvider,
   FilesystemWorkerClient,
@@ -26,6 +30,7 @@ import {
   evaluateAutomationCanFire,
   getAIModel,
   loadHistoryCompactBlocksFromArtifacts,
+  replayPlanItemsToModelMessages,
   resolveSkillDiscoveryPaths,
   resolveSelectedModelContextWindow,
   type AutomationDefinition,
@@ -56,7 +61,7 @@ import type { ModelChoice, ReadySessionTarget } from './connection-target.js';
 import { listReadyModelChoices, resolveDefaultSessionTarget, resolveSessionTargetForSlug } from './connection-target.js';
 import { buildCliSystemPrompt, buildCliTurnTailPrompt } from './cli-system-prompt.js';
 import { CliGoalContinuation } from './cli-goal-continuation.js';
-import { buildRecapMessages, cleanRecapText } from './session-recap.js';
+import { RECAP_INSTRUCTION, cleanRecapText } from './session-recap.js';
 
 export interface MakaCliRuntimeContext {
   workspaceRoot: string;
@@ -148,6 +153,11 @@ export async function createMakaCliRuntimeContext(
   const connectionStore = createConnectionStore(input.workspaceRoot);
   const credentialStore = createFileCredentialStore(input.workspaceRoot);
   const settingsStore = createSettingsStore(input.workspaceRoot);
+  // Authoritative RuntimeEvent read model (issue #1055's session-recap
+  // generator projects through this instead of re-deriving its own lossy
+  // StoredMessage-based projection). Built once and shared — mirrors
+  // SessionManager's own construction in session-manager.ts's readModel().
+  const runtimeReadModel = new RuntimeReadModel({ runStore, runtimeEventStore, projectionCache: store });
   const targetInput = {
     connectionStore,
     credentialStore,
@@ -310,13 +320,18 @@ export async function createMakaCliRuntimeContext(
   const recap: SessionRecapGenerator = {
     async generate(sessionId, reason) {
       let modelId = '';
-      let messageCount = 0;
+      // The actual bounded request sent to the model (projection + budget trim
+      // + trailing instruction), persisted verbatim to the artifact below.
+      let requestMessages: ModelMessage[] = [];
       let rawText = '';
       let cleaned = '';
       let errorMessage: string | undefined;
       try {
-        const messages = await runtime.getMessages(sessionId);
-        messageCount = messages.length;
+        // Authoritative RuntimeEvent projection (issue #1182 review): reuses
+        // the same read model, budget policy, and replay-plan projection the
+        // backend uses for its own history, instead of re-deriving a lossy
+        // StoredMessage-based one.
+        const view = await runtimeReadModel.getSessionView(sessionId);
         const header = await store.readHeader(sessionId);
         const ready = await resolveSessionTargetForSlug(header.llmConnectionSlug, {
           connectionStore,
@@ -337,6 +352,24 @@ export async function createMakaCliRuntimeContext(
           } : {}),
         });
         const contextWindow = resolveSelectedModelContextWindow(ready.connection, ready.model);
+        // Same budget-policy construction the backend uses (buildDefaultContextBudgetPolicy
+        // + applyRuntimeEventContextBudget), with the cap overridden to the
+        // recap-specific 85%-of-window-minus-4096 semantics. An unknown context
+        // window skips trimming entirely rather than guessing a cap.
+        let trimmedEvents = view.events;
+        if (contextWindow !== undefined) {
+          const budgetPolicy = buildDefaultContextBudgetPolicy(ready.connection, {
+            name: 'session-recap-history-budget',
+            modelId: ready.model,
+          });
+          if (budgetPolicy?.maxHistoryEstimatedTokens !== undefined) {
+            budgetPolicy.maxHistoryEstimatedTokens = Math.floor(contextWindow * 0.85) - 4096;
+          }
+          trimmedEvents = applyRuntimeEventContextBudget(view.events, budgetPolicy)?.events ?? view.events;
+        }
+        const plan = buildRuntimeEventModelReplayPlan(trimmedEvents);
+        requestMessages = replayPlanItemsToModelMessages(plan.items);
+        requestMessages.push({ role: 'user', content: RECAP_INSTRUCTION });
         const ai = await import('ai') as unknown as {
           generateText(opts: Record<string, unknown>): Promise<{ text: string }>;
         };
@@ -347,7 +380,7 @@ export async function createMakaCliRuntimeContext(
             modelId: ready.model,
             fetch: modelFetch,
           }),
-          messages: buildRecapMessages(messages, { contextWindow }),
+          messages: requestMessages,
           providerOptions: buildProviderOptions(ready.connection, ready.model, header.thinkingLevel),
           maxOutputTokens: 1024,
         });
@@ -368,7 +401,8 @@ export async function createMakaCliRuntimeContext(
               {
                 reason,
                 model: modelId,
-                messageCount,
+                messageCount: requestMessages.length,
+                messages: requestMessages,
                 raw: rawText,
                 cleaned,
                 ...(errorMessage ? { error: errorMessage } : {}),

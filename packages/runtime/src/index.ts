@@ -907,11 +907,18 @@ export type {
 } from './execution-inspect.js';
 
 // model-history.ts — policy-driven model-history projection.
-export { buildModelHistoryFromRuntimeEvents } from './model-history.js';
+export { buildModelHistoryFromRuntimeEvents, buildRuntimeEventModelReplayPlan } from './model-history.js';
 export type {
   ModelHistoryEntry,
   BuildModelHistoryOptions,
+  RuntimeEventModelReplayPlan,
+  RuntimeEventModelReplayItem,
 } from './model-history.js';
+
+// history-compact-summarizer.ts — replay-plan → ModelMessage[] projection
+// (issue #1055's session-recap generator reuses this authoritative slice
+// instead of re-deriving a lossy projection of its own).
+export { replayPlanItemsToModelMessages } from './history-compact-summarizer.js';
 
 // agent-flow.ts — formal Flow seam.
 export type {

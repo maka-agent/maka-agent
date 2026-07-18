@@ -177,7 +177,11 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   // can detect it was superseded by a later prompt while it was generating.
   let recapInFlight = false;
   let lastActivityAt = Date.now();
-  let lastRecapMainTurnCount = 0;
+  // Session-scoped watermark: null (or a stale sessionId) is equivalent to a
+  // fresh session that has never had a recap (count 0). Prevents a recap
+  // triggered in session A from suppressing the first eligible recap in a
+  // later session B that happens to reach the same main-turn count.
+  let recapWatermark: { sessionId: string; mainTurnCount: number } | null = null;
   let promptSeq = 0;
   const beginActivity = () => {
     let finish!: () => void;
@@ -639,9 +643,12 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     // Captured BEFORE lastActivityAt is refreshed, so the idle gap measures up
     // to (not including) this very submission.
     const idleMs = Date.now() - lastActivityAt;
-    lastActivityAt = Date.now();
     editor.addToHistory(prompt);
     if (handleSlashCommand(prompt)) return;
+    // Refreshed only for a prompt that actually opens a turn: a slash command
+    // (e.g. /help) typed on the way back from idle must not consume the idle
+    // gap the next real prompt is measuring.
+    lastActivityAt = Date.now();
     // This prompt is about to open a turn, so it counts toward the sequence
     // an in-flight idle recap is watching — including when this very prompt
     // is the idle-return submission that triggers the recap below.
@@ -1303,6 +1310,10 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     // Only a prompt submitted *after* this point — i.e. later than the one
     // that triggered the recap — should make the result stale.
     const seqAtStart = promptSeq;
+    // Captured synchronously on entry, before any await: /session, /new, and
+    // rewind never bump promptSeq, so a session switch mid-generate must be
+    // caught by comparing sessionIds directly rather than relying on seq.
+    const sessionIdAtStart = input.driver.getSessionId();
     if (!input.recap) {
       if (reason === 'manual') {
         state.entries.push({
@@ -1325,54 +1336,65 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       }
       return;
     }
-    const mainTurnCount = (await input.driver.listRewindTargets()).length;
-    if (reason === 'manual' && mainTurnCount < 1) {
+    // Locked synchronously, before any await: two /recap invocations
+    // submitted back-to-back must not both pass the recapInFlight check above
+    // before either sets it. The rest of the body is one try/finally so every
+    // early return (including "Nothing to recap yet" and a null session)
+    // releases the lock.
+    recapInFlight = true;
+    try {
+      const mainTurnCount = (await input.driver.listRewindTargets()).length;
+      if (reason === 'manual' && mainTurnCount < 1) {
+        state.entries.push({
+          kind: 'notice',
+          level: 'info',
+          text: 'Nothing to recap yet.',
+        });
+        requestRender();
+        return;
+      }
+      if (!sessionIdAtStart) return;
+
+      const result = await input.recap.generate(sessionIdAtStart, reason);
+
+      // The active session must still be the one this recap started for —
+      // checked before ANY display (success notice or manual failure notice).
+      // /session, /new, or a rewind switched the active session while
+      // generate() was in flight: the session this result belongs to is gone
+      // from view, so surfacing it (success or error) would land on the wrong
+      // session. Drop it silently regardless of manual/idle.
+      if (input.driver.getSessionId() !== sessionIdAtStart) return;
+
+      if (!result.ok) {
+        if (reason === 'manual') {
+          state.entries.push({
+            kind: 'notice',
+            level: 'error',
+            text: `Recap failed: ${result.error}`,
+          });
+          requestRender();
+        }
+        return;
+      }
+
+      if (reason === 'idle') {
+        // Below the display threshold suppresses the notice (still persisted by
+        // the generator); a prompt submitted after seqAtStart while the call
+        // was in flight means a later prompt has superseded this recap — drop
+        // it silently either way.
+        if (Buffer.byteLength(result.raw, 'utf8') > AUTO_RECAP_DISPLAY_LIMIT_BYTES) return;
+        if (promptSeq !== seqAtStart) return;
+      }
+
       state.entries.push({
         kind: 'notice',
         level: 'info',
-        text: 'Nothing to recap yet.',
+        text: `Recap: ${result.text}`,
       });
       requestRender();
-      return;
-    }
-    const sessionId = input.driver.getSessionId();
-    if (!sessionId) return;
-
-    recapInFlight = true;
-    let result: Awaited<ReturnType<SessionRecapGenerator['generate']>>;
-    try {
-      result = await input.recap.generate(sessionId, reason);
     } finally {
       recapInFlight = false;
     }
-
-    if (!result.ok) {
-      if (reason === 'manual') {
-        state.entries.push({
-          kind: 'notice',
-          level: 'error',
-          text: `Recap failed: ${result.error}`,
-        });
-        requestRender();
-      }
-      return;
-    }
-
-    if (reason === 'idle') {
-      // Below the display threshold suppresses the notice (still persisted by
-      // the generator); a prompt submitted after seqAtStart while the call
-      // was in flight means a later prompt has superseded this recap — drop
-      // it silently either way.
-      if (Buffer.byteLength(result.raw, 'utf8') > AUTO_RECAP_DISPLAY_LIMIT_BYTES) return;
-      if (promptSeq !== seqAtStart) return;
-    }
-
-    state.entries.push({
-      kind: 'notice',
-      level: 'info',
-      text: `Recap: ${result.text}`,
-    });
-    requestRender();
   };
 
   // Fire-and-forget idle-return check: a normal prompt submitted after a long
@@ -1381,9 +1403,13 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     if (!input.recap) return;
     void (async () => {
       try {
+        const sessionId = input.driver.getSessionId();
         const mainTurnCount = (await input.driver.listRewindTargets()).length;
+        const lastRecapMainTurnCount = sessionId && recapWatermark?.sessionId === sessionId
+          ? recapWatermark.mainTurnCount
+          : 0;
         if (!shouldAutoRecap({ idleMs, mainTurnCount, lastRecapMainTurnCount })) return;
-        lastRecapMainTurnCount = mainTurnCount;
+        if (sessionId) recapWatermark = { sessionId, mainTurnCount };
         void runRecap('idle');
       } catch {
         // Best-effort: auto-recap must never surface an error to the user.

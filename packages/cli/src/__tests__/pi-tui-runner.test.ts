@@ -5178,6 +5178,168 @@ describe('Maka Pi TUI runner', () => {
         }),
       ]);
     });
+
+    // PR #1182 review fix: recapInFlight must be set synchronously, before any
+    // await, so two /recap submissions with no await between them (unlike the
+    // "already running" test above, which waits for the first generate() call
+    // to start before submitting the second) cannot both pass the
+    // `recapInFlight` check before either sets it.
+    test('two /recap commands submitted back-to-back with no await between them only start one generate() call', async () => {
+      const terminal = new FakeTerminal();
+      const driver = new RewindDriver([{ turnId: 'turn-1', label: 'first prompt' }]);
+      const gate = deferred<void>();
+      let calls = 0;
+      const run = runMakaPiTui({
+        title: 'Maka',
+        driver,
+        cwd: '/repo',
+        model: 'claude-sonnet-4-5',
+        connectionSlug: 'claude-subscription',
+        permissionMode: 'ask',
+        terminal,
+        recap: {
+          generate: async () => {
+            calls++;
+            await gate.promise;
+            return { ok: true, text: 'first recap result', raw: 'first recap result' };
+          },
+        },
+      });
+
+      terminal.input('/recap');
+      terminal.input('\r');
+      terminal.input('/recap');
+      terminal.input('\r');
+
+      await waitFor(() => plainTerminalOutput(terminal.output()).includes('Recap already running.'));
+      assert.equal(
+        calls,
+        1,
+        'the in-flight lock must be held synchronously so a second /recap racing before the first await sees it',
+      );
+
+      gate.resolve();
+      await waitFor(() => plainTerminalOutput(terminal.output()).includes('Recap: first recap result'));
+
+      exitMaka(terminal);
+      await Promise.race([
+        run,
+        delay(50).then(() => {
+          throw new Error('TUI did not close during test cleanup');
+        }),
+      ]);
+    });
+
+    // PR #1182 review fix: a recap must be scoped to the session it started
+    // for. /session, /new, and rewind never bump promptSeq (only submitted
+    // prompts do), so the promptSeq staleness check alone cannot catch a
+    // session switch — the fix compares sessionIds directly instead.
+    test('a recap result is discarded when the active session switches away while generate() is in flight', async () => {
+      const terminal = new FakeTerminal();
+      const driver = new RewindDriver([{ turnId: 'turn-1', label: 'first prompt' }]);
+      const gate = deferred<void>();
+      let calls = 0;
+      const run = runMakaPiTui({
+        title: 'Maka',
+        driver,
+        cwd: '/repo',
+        model: 'claude-sonnet-4-5',
+        connectionSlug: 'claude-subscription',
+        permissionMode: 'ask',
+        terminal,
+        recap: {
+          generate: async () => {
+            calls++;
+            await gate.promise;
+            return { ok: true, text: 'session A recap', raw: 'session A recap' };
+          },
+        },
+      });
+
+      terminal.input('/recap');
+      terminal.input('\r');
+      await waitFor(() => calls === 1); // generate() is in flight for session-1
+
+      // Switch the active session directly on the fake driver while
+      // generate() is still pending — mirrors /session, /new, or a rewind
+      // landing mid-recap.
+      await driver.switchSession('session-2');
+
+      gate.resolve();
+      await delay(50);
+      assert.equal(
+        plainTerminalOutput(terminal.output()).includes('Recap:'),
+        false,
+        'a recap started in a session that has since been switched away from must be dropped silently',
+      );
+
+      exitMaka(terminal);
+      await Promise.race([
+        run,
+        delay(50).then(() => {
+          throw new Error('TUI did not close during test cleanup');
+        }),
+      ]);
+    });
+
+    // PR #1182 review fix: lastActivityAt must only refresh for a prompt that
+    // actually opens a turn. Before the fix it refreshed at submitPrompt's
+    // entry (ahead of the slash-command check), so a slash command typed on
+    // the way back from idle (e.g. /help) would silently consume the idle
+    // gap the next real prompt needed to trigger an auto-recap.
+    test('a slash command submitted on the way back from idle does not consume the idle gap for the next real prompt', async (t) => {
+      const terminal = new FakeTerminal();
+      const driver = new RewindDriver([
+        { turnId: 'turn-1', label: 'first' },
+        { turnId: 'turn-2', label: 'second' },
+        { turnId: 'turn-3', label: 'third' },
+      ]);
+      let calls = 0;
+      const run = runMakaPiTui({
+        title: 'Maka',
+        driver,
+        cwd: '/repo',
+        model: 'claude-sonnet-4-5',
+        connectionSlug: 'claude-subscription',
+        permissionMode: 'ask',
+        terminal,
+        recap: {
+          generate: async () => {
+            calls++;
+            return { ok: true, text: 'recap after help', raw: 'recap after help' };
+          },
+        },
+      });
+
+      // Freeze/advance Date to simulate a qualifying idle gap, then submit a
+      // slash command FIRST — it must not refresh lastActivityAt — followed
+      // by a real prompt while the clock is still frozen at the same instant.
+      // If /help had wrongly refreshed the idle clock, the real prompt's
+      // idleMs would measure ~0 (both reads hit the same frozen Date) instead
+      // of the full gap, and the auto-recap below would never fire.
+      t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
+      t.mock.timers.tick(AUTO_RECAP_IDLE_MS + 1_000);
+
+      terminal.input('/help');
+      terminal.input('\r');
+      await waitFor(() => plainTerminalOutput(terminal.output()).includes('Commands'));
+
+      terminal.input('a real prompt');
+      terminal.input('\r');
+      t.mock.timers.reset();
+
+      await waitFor(() => driver.prompts.length === 1);
+      await waitFor(() => plainTerminalOutput(terminal.output()).includes('Recap: recap after help'));
+      assert.equal(calls, 1);
+
+      exitMaka(terminal);
+      await Promise.race([
+        run,
+        delay(50).then(() => {
+          throw new Error('TUI did not close during test cleanup');
+        }),
+      ]);
+    });
   });
 
 });
