@@ -1602,7 +1602,10 @@ describe('Maka Pi TUI transcript', () => {
     assert.equal(poll?.status, 'error');
     const rendered = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
     assert.match(rendered, /● Read/);
-    assert.match(rendered, /background task no longer exists/);
+    // The error disc carries the failure state; free-text error content stays
+    // out of the compact row under #1086.
+    assert.match(rendered, /\(1 line · 32 bytes\)/);
+    assert.doesNotMatch(rendered, /background task no longer exists/);
   });
 
   test('never renders a StopBackgroundTask card while the stop is in flight', () => {
@@ -2212,7 +2215,7 @@ describe('Maka Pi TUI transcript', () => {
     assert.ok(visibleWidth(row) <= 60, `row width ${visibleWidth(row)} exceeds 60`);
   });
 
-  test('drops an unprotected generic annotation before truncating the target', () => {
+  test('reserves the fixed-shape generic annotation when the row overflows', () => {
     const state = createMakaPiTranscriptState();
     applyMakaSessionEventToTranscript(state, event({
       type: 'tool_start', toolUseId: 'frob-1', toolName: 'Frobnicate',
@@ -2225,10 +2228,10 @@ describe('Maka Pi TUI transcript', () => {
 
     const lines = renderMakaPiTranscript(state, meta(), 40).map(stripAnsi);
     const row = lines[1]!;
-    // The generic first-line annotation is free text: it yields to the target
-    // instead of being reserved like a fixed-shape outcome.
+    // The result content is no longer used as an annotation. Its fixed-shape
+    // summary remains available while the long input target is truncated.
     assert.match(row, /alpha/);
-    assert.doesNotMatch(row, /gamma/);
+    assert.match(row, /\(1 line · \d+ bytes\)$/);
     assert.ok(visibleWidth(row) <= 40, `row width ${visibleWidth(row)} exceeds 40`);
   });
 
@@ -2656,13 +2659,12 @@ describe('Maka Pi TUI transcript', () => {
     }));
 
     const compact = renderMakaPiTranscript(state, meta(), 120).map(stripAnsi).join('\n');
-    // A 3-line error object must not be reported as "3 matches"; fall back to
-    // the generic quiet-value summary instead (#1065: no raw JSON braces).
-    // The multi-line error value renders as `error:` headline + indented body;
-    // the compact card shows only the first line (the key name).
+    // A 3-line error object must not be reported as "3 matches". It uses the
+    // generic fixed-shape summary instead, without raw JSON or result content.
     assert.doesNotMatch(compact, /\d+ matches/);
-    assert.match(compact, /error:/);
+    assert.match(compact, /\(4 lines · 35 bytes\)/);
     assert.doesNotMatch(compact, /"error":"boom/);
+    assert.doesNotMatch(compact, /error:/);
   });
 
   test('does not fabricate a Grep match count when matches is not an array', () => {
@@ -2717,14 +2719,136 @@ describe('Maka Pi TUI transcript', () => {
     // Never more than one card line (plus the leading blank separator):
     // multi-line JSON must not split the header.
     assert.equal(lines.length, 2);
-    // #1065: the generic fallback now uses formatToolInvocationLine /
-    // formatQuietJsonValue instead of dumping raw JSON. A tool with no
-    // custom case extracts headline key:value lines, never JSON braces.
-    // The multi-line key:value input is collapsed to a single line by
-    // collapseToSingleLine so the compact card stays one line.
-    assert.match(lines[1] ?? '', /● Frobnicate  alpha: 1 beta: two \(gamma: 3\)/);
+    // #1086: generic results use a fixed-shape size summary instead of
+    // leaking the first result line into the compact row.
+    assert.match(lines[1] ?? '', /● Frobnicate  alpha: 1 beta: two \(\d+ lines · \d+ bytes\)/);
     assert.doesNotMatch(lines[1] ?? '', /\{"alpha"/);
     assert.doesNotMatch(lines[1] ?? '', /\{"gamma"/);
+    assert.doesNotMatch(lines[1] ?? '', /gamma:/);
+  });
+
+  test('summarizes free-text MCP results with UTF-8 line and byte counts', () => {
+    const state = createMakaPiTranscriptState();
+    const text = '你好\n世界\n';
+
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'mcp-1', toolName: 'mcp__github__search', args: { query: 'Maka' },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result', toolUseId: 'mcp-1', isError: false,
+      content: { kind: 'text', text },
+    }));
+
+    const compact = renderMakaPiTranscript(state, meta(), 120).map(stripAnsi).join('\n');
+    assert.match(compact, /\(2 lines · 14 bytes\)/);
+    assert.doesNotMatch(compact, /你好|世界/);
+
+    assert.equal(toggleAllToolExpansion(state), true);
+    const expanded = renderMakaPiTranscript(state, meta(), 120).map(stripAnsi).join('\n');
+    assert.match(expanded, /你好/);
+    assert.match(expanded, /世界/);
+  });
+
+  test('uses no output for empty and whitespace-only generic results', () => {
+    for (const [toolUseId, text] of [['empty', ''], ['blank', ' \n\t ']] as const) {
+      const state = createMakaPiTranscriptState();
+      applyMakaSessionEventToTranscript(state, event({
+        type: 'tool_start', toolUseId, toolName: 'mcp__local__empty', args: {},
+      }));
+      applyMakaSessionEventToTranscript(state, event({
+        type: 'tool_result', toolUseId, isError: false,
+        content: { kind: 'text', text },
+      }));
+
+      const compact = renderMakaPiTranscript(state, meta(), 120).map(stripAnsi).join('\n');
+      assert.match(compact, /\(no output\)/);
+      assert.doesNotMatch(compact, /lines · \d+ bytes/);
+    }
+  });
+
+  test('keeps subagent summaries out of compact rows', () => {
+    const state = createMakaPiTranscriptState();
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'agent-summary', toolName: 'agent_spawn',
+      args: { profile: 'local_read', task: 'Inspect the repository.' },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result', toolUseId: 'agent-summary', isError: false,
+      content: subagentResult({ summary: 'first result line\nsecond result line' }),
+    }));
+
+    const compact = renderMakaPiTranscript(state, meta(), 120).map(stripAnsi).join('\n');
+    assert.match(compact, /\(2 lines · \d+ bytes\)/);
+    assert.doesNotMatch(compact, /first result line|second result line/);
+  });
+
+  test('shows archived Read status instead of archived placeholder text', () => {
+    const state = createMakaPiTranscriptState();
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'read-archived', toolName: 'Read', args: { path: 'README.md' },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result', toolUseId: 'read-archived', isError: false,
+      content: { kind: 'archived_tool_result', status: 'not_loaded' },
+    }));
+
+    const compact = renderMakaPiTranscript(state, meta(), 120).map(stripAnsi).join('\n');
+    assert.match(compact, /\(archived: not_loaded\)/);
+    assert.doesNotMatch(compact, /Archived tool result:/);
+  });
+
+  test('keeps generic compact summaries bounded for malformed and oversized results', () => {
+    const cases = [
+      { toolUseId: 'malformed', content: { kind: 'text', text: undefined } as unknown as ToolResultContent },
+      { toolUseId: 'oversized', content: { kind: 'text', text: 'x'.repeat(20_000) } satisfies ToolResultContent },
+    ];
+
+    for (const testCase of cases) {
+      const state = createMakaPiTranscriptState();
+      applyMakaSessionEventToTranscript(state, event({
+        type: 'tool_start', toolUseId: testCase.toolUseId, toolName: 'mcp__local__result', args: {},
+      }));
+      applyMakaSessionEventToTranscript(state, event({
+        type: 'tool_result', toolUseId: testCase.toolUseId, isError: false, content: testCase.content,
+      }));
+
+      const row = renderMakaPiTranscript(state, meta(), 80).map(stripAnsi)[1] ?? '';
+      assert.ok(visibleWidth(row) <= 80, `row width ${visibleWidth(row)} exceeds 80`);
+      if (testCase.toolUseId === 'malformed') assert.match(row, /\(no output\)/);
+      else {
+        assert.match(row, /\(1 line · 20000 bytes\)/);
+        assert.doesNotMatch(row, /x{20}/);
+      }
+    }
+  });
+
+  test('renders the same generic result summary for live and stored transcript paths', () => {
+    const live = createMakaPiTranscriptState();
+    const stored = createMakaPiTranscriptState();
+    const text = 'live and replay\nuse the same shape\n';
+
+    applyMakaSessionEventToTranscript(live, event({
+      type: 'tool_start', toolUseId: 'mcp-replay', toolName: 'mcp__github__search', args: { query: 'replay' },
+    }));
+    applyMakaSessionEventToTranscript(live, event({
+      type: 'tool_result', toolUseId: 'mcp-replay', isError: false,
+      content: { kind: 'text', text },
+    }));
+    replaceTranscriptWithStoredMessages(stored, [
+      {
+        type: 'tool_call', id: 'mcp-replay', turnId: 'turn-1', ts: 1,
+        toolName: 'mcp__github__search', args: { query: 'replay' },
+      },
+      {
+        type: 'tool_result', id: 'mcp-result', turnId: 'turn-1', ts: 2,
+        toolUseId: 'mcp-replay', isError: false, content: { kind: 'text', text },
+      },
+    ] satisfies StoredMessage[]);
+
+    assert.deepEqual(
+      renderMakaPiTranscript(live, meta(), 120).map(stripAnsi),
+      renderMakaPiTranscript(stored, meta(), 120).map(stripAnsi),
+    );
   });
 
   test('summarizes file_diff compactly and colors the expanded diff', () => {
