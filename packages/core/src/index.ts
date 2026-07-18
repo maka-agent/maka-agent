@@ -1147,6 +1147,21 @@ export {
 } from './settings.js';
 export type { BotDeliveryProvider } from './settings.js';
 
+// bot-onboarding.ts
+export {
+  BOT_ONBOARDING_PROVIDERS,
+  BOT_ONBOARDING_STATES,
+  isBotOnboardingBrand,
+  isBotOnboardingProvider,
+} from './bot-onboarding.js';
+export type {
+  BotOnboardingBrand,
+  BotOnboardingProvider,
+  BotOnboardingSnapshot,
+  BotOnboardingStartInput,
+  BotOnboardingState,
+} from './bot-onboarding.js';
+
 // ui-locale.ts
 export type {
   UiCatalog,

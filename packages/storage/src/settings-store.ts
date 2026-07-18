@@ -68,6 +68,10 @@ type UsageMessage =
 export interface SettingsStore {
   get(): Promise<AppSettings>;
   update(patch: UpdateAppSettingsInput): Promise<AppSettings>;
+  updateIf(
+    predicate: (current: AppSettings) => boolean,
+    patch: UpdateAppSettingsInput,
+  ): Promise<{ applied: boolean; settings: AppSettings }>;
   testNetworkProxy(): Promise<SettingsTestResult>;
   usageStats(range?: UsageRange): Promise<UsageStats>;
   /**
@@ -134,6 +138,25 @@ class FileSettingsStore implements SettingsStore {
     });
     if (!next) throw new Error('Failed to update settings');
     return next;
+  }
+
+  async updateIf(
+    predicate: (current: AppSettings) => boolean,
+    patch: UpdateAppSettingsInput,
+  ): Promise<{ applied: boolean; settings: AppSettings }> {
+    let result: { applied: boolean; settings: AppSettings } | undefined;
+    await this.withQueue(async () => {
+      const current = await this.readOrCreate();
+      if (!predicate(current)) {
+        result = { applied: false, settings: current };
+        return;
+      }
+      const next = mergeSettings(current, patch);
+      await this.write(next);
+      result = { applied: true, settings: next };
+    });
+    if (!result) throw new Error('Failed to conditionally update settings');
+    return result;
   }
 
   async upsertOnboardingMilestone(

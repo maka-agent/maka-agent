@@ -278,71 +278,45 @@ describe('Bot settings UI contract', () => {
     );
   });
 
-  it('opens an in-app WeChat QR login modal instead of handing scan login off to a toast', async () => {
+  it('renders the listener restart action only once outside quick onboarding actions', async () => {
+    const detail = await readRepo('apps/desktop/src/renderer/settings/bot-chat-detail.tsx');
+    const quickActions = detail.match(/\{quickOnboarding \? \([\s\S]*?\) : support === 'runtime'/)?.[0] ?? '';
+
+    assert.doesNotMatch(quickActions, /props\.onRestart|重启监听/, 'Quick onboarding actions must not embed a duplicate listener restart button');
+    assert.match(
+      detail,
+      /support === 'runtime' && \(status\?\.running \|\| props\.restarting\)[\s\S]*provider !== 'wechat'[\s\S]*onClick=\{\(\) => void props\.onRestart\(\)\}/,
+      'The shared runtime action row must remain the single owner of listener restart',
+    );
+  });
+
+  it('keeps unified onboarding as the only remote WeChat QR authority', async () => {
     const settings = await readSettingsCombinedSource();
     const styles = await readRendererContractCss();
     const main = await readRepo('apps/desktop/src/main/main.ts');
+    const onboardingMain = await readRepo('apps/desktop/src/main/bot-onboarding-main.ts');
+    const onboardingModal = await readRepo('apps/desktop/src/renderer/settings/bot-onboarding-modal.tsx');
+    const onboardingContract = await readRepo('packages/core/src/bot-onboarding.ts');
     const preload = await readRepo('apps/desktop/src/preload/preload.ts');
     const globalTypes = await readRepo('apps/desktop/src/global.d.ts');
     const scanLogin = await readRepo('apps/desktop/src/main/wechat-scan-login.ts');
     const desktopPackage = await readRepo('apps/desktop/package.json');
 
-    assert.match(settings, /function WeChatScanLoginModal\b/, 'WeChat direct scan login must render its own QR modal');
-    assert.match(settings, /const fetchingQrRef = useRef\(false\)/, 'Direct WeChat scan-login refresh must keep a synchronous pending guard');
-    assert.match(settings, /const scanLoginPollingRef = useRef\(false\)/, 'Direct WeChat scan-login status polling must keep a synchronous in-flight guard');
-    assert.match(settings, /const scanLoginConfirmingRef = useRef\(false\)/, 'Direct WeChat scan-login confirmation must keep a synchronous owner guard');
-    assert.match(settings, /const scanLoginMountedRef = useMountedRef\(\)/, 'Direct WeChat scan-login modal must track mounted ownership');
-    assert.match(settings, /const scanLoginFetchTicketRef = useRef\(0\)/, 'Direct WeChat scan-login modal must invalidate stale QR fetches across remounts');
+    assert.doesNotMatch(settings, /function WeChatScanLoginModal\b/, 'The retired renderer-owned iLink modal must not return');
+    assert.doesNotMatch(settings, /window\.maka\.settings\.bots\.wechat\.(?:fetchQrcode|pollQrcodeStatus)/, 'Renderer code must not bypass unified onboarding IPC');
+    assert.equal((settings.match(/<BotOnboardingModal\b/g) ?? []).length, 1, 'All quick-onboarding providers must share one modal authority');
+    assert.match(onboardingMain, /case 'wechat':[\s\S]*token: credential\.botToken[\s\S]*webhookUrl: credential\.baseUrl[\s\S]*botUserId: credential\.botId/, 'Confirmed iLink credentials must be persisted by the main-process onboarding authority');
     assert.match(
       settings,
-      /useEffect\(\(\) => \{[\s\S]*void fetchQr\(\);[\s\S]*return \(\) => \{[\s\S]*scanLoginFetchTicketRef\.current \+= 1;[\s\S]*fetchingQrRef\.current = false;[\s\S]*scanLoginPollingRef\.current = false;[\s\S]*scanLoginConfirmingRef\.current = false;/,
-      'Direct WeChat scan-login modal must release QR, poll, and confirmation ownership when closed',
+      /onConnected=\{async \(snapshot\) => \{[\s\S]*await props\.onReload\(\);[\s\S]*if \(!botDetailMountedRef\.current\) return;[\s\S]*await props\.onRefreshStatuses\(\);[\s\S]*toast\.success/,
+      'Confirmed scan login must refresh persisted settings and runtime status before showing success',
     );
-    assert.match(settings, /if \(fetchingQrRef\.current\) return;[\s\S]*fetchingQrRef\.current = true;[\s\S]*const ticket = \+\+scanLoginFetchTicketRef\.current;[\s\S]*setStatus\('fetching'\)/, 'Direct WeChat scan-login QR fetch must block rapid duplicate refreshes before React rerenders');
-    assert.match(
-      settings,
-      /const isCurrentRequest = \(\) => scanLoginMountedRef\.current && scanLoginFetchTicketRef\.current === ticket;[\s\S]*const result = await window\.maka\.settings\.bots\.wechat\.fetchQrcode\(\);[\s\S]*if \(!isCurrentRequest\(\)\) return;[\s\S]*if \(!result\.ok\) \{/,
-      'Direct WeChat scan-login QR fetch must not write stale result state after close or remount',
-    );
-    assert.match(
-      settings,
-      /catch \(error\) \{[\s\S]*if \(isCurrentRequest\(\)\) \{[\s\S]*setStatus\('error'\);[\s\S]*setErrorMessage\(settingsActionErrorMessage\(error\)\);/,
-      'Direct WeChat scan-login thrown QR failures must not write stale error state after close or remount',
-    );
-    assert.match(settings, /finally \{[\s\S]*if \(!scanLoginMountedRef\.current \|\| scanLoginFetchTicketRef\.current === ticket\) \{[\s\S]*fetchingQrRef\.current = false;[\s\S]*\}/, 'Direct WeChat scan-login QR fetch must release only current pending ownership');
-    assert.match(
-      settings,
-      /if \(cancelled \|\| scanLoginPollingRef\.current \|\| scanLoginConfirmingRef\.current\) return;[\s\S]*scanLoginPollingRef\.current = true;[\s\S]*const result = await window\.maka\.settings\.bots\.wechat\.pollQrcodeStatus\(qr\.qrToken\);/,
-      'Direct WeChat scan-login status polling must block overlapping interval requests',
-    );
-    assert.match(
-      settings,
-      /if \(cancelled \|\| !scanLoginMountedRef\.current\) return;[\s\S]*if \(result\.data\.status === 'confirmed'\) \{[\s\S]*scanLoginConfirmingRef\.current = true;[\s\S]*setStatus\('confirmed'\);[\s\S]*await props\.onConfirmed\(result\.data\.credentials\);[\s\S]*scanLoginConfirmingRef\.current = false;/,
-      'Direct WeChat scan-login confirmation must be owned and must not continue from a stale poll',
-    );
-    assert.match(
-      settings,
-      /catch \(error\) \{[\s\S]*if \(cancelled \|\| !scanLoginMountedRef\.current\) return;[\s\S]*scanLoginConfirmingRef\.current = false;[\s\S]*setStatus\('error'\);[\s\S]*setErrorMessage\(settingsActionErrorMessage\(error\)\);/,
-      'Direct WeChat scan-login confirmation failures must release confirmation ownership so refreshed QR polling can resume',
-    );
-    assert.match(
-      settings,
-      /finally \{[\s\S]*if \(!scanLoginConfirmingRef\.current\) \{[\s\S]*scanLoginPollingRef\.current = false;[\s\S]*\}/,
-      'Direct WeChat scan-login polling ownership must release unless confirmation has taken over',
-    );
-    assert.match(settings, /window\.maka\.settings\.bots\.wechat\.fetchQrcode\(\)/, 'Direct scan login must fetch an iLink QR code through main');
-    assert.match(settings, /window\.maka\.settings\.bots\.wechat\.pollQrcodeStatus\(qr\.qrToken\)/, 'Direct scan login must poll iLink status');
-    assert.match(settings, /<div className="settingsBotScanLoginActions" role="group" aria-label="微信扫码登录操作">/, 'Direct scan-login modal actions must expose a shared group name');
-    assert.doesNotMatch(settings, /<div className="settingsBotScanLoginActions">\s*\{\(status === 'expired' \|\| status === 'error'\)/, 'Direct scan-login modal actions must not regress to an anonymous button cluster');
-    assert.match(settings, /setErrorMessage\(settingsActionErrorMessage\(result\.error\.message\)\)/, 'Direct scan login result failures must use the Settings error scrubber before rendering');
-    assert.doesNotMatch(settings, /setErrorMessage\(result\.error\.message\)/, 'Direct scan login must not render raw Result error messages');
-    assert.doesNotMatch(settings, /setErrorMessage\(error instanceof Error \? error\.message : String\(error\)\)/, 'Direct scan login thrown failures must not render raw Error.message');
-    assert.match(settings, /token:\s*credentials\.botToken[\s\S]*webhookUrl:\s*credentials\.baseUrl[\s\S]*botUserId:\s*credentials\.botId/, 'Confirmed iLink credentials must be persisted into the WeChat channel');
-    assert.match(
-      settings,
-      /await props\.onReload\(\);[\s\S]*if \(!botDetailMountedRef\.current\) return;[\s\S]*setScanLoginOpen\(false\);[\s\S]*toast\.success\('微信已扫码登录'/,
-      'Confirmed WeChat scan login must not close the modal or toast success after Settings unmounts during reload',
-    );
+    assert.match(onboardingModal, /return cancelCurrent;/, 'Closing or unmounting the unified QR modal must cancel its main-owned session');
+    assert.match(onboardingModal, /onboarding\.start\([\s\S]*onboarding\.poll\(sessionId\)/, 'The unified QR modal must start and poll through typed onboarding IPC');
+    assert.match(onboardingModal, /generation !== generationRef\.current/, 'Late QR responses must be ignored after refresh or close');
+    assert.match(onboardingModal, /settingsActionErrorMessage\(result\.error\.message\)/, 'Unified onboarding Result failures must be scrubbed before rendering');
+    assert.match(onboardingModal, /Promise\.resolve\(props\.onConnected\(snapshot\)\)\.catch/, 'Connected follow-up failures must not become unhandled rejections');
+    assert.doesNotMatch(onboardingContract, /secret|token|deviceCode|opaqueToken/i, 'Renderer-safe onboarding snapshots must not contain provider secrets or device codes');
     assert.match(settings, /function WechatQrLoginModal\b/, 'WeChat scan login must render its own QR modal');
     assert.match(settings, /const loadingQrRef = useRef\(false\)/, 'WeChat bridge QR modal must keep a synchronous reload guard');
     assert.match(settings, /function reloadQrCode\(\) \{[\s\S]*if \(loadingQrRef\.current\) return;[\s\S]*loadingQrRef\.current = true;[\s\S]*setLoading\(true\);[\s\S]*setReloadNonce\(\(current\) => current \+ 1\)/, 'WeChat bridge QR refresh buttons and polling must share the reload guard');
@@ -368,18 +342,14 @@ describe('Bot settings UI contract', () => {
     assert.match(scanLogin, /qrcode\.toDataURL\(raw/, 'iLink qrcode_img_content is QR payload content and must be rendered before reaching <img>');
     assert.match(scanLogin, /return \{ qrcodeUrl: await renderWeChatQrcode\(qrcodeContent\), qrToken \}/, 'Direct scan login must return a renderer-safe QR image data URL, not raw iLink content');
     assert.match(desktopPackage, /"qrcode":\s*"\^1\.5\.4"/, 'Desktop main process must declare the QR renderer dependency it uses');
-    assert.match(main, /from '\.\/wechat-scan-login\.js'/, 'Electron ESM main import must include the emitted .js extension');
-    assert.match(main, /settings:bots:wechat:fetchQrcode/, 'main process must expose direct WeChat QR fetch');
-    assert.match(main, /settings:bots:wechat:pollQrcodeStatus/, 'main process must expose direct WeChat QR status polling');
-    assert.match(main, /function weChatQrFailureMessage\(error: unknown\): string \{[\s\S]*generalizedErrorMessageChinese\(error, '微信扫码登录暂时不可用，请稍后重试。'\)/, 'main QR IPC must localize scan-login failures before crossing into renderer');
-    assert.match(main, /settings:bots:wechat:fetchQrcode[\s\S]*tryWeChatQrResult\(async \(\) => fetchWeChatQrcode\(\), 'WECHAT_QR_FETCH_FAILED'\)/, 'QR fetch IPC must not expose raw iLink response-body errors');
-    assert.match(main, /settings:bots:wechat:pollQrcodeStatus[\s\S]*tryWeChatQrResult\(async \(\) => \{[\s\S]*pollWeChatQrcodeStatus\(qrToken\)/, 'QR status IPC must not expose raw iLink response-body errors');
+    assert.match(onboardingMain, /from '\.\/wechat-scan-login\.js'/, 'Electron ESM onboarding import must include the emitted .js extension');
+    assert.match(main, /settings:bots:onboarding:start/, 'main process must expose unified onboarding start IPC');
+    assert.match(main, /settings:bots:onboarding:poll/, 'main process must expose unified onboarding poll IPC');
+    assert.doesNotMatch(main, /settings:bots:wechat:(?:fetchQrcode|pollQrcodeStatus)/, 'main process must not expose a second renderer-owned iLink authority');
     assert.match(main, /settings:bots:wechatQrCode/, 'main process must expose the WeChat QR IPC');
     assert.match(preload, /wechatQrCode\(\): Promise<WechatBridgeQrCodeResult>/, 'preload must expose the typed QR bridge');
-    assert.match(preload, /fetchQrcode\(\): Promise<Result<\{ qrcodeUrl: string; qrToken: string \}>>/, 'preload must expose typed direct QR fetch');
-    assert.match(preload, /pollQrcodeStatus\(qrToken: string\): Promise<Result</, 'preload must expose typed direct QR status polling');
+    assert.doesNotMatch(preload, /settings:bots:wechat:(?:fetchQrcode|pollQrcodeStatus)/, 'preload must not expose retired direct iLink channels');
     assert.match(globalTypes, /wechatQrCode\(\): Promise<WechatBridgeQrCodeResult>/, 'global types must mirror the QR bridge');
-    assert.match(globalTypes, /fetchQrcode\(\): Promise<Result<\{ qrcodeUrl: string; qrToken: string \}>>/, 'global types must mirror direct QR fetch');
-    assert.match(globalTypes, /pollQrcodeStatus\(qrToken: string\): Promise<Result</, 'global types must mirror direct QR status polling');
+    assert.doesNotMatch(globalTypes, /fetchQrcode|pollQrcodeStatus/, 'global types must not restore the retired direct iLink API');
   });
 });

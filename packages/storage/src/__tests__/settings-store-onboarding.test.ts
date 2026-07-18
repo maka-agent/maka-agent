@@ -205,6 +205,34 @@ describe('SettingsStore.clearOnboardingMilestone', () => {
   });
 });
 
+describe('SettingsStore.updateIf', () => {
+  it('checks and writes atomically against the latest queued settings', async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-settings-conditional-'));
+    try {
+      const store = createSettingsStore(workspaceRoot);
+      await store.update({
+        botChat: { channels: { dingtalk: { appId: 'installed-id' } } },
+      });
+
+      const applied = await store.updateIf(
+        (current) => current.botChat.channels.dingtalk.appId === 'installed-id',
+        { botChat: { channels: { dingtalk: { appId: 'rolled-back-id' } } } },
+      );
+      assert.equal(applied.applied, true);
+      assert.equal(applied.settings.botChat.channels.dingtalk.appId, 'rolled-back-id');
+
+      const skipped = await store.updateIf(
+        (current) => current.botChat.channels.dingtalk.appId === 'installed-id',
+        { botChat: { channels: { dingtalk: { appId: 'must-not-win' } } } },
+      );
+      assert.equal(skipped.applied, false);
+      assert.equal((await store.get()).botChat.channels.dingtalk.appId, 'rolled-back-id');
+    } finally {
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('SettingsStore.get file recovery', () => {
   it('serializes concurrent first reads while creating default settings', async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-settings-concurrent-defaults-'));

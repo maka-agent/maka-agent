@@ -358,63 +358,179 @@
   line-height: var(--leading-snug);
 }
 
-.settingsBotScanLoginModal {
-  background: var(--background);
-  border: var(--border-width-hairline) solid var(--border);
-  border-radius: var(--radius-modal);
-  padding: var(--space-3) var(--space-4);
-  width: min(320px, 92vw);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  box-shadow: var(--shadow-minimal);
+.settingsBotSetupModes,
+.settingsBotBrandChoice {
+  justify-self: start;
 }
 
-.settingsBotScanLoginBody {
-  display: flex;
-  flex-direction: column;
+.settingsBotQuickSetup {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: var(--space-2-5);
+  gap: var(--space-4);
+  padding: var(--space-4);
+  border: var(--border-width-hairline) solid var(--border);
+  border-radius: var(--radius-surface);
+  background: var(--foreground-3);
+}
+
+.settingsBotQuickSetup strong {
+  display: block;
+  margin-bottom: var(--space-1);
+  color: var(--foreground);
+  font-size: var(--font-size-ui);
+}
+
+.settingsBotQuickSetup p {
+  max-width: 58ch;
+  margin: 0;
+  color: var(--foreground-secondary);
+  font-size: var(--font-size-caption);
+  line-height: var(--leading-normal);
+}
+
+.settingsBotQuickSetup .settingsBotBrandChoice {
+  grid-column: 1;
+}
+
+.settingsBotQuickSetup > button:last-child {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+}
+
+.settingsBotOnboardingModal {
+  position: relative;
+  width: min(520px, calc(100vw - 32px));
+  overflow: visible;
+}
+
+.settingsBotOnboardingBrand {
+  position: absolute;
+  top: -26px;
+  left: 50%;
+  display: grid;
+  width: 56px;
+  height: 56px;
+  place-items: center;
+  transform: translateX(-50%);
+  border: var(--border-width-hairline) solid var(--border);
+  border-radius: 50%;
+  background: var(--background);
+  box-shadow: var(--shadow-medium);
+}
+
+.settingsBotOnboardingBrand .settingsBotLogo {
+  width: 38px;
+  height: 38px;
+}
+
+.settingsBotOnboardingModal [data-slot="dialog-header"] {
+  padding-top: var(--space-8);
   text-align: center;
 }
 
-.settingsBotScanLoginQr {
-  width: 180px;
-  height: 180px;
+.settingsBotOnboardingBody {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-2-5);
+  padding: var(--space-3) var(--space-6) var(--space-5);
+}
+
+.settingsBotOnboardingQrFrame {
+  display: grid;
+  width: 284px;
+  height: 284px;
+  place-items: center;
+  overflow: hidden;
+  border: var(--border-width-hairline) solid var(--border);
   border-radius: var(--radius-surface);
   background: white;
-  padding: var(--space-2);
-  border: var(--border-width-hairline) solid var(--border);
+}
+
+.settingsBotOnboardingQrFrame img {
+  width: 100%;
+  height: 100%;
+  display: block;
   object-fit: contain;
 }
 
-.settingsBotScanLoginQrPlaceholder {
-  width: 180px;
-  height: 180px;
-  display: grid;
-  place-items: center;
-  border-radius: var(--radius-surface);
-  background: var(--foreground-5);
-  border: var(--border-width-hairline) dashed var(--border);
-  color: var(--muted-foreground);
-  font-size: 1.6em;
-}
-
-.settingsBotScanLoginStatus {
-  margin: 0;
-  font-size: var(--font-size-caption);
-  font-weight: var(--font-weight-medium);
+.settingsBotOnboardingQrFrame[data-state="starting"],
+.settingsBotOnboardingQrFrame[data-state="connecting"] {
   color: var(--foreground-secondary);
+  background: var(--foreground-3);
 }
 
-.settingsBotScanLoginStatus[data-status="confirmed"] { color: var(--success-text); }
-.settingsBotScanLoginStatus[data-status="error"] { color: var(--destructive-text); }
-.settingsBotScanLoginStatus[data-status="expired"] { color: var(--info-text); }
+.settingsBotOnboardingSuccess,
+.settingsBotOnboardingEmpty {
+  display: grid;
+  width: 52px;
+  height: 52px;
+  place-items: center;
+  border-radius: var(--radius-pill);
+}
 
-.settingsBotScanLoginActions {
+.settingsBotOnboardingSuccess {
+  color: var(--success-text);
+  background: oklch(from var(--success) l c h / 0.12);
+}
+
+.settingsBotOnboardingEmpty {
+  color: var(--destructive);
+  background: oklch(from var(--destructive) l c h / 0.10);
+}
+
+.settingsBotOnboardingStatus,
+.settingsBotOnboardingPrivacy {
+  margin: 0;
+  text-align: center;
+}
+
+.settingsBotOnboardingStatus {
+  color: var(--foreground);
+  font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-medium);
+}
+
+.settingsBotOnboardingStatus[data-state="error"],
+.settingsBotOnboardingStatus[data-state="denied"] {
+  color: var(--destructive);
+}
+
+.settingsBotOnboardingPrivacy {
+  color: var(--muted-foreground);
+  font-size: var(--font-size-caption);
+}
+
+.settingsBotOnboardingActions {
   display: flex;
-  justify-content: flex-end;
-  gap: var(--space-2-5);
+  justify-content: stretch;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-5) var(--space-5);
+  border-top: var(--border-width-hairline) solid var(--border);
+}
+
+.settingsBotOnboardingActions > button {
+  flex: 1;
+}
+
+@media (max-width: 620px) {
+  .settingsBotQuickSetup {
+    grid-template-columns: 1fr;
+  }
+
+  .settingsBotQuickSetup > button:last-child {
+    grid-column: 1;
+    grid-row: auto;
+  }
+
+  .settingsBotOnboardingBody {
+    padding-inline: var(--space-4);
+  }
+
+  .settingsBotOnboardingQrFrame {
+    width: min(260px, calc(100vw - 96px));
+    height: min(260px, calc(100vw - 96px));
+  }
 }
 
 .settingsBotAdvanced {

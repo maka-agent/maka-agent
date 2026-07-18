@@ -121,6 +121,7 @@ export const test = base.extend<{
   permissionWindow: Page;
   staleSessionsWindow: Page;
   sessionWorkbarWindow: Page;
+  botSettingsWindow: Page;
 }>({
   // Seeded: a pre-staged connection clears onboarding so the composer is ready.
   // Used by chat / session / settings / attachment specs.
@@ -170,6 +171,15 @@ export const test = base.extend<{
   sessionWorkbarWindow: async ({}, use) => {
     await withE2eWindow(
       { seed: false, readinessSelector: 'aside[aria-label="会话工作栏"]', visualSmokeScenario: 'task-ledger' },
+      use,
+    );
+  },
+  // Remote access: uses the visual-smoke workspace so Settings opens on the
+  // channel catalog and main injects deterministic IM onboarding adapters.
+  // The renderer still talks through the real preload/IPC/session authority.
+  botSettingsWindow: async ({}, use) => {
+    await withE2eWindow(
+      { seed: false, readinessSelector: '[aria-label="设置内容"]', visualSmokeScenario: 'settings-bots' },
       use,
     );
   },

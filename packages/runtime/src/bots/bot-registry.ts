@@ -3,11 +3,13 @@ import type { BotChannelSettings, BotChatSettings, BotProvider } from '@maka/cor
 import { generalizedErrorMessage } from '@maka/core/redaction';
 import { BOT_PROVIDERS } from '@maka/core/settings';
 import { DingTalkBotBridge } from './dingtalk-bridge.js';
+import { FeishuBotBridge } from './feishu-bridge.js';
 import { DiscordBotBridge } from './discord-bridge.js';
 import { QQBotBridge } from './qq-bridge.js';
 import { SimpleBotBridge } from './simple-bridge.js';
 import type { BotBridge, BotIncomingMessage, BotPlatform, BotSendOptions, BotStatus, SendCapable } from './types.js';
 import { WechatBridge } from './wechat-bridge.js';
+import { WeComBotBridge } from './wecom-bridge.js';
 
 export interface BotRegistryDeps {
   onIncomingMessage: (message: BotIncomingMessage) => void;
@@ -123,13 +125,17 @@ export class BotRegistry extends EventEmitter {
     const bridge =
       platform === 'wechat'
         ? new WechatBridge(settings)
-        : platform === 'discord'
-          ? new DiscordBotBridge(platform, settings)
-          : platform === 'dingtalk'
-            ? new DingTalkBotBridge(platform, settings)
-            : platform === 'qq'
-              ? new QQBotBridge(platform, settings)
-              : new SimpleBotBridge(platform, settings);
+        : platform === 'wecom'
+          ? new WeComBotBridge(settings)
+          : platform === 'feishu'
+            ? new FeishuBotBridge(settings)
+            : platform === 'discord'
+              ? new DiscordBotBridge(platform, settings)
+              : platform === 'dingtalk'
+                ? new DingTalkBotBridge(platform, settings)
+                : platform === 'qq'
+                  ? new QQBotBridge(platform, settings)
+                  : new SimpleBotBridge(platform, settings);
     this.wire(bridge);
     this.bridges.set(platform, bridge);
     await bridge.start().catch((error) => console.error(`[BotRegistry] ${platform} start failed: ${generalizedErrorMessage(error)}`));
@@ -146,6 +152,7 @@ function isImplemented(platform: BotPlatform): boolean {
   return (
     platform === 'telegram' ||
     platform === 'feishu' ||
+    platform === 'wecom' ||
     platform === 'wechat' ||
     platform === 'discord' ||
     platform === 'dingtalk' ||

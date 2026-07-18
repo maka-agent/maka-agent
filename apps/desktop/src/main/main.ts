@@ -181,6 +181,7 @@ import { registerOnboardingIpc } from './onboarding-ipc-main.js';
 import { registerSessionEntryIpc } from './session-entry-ipc-main.js';
 import { registerPermissionsIpc } from './permissions-ipc-main.js';
 import { registerSettingsIpc } from './settings-ipc-main.js';
+import { createVisualSmokeBotOnboardingAdapters } from './bot-onboarding-visual-smoke.js';
 import { registerGatewayIpc } from './gateway-ipc-main.js';
 import { registerSessionsIpc } from './sessions-ipc-main.js';
 import {
@@ -1257,6 +1258,12 @@ function registerIpc(): void {
     botRegistry,
     normalizeSettingsPatch,
     applySettingsRuntimeEffects,
+    ...(visualSmokeFixture?.scenario === 'settings-bots'
+      ? {
+          botOnboardingAdapters: createVisualSmokeBotOnboardingAdapters(),
+          botOnboardingApplySettingsRuntimeEffects: async () => undefined,
+        }
+      : {}),
   });
   registerGatewayIpc({ openGateway });
   registerDailyReviewIpc({ dailyReview, dailyReviewArchiveStore, mainWindowController });

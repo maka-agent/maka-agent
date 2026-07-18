@@ -4,6 +4,8 @@ import type {
   CreateConnectionInput,
   AppSettings,
   BotProvider,
+  BotOnboardingSnapshot,
+  BotOnboardingStartInput,
   HealthSnapshot,
   LlmConnection,
   ModelDiscoveryResult,
@@ -238,16 +240,11 @@ declare global {
           restart(provider: BotProvider): Promise<BotStatus>;
           wechatQrCode(): Promise<WechatBridgeQrCodeResult>;
           subscribeStatusChanges(handler: (status: BotStatus) => void): () => void;
-          wechat: {
-            fetchQrcode(): Promise<Result<{ qrcodeUrl: string; qrToken: string }>>;
-            pollQrcodeStatus(qrToken: string): Promise<Result<
-              | { status: 'waiting' }
-              | { status: 'expired' }
-              | {
-                  status: 'confirmed';
-                  credentials: { botToken: string; baseUrl: string; botId: string; userId: string };
-                }
-            >>;
+          onboarding: {
+            start(input: BotOnboardingStartInput): Promise<Result<BotOnboardingSnapshot>>;
+            poll(sessionId: string): Promise<Result<BotOnboardingSnapshot>>;
+            cancel(sessionId: string): Promise<Result<BotOnboardingSnapshot>>;
+            openInBrowser(sessionId: string): Promise<Result<void>>;
           };
         };
       };

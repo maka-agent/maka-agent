@@ -6,35 +6,29 @@ import { BotRegistry } from '../bot-registry.js';
 import type { BotStatus } from '../types.js';
 
 describe('BotRegistry', () => {
-  test('reports disabled and unimplemented statuses without starting bridges', async () => {
+  test('reports disabled and missing-credential statuses without opening network connections', async () => {
     const statuses: BotStatus[] = [];
     const registry = new BotRegistry({
       onIncomingMessage: () => {},
       onStatusChange: (status) => statuses.push(status),
     });
 
-    // PR-BOT-QQ-OPERATIONAL-0: QQ used to be the unimplemented stand-in
-    // here (and dingtalk before that), but now QQ has a live bridge too.
-    // The remaining credentials-only platforms are WeCom + Feishu;
-    // WeCom is the stand-in here. When WeCom-operational lands, this
-    // assertion will need to move to Feishu (or to whichever credentials-
-    // only platform is still unimplemented).
     await registry.applySettings(settingsWith({
-      wecom: { enabled: true, token: 'unused', appId: 'corp', appSecret: 'secret' },
+      wecom: { enabled: true, token: '', appId: undefined, appSecret: undefined },
     }));
 
     assert.equal(registry.getStatus('telegram').reason, 'disabled');
     assert.equal(registry.getStatus('telegram').readiness, 'scaffolded');
-    assert.equal(registry.getStatus('wecom').reason, 'scaffold-only');
+    assert.equal(registry.getStatus('wecom').reason, 'no-credentials');
     assert.equal(registry.getStatus('wecom').running, false);
-    assert.equal(registry.getStatus('wecom').readiness, 'configured');
-    assert.equal(statuses.some((status) => status.platform === 'wecom' && status.readiness === 'configured'), true);
+    assert.equal(registry.getStatus('wecom').readiness, 'scaffolded');
+    assert.equal(statuses.some((status) => status.platform === 'wecom' && status.readiness === 'scaffolded'), true);
   });
 
   // PR-BOT-DISCORD-OPERATIONAL-0: Discord is now an implemented platform
   // (DiscordBotBridge), so the "scaffold-only" assertions moved off Discord
   // onto WeCom which still has credentials-only (no live bridge).
-  test('does not mark scaffold-only WeCom as operational', async () => {
+  test('does not mark a missing-credential WeCom bridge as operational', async () => {
     const statuses: BotStatus[] = [];
     const registry = new BotRegistry({
       onIncomingMessage: () => {},
@@ -42,16 +36,16 @@ describe('BotRegistry', () => {
     });
 
     await registry.applySettings(settingsWith({
-      wecom: { enabled: true, token: 'wecom-token', appId: 'corp-id', appSecret: 'corp-secret' },
+      wecom: { enabled: true, token: '', appId: undefined, appSecret: undefined },
     }));
 
     assert.equal(registry.getStatus('wecom').running, false);
-    assert.equal(registry.getStatus('wecom').reason, 'scaffold-only');
-    assert.equal(registry.getStatus('wecom').readiness, 'configured');
+    assert.equal(registry.getStatus('wecom').reason, 'no-credentials');
+    assert.equal(registry.getStatus('wecom').readiness, 'scaffolded');
     assert.equal(statuses.some((status) => status.platform === 'wecom' && status.readiness === 'operational'), false);
 
     await registry.applySettings(settingsWith({
-      wecom: { enabled: false, token: 'wecom-token' },
+      wecom: { enabled: false, token: '' },
     }));
 
     assert.equal(registry.getStatus('wecom').running, false);
@@ -72,8 +66,8 @@ describe('BotRegistry', () => {
     ]);
 
     assert.equal(registry.getStatus('wecom').running, false);
-    assert.equal(registry.getStatus('wecom').reason, 'scaffold-only');
-    assert.equal(registry.getStatus('wecom').readiness, 'configured');
+    assert.equal(registry.getStatus('wecom').reason, 'no-credentials');
+    assert.equal(registry.getStatus('wecom').readiness, 'scaffolded');
   });
 
   test('stopAll waits behind any pending applySettings call and clears bridges', async () => {
@@ -99,12 +93,7 @@ describe('BotRegistry', () => {
   // unimplemented platforms ONLY use `readinessFromSettings` (computed
   // fresh from the channel's CURRENT facts). Credential-valid / operational
   // are reserved for the live bridge write path (SimpleBotBridge etc.).
-  test('unimplemented platform with credentials downgrades persisted credentials_valid to configured', () => {
-    // F1b in audit catalog. Settings claim credentials_valid was persisted;
-    // since wecom has no live bridge yet, the read path must NOT honor the
-    // claim — it returns `configured` (credentials present, never probed).
-    // (Was Discord before PR-BOT-DISCORD-OPERATIONAL-0; now Discord IS a
-    // live bridge so the assertion moved off it.)
+  test('implemented platform with no credentials downgrades persisted credentials_valid to scaffolded', () => {
     const registry = new BotRegistry({
       onIncomingMessage: () => {},
       onStatusChange: () => {},
@@ -114,9 +103,9 @@ describe('BotRegistry', () => {
       .applySettings(settingsWith({
         wecom: {
           enabled: true,
-          token: 'tenant-token',
-          appId: 'corp-id',
-          appSecret: 'secret',
+          token: '',
+          appId: undefined,
+          appSecret: undefined,
           connected: true,
           readiness: 'credentials_valid',
         },
@@ -126,14 +115,14 @@ describe('BotRegistry', () => {
         assert.equal(status.running, false);
         assert.equal(
           status.readiness,
-          'configured',
-          'persisted credentials_valid must NOT flow through to read path for unimplemented platforms',
+          'scaffolded',
+          'persisted credentials_valid must NOT survive when current credentials are empty',
         );
         assert.notEqual(status.readiness, 'operational');
       });
   });
 
-  test('unimplemented platform with no credentials reports scaffolded (regardless of persisted state)', async () => {
+  test('implemented platform with no credentials reports scaffolded (regardless of persisted state)', async () => {
     // F1 in audit catalog. Even with a stale persisted credentials_valid,
     // an empty credential trio means scaffoldStatus must return scaffolded.
     const registry = new BotRegistry({
@@ -153,7 +142,7 @@ describe('BotRegistry', () => {
 
     const status = registry.getStatus('wecom');
     assert.equal(status.readiness, 'scaffolded');
-    assert.equal(status.reason, 'unimplemented');
+    assert.equal(status.reason, 'no-credentials');
   });
 
   // PR-BOT-TYPING-INDICATOR-0 — `sendTypingIndicator` is best-effort and
@@ -171,20 +160,17 @@ describe('BotRegistry', () => {
     assert.equal(result, false);
   });
 
-  test('sendTypingIndicator returns false for an unimplemented platform with persisted credentials', async () => {
+  test('sendTypingIndicator returns false for WeCom because the SDK has no typing capability', async () => {
     const registry = new BotRegistry({
       onIncomingMessage: () => {},
       onStatusChange: () => {},
     });
 
     await registry.applySettings(settingsWith({
-      wecom: { enabled: true, token: 'wecom-token', appId: 'corp', appSecret: 'secret' },
+      wecom: { enabled: true, token: '', appId: undefined, appSecret: undefined },
     }));
 
-    // scaffoldStatus path means no live bridge is registered for wecom;
-    // typing indicator must silently degrade to false.
-    // (Was discord before PR-BOT-DISCORD-OPERATIONAL-0; discord is now a
-    // live bridge so the assertion moved off it.)
+    // A bridge is registered, but the official SDK has no typing API.
     const result = await registry.sendTypingIndicator('wecom', 'chat-x');
     assert.equal(result, false);
   });

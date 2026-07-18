@@ -1,6 +1,13 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ArrowLeft } from '@maka/ui/icons';
-import type { BotChannelSettings, BotProvider, BotReadinessState } from '@maka/core';
+import {
+  BOT_ONBOARDING_PROVIDERS,
+  type BotChannelSettings,
+  type BotOnboardingBrand,
+  type BotOnboardingProvider,
+  type BotProvider,
+  type BotReadinessState,
+} from '@maka/core';
 import type { BotStatus } from '@maka/runtime';
 import { MAX_ALLOWED_USER_IDS, parseAllowedUserIdsFromText } from '@maka/core/settings';
 import {
@@ -12,6 +19,7 @@ import {
   Chip,
   Input,
   RelativeTime,
+  Segmented,
   SettingsSelect,
   SettingsSwitch as Switch,
   Textarea,
@@ -19,7 +27,8 @@ import {
   useToast,
 } from '@maka/ui';
 import { PasswordInput } from './password-input';
-import { BotWeChatFields, WeChatScanLoginModal, WechatQrLoginModal } from './bot-wechat-login';
+import { BotWeChatFields, WechatQrLoginModal } from './bot-wechat-login';
+import { BotOnboardingModal } from './bot-onboarding-modal';
 import { deriveBotChannelViewState } from './bot-settings-view-model';
 import {
   BOT_LABELS,
@@ -31,6 +40,10 @@ import {
 
 function canEnableBotChannel(readiness: BotReadinessState): boolean {
   return readiness === 'credentials_valid' || readiness === 'operational' || readiness === 'degraded';
+}
+
+function supportsQuickOnboarding(provider: BotProvider): provider is BotOnboardingProvider {
+  return (BOT_ONBOARDING_PROVIDERS as readonly string[]).includes(provider);
 }
 
 /**
@@ -60,6 +73,10 @@ export function BotChatChannelDetail(props: {
   const { provider, channel, status } = props;
   const [scanLoginOpen, setScanLoginOpen] = useState(false);
   const [wechatQrOpen, setWechatQrOpen] = useState(false);
+  const [setupMode, setSetupMode] = useState<'quick' | 'manual'>('quick');
+  const [feishuBrand, setFeishuBrand] = useState<BotOnboardingBrand>(
+    channel.domain === 'larksuite.com' ? 'lark' : 'feishu',
+  );
   const botDetailMountedRef = useMountedRef();
   const toast = useToast();
 
@@ -74,6 +91,14 @@ export function BotChatChannelDetail(props: {
       ? '先测试并连接后才能启用。'
       : undefined;
   const enableSwitchHintId = `settings-bot-enable-hint-${provider}`;
+  const quickOnboarding = supportsQuickOnboarding(provider);
+
+  useEffect(() => {
+    setSetupMode('quick');
+    if (provider === 'feishu') {
+      setFeishuBrand(channel.domain === 'larksuite.com' ? 'lark' : 'feishu');
+    }
+  }, [provider, channel.domain]);
 
   return (
     <div className="settingsRemoteAccessDetail">
@@ -134,19 +159,21 @@ export function BotChatChannelDetail(props: {
               <p>{viewState.liveOperational ? '连接正常，无需处理。' : copy.detail}</p>
             </div>
             <div className="settingsBotActionStack" role="group" aria-label={`${BOT_LABELS[provider].label}渠道操作`}>
-              {provider === 'wechat' ? (
+              {quickOnboarding ? (
                 <>
-                  <Button type="button" variant="secondary" disabled={props.actionBusy} onClick={() => setScanLoginOpen(true)}>
-                    扫码登录
+                  <Button type="button" disabled={props.actionBusy} onClick={() => setScanLoginOpen(true)}>
+                    {provider === 'wecom' ? '快捷绑定' : provider === 'wechat' ? '扫码登录' : '扫码接入'}
                   </Button>
-                  {(channel.token || status?.identity) && (
+                  {provider === 'wechat' && (channel.token || status?.identity) && (
                     <Button type="button" variant="secondary" disabled={props.actionBusy} onClick={() => void props.onDisconnectWechat()}>
                       {props.pendingAction === 'disconnect' ? '断开中…' : '断开微信登录'}
                     </Button>
                   )}
-                  <Button type="button" variant="secondary" disabled={props.actionBusy} onClick={() => setWechatQrOpen(true)}>
-                    本机桥接二维码
-                  </Button>
+                  {provider === 'wechat' && (
+                    <Button type="button" variant="secondary" disabled={props.actionBusy} onClick={() => setWechatQrOpen(true)}>
+                      本机桥接二维码
+                    </Button>
+                  )}
                   <Button type="button" variant="secondary" disabled={props.actionBusy} onClick={() => void props.onTest()}>
                     {props.pendingAction === 'test' ? '测试中…' : '测试连接'}
                   </Button>
@@ -196,20 +223,63 @@ export function BotChatChannelDetail(props: {
         )}
 
         <div className="settingsBotConfigurationHeader">
-          <h4>连接配置</h4>
-          <span>自动保存</span>
+          <h4>{quickOnboarding && provider !== 'wechat' ? '接入方式' : '连接配置'}</h4>
+          <span>{quickOnboarding ? '凭据仅保存在本机' : '自动保存'}</span>
         </div>
+
+        {quickOnboarding && provider !== 'wechat' && (
+          <Segmented<'quick' | 'manual'>
+            className="settingsBotSetupModes"
+            value={setupMode}
+            ariaLabel={`${BOT_LABELS[provider].label}接入方式`}
+            options={[
+              ['quick', '快捷接入（推荐）'],
+              ['manual', '手动配置'],
+            ]}
+            onChange={setSetupMode}
+          />
+        )}
+
+        {quickOnboarding && provider !== 'wechat' && setupMode === 'quick' && (
+          <section className="settingsBotQuickSetup" aria-label={`${BOT_LABELS[provider].label}快捷接入`}>
+            <div>
+              <strong>{provider === 'wecom' ? '扫码创建并绑定机器人' : '扫码自动创建应用与机器人'}</strong>
+              <p>
+                {provider === 'wecom'
+                  ? '企业管理员扫码确认后，Maka 会保存 Bot ID 与 Secret 并启动长连接。'
+                  : '扫码确认后，Maka 会在 main process 内保存凭据并启动消息连接。'}
+              </p>
+            </div>
+            {provider === 'feishu' ? (
+              <Segmented<BotOnboardingBrand>
+                className="settingsBotBrandChoice"
+                value={feishuBrand}
+                ariaLabel="选择飞书账号区域"
+                options={[
+                  ['feishu', '飞书'],
+                  ['lark', 'Lark'],
+                ]}
+                onChange={setFeishuBrand}
+              />
+            ) : null}
+            <Button type="button" onClick={() => setScanLoginOpen(true)}>
+              {provider === 'wecom' ? '开始快捷绑定' : `使用${provider === 'feishu' && feishuBrand === 'lark' ? ' Lark ' : BOT_LABELS[provider].label}扫码接入`}
+            </Button>
+          </section>
+        )}
 
         {/* PR-BOT-WECHAT-SCAN-LOGIN-0 (WAWQAQ msg `2fa6ada6` screenshots):
             each platform's fields, labels, placeholders and notices
             rewritten to match the reference design 1:1. The previous
             implementations diverged with technical wording, extra
             fields, and missing TUN-mode amber notices. */}
-        <BotCredentialFields
-          provider={provider}
-          channel={channel}
-          onUpdateChannel={props.onUpdateChannel}
-        />
+        {(!quickOnboarding || provider === 'wechat' || setupMode === 'manual') && (
+          <BotCredentialFields
+            provider={provider}
+            channel={channel}
+            onUpdateChannel={props.onUpdateChannel}
+          />
+        )}
 
         {/* PR-BOT-WECHAT-SCAN-LOGIN-0 (WAWQAQ msg `1d9c412e`): WeChat
             personal account integration. Reference design uses ONE
@@ -232,19 +302,19 @@ export function BotChatChannelDetail(props: {
             connection testing, because QR generation and listener readiness
             are different states. */}
         {scanLoginOpen && (
-          <WeChatScanLoginModal
+          <BotOnboardingModal
+            provider={provider as BotOnboardingProvider}
+            brand={provider === 'feishu' ? feishuBrand : undefined}
             onClose={() => setScanLoginOpen(false)}
-            onConfirmed={async (credentials) => {
-              const saved = await props.onUpdateChannel({
-                token: credentials.botToken,
-                webhookUrl: credentials.baseUrl,
-                botUserId: credentials.botId,
-              });
-              if (!saved) return;
+            onConnected={async (snapshot) => {
               await props.onReload();
               if (!botDetailMountedRef.current) return;
-              setScanLoginOpen(false);
-              toast.success('微信已扫码登录', credentials.botId ? `Bot ID ${credentials.botId}` : '凭据已保存');
+              await props.onRefreshStatuses();
+              if (!botDetailMountedRef.current) return;
+              toast.success(
+                `${BOT_LABELS[provider].label}已完成扫码接入`,
+                snapshot.identity?.displayName ?? snapshot.identity?.id ?? '凭据已安全保存并开始连接',
+              );
             }}
           />
         )}

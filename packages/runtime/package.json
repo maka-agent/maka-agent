@@ -65,6 +65,8 @@
     "@ai-sdk/openai": "^3.0.64",
     "@ai-sdk/openai-compatible": "^2.0.47",
     "@maka/core": "0.1.0",
+    "@larksuiteoapi/node-sdk": "1.71.1",
+    "@wecom/aibot-node-sdk": "1.0.7",
     "@xterm/addon-unicode11": "^0.9.0",
     "@xterm/headless": "^6.0.0",
     "ai": "^6.0.185",
