@@ -5,6 +5,7 @@ import type {
   ExpertTeamSummary,
   MakaBridge,
   OnboardingSnapshot,
+  PermissionActionResult,
   QuickChatResult,
   RendererIngestInput,
   WorkspaceInstructionsState,
@@ -339,14 +340,10 @@ const makaBridge = {
     getSnapshot(): Promise<PermissionSnapshot> {
       return ipcRenderer.invoke('permissions:getSnapshot');
     },
-    openSystemSettings(permId: string): Promise<
-      { ok: true } | { ok: false; reason: string; message?: string }
-    > {
+    openSystemSettings(permId: string): Promise<PermissionActionResult> {
       return ipcRenderer.invoke('permissions:openSystemSettings', permId);
     },
-    requestAccess(permId: string): Promise<
-      { ok: true } | { ok: false; reason: string; message?: string }
-    > {
+    requestAccess(permId: string): Promise<PermissionActionResult> {
       return ipcRenderer.invoke('permissions:requestAccess', permId);
     },
   },

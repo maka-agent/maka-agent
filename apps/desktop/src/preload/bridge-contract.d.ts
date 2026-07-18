@@ -156,6 +156,14 @@ export type LocalMemoryMutationResult =
   | { ok: true; state: LocalMemoryState; entry?: LocalMemoryEntryPreview; proposal?: LocalMemoryEntryPreview }
   | { ok: false; state: LocalMemoryState; reason: string; message: string };
 
+export type PermissionActionResult =
+  | { ok: true }
+  | {
+      ok: false;
+      reason: 'invalid_id' | 'unsupported_platform' | 'unsupported_permission' | 'failed';
+      message?: string;
+    };
+
 export interface MakaBridge {
 
   tasks: {
@@ -285,18 +293,8 @@ export interface MakaBridge {
   };
   permissions: {
     getSnapshot(): Promise<PermissionSnapshot>;
-        openSystemSettings(
-          permId: string,
-        ): Promise<
-          | { ok: true }
-          | { ok: false; reason: string; message?: string }
-        >;
-        requestAccess(
-          permId: string,
-        ): Promise<
-          | { ok: true }
-          | { ok: false; reason: string; message?: string }
-        >;
+    openSystemSettings(permId: string): Promise<PermissionActionResult>;
+    requestAccess(permId: string): Promise<PermissionActionResult>;
   };
   capabilities: {
     getSnapshot(): Promise<CapabilitySnapshotCollection>;

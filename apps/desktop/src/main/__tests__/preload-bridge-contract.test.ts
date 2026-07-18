@@ -27,6 +27,12 @@ describe('preload bridge contract', () => {
 
     assert.match(bridge, /export interface MakaBridge \{/);
     assert.match(bridge, /attachmentItems\?: RendererIngestInput\[\]/);
+    assert.match(bridge, /export type PermissionActionResult =/);
+    assert.match(bridge, /reason: 'invalid_id' \| 'unsupported_platform' \| 'unsupported_permission' \| 'failed'/);
+    assert.match(bridge, /openSystemSettings\(permId: string\): Promise<PermissionActionResult>/);
+    assert.match(bridge, /requestAccess\(permId: string\): Promise<PermissionActionResult>/);
+    assert.match(preload, /PermissionActionResult/);
+    assert.doesNotMatch(preload, /reason: string/);
     assert.match(globalTypes, /import type \{ MakaBridge \} from ['"]\.\/preload\/bridge-contract\.js['"]/);
     assert.match(globalTypes, /maka: MakaBridge/);
   });
