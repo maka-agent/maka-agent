@@ -28,12 +28,14 @@ export function SessionListPanel(props: {
     onViewModeChange,
     statusGroups,
   } = props;
+  const showSessionNavigation = props.selection.section === 'sessions';
 
   return (
     <aside
       className="maka-session-panel agents-sidebar"
       aria-label="对话列表"
       data-collapsed={props.sidebarCollapsed ? 'true' : undefined}
+      data-content={showSessionNavigation ? 'sessions' : 'module'}
     >
       <header className="maka-session-panel-header">
         <div className="maka-sidebar-drag-strip" />
@@ -44,7 +46,7 @@ export function SessionListPanel(props: {
         onSelect={props.onSelect}
         onNew={props.onNew}
       />
-      {onViewModeChange && (
+      {showSessionNavigation && onViewModeChange && (
         <div className="maka-view-mode-toggle">
           {/* Shared segmented primitive — same control family as the
               daily-review range tabs. The previous hand-rolled buttons

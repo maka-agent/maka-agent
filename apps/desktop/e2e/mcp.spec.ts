@@ -9,7 +9,22 @@ const fixtureServer = path.resolve(
 test('MCP module completes stdio add, discovery, disable, JSON import, and delete', async ({ window: page }) => {
   const screenshotPath = process.env.MAKA_MCP_E2E_SCREENSHOT;
   await page.getByRole('button', { name: '展开侧边栏' }).click();
-  await page.getByRole('button', { name: 'MCP', exact: true }).click();
+  const sidebar = page.getByRole('complementary', { name: '对话列表' });
+  const extensions = sidebar.getByRole('button', { name: '扩展', exact: true });
+  await expect(extensions).toHaveAttribute('aria-expanded', 'true');
+  await expect(sidebar.getByRole('button', { name: '技能', exact: true })).toBeVisible();
+  await expect(sidebar.getByRole('button', { name: 'MCP', exact: true })).toBeVisible();
+  await extensions.click();
+  await expect(extensions).toHaveAttribute('aria-expanded', 'false');
+  await expect(sidebar.getByRole('button', { name: 'MCP', exact: true })).toBeHidden();
+  if (screenshotPath) {
+    await extensions.hover();
+    await page.screenshot({ path: variantPath(screenshotPath, 'extensions-hover') });
+  }
+  await extensions.click();
+  await sidebar.getByRole('button', { name: 'MCP', exact: true }).click();
+  await expect(sidebar.getByRole('group', { name: '会话分组方式' })).toHaveCount(0);
+  await expect(sidebar.locator('.maka-session-list')).toBeVisible();
   const mcp = page.getByRole('main', { name: 'MCP' });
   await expect(mcp.getByRole('heading', { name: 'MCP' })).toBeVisible();
   if (screenshotPath) {

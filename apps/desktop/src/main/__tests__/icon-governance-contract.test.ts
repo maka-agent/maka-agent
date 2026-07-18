@@ -139,8 +139,10 @@ describe('icon + typography governance contract', () => {
       .sort();
     // Decided semantic mapping (maintainer 2026-07-10: 新任务 matches the
     // collapsed-topbar compose icon): 新任务 → SquarePen, 每日回顾 → CalendarCheck,
-    // 技能 → Blocks, MCP → Plug, 定时任务 → Timer, 设置 → Settings.
-    const expected = ['Blocks', 'CalendarCheck', 'Plug', 'Settings', 'SquarePen', 'Timer'];
+    // 扩展 → Blocks/ChevronDown, 定时任务 → Timer, 设置 → Settings. The
+    // expanded tree uses text-only children so Skills and MCP read as one
+    // nested branch instead of a second row of primary navigation icons.
+    const expected = ['Blocks', 'CalendarCheck', 'ChevronDown', 'ChevronRight', 'Settings', 'SquarePen', 'Timer'];
     assert.deepEqual(
       imported,
       expected,
