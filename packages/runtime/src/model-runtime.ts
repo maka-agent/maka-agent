@@ -2,6 +2,7 @@ import {
   PROVIDER_DEFAULTS,
   effectiveBaseUrl,
   type LlmConnection,
+  type ModelInfo,
   type ProviderRuntimeAdapter,
 } from '@maka/core/llm-connections';
 import { lookupModelProviderOverride } from '@maka/core/model-metadata';
@@ -9,6 +10,8 @@ import { lookupModelProviderOverride } from '@maka/core/model-metadata';
 export interface ResolvedModelRuntime {
   adapter: ProviderRuntimeAdapter;
   baseUrl: string;
+  /** Account-advertised request wire for adapters that route per model. */
+  apiProtocol?: ModelInfo['apiProtocol'];
 }
 
 export function resolveModelRuntime(connection: LlmConnection, modelId: string): ResolvedModelRuntime {
@@ -22,11 +25,13 @@ export function resolveModelRuntime(connection: LlmConnection, modelId: string):
   }
   const adapter = override ? runtimeAdapterOverride(override.npm) : defaults.runtimeAdapter;
   const configuredBaseUrl = connection.baseUrl?.trim();
+  const apiProtocol = connection.models?.find((model) => model.id === modelId)?.apiProtocol;
   return {
     adapter,
     baseUrl: configuredBaseUrl
       ? effectiveBaseUrl(connection)
       : override?.api ?? effectiveBaseUrl(connection),
+    ...(apiProtocol ? { apiProtocol } : {}),
   };
 }
 
