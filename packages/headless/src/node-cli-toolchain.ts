@@ -25,6 +25,8 @@ export interface PinnedNodeCliToolchainDefinition<TSpec> {
     archivePath: string;
     installedPath: string;
     sha256: string;
+    sourceSha256?: string;
+    transform?: (source: string) => string;
     executable?: boolean;
     stripComponents?: number;
   }[];
@@ -98,7 +100,8 @@ export async function prepareNodeCliToolchain<TSpec>(
     ]);
     await chmod(join(temporaryPath, 'bin', 'node'), 0o755);
     for (const file of definition.packageFiles) {
-      const targetDir = dirname(join(temporaryPath, file.installedPath));
+      const installedPath = join(temporaryPath, file.installedPath);
+      const targetDir = dirname(installedPath);
       await mkdir(targetDir, { recursive: true });
       await execFileAsync('tar', [
         '-xzf', packageArchive,
@@ -106,7 +109,16 @@ export async function prepareNodeCliToolchain<TSpec>(
         `--strip-components=${file.stripComponents ?? 2}`,
         file.archivePath,
       ]);
-      if (file.executable) await chmod(join(temporaryPath, file.installedPath), 0o755);
+      if (file.transform !== undefined) {
+        if (file.sourceSha256 === undefined) {
+          throw new Error(`${definition.label} toolchain transform requires a source SHA-256`);
+        }
+        if (await sha256File(installedPath) !== file.sourceSha256) {
+          throw new Error(`${definition.label} toolchain ${file.installedPath} source SHA-256 mismatch`);
+        }
+        await writeFile(installedPath, file.transform(await readFile(installedPath, 'utf8')), 'utf8');
+      }
+      if (file.executable) await chmod(installedPath, 0o755);
     }
     await writeFile(join(temporaryPath, 'manifest.json'), `${JSON.stringify({
       schemaVersion: 1,

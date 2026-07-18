@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import os
+import secrets
 import shlex
 import time
 from pathlib import Path
@@ -14,12 +16,20 @@ from harbor.agents.installed.base import BaseInstalledAgent, with_prompt_templat
 from harbor.environments.base import BaseEnvironment
 from harbor.models.agent.context import AgentContext
 
+from process_scope import scoped_command, scoped_process_cleanup_command
+
 _TOOLCHAIN_ROOT = Path("/opt/maka-kimi-code-toolchain")
 _TOOLCHAIN_NODE = _TOOLCHAIN_ROOT / "bin" / "node"
 _TOOLCHAIN_ENTRYPOINT = _TOOLCHAIN_ROOT / "lib" / "kimi-code" / "main.mjs"
 _TOOLCHAIN_MANIFEST = _TOOLCHAIN_ROOT / "manifest.json"
 _TOOLCHAIN_CHECKSUMS = _TOOLCHAIN_ROOT / "checksums.sha256"
 _OUTPUT_PATH = Path("/logs/agent/kimi-code.jsonl")
+_KIMI_HOME = Path("/tmp/maka-kimi-code")
+_PRINT_CONFIG = """[background]
+print_background_mode = "exit"
+keep_alive_on_exit = true
+"""
+_REQUEST_TIMEOUT_GRACE_SEC = 120
 
 
 class MakaKimiCodeAgent(BaseInstalledAgent):
@@ -69,25 +79,63 @@ class MakaKimiCodeAgent(BaseInstalledAgent):
     ) -> None:
         self._started_at_ms = int(time.time() * 1000)
         self._write_execution_identity()
+        command_scope = secrets.token_urlsafe(24)
+        abnormal_exit = False
         try:
+            command = (
+                f"mkdir -p {shlex.quote(str(_KIMI_HOME))}; "
+                f"printf %s {shlex.quote(_PRINT_CONFIG)} > "
+                f"{shlex.quote(str(_KIMI_HOME / 'config.toml'))}; "
+                f"{shlex.quote(str(_TOOLCHAIN_NODE))} "
+                f"{shlex.quote(str(_TOOLCHAIN_ENTRYPOINT))} "
+                "--output-format stream-json --prompt "
+                f"{shlex.quote(instruction)} "
+                f"> {shlex.quote(str(_OUTPUT_PATH))} "
+                "2> /logs/agent/kimi-code.stderr.txt"
+            )
             await self.exec_as_agent(
                 environment,
-                command=(
-                    "mkdir -p /tmp/maka-kimi-code; "
-                    f"{shlex.quote(str(_TOOLCHAIN_NODE))} "
-                    f"{shlex.quote(str(_TOOLCHAIN_ENTRYPOINT))} "
-                    "--output-format stream-json --prompt "
-                    f"{shlex.quote(instruction)} "
-                    f"> {shlex.quote(str(_OUTPUT_PATH))} "
-                    "2> /logs/agent/kimi-code.stderr.txt"
+                command=scoped_command(
+                    command,
+                    command_scope,
+                    secrets.token_urlsafe(12),
                 ),
                 env=self._runtime_env(),
             )
-        except Exception as error:
-            self._failure_class = _classify_failure(error)
+        except BaseException as error:
+            abnormal_exit = True
+            if isinstance(error, Exception):
+                self._failure_class = _classify_failure(error)
             raise
         finally:
-            self._finished_at_ms = int(time.time() * 1000)
+            try:
+                if abnormal_exit:
+                    await self._cleanup_process_scope(environment, command_scope)
+            finally:
+                self._finished_at_ms = int(time.time() * 1000)
+
+    async def _cleanup_process_scope(
+        self, environment: BaseEnvironment, command_scope: str
+    ) -> None:
+        first_error: BaseException | None = None
+        try:
+            await self.exec_as_agent(
+                environment,
+                command=scoped_process_cleanup_command(command_scope, "TERM"),
+            )
+        except BaseException as error:
+            first_error = error
+        await asyncio.sleep(0.2)
+        try:
+            await self.exec_as_agent(
+                environment,
+                command=scoped_process_cleanup_command(command_scope, "KILL"),
+            )
+        except BaseException as error:
+            if first_error is None:
+                first_error = error
+        if first_error is not None:
+            raise first_error
 
     def populate_context_post_run(self, context: AgentContext) -> None:
         self._write_cell_output()
@@ -101,8 +149,15 @@ class MakaKimiCodeAgent(BaseInstalledAgent):
         if not model:
             raise ValueError("MAKA_MODEL is required")
         effort = self._get_env("MAKA_REASONING_EFFORT") or "max"
+        task_timeout_raw = (self._get_env("MAKA_CELL_TIMEOUT_SEC") or "").strip()
+        try:
+            task_timeout_sec = int(task_timeout_raw)
+        except ValueError as error:
+            raise ValueError("MAKA_CELL_TIMEOUT_SEC must be a positive integer") from error
+        if task_timeout_sec <= 0 or str(task_timeout_sec) != task_timeout_raw:
+            raise ValueError("MAKA_CELL_TIMEOUT_SEC must be a positive integer")
         return {
-            "KIMI_CODE_HOME": "/tmp/maka-kimi-code",
+            "KIMI_CODE_HOME": str(_KIMI_HOME),
             "KIMI_MODEL_NAME": model,
             "KIMI_MODEL_API_KEY": proxy_token,
             "KIMI_MODEL_PROVIDER_TYPE": "kimi",
@@ -110,6 +165,9 @@ class MakaKimiCodeAgent(BaseInstalledAgent):
             "KIMI_MODEL_MAX_CONTEXT_SIZE": "1048576",
             "KIMI_MODEL_MAX_OUTPUT_SIZE": "131072",
             "KIMI_MODEL_MAX_COMPLETION_TOKENS": "131072",
+            "KIMI_MODEL_REQUEST_TIMEOUT_MS": str(
+                (task_timeout_sec + _REQUEST_TIMEOUT_GRACE_SEC) * 1000
+            ),
             "KIMI_MODEL_ADAPTIVE_THINKING": "true",
             "KIMI_MODEL_THINKING_EFFORT": effort,
         }
