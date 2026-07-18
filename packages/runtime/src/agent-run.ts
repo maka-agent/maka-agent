@@ -6,7 +6,7 @@ import type {
   RuntimeEventStore,
   ToolBoundaryProtocol,
 } from '@maka/core';
-import { isTerminalRuntimeEvent } from '@maka/core';
+import { isSessionInlineRun, isTerminalRuntimeEvent } from '@maka/core';
 import { redactSecrets } from '@maka/core/redaction';
 import type {
   SessionBlockedReason,
@@ -192,6 +192,13 @@ export class AgentRun {
 
   isStopped(): boolean {
     return this.stopped;
+  }
+
+  isSessionInline(): boolean {
+    return isSessionInlineRun({
+      ...(this.lineage.parentRunId ? { parentRunId: this.lineage.parentRunId } : {}),
+      ...(this.continuationActive ? { continuationSource: true } : {}),
+    });
   }
 
   hasPendingStop(): boolean {
@@ -756,7 +763,7 @@ export class AgentRun {
     const priorRuns = runs.filter((run) =>
       run.runId !== this.runId &&
       run.turnId !== this.turnId &&
-      (!run.parentRunId || run.continuationSource !== undefined)
+      isSessionInlineRun(run)
     );
     if (priorRuns.length === 0) return undefined;
 

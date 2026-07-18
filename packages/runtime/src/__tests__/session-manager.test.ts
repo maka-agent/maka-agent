@@ -899,6 +899,93 @@ describe('SessionManager permission mode updates', () => {
     expect(followUpContext.some((event) => event.runId === plan.continuation?.runId)).toBe(true);
   });
 
+  test('stopSession projects an aborted turn state for an active continuation', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const turnStarted = makeGate();
+    const sendGate = makeGate();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new ActiveTurnBackend(ctx, {
+      turnStarted,
+      sendGate,
+      compactCalls: [],
+    }));
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      inspectContinuationSafety: inspectStableContinuationSafety,
+      newId: nextId(),
+      now: nextNow(6_558),
+      runtimeSource: 'test',
+    });
+    const session = await manager.createSession(makeInput());
+    const header = await store.readHeader(session.id);
+    const sourceRunId = 'stopped-source-run';
+    const sourceTurnId = 'stopped-source-turn';
+    const sourceInvocationId = 'stopped-source-invocation';
+    await seedRuntimeRun(runStore, makeRunHeader({
+      runId: sourceRunId,
+      invocationId: sourceInvocationId,
+      sessionId: session.id,
+      turnId: sourceTurnId,
+      status: 'failed',
+      failureClass: 'runtime_interrupted',
+      cwd: header.cwd,
+      createdAt: 1,
+      updatedAt: 2,
+      completedAt: 2,
+    }), [
+      runtimeEvent({
+        id: 'stopped-source-user',
+        invocationId: sourceInvocationId,
+        sessionId: session.id,
+        runId: sourceRunId,
+        turnId: sourceTurnId,
+        ts: 1,
+        role: 'user',
+        author: 'user',
+        content: { kind: 'text', text: 'continue until stopped' },
+      }),
+      runtimeEvent({
+        id: 'stopped-source-terminal',
+        invocationId: sourceInvocationId,
+        sessionId: session.id,
+        runId: sourceRunId,
+        turnId: sourceTurnId,
+        ts: 2,
+        status: 'failed',
+        actions: { endInvocation: true, stateDelta: { failureClass: 'runtime_interrupted' } },
+      }),
+    ]);
+    const plan = await manager.planSafeBoundaryContinuation(session.id, {
+      sourceRunId,
+      currentCwd: header.cwd,
+      sourceWorkspaceIdentity: 'workspace-1',
+      currentWorkspaceIdentity: 'workspace-1',
+      backgroundOperationsSettled: true,
+      availableToolNames: [],
+    });
+    if (!plan.continuation) throw new Error('expected continuation');
+
+    const execution = collectSessionEvents(manager.resumeSafeBoundaryContinuation(plan.continuation));
+    await turnStarted.promise;
+    await manager.stopSession(session.id, { source: 'stop_button' });
+    sendGate.release();
+    await execution;
+
+    const cachedMessages = await store.readMessages(session.id);
+    expect(cachedMessages.filter((message) =>
+      message.type === 'turn_state' && message.turnId === plan.continuation?.turnId
+    ).at(-1)).toMatchObject({
+      type: 'turn_state',
+      status: 'aborted',
+      abortSource: 'renderer.stop_button',
+      parentTurnId: sourceTurnId,
+    });
+  });
+
   test('parks repeated planning after the source run already produced a continuation', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
@@ -2902,6 +2989,78 @@ describe('SessionManager permission mode updates', () => {
     expect(runtimeEvents.at(-1)?.actions?.stateDelta?.failureClass).toBe('missing_terminal_event');
   });
 
+  test('getMessages repair writes terminal turn_state for a continuation run', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const manager = makeManagerForReadCutover(store, runStore);
+    const session = await manager.createSession(makeInput());
+    const sourceRunId = 'repair-source-run';
+    const sourceTurnId = 'repair-source-turn';
+    const sourceInvocationId = 'repair-source-invocation';
+    await seedRuntimeRun(runStore, makeRunHeader({
+      sessionId: session.id,
+      runId: sourceRunId,
+      turnId: sourceTurnId,
+      status: 'completed',
+      createdAt: 100,
+      updatedAt: 101,
+      completedAt: 101,
+    }), [
+      runtimeEvent({
+        id: 'repair-source-complete',
+        invocationId: sourceInvocationId,
+        sessionId: session.id,
+        runId: sourceRunId,
+        turnId: sourceTurnId,
+        ts: 101,
+        status: 'completed',
+        actions: { endInvocation: true },
+      }),
+    ]);
+    await seedRuntimeRun(runStore, makeRunHeader({
+      sessionId: session.id,
+      runId: 'repair-continuation-run',
+      turnId: 'repair-continuation-turn',
+      status: 'completed',
+      parentRunId: sourceRunId,
+      parentTurnId: sourceTurnId,
+      continuationSource: {
+        sourceInvocationId,
+        sourceRunId,
+        sourceTurnId,
+        sourceRuntimeEventHighWater: 1,
+      },
+      createdAt: 102,
+      updatedAt: 104,
+      completedAt: 104,
+    }), [
+      runtimeEvent({
+        id: 'repair-continuation-text',
+        invocationId: 'repair-continuation-invocation',
+        sessionId: session.id,
+        runId: 'repair-continuation-run',
+        turnId: 'repair-continuation-turn',
+        ts: 103,
+        role: 'model',
+        author: 'agent',
+        content: { kind: 'text', text: 'retained continuation output' },
+      }),
+    ]);
+
+    await manager.getMessages(session.id);
+
+    const cachedMessages = await store.readMessages(session.id);
+    expect(cachedMessages.find((message) =>
+      message.type === 'turn_state' && message.turnId === 'repair-continuation-turn'
+    )).toMatchObject({
+      type: 'turn_state',
+      status: 'failed',
+      errorClass: 'missing_terminal_event',
+      parentTurnId: sourceTurnId,
+      partialOutputRetained: false,
+    });
+  });
+
   test('getMessages can retry repair when the failed header update is interrupted', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore({ failUpdateRunOnce: true });
@@ -3163,6 +3322,130 @@ describe('SessionManager permission mode updates', () => {
     const childEvents = await runStore.readRuntimeEvents(session.id, 'child-run');
     expect(topLevelEvents.some((event) => event.status === 'failed')).toBe(true);
     expect(childEvents.some((event) => event.status === 'failed' || event.status === 'completed')).toBe(false);
+  });
+
+  test('getMessages includes continuation output without inlining child agent output', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const manager = makeManagerForReadCutover(store, runStore);
+    const session = await manager.createSession(makeInput());
+    const sourceRunId = 'source-run';
+    const sourceTurnId = 'source-turn';
+    const sourceInvocationId = 'source-invocation';
+    await seedRuntimeRun(runStore, makeRunHeader({
+      sessionId: session.id,
+      runId: sourceRunId,
+      turnId: sourceTurnId,
+      status: 'failed',
+      createdAt: 100,
+      updatedAt: 102,
+      completedAt: 102,
+      failureClass: 'app_restarted',
+    }), [
+      runtimeEvent({
+        id: 'source-user',
+        invocationId: sourceInvocationId,
+        sessionId: session.id,
+        runId: sourceRunId,
+        turnId: sourceTurnId,
+        ts: 101,
+        role: 'user',
+        author: 'user',
+        content: { kind: 'text', text: 'write an article' },
+      }),
+      runtimeEvent({
+        id: 'source-failed',
+        invocationId: sourceInvocationId,
+        sessionId: session.id,
+        runId: sourceRunId,
+        turnId: sourceTurnId,
+        ts: 102,
+        status: 'failed',
+        actions: { endInvocation: true, stateDelta: { failureClass: 'app_restarted' } },
+      }),
+    ]);
+
+    await seedRuntimeRun(runStore, makeRunHeader({
+      sessionId: session.id,
+      runId: 'continuation-run',
+      turnId: 'continuation-turn',
+      status: 'completed',
+      parentRunId: sourceRunId,
+      parentTurnId: sourceTurnId,
+      continuationSource: {
+        sourceInvocationId,
+        sourceRunId,
+        sourceTurnId,
+        sourceRuntimeEventHighWater: 2,
+      },
+      createdAt: 103,
+      updatedAt: 105,
+      completedAt: 105,
+    }), [
+      runtimeEvent({
+        id: 'continuation-article',
+        invocationId: 'continuation-invocation',
+        sessionId: session.id,
+        runId: 'continuation-run',
+        turnId: 'continuation-turn',
+        ts: 104,
+        role: 'model',
+        author: 'agent',
+        content: { kind: 'text', text: 'the resumed article' },
+      }),
+      runtimeEvent({
+        id: 'continuation-complete',
+        invocationId: 'continuation-invocation',
+        sessionId: session.id,
+        runId: 'continuation-run',
+        turnId: 'continuation-turn',
+        ts: 105,
+        status: 'completed',
+        actions: { endInvocation: true },
+      }),
+    ]);
+
+    await seedRuntimeRun(runStore, makeRunHeader({
+      sessionId: session.id,
+      runId: 'child-run',
+      turnId: 'child-turn',
+      status: 'completed',
+      parentRunId: sourceRunId,
+      parentTurnId: sourceTurnId,
+      createdAt: 106,
+      updatedAt: 108,
+      completedAt: 108,
+    }), [
+      runtimeEvent({
+        id: 'child-answer',
+        invocationId: 'child-invocation',
+        sessionId: session.id,
+        runId: 'child-run',
+        turnId: 'child-turn',
+        ts: 107,
+        role: 'model',
+        author: 'agent',
+        content: { kind: 'text', text: 'private child output' },
+      }),
+      runtimeEvent({
+        id: 'child-complete',
+        invocationId: 'child-invocation',
+        sessionId: session.id,
+        runId: 'child-run',
+        turnId: 'child-turn',
+        ts: 108,
+        status: 'completed',
+        actions: { endInvocation: true },
+      }),
+    ]);
+
+    const messages = await manager.getMessages(session.id);
+    const assistantTexts = messages.flatMap((message) =>
+      message.type === 'assistant' ? [message.text] : []
+    );
+
+    expect(assistantTexts).toContain('the resumed article');
+    expect(assistantTexts).not.toContain('private child output');
   });
 
   test('getMessages includes in-flight projection cache rows for an active RuntimeEvent run', async () => {
@@ -4750,6 +5033,26 @@ describe('SessionManager permission mode updates', () => {
       runtimeEvent({ id: 'child-answer', sessionId: session.id, runId: 'child-run', turnId: 'child-turn', ts: 125, role: 'model', author: 'agent', content: { kind: 'text', text: 'child answer' } }),
       runtimeEvent({ id: 'child-complete', sessionId: session.id, runId: 'child-run', turnId: 'child-turn', ts: 130, role: 'system', author: 'system', status: 'completed', actions: { endInvocation: true } }),
     ]);
+    await seedRuntimeRun(runStore, makeRunHeader({
+      sessionId: session.id,
+      runId: 'continuation-run',
+      turnId: 'continuation-turn',
+      status: 'completed',
+      createdAt: 140,
+      updatedAt: 150,
+      completedAt: 150,
+      parentRunId: 'parent-run',
+      parentTurnId: 'parent-turn',
+      continuationSource: {
+        sourceInvocationId: 'parent-invocation',
+        sourceRunId: 'parent-run',
+        sourceTurnId: 'parent-turn',
+        sourceRuntimeEventHighWater: 2,
+      },
+    }), [
+      runtimeEvent({ id: 'continuation-answer', sessionId: session.id, runId: 'continuation-run', turnId: 'continuation-turn', ts: 145, role: 'model', author: 'agent', content: { kind: 'text', text: 'continued answer' } }),
+      runtimeEvent({ id: 'continuation-complete', sessionId: session.id, runId: 'continuation-run', turnId: 'continuation-turn', ts: 150, role: 'system', author: 'system', status: 'completed', actions: { endInvocation: true } }),
+    ]);
 
     const list = await manager.listChildAgents(session.id);
     expect(list.definitions.map((agent) => agent.id)).toEqual([
@@ -5596,6 +5899,129 @@ describe('SessionManager permission mode updates', () => {
     expect(observed?.checkpointWasDurable).toBe(true);
   });
 
+  test('history compact cleanup includes continuation events without including child agent events', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const cleanupCalled = makeGate();
+    let observedEventIds: string[] = [];
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new HistoryCompactCheckpointBackend(ctx));
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      cleanupHistoryCompactArtifacts: async (input) => {
+        observedEventIds = input.runtimeEvents.map((event) => event.id);
+        cleanupCalled.release();
+      },
+      newId: nextId(),
+      now: nextNow(12_794),
+    });
+    const session = await manager.createSession(makeInput());
+    const sourceRunId = 'cleanup-source-run';
+    const sourceTurnId = 'cleanup-source-turn';
+    const sourceInvocationId = 'cleanup-source-invocation';
+    await seedRuntimeRun(runStore, makeRunHeader({
+      sessionId: session.id,
+      runId: sourceRunId,
+      turnId: sourceTurnId,
+      status: 'completed',
+      createdAt: 100,
+      updatedAt: 101,
+      completedAt: 101,
+    }), [
+      runtimeEvent({
+        id: 'cleanup-source-complete',
+        invocationId: sourceInvocationId,
+        sessionId: session.id,
+        runId: sourceRunId,
+        turnId: sourceTurnId,
+        ts: 101,
+        status: 'completed',
+        actions: { endInvocation: true },
+      }),
+    ]);
+    await seedRuntimeRun(runStore, makeRunHeader({
+      sessionId: session.id,
+      runId: 'cleanup-continuation-run',
+      turnId: 'cleanup-continuation-turn',
+      status: 'completed',
+      parentRunId: sourceRunId,
+      parentTurnId: sourceTurnId,
+      continuationSource: {
+        sourceInvocationId,
+        sourceRunId,
+        sourceTurnId,
+        sourceRuntimeEventHighWater: 1,
+      },
+      createdAt: 102,
+      updatedAt: 104,
+      completedAt: 104,
+    }), [
+      runtimeEvent({
+        id: 'cleanup-continuation-text',
+        invocationId: 'cleanup-continuation-invocation',
+        sessionId: session.id,
+        runId: 'cleanup-continuation-run',
+        turnId: 'cleanup-continuation-turn',
+        ts: 103,
+        role: 'model',
+        author: 'agent',
+        content: { kind: 'text', text: 'continued output' },
+      }),
+      runtimeEvent({
+        id: 'cleanup-continuation-complete',
+        invocationId: 'cleanup-continuation-invocation',
+        sessionId: session.id,
+        runId: 'cleanup-continuation-run',
+        turnId: 'cleanup-continuation-turn',
+        ts: 104,
+        status: 'completed',
+        actions: { endInvocation: true },
+      }),
+    ]);
+    await seedRuntimeRun(runStore, makeRunHeader({
+      sessionId: session.id,
+      runId: 'cleanup-child-run',
+      turnId: 'cleanup-child-turn',
+      status: 'completed',
+      parentRunId: sourceRunId,
+      parentTurnId: sourceTurnId,
+      createdAt: 105,
+      updatedAt: 107,
+      completedAt: 107,
+    }), [
+      runtimeEvent({
+        id: 'cleanup-child-text',
+        invocationId: 'cleanup-child-invocation',
+        sessionId: session.id,
+        runId: 'cleanup-child-run',
+        turnId: 'cleanup-child-turn',
+        ts: 106,
+        role: 'model',
+        author: 'agent',
+        content: { kind: 'text', text: 'private child output' },
+      }),
+      runtimeEvent({
+        id: 'cleanup-child-complete',
+        invocationId: 'cleanup-child-invocation',
+        sessionId: session.id,
+        runId: 'cleanup-child-run',
+        turnId: 'cleanup-child-turn',
+        ts: 107,
+        status: 'completed',
+        actions: { endInvocation: true },
+      }),
+    ]);
+
+    await drain(manager.sendMessage(session.id, { turnId: 'cleanup-current-turn', text: 'continue' }));
+    await cleanupCalled.promise;
+
+    expect(observedEventIds).toContain('cleanup-continuation-text');
+    expect(observedEventIds).not.toContain('cleanup-child-text');
+  });
+
   test('shares the latest history compact checkpoint across disposable child backends', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
@@ -6238,6 +6664,64 @@ describe('SessionManager permission mode updates', () => {
     expect(childRun.failureClass).toBe('app_restarted');
     const childEvents = await runStore.readEvents(session.id, 'child-run');
     expect(childEvents.map((event) => event.type)).toContain('run_failed');
+  });
+
+  test('startup recovery writes terminal turn_state for a stale continuation run', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new TestBackend(ctx));
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      newId: nextId(),
+      now: nextNow(12_814),
+    });
+    const session = await manager.createSession(makeInput({ status: 'running' }));
+    await seedRun(runStore, makeRunHeader({
+      sessionId: session.id,
+      runId: 'continuation-run',
+      turnId: 'continuation-turn',
+      status: 'running',
+      parentRunId: 'source-run',
+      parentTurnId: 'source-turn',
+      continuationSource: {
+        sourceInvocationId: 'source-invocation',
+        sourceRunId: 'source-run',
+        sourceTurnId: 'source-turn',
+        sourceRuntimeEventHighWater: 2,
+      },
+    }), [
+      makeRunEvent({
+        sessionId: session.id,
+        runId: 'continuation-run',
+        turnId: 'continuation-turn',
+        type: 'run_started',
+        ts: 13,
+      }),
+      makeRunEvent({
+        sessionId: session.id,
+        runId: 'continuation-run',
+        turnId: 'continuation-turn',
+        type: 'model_stream_started',
+        ts: 14,
+      }),
+    ]);
+
+    const recovered = await manager.recoverInterruptedSessions();
+
+    expect(recovered).toEqual([session.id]);
+    const messages = await store.readMessages(session.id);
+    expect(messages.find((message) =>
+      message.type === 'turn_state' && message.turnId === 'continuation-turn'
+    )).toMatchObject({
+      type: 'turn_state',
+      status: 'failed',
+      errorClass: 'app_restarted',
+      parentTurnId: 'source-turn',
+    });
   });
 
   test('startup recovery uses a completed RuntimeEvent terminal fact before incomplete AgentRun events', async () => {

@@ -190,7 +190,7 @@ export type {
   AgentRunStatus,
   AgentRunStore,
 } from './agent-run.js';
-export { AGENT_RUN_STATUSES } from './agent-run.js';
+export { AGENT_RUN_STATUSES, isSessionInlineRun } from './agent-run.js';
 
 // shell-run.ts
 export type {

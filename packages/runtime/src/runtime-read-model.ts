@@ -6,7 +6,7 @@ import type {
   StoredMessage,
   TurnRecord,
 } from '@maka/core';
-import { deriveTurnRecords, isTerminalRuntimeEvent } from '@maka/core';
+import { deriveTurnRecords, isSessionInlineRun, isTerminalRuntimeEvent } from '@maka/core';
 import {
   classifyRuntimeEventTerminalFact,
   compareRuntimeReadModelMessages,
@@ -74,20 +74,20 @@ export class RuntimeReadModel {
       ]);
     }
 
-    const topLevelRuns = runs.filter((run) => !run.parentRunId);
+    const inlineRuns = runs.filter(isSessionInlineRun);
 
-    if (topLevelRuns.length === 0) {
-      return this.buildView({ runs: topLevelRuns, events: [], diagnostics });
+    if (inlineRuns.length === 0) {
+      return this.buildView({ runs: inlineRuns, events: [], diagnostics });
     }
 
     const ordered: Array<{ event: RuntimeEvent; runIndex: number; eventIndex: number }> = [];
     const terminalFacts: RuntimeEventTerminalFact[] = [];
-    for (let runIndex = 0; runIndex < topLevelRuns.length; runIndex += 1) {
-      const run = topLevelRuns[runIndex]!;
+    for (let runIndex = 0; runIndex < inlineRuns.length; runIndex += 1) {
+      const run = inlineRuns[runIndex]!;
       if (!isTerminalRunStatus(run.status)) {
         const terminalFactContext = await this.readNonTerminalRunWithTerminalFact(sessionId, run);
         if (terminalFactContext) {
-          topLevelRuns[runIndex] = terminalFactContext.run;
+          inlineRuns[runIndex] = terminalFactContext.run;
           terminalFacts.push(terminalFactContext.fact);
           diagnostics.push(...terminalFactContext.fact.diagnostics);
           for (let eventIndex = 0; eventIndex < terminalFactContext.events.length; eventIndex += 1) {
@@ -169,7 +169,7 @@ export class RuntimeReadModel {
           factAbortSource: terminalFact.fact.abortSource,
         }));
       }
-      topLevelRuns[runIndex] = effectiveRunHeaderFromTerminalFact(run, terminalFact.fact);
+      inlineRuns[runIndex] = effectiveRunHeaderFromTerminalFact(run, terminalFact.fact);
       terminalFacts.push(terminalFact.fact);
 
       for (let eventIndex = 0; eventIndex < runEvents.length; eventIndex += 1) {
@@ -185,7 +185,7 @@ export class RuntimeReadModel {
     );
 
     return this.buildView({
-      runs: topLevelRuns,
+      runs: inlineRuns,
       events: ordered.map((item) => item.event),
       diagnostics,
       terminalFacts,

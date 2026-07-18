@@ -48,6 +48,7 @@ import {
   DEEP_RESEARCH_SESSION_LABEL,
   failureClassFromCompleteStopReason,
   isDeepResearchSession,
+  isSessionInlineRun,
 } from '@maka/core';
 import type {
   AgentRunEvent,
@@ -735,7 +736,7 @@ export class SessionManager {
     const candidate = (await this.deps.runStore.listSessionRuns(sessionId))
       .filter((run) => (
         (run.status === 'failed' || run.status === 'cancelled')
-        && (run.parentRunId === undefined || run.continuationSource !== undefined)
+        && isSessionInlineRun(run)
       ))
       .sort((left, right) => (
         right.createdAt - left.createdAt || right.runId.localeCompare(left.runId)
@@ -900,7 +901,9 @@ export class SessionManager {
     const runs = await this.deps.runStore.listSessionRuns(sessionId);
     const childRuns = await Promise.all(
       runs
-        .filter((run): run is AgentRunHeader & { parentRunId: string } => !!run.parentRunId)
+        .filter((run): run is AgentRunHeader & { parentRunId: string } => (
+          !!run.parentRunId && !isSessionInlineRun(run)
+        ))
         .map(async (run): Promise<AgentRunHeader & { parentRunId: string }> => ({
           ...await this.effectiveRunHeaderFromRuntimeLedger(run),
           parentRunId: run.parentRunId,
@@ -1365,7 +1368,7 @@ export class SessionManager {
       return false;
     }
 
-    await this.appendTerminalTurnStateIfNeeded(sessionId, decision, terminalTurnStatus(status), {
+    await this.appendTerminalTurnStateIfNeeded(sessionId, inspected.header, decision, terminalTurnStatus(status), {
       ts,
       ...(failureClass ? { errorClass: failureClass } : {}),
       ...(abortSource ? { abortSource } : {}),
@@ -1375,11 +1378,12 @@ export class SessionManager {
 
   private async appendTerminalTurnStateIfNeeded(
     sessionId: string,
+    run: AgentRunHeader,
     decision: AgentRunRecoveryDecision,
     status: TurnRecord['status'],
     options: { ts: number; errorClass?: string; abortSource?: string },
   ): Promise<void> {
-    if (decision.lineage.parentRunId) return;
+    if (!isSessionInlineRun(run)) return;
     const messages = await this.deps.store.readMessages(sessionId).catch(() => []);
     const latest = latestTurnState(messages, decision.turnId);
     if (latest && isTerminalTurnStatus(latest.status) && latest.status === status) return;

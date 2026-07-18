@@ -1,4 +1,4 @@
-import { isTerminalRuntimeEvent } from '@maka/core';
+import { isSessionInlineRun, isTerminalRuntimeEvent } from '@maka/core';
 import type { AgentRunHeader, AgentRunStore, RuntimeEvent, RuntimeEventStore } from '@maka/core';
 import type { StoredMessage, TurnRecord } from '@maka/core/session';
 import type { AgentRunLineage } from './agent-run.js';
@@ -129,7 +129,7 @@ export class RuntimeLedgerRepair {
       },
       existingEvents,
     });
-    await this.appendTerminalTurnStateIfNeeded(sessionId, messages, {
+    await this.appendTerminalTurnStateIfNeeded(sessionId, messages, run, {
       runId: run.runId,
       turnId: run.turnId,
       status,
@@ -196,7 +196,7 @@ export class RuntimeLedgerRepair {
       runEventData: { recovered: true, recoveryReason: failureClass },
       existingEvents,
     });
-    await this.appendTerminalTurnStateIfNeeded(sessionId, messages, {
+    await this.appendTerminalTurnStateIfNeeded(sessionId, messages, run, {
       runId: run.runId,
       turnId: run.turnId,
       status: 'failed',
@@ -209,11 +209,12 @@ export class RuntimeLedgerRepair {
   private async appendTerminalTurnStateIfNeeded(
     sessionId: string,
     messages: readonly StoredMessage[],
+    run: AgentRunHeader,
     decision: RuntimeLedgerRepairDecision,
     status: TurnRecord['status'],
     options: { ts: number; errorClass?: string; abortSource?: string },
   ): Promise<void> {
-    if (decision.lineage.parentRunId) return;
+    if (!isSessionInlineRun(run)) return;
     const latest = latestTurnState(messages, decision.turnId);
     if (latest && isTerminalTurnStatus(latest.status) && latest.status === status) return;
     await this.deps.appendTurnState(sessionId, decision.turnId, status, decision.lineage, options);

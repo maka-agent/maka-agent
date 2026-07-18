@@ -128,3 +128,14 @@ export interface AgentRunStore {
     options?: { replaceEventId?: string },
   ): Promise<void>;
 }
+
+/**
+ * Whether a run contributes directly to the owning session's transcript.
+ * Continuations carry parent lineage for recovery, but unlike child-agent runs
+ * their output remains part of the parent session conversation.
+ */
+export function isSessionInlineRun(
+  run: { readonly parentRunId?: string; readonly continuationSource?: unknown },
+): boolean {
+  return run.parentRunId === undefined || run.continuationSource !== undefined;
+}

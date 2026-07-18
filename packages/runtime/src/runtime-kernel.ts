@@ -5,6 +5,7 @@ import type {
   RuntimeEventStore,
   ToolBoundaryProtocol,
 } from '@maka/core';
+import { isSessionInlineRun } from '@maka/core';
 import type { CompleteEvent, SessionEvent, TokenUsageEvent } from '@maka/core/events';
 import type {
   SessionBlockedReason,
@@ -723,7 +724,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
       const target = operation.targets.get(active) ?? { active, runs: new Set(), delivered: false };
       for (const run of stoppedRuns) {
         target.runs.add(run);
-        if (!run.lineage.parentRunId && !operation.turnProjections.has(run)) {
+        if (run.isSessionInline() && !operation.turnProjections.has(run)) {
           operation.turnProjections.set(run, { id: this.deps.newId(), projected: false });
         }
       }
@@ -932,7 +933,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
       .catch(() => {})
       .then(async () => {
         const runs = (await this.deps.runStore!.listSessionRuns(sessionId))
-          .filter((run) => !run.parentRunId);
+          .filter(isSessionInlineRun);
         const runtimeEvents: RuntimeEvent[] = [];
         for (const run of runs) {
           runtimeEvents.push(...await this.deps.runtimeEventStore!.readRuntimeEvents(sessionId, run.runId));
