@@ -24,7 +24,7 @@
  * rollout-file directory walk as fallback.
  */
 
-import { open, readFile, readdir, realpath, stat } from 'node:fs/promises';
+import { open, readdir, realpath, stat, type FileHandle } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, join, resolve, sep } from 'node:path';
 import {
@@ -42,6 +42,7 @@ import {
   collectClaudeTitle,
   createDigestAccumulator,
   finishDigest,
+  isSafeForeignId,
   normalizeCodexThreadRow,
   parseForeignJsonLine,
   pickClaudeTitle,
@@ -160,22 +161,32 @@ class FileForeignSessionStore implements ForeignSessionStore {
     mtimeMs: number,
     cwdFilter: string | undefined,
   ): Promise<ForeignSessionSummary | undefined> {
-    const head = await readWindow(path, 'head', FOREIGN_SESSION_HEAD_BYTES);
-    if (head === undefined) return undefined;
+    const id = basename(path, '.jsonl');
+    if (!isSafeForeignId(id)) return undefined;
+
+    // cwd and isSidechain both live in the first `user`/`assistant` record,
+    // but a continued session can open with a run of `summary`/`mode` lines
+    // or a huge first message, so a fixed 4KB head silently misses them and
+    // drops the session. Grow the head window (64KB → 4MB) until cwd is seen.
+    // isSidechain is a per-file property (every record in the file carries the
+    // same value), so first-defined wins — no need to scan the whole file.
     const meta: ClaudeTranscriptMeta = {};
-    for (const line of head.split('\n')) {
-      const record = parseForeignJsonLine(line);
-      if (record) collectClaudeMeta(record, meta);
+    for (const record of await readClaudeHeadRecords(path)) {
+      collectClaudeMeta(record, meta);
       if (meta.cwd !== undefined && meta.isSidechain !== undefined) break;
     }
     if (meta.isSidechain === true) return undefined;
     if (meta.cwd === undefined) return undefined;
     if (cwdFilter !== undefined && normalizePath(meta.cwd) !== normalizePath(cwdFilter)) return undefined;
 
+    // Title fields use last-wins (freshest title in the tail beats an older
+    // one); firstUserMessage uses first-wins (opening request). Feed the head
+    // window first, then the tail, so both semantics fall out of iteration
+    // order (see collectClaudeTitle).
     const titles: ClaudeTitleCandidates = {};
     const titleHead = await readWindow(path, 'head', FOREIGN_SESSION_TITLE_WINDOW_BYTES);
     const titleTail = await readWindow(path, 'tail', FOREIGN_SESSION_TITLE_WINDOW_BYTES);
-    for (const window of [titleTail, titleHead]) {
+    for (const window of [titleHead, titleTail]) {
       if (window === undefined) continue;
       for (const line of window.split('\n')) {
         const record = parseForeignJsonLine(line);
@@ -185,7 +196,6 @@ class FileForeignSessionStore implements ForeignSessionStore {
         }
       }
     }
-    const id = basename(path, '.jsonl');
     return {
       source: 'claude-code',
       id,
@@ -203,58 +213,23 @@ class FileForeignSessionStore implements ForeignSessionStore {
     options: ForeignSessionScanOptions,
     now: number,
   ): Promise<ForeignSessionSummary[]> {
-    const fromDb = await this.listCodexSessionsFromSqlite(options, now);
-    if (fromDb !== undefined) return fromDb;
+    // Try state DBs newest-generation first; a DB that opens but yields no
+    // usable rows (freshly created, not yet migrated) is not authoritative,
+    // so keep descending and finally fall back to the rollout walk.
+    for (const dbPath of await codexStateDbsNewestFirst(this.codexRoot)) {
+      const rows = await readCodexThreadRows(dbPath);
+      if (rows === undefined) continue;
+      const sessions = await this.codexRowsToSummaries(rows, options, now);
+      if (sessions.length > 0) return sessions;
+    }
     return this.listCodexSessionsFromRollouts(options, now);
   }
 
-  /**
-   * undefined = SQLite unusable (no DB file, node:sqlite unavailable, or
-   * schema too old) → caller falls back to the rollout walk. An empty array
-   * is a real "no sessions" answer.
-   */
-  private async listCodexSessionsFromSqlite(
+  private async codexRowsToSummaries(
+    rows: CodexThreadRow[],
     options: ForeignSessionScanOptions,
     now: number,
-  ): Promise<ForeignSessionSummary[] | undefined> {
-    const dbPath = await newestCodexStateDb(this.codexRoot);
-    if (dbPath === undefined) return undefined;
-    let rows: CodexThreadRow[];
-    try {
-      const sqlite = await import('node:sqlite');
-      const db = new sqlite.DatabaseSync(dbPath, { readOnly: true });
-      try {
-        const columns = new Set(
-          (db.prepare('PRAGMA table_info(threads)').all() as { name?: unknown }[])
-            .map((c) => (typeof c.name === 'string' ? c.name : ''))
-            .filter((n) => n.length > 0),
-        );
-        if (!columns.has('id') || !columns.has('rollout_path')) return undefined;
-        const wanted = [
-          'id',
-          'rollout_path',
-          'cwd',
-          'title',
-          'first_user_message',
-          'updated_at_ms',
-          'updated_at',
-          'git_branch',
-          'archived',
-          'source',
-        ].filter((c) => columns.has(c));
-        // Column names come from the fixed `wanted` allowlist above, never
-        // from the database — safe to interpolate.
-        const order = columns.has('updated_at_ms') ? 'updated_at_ms' : 'updated_at';
-        rows = db
-          .prepare(`SELECT ${wanted.join(', ')} FROM threads ORDER BY ${order} DESC LIMIT ${FOREIGN_SESSION_SCAN_MAX_SESSIONS * 2}`)
-          .all() as CodexThreadRow[];
-      } finally {
-        db.close();
-      }
-    } catch {
-      return undefined;
-    }
-
+  ): Promise<ForeignSessionSummary[]> {
     const results: ForeignSessionSummary[] = [];
     for (const row of rows) {
       if (results.length >= FOREIGN_SESSION_SCAN_MAX_SESSIONS) break;
@@ -262,7 +237,7 @@ class FileForeignSessionStore implements ForeignSessionStore {
       if (!normalized) continue;
       if (now - normalized.updatedAtMs > FOREIGN_SESSION_SCAN_MAX_AGE_MS) continue;
       if (options.cwd !== undefined && normalizePath(normalized.cwd) !== normalizePath(options.cwd)) continue;
-      const transcriptPath = await this.resolveCodexRolloutPath(normalized.rolloutPath);
+      const transcriptPath = await this.resolveCodexRolloutPath(normalized.rolloutPath, normalized.id);
       if (transcriptPath === undefined) continue;
       results.push({
         source: normalized.source,
@@ -301,6 +276,10 @@ class FileForeignSessionStore implements ForeignSessionStore {
         if (meta && firstUserText !== undefined) break;
       }
       if (!meta?.id || meta.cwd === undefined) continue;
+      if (!isSafeForeignId(meta.id)) continue;
+      // The transcript filename must belong to this session (defends against
+      // renamed / planted rollout files, as in the DB path).
+      if (!rolloutFilenameMatchesId(basename(file.path), meta.id)) continue;
       if (options.cwd !== undefined && normalizePath(meta.cwd) !== normalizePath(options.cwd)) continue;
       results.push({
         source: 'codex',
@@ -317,13 +296,23 @@ class FileForeignSessionStore implements ForeignSessionStore {
     return results;
   }
 
-  /** Realpath-confine a rollout path from the (untrusted) DB to ~/.codex. */
-  private async resolveCodexRolloutPath(rolloutPath: string): Promise<string | undefined> {
+  /**
+   * Realpath-confine a rollout path from the (untrusted) DB to ~/.codex, and
+   * require the transcript filename to belong to this thread — the id (a uuid)
+   * is the trailing component of `rollout-<timestamp>-<id>.jsonl`, so a
+   * mismatch means the row points at some other session's transcript (orphan
+   * row or a forged path) and is dropped. The timestamp format varies across
+   * Codex versions (ISO datetime or epoch), so match by the id suffix rather
+   * than parsing the timestamp.
+   */
+  private async resolveCodexRolloutPath(rolloutPath: string, expectedId: string): Promise<string | undefined> {
     try {
       const real = await realpath(resolve(rolloutPath));
       const root = await realpath(this.codexRoot);
       if (real !== root && !real.startsWith(root + sep)) return undefined;
-      return (await stat(real)).isFile() ? real : undefined;
+      if (!(await stat(real)).isFile()) return undefined;
+      if (!rolloutFilenameMatchesId(basename(real), expectedId)) return undefined;
+      return real;
     } catch {
       return undefined;
     }
@@ -343,17 +332,29 @@ class FileForeignSessionStore implements ForeignSessionStore {
     }
 
     const acc = createDigestAccumulator();
-    const size = (await stat(real)).size;
+    // Open ONCE and read through the single fd: a stat-then-readFile pair has
+    // a TOCTOU window (the regular file could be swapped for a FIFO — which
+    // would block readFile forever — or grown past the cap between the two
+    // calls). fstat on the held fd, reject anything but a regular file, and
+    // never read more than the cap regardless of the size we observe.
+    let handle: Awaited<ReturnType<typeof open>> | undefined;
     let text: string;
-    if (size > FOREIGN_SESSION_DIGEST_MAX_READ_BYTES) {
-      // Oversized transcript: keep the freshest window (the tail carries the
-      // stopping point, which the handoff cares about most) and say so.
-      text = (await readWindow(real, 'tail', FOREIGN_SESSION_DIGEST_MAX_READ_BYTES)) ?? '';
-      acc.warnings.push(
-        `transcript is ${size} bytes; only the trailing ${FOREIGN_SESSION_DIGEST_MAX_READ_BYTES} bytes were read`,
-      );
-    } else {
-      text = await readFile(real, 'utf8');
+    try {
+      handle = await open(real, 'r');
+      const st = await handle.stat();
+      if (!st.isFile()) throw new Error('Foreign transcript is not a regular file');
+      if (st.size > FOREIGN_SESSION_DIGEST_MAX_READ_BYTES) {
+        text = await readHandleTailWindow(handle, st.size, FOREIGN_SESSION_DIGEST_MAX_READ_BYTES);
+        acc.warnings.push(
+          `transcript is ${st.size} bytes; only the trailing ${FOREIGN_SESSION_DIGEST_MAX_READ_BYTES} bytes were read`,
+        );
+      } else {
+        const buffer = Buffer.alloc(st.size);
+        await handle.read(buffer, 0, st.size, 0);
+        text = buffer.toString('utf8');
+      }
+    } finally {
+      await handle?.close();
     }
 
     let dropped = 0;
@@ -455,35 +456,155 @@ async function walkRolloutFiles(root: string, now: number): Promise<{ path: stri
   return out;
 }
 
-/** Newest ~/.codex/state_N.sqlite, or undefined when none exist. */
-async function newestCodexStateDb(codexRoot: string): Promise<string | undefined> {
+/** All ~/.codex/state_N.sqlite paths, newest generation first. */
+async function codexStateDbsNewestFirst(codexRoot: string): Promise<string[]> {
   try {
     const entries = await readdir(codexRoot);
-    const dbs = entries
+    return entries
       .filter((name) => /^state_\d+\.sqlite$/.test(name))
-      .sort((a, b) => Number(b.match(/\d+/)?.[0] ?? 0) - Number(a.match(/\d+/)?.[0] ?? 0));
-    return dbs.length > 0 ? join(codexRoot, dbs[0]!) : undefined;
+      .sort((a, b) => Number(b.match(/\d+/)?.[0] ?? 0) - Number(a.match(/\d+/)?.[0] ?? 0))
+      .map((name) => join(codexRoot, name));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Codex source tokens as stored in the DB — bare for cli/vscode, JSON-wrapped
+ * for the `custom` variants. Used as bound `source IN (…)` params so archived
+ * / foreign-source rows are excluded IN SQL (before LIMIT), not after.
+ */
+const CODEX_SOURCE_SQL_VALUES = ['cli', 'vscode', '{"custom":"atlas"}', '{"custom":"chatgpt"}'];
+
+/**
+ * Read candidate thread rows from one state DB, filtered and ordered in SQL.
+ * undefined = DB unusable (cannot open, or lacks the id/rollout_path columns)
+ * so the caller descends to an older generation. An empty array is a real
+ * "this DB has no matching threads".
+ */
+async function readCodexThreadRows(dbPath: string): Promise<CodexThreadRow[] | undefined> {
+  try {
+    const sqlite = await import('node:sqlite');
+    const db = new sqlite.DatabaseSync(dbPath, { readOnly: true });
+    try {
+      const columns = new Set(
+        (db.prepare('PRAGMA table_info(threads)').all() as { name?: unknown }[])
+          .map((c) => (typeof c.name === 'string' ? c.name : ''))
+          .filter((n) => n.length > 0),
+      );
+      if (!columns.has('id') || !columns.has('rollout_path')) return undefined;
+      // Every identifier below is drawn from this fixed allowlist, never from
+      // the DB, so interpolation is injection-safe; values are bound params.
+      const wanted = [
+        'id',
+        'rollout_path',
+        'cwd',
+        'title',
+        'first_user_message',
+        'updated_at_ms',
+        'updated_at',
+        'git_branch',
+        'archived',
+        'source',
+      ].filter((c) => columns.has(c));
+      const where: string[] = [];
+      const params: string[] = [];
+      if (columns.has('archived')) where.push('(archived IS NULL OR archived = 0)');
+      if (columns.has('source')) {
+        where.push(`source IN (${CODEX_SOURCE_SQL_VALUES.map(() => '?').join(', ')})`);
+        params.push(...CODEX_SOURCE_SQL_VALUES);
+      }
+      const orderColumn = columns.has('updated_at_ms')
+        ? 'updated_at_ms'
+        : columns.has('updated_at')
+          ? 'updated_at'
+          : 'id';
+      const sql =
+        `SELECT ${wanted.join(', ')} FROM threads` +
+        (where.length > 0 ? ` WHERE ${where.join(' AND ')}` : '') +
+        ` ORDER BY ${orderColumn} DESC LIMIT ${FOREIGN_SESSION_SCAN_MAX_SESSIONS * 2}`;
+      return db.prepare(sql).all(...params) as CodexThreadRow[];
+    } finally {
+      db.close();
+    }
   } catch {
     return undefined;
   }
 }
 
-/** Bounded read of a file's head or tail window; undefined on any error. */
+/**
+ * Parsed records from the head of a Claude transcript, growing the read
+ * window (64KB → 4MB) so a session that opens with a run of summary lines or
+ * a very large first message still yields its cwd record. Stops early once a
+ * record carrying `cwd` is seen.
+ */
+async function readClaudeHeadRecords(path: string): Promise<Record<string, unknown>[]> {
+  for (let bytes = 64 * 1024; ; bytes *= 4) {
+    const capped = Math.min(bytes, CLAUDE_HEAD_MAX_BYTES);
+    const window = await readWindow(path, 'head', capped);
+    if (window === undefined) return [];
+    const records: Record<string, unknown>[] = [];
+    let sawCwd = false;
+    for (const line of window.split('\n')) {
+      const record = parseForeignJsonLine(line);
+      if (!record) continue;
+      records.push(record);
+      if (typeof record.cwd === 'string') sawCwd = true;
+    }
+    if (sawCwd || capped >= CLAUDE_HEAD_MAX_BYTES || capped >= (await fileSize(path))) return records;
+  }
+}
+
+const CLAUDE_HEAD_MAX_BYTES = 4 * 1024 * 1024;
+
+async function fileSize(path: string): Promise<number> {
+  try {
+    return (await stat(path)).size;
+  } catch {
+    return 0;
+  }
+}
+
+/** Read the trailing `bytes` of an open handle, dropping the partial first line. */
+async function readHandleTailWindow(handle: FileHandle, size: number, bytes: number): Promise<string> {
+  const length = Math.min(bytes, size);
+  const buffer = Buffer.alloc(length);
+  await handle.read(buffer, 0, length, size - length);
+  const text = buffer.toString('utf8');
+  if (length >= size) return text; // whole file — no partial first line
+  const nl = text.indexOf('\n');
+  return nl === -1 ? '' : text.slice(nl + 1);
+}
+
+/**
+ * Bounded read of a file's head or tail window; undefined on any error. A
+ * tail window drops its partial first line so a mid-line cut isn't parsed as
+ * a malformed record (and isn't reported as one).
+ */
 async function readWindow(path: string, where: 'head' | 'tail', bytes: number): Promise<string | undefined> {
-  let handle;
+  let handle: FileHandle | undefined;
   try {
     handle = await open(path, 'r');
     const size = (await handle.stat()).size;
+    if (where === 'tail') return await readHandleTailWindow(handle, size, bytes);
     const length = Math.min(bytes, size);
-    const position = where === 'head' ? 0 : size - length;
     const buffer = Buffer.alloc(length);
-    await handle.read(buffer, 0, length, position);
+    await handle.read(buffer, 0, length, 0);
     return buffer.toString('utf8');
   } catch {
     return undefined;
   } finally {
     await handle?.close();
   }
+}
+
+/**
+ * A Codex rollout file `rollout-<timestamp>-<id>.jsonl` belongs to thread
+ * `id` when the basename opens with `rollout-` and ends with `-<id>.jsonl`.
+ * Timestamp-format-agnostic: the id (a uuid) is always the trailing segment.
+ */
+function rolloutFilenameMatchesId(base: string, id: string): boolean {
+  return base.startsWith('rollout-') && base.endsWith(`-${id}.jsonl`);
 }
 
 function normalizePath(path: string): string {

@@ -38,6 +38,7 @@ export const FOREIGN_SESSION_TITLE_WINDOW_BYTES = 64 * 1024;
 /** Hard cap on bytes read from one transcript when building a digest. */
 export const FOREIGN_SESSION_DIGEST_MAX_READ_BYTES = 2 * 1024 * 1024;
 
+export const FOREIGN_SESSION_ID_MAX_CHARS = 128;
 export const FOREIGN_SESSION_TITLE_MAX_CODE_POINTS = 120;
 export const FOREIGN_SESSION_MESSAGE_MAX_CODE_POINTS = 2000;
 export const FOREIGN_SESSION_DIGEST_MAX_MESSAGES = 20;
@@ -113,6 +114,19 @@ export function sanitizeForeignTitle(input: unknown): string {
   return redactSecrets(sanitizeForeignText(input, FOREIGN_SESSION_TITLE_MAX_CODE_POINTS));
 }
 
+/**
+ * A native session id is rendered verbatim (picker short-id) and used as an
+ * opaque lookup key, so it cannot be sanitized. Accept it only when it is a
+ * safe token: a bounded string with no control, bidi, zero-width, or
+ * whitespace characters. Anything else is dropped at the source.
+ */
+export function isSafeForeignId(value: unknown): value is string {
+  if (typeof value !== 'string' || value.length === 0 || value.length > FOREIGN_SESSION_ID_MAX_CHARS) {
+    return false;
+  }
+  return !/[\u0000-\u001F\u007F\u0080-\u009F\u200B-\u200D\uFEFF\u202A-\u202E\u2066-\u2069\s]/.test(value);
+}
+
 /* ------------------------------------------------------------------ *
  * Claude Code transcript records
  *
@@ -183,26 +197,57 @@ export function collectClaudeMeta(record: Record<string, unknown>, meta: ClaudeT
   }
 }
 
-/** Extract title candidates from a parsed Claude record, merging into `titles`. */
+/**
+ * Extract title candidates from a parsed Claude record, merging into `titles`.
+ *
+ * Records the callers feed in transcript order (head window first, then tail),
+ * so the title-record fields (customTitle/aiTitle/lastPrompt/summary) use
+ * LAST-wins — the freshest title in the tail beats an older one, matching the
+ * "most recent title" intent. `firstUserMessage` uses FIRST-wins so it locks
+ * onto the opening request (from the head), and is filtered so synthetic /
+ * meta / injection records never become the title.
+ */
 export function collectClaudeTitle(record: Record<string, unknown>, titles: ClaudeTitleCandidates): void {
-  if (typeof record.customTitle === 'string' && titles.customTitle === undefined) {
+  if (typeof record.customTitle === 'string' && record.customTitle.length > 0) {
     titles.customTitle = record.customTitle;
   }
-  if (typeof record.aiTitle === 'string' && titles.aiTitle === undefined) titles.aiTitle = record.aiTitle;
-  if (typeof record.summary === 'string' && titles.summary === undefined) titles.summary = record.summary;
-  if (typeof record.lastPrompt === 'string' && titles.lastPrompt === undefined) {
-    titles.lastPrompt = record.lastPrompt;
+  if (typeof record.aiTitle === 'string' && record.aiTitle.length > 0) titles.aiTitle = record.aiTitle;
+  if (typeof record.summary === 'string' && record.summary.length > 0) titles.summary = record.summary;
+  if (typeof record.lastPrompt === 'string' && record.lastPrompt.length > 0) titles.lastPrompt = record.lastPrompt;
+  if (titles.firstUserMessage === undefined) {
+    const candidate = claudeFirstPromptCandidate(record);
+    if (candidate !== undefined) titles.firstUserMessage = candidate;
   }
-  if (record.type === 'user' && titles.firstUserMessage === undefined) {
-    const text = claudeUserMessageText(record);
-    if (text !== undefined) titles.firstUserMessage = text;
-  }
+}
+
+/**
+ * Title-worthy text from a Claude `user` record, or undefined if the record
+ * should never label a session. Filters (per Grok Build's `first_prompt`):
+ *   - only `type === 'user'`, not `isMeta`, not `isCompactSummary`;
+ *   - `<command-name>x</command-name>` → `x` (slash-command invocations);
+ *   - `<bash-input>cmd</bash-input>` → `! cmd`;
+ *   - drop interrupt notices and text opening with a `<lowercase` tag
+ *     (synthetic command output / injected markup, never a real prompt).
+ */
+export function claudeFirstPromptCandidate(record: Record<string, unknown>): string | undefined {
+  if (record.type !== 'user') return undefined;
+  if (record.isMeta === true || record.isCompactSummary === true) return undefined;
+  const raw = claudeUserMessageText(record);
+  if (raw === undefined) return undefined;
+  const commandName = raw.match(/<command-name>([^<]+)<\/command-name>/);
+  if (commandName) return commandName[1]!.trim();
+  const bashInput = raw.match(/<bash-input>([^<]+)<\/bash-input>/);
+  if (bashInput) return `! ${bashInput[1]!.trim()}`;
+  const text = raw.trim();
+  if (text.startsWith('[Request interrupted by user')) return undefined;
+  if (/^<[a-z]/.test(text)) return undefined;
+  return text.length > 0 ? text : undefined;
 }
 
 export function pickClaudeTitle(titles: ClaudeTitleCandidates): string {
   return (
     sanitizeForeignTitle(
-      titles.customTitle ?? titles.aiTitle ?? titles.summary ?? titles.lastPrompt ?? titles.firstUserMessage,
+      titles.customTitle ?? titles.aiTitle ?? titles.lastPrompt ?? titles.summary ?? titles.firstUserMessage,
     ) || ''
   );
 }
@@ -267,6 +312,47 @@ export function claudeToolFilePaths(record: Record<string, unknown>): string[] {
 /** Codex thread sources eligible for import (per issue #1057). */
 export const CODEX_SUPPORTED_THREAD_SOURCES = ['cli', 'vscode', 'atlas', 'chatgpt'] as const;
 
+/**
+ * Timestamps below this (2020-01-01 UTC in ms) are treated as seconds and
+ * scaled ×1000. Codex stores `updated_at` in seconds on older schemas and
+ * `updated_at_ms` in ms on newer ones; this lets one path normalize both.
+ */
+export const FOREIGN_SESSION_MIN_EPOCH_MS = 1_577_836_800_000;
+
+function normalizeEpochMs(value: unknown): number | undefined {
+  const n =
+    typeof value === 'number' && Number.isFinite(value)
+      ? value
+      : typeof value === 'string' && /^\d+$/.test(value)
+        ? Number(value)
+        : undefined;
+  if (n === undefined) return undefined;
+  return n > 0 && n < FOREIGN_SESSION_MIN_EPOCH_MS ? n * 1000 : n;
+}
+
+/**
+ * Codex persists `source` either as a bare token (`cli`, `vscode`) or as a
+ * JSON object string (`{"custom":"atlas"}`, `{"custom":"chatgpt"}`). Return
+ * the canonical token, or undefined when it isn't a supported source — a
+ * bare-string equality check would silently drop every atlas/chatgpt thread.
+ */
+export function codexSourceToken(value: unknown): string | undefined {
+  if (typeof value !== 'string' || value.length === 0) return undefined;
+  if ((CODEX_SUPPORTED_THREAD_SOURCES as readonly string[]).includes(value)) return value;
+  if (value.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      const custom = typeof parsed === 'object' && parsed !== null ? (parsed as Record<string, unknown>).custom : undefined;
+      if (typeof custom === 'string' && (CODEX_SUPPORTED_THREAD_SOURCES as readonly string[]).includes(custom)) {
+        return custom;
+      }
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
 export interface CodexThreadRow {
   id?: unknown;
   rollout_path?: unknown;
@@ -284,21 +370,18 @@ export interface CodexThreadRow {
 export function normalizeCodexThreadRow(
   row: CodexThreadRow,
 ): (Omit<ForeignSessionSummary, 'transcriptPath'> & { rolloutPath: string }) | undefined {
-  if (typeof row.id !== 'string' || row.id.length === 0) return undefined;
+  // The id is displayed verbatim (picker short-id) and used as a lookup key,
+  // so it can never be sanitized without breaking lookup — instead reject any
+  // id that isn't a safe token (control/bidi/zero-width chars would enable a
+  // spoof; an overlong id would break rendering). Grok Build's SQL caps id at
+  // 64 octets + typeof text for the same reason.
+  if (!isSafeForeignId(row.id)) return undefined;
   if (typeof row.rollout_path !== 'string' || row.rollout_path.length === 0) return undefined;
   if (row.archived === 1 || row.archived === true) return undefined;
-  if (
-    typeof row.source === 'string' &&
-    !(CODEX_SUPPORTED_THREAD_SOURCES as readonly string[]).includes(row.source)
-  ) {
-    return undefined;
-  }
-  const updatedAtMs =
-    typeof row.updated_at_ms === 'number' && Number.isFinite(row.updated_at_ms)
-      ? row.updated_at_ms
-      : typeof row.updated_at === 'number' && Number.isFinite(row.updated_at)
-        ? row.updated_at * 1000
-        : parseTimestampMs(row.updated_at) ?? 0;
+  // A present-but-unsupported source is a hard drop; an absent source column
+  // (older schema) is allowed through — the SELECT simply didn't project it.
+  if (row.source !== undefined && codexSourceToken(row.source) === undefined) return undefined;
+  const updatedAtMs = normalizeEpochMs(row.updated_at_ms) ?? normalizeEpochMs(row.updated_at) ?? 0;
   const title = sanitizeForeignTitle(row.title) || sanitizeForeignTitle(row.first_user_message) || row.id;
   return {
     source: 'codex',
@@ -370,15 +453,26 @@ export function createDigestAccumulator(): DigestAccumulator {
 }
 
 export function pushDigestMessage(acc: DigestAccumulator, role: 'user' | 'assistant', raw: string): void {
-  const list = role === 'user' ? acc.userMessages : acc.assistantTexts;
-  if (list.length >= FOREIGN_SESSION_DIGEST_MAX_MESSAGES) return;
   const text = sanitizeForeignMessage(raw);
-  if (text.length > 0) list.push(text);
+  if (text.length === 0) return;
+  const list = role === 'user' ? acc.userMessages : acc.assistantTexts;
+  list.push(text);
+  // Keep the NEWEST N: the tail of a long conversation carries the stopping
+  // point the handoff needs most, so drop the oldest when full (not the
+  // newest, as a length-guard would).
+  if (list.length > FOREIGN_SESSION_DIGEST_MAX_MESSAGES) list.shift();
 }
 
 export function pushDigestFile(acc: DigestAccumulator, path: string): void {
-  if (acc.filesTouched.size >= FOREIGN_SESSION_DIGEST_MAX_FILES) return;
-  if (path.length > 0) acc.filesTouched.add(path);
+  if (path.length === 0) return;
+  // Re-insert to move an existing path to newest, then evict the oldest —
+  // the most recently touched files are the ones the handoff cares about.
+  acc.filesTouched.delete(path);
+  acc.filesTouched.add(path);
+  if (acc.filesTouched.size > FOREIGN_SESSION_DIGEST_MAX_FILES) {
+    const oldest = acc.filesTouched.values().next().value;
+    if (oldest !== undefined) acc.filesTouched.delete(oldest);
+  }
 }
 
 export function finishDigest(
@@ -395,32 +489,52 @@ export function finishDigest(
 }
 
 /**
+ * Remove any literal `<foreign-session-digest …>` / `</…>` tag so a
+ * foreign-authored payload cannot open or close the data envelope. Applied
+ * to a FIXPOINT: a single global replace is defeatable by reassembly
+ * (`<</foreign-session-digest>foreign-session-digest>` leaves a whole tag
+ * after the inner match is deleted), so repeat until the string stops
+ * changing. Bounded by string length, so it always terminates.
+ */
+export function stripEnvelopeTags(text: string): string {
+  const pattern = /<\/?foreign-session-digest[^\n>]*>/gi;
+  let current = text;
+  for (;;) {
+    const next = current.replace(pattern, '');
+    if (next === current) return current;
+    current = next;
+  }
+}
+
+/**
  * Render a digest as an explicitly-untrusted data block for the handoff
  * prompt. The envelope wording mirrors the memory/turn-tail discipline:
- * contents are reference data, never instructions. Foreign-authored text
- * additionally has literal envelope tags stripped so a transcript cannot
- * close the block early (cf. renderSafeTaskLedgerText).
+ * contents are reference data, never instructions. Every foreign-authored
+ * value — including cwd and file paths — is envelope-stripped AND
+ * JSON-stringified so it stays a quoted scalar that cannot break out of the
+ * block (cf. renderSafeTaskLedgerText). `source` and `updated_at` are the
+ * only unquoted fields; both are Maka-controlled enums/timestamps.
  */
 export function renderForeignSessionDigestForPrompt(digest: ForeignSessionDigest): string {
-  const strip = (text: string): string => text.replace(/<\/?foreign-session-digest[^\n>]*>/gi, '');
+  const safe = (text: string): string => JSON.stringify(stripEnvelopeTags(text));
   const lines: string[] = [
     '<foreign-session-digest>',
     `source=${digest.source}`,
-    `title=${JSON.stringify(strip(digest.title))}`,
-    `cwd=${JSON.stringify(digest.cwd)}`,
-    ...(digest.gitBranch ? [`git_branch=${JSON.stringify(strip(digest.gitBranch))}`] : []),
+    `title=${safe(digest.title)}`,
+    `cwd=${safe(digest.cwd)}`,
+    ...(digest.gitBranch ? [`git_branch=${safe(digest.gitBranch)}`] : []),
     `updated_at=${new Date(digest.updatedAtMs).toISOString()}`,
     '',
     '## User messages (chronological)',
-    ...digest.userMessages.map((m, i) => `${i + 1}. ${JSON.stringify(strip(m))}`),
+    ...digest.userMessages.map((m, i) => `${i + 1}. ${safe(m)}`),
     '',
     '## Assistant replies (text only, tool activity omitted)',
-    ...digest.assistantTexts.map((m, i) => `${i + 1}. ${JSON.stringify(strip(m))}`),
+    ...digest.assistantTexts.map((m, i) => `${i + 1}. ${safe(m)}`),
     '',
     '## Files referenced by tool calls',
-    ...digest.filesTouched.map((f) => `- ${strip(f)}`),
+    ...digest.filesTouched.map((f) => `- ${safe(f)}`),
     ...(digest.warnings.length > 0
-      ? ['', '## Reader warnings', ...digest.warnings.map((w) => `- ${strip(w)}`)]
+      ? ['', '## Reader warnings', ...digest.warnings.map((w) => `- ${safe(w)}`)]
       : []),
     '</foreign-session-digest>',
   ];
