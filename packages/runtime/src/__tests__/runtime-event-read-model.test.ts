@@ -420,6 +420,50 @@ describe('projectRuntimeEventsToStoredMessages', () => {
     });
   });
 
+  test('restores a settled Agent Swarm function response', () => {
+    const result = {
+      kind: 'agent_swarm' as const,
+      status: 'completed' as const,
+      items: [{
+        itemId: 'contract',
+        index: 0,
+        profile: 'local_read',
+        started: true,
+        agentId: 'local-read',
+        agentName: 'Local Read',
+        turnId: 'child-turn',
+        runId: 'child-run',
+        status: 'completed' as const,
+        summary: 'Verified the contract.',
+        artifactIds: [],
+        startedAt: ts + 1,
+        completedAt: ts + 2,
+        durationMs: 1,
+      }],
+      startedAt: ts,
+      completedAt: ts + 2,
+      durationMs: 2,
+    };
+    const out = projectRuntimeEventsToStoredMessages([
+      ev({
+        id: 'evt-agent-swarm-result',
+        role: 'tool',
+        author: 'tool',
+        content: {
+          kind: 'function_response',
+          id: 'tool-agent-swarm',
+          name: 'agent_swarm',
+          result,
+        },
+        refs: { toolCallId: 'tool-agent-swarm' },
+      }),
+    ], { runHeaders: [header] });
+
+    const projected = out.messages.find((message) => message.type === 'tool_result');
+    expect(projected?.type === 'tool_result' ? projected.content : undefined).toEqual(result);
+    expect(out.diagnostics).toEqual([]);
+  });
+
   test('diagnoses a mixed legacy/current shell result instead of restoring it', () => {
     const out = projectRuntimeEventsToStoredMessages([
       ev({

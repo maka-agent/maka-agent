@@ -872,6 +872,7 @@ function isToolResultContent(value: unknown): value is ToolResultContent {
     || kind === 'office_document'
     || kind === 'explore_agent'
     || kind === 'subagent'
+    || kind === 'agent_swarm'
     || kind === 'rive_workflow';
 }
 
