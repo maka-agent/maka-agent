@@ -1318,7 +1318,11 @@ function isNotFoundError(error: unknown): error is NodeJS.ErrnoException {
 }
 
 export function changesBackendConfig(patch: Partial<SessionHeader>): boolean {
-  return 'backend' in patch || 'llmConnectionSlug' in patch || 'model' in patch || 'thinkingLevel' in patch;
+  return 'backend' in patch
+    || 'llmConnectionSlug' in patch
+    || 'model' in patch
+    || 'thinkingLevel' in patch
+    || 'cwd' in patch;
 }
 
 function agentRunStatusForSpawnResult(status: AgentRunHeader['status']): SpawnChildAgentResult['status'] {

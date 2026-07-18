@@ -191,6 +191,41 @@ export class MakaAutocompleteProvider implements AutocompleteProvider {
   }
 }
 
+/** Autocomplete surface for `/move`: reuse path completion but expose folders only. */
+export class DirectoryAutocompleteProvider implements AutocompleteProvider {
+  private readonly provider: CombinedAutocompleteProvider;
+
+  constructor(basePath: string) {
+    this.provider = new CombinedAutocompleteProvider([], basePath);
+  }
+
+  async getSuggestions(
+    lines: string[],
+    cursorLine: number,
+    cursorCol: number,
+    options: { signal: AbortSignal; force?: boolean },
+  ): Promise<AutocompleteSuggestions | null> {
+    const suggestions = await this.provider.getSuggestions(lines, cursorLine, cursorCol, options);
+    if (!suggestions) return null;
+    const items = suggestions.items.filter((item) => item.label.endsWith('/'));
+    return items.length > 0 ? { ...suggestions, items } : null;
+  }
+
+  applyCompletion(
+    lines: string[],
+    cursorLine: number,
+    cursorCol: number,
+    item: AutocompleteItem,
+    prefix: string,
+  ): { lines: string[]; cursorLine: number; cursorCol: number } {
+    return this.provider.applyCompletion(lines, cursorLine, cursorCol, item, prefix);
+  }
+
+  shouldTriggerFileCompletion(lines: string[], cursorLine: number, cursorCol: number): boolean {
+    return this.provider.shouldTriggerFileCompletion(lines, cursorLine, cursorCol);
+  }
+}
+
 export interface MakaSlashCommandMetadata {
   name: string;
   description: string;
@@ -250,6 +285,57 @@ export class PickerOverlay implements Component {
       padLine(ansi.dim(this.input.hint ?? 'enter select / esc close'), safeWidth),
       padLine('', safeWidth),
       ...this.list.render(safeWidth).map((line) => formatPickerItemLine(line, safeWidth)),
+      padLine(ansi.accent('-'.repeat(safeWidth)), safeWidth),
+    ];
+  }
+}
+
+export class DirectoryPickerOverlay implements Component {
+  private readonly editor: Editor;
+
+  constructor(
+    tui: TUI,
+    private readonly input: {
+      currentCwd: string;
+      basePath: string;
+      onSubmit: (cwd: string) => void;
+      onCancel: () => void;
+    },
+  ) {
+    this.editor = new Editor(tui, editorTheme(), { paddingX: 0, autocompleteMaxVisible: 8 });
+    this.editor.setAutocompleteProvider(new DirectoryAutocompleteProvider(input.basePath));
+    this.editor.onSubmit = (value) => {
+      const cwd = value.trim();
+      if (cwd) this.input.onSubmit(cwd);
+    };
+  }
+
+  invalidate(): void {
+    this.editor.invalidate();
+  }
+
+  handleInput(data: string): void {
+    if (matchesKey(data, Key.escape) || matchesKey(data, Key.ctrl('c'))) {
+      this.input.onCancel();
+      return;
+    }
+    this.editor.handleInput(data);
+  }
+
+  render(width: number): string[] {
+    const safeWidth = Math.max(1, width);
+    this.editor.focused = true;
+    const label = 'Directory ';
+    const labelWidth = visibleWidth(label);
+    const editorLines = this.editor.render(Math.max(1, safeWidth - labelWidth)).slice(1, -1);
+    return [
+      padLine('Move Session', safeWidth),
+      padLine(ansi.dim('Type a directory · Tab complete · Enter confirm · Esc cancel'), safeWidth),
+      padLine(ansi.dim(`Current: ${this.input.currentCwd}`), safeWidth),
+      padLine('', safeWidth),
+      ...(editorLines.length > 0
+        ? editorLines.map((line, index) => padLine(`${index === 0 ? label : ' '.repeat(labelWidth)}${line}`, safeWidth))
+        : [padLine(label, safeWidth)]),
       padLine(ansi.accent('-'.repeat(safeWidth)), safeWidth),
     ];
   }

@@ -82,6 +82,7 @@ import {
 } from './pi-tui-layout.js';
 import {
   MakaAutocompleteProvider,
+  DirectoryPickerOverlay,
   OnboardingWizard,
   PickerOverlay,
   UserQuestionOverlay,
@@ -1703,6 +1704,62 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     requestRender();
   };
 
+  const moveSession = async (targetCwd: string): Promise<void> => {
+    if (!input.driver.moveSession) {
+      state.entries.push({
+        kind: 'notice',
+        level: 'error',
+        text: 'Moving sessions is not available in this environment.',
+      });
+      requestRender();
+      return;
+    }
+    const result = await input.driver.moveSession(targetCwd);
+    if (!result.changed) {
+      state.entries.push({
+        kind: 'notice',
+        level: 'info',
+        text: `Session is already at "${result.cwd}".`,
+      });
+      requestRender();
+      return;
+    }
+    cwd = result.cwd;
+    refreshEditorCwd?.(cwd);
+    const warning = result.oldCwdDirty === true
+      ? ` Warning: the old directory "${result.previousCwd}" has uncommitted changes.`
+      : '';
+    state.entries.push({
+      kind: 'notice',
+      level: 'info',
+      text: `Session moved to "${result.cwd}".${warning}`,
+    });
+    requestRender();
+  };
+
+  const showMovePicker = (): void => {
+    if (!input.driver.moveSession) {
+      state.entries.push({
+        kind: 'notice',
+        level: 'error',
+        text: 'Moving sessions is not available in this environment.',
+      });
+      requestRender();
+      return;
+    }
+    let overlay: OverlayHandle | undefined;
+    const picker = new DirectoryPickerOverlay(tui, {
+      currentCwd: cwd,
+      basePath: cwd,
+      onSubmit: (targetCwd) => {
+        overlay?.hide();
+        void runControl(() => moveSession(targetCwd));
+      },
+      onCancel: () => overlay?.hide(),
+    });
+    overlay = showBottomPicker(picker);
+  };
+
   const showPermissionModeList = () => {
     const items = permissionModePickerItems(permissionMode);
     showSelectPicker(
@@ -1812,6 +1869,18 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
           return;
         }
         void runControl(() => setModel(nextModel));
+      },
+    },
+    {
+      name: 'move',
+      description: 'Move current session to another directory',
+      run: (parts: string[]) => {
+        const targetCwd = parts.slice(1).join(' ').trim();
+        if (targetCwd) {
+          void runControl(() => moveSession(targetCwd));
+          return;
+        }
+        showMovePicker();
       },
     },
     {
@@ -2166,10 +2235,10 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
 
 const BOTTOM_PICKER_MARGIN_ROWS = 4;
 
-// The editor's autocomplete window height. Sized to fit the whole slash-command
-// menu (10 today) with headroom, so a bare `/` shows every command rather than
-// scrolling a subset.
-const EDITOR_AUTOCOMPLETE_MAX_VISIBLE = 13;
+// The editor's autocomplete window height. Keep it at least as large as the
+// full slash-command menu, so a bare `/` shows every command rather than
+// silently clipping the last command.
+const EDITOR_AUTOCOMPLETE_MAX_VISIBLE = 14;
 
 // A short, stable slice of a session id — enough to tell two same-named
 // sessions apart in the picker without showing the full unreadable uuid.

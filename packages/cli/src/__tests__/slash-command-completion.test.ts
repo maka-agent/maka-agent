@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { before, describe, test } from 'node:test';
 import { Editor, setKittyProtocolActive, TUI } from '@earendil-works/pi-tui';
 import type { InvocableSkillEntry } from '@maka/runtime';
-import { MakaAutocompleteProvider } from '../pi-tui-pickers.js';
+import { DirectoryAutocompleteProvider, MakaAutocompleteProvider } from '../pi-tui-pickers.js';
 import { MakaSkillHighlightEditor } from '../skill-highlight-editor.js';
 import { editorTheme } from '../tui-ansi.js';
 import { FakeTerminal, waitFor } from './tui-terminal-mock.js';
@@ -170,6 +170,26 @@ describe('MakaAutocompleteProvider mid-message skill completion', () => {
       result.prefix,
     );
     assert.deepEqual(applied.lines, ['see /skill:info ']);
+  });
+});
+
+describe('DirectoryAutocompleteProvider', () => {
+  test('reuses path completion while filtering out files', async () => {
+    const baseDir = mkdtempSync(join(tmpdir(), 'maka-move-picker-'));
+    mkdirSync(join(baseDir, 'worktree-next'));
+    writeFileSync(join(baseDir, 'notes.txt'), 'notes');
+    try {
+      const provider = new DirectoryAutocompleteProvider(baseDir);
+      const result = await provider.getSuggestions([''], 0, 0, {
+        signal: new AbortController().signal,
+        force: true,
+      });
+      assert.deepEqual(result?.items.map((item) => item.label), ['worktree-next/']);
+    } finally {
+      // The test directory is intentionally tiny; remove it synchronously so
+      // the provider test does not need a second async lifecycle hook.
+      rmSync(baseDir, { recursive: true, force: true });
+    }
   });
 });
 

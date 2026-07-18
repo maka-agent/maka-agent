@@ -1,5 +1,9 @@
+import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { realpath } from 'node:fs/promises';
+import { realpath, stat } from 'node:fs/promises';
+import { promisify } from 'node:util';
+import { homedir } from 'node:os';
+import { resolve } from 'node:path';
 import type { QueueEnqueueOutcome, SessionEvent } from '@maka/core/events';
 import type { PermissionMode, PermissionResponse } from '@maka/core/permission';
 import type { UserQuestionResponse } from '@maka/core/user-question';
@@ -7,6 +11,17 @@ import type { BranchFromTurnInput, CreateSessionInput, UserMessageInput } from '
 import type { SessionSummary, StoredMessage } from '@maka/core/session';
 import { userFacingText } from '@maka/core/session';
 import type { ThinkingLevel } from '@maka/core/model-thinking';
+
+const execFileAsync = promisify(execFile);
+
+export interface MakaSessionMoveResult {
+  previousCwd: string;
+  cwd: string;
+  changed: boolean;
+  oldCwdDirty?: boolean;
+}
+
+export type InspectCwdChanges = (cwd: string) => Promise<boolean | undefined>;
 
 export interface MakaSessionRuntime {
   createSession(input: CreateSessionInput): Promise<SessionSummary>;
@@ -22,7 +37,7 @@ export interface MakaSessionRuntime {
   respondToPermission(sessionId: string, response: PermissionResponse): Promise<void>;
   respondToUserQuestion?(sessionId: string, response: UserQuestionResponse): Promise<void>;
   setPermissionMode(sessionId: string, mode: PermissionMode): Promise<SessionSummary>;
-  updateSession(sessionId: string, patch: { model?: string; llmConnectionSlug?: string; thinkingLevel?: ThinkingLevel | undefined; name?: string }): Promise<SessionSummary>;
+  updateSession(sessionId: string, patch: { cwd?: string; model?: string; llmConnectionSlug?: string; thinkingLevel?: ThinkingLevel | undefined; name?: string }): Promise<SessionSummary>;
   // Rewind reuses the runtime's branch primitives: a non-destructive copy of the
   // transcript + RuntimeEvent ledger at a turn boundary, so resume correctness is
   // inherited and the original session's log is left intact. `branchBeforeTurn`
@@ -53,6 +68,7 @@ export interface MakaSessionDriverInput {
   model: string;
   permissionMode?: PermissionMode;
   newId?: () => string;
+  inspectCwdChanges?: InspectCwdChanges;
 }
 
 export interface MakaSessionSwitchResult {
@@ -106,6 +122,7 @@ export interface MakaSessionDriver {
   setThinkingLevel(level: ThinkingLevel | undefined): Promise<void>;
   setPermissionMode(mode: PermissionMode): Promise<void>;
   renameSession(name: string): Promise<void>;
+  moveSession?(cwd: string): Promise<MakaSessionMoveResult>;
   switchSession(sessionId: string): Promise<MakaSessionSwitchResult>;
   /** Every prompted turn the user can rewind to, newest first. */
   listRewindTargets(): Promise<RewindTarget[]>;
@@ -157,6 +174,7 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
   private llmConnectionSlug: string;
   private thinkingLevel: ThinkingLevel | undefined;
   private permissionMode: PermissionMode;
+  private pendingCwdReminder: { from: string; to: string } | undefined;
   private readonly newId: () => string;
 
   constructor(private readonly input: MakaSessionDriverInput) {
@@ -173,18 +191,44 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
   ): Promise<MakaPreparedSessionTurn> {
     const sessionId = await this.ensureSession(prompt);
     const turnId = options.turnId ?? this.newId();
-    const modelText = options.modelText ?? prompt;
+    const pendingReminder = this.pendingCwdReminder;
+    const baseModelText = options.modelText ?? prompt;
+    const modelText = pendingReminder
+      ? `${cwdChangeReminder(pendingReminder.from, pendingReminder.to)}\n\n${baseModelText}`
+      : baseModelText;
+    const events = this.input.runtime.sendMessage(sessionId, {
+      turnId,
+      text: modelText,
+      ...(modelText !== prompt ? { displayText: prompt } : {}),
+    });
     return {
       sessionId,
       turnId,
-      events: this.input.runtime.sendMessage(sessionId, {
-        turnId,
-        text: modelText,
-        ...(options.modelText !== undefined && modelText !== prompt
-          ? { displayText: prompt }
-          : {}),
-      }),
+      events: pendingReminder
+        ? this.clearCwdReminderAfterStart(events, pendingReminder)
+        : events,
     };
+  }
+
+  private async *clearCwdReminderAfterStart(
+    events: AsyncIterable<SessionEvent>,
+    reminder: { from: string; to: string },
+  ): AsyncIterable<SessionEvent> {
+    const iterator = events[Symbol.asyncIterator]();
+    const first = await iterator.next();
+    if (
+      this.pendingCwdReminder?.from === reminder.from
+      && this.pendingCwdReminder.to === reminder.to
+    ) {
+      this.pendingCwdReminder = undefined;
+    }
+    if (first.done) return;
+    yield first.value;
+    while (true) {
+      const next = await iterator.next();
+      if (next.done) return;
+      yield next.value;
+    }
   }
 
   async *compactSession(): AsyncIterable<SessionEvent> {
@@ -286,6 +330,24 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
     await this.input.runtime.updateSession(this.sessionId, { name });
   }
 
+  async moveSession(rawCwd: string): Promise<MakaSessionMoveResult> {
+    if (!this.sessionId) throw new Error('Cannot move before a session starts.');
+    const nextCwd = await resolveMoveCwd(rawCwd, this.cwd);
+    const previousCwd = this.cwd;
+    if (nextCwd === previousCwd) {
+      return { previousCwd, cwd: nextCwd, changed: false, oldCwdDirty: false };
+    }
+    const inspectCwdChanges = this.input.inspectCwdChanges ?? inspectGitCwdChanges;
+    const oldCwdDirty = await inspectCwdChanges(previousCwd).catch(() => undefined);
+    const summary = await this.input.runtime.updateSession(this.sessionId, { cwd: nextCwd });
+    this.cwd = summary.cwd ?? nextCwd;
+    const reminderFrom = this.pendingCwdReminder?.from ?? previousCwd;
+    this.pendingCwdReminder = reminderFrom === this.cwd
+      ? undefined
+      : { from: reminderFrom, to: this.cwd };
+    return { previousCwd, cwd: this.cwd, changed: true, oldCwdDirty };
+  }
+
   async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> {
     const summary = (await this.listSessions()).find((session) => session.id === sessionId);
     if (!summary) throw new Error(`Session not found: ${sessionId}`);
@@ -297,6 +359,7 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
     const sessionCwd = summary.cwd!;
     const messages = await this.input.runtime.getMessages(summary.id);
     this.sessionId = summary.id;
+    this.pendingCwdReminder = undefined;
     this.cwd = sessionCwd;
     this.model = summary.model;
     this.llmConnectionSlug = summary.llmConnectionSlug;
@@ -351,6 +414,7 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
     // stay put, so the next prompt lazily creates a fresh session that inherits
     // them (via ensureSession). The old session is left intact on disk.
     this.sessionId = null;
+    this.pendingCwdReminder = undefined;
   }
 
   getSessionId(): string | null {
@@ -371,6 +435,63 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
     this.sessionId = session.id;
     return session.id;
   }
+}
+
+async function resolveMoveCwd(rawCwd: string, currentCwd: string): Promise<string> {
+  const input = rawCwd.trim();
+  if (!input) throw new Error('Working directory cannot be empty.');
+  const unquoted = input.length >= 2
+    && ((input.startsWith('"') && input.endsWith('"')) || (input.startsWith("'") && input.endsWith("'")))
+    ? input.slice(1, -1)
+    : input;
+  const expanded = unquoted === '~'
+    ? homedir()
+    : unquoted.startsWith('~/')
+      ? resolve(homedir(), unquoted.slice(2))
+      : unquoted;
+  const candidate = resolve(currentCwd, expanded);
+  let canonical: string;
+  try {
+    canonical = await realpath(candidate);
+  } catch (error) {
+    const code = (error as { code?: unknown }).code;
+    if (code === 'ENOENT' || code === 'ENOTDIR') {
+      throw new Error(`Working directory does not exist: ${candidate}`);
+    }
+    throw error;
+  }
+  const details = await stat(canonical);
+  if (!details.isDirectory()) throw new Error(`Working directory is not a directory: ${canonical}`);
+  return canonical;
+}
+
+async function inspectGitCwdChanges(cwd: string): Promise<boolean | undefined> {
+  try {
+    const result = await execFileAsync(
+      'git',
+      ['-c', 'core.fsmonitor=false', 'status', '--porcelain=v1', '--untracked-files=normal'],
+      {
+        cwd,
+        env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' },
+        encoding: 'utf8',
+        maxBuffer: 1024 * 1024,
+        timeout: 5_000,
+      },
+    );
+    return result.stdout.trim().length > 0;
+  } catch {
+    // A non-git directory, inaccessible repository, or a git timeout should
+    // never prevent a successful move. The warning is best-effort by design.
+    return undefined;
+  }
+}
+
+function cwdChangeReminder(from: string, to: string): string {
+  return `<system-reminder>The session working directory changed from ${escapeReminderPath(from)} to ${escapeReminderPath(to)}. This is the same project, possibly at a new location. Use the new working directory for all subsequent file and shell operations.</system-reminder>`;
+}
+
+function escapeReminderPath(value: string): string {
+  return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&apos;');
 }
 
 function cwdRank(session: SessionSummary, cwd: string): number {

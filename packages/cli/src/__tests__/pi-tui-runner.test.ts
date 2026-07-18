@@ -27,6 +27,7 @@ import {
 import type {
   MakaPreparePromptOptions,
   MakaPreparedSessionTurn,
+  MakaSessionMoveResult,
   MakaSessionDriver,
   MakaSessionRewindResult,
   MakaSessionSwitchResult,
@@ -3681,6 +3682,66 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('handles /move without sending a prompt and warns about dirty old cwd', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('/move /repo/.worktree/feature');
+    terminal.input('\r');
+
+    await waitFor(() => driver.moves.length === 1);
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('uncommitted changes'));
+    assert.deepEqual(driver.moves, ['/repo/.worktree/feature']);
+    assert.deepEqual(driver.prompts, []);
+
+    exitMaka(terminal);
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close during test cleanup');
+      }),
+    ]);
+  });
+
+  test('opens the /move directory picker', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('/move');
+    terminal.input('\r');
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('Move Session'));
+    terminal.input('/repo/.worktree/feature');
+    terminal.input('\r');
+    await waitFor(() => driver.moves.length === 1);
+    assert.deepEqual(driver.moves, ['/repo/.worktree/feature']);
+
+    exitMaka(terminal);
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close during test cleanup');
+      }),
+    ]);
+  });
+
   test('rejects /rename without a new name', async () => {
     const terminal = new FakeTerminal();
     const driver = new SlashCommandDriver();
@@ -7181,6 +7242,7 @@ class SlashCommandDriver implements MakaSessionDriver {
   readonly thinkingLevelUpdates: Array<ThinkingLevel | undefined> = [];
   readonly sessionIds: string[] = [];
   readonly renames: string[] = [];
+  readonly moves: string[] = [];
   startNewSessionCalls = 0;
   protected sessionId = 'session-1';
 
@@ -7245,6 +7307,15 @@ class SlashCommandDriver implements MakaSessionDriver {
   }
   async renameSession(name: string): Promise<void> {
     this.renames.push(name);
+  }
+  async moveSession(cwd: string): Promise<MakaSessionMoveResult> {
+    this.moves.push(cwd);
+    return {
+      previousCwd: '/repo',
+      cwd,
+      changed: true,
+      oldCwdDirty: true,
+    };
   }
   async setPermissionMode(mode: PermissionMode): Promise<void> {
     this.permissionModes.push(mode);
