@@ -36,6 +36,7 @@ import {
   X,
 } from '@maka/ui/icons';
 import { MCP_CATALOG, catalogEntryMatches, type McpCatalogEntry } from './mcp-catalog';
+import { McpBrandMark, hasMcpBrandMark } from './mcp-brand-marks';
 import { parseMcpImport } from './mcp-import';
 import { settingsActionErrorMessage } from './settings/settings-error-copy';
 
@@ -396,8 +397,13 @@ function McpCatalogCard(props: {
   const cancelling = props.phase === 'cancelling';
   return (
     <article className="maka-mcp-market-card">
-      <div className="maka-mcp-market-icon" data-brand={props.entry.id} aria-hidden="true">
-        <span>{props.entry.mark}</span>
+      <div
+        className="maka-mcp-market-icon"
+        data-brand={props.entry.id}
+        data-logo={hasMcpBrandMark(props.entry.id) ? 'true' : undefined}
+        aria-hidden="true"
+      >
+        <McpBrandMark entry={props.entry} />
       </div>
       <div className="maka-mcp-market-copy">
         <strong>{props.entry.name}</strong>

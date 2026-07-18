@@ -184,10 +184,34 @@
   letter-spacing: var(--tracking-normal);
 }
 
-.maka-mcp-market-icon[data-brand="line"] span {
-  font-size: var(--font-size-caption);
+/* Tiles that carry an official brand logo (mcp-brand-marks.tsx) drop the
+   per-brand tint and ride a quiet neutral plate — a colourful logo already
+   supplies the brand identity, so tinting the plate too would double up and
+   fight the mark. Mirrors provider-brand-marks' neutral `.providerLogo`. */
+.maka-mcp-market-icon[data-logo="true"] {
+  background: var(--foreground-5);
+  color: var(--foreground);
+  box-shadow: inset 0 0 0 1px oklch(from var(--foreground) l c h / 0.06);
 }
 
+/* Color marks (Slack/Figma/Google Calendar/Supabase) keep their own fills via
+   <img>; monochrome marks (Vercel/LINE) inherit the plate foreground through a
+   currentColor mask. Both sit at the same 64% ratio as the provider plates. */
+.maka-mcp-market-icon img,
+.maka-mcp-market-icon .maka-mcp-brand-mask {
+  width: 64%;
+  height: 64%;
+  display: block;
+}
+
+.maka-mcp-brand-mask {
+  background: currentColor;
+  mask-position: center;
+  mask-repeat: no-repeat;
+  mask-size: contain;
+}
+
+/* Text-mark brands with no official asset keep their tinted plate. */
 .maka-mcp-market-icon[data-brand="dingtalk"] {
   background: color-mix(in oklab, var(--brand-dingtalk) 12%, var(--background));
   color: color-mix(in oklab, var(--brand-dingtalk) 72%, var(--foreground));
@@ -196,31 +220,6 @@
 .maka-mcp-market-icon[data-brand="feishu"] {
   background: color-mix(in oklab, var(--brand-feishu) 12%, var(--background));
   color: color-mix(in oklab, var(--brand-feishu) 72%, var(--foreground));
-}
-
-.maka-mcp-market-icon[data-brand="slack"] {
-  background: color-mix(in oklab, var(--brand-slack) 10%, var(--background));
-  color: color-mix(in oklab, var(--brand-slack) 72%, var(--foreground));
-}
-
-.maka-mcp-market-icon[data-brand="line"] {
-  background: color-mix(in oklab, var(--brand-line) 15%, var(--background));
-  color: color-mix(in oklab, var(--brand-line) 62%, var(--foreground));
-}
-
-.maka-mcp-market-icon[data-brand="google-calendar"] {
-  background: color-mix(in oklab, var(--brand-google-calendar) 12%, var(--background));
-  color: color-mix(in oklab, var(--brand-google-calendar) 72%, var(--foreground));
-}
-
-.maka-mcp-market-icon[data-brand="figma"] {
-  background: color-mix(in oklab, var(--brand-figma) 12%, var(--background));
-  color: color-mix(in oklab, var(--brand-figma) 70%, var(--foreground));
-}
-
-.maka-mcp-market-icon[data-brand="supabase"] {
-  background: color-mix(in oklab, var(--brand-supabase) 14%, var(--background));
-  color: color-mix(in oklab, var(--brand-supabase) 62%, var(--foreground));
 }
 
 .maka-mcp-market-copy {
