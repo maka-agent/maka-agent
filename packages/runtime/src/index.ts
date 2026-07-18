@@ -436,6 +436,7 @@ export {
   buildChildAgentTools,
   buildSubagentListTool,
   buildSubagentOutputTool,
+  buildParentAgentTools,
   buildSubagentProjectionTools,
   buildSubagentSpawnTool,
   buildSubagentToolGroup,

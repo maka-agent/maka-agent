@@ -15,6 +15,7 @@ import {
   AGENT_LIST_TOOL_NAME,
   AGENT_OUTPUT_TOOL_NAME,
   AGENT_SPAWN_TOOL_NAME,
+  AGENT_SWARM_TOOL_NAME,
   AGENT_TOOL_GROUP_ID,
   GOAL_CLEAR_TOOL_NAME,
   GOAL_PAUSE_TOOL_NAME,
@@ -302,13 +303,25 @@ describe('Maka CLI runtime bootstrap', () => {
           groups: [{
             id: AGENT_TOOL_GROUP_ID,
             label: 'Agent',
-            description: 'Spawn and inspect foreground child agents.',
-            toolNames: [AGENT_SPAWN_TOOL_NAME, AGENT_LIST_TOOL_NAME, AGENT_OUTPUT_TOOL_NAME],
+            description: 'Spawn, fan out, and inspect foreground child agents.',
+            toolNames: [
+              AGENT_SPAWN_TOOL_NAME,
+              AGENT_SWARM_TOOL_NAME,
+              AGENT_LIST_TOOL_NAME,
+              AGENT_OUTPUT_TOOL_NAME,
+            ],
           }],
         });
         assert.deepEqual(runtimeDeps.childTools?.map((tool) => tool.name), ['Read', 'Glob', 'Grep']);
-        assert.equal(runtimeDeps.childTools?.some((tool) => ['Bash', 'Write', 'Edit', AGENT_SPAWN_TOOL_NAME].includes(tool.name)), false);
+        assert.equal(
+          runtimeDeps.childTools?.some((tool) =>
+            ['Bash', 'Write', 'Edit', AGENT_SPAWN_TOOL_NAME, AGENT_SWARM_TOOL_NAME]
+              .includes(tool.name)
+          ),
+          false,
+        );
         assert.equal(context.skills.host.toolNames.has(AGENT_SPAWN_TOOL_NAME), true);
+        assert.equal(context.skills.host.toolNames.has(AGENT_SWARM_TOOL_NAME), true);
       } finally {
         await context.close();
       }

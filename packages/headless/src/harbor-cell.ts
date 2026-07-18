@@ -13,6 +13,7 @@ import {
   PermissionEngine,
   PiAgentBackend,
   SessionManager,
+  buildChildAgentTools,
   buildProviderOptions,
   buildSubscriptionModelFetch,
   getAIModel,
@@ -46,7 +47,11 @@ import { validateRealBackendIsolation } from './isolation.js';
 import { PiCliJsonTransport } from './pi-cli-json-transport.js';
 import { providerFromEnv, resolveHarborCellAiSdkEnv } from './provider-env.js';
 import { backendNeedsIsolation } from './runner.js';
-import { buildIsolatedHeadlessToolAvailability } from './tools.js';
+import {
+  buildIsolatedHeadlessToolAvailability,
+  buildIsolatedHeadlessTools,
+} from './tools.js';
+import { createHeadlessSessionCapabilityBridge } from './session-capabilities.js';
 import {
   createInMemoryTaskLedgerExperimentStore,
   renderTaskLedgerExperimentReplay,
@@ -220,6 +225,7 @@ export async function runHarborCell(input: RunHarborCellInput): Promise<RunHarbo
   const agentRunStore = createAgentRunStore(input.storageRoot);
   const runtimeEventStore = createRuntimeEventStore(input.storageRoot);
   const backends = new BackendRegistry();
+  const sessionCapabilities = createHeadlessSessionCapabilityBridge();
   const task: Task = {
     id: 'harbor-cell',
     instruction: input.instruction,
@@ -234,6 +240,7 @@ export async function runHarborCell(input: RunHarborCellInput): Promise<RunHarbo
     config,
     task,
     workspaceDir: input.cwd,
+    ...sessionCapabilities.capabilities,
     ...(backendNeedsIsolation(input.config.backend)
       ? { realBackendIsolation: input.realBackendIsolation, toolExecutor: input.realBackendIsolation?.toolExecutor }
       : {}),
@@ -259,6 +266,13 @@ export async function runHarborCell(input: RunHarborCellInput): Promise<RunHarbo
     runStore: agentRunStore,
     runtimeEventStore,
     backends,
+    ...(input.realBackendIsolation?.toolExecutor
+      ? {
+          childTools: buildChildAgentTools(
+            buildIsolatedHeadlessTools(input.realBackendIsolation.toolExecutor),
+          ),
+        }
+      : {}),
     newId,
     now,
     runtimeSource: 'test',
@@ -266,6 +280,7 @@ export async function runHarborCell(input: RunHarborCellInput): Promise<RunHarbo
       invocation = result;
     },
   });
+  sessionCapabilities.bind(manager);
 
   const session = await manager.createSession({
     cwd: input.cwd,
@@ -675,6 +690,16 @@ export function buildAiSdkCellBackendRegistration(input: {
             : {}),
         }),
         toolAvailability: buildIsolatedHeadlessToolAvailability(),
+        spawnChildAgent: context.spawnChildAgent
+          ? (childInput) => context.spawnChildAgent!(ctx.sessionId, childInput)
+          : undefined,
+        listChildAgents: context.listChildAgents
+          ? () => context.listChildAgents!(ctx.sessionId)
+          : undefined,
+        readChildAgentOutput: context.readChildAgentOutput
+          ? (childInput) =>
+              context.readChildAgentOutput!(ctx.sessionId, childInput)
+          : undefined,
         providerOptions: buildProviderOptions(connection, input.model, ctx.header.thinkingLevel),
         systemPrompt: harborCellSystemPrompt(context.config.systemPrompt),
         ...(taskLedgerExperimentStore && taskLedgerExperimentPolicy

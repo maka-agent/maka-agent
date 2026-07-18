@@ -2,8 +2,8 @@ import type { MakaTool, ToolAvailabilityConfig } from '@maka/runtime';
 import {
   bashToolShellGuidance,
   buildForegroundBashTool,
-  buildSubagentProjectionTools,
-  buildSubagentSpawnTool,
+  buildParentAgentTools,
+  buildSubagentToolGroup,
   computeEditedSource,
 } from '@maka/runtime';
 import { withFileWriteLock } from '@maka/runtime/file-write-lock';
@@ -57,8 +57,7 @@ export function buildIsolatedHeadlessTools(
     buildIsolatedEditTool(executor, options),
     buildIsolatedGlobTool(executor, options),
     buildIsolatedGrepTool(executor, options),
-    buildSubagentSpawnTool(),
-    ...buildSubagentProjectionTools(),
+    ...buildParentAgentTools(),
   ];
   if (options.heavyTaskProgress) {
     tools.push(...buildHeavyTaskProgressTools(options.heavyTaskProgress));
@@ -75,12 +74,7 @@ export function buildIsolatedHeadlessTools(
 export function buildIsolatedHeadlessToolAvailability(): ToolAvailabilityConfig {
   return {
     economy: true,
-    groups: [{
-      id: 'agent',
-      label: 'Agent',
-      description: 'Spawn and inspect foreground child agents.',
-      toolNames: ['agent_spawn', 'agent_list', 'agent_output'],
-    }],
+    groups: [buildSubagentToolGroup()],
   };
 }
 

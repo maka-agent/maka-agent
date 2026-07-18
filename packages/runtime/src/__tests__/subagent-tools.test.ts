@@ -34,6 +34,7 @@ import {
   evaluateAgentDefinitionToolAccess,
   listBuiltinAgentDefinitions,
 } from '../agent-catalog.js';
+import { AGENT_SWARM_TOOL_NAME } from '../agent-swarm-tools.js';
 import {
   AGENT_TOOL_GROUP_ID,
   AGENT_TOOL_NAMES,
@@ -42,6 +43,7 @@ import {
   AGENT_SPAWN_TOOL_NAME,
   CHILD_AGENT_TOOL_NAMES,
   buildChildAgentTools,
+  buildParentAgentTools,
   buildSubagentListTool,
   buildSubagentOutputTool,
   buildSubagentSpawnTool,
@@ -59,16 +61,23 @@ describe('subagent tools', () => {
     expect([...group.toolNames]).toEqual([...AGENT_TOOL_NAMES]);
     expect([...group.toolNames]).toEqual([
       AGENT_SPAWN_TOOL_NAME,
+      AGENT_SWARM_TOOL_NAME,
       AGENT_LIST_TOOL_NAME,
       AGENT_OUTPUT_TOOL_NAME,
     ]);
-    expect(group.description).toMatch(/Spawn and inspect/);
+    expect(group.description).toMatch(/Spawn, fan out, and inspect/);
 
     const spawnTool = buildSubagentSpawnTool();
     expect(spawnTool.permissionRequired).toBe(true);
     expect(spawnTool.categoryHint).toBe('subagent');
     expect(buildSubagentListTool().permissionRequired).toBe(false);
     expect(buildSubagentOutputTool().permissionRequired).toBe(false);
+    expect(buildParentAgentTools().map((tool) => tool.name)).toEqual([
+      AGENT_SPAWN_TOOL_NAME,
+      AGENT_SWARM_TOOL_NAME,
+      AGENT_LIST_TOOL_NAME,
+      AGENT_OUTPUT_TOOL_NAME,
+    ]);
   });
 
   test('built-in catalog exposes local-read without shell, web, nested, or write tools', () => {

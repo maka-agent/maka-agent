@@ -17,6 +17,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const DESKTOP_DIR = join(ROOT, 'apps', 'desktop');
 const FIXTURES = [
   'module-skills',
+  'module-mcp',
   'module-daily-review',
   'plan-reminders',
   'settings-general',

@@ -9,6 +9,7 @@ import type {
   TaskIsolationFacts,
   ToolExecutorIdentity,
 } from './task-contracts.js';
+import type { HeadlessSessionCapabilities } from './session-capabilities.js';
 
 export interface IsolatedCommandInput {
   command: string;
@@ -162,7 +163,8 @@ export interface ExternalRealBackendIsolation {
 
 export type RealBackendIsolation = ExternalRealBackendIsolation;
 
-export interface HeadlessBackendContext {
+export interface HeadlessBackendContext
+  extends Partial<HeadlessSessionCapabilities> {
   config: Config;
   task: Task;
   /** Absolute throwaway workspace path for this run. */

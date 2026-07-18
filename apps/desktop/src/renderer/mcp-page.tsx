@@ -7,11 +7,17 @@ import {
   DialogContent,
   DialogHeader,
   DialogRoot,
+  EmptyState,
   Input,
   InputGroup,
   InputGroupAddon,
   InputGroupInput,
+  PageHeader,
   SettingsSwitch as Switch,
+  TabsList,
+  TabsPanel,
+  TabsRoot,
+  TabsTrigger,
   Textarea,
   useMountedRef,
   useToast,
@@ -252,21 +258,23 @@ export function McpPage() {
 
   return (
     <main className="maka-main detailPane maka-module-main maka-mcp-page agents-chat-panel" data-module="mcp" aria-label="MCP">
-      <header className="maka-module-main-header maka-mcp-header">
-        <div>
-          <h2>MCP</h2>
-          <p>连接外部应用、数据与服务，为 Maka 安全地扩展新工具。</p>
-        </div>
-        <div className="maka-module-main-actions">
-          <Button size="icon-sm" variant="quiet" aria-label="刷新 MCP" title="刷新" onClick={() => void reload()} disabled={busy === 'load'}>
-            <RefreshCcw aria-hidden="true" />
-          </Button>
-          <Button variant="secondary" onClick={() => setEditor({ mode: 'json', source: exampleJson() })}>
-            <FileCode aria-hidden="true" /> JSON 导入
-          </Button>
-          <Button onClick={() => openManual()}><Plus aria-hidden="true" /> 添加 MCP</Button>
-        </div>
-      </header>
+      <PageHeader
+        className="maka-module-main-header"
+        as="h2"
+        title="MCP"
+        subtitle="连接外部应用、数据与服务，为 Maka 安全地扩展新工具。"
+        actions={
+          <div className="maka-module-main-actions" role="group" aria-label="MCP 操作">
+            <Button variant="secondary" onClick={() => void reload()} disabled={busy === 'load'}>
+              <RefreshCcw aria-hidden="true" /> {busy === 'load' ? '刷新中…' : '刷新'}
+            </Button>
+            <Button variant="secondary" onClick={() => setEditor({ mode: 'json', source: exampleJson() })}>
+              <FileCode aria-hidden="true" /> JSON 导入
+            </Button>
+            <Button variant="default" onClick={() => openManual()}><Plus aria-hidden="true" /> 添加 MCP</Button>
+          </div>
+        }
+      />
 
       <section className="maka-mcp-workspace" aria-label="MCP 市场与已安装项">
         <div className="maka-mcp-hero">
@@ -275,33 +283,26 @@ export function McpPage() {
             <span>从精选模板开始，或添加任意 stdio、Streamable HTTP 与 SSE server。</span>
           </div>
           <div className="maka-mcp-hero-signal" aria-hidden="true">
-            <Terminal /><span /><Plug /><span /><Globe />
+            <span><Terminal /><small>本地 stdio</small></span>
+            <span><Plug /><small>连接管理</small></span>
+            <span><Globe /><small>远程 HTTP</small></span>
           </div>
         </div>
 
-        <div className="maka-mcp-controls">
-          <div className="maka-mcp-tabs" role="tablist" aria-label="MCP 分类">
-            <button id="maka-mcp-market-tab" type="button" role="tab" aria-controls="maka-mcp-tab-panel" aria-selected={activeTab === 'market'} data-active={activeTab === 'market'} onClick={() => setActiveTab('market')}>市场</button>
-            <button id="maka-mcp-installed-tab" type="button" role="tab" aria-controls="maka-mcp-tab-panel" aria-selected={activeTab === 'installed'} data-active={activeTab === 'installed'} onClick={() => setActiveTab('installed')}>
-              已安装 <span>{entries.length}</span>
-            </button>
+        <TabsRoot value={activeTab} onValueChange={(value) => setActiveTab(value as 'market' | 'installed')}>
+          <div className="maka-mcp-tabs-bar">
+            <TabsList variant="underline" className="maka-mcp-tabs" aria-label="MCP 分类">
+              <TabsTrigger className="maka-mcp-tab" value="market">市场 <span>{MCP_CATALOG.length}</span></TabsTrigger>
+              <TabsTrigger className="maka-mcp-tab" value="installed">已安装 <span>{entries.length}</span></TabsTrigger>
+            </TabsList>
+            <InputGroup className="maka-mcp-search">
+              <InputGroupAddon><Search aria-hidden="true" /></InputGroupAddon>
+              <InputGroupInput type="search" value={query} onChange={(event) => setQuery(event.currentTarget.value)} placeholder="搜索 MCP…" aria-label="搜索 MCP" />
+            </InputGroup>
           </div>
-          <InputGroup className="maka-mcp-search">
-            <InputGroupAddon><Search aria-hidden="true" /></InputGroupAddon>
-            <InputGroupInput type="search" value={query} onChange={(event) => setQuery(event.currentTarget.value)} placeholder="搜索 MCP…" aria-label="搜索 MCP" />
-          </InputGroup>
-        </div>
 
-        <div
-          id="maka-mcp-tab-panel"
-          className="maka-mcp-tab-panel"
-          role="tabpanel"
-          aria-labelledby={activeTab === 'market' ? 'maka-mcp-market-tab' : 'maka-mcp-installed-tab'}
-        >
-          {busy === 'load' ? (
-            <div className="maka-mcp-loading" role="status">正在读取 MCP 配置…</div>
-          ) : activeTab === 'market' ? (
-            marketEntries.length > 0 ? (
+          <TabsPanel className="maka-mcp-tab-panel" value="market">
+            {marketEntries.length > 0 ? (
               <div className="maka-mcp-market-grid">
                 {marketEntries.map((entry) => (
                   <McpCatalogCard
@@ -318,32 +319,55 @@ export function McpPage() {
                   />
                 ))}
               </div>
-            ) : <McpNoResults query={query} onClear={() => setQuery('')} />
-          ) : entries.length === 0 ? (
-            <div className="maka-mcp-empty">
-              <Plug aria-hidden="true" />
-              <strong>还没有安装 MCP</strong>
-              <span>从市场选择模板，或手动添加你自己的 server。</span>
-              <Button size="sm" onClick={() => setActiveTab('market')}>浏览市场</Button>
-            </div>
-          ) : installedEntries.length > 0 ? (
-            <ul className="maka-mcp-server-list">
-              {installedEntries.map(([serverId, server]) => (
-                <McpServerRow
-                  key={serverId}
-                  serverId={serverId}
-                  server={server}
-                  status={statusById.get(serverId)}
-                  busy={busy}
-                  onToggle={(enabled) => void toggle(serverId, server, enabled)}
-                  onEdit={() => openEdit(serverId, server)}
-                  onTest={() => void testServer(serverId)}
-                  onRemove={() => void remove(serverId)}
-                />
-              ))}
-            </ul>
-          ) : <McpNoResults query={query} onClear={() => setQuery('')} />}
-        </div>
+            ) : (
+              <EmptyState
+                Icon={Search}
+                title="没有找到匹配的 MCP"
+                body={`换一个关键词，或清空「${query}」查看全部模板。`}
+                cta={{ label: '清空搜索', onClick: () => setQuery('') }}
+                extraClassName="maka-mcp-empty"
+              />
+            )}
+          </TabsPanel>
+
+          <TabsPanel className="maka-mcp-tab-panel" value="installed">
+            {busy === 'load' ? (
+              <div className="maka-mcp-loading" role="status">正在读取 MCP 配置…</div>
+            ) : entries.length === 0 ? (
+              <EmptyState
+                Icon={Plug}
+                title="还没有安装 MCP"
+                body="从市场选择模板，或手动添加你自己的 server。"
+                cta={{ label: '浏览市场', onClick: () => setActiveTab('market') }}
+                extraClassName="maka-mcp-empty"
+              />
+            ) : installedEntries.length > 0 ? (
+              <ul className="maka-mcp-server-list">
+                {installedEntries.map(([serverId, server]) => (
+                  <McpServerRow
+                    key={serverId}
+                    serverId={serverId}
+                    server={server}
+                    status={statusById.get(serverId)}
+                    busy={busy}
+                    onToggle={(enabled) => void toggle(serverId, server, enabled)}
+                    onEdit={() => openEdit(serverId, server)}
+                    onTest={() => void testServer(serverId)}
+                    onRemove={() => void remove(serverId)}
+                  />
+                ))}
+              </ul>
+            ) : (
+              <EmptyState
+                Icon={Search}
+                title="没有匹配的已安装 MCP"
+                body={`换一个关键词，或清空「${query}」查看全部已安装项。`}
+                cta={{ label: '清空搜索', onClick: () => setQuery('') }}
+                extraClassName="maka-mcp-empty"
+              />
+            )}
+          </TabsPanel>
+        </TabsRoot>
       </section>
 
       {editor && (
@@ -373,7 +397,7 @@ function McpCatalogCard(props: {
   return (
     <article className="maka-mcp-market-card">
       <div className="maka-mcp-market-icon" data-brand={props.entry.id} aria-hidden="true">
-        <McpBrandMark entry={props.entry} />
+        <span>{props.entry.mark}</span>
       </div>
       <div className="maka-mcp-market-copy">
         <strong>{props.entry.name}</strong>
@@ -408,33 +432,6 @@ function McpCatalogCard(props: {
   );
 }
 
-function McpBrandMark({ entry }: { entry: McpCatalogEntry }) {
-  if (entry.id === 'slack') return (
-    <svg viewBox="0 0 256 256" aria-hidden="true">
-      <path fill="#e01e5a" d="M53.84 161.32c0 14.83-11.99 26.82-26.82 26.82S.2 176.15.2 161.32s11.99-26.82 26.82-26.82h26.82zm13.41 0c0-14.83 11.99-26.82 26.82-26.82s26.82 11.99 26.82 26.82v67.05c0 14.83-11.99 26.82-26.82 26.82s-26.82-11.99-26.82-26.82z" />
-      <path fill="#36c5f0" d="M94.07 53.64c-14.83 0-26.82-11.99-26.82-26.82S79.24 0 94.07 0s26.82 11.99 26.82 26.82v26.82zm0 13.61c14.83 0 26.82 11.99 26.82 26.82s-11.99 26.82-26.82 26.82H26.82C11.99 120.89 0 108.9 0 94.07s11.99-26.82 26.82-26.82z" />
-      <path fill="#2eb67d" d="M201.55 94.07c0-14.83 11.99-26.82 26.82-26.82s26.82 11.99 26.82 26.82s-11.99 26.82-26.82 26.82h-26.82zm-13.41 0c0 14.83-11.99 26.82-26.82 26.82s-26.82-11.99-26.82-26.82V26.82C134.5 11.99 146.49 0 161.32 0s26.82 11.99 26.82 26.82z" />
-      <path fill="#ecb22e" d="M161.32 201.55c14.83 0 26.82 11.99 26.82 26.82s-11.99 26.82-26.82 26.82s-26.82-11.99-26.82-26.82v-26.82zm0-13.41c-14.83 0-26.82-11.99-26.82-26.82s11.99-26.82 26.82-26.82h67.25c14.83 0 26.82 11.99 26.82 26.82s-11.99 26.82-26.82 26.82z" />
-    </svg>
-  );
-  if (entry.id === 'line') return (
-    <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M19.37 9.86a.63.63 0 0 1 0 1.26h-1.76v1.13h1.76a.63.63 0 1 1 0 1.26h-2.39a.63.63 0 0 1-.63-.63V8.11a.63.63 0 0 1 .63-.63h2.39a.63.63 0 0 1 0 1.26h-1.76v1.12zm-3.86 3.02a.63.63 0 0 1-1.14.38l-2.44-3.32v2.94a.63.63 0 0 1-1.26 0V8.11a.63.63 0 0 1 1.12-.38l2.46 3.33V8.11a.63.63 0 0 1 1.26 0zm-5.74 0a.63.63 0 0 1-1.26 0V8.11a.63.63 0 0 1 1.26 0zm-2.47.63H4.92a.63.63 0 0 1-.63-.63V8.11a.63.63 0 0 1 1.26 0v4.14H7.3a.63.63 0 0 1 0 1.26M24 10.31C24 4.94 18.62.57 12 .57S0 4.94 0 10.31c0 4.81 4.27 8.84 10.04 9.61.39.08.92.26 1.06.59.12.3.08.77.04 1.08l-.17 1.02c-.04.3-.24 1.19 1.05.65 1.29-.54 6.92-4.08 9.44-6.98C23.18 14.39 24 12.46 24 10.31" /></svg>
-  );
-  if (entry.id === 'google-calendar') return (
-    <svg viewBox="0 0 256 256" aria-hidden="true">
-      <path fill="#fff" d="M195.37 60.63H60.63v134.74h134.74z" /><path fill="#ea4335" d="M195.37 256 256 195.37l-60.63-5.17z" /><path fill="#188038" d="M0 195.37v40.42A20.21 20.21 0 0 0 20.21 256h40.42l6.23-30.32-6.23-30.31z" /><path fill="#1967d2" d="M256 60.63V20.21A20.21 20.21 0 0 0 235.79 0h-40.42l-5.54 33.2 5.54 27.43z" /><path fill="#fbbc04" d="M256 60.63h-60.63v134.74H256z" /><path fill="#34a853" d="M195.37 195.37H60.63V256h134.74z" /><path fill="#4285f4" d="M195.37 0H20.21A20.21 20.21 0 0 0 0 20.21v175.16h60.63V60.63h134.74z" /><path fill="#4285f4" d="M88.27 165.15c-5.04-3.4-8.52-8.37-10.43-14.94l11.69-4.81c2.77 8.49 7.82 12.71 15.12 12.71 7.67 0 13.48-5.28 13.48-12.36 0-8.32-6.88-12.18-14.72-12.18h-6.75V122h6.06c8.09 0 13.29-4.32 13.29-11.34 0-6.21-4.58-10.31-12.14-10.31-6.77 0-11.18 3.64-12.6 9.5l-11.57-4.81c3.55-10.06 12.38-16.49 24.27-16.49 14.2 0 24.83 8.71 24.83 21 0 8.18-4.12 13.79-10.31 17.04v.69c8.27 3.46 13.07 9.97 13.07 19.12 0 14.01-11.25 24.08-26.88 24.08-5.91.02-11.37-1.68-16.41-5.08m71.8-58-12.84 9.28-6.41-9.73 23.02-16.61h8.83v78.33h-12.6z" />
-    </svg>
-  );
-  if (entry.id === 'figma') return (
-    <svg viewBox="0 0 256 384" aria-hidden="true"><path fill="#0acf83" d="M64 384a64 64 0 0 0 64-64v-64H64a64 64 0 1 0 0 128" /><path fill="#a259ff" d="M0 192a64 64 0 0 1 64-64h64v128H64a64 64 0 0 1-64-64" /><path fill="#f24e1e" d="M0 64A64 64 0 0 1 64 0h64v128H64A64 64 0 0 1 0 64" /><path fill="#ff7262" d="M128 0h64a64 64 0 1 1 0 128h-64z" /><path fill="#1abcfe" d="M256 192a64 64 0 1 1-128 0 64 64 0 0 1 128 0" /></svg>
-  );
-  if (entry.id === 'vercel') return <svg viewBox="0 0 256 222" aria-hidden="true"><path fill="currentColor" d="m128 0 128 221.71H0z" /></svg>;
-  if (entry.id === 'supabase') return (
-    <svg viewBox="0 0 256 263" aria-hidden="true"><path fill="#249361" d="M149.6 258.58c-6.72 8.46-20.34 3.82-20.5-6.98l-2.37-157.98h106.23c19.24 0 29.97 22.22 18.01 37.29z" /><path fill="#3ecf8e" d="M106.4 4.37c6.72-8.46 20.34-3.83 20.5 6.98l1.04 157.98H23.04c-19.24 0-29.97-22.22-18.01-37.29z" /></svg>
-  );
-  return <span>{entry.mark}</span>;
-}
-
 function McpServerRow(props: {
   serverId: string;
   server: McpServerConfig;
@@ -451,9 +448,17 @@ function McpServerRow(props: {
   return (
     <li className="maka-mcp-server-row">
       <div className="maka-mcp-server-summary">
-        <span className="maka-mcp-status-dot" data-tone={state.tone} aria-hidden="true" />
+        <span className="maka-mcp-status-dot" data-tone={state.exception ? state.tone : 'neutral'} aria-hidden="true" />
         <div className="maka-mcp-server-identity">
-          <div><strong>{props.serverId}</strong><Chip size="sm" variant={state.tone}>{state.label}</Chip></div>
+          <div>
+            <strong>{props.serverId}</strong>
+            {/* Status-color restraint (#651): a healthy / expected server stays
+                neutral — its label rides plain muted text. Only an error /
+                unavailable server raises a toned Chip. */}
+            {state.exception
+              ? <Chip size="sm" variant={state.tone}>{state.label}</Chip>
+              : <span className="maka-mcp-server-state">{state.label}</span>}
+          </div>
           <span>{transportLabel} · <code title={endpoint}>{endpoint}</code></span>
         </div>
         <Switch
@@ -481,17 +486,6 @@ function McpServerRow(props: {
         </details>
       ) : null}
     </li>
-  );
-}
-
-function McpNoResults(props: { query: string; onClear(): void }) {
-  return (
-    <div className="maka-mcp-empty">
-      <Search aria-hidden="true" />
-      <strong>没有找到匹配的 MCP</strong>
-      <span>尝试更换关键词，或清空「{props.query}」。</span>
-      <Button size="sm" variant="secondary" onClick={props.onClear}>清空搜索</Button>
-    </div>
   );
 }
 
@@ -623,12 +617,15 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
-function presentStatus(status: McpServerStatus | undefined, enabled: boolean): { label: string; tone: 'neutral' | 'info' | 'success' | 'warning' | 'destructive' } {
-  if (!enabled || status?.state === 'disabled') return { label: '已停用', tone: 'neutral' };
-  if (!status || status.state === 'disconnected') return { label: '未连接', tone: 'neutral' };
-  if (status.state === 'connecting') return { label: '连接中', tone: 'info' };
-  if (status.state === 'connected') return { label: `${status.toolCount} 个工具`, tone: 'success' };
-  return { label: '连接失败', tone: 'destructive' };
+// `exception` marks the states that earn a toned Chip + colored status dot
+// (status-color restraint #651). 已停用 / 未连接 / 连接中 / 已连接 are all
+// expected states and stay neutral; only 连接失败 raises the destructive tone.
+function presentStatus(status: McpServerStatus | undefined, enabled: boolean): { label: string; tone: 'neutral' | 'info' | 'success' | 'warning' | 'destructive'; exception: boolean } {
+  if (!enabled || status?.state === 'disabled') return { label: '已停用', tone: 'neutral', exception: false };
+  if (!status || status.state === 'disconnected') return { label: '未连接', tone: 'neutral', exception: false };
+  if (status.state === 'connecting') return { label: '连接中', tone: 'info', exception: false };
+  if (status.state === 'connected') return { label: `${status.toolCount} 个工具`, tone: 'success', exception: false };
+  return { label: '连接失败', tone: 'destructive', exception: true };
 }
 
 function exampleJson(): string {

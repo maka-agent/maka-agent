@@ -627,18 +627,51 @@ describe('visual smoke fixture mode', () => {
     }
   });
 
-  it('module fixtures open Skills and Daily Review in the app module surface', async () => {
+  it('module fixtures open Skills, MCP and Daily Review in the app module surface', async () => {
     const skills = resolveVisualSmokeFixture('module-skills', false);
+    const mcp = resolveVisualSmokeFixture('module-mcp', false);
     const dailyReview = resolveVisualSmokeFixture('module-daily-review', false);
 
     assert.ok(skills);
+    assert.ok(mcp);
     assert.ok(dailyReview);
     assert.equal(getVisualSmokeState(skills)?.sidebarSection, 'skills');
     assert.equal(getVisualSmokeState(skills)?.sidebarCollapsed, false);
     assert.equal(getVisualSmokeState(skills)?.activeSessionId, 'visual-smoke-turn');
+    assert.equal(getVisualSmokeState(mcp)?.sidebarSection, 'mcp');
+    assert.equal(getVisualSmokeState(mcp)?.sidebarCollapsed, false);
+    assert.equal(getVisualSmokeState(mcp)?.activeSessionId, 'visual-smoke-turn');
     assert.equal(getVisualSmokeState(dailyReview)?.sidebarSection, 'daily-review');
     assert.equal(getVisualSmokeState(dailyReview)?.sidebarCollapsed, false);
     assert.equal(getVisualSmokeState(dailyReview)?.activeSessionId, 'visual-smoke-turn');
+  });
+
+  it('module-mcp seeds a couple of installed servers so the 已安装 list renders', async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-visual-smoke-mcp-'));
+    try {
+      const fixture = resolveVisualSmokeFixture('module-mcp', false);
+      assert.ok(fixture);
+      await seedVisualSmokeFixture({
+        workspaceRoot,
+        fixture,
+        credentialStore: fakeCredentialStore(),
+        now: 1_700_000_000_000,
+      });
+      const config = JSON.parse(await readFile(join(workspaceRoot, 'mcp.json'), 'utf8')) as {
+        version: number;
+        mcpServers: Record<string, { enabled?: boolean }>;
+      };
+      assert.equal(config.version, 1);
+      const ids = Object.keys(config.mcpServers);
+      assert.ok(ids.length >= 2, 'installed list needs >=2 servers to render meaningfully');
+      // enabled:false keeps visual-smoke deterministic — no real npx / HTTP
+      // connection is attempted, so the rows settle in the neutral 已停用 state.
+      for (const id of ids) {
+        assert.equal(config.mcpServers[id].enabled, false, `${id} stays disabled in the fixture`);
+      }
+    } finally {
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
   });
 
   it('module-skills seeds a managed-source market catalog (>=6 entries with categories) plus workspace skills', async () => {
