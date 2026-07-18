@@ -10,6 +10,10 @@ interface QueuedFrame {
 	reject(error: Error): void;
 }
 
+export interface OutboundWriteReceipt {
+	readonly flushed: Promise<void>;
+}
+
 export class BoundedSerialOutboundWriter {
 	readonly #transport: FramedTransport;
 	readonly #onFailure: () => void;
@@ -24,11 +28,9 @@ export class BoundedSerialOutboundWriter {
 		this.#onFailure = onFailure;
 	}
 
-	enqueue(frame: HostFrame): Promise<void> {
+	enqueue(frame: HostFrame): OutboundWriteReceipt {
 		if (this.#closed) {
-			return Promise.reject(
-				new Error("Runtime Host outbound writer is closed"),
-			);
+			throw new Error("Runtime Host outbound writer is closed");
 		}
 
 		let encoded: Buffer;
@@ -37,7 +39,7 @@ export class BoundedSerialOutboundWriter {
 		} catch (error) {
 			const failure = asError(error);
 			this.#fail(failure);
-			return Promise.reject(failure);
+			throw failure;
 		}
 		if (
 			this.#queue.length >= MAX_QUEUED_FRAMES ||
@@ -47,10 +49,10 @@ export class BoundedSerialOutboundWriter {
 				"Runtime Host outbound queue exceeded its bound",
 			);
 			this.#fail(failure);
-			return Promise.reject(failure);
+			throw failure;
 		}
 
-		return new Promise((resolve, reject) => {
+		const flushed = new Promise<void>((resolve, reject) => {
 			this.#queue.push({ encoded, resolve, reject });
 			this.#queuedBytes += encoded.byteLength;
 			if (!this.#writing) {
@@ -58,6 +60,7 @@ export class BoundedSerialOutboundWriter {
 				this.#drainTask = this.#drain();
 			}
 		});
+		return { flushed };
 	}
 
 	settled(): Promise<void> {

@@ -150,6 +150,7 @@ describe('execution stores', () => {
           turnId: 'turn-1',
           proposedRunId: 'run-1',
           proposedUserMessageId: 'message-1',
+          previousRootTurnId: null,
           normalizedInput: { text: 'hello' },
           admittedAt: 10,
         });
@@ -161,6 +162,7 @@ describe('execution stores', () => {
           turnId: 'turn-1',
           proposedRunId: 'run-never-used',
           proposedUserMessageId: 'message-never-used',
+          previousRootTurnId: null,
           normalizedInput: { text: 'hello' },
           admittedAt: 20,
         });
@@ -175,6 +177,7 @@ describe('execution stores', () => {
           turnId: 'turn-1',
           proposedRunId: 'run-never-used',
           proposedUserMessageId: 'message-never-used',
+          previousRootTurnId: null,
           normalizedInput: { text: 'changed' },
           admittedAt: 30,
         });
@@ -204,6 +207,122 @@ describe('execution stores', () => {
     });
   });
 
+  test('recovers root-turn admissions by durable predecessor order instead of timestamp or identity', async () => {
+    await withRoot(async ({ root }) => {
+      const capability = await resolveStorageRoot({
+        path: root,
+        kind: 'interactive',
+      });
+      const owner = await tryAcquireInteractiveRootOwner(capability);
+      assert.ok(owner);
+      if (!owner) return;
+      try {
+        const stores = await openInteractiveExecutionStoresForWrite(owner.lease);
+        const session = await stores.sessionStore.create(sessionInput(root));
+        const first = await stores.agentRunStore.admitRootTurn({
+          sessionId: session.id,
+          turnId: 'turn-z',
+          proposedRunId: 'run-z',
+          proposedUserMessageId: 'message-z',
+          previousRootTurnId: null,
+          normalizedInput: { text: 'first' },
+          admittedAt: 10,
+        });
+        const second = await stores.agentRunStore.admitRootTurn({
+          sessionId: session.id,
+          turnId: 'turn-a',
+          proposedRunId: 'run-a',
+          proposedUserMessageId: 'message-a',
+          previousRootTurnId: 'turn-z',
+          normalizedInput: { text: 'second' },
+          admittedAt: 10,
+        });
+        assert.equal(first.kind, 'admitted');
+        assert.equal(second.kind, 'admitted');
+        const recovered = await stores.agentRunStore.listRootTurnAdmissionsForRecovery(session.id);
+        assert.deepEqual(
+          recovered.map((admission) => admission.turnId),
+          ['turn-z', 'turn-a'],
+        );
+        assert.equal(recovered.at(-1)?.previousRootTurnId, 'turn-z');
+      } finally {
+        await owner.close();
+      }
+    });
+  });
+
+  test('fails recovery when the durable root-turn predecessor graph is not one complete chain', async () => {
+    await withRoot(async ({ root }) => {
+      const capability = await resolveStorageRoot({
+        path: root,
+        kind: 'interactive',
+      });
+      const owner = await tryAcquireInteractiveRootOwner(capability);
+      assert.ok(owner);
+      if (!owner) return;
+      try {
+        const stores = await openInteractiveExecutionStoresForWrite(owner.lease);
+        const seed = async (
+          label: string,
+          admissions: readonly [turnId: string, previousRootTurnId: string | null][],
+        ): Promise<string> => {
+          const session = await stores.sessionStore.create({
+            ...sessionInput(root),
+            name: label,
+          });
+          for (const [turnId, previousRootTurnId] of admissions) {
+            await stores.agentRunStore.admitRootTurn({
+              sessionId: session.id,
+              turnId,
+              proposedRunId: `run-${turnId}`,
+              proposedUserMessageId: `message-${turnId}`,
+              previousRootTurnId,
+              normalizedInput: { text: turnId },
+              admittedAt: 10,
+            });
+          }
+          return session.id;
+        };
+
+        const missing = await seed('missing', [['missing-a', 'absent']]);
+        await assert.rejects(
+          () => stores.agentRunStore.listRootTurnAdmissionsForRecovery(missing),
+          /missing predecessor/,
+        );
+
+        const branch = await seed('branch', [
+          ['branch-root', null],
+          ['branch-left', 'branch-root'],
+          ['branch-right', 'branch-root'],
+        ]);
+        await assert.rejects(
+          () => stores.agentRunStore.listRootTurnAdmissionsForRecovery(branch),
+          /branches/,
+        );
+
+        const cycle = await seed('cycle', [
+          ['cycle-a', 'cycle-b'],
+          ['cycle-b', 'cycle-a'],
+        ]);
+        await assert.rejects(
+          () => stores.agentRunStore.listRootTurnAdmissionsForRecovery(cycle),
+          /contains a cycle/,
+        );
+
+        const roots = await seed('roots', [
+          ['root-a', null],
+          ['root-b', null],
+        ]);
+        await assert.rejects(
+          () => stores.agentRunStore.listRootTurnAdmissionsForRecovery(roots),
+          /exactly one root turn admission root/,
+        );
+      } finally {
+        await owner.close();
+      }
+    });
+  });
+
   test('keeps shared execution reads observational', async () => {
     await withRoot(async ({ root }) => {
       const capability = await resolveStorageRoot({
@@ -225,6 +344,7 @@ describe('execution stores', () => {
         turnId: 'turn-1',
         proposedRunId: 'run-1',
         proposedUserMessageId: 'message-1',
+        previousRootTurnId: null,
         normalizedInput: { text: 'hello' },
         admittedAt: 9,
       });
@@ -432,6 +552,7 @@ describe('execution stores', () => {
           turnId: 'turn-1',
           proposedRunId: 'run-1',
           proposedUserMessageId: 'message-1',
+          previousRootTurnId: null,
           normalizedInput: { text: 'hello' },
           admittedAt: 10,
         });
@@ -475,6 +596,7 @@ describe('execution stores', () => {
           turnId: 'turn-1',
           proposedRunId: 'run-1',
           proposedUserMessageId: 'message-1',
+          previousRootTurnId: null,
           normalizedInput: { text: 'hello' },
           admittedAt: 10,
         });

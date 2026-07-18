@@ -12,6 +12,10 @@ import {
 	type OperationResidency,
 } from "./operation-dispatcher.js";
 import { BoundedSerialOutboundWriter } from "./serial-outbound-writer.js";
+import type {
+	SessionContinuityConnection,
+	SessionContinuityService,
+} from "./session-continuity-coordinator.js";
 
 const MAX_IN_FLIGHT_REQUESTS = 64;
 
@@ -26,7 +30,8 @@ export interface ConnectionOperationLease {
 export interface RuntimeHostConnectionSessionOptions {
 	transport: FramedTransport;
 	connection: AcceptedConnectionContext;
-	handlers: OperationHandlerMap;
+	resolveHandlers(): OperationHandlerMap;
+	resolveContinuity(): SessionContinuityService | undefined;
 	beginOperation(
 		frame: RequestFrame,
 	): Promise<ConnectionOperationLease | HostOperationErrorCode>;
@@ -37,6 +42,8 @@ export class RuntimeHostConnectionSession {
 	readonly #options: RuntimeHostConnectionSessionOptions;
 	readonly #writer: BoundedSerialOutboundWriter;
 	readonly #requests = new Map<string, Promise<void>>();
+	#continuityService: SessionContinuityService | undefined;
+	#continuity: SessionContinuityConnection | undefined;
 	#closed = false;
 
 	constructor(options: RuntimeHostConnectionSessionOptions) {
@@ -91,6 +98,7 @@ export class RuntimeHostConnectionSession {
 	async #handleRequest(frame: RequestFrame): Promise<void> {
 		const admission = await this.#options.beginOperation(frame);
 		if (typeof admission === "string") {
+			if (this.#closed) return;
 			await this.#writer.enqueue(
 				operationFailureResponse(
 					frame,
@@ -99,25 +107,77 @@ export class RuntimeHostConnectionSession {
 						? "Runtime Host is draining"
 						: "Runtime Host is not ready",
 				),
-			);
+			).flushed;
 			return;
 		}
 
 		try {
-			const response = await dispatchOperation(frame, this.#options.handlers, {
+			if (this.#closed) return;
+			const continuity = frame.operation.startsWith("subscription.")
+				? this.#ensureContinuity()
+				: undefined;
+			const response = await dispatchOperation(frame, this.#options.resolveHandlers(), {
 				...this.#options.connection,
 				acquireResidency: () => admission.acquireResidency(),
 			});
 			admission.seal();
-			await this.#writer.enqueue(response);
+			const receipt = this.#writer.enqueue(response);
+			const openedSubscriptionId =
+				response.ok && response.operation === "subscription.open"
+					? response.result.subscriptionId
+					: undefined;
+			if (openedSubscriptionId) {
+				continuity?.activate(openedSubscriptionId);
+			}
+			try {
+				await receipt.flushed;
+			} catch (error) {
+				if (openedSubscriptionId) {
+					continuity?.abort(openedSubscriptionId);
+				}
+				throw error;
+			}
 		} finally {
 			admission.finish();
 		}
 	}
 
+	#ensureContinuity(): SessionContinuityConnection | undefined {
+		if (this.#closed) {
+			throw new Error(
+				"Closed Runtime Host connection cannot attach continuity",
+			);
+		}
+		const service = this.#options.resolveContinuity();
+		if (!service) return;
+		if (this.#continuityService && this.#continuityService !== service) {
+			throw new Error(
+				"Runtime Host continuity service changed within one connection",
+			);
+		}
+		if (!this.#continuity) {
+			this.#continuityService = service;
+			this.#continuity = service.attachConnection(
+				this.#options.connection.connectionId,
+				{
+					send: (frame) => {
+						try {
+							return this.#writer.enqueue(frame).flushed;
+						} catch (error) {
+							return Promise.reject(error);
+						}
+					},
+					close: () => this.#teardown(),
+				},
+			);
+		}
+		return this.#continuity;
+	}
+
 	#teardown(): void {
 		if (this.#closed) return;
 		this.#closed = true;
+		this.#continuity?.close();
 		this.#writer.close();
 		this.#options.transport.destroy();
 		this.#options.onTeardown();

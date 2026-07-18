@@ -1,4 +1,5 @@
 import { TextDecoder } from 'node:util';
+import { requireCount, requireId, requireRecord, requireString } from './codec.js';
 import { invalidProtocolFrame, RuntimeHostProtocolError } from './errors.js';
 import {
   decodeRequestFrame,
@@ -7,12 +8,18 @@ import {
   type RequestFrame,
   type ResponseFrame,
 } from './operations.js';
+import {
+  decodeSubscriptionFrame,
+  isSubscriptionFrameKind,
+  type SubscriptionFrame,
+} from './session-continuity.js';
 
 export { RuntimeHostProtocolError } from './errors.js';
 export * from './operations.js';
+export * from './session-continuity.js';
 
 export const RUNTIME_HOST_REGISTRATION_SCHEMA_VERSION = 1 as const;
-export const RUNTIME_HOST_PROTOCOL_VERSION = 2 as const;
+export const RUNTIME_HOST_PROTOCOL_VERSION = 3 as const;
 export const RUNTIME_HOST_MAX_FRAME_BYTES = 64 * 1024;
 
 export type ClientSurface = 'desktop' | 'tui' | 'run' | 'bot' | 'open_gateway' | 'inspect';
@@ -55,7 +62,7 @@ export interface HostDraining {
 export type HostHandshakeResult = HostAccepted | HostIncompatible | HostDraining;
 
 export type ClientFrame = ClientHello | RequestFrame;
-export type HostFrame = HostHandshakeResult | ResponseFrame;
+export type HostFrame = HostHandshakeResult | ResponseFrame | SubscriptionFrame;
 
 export interface HostRegistration {
   kind: 'maka-runtime-host';
@@ -136,6 +143,7 @@ export function decodeHostFrame(value: unknown): HostFrame {
   if (frame.kind === 'draining') {
     return { kind: 'draining', hostEpoch: requireId(frame.hostEpoch, 'hostEpoch') };
   }
+  if (isSubscriptionFrameKind(frame.kind)) return decodeSubscriptionFrame(frame);
   return decodeResponseFrame(frame);
 }
 
@@ -233,30 +241,8 @@ export class ProtocolFrameDecoder {
   }
 }
 
-function requireRecord(value: unknown, label: string): Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value))
-    throw invalidFrame(`Invalid ${label}`);
-  return value as Record<string, unknown>;
-}
-
-function requireString(value: unknown, label: string, maxLength: number): string {
-  if (typeof value !== 'string' || value.length === 0 || value.length > maxLength) {
-    throw invalidFrame(`Invalid ${label}`);
-  }
-  return value;
-}
-
-function requireId(value: unknown, label: string): string {
-  return requireString(value, label, 128);
-}
-
 function requireProtocolVersion(value: unknown, label: string): number {
   if (!Number.isSafeInteger(value) || (value as number) < 1) throw invalidFrame(`Invalid ${label}`);
-  return value as number;
-}
-
-function requireCount(value: unknown, label: string): number {
-  if (!Number.isSafeInteger(value) || (value as number) < 0) throw invalidFrame(`Invalid ${label}`);
   return value as number;
 }
 

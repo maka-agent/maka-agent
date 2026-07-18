@@ -37,7 +37,7 @@ const SAFE_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 const EXCLUSIVE_TEMP_SUFFIX_PATTERN =
   /^\d+\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.tmp$/;
 
-export const ROOT_TURN_ADMISSION_SCHEMA_VERSION = 1 as const;
+export const ROOT_TURN_ADMISSION_SCHEMA_VERSION = 2 as const;
 
 export interface RootTurnAdmissionInput {
   text: string;
@@ -49,6 +49,7 @@ export interface RootTurnAdmission {
   turnId: string;
   runId: string;
   userMessageId: string;
+  previousRootTurnId: string | null;
   normalizedInput: RootTurnAdmissionInput;
   admittedAt: number;
 }
@@ -58,6 +59,7 @@ export interface AdmitRootTurnInput {
   turnId: string;
   proposedRunId: string;
   proposedUserMessageId: string;
+  previousRootTurnId: string | null;
   normalizedInput: RootTurnAdmissionInput;
   admittedAt: number;
 }
@@ -153,6 +155,12 @@ class FileAgentRunStore implements DurableAgentRunStore {
     assertSafeId(input.turnId, 'Invalid turn id');
     assertSafeId(input.proposedRunId, 'Invalid run id');
     assertSafeId(input.proposedUserMessageId, 'Invalid user message id');
+    if (input.previousRootTurnId !== null) {
+      assertSafeId(input.previousRootTurnId, 'Invalid previous root turn id');
+      if (input.previousRootTurnId === input.turnId) {
+        throw new Error('Root turn admission cannot reference itself');
+      }
+    }
     const normalizedInput = normalizeRootTurnAdmissionInput(input.normalizedInput);
     if (!Number.isSafeInteger(input.admittedAt) || input.admittedAt < 0) {
       throw new Error('Invalid root turn admission timestamp');
@@ -163,6 +171,7 @@ class FileAgentRunStore implements DurableAgentRunStore {
       turnId: input.turnId,
       runId: input.proposedRunId,
       userMessageId: input.proposedUserMessageId,
+      previousRootTurnId: input.previousRootTurnId,
       normalizedInput,
       admittedAt: input.admittedAt,
     };
@@ -226,9 +235,7 @@ class FileAgentRunStore implements DurableAgentRunStore {
       throw new Error(`Invalid root turn admission entry: ${entry.name}`);
     }
     if (removedStagingFile) await syncDirectory(admissionsRoot);
-    return admissions.sort(
-      (a, b) => a.admittedAt - b.admittedAt || a.turnId.localeCompare(b.turnId),
-    );
+    return orderRootTurnAdmissionChain(sessionId, admissions);
   }
 
   async updateRun(
@@ -1231,6 +1238,10 @@ function normalizeRootTurnAdmission(
     isSafeId(record.runId) &&
     typeof record.userMessageId === 'string' &&
     isSafeId(record.userMessageId) &&
+    (record.previousRootTurnId === null ||
+      (typeof record.previousRootTurnId === 'string' &&
+        isSafeId(record.previousRootTurnId) &&
+        record.previousRootTurnId !== turnId)) &&
     Number.isSafeInteger(record.admittedAt) &&
     (record.admittedAt as number) >= 0 &&
     hasExactKeys(record, [
@@ -1239,6 +1250,7 @@ function normalizeRootTurnAdmission(
       'turnId',
       'runId',
       'userMessageId',
+      'previousRootTurnId',
       'normalizedInput',
       'admittedAt',
     ]);
@@ -1251,9 +1263,86 @@ function normalizeRootTurnAdmission(
     turnId,
     runId: record.runId as string,
     userMessageId: record.userMessageId as string,
+    previousRootTurnId: record.previousRootTurnId as string | null,
     normalizedInput: normalizeRootTurnAdmissionInput(record.normalizedInput),
     admittedAt: record.admittedAt as number,
   };
+}
+
+function orderRootTurnAdmissionChain(
+  sessionId: string,
+  admissions: readonly RootTurnAdmission[],
+): RootTurnAdmission[] {
+  if (admissions.length === 0) return [];
+  const byTurnId = new Map(admissions.map((admission) => [admission.turnId, admission]));
+  if (byTurnId.size !== admissions.length) {
+    throw new Error(`Session ${sessionId} has duplicate root turn admissions`);
+  }
+
+  for (const admission of admissions) {
+    const previous = admission.previousRootTurnId;
+    if (previous !== null && !byTurnId.has(previous)) {
+      throw new Error(
+        `Root turn admission ${admission.turnId} has missing predecessor ${previous}`,
+      );
+    }
+  }
+
+  assertAcyclicRootTurnAdmissions(sessionId, byTurnId);
+  const roots = admissions.filter((admission) => admission.previousRootTurnId === null);
+  if (roots.length !== 1) {
+    throw new Error(`Session ${sessionId} must have exactly one root turn admission root`);
+  }
+
+  const childByTurnId = new Map<string, RootTurnAdmission>();
+  for (const admission of admissions) {
+    const previous = admission.previousRootTurnId;
+    if (previous === null) continue;
+    const existing = childByTurnId.get(previous);
+    if (existing) {
+      throw new Error(
+        `Root turn admission ${previous} branches to ${existing.turnId} and ${admission.turnId}`,
+      );
+    }
+    childByTurnId.set(previous, admission);
+  }
+
+  const ordered: RootTurnAdmission[] = [];
+  let current: RootTurnAdmission | undefined = roots[0];
+  while (current) {
+    ordered.push(current);
+    current = childByTurnId.get(current.turnId);
+  }
+  if (ordered.length !== admissions.length) {
+    throw new Error(
+      `Session ${sessionId} root turn admission chain does not cover every admission`,
+    );
+  }
+  const tips = admissions.filter((admission) => !childByTurnId.has(admission.turnId));
+  if (tips.length !== 1 || tips[0] !== ordered.at(-1)) {
+    throw new Error(`Session ${sessionId} must have exactly one root turn admission tip`);
+  }
+  return ordered;
+}
+
+function assertAcyclicRootTurnAdmissions(
+  sessionId: string,
+  byTurnId: ReadonlyMap<string, RootTurnAdmission>,
+): void {
+  const complete = new Set<string>();
+  for (const admission of byTurnId.values()) {
+    const path = new Set<string>();
+    let current: RootTurnAdmission | undefined = admission;
+    while (current && !complete.has(current.turnId)) {
+      if (path.has(current.turnId)) {
+        throw new Error(`Session ${sessionId} root turn admission chain contains a cycle`);
+      }
+      path.add(current.turnId);
+      current =
+        current.previousRootTurnId === null ? undefined : byTurnId.get(current.previousRootTurnId);
+    }
+    for (const turnId of path) complete.add(turnId);
+  }
 }
 
 function normalizeRootTurnAdmissionInput(value: unknown): RootTurnAdmissionInput {

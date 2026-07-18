@@ -33,7 +33,43 @@ export type OperationHandlerMap = {
 };
 
 export type DomainOperationKey = Exclude<OperationKey, 'host.status'>;
-export type DomainOperationHandlerMap = Pick<OperationHandlerMap, DomainOperationKey>;
+export type TurnOperationKey = Extract<OperationKey, `turn.${string}`>;
+export type SessionContinuityOperationKey = Extract<OperationKey, `subscription.${string}`>;
+export type TurnOperationHandlerMap = Pick<OperationHandlerMap, TurnOperationKey>;
+export type AllDomainOperationHandlerMap = Pick<OperationHandlerMap, DomainOperationKey>;
+export type SessionContinuityOperationHandlerMap = Pick<
+  OperationHandlerMap,
+  SessionContinuityOperationKey
+>;
+
+export function combineDomainOperationHandlers(
+  ...domains: readonly Partial<AllDomainOperationHandlerMap>[]
+): AllDomainOperationHandlerMap {
+  const combined = new Map<DomainOperationKey, AllDomainOperationHandlerMap[DomainOperationKey]>();
+  for (const domain of domains) {
+    for (const [rawKey, handler] of Object.entries(domain)) {
+      if (!isDomainOperationKey(rawKey) || typeof handler !== 'function') {
+        throw new Error(`Invalid Runtime Host domain operation handler: ${rawKey}`);
+      }
+      if (combined.has(rawKey)) {
+        throw new Error(`Duplicate Runtime Host operation handler: ${rawKey}`);
+      }
+      combined.set(rawKey, handler as AllDomainOperationHandlerMap[DomainOperationKey]);
+    }
+  }
+  for (const key of domainOperationKeys()) {
+    if (!combined.has(key)) {
+      throw new Error(`Missing Runtime Host operation handler: ${key}`);
+    }
+  }
+  return Object.fromEntries(combined) as AllDomainOperationHandlerMap;
+}
+
+export function createUnavailableDomainOperationHandlers(): AllDomainOperationHandlerMap {
+  return Object.fromEntries(
+    domainOperationKeys().map((key) => [key, createUnavailableHandler(key)]),
+  ) as AllDomainOperationHandlerMap;
+}
 
 export async function dispatchOperation(
   request: RequestFrame,
@@ -94,4 +130,33 @@ async function dispatchTypedOperation<K extends OperationKey>(
         ok: false,
         error: outcome.error,
       };
+}
+
+function domainOperationKeys(): DomainOperationKey[] {
+  return (Object.keys(HOST_OPERATION_SPECS) as OperationKey[]).filter(
+    (key): key is DomainOperationKey => key !== 'host.status',
+  );
+}
+
+function isDomainOperationKey(value: string): value is DomainOperationKey {
+  return value !== 'host.status' && Object.hasOwn(HOST_OPERATION_SPECS, value);
+}
+
+function createUnavailableHandler<K extends DomainOperationKey>(
+  operation: K,
+): AllDomainOperationHandlerMap[K] {
+  const declaredErrors = HOST_OPERATION_SPECS[operation]
+    .errors as readonly HostOperationErrorCode[];
+  if (!declaredErrors.includes('operation_unavailable')) {
+    throw new Error(`${operation} does not declare operation_unavailable`);
+  }
+  const handler: OperationHandler<K> = async () =>
+    ({
+      ok: false,
+      error: {
+        code: 'operation_unavailable',
+        message: 'Runtime Host operation is unavailable in this composition',
+      },
+    }) as OperationOutcome<K>;
+  return handler as AllDomainOperationHandlerMap[K];
 }

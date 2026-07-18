@@ -26,10 +26,12 @@ import {
   type ConnectionOperationLease,
 } from './connection-session.js';
 import {
-  type DomainOperationHandlerMap,
+  type AllDomainOperationHandlerMap,
+  createUnavailableDomainOperationHandlers,
   type OperationResidency,
   type OperationHandlerMap,
 } from './operation-dispatcher.js';
+import type { SessionContinuityService } from './session-continuity-coordinator.js';
 
 const DEFAULT_IDLE_GRACE_MS = 30_000;
 const DEFAULT_HANDSHAKE_TIMEOUT_MS = 5_000;
@@ -44,12 +46,14 @@ export type RuntimeHostResidency = OperationResidency;
 
 export interface RuntimeHostCompositionContext {
   owner: InteractiveRootOwner;
+  hostEpoch: string;
   acquireResidency(): RuntimeHostResidency;
   requestDrain(): void;
 }
 
 export interface RuntimeHostComposition {
-  readonly handlers: DomainOperationHandlerMap;
+  readonly handlers: AllDomainOperationHandlerMap;
+  readonly continuity?: SessionContinuityService;
   recover(): Promise<void>;
   close(): Promise<void>;
 }
@@ -100,7 +104,7 @@ export class RuntimeHostKernel {
     this.#idleGraceMs = options.idleGraceMs ?? DEFAULT_IDLE_GRACE_MS;
     this.#handshakeTimeoutMs = options.handshakeTimeoutMs ?? DEFAULT_HANDSHAKE_TIMEOUT_MS;
     this.#options = options;
-    this.#operationHandlers = this.#createOperationHandlers(unavailableDomainHandlers());
+    this.#operationHandlers = this.#createOperationHandlers(createUnavailableDomainOperationHandlers());
     this.closed = new Promise((resolve, reject) => {
       this.#resolveClosed = resolve;
       this.#rejectClosed = reject;
@@ -165,6 +169,7 @@ export class RuntimeHostKernel {
       await this.#publishRegistration();
       this.#composition = await this.#options.compositionFactory({
         owner: this.#options.owner,
+        hostEpoch: this.hostEpoch,
         acquireResidency: () => this.#acquireResidency(),
         requestDrain: () => this.#requestDrain(),
       });
@@ -212,7 +217,8 @@ export class RuntimeHostKernel {
           surface: frame.surface,
           principal: 'local_os_user',
         },
-        handlers: this.#operationHandlers,
+        resolveHandlers: () => this.#operationHandlers,
+        resolveContinuity: () => this.#composition?.continuity,
         beginOperation: (request) => this.#beginOperation(request),
         onTeardown: releaseConnection,
       });
@@ -354,7 +360,7 @@ export class RuntimeHostKernel {
     };
   }
 
-  #createOperationHandlers(domainHandlers: DomainOperationHandlerMap): OperationHandlerMap {
+  #createOperationHandlers(domainHandlers: AllDomainOperationHandlerMap): OperationHandlerMap {
     return {
       'host.status': async () => ({
         ok: true,
@@ -550,19 +556,4 @@ function assertDuration(value: number, label: string, minimum: 0 | 1): void {
   if (!Number.isSafeInteger(value) || value < minimum || value > 120_000) {
     throw new RangeError(`${label} must be an integer between ${minimum} and 120000`);
   }
-}
-
-function unavailableDomainHandlers(): DomainOperationHandlerMap {
-  const unavailable = {
-    ok: false,
-    error: {
-      code: 'operation_unavailable',
-      message: 'Runtime Host operation is unavailable in this composition',
-    },
-  } as const;
-  return {
-    'turn.start': async () => unavailable,
-    'turn.query': async () => unavailable,
-    'turn.stop': async () => unavailable,
-  };
 }

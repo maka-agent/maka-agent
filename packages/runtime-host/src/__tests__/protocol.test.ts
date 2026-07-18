@@ -3,9 +3,11 @@ import { describe, test } from 'node:test';
 import {
   decodeClientFrame,
   decodeHostFrame,
+  HOST_OPERATION_SPECS,
   negotiateProtocol,
   ProtocolFrameDecoder,
   RUNTIME_HOST_MAX_FRAME_BYTES,
+  SESSION_LIVE_DELTA_MAX_BYTES,
   RuntimeHostProtocolError,
 } from '../protocol/index.js';
 
@@ -66,6 +68,22 @@ describe('Runtime Host bootstrap protocol', () => {
     );
   });
 
+  test('declares subscription open non-retryable and decodes its domain input', () => {
+    assert.equal(HOST_OPERATION_SPECS['subscription.open'].retry, 'none');
+    assert.deepEqual(
+      decodeClientFrame({
+        requestId: 'subscription-open-1',
+        operation: 'subscription.open',
+        input: { sessionId: 'session-1' },
+      }),
+      {
+        requestId: 'subscription-open-1',
+        operation: 'subscription.open',
+        input: { sessionId: 'session-1' },
+      },
+    );
+  });
+
   test('rejects terminal snapshots with fields from another terminal variant', () => {
     assert.throws(
       () =>
@@ -94,7 +112,134 @@ describe('Runtime Host bootstrap protocol', () => {
         error instanceof RuntimeHostProtocolError && error.code === 'frame_too_large',
     );
   });
+
+  test('keeps Session continuity snapshots closed to canonical identity and root Turn', () => {
+    const frame = sessionProjectionFrame();
+    assert.throws(
+      () => decodeHostFrame({
+        ...frame,
+        snapshot: {
+          ...frame.snapshot,
+          transcript: [{ role: 'assistant', text: 'private' }],
+        },
+      }),
+      isInvalidFrame,
+    );
+    assert.throws(
+      () => decodeHostFrame({
+        ...frame,
+        snapshot: {
+          ...frame.snapshot,
+          interaction: { kind: 'permission', args: { path: '/private' } },
+        },
+      }),
+      isInvalidFrame,
+    );
+  });
+
+  test('rejects Session continuity root Turns from another Session', () => {
+    const projection = sessionProjectionFrame();
+    const snapshot = {
+      ...projection.snapshot,
+      rootTurn: {
+        ...projection.snapshot.rootTurn,
+        sessionId: 'session-2',
+      },
+    };
+    assert.throws(
+      () => decodeHostFrame({
+        requestId: 'subscription-open-2',
+        operation: 'subscription.open',
+        ok: true,
+        result: {
+          hostEpoch: 'epoch-1',
+          subscriptionId: 'subscription-1',
+          nextSequence: 1,
+          snapshot,
+        },
+      }),
+      isInvalidFrame,
+    );
+    assert.throws(
+      () => decodeHostFrame({ ...projection, snapshot }),
+      isInvalidFrame,
+    );
+  });
+
+  test('rejects private delta fields and enforces the text limit in UTF-8 bytes', () => {
+    const frame = sessionDeltaFrame('visible');
+    assert.throws(
+      () => decodeHostFrame({
+        ...frame,
+        delta: { ...frame.delta, signature: 'private-signature' },
+      }),
+      isInvalidFrame,
+    );
+    assert.throws(
+      () => decodeHostFrame({
+        ...frame,
+        delta: { ...frame.delta, toolArgs: { path: '/private' } },
+      }),
+      isInvalidFrame,
+    );
+    assert.throws(
+      () => decodeHostFrame(
+        sessionDeltaFrame('界'.repeat(Math.floor(SESSION_LIVE_DELTA_MAX_BYTES / 3) + 1)),
+      ),
+      isInvalidFrame,
+    );
+    const decoded = decodeHostFrame(
+      sessionDeltaFrame('a'.repeat(SESSION_LIVE_DELTA_MAX_BYTES)),
+    );
+    assert.equal(
+      'kind' in decoded && decoded.kind,
+      'subscription.session_delta',
+    );
+  });
 });
+
+function sessionProjectionFrame() {
+  return {
+    kind: 'subscription.session_projection' as const,
+    hostEpoch: 'epoch-1',
+    subscriptionId: 'subscription-1',
+    sequence: 1,
+    snapshot: {
+      schemaVersion: 1 as const,
+      session: {
+        sessionId: 'session-1',
+        status: 'running' as const,
+        createdAt: 1,
+        lastUsedAt: 2,
+        isArchived: false,
+      },
+      projectionRevision: 1,
+      rootTurn: {
+        sessionId: 'session-1',
+        turnId: 'turn-1',
+        runId: 'run-1',
+        status: 'running' as const,
+      },
+    },
+  };
+}
+
+function sessionDeltaFrame(text: string) {
+  return {
+    kind: 'subscription.session_delta' as const,
+    hostEpoch: 'epoch-1',
+    subscriptionId: 'subscription-1',
+    sequence: 1,
+    sessionId: 'session-1',
+    delta: {
+      kind: 'text' as const,
+      turnId: 'turn-1',
+      runId: 'run-1',
+      messageId: 'message-1',
+      text,
+    },
+  };
+}
 
 function isInvalidFrame(error: unknown): boolean {
   return error instanceof RuntimeHostProtocolError && error.code === 'invalid_frame';
