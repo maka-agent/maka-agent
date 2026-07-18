@@ -1,3 +1,5 @@
+import { RetryError } from 'ai';
+
 /**
  * Structured provider error identifiers that mean the INPUT exceeded the
  * model's context window. These come from the provider's error JSON and are
@@ -218,7 +220,12 @@ export function isContextOverflowErrorText(text: string): boolean {
  * rank last so "generate" can never become a rate limit.
  */
 export function classifyError(error: unknown): string {
-  const evidence = normalizeErrorEvidence(error);
+  if (RetryError.isInstance(error) && error.reason === 'abort') return 'Abort';
+  const classificationTarget =
+    RetryError.isInstance(error) && error.lastError !== undefined && error.lastError !== error
+      ? error.lastError
+      : error;
+  const evidence = normalizeErrorEvidence(classificationTarget);
   if (!evidence) return 'Other';
   const { text, statusCode, code, structuredCodes } = evidence;
   if (text.includes('abort')) return 'Abort';
@@ -246,7 +253,7 @@ export function classifyError(error: unknown): string {
     /\btypeerror\b.*\bterminated\b/.test(text)
   )
     return 'Network';
-  return error instanceof Error ? error.name || 'Other' : 'Other';
+  return classificationTarget instanceof Error ? classificationTarget.name || 'Other' : 'Other';
 }
 
 export function errorPresentationFromClass(errorClass: string): {

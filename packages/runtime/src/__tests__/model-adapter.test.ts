@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import type { SessionEvent } from '@maka/core/events';
+import { RetryError } from 'ai';
 
 import { AsyncEventQueue } from '../async-queue.js';
 import { ModelAdapter, normalizeAiSdkUsage, type AiSdkStreamChunk } from '../model-adapter.js';
@@ -225,6 +226,24 @@ describe('ModelAdapter stream and error normalization', () => {
     assert.equal(adapter.mapFinishReason('error'), 'error');
     assert.equal(adapter.mapFinishReason('tool-calls'), 'end_turn');
     assert.equal(adapter.mapFinishReason('provider-new-reason'), 'end_turn');
+  });
+
+  test('projects the final provider error inside an AI SDK retry wrapper', () => {
+    const inner = Object.assign(new Error('Service unavailable: token=provider-secret'), {
+      name: 'AI_APICallError',
+      statusCode: 503,
+    });
+    const wrapped = new RetryError({
+      message: 'Provider request failed after retries',
+      reason: 'maxRetriesExceeded',
+      errors: [inner, inner, inner],
+    });
+
+    const event = newAdapter().makeErrorEvent('turn-1', wrapped);
+
+    assert.equal(event.reason, 'provider_unavailable');
+    assert.equal(event.message, 'Provider returned an error');
+    assert.equal(JSON.stringify(event).includes('provider-secret'), false);
   });
 
   test('projects a structured network error to a consistent reason and safe message', () => {

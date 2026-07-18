@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import { createJsonErrorResponseHandler } from '@ai-sdk/provider-utils';
+import { RetryError } from 'ai';
 import { z } from 'zod/v4';
 
 import { classifyError, errorPresentationFromClass } from '../provider-error-classification.js';
@@ -423,6 +424,66 @@ describe('Provider error classification', () => {
       '{"error":"Too many completion tokens were requested. This endpoint\'s maximum context length is 262144 tokens."}',
     );
     assert.notEqual(classifyError(outputCapError), 'ContextLength');
+  });
+
+  test('preserves provider evidence through the official AI SDK retry wrapper', async () => {
+    const handler = createJsonErrorResponseHandler({
+      errorSchema: z.object({
+        error: z.object({
+          message: z.string(),
+          code: z.string().optional(),
+        }),
+      }),
+      errorToMessage: (data) => data.error.message,
+    });
+    const apiCallError = async (status: number, body: string) =>
+      (
+        await handler({
+          response: new Response(body, { status, statusText: `HTTP ${status}` }),
+          url: 'https://api.example.test/v1/chat/completions',
+          requestBodyValues: {},
+        })
+      ).value;
+    const retried = (
+      lastError: unknown,
+      reason: 'maxRetriesExceeded' | 'errorNotRetryable' = 'maxRetriesExceeded',
+    ) =>
+      new RetryError({
+        message: 'Provider request failed after retries',
+        reason,
+        errors: [lastError, lastError, lastError],
+      });
+
+    const rateLimit = await apiCallError(429, '{"error":{"message":"Too many requests"}}');
+    const unavailable = await apiCallError(503, '{"error":{"message":"Service unavailable"}}');
+    const overflow = await apiCallError(
+      503,
+      '{"error":{"message":"Service unavailable","code":"context_length_exceeded"}}',
+    );
+
+    assert.equal(classifyError(retried(rateLimit)), 'RateLimit');
+    assert.equal(classifyError(retried(unavailable)), 'ProviderUnavailable');
+    assert.equal(classifyError(retried(overflow, 'errorNotRetryable')), 'ContextLength');
+
+    const aborted = new RetryError({
+      message: 'Retry stopped',
+      reason: 'abort',
+      errors: [new Error('transport stopped')],
+    });
+    assert.equal(classifyError(aborted), 'Abort');
+
+    const empty = new RetryError({
+      message: 'Provider request failed after retries',
+      reason: 'maxRetriesExceeded',
+      errors: [],
+    });
+    assert.equal(classifyError(empty), 'AI_RetryError');
+
+    const spoofed = Object.assign(new Error('Provider request failed after retries'), {
+      name: 'AI_RetryError',
+      lastError: rateLimit,
+    });
+    assert.equal(classifyError(spoofed), 'AI_RetryError');
   });
 
   test('maps provider classes to stable user-safe presentations', () => {
