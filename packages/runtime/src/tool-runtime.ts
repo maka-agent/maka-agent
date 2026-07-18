@@ -59,6 +59,7 @@ import {
   type SandboxEscalationPlanResult,
   type SandboxEscalationPlannerContext,
 } from './sandbox-escalation.js';
+import { ChildAgentRunLimiter } from './child-agent-run-limiter.js';
 
 export type ToolModelOutputPart =
   | { type: 'text'; text: string }
@@ -171,6 +172,7 @@ export interface ToolGating {
 
 export const TOOL_ERROR_RESULT_MAX_CHARS = 4000;
 export const MAX_ACTIVE_SUBAGENT_TOOLS_PER_TURN = 5;
+export const MAX_ACTIVE_CHILD_AGENT_RUNS_PER_TURN = 5;
 export const DEFAULT_PERMISSION_TIMEOUT_MS = 300_000;
 
 /**
@@ -233,6 +235,7 @@ export class ToolRuntime {
     { toolUseId: string; questions: UserQuestion[] }
   >();
   private activeSubagentToolCount = 0;
+  private childAgentRunLimiter = new ChildAgentRunLimiter(MAX_ACTIVE_CHILD_AGENT_RUNS_PER_TURN);
   /**
    * Tool-availability gating for the execute boundary. Set by the backend each
    * turn from `ToolAvailabilityRuntime`. Undefined when gating is off (economy
@@ -312,6 +315,11 @@ export class ToolRuntime {
   }
 
   resetTurnState(): void {
+    const priorChildAgentRunLimiter = this.childAgentRunLimiter;
+    this.childAgentRunLimiter = new ChildAgentRunLimiter(MAX_ACTIVE_CHILD_AGENT_RUNS_PER_TURN);
+    priorChildAgentRunLimiter.close(
+      new Error('Child agent run permit scope ended before capacity became available'),
+    );
     this.activeSubagentToolCount = 0;
     this.gating = undefined;
     this.lastFailedToolCallSignature = undefined;
@@ -1281,16 +1289,30 @@ export class ToolRuntime {
     abortSignal: AbortSignal,
   ): Pick<MakaToolContext, 'spawnChildAgent'> {
     const parentRunId = this.input.getCurrentRunId?.();
-    if (!parentRunId || !this.input.spawnChildAgent) return {};
+    const spawnChildAgent = this.input.spawnChildAgent;
+    if (!parentRunId || !spawnChildAgent) return {};
+    const limiter = this.childAgentRunLimiter;
     return {
-      spawnChildAgent: (input) => this.input.spawnChildAgent?.({
-        parentRunId,
-        spec: input.spec,
-        prompt: input.prompt,
-        abortSignal,
-        ...(input.onReady ? { onReady: input.onReady } : {}),
-        ...(input.onEvent ? { onEvent: input.onEvent } : {}),
-      }) ?? Promise.reject(new Error('spawnChildAgent is unavailable')),
+      spawnChildAgent: async (input) => {
+        const permit = await limiter.acquire(abortSignal);
+        try {
+          if (abortSignal.aborted) {
+            throw abortSignal.reason instanceof Error
+              ? abortSignal.reason
+              : new Error('Child agent run cancelled before it started');
+          }
+          return await spawnChildAgent({
+            parentRunId,
+            spec: input.spec,
+            prompt: input.prompt,
+            abortSignal,
+            ...(input.onReady ? { onReady: input.onReady } : {}),
+            ...(input.onEvent ? { onEvent: input.onEvent } : {}),
+          });
+        } finally {
+          permit.release();
+        }
+      },
     };
   }
 

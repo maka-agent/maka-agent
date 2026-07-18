@@ -94,6 +94,7 @@ import {
 import { AsyncEventQueue } from './async-queue.js';
 import { StreamWatchdog, formatStreamWatchdogError } from './stream-watchdog.js';
 import {
+  MAX_ACTIVE_CHILD_AGENT_RUNS_PER_TURN,
   MAX_ACTIVE_SUBAGENT_TOOLS_PER_TURN,
   TOOL_ERROR_RESULT_MAX_CHARS,
   ToolRuntime,
@@ -214,6 +215,7 @@ import {
 } from './mid-turn-capacity-compact.js';
 export {
   DEFAULT_PERMISSION_TIMEOUT_MS,
+  MAX_ACTIVE_CHILD_AGENT_RUNS_PER_TURN,
   MAX_ACTIVE_SUBAGENT_TOOLS_PER_TURN,
   TOOL_ERROR_RESULT_MAX_CHARS,
   formatSyntheticToolErrorText,
