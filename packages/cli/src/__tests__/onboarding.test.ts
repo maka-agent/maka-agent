@@ -65,6 +65,34 @@ describe('setupApiKeyConnection', () => {
     assert.equal(result.testError, 'HTTP 401');
   });
 
+  test('a failing probe does not make the broken connection the default', async () => {
+    const setDefaultCalls: string[] = [];
+    const result = await setupApiKeyConnection({
+      providerType: 'openai',
+      slug: 'openai',
+      apiKey: 'sk-typo',
+      connectionStore: {
+        get: async () => null,
+        create: async (input) => makeConnection({ slug: input.slug, providerType: input.providerType }),
+        remove: async () => {},
+        getDefault: async () => null,
+        setDefault: async (slug) => {
+          if (slug) setDefaultCalls.push(slug);
+        },
+      } satisfies Pick<ConnectionStore, 'create' | 'get' | 'remove' | 'getDefault' | 'setDefault'>,
+      credentialStore: {
+        setSecret: async () => {},
+      } satisfies Pick<CredentialStore, 'setSecret'>,
+      fetchModels: async () => { throw new Error('HTTP 401'); },
+    });
+
+    // The connection is saved (retrying rotates the key), but a broken key
+    // must NOT become the default — otherwise the host would report it as
+    // configured and trap the next launch out of onboarding.
+    assert.equal(result.testError, 'HTTP 401');
+    assert.deepEqual(setDefaultCalls, []);
+  });
+
   test('rejects a provider that does not accept an API key before touching the stores', async () => {
     let created = false;
     let stored = false;
