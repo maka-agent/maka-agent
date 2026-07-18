@@ -734,6 +734,47 @@ export {
   isSafeAgentMailboxToken,
   normalizeAgentMailboxContent,
 } from './agent-mailbox.js';
+// foreign-session.ts (#1057) — untrusted Claude Code / Codex session
+// contracts + defensive parsing. Subpath @maka/core/foreign-session preferred.
+export type {
+  ClaudeTitleCandidates,
+  ClaudeTranscriptMeta,
+  CodexThreadRow,
+  DigestAccumulator,
+  ForeignSessionDigest,
+  ForeignSessionSource,
+  ForeignSessionSummary,
+} from './foreign-session.js';
+export {
+  CODEX_SUPPORTED_THREAD_SOURCES,
+  FOREIGN_SESSION_DIGEST_MAX_FILES,
+  FOREIGN_SESSION_DIGEST_MAX_MESSAGES,
+  FOREIGN_SESSION_DIGEST_MAX_READ_BYTES,
+  FOREIGN_SESSION_HEAD_BYTES,
+  FOREIGN_SESSION_SCAN_MAX_AGE_MS,
+  FOREIGN_SESSION_SCAN_MAX_SESSIONS,
+  FOREIGN_SESSION_SOURCES,
+  FOREIGN_SESSION_TITLE_WINDOW_BYTES,
+  claudeAssistantText,
+  claudeToolFilePaths,
+  claudeUserMessageText,
+  codexRolloutMessage,
+  codexRolloutSessionMeta,
+  collectClaudeMeta,
+  collectClaudeTitle,
+  createDigestAccumulator,
+  finishDigest,
+  normalizeCodexThreadRow,
+  parseForeignJsonLine,
+  pickClaudeTitle,
+  pushDigestFile,
+  pushDigestMessage,
+  renderForeignSessionDigestForPrompt,
+  sanitizeForeignMessage,
+  sanitizeForeignText,
+  sanitizeForeignTitle,
+} from './foreign-session.js';
+
 // task-ledger.ts (main agent session task tracking)
 export type {
   CreateTaskInput,

@@ -37,6 +37,7 @@
     "./plan-reminders": "./dist/plan-reminders.js",
     "./agent-mailbox": "./dist/agent-mailbox.js",
     "./task-ledger": "./dist/task-ledger.js",
+    "./foreign-session": "./dist/foreign-session.js",
     "./memory": "./dist/memory.js",
     "./voice": "./dist/voice.js",
     "./incognito": "./dist/incognito.js",
