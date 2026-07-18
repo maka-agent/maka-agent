@@ -86,6 +86,25 @@ const STROKE_EXCEPTION_FILES = new Set([
   resolve(REPO_ROOT, 'apps/desktop/src/renderer/settings/provider-brand-marks.tsx'),
 ]);
 
+// Governance: inline hand-drawn `<svg>` literals are an anti-pattern —
+// generic UI glyphs must ride the @maka/ui/icons lucide funnel so they share
+// one stroke, one sizing seam, and one family. The ONLY files allowed to hold
+// a raw `<svg>` are the vendored *brand* marks (each audited below); they carry
+// official multi-color logo geometry that no generic icon can stand in for:
+//   - packages/ui/src/bot-brand-logo.tsx — Telegram/Feishu/WeCom/… channel
+//     brand logos (the icon-set-no-direct-lucide contract pins each provider
+//     to a local SVG component, so this file MUST keep inline SVG).
+//   - apps/desktop/src/renderer/settings/provider-brand-marks.tsx — the LLM
+//     provider brand marks (SiliconCloud, Ollama, xAI, …); every path here is
+//     byte-provenance-pinned above to an upstream brand package.
+// packages/ui/src/icons.tsx is NOT listed: it is a pure lucide re-export with
+// zero `<svg>` literals, so it needs no exemption. Any NEW raw `<svg>` under
+// the two source trees must fail this suite and move to @maka/ui/icons.
+const INLINE_SVG_ALLOWLIST = new Set([
+  resolve(REPO_ROOT, 'packages/ui/src/bot-brand-logo.tsx'),
+  resolve(REPO_ROOT, 'apps/desktop/src/renderer/settings/provider-brand-marks.tsx'),
+]);
+
 async function walkTsx(dir: string): Promise<string[]> {
   const out: string[] = [];
   const entries = await readdir(dir, { withFileTypes: true });
@@ -126,6 +145,46 @@ describe('icon + typography governance contract', () => {
       'icons ride lucide\'s default stroke — per-callsite strokeWidth fragments the family. '
         + `Delete the strokeWidth={...} props in:\n  ${offenders.join('\n  ')}`,
     );
+  });
+
+  it('bans inline hand-drawn <svg> in .tsx outside the brand-mark allowlist', async () => {
+    // Machine-walk both source trees the same way the repo-wide
+    // OverlayScrollbars ban walks its workspaces — any .tsx that isn't a
+    // vendored brand mark must route generic glyphs through @maka/ui/icons
+    // instead of hand-drawing an <svg>.
+    const dirs = [
+      resolve(REPO_ROOT, 'apps/desktop/src/renderer'),
+      resolve(REPO_ROOT, 'packages/ui/src'),
+    ];
+    const offenders: string[] = [];
+    const seenAllowlisted = new Set<string>();
+    for (const dir of dirs) {
+      for (const file of await walkTsx(dir)) {
+        const src = await readFile(file, 'utf8');
+        const hasInlineSvg = /<svg[\s/>]/.test(src);
+        if (INLINE_SVG_ALLOWLIST.has(file)) {
+          if (hasInlineSvg) seenAllowlisted.add(file);
+          continue;
+        }
+        if (hasInlineSvg) offenders.push(rel(file));
+      }
+    }
+    assert.deepEqual(
+      offenders,
+      [],
+      'Inline hand-drawn <svg> is an anti-pattern — replace it with a semantically-correct '
+        + 'icon from @maka/ui/icons (add the re-export to packages/ui/src/icons.tsx if missing). '
+        + `Offending files:\n  ${offenders.join('\n  ')}`,
+    );
+    // Guard the allowlist against rot: if a listed brand-mark file no longer
+    // holds inline SVG, drop it from INLINE_SVG_ALLOWLIST rather than leaving a
+    // stale exemption that would silently re-permit a future offender.
+    for (const file of INLINE_SVG_ALLOWLIST) {
+      assert.ok(
+        seenAllowlisted.has(file),
+        `${rel(file)} is allowlisted for inline SVG but no longer contains any — remove it from INLINE_SVG_ALLOWLIST`,
+      );
+    }
   });
 
   it('session-sidebar-nav imports exactly the decided semantic icon set from ./icons.js', async () => {
