@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import json
 import os
+import re
 import secrets
 import shlex
 import time
@@ -30,6 +31,9 @@ print_background_mode = "exit"
 keep_alive_on_exit = true
 """
 _REQUEST_TIMEOUT_GRACE_SEC = 120
+_DEFAULT_CELL_TIMEOUT_SEC = 900
+_MAX_SAFE_INTEGER = 9007199254740991
+_POSITIVE_INT_RE = re.compile(r"[1-9][0-9]*")
 
 
 class MakaKimiCodeAgent(BaseInstalledAgent):
@@ -149,13 +153,7 @@ class MakaKimiCodeAgent(BaseInstalledAgent):
         if not model:
             raise ValueError("MAKA_MODEL is required")
         effort = self._get_env("MAKA_REASONING_EFFORT") or "max"
-        task_timeout_raw = (self._get_env("MAKA_CELL_TIMEOUT_SEC") or "").strip()
-        try:
-            task_timeout_sec = int(task_timeout_raw)
-        except ValueError as error:
-            raise ValueError("MAKA_CELL_TIMEOUT_SEC must be a positive integer") from error
-        if task_timeout_sec <= 0 or str(task_timeout_sec) != task_timeout_raw:
-            raise ValueError("MAKA_CELL_TIMEOUT_SEC must be a positive integer")
+        task_timeout_sec = self._cell_timeout_sec()
         return {
             "KIMI_CODE_HOME": str(_KIMI_HOME),
             "KIMI_MODEL_NAME": model,
@@ -171,6 +169,19 @@ class MakaKimiCodeAgent(BaseInstalledAgent):
             "KIMI_MODEL_ADAPTIVE_THINKING": "true",
             "KIMI_MODEL_THINKING_EFFORT": effort,
         }
+
+    def _cell_timeout_sec(self) -> int:
+        raw = self._get_env("MAKA_CELL_TIMEOUT_SEC")
+        if not raw:
+            return _DEFAULT_CELL_TIMEOUT_SEC
+        stripped = raw.strip()
+        if _POSITIVE_INT_RE.fullmatch(stripped) is None:
+            return _DEFAULT_CELL_TIMEOUT_SEC
+        try:
+            value = int(stripped)
+        except ValueError:
+            return _DEFAULT_CELL_TIMEOUT_SEC
+        return value if value <= _MAX_SAFE_INTEGER else _DEFAULT_CELL_TIMEOUT_SEC
 
     def _events(self, *, require_assistant: bool = False) -> list[dict[str, Any]]:
         path = self.logs_dir / _OUTPUT_PATH.name
