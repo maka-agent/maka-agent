@@ -503,8 +503,7 @@ export type OnboardingWizardPhase = 'search' | 'key';
 export type OnboardingWizardStatus =
   | { kind: 'prompt' }
   | { kind: 'verifying' }
-  | { kind: 'error'; text: string }
-  | { kind: 'ok'; text: string };
+  | { kind: 'error'; text: string };
 
 export interface OnboardingWizardInput {
   providers: readonly OnboardableProvider[];
@@ -590,7 +589,7 @@ export class OnboardingWizard implements Component {
   }
 
   /** Runner hook: the probe settled. An error re-arms the key field in place. */
-  setResult(result: { kind: 'ok'; text: string } | { kind: 'error'; text: string }): void {
+  setResult(result: { kind: 'error'; text: string }): void {
     this.status = result;
     if (result.kind === 'error') {
       this.keyEditor.disableSubmit = false;
@@ -609,7 +608,7 @@ export class OnboardingWizard implements Component {
       this.handleKeyInput(data);
       return;
     }
-    if (matchesKey(data, Key.escape)) {
+    if (matchesKey(data, Key.escape) || matchesKey(data, Key.ctrl('c'))) {
       this.input.onCancel();
       return;
     }
@@ -629,7 +628,7 @@ export class OnboardingWizard implements Component {
   }
 
   private handleKeyInput(data: string): void {
-    if (matchesKey(data, Key.escape)) {
+    if (matchesKey(data, Key.escape) || matchesKey(data, Key.ctrl('c'))) {
       this.phase = 'search';
       this.picked = undefined;
       this.status = { kind: 'prompt' };
@@ -638,6 +637,10 @@ export class OnboardingWizard implements Component {
       this.input.onBack();
       return;
     }
+    // The probe owns the key field while it is in flight: disableSubmit only
+    // blocks Enter, so swallow the rest too — otherwise typed text renders and
+    // is then silently wiped by the error path's setText('').
+    if (this.status.kind === 'verifying') return;
     this.keyEditor.handleInput(data);
   }
 
@@ -655,15 +658,17 @@ export class OnboardingWizard implements Component {
       padLine('', width),
       ...this.renderFieldRow(this.searchEditor, '搜索', width),
       padLine('', width),
-      ...this.list.render(width).map((line) => formatPickerItemLine(line, width)),
+      ...(this.filtered.length === 0
+        ? [padLine(ansi.dim('没有匹配的服务商'), width)]
+        : this.list.render(width).map((line) => formatPickerItemLine(line, width))),
       padLine(ansi.accent('-'.repeat(width)), width),
     ];
   }
 
   private renderKey(width: number): string[] {
     this.searchEditor.focused = false;
-    // The cursor stays hidden once the field is locked (verifying) or settled
-    // (ok); only an editable or errored key field takes focus.
+    // The cursor stays hidden while the probe is in flight; only an editable
+    // or errored key field takes focus.
     this.keyEditor.focused = this.status.kind === 'prompt' || this.status.kind === 'error';
     const label = this.picked?.label ?? '';
     return [
@@ -682,7 +687,6 @@ export class OnboardingWizard implements Component {
       case 'prompt': return ansi.dim('Enter 提交');
       case 'verifying': return `${ansi.yellow('⠋')} 正在验证 key…`;
       case 'error': return ansi.red(`✗ ${this.status.text}`);
-      case 'ok': return ansi.green(`✓ ${this.status.text}`);
     }
   }
 

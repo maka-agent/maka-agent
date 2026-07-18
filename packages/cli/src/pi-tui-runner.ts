@@ -829,8 +829,20 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   let wizardOverlay: OverlayHandle | undefined;
   let wizard: OnboardingWizard | undefined;
   let wizardProviderType: ProviderType | undefined;
+  // Monotonic attempt id: each setup submit captures one, and any transition
+  // that abandons the in-flight attempt (back, re-pick, close) increments it so
+  // a late probe settlement cannot clobber a newer attempt.
+  let wizardAttempt = 0;
 
   editor.onSubmit = (prompt) => {
+    if (input.firstRun) {
+      // First-run has no connection, so the wizard is the only surface. A
+      // submit here — including after a slash command escaped the key field —
+      // must reopen the wizard instead of handing control to a connection-less
+      // driver whose turns only hard-error.
+      showSetupWizard();
+      return;
+    }
     if (turnRunning) {
       steerRunningTurn(prompt);
       return;
@@ -1212,6 +1224,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   };
 
   const closeWizard = (): void => {
+    wizardAttempt += 1; // drop any in-flight setup before clearing the slots
     wizardOverlay?.hide();
     wizardOverlay = undefined;
     wizard = undefined;
@@ -1234,11 +1247,13 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       requestRender();
       return;
     }
-    wizard.setVerifying();
+    const targetWizard = wizard;
+    const attempt = ++wizardAttempt;
+    targetWizard.setVerifying();
     requestRender();
     void input.onboarding.setup({ providerType, apiKey }).then(
       (result) => {
-        if (!wizard) return;
+        if (wizard !== targetWizard || attempt !== wizardAttempt) return;
         if (result.testError) {
           // Probe failed: re-arm the key field in place — the upsert rotates
           // the key, so retrying does not throw "slug already exists".
@@ -1262,7 +1277,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
         requestRender();
       },
       (error) => {
-        if (!wizard) return;
+        if (wizard !== targetWizard || attempt !== wizardAttempt) return;
         wizard.setResult({ kind: 'error', text: `配置失败：${error instanceof Error ? error.message : String(error)}` });
         requestRender();
       },
@@ -1285,6 +1300,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       providers,
       onPickProvider: (providerType) => {
         wizardProviderType = providerType;
+        wizardAttempt += 1; // a new pick supersedes any in-flight attempt
         requestRender();
       },
       onSubmitKey: submitWizardKey,
@@ -1296,6 +1312,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       },
       onBack: () => {
         wizardProviderType = undefined;
+        wizardAttempt += 1; // abandoning the key field invalidates its probe
         requestRender();
       },
     });

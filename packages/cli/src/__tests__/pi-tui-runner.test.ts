@@ -744,6 +744,161 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('first-run wizard never reaches an agent turn after a slash command escapes the key field', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    let preparePromptCalls = 0;
+    driver.preparePrompt = async () => {
+      preparePromptCalls += 1;
+      throw new Error('first-run onboarding: no agent turn before a connection exists');
+    };
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: '',
+      connectionSlug: '',
+      permissionMode: 'bypass',
+      terminal,
+      firstRun: true,
+      onboarding: { setup: async () => ({}) },
+    });
+
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), 'Set Up Provider') !== null;
+      } catch {
+        return false;
+      }
+    });
+    terminal.input('\r'); // pick provider -> key phase
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), 'API key') !== null;
+      } catch {
+        return false;
+      }
+    });
+
+    // A slash command typed in the key field escapes the wizard (designed, so
+    // /exit still works). But after it closes, first-run must not hand control
+    // to a connection-less driver: any later submit reopens the wizard instead
+    // of opening an agent turn.
+    terminal.input('/help');
+    terminal.input('\r');
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), 'Keybindings') !== null;
+      } catch {
+        return false;
+      }
+    });
+
+    terminal.input('hello');
+    terminal.input('\r');
+    await delay(40);
+    assert.equal(preparePromptCalls, 0);
+    // The wizard is back open as the only first-run surface.
+    assert.ok(plainTerminalOutput(terminal.screenOutput()).includes('Set Up Provider'));
+
+    process.emit('SIGTERM');
+    await Promise.race([
+      run,
+      delay(500).then(() => { throw new Error('TUI did not close after SIGTERM'); }),
+    ]);
+  });
+
+  test('onboarding wizard cancels on Ctrl+C as well as Esc (first-run closes the TUI)', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: '',
+      connectionSlug: '',
+      permissionMode: 'bypass',
+      terminal,
+      firstRun: true,
+      onboarding: { setup: async () => ({}) },
+    });
+
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), 'Set Up Provider') !== null;
+      } catch {
+        return false;
+      }
+    });
+
+    // The overlay cancel contract is Esc AND Ctrl+C (pi-tui `tui.select.cancel`);
+    // in first-run, Ctrl+C must close the TUI like Esc does, not be swallowed.
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(500).then(() => { throw new Error('Ctrl+C did not close the first-run wizard'); }),
+    ]);
+  });
+
+  test('onboarding wizard ignores a setup result from an abandoned attempt', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const setupCalls: Array<{ apiKey: string }> = [];
+    let resolveFirst!: (value: { testError?: string }) => void;
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'bypass',
+      terminal,
+      onboarding: {
+        setup: (req) => {
+          setupCalls.push({ apiKey: req.apiKey });
+          // First attempt stays in flight (deferred); the user abandons it.
+          return setupCalls.length === 1
+            ? new Promise((r) => { resolveFirst = r; })
+            : Promise.resolve({});
+        },
+      },
+    });
+
+    await delay(20);
+    terminal.input('/setup');
+    terminal.input('\r');
+    await waitFor(() => { try { return latestPlainLineContaining(terminal.writes.join(''), 'Set Up Provider') !== null; } catch { return false; } });
+    terminal.input('\r'); // pick provider A -> key phase
+    await waitFor(() => { try { return latestPlainLineContaining(terminal.writes.join(''), 'API key') !== null; } catch { return false; } });
+
+    terminal.input('sk-a');
+    terminal.input('\r'); // submit A — probe deferred, wizard shows verifying
+    await waitFor(() => setupCalls.length === 1);
+    await waitFor(() => { try { return latestPlainLineContaining(terminal.writes.join(''), '验证') !== null; } catch { return false; } });
+
+    // Abandon A: Esc back to search, move to the second provider, pick it, and
+    // start typing its key (do not submit).
+    terminal.input('\x1b');
+    await waitFor(() => { try { return latestPlainLineContaining(terminal.writes.join(''), '1/2') !== null; } catch { return false; } });
+    terminal.input('\x1b[B'); // down to the second provider
+    terminal.input('\r');
+    await waitFor(() => { try { return latestPlainLineContaining(terminal.writes.join(''), 'API key') !== null; } catch { return false; } });
+    terminal.input('sk-b');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('sk-b'));
+
+    // A's probe now resolves with a failure. It must not clobber attempt B:
+    // no failure status line, and the key being typed for B survives.
+    resolveFirst({ testError: 'HTTP 401 Unauthorized' });
+    await delay(40);
+
+    const out = plainTerminalOutput(terminal.screenOutput());
+    assert.doesNotMatch(out, /验证失败/);
+    assert.ok(out.includes('sk-b'));
+
+    process.emit('SIGTERM');
+    await Promise.race([run, delay(500).then(() => { throw new Error('TUI did not close after SIGTERM'); })]);
+  });
+
   test('allows a pending permission request from the terminal', async () => {
     const terminal = new FakeTerminal();
     const driver = new PermissionPromptDriver();
