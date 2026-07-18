@@ -7,7 +7,10 @@ export type { ToolRecoveryMode } from '@maka/core';
 export interface ToolPreparedCommit {
   operationId: string;
   journalEventId: string;
+  /** Provider-visible function_call fact; it may pre-exist while permission waits. */
   runtimeEvent: RuntimeEvent;
+  /** Canonical, non-model-visible fact that T1 was crossed. */
+  dispatchRuntimeEvent: RuntimeEvent;
   providerToolCallId: string;
   toolName: string;
   canonicalArgsHash: string;
@@ -53,19 +56,4 @@ export function buildToolOperationId(input: ToolOperationIdInput): string {
 export function canonicalToolArgsHash(toolName: string, normalizedArgs: unknown): string {
   if (!toolName) throw new Error('Tool argument identity requires a tool name');
   return stableHash({ toolName, args: normalizedArgs });
-}
-
-export async function executeDurableToolBoundary<T>(input: {
-  sink: RuntimeCommitSink;
-  prepared: ToolPreparedCommit;
-  execute: () => Promise<T>;
-  buildOutcome: (result: T) => ToolOutcomeCommit;
-}): Promise<T> {
-  const prepared = await input.sink.commitToolPrepared(input.prepared);
-  if (!prepared.created) {
-    throw new Error(`Tool operation ${input.prepared.operationId} is already claimed`);
-  }
-  const result = await input.execute();
-  await input.sink.commitToolOutcome(input.buildOutcome(result));
-  return result;
 }

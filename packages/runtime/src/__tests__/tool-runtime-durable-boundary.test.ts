@@ -40,8 +40,8 @@ describe('ToolRuntime durable boundary', () => {
     );
 
     assert.equal(implementationCalls, 0);
-    assert.equal(harness.events.length, 0);
-    assert.equal(harness.messages.length, 0);
+    assert.deepEqual(harness.events.map((event) => event.type), ['tool_start']);
+    assert.deepEqual(harness.messages.map((message) => message.type), ['tool_call']);
   });
 
   it('commits T1 before implementation and T2 before publishing the result', async () => {
@@ -69,10 +69,44 @@ describe('ToolRuntime durable boundary', () => {
     assert.deepEqual(result, { ok: true, text: 'done' });
     assert.deepEqual(order, ['t1', 'impl', 't2', 'published-result']);
     assert.equal(prepared[0]?.runtimeEvent.content?.kind, 'function_call');
+    assert.equal(prepared[0]?.dispatchRuntimeEvent.actions?.toolDispatch?.protocol, 't1_after_preflight_v1');
+    assert.equal(prepared[0]?.dispatchRuntimeEvent.content, undefined);
     assert.equal(outcomes[0]?.runtimeEvent.content?.kind, 'function_response');
     assert.equal(prepared[0]?.operationId, outcomes[0]?.operationId);
     assert.equal(prepared[0]?.runtimeEvent.refs?.operationId, prepared[0]?.operationId);
+    assert.equal(prepared[0]?.dispatchRuntimeEvent.refs?.operationId, prepared[0]?.operationId);
     assert.equal(outcomes[0]?.runtimeEvent.refs?.operationId, prepared[0]?.operationId);
+  });
+
+  it('does not create a prepared journal operation when permission is denied', async () => {
+    let preparedCalls = 0;
+    let implementationCalls = 0;
+    const harness = makeHarness({
+      commitToolPrepared: async () => {
+        preparedCalls += 1;
+        return { created: true, runtimeEventSeq: 1 };
+      },
+      commitToolOutcome: async () => { throw new Error('must not reach T2'); },
+    });
+    const execution = harness.execute({
+      ...tool(() => { implementationCalls += 1; return { ok: true }; }),
+      name: 'Bash',
+      permissionRequired: true,
+    });
+    while (!harness.events.some((event) => event.type === 'permission_request')) {
+      await Promise.resolve();
+    }
+    const request = harness.events.find((event) => event.type === 'permission_request');
+    if (!request || request.type !== 'permission_request') throw new Error('expected permission request');
+    harness.permissionEngine.recordResponse('turn-1', {
+      requestId: request.requestId,
+      decision: 'deny',
+    });
+
+    await execution;
+
+    assert.equal(preparedCalls, 0);
+    assert.equal(implementationCalls, 0);
   });
 
   it('does not publish an implementation result when T2 fails', async () => {
@@ -135,6 +169,7 @@ function makeHarness(sink: RuntimeCommitSink, order?: string[]) {
   return {
     messages,
     events,
+    permissionEngine,
     execute: async (target: MakaTool) => runtime.wrapToolExecute(target, 'turn-1', {
       push: (event) => {
         events.push(event);

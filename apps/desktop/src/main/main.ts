@@ -1039,6 +1039,9 @@ const runtime = new SessionManager({
   store,
   runStore,
   runtimeEventStore,
+  ...(runtimePersistence.runtimeCommitStore
+    ? { toolBoundaryProtocol: runtimePersistence.runtimeCommitStore.toolBoundaryProtocol }
+    : {}),
   shellRuns,
   backends,
   childTools: childAgentTools,

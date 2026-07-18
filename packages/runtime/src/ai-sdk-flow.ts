@@ -653,6 +653,7 @@ export class AiSdkFlow implements AgentFlow, AgentFlowControl {
     let errorEmitted = false;
     try {
       for await (const sessionEvent of this.backend.send({
+        invocationId: ctx.invocationId,
         runId: ctx.runId,
         turnId: ctx.turnId,
         // The persisted head anchor: mid-turn capacity compaction keeps this

@@ -51,6 +51,15 @@ export interface InvocationLineage {
   parentSessionId?: string;
 }
 
+/**
+ * Runtime-owned continuation metadata carried through Runner revalidation.
+ * `sourceRuntimeContext` is deliberately not part of the provider contract:
+ * it identifies the immediate source segment inside assembled replay history.
+ */
+export interface InvocationContinuationMetadata extends RuntimeContinuationMetadata {
+  sourceRuntimeContext?: RuntimeEvent[];
+}
+
 // ============================================================================
 // InvocationRequest — input to RuntimeRunner.run()
 // ============================================================================
@@ -81,7 +90,7 @@ export interface InvocationRequest {
    */
   runtimeContext?: RuntimeEvent[];
   /** Safe-boundary continuation metadata. No synthetic user RuntimeEvent is emitted when present. */
-  continuation?: RuntimeContinuationMetadata;
+  continuation?: InvocationContinuationMetadata;
   /** Optional initial user RuntimeEvent already minted by an outer run owner. */
   initialRuntimeEvent?: RuntimeEvent;
   source: InvocationSource;

@@ -226,6 +226,23 @@ describe('RuntimeRunner', () => {
     expect(result.events[1]!.author).toBe('agent');
   });
 
+  test('initial event declares the tool boundary protocol only when the durable boundary is active', async () => {
+    const providers = makeProviders();
+    const flow = new ScriptFlow((ctx) => [flowTerminalEvent(ctx, 'completed')]);
+    const deps = {
+      flow,
+      providers,
+      toolBoundaryProtocol: 't1_after_preflight_v1' as const,
+    };
+    const runner = new RuntimeRunner(deps);
+
+    const result = await runner.run(makeRequest());
+
+    expect(result.events[0]?.actions?.runtimeProtocol).toEqual({
+      toolBoundary: 't1_after_preflight_v1',
+    });
+  });
+
   test('a flow that exhausts without a terminal event maps to a failed result', async () => {
     const providers = makeProviders();
     const flow = new ScriptFlow((ctx) => [flowTextEvent(ctx, 'hello')]);

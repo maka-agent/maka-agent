@@ -32,6 +32,20 @@ describe('AgentRunStore', () => {
     });
   });
 
+  it('rejects duplicate run creation without replacing the existing header', async () => {
+    await withStore(async (store) => {
+      const original = makeHeader({ invocationId: 'invocation-original' });
+      await store.createRun(original);
+
+      await assert.rejects(
+        () => store.createRun(makeHeader({ invocationId: 'invocation-replacement', updatedAt: 2 })),
+        /already exists/i,
+      );
+
+      assert.deepEqual(await store.readRun('session-1', 'run-1'), original);
+    });
+  });
+
   it('rejects malformed run headers instead of returning partial records', async () => {
     await withStore(async (store, root) => {
       await store.createRun(makeHeader());

@@ -1,4 +1,11 @@
-import type { AgentRunEvent, AgentRunHeader, AgentRunStore, RuntimeEvent, RuntimeEventStore } from '@maka/core';
+import type {
+  AgentRunEvent,
+  AgentRunHeader,
+  AgentRunStore,
+  RuntimeEvent,
+  RuntimeEventStore,
+  ToolBoundaryProtocol,
+} from '@maka/core';
 import { isTerminalRuntimeEvent } from '@maka/core';
 import { redactSecrets } from '@maka/core/redaction';
 import type {
@@ -83,6 +90,9 @@ export interface AgentRunInput {
   hooks: AgentRunHooks;
   recordSessionMessages?: boolean;
   runId?: string;
+  invocationId?: string;
+  /** Set only when this run's backend tool path is guarded by canonical T1. */
+  toolBoundaryProtocol?: ToolBoundaryProtocol;
 }
 
 export type RuntimeContinuationFailpoint =
@@ -120,8 +130,10 @@ interface PriorRunTerminalFactContext {
 
 export class AgentRun {
   readonly runId: string;
+  readonly invocationId: string;
   readonly sessionId: string;
   readonly turnId: string;
+  readonly toolBoundaryProtocol: ToolBoundaryProtocol | undefined;
   readonly lineage: AgentRunLineage;
 
   private header: SessionHeader;
@@ -132,6 +144,7 @@ export class AgentRun {
   private runtimeEventQueue: Promise<void> = Promise.resolve();
   private runStoreAvailable = true;
   private runtimeEventStoreAvailable = true;
+  private runtimeEventStoreFailure: unknown;
   private failureClass: string | undefined;
   private failureMessage: string | undefined;
   private lastTs = 0;
@@ -154,8 +167,10 @@ export class AgentRun {
       throw new Error('RuntimeEventStore is required when AgentRunStore is configured');
     }
     this.runId = input.runId ?? input.newId();
+    this.invocationId = input.invocationId ?? this.runId;
     this.sessionId = input.sessionId;
     this.turnId = input.userInput.turnId;
+    this.toolBoundaryProtocol = input.toolBoundaryProtocol;
     this.header = input.header;
     this.lineage = {
       ...(input.userInput.parentRunId ? { parentRunId: input.userInput.parentRunId } : {}),
@@ -479,13 +494,16 @@ export class AgentRun {
   private buildInitialRuntimeEvent(id: string, ts: number): RuntimeEvent {
     return buildInitialUserRuntimeEvent({
       id,
-      invocationId: this.runId,
+      invocationId: this.invocationId,
       runId: this.runId,
       sessionId: this.sessionId,
       turnId: this.turnId,
       ts,
       text: this.input.userInput.text,
       ...(this.input.userInput.attachments !== undefined ? { attachments: this.input.userInput.attachments } : {}),
+      ...(this.toolBoundaryProtocol
+        ? { toolBoundaryProtocol: this.toolBoundaryProtocol }
+        : {}),
     });
   }
 
@@ -562,6 +580,9 @@ export class AgentRun {
       const eventForStore = terminal ? this.reserveTerminalEvent(event) : event;
       if (!eventForStore) continue;
       if (!this.input.runtimeEventStore || !this.runtimeEventStoreAvailable) {
+        if (this.input.runtimeEventStore?.durability === 'canonical') {
+          throw this.runtimeEventStoreFailure ?? new Error('canonical RuntimeEvent store is unavailable');
+        }
         if (terminal && options.requireTerminalWrite) {
           throw new Error('terminal RuntimeEvent store is unavailable');
         }
@@ -569,7 +590,11 @@ export class AgentRun {
       }
       const write = this.enqueueRuntimeEventStore('append runtime event', async () => {
         await this.input.runtimeEventStore?.appendRuntimeEvent(this.sessionId, this.runId, eventForStore);
-      }, { rethrow: terminal || options.requireTerminalWrite });
+      }, {
+        rethrow: terminal
+          || options.requireTerminalWrite
+          || this.input.runtimeEventStore.durability === 'canonical',
+      });
       if (terminal && this.terminalClaim) this.terminalClaim.write = write;
       await write;
       if (terminal) {
@@ -669,7 +694,7 @@ export class AgentRun {
     const createdAt = this.input.now();
     const header: AgentRunHeader = {
       runId: this.runId,
-      invocationId: this.runId,
+      invocationId: this.invocationId,
       sessionId: this.sessionId,
       turnId: this.turnId,
       status: 'created',
@@ -731,7 +756,7 @@ export class AgentRun {
     const priorRuns = runs.filter((run) =>
       run.runId !== this.runId &&
       run.turnId !== this.turnId &&
-      !run.parentRunId
+      (!run.parentRunId || run.continuationSource !== undefined)
     );
     if (priorRuns.length === 0) return undefined;
 
@@ -1043,7 +1068,7 @@ export class AgentRun {
     }
     this.reserveTerminalEvent(buildSyntheticTerminalRuntimeEvent({
       id: this.input.newId(),
-      invocationId: this.runId,
+      invocationId: this.invocationId,
       run: { sessionId: this.sessionId, runId: this.runId, turnId: this.turnId },
       status,
       ts,
@@ -1075,6 +1100,7 @@ export class AgentRun {
     if (!this.input.runtimeEventStore || !this.runtimeEventStoreAvailable) return Promise.resolve();
     const next = this.runtimeEventQueue.then(operation, operation).catch(async (error) => {
       this.runtimeEventStoreAvailable = false;
+      this.runtimeEventStoreFailure = error;
       await this.enqueueTraceWriteFailure(error, label);
       if (options.rethrow) throw error;
     });

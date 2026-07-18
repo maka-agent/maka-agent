@@ -23,6 +23,8 @@ export interface RuntimeContinuationMetadata {
 }
 
 export interface BackendSendInput {
+  /** Durable invocation spine id; distinct from runId for continuations. */
+  invocationId?: string;
   /** AgentRun id for this invocation, when the caller has a run ledger. */
   runId?: string;
   /** Caller-generated turn id shared by the persisted UserMessage and every emitted event. */

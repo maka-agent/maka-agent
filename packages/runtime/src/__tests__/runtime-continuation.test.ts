@@ -110,6 +110,97 @@ test('RuntimeRunner continues from replay context without synthesizing another u
   assert.equal(capturedInput?.continuation?.sourceRuntimeEventHighWater, 3);
 });
 
+test('RuntimeRunner preserves the immediate source segment when replay includes continuation ancestors', async () => {
+  const ancestorEvents = [
+    event({
+      id: 'ancestor-user',
+      invocationId: 'ancestor-invocation',
+      runId: 'ancestor-run',
+      turnId: 'ancestor-turn',
+      role: 'user',
+      author: 'user',
+      content: { kind: 'text', text: 'original request' },
+    }),
+    event({
+      id: 'ancestor-terminal',
+      invocationId: 'ancestor-invocation',
+      runId: 'ancestor-run',
+      turnId: 'ancestor-turn',
+      role: 'system',
+      author: 'system',
+      status: 'failed',
+      actions: { endInvocation: true },
+    }),
+  ];
+  const sourceRuntimeContext = [
+    event({
+      id: 'source-continuation-start',
+      role: 'system',
+      author: 'system',
+      actions: { stateDelta: { continuation: true } },
+    }),
+    event({
+      id: 'source-terminal',
+      role: 'system',
+      author: 'system',
+      status: 'failed',
+      actions: { endInvocation: true },
+    }),
+  ];
+  const runtimeContext = [...ancestorEvents, ...sourceRuntimeContext];
+  let capturedInput: FlowInput | undefined;
+  const runner = new RuntimeRunner({
+    commitContinuationStart: async () => {},
+    flow: {
+      async *run(context, input) {
+        capturedInput = input;
+        yield event({
+          id: 'continued-text',
+          invocationId: context.invocationId,
+          runId: context.runId,
+          turnId: context.turnId,
+          role: 'model',
+          author: 'agent',
+          content: { kind: 'text', text: 'continued' },
+        });
+        yield event({
+          id: 'continued-terminal',
+          invocationId: context.invocationId,
+          runId: context.runId,
+          turnId: context.turnId,
+          role: 'system',
+          author: 'system',
+          status: 'completed',
+          actions: { endInvocation: true },
+        });
+      },
+    },
+    providers: { newId: () => 'new-event', now: () => 20 },
+  });
+
+  const result = await runner.resume({
+    sessionId: 'session-1',
+    invocationId: 'invocation-2',
+    runId: 'run-2',
+    turnId: 'turn-2',
+    sourceInvocationId: 'invocation-1',
+    sourceRunId: 'run-1',
+    sourceTurnId: 'turn-1',
+    sourceRuntimeEventHighWater: sourceRuntimeContext.length,
+    sourceRuntimeContext,
+    runtimeContext,
+    safetySnapshot: {
+      workspaceIdentity: 'workspace-1',
+      backgroundOperationsSettled: true,
+      availableToolNames: [],
+    },
+  }, { source: 'test' });
+
+  assert.equal(result.status, 'completed');
+  assert.deepEqual(capturedInput?.runtimeContext, runtimeContext);
+  assert.equal('sourceRuntimeContext' in (capturedInput?.continuation ?? {}), false);
+});
+
 test('RuntimeContinuationPlanner reads the durable source boundary and allocates fresh identities', async () => {
   const sourceEvents = [
     event({ id: 'source-user', role: 'user', author: 'user', content: { kind: 'text', text: 'continue' } }),

@@ -32,6 +32,7 @@ describe('ToolRuntime with real SQLite boundary', () => {
         now: nextNow(),
         getPermissionPauseTarget: () => null,
         getCurrentRunId: () => 'run-1',
+        getCurrentInvocationId: () => 'invocation-1',
         runtimeCommitSink: store,
       });
       const tool: MakaTool = {
@@ -57,16 +58,22 @@ describe('ToolRuntime with real SQLite boundary', () => {
       const events = await store.readRuntimeEvents('session-1', 'run-1');
       assert.deepEqual(events.map((event) => event.content?.kind), [
         'function_call',
+        undefined,
         'function_response',
       ]);
       const operationId = events[0]?.refs?.operationId;
       assert.ok(operationId);
       assert.equal((await store.readToolOperation(operationId))?.currentState, 'outcome_committed');
+      assert.deepEqual(events.map((event) => event.invocationId), [
+        'invocation-1',
+        'invocation-1',
+        'invocation-1',
+      ]);
       assert.deepEqual((await store.readToolJournal(operationId)).map((event) => event.state), [
         'prepared',
         'outcome_committed',
       ]);
-      assert.equal(await store.runtimeHighWater('run-1'), 2);
+      assert.equal((await store.readImmutableRuntimeEvents('session-1', 'run-1')).length, 3);
 
       const context = invocationContext();
       const memory = createSessionEventMapMemory();
@@ -78,8 +85,8 @@ describe('ToolRuntime with real SQLite boundary', () => {
         await store.appendRuntimeEvent('session-1', 'run-1', mapped);
       }
 
-      assert.equal((await store.readRuntimeEvents('session-1', 'run-1')).length, 2);
-      assert.equal(await store.runtimeHighWater('run-1'), 2);
+      assert.equal((await store.readRuntimeEvents('session-1', 'run-1')).length, 3);
+      assert.equal((await store.readImmutableRuntimeEvents('session-1', 'run-1')).length, 3);
     } finally {
       store.close();
       await rm(root, { recursive: true, force: true });
@@ -103,6 +110,7 @@ describe('ToolRuntime with real SQLite boundary', () => {
         now: nextNow(),
         getPermissionPauseTarget: () => null,
         getCurrentRunId: () => 'run-1',
+        getCurrentInvocationId: () => 'invocation-1',
         runtimeCommitSink: store,
       });
       const published: SessionEvent[] = [];
@@ -130,10 +138,10 @@ describe('ToolRuntime with real SQLite boundary', () => {
         );
       }
       const events = await store.readRuntimeEvents('session-1', 'run-1');
-      assert.equal(events.length, 2);
-      assert.equal(events[1]?.content?.kind, 'function_response');
-      assert.equal(events[1]?.content?.kind === 'function_response'
-        ? events[1].content.isError
+      assert.equal(events.length, 3);
+      assert.equal(events[2]?.content?.kind, 'function_response');
+      assert.equal(events[2]?.content?.kind === 'function_response'
+        ? events[2].content.isError
         : undefined, true);
     } finally {
       store.close();
@@ -168,7 +176,7 @@ function header(): SessionHeader {
 function invocationContext(): InvocationContext {
   return {
     sessionId: 'session-1',
-    invocationId: 'run-1',
+    invocationId: 'invocation-1',
     runId: 'run-1',
     turnId: 'turn-1',
     source: 'test',
@@ -177,7 +185,7 @@ function invocationContext(): InvocationContext {
     now: () => 1,
     request: {
       sessionId: 'session-1',
-      invocationId: 'run-1',
+      invocationId: 'invocation-1',
       runId: 'run-1',
       turnId: 'turn-1',
       text: 'test',

@@ -867,6 +867,7 @@ export class AiSdkBackend implements AgentBackend {
   private historyCompactAbortController: AbortController | null = null;
   private currentTurnId: string | null = null;
   private stopAfterStepRequested = false;
+  private currentInvocationId: string | null = null;
   private currentRunId: string | null = null;
   /** Side-channel for tool.execute() callbacks to push events into the iterator. */
   private currentQueue: AsyncEventQueue<SessionEvent> | null = null;
@@ -918,6 +919,7 @@ export class AiSdkBackend implements AgentBackend {
       newId: this.newId,
       now: this.now,
       getPermissionPauseTarget: () => this.currentWatchdog,
+      getCurrentInvocationId: () => this.currentInvocationId ?? undefined,
       getCurrentRunId: () => this.currentRunId ?? undefined,
       getCurrentStepId: () => this.currentStepMessageId ?? undefined,
       permissionRules: input.permissionRules,
@@ -1098,6 +1100,7 @@ export class AiSdkBackend implements AgentBackend {
     this.aborted = false;
     const turnId = input.turnId;
     this.currentTurnId = turnId;
+    this.currentInvocationId = input.invocationId ?? input.runId ?? null;
     this.currentRunId = input.runId ?? null;
     this.currentUserIntent = input.text;
     this.input.permissionEngine.beginTurn(turnId);
@@ -4181,6 +4184,7 @@ export class AiSdkBackend implements AgentBackend {
     this.abortController = null;
     this.currentQueue = null;
     this.currentTurnId = null;
+    this.currentInvocationId = null;
     this.currentRunId = null;
     this.currentRunTrace = null;
     this.currentUserIntent = undefined;

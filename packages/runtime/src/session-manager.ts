@@ -49,7 +49,15 @@ import {
   failureClassFromCompleteStopReason,
   isDeepResearchSession,
 } from '@maka/core';
-import type { AgentRunEvent, AgentRunHeader, AgentRunStore, ArtifactRecord, RuntimeEvent, RuntimeEventStore } from '@maka/core';
+import type {
+  AgentRunEvent,
+  AgentRunHeader,
+  AgentRunStore,
+  ArtifactRecord,
+  RuntimeEvent,
+  RuntimeEventStore,
+  ToolBoundaryProtocol,
+} from '@maka/core';
 import {
   type RuntimeEventTerminalFact,
 } from './runtime-event-read-model.js';
@@ -271,6 +279,8 @@ export interface SessionManagerDeps {
   store: SessionStore;
   runStore?: AgentRunStore;
   runtimeEventStore?: RuntimeEventStore;
+  /** Host capability; RuntimeKernel gates it by the selected backend. */
+  toolBoundaryProtocol?: ToolBoundaryProtocol;
   backends: BackendRegistry;
   newId: () => string;
   now: () => number;
@@ -643,14 +653,7 @@ export class SessionManager {
     input: PlanAuthoritativeSafeBoundaryContinuationInput,
   ): Promise<SafeBoundaryContinuationPlan> {
     if (this.deps.safeBoundaryResumeEnabled !== true) {
-      const plan: SafeBoundaryContinuationPlan = {
-        disposition: 'park',
-        rejectionReasons: ['resume_feature_disabled'],
-        diagnostics: [{
-          code: 'resume_feature_disabled',
-          message: 'safe-boundary resume is disabled by the host feature flag',
-        }],
-      };
+      const plan = resumeFeatureDisabledPlan();
       this.recordContinuationPlan(sessionId, input.sourceRunId, plan);
       return plan;
     }
@@ -713,7 +716,9 @@ export class SessionManager {
     sessionId: string,
   ): Promise<SafeBoundaryContinuationPlan> {
     if (this.deps.safeBoundaryResumeEnabled !== true) {
-      return this.planAuthoritativeSafeBoundaryContinuation(sessionId, { sourceRunId: '' });
+      const plan = resumeFeatureDisabledPlan();
+      this.recordContinuationPlan(sessionId, '', plan);
+      return plan;
     }
     if (!this.deps.runStore) {
       const plan: SafeBoundaryContinuationPlan = {
@@ -777,7 +782,7 @@ export class SessionManager {
         sessionId: continuation.sessionId,
         sourceRunId: continuation.sourceRunId,
         targetRunId: continuation.runId,
-        errorClass: error instanceof Error ? error.name : 'unknown',
+        errorClass: continuationExecutionErrorClass(error),
       });
       throw error;
     }
@@ -1380,6 +1385,28 @@ export class SessionManager {
     if (latest && isTerminalTurnStatus(latest.status) && latest.status === status) return;
     await this.appendTurnState(sessionId, decision.turnId, status, decision.lineage, options);
   }
+}
+
+function resumeFeatureDisabledPlan(): SafeBoundaryContinuationPlan {
+  return {
+    disposition: 'park',
+    rejectionReasons: ['resume_feature_disabled'],
+    diagnostics: [{
+      code: 'resume_feature_disabled',
+      message: 'safe-boundary resume is disabled by the host feature flag',
+    }],
+  };
+}
+
+function continuationExecutionErrorClass(error: unknown): string {
+  if (
+    error instanceof Error
+    && 'code' in error
+    && typeof (error as Error & { code?: unknown }).code === 'string'
+  ) {
+    return (error as Error & { code: string }).code;
+  }
+  return error instanceof Error ? error.name : 'unknown';
 }
 
 // ============================================================================

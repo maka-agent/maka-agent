@@ -162,6 +162,12 @@ export function projectRuntimeEventsToStoredMessages(
       projected = true;
     }
 
+    if (event.actions?.toolDispatch) {
+      // Dispatch is a canonical recovery fact with no legacy chat row. It is
+      // consumed by RecoveryResolver, but must remain invisible to messages.
+      projected = true;
+    }
+
     if (event.actions?.permissionDecision) {
       projected = projectPermissionDecision(event, state, messages) || projected;
     }

@@ -5,6 +5,7 @@ import type { RuntimeEvent } from '@maka/core/runtime-event';
 
 import {
   RUNTIME_RESUME_FAILPOINTS,
+  RuntimeContinuationPlanner,
   buildSafeBoundaryContinuationPlan,
   buildResumePlanFromRuntimeEvents,
   buildResumeReplayRuntimeEvents,
@@ -117,6 +118,94 @@ describe('runtime resume phase 0 projection', () => {
 });
 
 describe('runtime resume phase 1 safe-boundary continuation', () => {
+  test('replays the user-anchored ancestor prefix when continuing a continuation run', async () => {
+    const rootEvents = [
+      textEvent('root-user', 'user', 'finish the task'),
+      base({ id: 'root-terminal', status: 'failed', actions: { endInvocation: true } }),
+    ];
+    const continuationIdentity = {
+      sessionId: 'session-1',
+      invocationId: 'invocation-2',
+      runId: 'run-2',
+      turnId: 'turn-2',
+    };
+    const childEvents = [
+      { ...base({
+        id: 'continuation-start',
+        role: 'system',
+        author: 'system',
+        actions: { stateDelta: { continuationStart: true } },
+      }), ...continuationIdentity },
+      { ...callEvent('child-call', 'tool-2', 'Bash', { command: 'npm test' }), ...continuationIdentity },
+      { ...responseEvent('child-result', 'tool-2', 'Bash', { exitCode: 0 }, false), ...continuationIdentity },
+      { ...base({ id: 'child-terminal', status: 'failed', actions: { endInvocation: true } }), ...continuationIdentity },
+    ];
+    const planner = new RuntimeContinuationPlanner({
+      readSourceRun: async (_sessionId, runId) => runId === 'run-2'
+        ? {
+            cwd: '/workspace/repo',
+            status: 'failed',
+            continuationSource: {
+              sourceInvocationId: 'invocation-1',
+              sourceRunId: 'run-1',
+              sourceTurnId: 'turn-1',
+              sourceRuntimeEventHighWater: rootEvents.length,
+            },
+          }
+        : { cwd: '/workspace/repo', status: 'failed' },
+      readRuntimeEvents: async (_sessionId, runId) => runId === 'run-2' ? childEvents : rootEvents,
+      newId: (() => {
+        let next = 2;
+        return () => `generated-${++next}`;
+      })(),
+    });
+
+    const plan = await planner.plan({
+      sessionId: 'session-1',
+      sourceRunId: 'run-2',
+      currentCwd: '/workspace/repo',
+      sourceWorkspaceIdentity: 'workspace-1',
+      currentWorkspaceIdentity: 'workspace-1',
+      backgroundOperationsSettled: true,
+      availableToolNames: ['Bash'],
+    });
+
+    assert.equal(plan.disposition, 'continue');
+    assert.deepEqual(plan.continuation?.runtimeContext.map((event) => event.id), [
+      'root-user',
+      'root-terminal',
+      'continuation-start',
+      'child-call',
+      'child-result',
+      'child-terminal',
+    ]);
+    assert.deepEqual(plan.continuation?.sourceRuntimeContext?.map((event) => event.id), [
+      'continuation-start',
+      'child-call',
+      'child-result',
+      'child-terminal',
+    ]);
+  });
+
+  test('uses RecoveryResolver to distinguish a new-protocol call that never crossed T1', () => {
+    const initial = textEvent('user-1', 'user', 'run it');
+    initial.actions = {
+      runtimeProtocol: { toolBoundary: 't1_after_preflight_v1' },
+    };
+    const plan = buildResumePlanFromRuntimeEvents([
+      initial,
+      callEvent('call-1', 'tool-1', 'Bash', { command: 'touch marker' }),
+    ]);
+
+    assert.equal(plan.disposition, 'blocked');
+    assert.equal(plan.operations[0]?.status, 'not_dispatched');
+    assert.equal(plan.requiresVerification, false);
+    assert.deepEqual(plan.diagnostics.map((diagnostic) => diagnostic.code), [
+      'tool_not_dispatched',
+    ]);
+    assert.deepEqual(plan.rejectionReasons, ['dangling_tool_state']);
+  });
+
   test('creates a new execution identity from a fully committed safe boundary', () => {
     const events = [
       textEvent('user-1', 'user', 'run the tests'),
@@ -273,6 +362,23 @@ describe('runtime resume phase 1 safe-boundary continuation', () => {
 
     assert.equal(plan.disposition, 'park');
     assert.deepEqual(plan.rejectionReasons, ['provider_resume_boundary_unsupported']);
+  });
+
+  test('parks when committed provider history does not start at a user boundary', () => {
+    const plan = buildSafeBoundaryContinuationPlan([
+      base({
+        id: 'continuation-start',
+        role: 'system',
+        author: 'system',
+        actions: { stateDelta: { continuationStart: true } },
+      }),
+      callEvent('call-1', 'tool-1', 'Bash', { command: 'npm test' }),
+      responseEvent('result-1', 'tool-1', 'Bash', { exitCode: 0 }, false),
+    ], safeBoundaryFacts());
+
+    assert.equal(plan.disposition, 'park');
+    assert.deepEqual(plan.rejectionReasons, ['provider_resume_head_unsupported']);
+    assert.equal(plan.diagnostics[0]?.code, 'provider_resume_head_unsupported');
   });
 
   test('requires a restored workspace checkpoint with the same runtime high-water when supplied', () => {

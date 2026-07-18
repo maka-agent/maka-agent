@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { appendFile, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
+import { appendFile, link, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { chainWrite } from './write-queue.js';
 import {
@@ -43,7 +43,10 @@ class FileAgentRunStore implements AgentRunStore {
     assertSafeId(header.runId, 'Invalid run id');
     await this.withQueue(header.sessionId, header.runId, async () => {
       await mkdir(this.runDir(header.sessionId, header.runId), { recursive: true });
-      await writeAtomic(this.runPath(header.sessionId, header.runId), JSON.stringify(header, sanitizeJson) + '\n');
+      await writeAtomicExclusive(
+        this.runPath(header.sessionId, header.runId),
+        JSON.stringify(header, sanitizeJson) + '\n',
+      );
     });
     await this.withProjectionQueue(header.sessionId, 'history_compact_checkpoint_recorded', async () => {
       await this.initializeEventProjectionUnlocked(
@@ -638,6 +641,22 @@ async function writeAtomic(path: string, content: string): Promise<void> {
   const tempPath = `${path}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`;
   await writeFile(tempPath, content, 'utf8');
   await rename(tempPath, path);
+}
+
+async function writeAtomicExclusive(path: string, content: string): Promise<void> {
+  await mkdir(dirname(path), { recursive: true });
+  const tempPath = `${path}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(tempPath, content, 'utf8');
+    await link(tempPath, path);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
+      throw new Error(`AgentRun already exists at ${path}`, { cause: error });
+    }
+    throw error;
+  } finally {
+    await rm(tempPath, { force: true }).catch(() => {});
+  }
 }
 
 function assertSafeId(value: string, message: string): void {

@@ -31,7 +31,7 @@ import { computerUseApprovalSummary } from '@maka/core';
 import type { SessionHeader } from '@maka/core/session';
 import type { ToolInvocationRecord } from '@maka/core/usage-stats/types';
 import { redactSecrets } from '@maka/core/redaction';
-import type { RuntimeEvent } from '@maka/core';
+import { TOOL_BOUNDARY_PROTOCOL_V1, type RuntimeEvent } from '@maka/core';
 
 import type { PermissionEngine } from './permission-engine.js';
 import type { AsyncEventQueue } from './async-queue.js';
@@ -194,6 +194,7 @@ export interface ToolRuntimeInput {
   newId: () => string;
   now: () => number;
   getPermissionPauseTarget: () => { pause(): void; resume(): void } | null;
+  getCurrentInvocationId?: () => string | undefined;
   getCurrentRunId?: () => string | undefined;
   /**
    * Id of the assistant step currently streaming, stamped onto each tool call's
@@ -427,11 +428,12 @@ export class ToolRuntime {
 
     const stepId = this.input.getCurrentStepId?.();
     const runId = this.input.getCurrentRunId?.();
+    const invocationId = this.input.getCurrentInvocationId?.() ?? runId;
     if (this.input.runtimeCommitSink && !runId) {
       throw new RuntimeCommitBoundaryError('T1', new Error('Durable tool execution requires a run id'));
     }
-    const operationId = this.input.runtimeCommitSink && runId
-      ? buildToolOperationId({ invocationId: runId, providerToolCallId: toolUseId })
+    const operationId = this.input.runtimeCommitSink && invocationId
+      ? buildToolOperationId({ invocationId, providerToolCallId: toolUseId })
       : undefined;
     const startEv: ToolStartEvent = {
       type: 'tool_start',
@@ -447,15 +449,6 @@ export class ToolRuntime {
       ...(toolIntent ? { intent: toolIntent } : {}),
       ...(stepId !== undefined ? { stepId } : {}),
     };
-    const durableAttempt = await this.prepareDurableToolAttempt({
-      tool,
-      startEvent: startEv,
-      persistedArgs,
-      ...(runId ? { runId } : {}),
-    });
-    if (durableAttempt) {
-      this.durableToolAttempts.set(durableAttemptKey(turnId, toolUseId), durableAttempt);
-    }
     const callMsg: ToolCallMessage = {
       type: 'tool_call',
       id: toolUseId,
@@ -1040,6 +1033,16 @@ export class ToolRuntime {
         return this.errorReturn(reason);
       }
     }
+    const durableAttempt = await this.prepareDurableToolAttempt({
+      tool,
+      startEvent: startEv,
+      persistedArgs,
+      ...(invocationId ? { invocationId } : {}),
+      ...(runId ? { runId } : {}),
+    });
+    if (durableAttempt) {
+      this.durableToolAttempts.set(durableAttemptKey(turnId, toolUseId), durableAttempt);
+    }
     const startedAt = this.input.now();
     const output = createToolOutputDeltaEmitter({
       sessionId: this.input.sessionId,
@@ -1290,13 +1293,18 @@ export class ToolRuntime {
     tool: MakaTool;
     startEvent: ToolStartEvent;
     persistedArgs: unknown;
+    invocationId?: string;
     runId?: string;
   }): Promise<DurableToolAttempt | undefined> {
     const sink = this.input.runtimeCommitSink;
     if (!sink) return undefined;
     const runId = input.runId;
+    const invocationId = input.invocationId;
     if (!runId) {
       throw new RuntimeCommitBoundaryError('T1', new Error('Durable tool execution requires a run id'));
+    }
+    if (!invocationId) {
+      throw new RuntimeCommitBoundaryError('T1', new Error('Durable tool execution requires an invocation id'));
     }
     const operationId = input.startEvent.operationId;
     if (!operationId) throw new RuntimeCommitBoundaryError('T1', new Error('Tool start has no operation id'));
@@ -1306,7 +1314,7 @@ export class ToolRuntime {
     if (input.startEvent.intent !== undefined) stateDelta.intent = input.startEvent.intent;
     const callEvent: RuntimeEvent = {
       id: input.startEvent.id,
-      invocationId: runId,
+      invocationId,
       runId,
       sessionId: this.input.sessionId,
       turnId: input.startEvent.turnId,
@@ -1327,16 +1335,41 @@ export class ToolRuntime {
       },
       ...(Object.keys(stateDelta).length > 0 ? { actions: { stateDelta } } : {}),
     };
+    const canonicalArgsHash = canonicalToolArgsHash(input.tool.name, input.persistedArgs);
+    const recoveryMode = input.tool.recoveryMode ?? 'never_auto_retry';
+    const dispatchEvent: RuntimeEvent = {
+      id: `${operationId}_dispatch`,
+      invocationId,
+      runId,
+      sessionId: this.input.sessionId,
+      turnId: input.startEvent.turnId,
+      ts: input.startEvent.ts,
+      partial: false,
+      role: 'system',
+      author: 'system',
+      actions: {
+        toolDispatch: {
+          protocol: TOOL_BOUNDARY_PROTOCOL_V1,
+          operationId,
+          providerToolCallId: input.startEvent.toolUseId,
+          toolName: input.tool.name,
+          canonicalArgsHash,
+          recoveryMode,
+        },
+      },
+      refs: { operationId, toolCallId: input.startEvent.toolUseId },
+    };
     try {
       const prepared = await sink.commitToolPrepared({
         operationId,
         journalEventId: `${operationId}_prepared`,
         runtimeEvent: callEvent,
+        dispatchRuntimeEvent: dispatchEvent,
         providerToolCallId: input.startEvent.toolUseId,
         toolName: input.tool.name,
-        canonicalArgsHash: canonicalToolArgsHash(input.tool.name, input.persistedArgs),
-        recoveryMode: input.tool.recoveryMode ?? 'never_auto_retry',
-        committedAt: callEvent.ts,
+        canonicalArgsHash,
+        recoveryMode,
+        committedAt: this.input.now(),
       });
       if (!prepared.created) {
         throw new Error(`Tool operation ${operationId} is already claimed`);
@@ -1352,7 +1385,7 @@ export class ToolRuntime {
         if (committedOutcome) return committedOutcome;
         const responseEvent: RuntimeEvent = {
           id: `${operationId}_response`,
-          invocationId: runId,
+          invocationId,
           runId,
           sessionId: this.input.sessionId,
           turnId: input.startEvent.turnId,

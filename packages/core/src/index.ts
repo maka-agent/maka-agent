@@ -84,8 +84,11 @@ export type {
   RuntimeEventContentKind,
   RuntimeEventTokenUsage,
   RuntimeEventPermissionDecision,
+  RuntimeEventProtocolMarker,
+  RuntimeEventToolDispatch,
   RuntimeEventActions,
   RuntimeEventRefs,
+  ToolBoundaryProtocol,
   ToolRecoveryMode,
 } from './runtime-event.js';
 export {
@@ -94,6 +97,7 @@ export {
   RUNTIME_EVENT_STATUSES,
   TERMINAL_RUNTIME_EVENT_STATUSES,
   RUNTIME_EVENT_CONTENT_KINDS,
+  TOOL_BOUNDARY_PROTOCOL_V1,
   isRuntimeEventRole,
   isRuntimeEventAuthor,
   isRuntimeEventStatus,

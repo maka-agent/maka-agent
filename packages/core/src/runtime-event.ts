@@ -204,6 +204,27 @@ export interface RuntimeEventTokenUsage {
  */
 export type RuntimeEventPermissionDecision = PermissionResponse;
 
+export const TOOL_BOUNDARY_PROTOCOL_V1 = 't1_after_preflight_v1' as const;
+export type ToolBoundaryProtocol = typeof TOOL_BOUNDARY_PROTOCOL_V1;
+
+/**
+ * Canonical fact that the runtime crossed the durable tool-dispatch boundary.
+ * Its presence means the implementation may have started; it does not assert
+ * that the implementation or any external side effect actually completed.
+ */
+export interface RuntimeEventToolDispatch {
+  protocol: ToolBoundaryProtocol;
+  operationId: string;
+  providerToolCallId: string;
+  toolName: string;
+  canonicalArgsHash: string;
+  recoveryMode: ToolRecoveryMode;
+}
+
+export interface RuntimeEventProtocolMarker {
+  toolBoundary: ToolBoundaryProtocol;
+}
+
 /**
  * Control and side-effect intent carried alongside content. An event may
  * carry content, actions, both, or (rarely) neither — but a terminal
@@ -226,6 +247,10 @@ export interface RuntimeEventActions {
   endInvocation?: boolean;
   /** Token accounting for the model call this event summarizes. */
   tokenUsage?: RuntimeEventTokenUsage;
+  /** Durable, non-model-visible T1 tool-dispatch fact. */
+  toolDispatch?: RuntimeEventToolDispatch;
+  /** Protocols that were actually active from the first event of this run. */
+  runtimeProtocol?: RuntimeEventProtocolMarker;
 }
 
 // ============================================================================
@@ -276,9 +301,10 @@ export type ToolRecoveryMode =
 /**
  * The canonical runtime fact.
  *
- * Identity hierarchy: `sessionId` ⊃ `invocationId` ⊃ `runId` ⊃ `turnId`.
- * `invocationId` is the durable spine id; `runId`/`turnId` name the
- * specific execution attempt and user turn within it. `ts` is Unix ms.
+ * Phase 0-3 identity contract: one `invocationId` maps to one `runId`.
+ * Invocation identifies provider/tool execution while Run identifies its
+ * durable operational ledger. A continuation creates fresh values for both;
+ * `turnId` names the user turn and `ts` is Unix ms.
  *
  * `partial: true` marks a transient chunk (streaming text, progress) that
  * is superseded by a later non-partial event. Projections decide whether
@@ -289,7 +315,7 @@ export interface RuntimeEvent {
   id: string;
   /** Durable invocation spine id; groups every run/turn of one request. */
   invocationId: string;
-  /** Specific run/attempt within the invocation (maps to AgentRunHeader.runId). */
+  /** Durable operational run identity (maps to AgentRunHeader.runId). */
   runId: string;
   sessionId: string;
   /** Groups all events from one agent turn (maps to StoredMessage.turnId). */

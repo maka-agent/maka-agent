@@ -27,7 +27,7 @@ if (childMode) {
         assert.equal(await readFile(markerPath, 'utf8'), 'effect-happened');
         assert.deepEqual(
           (await store.readRuntimeEvents('session-1', 'run-1')).map((event) => event.id),
-          ['call-event-1'],
+          ['call-event-1', 'dispatch-event-1'],
         );
         assert.deepEqual(
           (await store.listUnsettledToolOperations()).map((operation) => operation.operationId),
@@ -40,7 +40,7 @@ if (childMode) {
       await withKilledChild('inside_t2', async (store) => {
         assert.deepEqual(
           (await store.readRuntimeEvents('session-1', 'run-1')).map((event) => event.id),
-          ['call-event-1'],
+          ['call-event-1', 'dispatch-event-1'],
         );
         assert.equal((await store.readToolOperation('operation-1'))?.currentState, 'prepared');
       });
@@ -50,7 +50,7 @@ if (childMode) {
       await withKilledChild('after_t2', async (store) => {
         assert.deepEqual(
           (await store.readRuntimeEvents('session-1', 'run-1')).map((event) => event.id),
-          ['call-event-1', 'response-event-1'],
+          ['call-event-1', 'dispatch-event-1', 'response-event-1'],
         );
         assert.equal((await store.readToolOperation('operation-1'))?.currentState, 'outcome_committed');
         assert.deepEqual(await store.listUnsettledToolOperations(), []);
@@ -151,6 +151,7 @@ function preparedCommit() {
     operationId: 'operation-1',
     journalEventId: 'journal-prepared-1',
     runtimeEvent: functionCallEvent(),
+    dispatchRuntimeEvent: toolDispatchEvent(),
     providerToolCallId: 'provider-call-1',
     toolName: 'Read',
     canonicalArgsHash: 'sha256:args-1',
@@ -165,6 +166,31 @@ function outcomeCommit() {
     journalEventId: 'journal-outcome-1',
     runtimeEvent: functionResponseEvent(),
     committedAt: 2,
+  };
+}
+
+function toolDispatchEvent(): RuntimeEvent {
+  return {
+    id: 'dispatch-event-1',
+    invocationId: 'invocation-1',
+    runId: 'run-1',
+    sessionId: 'session-1',
+    turnId: 'turn-1',
+    ts: 1,
+    partial: false,
+    role: 'system',
+    author: 'system',
+    actions: {
+      toolDispatch: {
+        protocol: 't1_after_preflight_v1',
+        operationId: 'operation-1',
+        providerToolCallId: 'provider-call-1',
+        toolName: 'Read',
+        canonicalArgsHash: 'sha256:args-1',
+        recoveryMode: 'replay_safe',
+      },
+    },
+    refs: { operationId: 'operation-1', toolCallId: 'provider-call-1' },
   };
 }
 
@@ -205,5 +231,6 @@ function functionResponseEvent(): RuntimeEvent {
       name: 'Read',
       result: 'contents',
     },
+    refs: { operationId: 'operation-1', toolCallId: 'provider-call-1' },
   };
 }

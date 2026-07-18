@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { appendFile, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -32,10 +32,54 @@ describe('runtime event JSONL compatibility transfer', () => {
       const second = await importLegacyRuntimeEventJsonlTree({ workspaceRoot: root, destination: sqlite });
 
       assert.deepEqual(first, { filesScanned: 2, eventsRead: 3, eventsImported: 3, eventsExisting: 0 });
-      assert.deepEqual(second, { filesScanned: 2, eventsRead: 3, eventsImported: 0, eventsExisting: 3 });
+      assert.deepEqual(second, { filesScanned: 0, eventsRead: 0, eventsImported: 0, eventsExisting: 0 });
       assert.deepEqual(
         (await sqlite.readSessionRuntimeEvents('session-1')).map((event) => event.id),
         ['event-1', 'event-2', 'event-3'],
+      );
+    } finally {
+      sqlite.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('skips legacy stream partial snapshots left in the JSONL log instead of failing', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-runtime-import-partial-'));
+    const legacy = createRuntimeEventStore(root);
+    const sqlite = createSqliteRuntimeStore(join(root, 'runtime.sqlite'));
+    try {
+      await legacy.appendRuntimeEvent('session-1', 'run-1', runtimeEvent('event-1'));
+      await legacy.appendRuntimeEvent('session-1', 'run-1', runtimeEvent('event-2', { ts: 2 }));
+      // Older versions wrote stream partial snapshots straight into the JSONL
+      // log; current code diverts them to .partial files. Simulate the legacy row.
+      const jsonlPath = join(root, 'sessions', 'session-1', 'runs', 'run-1', 'runtime-events.jsonl');
+      const legacyStreamPartial = runtimeEvent('partial-thinking', {
+        ts: 3,
+        partial: true,
+        role: 'model',
+        author: 'agent',
+        content: { kind: 'thinking', text: 'interrupted thought' },
+      });
+      const partialRowWithStatus = runtimeEvent('partial-terminal', {
+        ts: 4,
+        partial: true,
+        role: 'model',
+        author: 'agent',
+        status: 'failed',
+        actions: { endInvocation: true },
+      });
+      await appendFile(
+        jsonlPath,
+        `${JSON.stringify(legacyStreamPartial)}\n${JSON.stringify(partialRowWithStatus)}\n`,
+        'utf8',
+      );
+
+      const report = await importLegacyRuntimeEventJsonlTree({ workspaceRoot: root, destination: sqlite });
+
+      assert.deepEqual(report, { filesScanned: 1, eventsRead: 3, eventsImported: 3, eventsExisting: 0 });
+      assert.deepEqual(
+        (await sqlite.readImmutableRuntimeEvents('session-1', 'run-1')).map((event) => event.id),
+        ['event-1', 'event-2', 'partial-terminal'],
       );
     } finally {
       sqlite.close();
@@ -89,6 +133,15 @@ describe('runtime event JSONL compatibility transfer', () => {
         }),
         /identity mismatch/i,
       );
+      await assert.rejects(
+        importRuntimeEventsFromJsonl({
+          jsonl: `${JSON.stringify(runtimeEvent('partial-1', { partial: true }))}\n`,
+          sessionId: 'session-1',
+          runId: 'run-1',
+          destination: sqlite,
+        }),
+        /partial RuntimeEvent/i,
+      );
     } finally {
       sqlite.close();
     }
@@ -113,8 +166,28 @@ describe('runtime event JSONL compatibility transfer', () => {
           (await opened.runtimeEventStore.readRuntimeEvents('session-1', 'run-1')).map((event) => event.id),
           ['event-1'],
         );
+        await opened.runtimeEventStore.appendRuntimeEvent(
+          'session-1',
+          'run-1',
+          runtimeEvent('sqlite-only-event', { ts: 2 }),
+        );
       } finally {
         opened.close();
+      }
+
+      const stickyCanonical = await openRuntimeEventPersistence({
+        workspaceRoot: root,
+        sqliteCanonical: false,
+      });
+      try {
+        assert.equal(stickyCanonical.kind, 'sqlite');
+        assert.deepEqual(
+          (await stickyCanonical.runtimeEventStore.readRuntimeEvents('session-1', 'run-1'))
+            .map((event) => event.id),
+          ['event-1', 'sqlite-only-event'],
+        );
+      } finally {
+        stickyCanonical.close();
       }
 
       const legacyOnly = await openRuntimeEventPersistence({

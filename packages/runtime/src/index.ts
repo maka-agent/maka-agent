@@ -889,6 +889,7 @@ export type {
 export {
   INDETERMINATE_TOOL_RESULT_DIRECTIVE,
   RUNTIME_RESUME_FAILPOINTS,
+  RuntimeContinuationRevalidationError,
   RuntimeContinuationPlanner,
   buildSafeBoundaryContinuationPlan,
   buildResumePlanFromRuntimeEvents,
@@ -907,6 +908,7 @@ export type {
   RuntimeResumeFailpointId,
   RuntimeResumeFailpointSpec,
   RuntimeContinuation,
+  RuntimeContinuationRevalidationCode,
   RuntimeContinuationPlannerDeps,
   RuntimeContinuationPlannerInput,
   RuntimeContinuationSafetyObservation,
@@ -917,13 +919,20 @@ export type {
   ToolOperationStatus,
 } from './runtime-resume.js';
 
+export { resolveRuntimeRecovery } from './recovery-resolver.js';
+export type {
+  RuntimeRecoveryResolution,
+  ToolRecoveryDecision,
+  ToolRecoveryDecisionReason,
+  ToolRecoveryDecisionStatus,
+} from './recovery-resolver.js';
+
 export { createLocalContinuationSafetyInspector } from './continuation-safety.js';
 export type { LocalContinuationSafetyInspectorDeps } from './continuation-safety.js';
 
 export {
   buildToolOperationId,
   canonicalToolArgsHash,
-  executeDurableToolBoundary,
 } from './runtime-commit-sink.js';
 export type {
   RuntimeCommitResult,

@@ -310,6 +310,9 @@ export async function createMakaCliRuntimeContext(
     store,
     runStore,
     runtimeEventStore,
+    ...(runtimePersistence.runtimeCommitStore
+      ? { toolBoundaryProtocol: runtimePersistence.runtimeCommitStore.toolBoundaryProtocol }
+      : {}),
     shellRuns,
     backends,
     safeBoundaryResumeEnabled: process.env.MAKA_RUNTIME_SAFE_BOUNDARY_RESUME === '1',

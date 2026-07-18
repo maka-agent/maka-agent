@@ -28,25 +28,27 @@ describe('SqliteRuntimeStore', () => {
     });
   });
 
-  it('commits function_call, prepared journal fact, and operation projection atomically in T1', async () => {
+  it('commits function_call, dispatch fact, and operation projection atomically in T1', async () => {
     await withStore(async (store) => {
       const call = functionCallEvent();
+      const dispatch = toolDispatchEvent();
 
-      const result = await store.commitToolPrepared({
+      const input = {
         operationId: 'operation-1',
         journalEventId: 'journal-prepared-1',
         runtimeEvent: call,
+        dispatchRuntimeEvent: dispatch,
         providerToolCallId: 'provider-call-1',
         toolName: 'Read',
         canonicalArgsHash: 'sha256:args-1',
         recoveryMode: 'replay_safe',
         committedAt: 10,
-      });
+      } as const;
+      const result = await store.commitToolPrepared(input);
 
       assert.equal(result.created, true);
-      assert.equal(result.runtimeEventSeq, 1);
-      assert.deepEqual(await store.readRuntimeEvents('session-1', 'run-1'), [call]);
-      assert.equal(await store.runtimeHighWater('invocation-1'), 1);
+      assert.equal(result.runtimeEventSeq, 2);
+      assert.deepEqual(await store.readRuntimeEvents('session-1', 'run-1'), [call, dispatch]);
       assert.deepEqual(await store.readToolOperation('operation-1'), {
         operationId: 'operation-1',
         invocationId: 'invocation-1',
@@ -58,15 +60,34 @@ describe('SqliteRuntimeStore', () => {
         recoveryMode: 'replay_safe',
         currentState: 'prepared',
         callEventId: 'call-event-1',
+        dispatchEventId: 'dispatch-event-1',
         version: 1,
       });
       assert.deepEqual((await store.readToolJournal('operation-1')).map((event) => event.state), [
         'prepared',
       ]);
+      assert.equal((await store.readToolJournal('operation-1'))[0]?.runtimeEventId, dispatch.id);
       assert.deepEqual(
         (await store.listUnsettledToolOperations()).map((operation) => operation.operationId),
         ['operation-1'],
       );
+    });
+  });
+
+  it('claims an exact function_call that was committed while permission was pending', async () => {
+    await withStore(async (store) => {
+      const call = functionCallEvent();
+      await store.appendRuntimeEvent('session-1', 'run-1', call);
+
+      const result = await commitPrepared(store);
+
+      assert.equal(result.created, true);
+      assert.equal(result.runtimeEventSeq, 2);
+      assert.deepEqual(await store.readRuntimeEvents('session-1', 'run-1'), [
+        call,
+        toolDispatchEvent(),
+      ]);
+      assert.equal((await store.readToolOperation('operation-1'))?.currentState, 'prepared');
     });
   });
 
@@ -79,6 +100,20 @@ describe('SqliteRuntimeStore', () => {
           operationId: 'operation-t1-failure',
           journalEventId: 'journal-t1-failure',
           runtimeEvent: functionCallEvent({ id: 'call-t1-failure' }),
+          dispatchRuntimeEvent: toolDispatchEvent({
+            id: 'dispatch-t1-failure',
+            refs: { operationId: 'operation-t1-failure', toolCallId: 'provider-call-1' },
+            actions: {
+              toolDispatch: {
+                protocol: 't1_after_preflight_v1',
+                operationId: 'operation-t1-failure',
+                providerToolCallId: 'provider-call-1',
+                toolName: 'Read',
+                canonicalArgsHash: 'sha256:t1-failure',
+                recoveryMode: 'replay_safe',
+              },
+            },
+          }),
           providerToolCallId: 'provider-call-1',
           toolName: 'Read',
           canonicalArgsHash: 'sha256:t1-failure',
@@ -91,7 +126,7 @@ describe('SqliteRuntimeStore', () => {
       assert.deepEqual(await store.readRuntimeEvents('session-1', 'run-1'), []);
       assert.equal(await store.readToolOperation('operation-t1-failure'), undefined);
       assert.deepEqual(await store.readToolJournal('operation-t1-failure'), []);
-      assert.equal(await store.runtimeHighWater('invocation-1'), 0);
+      assert.equal((await store.readImmutableRuntimeEvents('session-1', 'run-1')).length, 0);
     });
   });
 
@@ -108,12 +143,13 @@ describe('SqliteRuntimeStore', () => {
       });
 
       assert.equal(result.created, true);
-      assert.equal(result.runtimeEventSeq, 2);
+      assert.equal(result.runtimeEventSeq, 3);
       assert.deepEqual(await store.readRuntimeEvents('session-1', 'run-1'), [
         functionCallEvent(),
+        toolDispatchEvent(),
         outcome,
       ]);
-      assert.equal(await store.runtimeHighWater('invocation-1'), 2);
+      assert.equal((await store.readImmutableRuntimeEvents('session-1', 'run-1')).length, 3);
       assert.deepEqual(await store.readToolOperation('operation-1'), {
         operationId: 'operation-1',
         invocationId: 'invocation-1',
@@ -125,6 +161,7 @@ describe('SqliteRuntimeStore', () => {
         recoveryMode: 'replay_safe',
         currentState: 'outcome_committed',
         callEventId: 'call-event-1',
+        dispatchEventId: 'dispatch-event-1',
         resultEventId: 'response-event-1',
         version: 2,
       });
@@ -153,12 +190,13 @@ describe('SqliteRuntimeStore', () => {
 
       assert.deepEqual((await store.readRuntimeEvents('session-1', 'run-1')).map((event) => event.id), [
         'call-event-1',
+        'dispatch-event-1',
       ]);
       assert.equal((await store.readToolOperation('operation-1'))?.currentState, 'prepared');
       assert.deepEqual((await store.readToolJournal('operation-1')).map((event) => event.state), [
         'prepared',
       ]);
-      assert.equal(await store.runtimeHighWater('invocation-1'), 1);
+      assert.equal((await store.readImmutableRuntimeEvents('session-1', 'run-1')).length, 2);
     });
   });
 
@@ -184,13 +222,25 @@ describe('SqliteRuntimeStore', () => {
       assert.equal(firstOutcome.created, true);
       assert.equal(duplicateOutcome.created, false);
       assert.equal((await store.readToolJournal('operation-1')).length, 2);
-      assert.equal((await store.readRuntimeEvents('session-1', 'run-1')).length, 2);
+      assert.equal((await store.readRuntimeEvents('session-1', 'run-1')).length, 3);
 
       await assert.rejects(
         store.commitToolPrepared({
           operationId: 'operation-1',
           journalEventId: 'journal-prepared-drift',
           runtimeEvent: functionCallEvent(),
+          dispatchRuntimeEvent: toolDispatchEvent({
+            actions: {
+              toolDispatch: {
+                protocol: 't1_after_preflight_v1',
+                operationId: 'operation-1',
+                providerToolCallId: 'provider-call-1',
+                toolName: 'Read',
+                canonicalArgsHash: 'sha256:different-args',
+                recoveryMode: 'replay_safe',
+              },
+            },
+          }),
           providerToolCallId: 'provider-call-1',
           toolName: 'Read',
           canonicalArgsHash: 'sha256:different-args',
@@ -199,6 +249,30 @@ describe('SqliteRuntimeStore', () => {
         }),
         /operation identity conflict/,
       );
+    });
+  });
+
+  it('rebuilds disposable tool projections from RuntimeEvent facts', async () => {
+    await withStore(async (store) => {
+      await commitPrepared(store);
+      await store.commitToolOutcome({
+        operationId: 'operation-1',
+        journalEventId: 'journal-outcome-1',
+        runtimeEvent: functionResponseEvent(),
+        committedAt: 20,
+      });
+
+      const result = await store.rebuildToolProjectionsFromRuntimeEvents();
+
+      assert.deepEqual(result, { operations: 1, journalEvents: 2 });
+      assert.equal((await store.readToolOperation('operation-1'))?.dispatchEventId, 'dispatch-event-1');
+      assert.deepEqual((await store.readToolJournal('operation-1')).map((event) => ({
+        state: event.state,
+        runtimeEventId: event.runtimeEventId,
+      })), [
+        { state: 'prepared', runtimeEventId: 'dispatch-event-1' },
+        { state: 'outcome_committed', runtimeEventId: 'response-event-1' },
+      ]);
     });
   });
 
@@ -220,7 +294,7 @@ describe('SqliteRuntimeStore', () => {
       assert.equal(visible.length, 1);
       assert.deepEqual(visible[0]?.content, { kind: 'text', text: 'hello!' });
       assert.deepEqual(await store.readImmutableRuntimeEvents('session-1', 'run-1'), []);
-      assert.equal(await store.runtimeHighWater('invocation-1'), 0);
+      assert.equal((await store.readImmutableRuntimeEvents('session-1', 'run-1')).length, 0);
     });
   });
 
@@ -259,7 +333,7 @@ describe('SqliteRuntimeStore', () => {
         (await store.readRuntimeEvents('session-1', 'run-1')).map((event) => event.id),
         ['text-final', 'response-event-1'],
       );
-      assert.equal(await store.runtimeHighWater('invocation-1'), 2);
+      assert.equal((await store.readImmutableRuntimeEvents('session-1', 'run-1')).length, 2);
     });
   });
 });
@@ -327,6 +401,33 @@ function functionResponseEvent(overrides: Partial<RuntimeEvent> = {}): RuntimeEv
       name: 'Read',
       result: 'contents',
     },
+    refs: { operationId: 'operation-1', toolCallId: 'provider-call-1' },
+    ...overrides,
+  };
+}
+
+function toolDispatchEvent(overrides: Partial<RuntimeEvent> = {}): RuntimeEvent {
+  return {
+    id: 'dispatch-event-1',
+    invocationId: 'invocation-1',
+    runId: 'run-1',
+    sessionId: 'session-1',
+    turnId: 'turn-1',
+    ts: 10,
+    partial: false,
+    role: 'system',
+    author: 'system',
+    actions: {
+      toolDispatch: {
+        protocol: 't1_after_preflight_v1',
+        operationId: 'operation-1',
+        providerToolCallId: 'provider-call-1',
+        toolName: 'Read',
+        canonicalArgsHash: 'sha256:args-1',
+        recoveryMode: 'replay_safe',
+      },
+    },
+    refs: { operationId: 'operation-1', toolCallId: 'provider-call-1' },
     ...overrides,
   };
 }
@@ -336,6 +437,7 @@ function commitPrepared(store: Store) {
     operationId: 'operation-1',
     journalEventId: 'journal-prepared-1',
     runtimeEvent: functionCallEvent(),
+    dispatchRuntimeEvent: toolDispatchEvent(),
     providerToolCallId: 'provider-call-1',
     toolName: 'Read',
     canonicalArgsHash: 'sha256:args-1',
