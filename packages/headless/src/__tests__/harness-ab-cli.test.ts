@@ -44,6 +44,63 @@ test('harness A/B runtime keeps pruning enabled and semantic compact disabled', 
   });
 });
 
+test('harness A/B selects one named task only with an explicit run identity', async () => {
+  const {
+    buildHarnessAbManifest,
+    resolveHarnessAbRunId,
+    resolveHarnessAbTaskSelection,
+    resolveHarnessCompetitorProfile,
+  } = await import(
+    new URL('../../harbor/run-harness-ab.mjs', import.meta.url).href
+  );
+  const taskId = 'extract-moves-from-video';
+  const selection = resolveHarnessAbTaskSelection(taskId, undefined, undefined);
+
+  assert.deepEqual(selection, { taskIds: [taskId], limit: 1, pairConcurrency: 1 });
+  assert.throws(
+    () => resolveHarnessAbTaskSelection('not-a-terminal-bench-task', undefined, undefined),
+    /MAKA_HARNESS_AB_TASK_ID must name a Terminal-Bench 2\.1 task/,
+  );
+  assert.throws(
+    () => resolveHarnessAbRunId(resolveHarnessCompetitorProfile(), undefined, taskId),
+    /MAKA_HARNESS_AB_RUN_ID is required with MAKA_HARNESS_AB_TASK_ID/,
+  );
+
+  const manifest = buildHarnessAbManifest({
+    subjectFingerprint: 'subject',
+    taskSourceFingerprint: 'tasks',
+    toolchainFingerprint: 'tools',
+    taskIds: selection.taskIds,
+    pairConcurrency: selection.pairConcurrency,
+  });
+  assert.deepEqual(manifest.evaluationTaskIds, [taskId]);
+  assert.equal(manifest.metadata.order.pilotTaskCount, 1);
+  assert.equal(manifest.maxConcurrency, 1);
+  assert.equal(manifest.maxConcurrentAttempts, 2);
+});
+
+test('harness A/B records its configured rolling pair concurrency in the manifest', async () => {
+  const { buildHarnessAbManifest, resolveHarnessAbTaskSelection } = await import(
+    new URL('../../harbor/run-harness-ab.mjs', import.meta.url).href
+  );
+  const selection = resolveHarnessAbTaskSelection(undefined, '89', '2');
+  const manifest = buildHarnessAbManifest({
+    subjectFingerprint: 'subject',
+    taskSourceFingerprint: 'tasks',
+    toolchainFingerprint: 'tools',
+    taskIds: selection.taskIds,
+    pairConcurrency: selection.pairConcurrency,
+  });
+
+  assert.equal(selection.limit, 89);
+  assert.equal(manifest.maxConcurrency, 2);
+  assert.equal(manifest.maxConcurrentAttempts, 4);
+  assert.throws(
+    () => resolveHarnessAbTaskSelection(undefined, '89', '5'),
+    /MAKA_HARNESS_AB_PAIR_CONCURRENCY must be an integer between 1 and 4/,
+  );
+});
+
 test('harness Oracle environment selects the linux/amd64 image manifest digest', async () => {
   const { resolvedImageDigestFromInspect } = await import(
     new URL('../../harbor/run-harness-ab.mjs', import.meta.url).href
@@ -213,6 +270,31 @@ test('harness A/B completion log preserves the report status', async () => {
   const source = await readFile(scriptPath, 'utf8');
 
   assert.match(source, /console\.log\(`\$\{report\.runStatus\}:/);
+});
+
+test('detached named-task launcher requires a run id before creating artifacts', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'maka-harness-ab-detached-identity-'));
+  try {
+    const outDir = join(dir, 'out');
+    const scriptPath = new URL('../../harbor/run-harness-ab-detached.mjs', import.meta.url);
+    await assert.rejects(execFileAsync(process.execPath, [scriptPath.pathname], {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        MAKA_HARNESS_AB_OUT_DIR: outDir,
+        MAKA_HARNESS_AB_RUN_ID: '',
+        MAKA_HARNESS_AB_TASK_ID: 'extract-moves-from-video',
+        MAKA_HARNESS_AB_TASKS_ROOT: join(dir, 'missing-tasks'),
+        MAKA_HARNESS_AB_DRY_RUN: '1',
+      },
+    }), /MAKA_HARNESS_AB_RUN_ID is required with MAKA_HARNESS_AB_TASK_ID/);
+    await assert.rejects(
+      readFile(join(outDir, 'k3-maka-vs-kimi-code-tbench-2.1-full-v2', 'background-run.log')),
+      { code: 'ENOENT' },
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test('detached harness launcher persists a terminal failed journal after the worker exits', async () => {

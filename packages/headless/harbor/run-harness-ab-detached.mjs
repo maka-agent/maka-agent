@@ -21,7 +21,11 @@ function envPath(name) {
 function detachedRunPaths() {
   const outDir = envPath('MAKA_HARNESS_AB_OUT_DIR');
   const competitorProfile = resolveHarnessCompetitorProfile(process.env.MAKA_HARNESS_AB_COMPETITOR || 'kimi-code');
-  const runId = resolveHarnessAbRunId(competitorProfile, process.env.MAKA_HARNESS_AB_RUN_ID);
+  const runId = resolveHarnessAbRunId(
+    competitorProfile,
+    process.env.MAKA_HARNESS_AB_RUN_ID,
+    process.env.MAKA_HARNESS_AB_TASK_ID,
+  );
   const runRoot = resolveFixedPromptRunRoot(outDir, runId, 'MAKA_HARNESS_AB_RUN_ID');
   return {
     runId,

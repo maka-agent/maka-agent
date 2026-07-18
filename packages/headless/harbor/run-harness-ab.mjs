@@ -123,7 +123,10 @@ export function resolveHarnessCompetitorProfile(raw = 'kimi-code') {
   return profile;
 }
 
-export function resolveHarnessAbRunId(competitorProfile, explicitRunId) {
+export function resolveHarnessAbRunId(competitorProfile, explicitRunId, isolatedTaskId) {
+  if (isolatedTaskId?.trim() && !explicitRunId?.trim()) {
+    throw new Error('MAKA_HARNESS_AB_RUN_ID is required with MAKA_HARNESS_AB_TASK_ID');
+  }
   return explicitRunId
     || (competitorProfile.id === 'kimi-code'
       ? DEFAULT_HARNESS_AB_RUN_ID
@@ -153,6 +156,30 @@ function runLimit(raw) {
   return parsed;
 }
 
+function runPairConcurrency(raw) {
+  const parsed = Number(raw ?? PAIR_CONCURRENCY);
+  if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > PAIR_CONCURRENCY) {
+    throw new Error(`MAKA_HARNESS_AB_PAIR_CONCURRENCY must be an integer between 1 and ${PAIR_CONCURRENCY}`);
+  }
+  return parsed;
+}
+
+export function resolveHarnessAbTaskSelection(rawTaskId, rawLimit, rawPairConcurrency) {
+  const pairConcurrency = runPairConcurrency(rawPairConcurrency);
+  const taskId = rawTaskId?.trim();
+  if (!taskId) {
+    return {
+      taskIds: TERMINAL_BENCH_2_1_TASK_IDS,
+      limit: runLimit(rawLimit),
+      pairConcurrency,
+    };
+  }
+  if (!TERMINAL_BENCH_2_1_TASK_IDS.includes(taskId)) {
+    throw new Error('MAKA_HARNESS_AB_TASK_ID must name a Terminal-Bench 2.1 task');
+  }
+  return { taskIds: [taskId], limit: 1, pairConcurrency: 1 };
+}
+
 export function harnessMakaContextBudgetEnv() {
   return {
     MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE: 'on',
@@ -178,6 +205,7 @@ export function buildHarnessAbManifest({
   taskSourceFingerprint,
   toolchainFingerprint,
   taskIds = TERMINAL_BENCH_2_1_TASK_IDS,
+  pairConcurrency = Math.min(PAIR_CONCURRENCY, taskIds.length),
   oracleEvidence,
   competitorProfile = resolveHarnessCompetitorProfile(),
 }) {
@@ -192,7 +220,7 @@ export function buildHarnessAbManifest({
     },
     taskIds,
     orderSeed: ORDER_SEED,
-    pilotTaskCount: CANARY_TASKS,
+    pilotTaskCount: Math.min(CANARY_TASKS, taskIds.length),
     model: { provider: PROVIDER, id: MODEL, reasoningEffort: REASONING_EFFORT },
     pricing: PRICING,
     arms: [
@@ -220,7 +248,7 @@ export function buildHarnessAbManifest({
     subjectFingerprint,
     taskSourceFingerprint,
     toolchainFingerprint,
-    pairConcurrency: PAIR_CONCURRENCY,
+    pairConcurrency,
     ...(oracleEvidence ? { oracleEvidence } : {}),
   });
 }
@@ -233,15 +261,23 @@ export async function main() {
   const outDir = envPath('MAKA_HARNESS_AB_OUT_DIR');
   const tasksRoot = envPath('MAKA_HARNESS_AB_TASKS_ROOT', join(homedir(), '.cache/harbor/tasks'));
   const competitorProfile = resolveHarnessCompetitorProfile(process.env.MAKA_HARNESS_AB_COMPETITOR || 'kimi-code');
-  const runId = resolveHarnessAbRunId(competitorProfile, process.env.MAKA_HARNESS_AB_RUN_ID);
-  const limit = runLimit(process.env.MAKA_HARNESS_AB_LIMIT);
+  const runId = resolveHarnessAbRunId(
+    competitorProfile,
+    process.env.MAKA_HARNESS_AB_RUN_ID,
+    process.env.MAKA_HARNESS_AB_TASK_ID,
+  );
+  const selection = resolveHarnessAbTaskSelection(
+    process.env.MAKA_HARNESS_AB_TASK_ID,
+    process.env.MAKA_HARNESS_AB_LIMIT,
+    process.env.MAKA_HARNESS_AB_PAIR_CONCURRENCY,
+  );
   const runRoot = resolveFixedPromptRunRoot(outDir, runId, 'MAKA_HARNESS_AB_RUN_ID');
   await withHarnessAbRunLock(runRoot, async () => {
     const journal = backgroundJournal(runRoot);
     if (journal) await writeBackgroundJournal(journal.path, { ...journal.base, status: 'running' });
     let exitCode = 0;
     try {
-      await runLocked({ repoRoot, makaRepoPath, tasksRoot, runId, limit, runRoot, competitorProfile });
+      await runLocked({ repoRoot, makaRepoPath, tasksRoot, runId, selection, runRoot, competitorProfile });
     } catch (error) {
       exitCode = 1;
       throw error;
@@ -258,14 +294,14 @@ export async function main() {
   });
 }
 
-async function runLocked({ repoRoot, makaRepoPath, tasksRoot, runId, limit, runRoot, competitorProfile }) {
+async function runLocked({ repoRoot, makaRepoPath, tasksRoot, runId, selection, runRoot, competitorProfile }) {
   const allTasks = await discoverCachedHarborTasks(tasksRoot);
   assertTerminalBench21TaskSet(allTasks.map((task) => task.id));
   const taskSourceFingerprint = await fingerprintFixedPromptTaskTree(allTasks);
   assertTerminalBench21TaskTreeFingerprint(taskSourceFingerprint);
 
   if (process.env.MAKA_HARNESS_AB_DRY_RUN === '1') {
-    console.log(`dry-run: frozen ${EXPECTED_SOURCE_TASKS}-task profile will run ${limit} paired Pass@1 cells; Oracle evidence is advisory`);
+    console.log(`dry-run: frozen ${EXPECTED_SOURCE_TASKS}-task source will run ${selection.limit} paired Pass@1 cells; Oracle evidence is advisory`);
     return;
   }
 
@@ -306,12 +342,13 @@ async function runLocked({ repoRoot, makaRepoPath, tasksRoot, runId, limit, runR
     subjectFingerprint,
     taskSourceFingerprint,
     toolchainFingerprint,
-    taskIds: TERMINAL_BENCH_2_1_TASK_IDS,
+    taskIds: selection.taskIds,
+    pairConcurrency: selection.pairConcurrency,
     oracleEvidence,
     competitorProfile,
   });
   await ensureAbRunManifest(manifestPath, manifest);
-  const evaluationTasks = manifest.evaluationTaskIds.slice(0, limit).map((taskId) => tasksById.get(taskId));
+  const evaluationTasks = manifest.evaluationTaskIds.slice(0, selection.limit).map((taskId) => tasksById.get(taskId));
   if (evaluationTasks.some((task) => !task)) throw new Error('manifest contains a task absent from the frozen task source');
 
   const competitorToolchain = competitorProfile.id === 'kimi-code'
@@ -400,7 +437,7 @@ async function runLocked({ repoRoot, makaRepoPath, tasksRoot, runId, limit, runR
         }),
       },
     ],
-    pairConcurrency: PAIR_CONCURRENCY,
+    pairConcurrency: selection.pairConcurrency,
   });
   const evaluatedTaskIds = new Set(evaluationTasks.map((task) => task.id));
   const report = buildHarnessAbReport(summary, {
