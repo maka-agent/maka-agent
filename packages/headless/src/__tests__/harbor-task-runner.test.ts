@@ -77,6 +77,7 @@ interface FakeOptions {
   verifierStdout?: string;
   verifierOutcome?: Record<string, unknown> | null;
   trialResult?: Record<string, unknown>;
+  makaTrace?: boolean;
   captured?: { config?: Record<string, unknown>; request?: HarborRunRequest };
 }
 
@@ -142,8 +143,10 @@ function fakeRunner(opts: FakeOptions): HarborProcessRunner {
       await writeFile(join(trialDir, 'result.json'), JSON.stringify(opts.trialResult), 'utf8');
     }
     await writeFile(join(trialDir, 'agent', 'runtime-events.jsonl'), opts.events ?? '{"type":"x"}\n', 'utf8');
-    await mkdir(join(trialDir, 'agent', 'maka-storage', 'sessions', 'sess', 'runs', 'run'), { recursive: true });
-    await writeFile(join(trialDir, 'agent', 'maka-storage', 'sessions', 'sess', 'runs', 'run', 'events.jsonl'), '{"type":"tool_failed"}\n', 'utf8');
+    if (opts.makaTrace !== false) {
+      await mkdir(join(trialDir, 'agent', 'maka-storage', 'sessions', 'sess', 'runs', 'run'), { recursive: true });
+      await writeFile(join(trialDir, 'agent', 'maka-storage', 'sessions', 'sess', 'runs', 'run', 'events.jsonl'), '{"type":"tool_failed"}\n', 'utf8');
+    }
     return {
       exitCode: opts.exitCodeAfterArtifacts ?? 0,
       stdout: opts.exitCodeAfterArtifacts ? '' : 'ok',
@@ -543,6 +546,25 @@ describe('createHarborTaskRunner', () => {
       } finally {
         await new Promise<void>((resolve, reject) => upstream.close((error) => error ? reject(error) : resolve()));
       }
+    });
+  });
+
+  test('uses the external agent runtime stream as its readable trace evidence', async () => {
+    await withRun(async ({ jobsDir, repo }) => {
+      const runner = createHarborTaskRunner({
+        makaRepoPath: repo,
+        jobsDir,
+        agent: 'kimi-code',
+        kimiCodeToolchainPath: '/toolchain',
+        agentVersion: '0.26.0',
+        model: 'kimi-coding-plan/k3',
+        provider: 'ollama',
+        runHarbor: fakeRunner({ reward: '1\n', makaTrace: false }),
+      });
+
+      const output = await runner(runInput());
+      assert.equal(output.cell.traceEventsPath, output.cell.runtimeEventsPath);
+      assert.equal(await readFile(output.cell.traceEventsPath, 'utf8'), '{"type":"x"}\n');
     });
   });
 

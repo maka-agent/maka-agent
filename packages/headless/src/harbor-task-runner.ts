@@ -296,7 +296,7 @@ export function createHarborTaskRunner(options: HarborTaskRunnerOptions): Harbor
         readOptionalText(cellOutputPath),
       ]);
       if (rewardArtifact === null || verifierArtifact === null || cellArtifact === null) {
-        const artifactRefs = await readTimedOutTrialArtifacts(trialDir, input.task.id);
+        const artifactRefs = await readTimedOutTrialArtifacts(trialDir, input.task.id, runnerOptions.agent);
         throw new FixedPromptBudgetExhaustedError(
           `agent budget exhausted for task ${input.task.id}`,
           trialException,
@@ -342,14 +342,7 @@ export function createHarborTaskRunner(options: HarborTaskRunnerOptions): Harbor
         ...cell,
         ...(providerTelemetry.length > 0 ? { providerTelemetryPath } : {}),
         runtimeEventsPath: hostEventsPath,
-        traceEventsPath: join(
-          trialDir,
-          TRIAL_TRACE_EVENTS_ROOT,
-          cell.runtimeRefs.sessionId,
-          'runs',
-          cell.runtimeRefs.runId,
-          'events.jsonl',
-        ),
+        traceEventsPath: hostTraceEventsPath(runnerOptions.agent, trialDir, cell, hostEventsPath),
       },
     };
     } catch (error) {
@@ -493,8 +486,14 @@ async function readOptionalCellOutput(cellOutputPath: string, taskId: string): P
   }
 }
 
-function cellArtifactRefs(cell: HarborCellOutput, hostEventsPath: string, trialDir: string) {
-  const traceEventsPath = join(
+function hostTraceEventsPath(
+  agent: HarborTaskRunnerOptions['agent'],
+  trialDir: string,
+  cell: HarborCellOutput,
+  hostEventsPath: string,
+): string {
+  if (agent === 'opencode' || agent === 'kimi-code') return hostEventsPath;
+  return join(
     trialDir,
     TRIAL_TRACE_EVENTS_ROOT,
     cell.runtimeRefs.sessionId,
@@ -502,6 +501,15 @@ function cellArtifactRefs(cell: HarborCellOutput, hostEventsPath: string, trialD
     cell.runtimeRefs.runId,
     'events.jsonl',
   );
+}
+
+function cellArtifactRefs(
+  cell: HarborCellOutput,
+  hostEventsPath: string,
+  trialDir: string,
+  agent: HarborTaskRunnerOptions['agent'],
+) {
+  const traceEventsPath = hostTraceEventsPath(agent, trialDir, cell, hostEventsPath);
   return {
     runtimeEventsPath: hostEventsPath,
     traceEventsPath,
@@ -510,9 +518,13 @@ function cellArtifactRefs(cell: HarborCellOutput, hostEventsPath: string, trialD
   };
 }
 
-async function readTimedOutTrialArtifacts(trialDir: string, taskId: string) {
+async function readTimedOutTrialArtifacts(
+  trialDir: string,
+  taskId: string,
+  agent: HarborTaskRunnerOptions['agent'],
+) {
   const cell = await readOptionalCellOutput(join(trialDir, TRIAL_CELL_OUTPUT), taskId);
-  if (cell) return cellArtifactRefs(cell, join(trialDir, TRIAL_RUNTIME_EVENTS), trialDir);
+  if (cell) return cellArtifactRefs(cell, join(trialDir, TRIAL_RUNTIME_EVENTS), trialDir, agent);
   const [executionIdentity, tokenSummary] = await Promise.all([
     readOptionalExecutionIdentity(join(trialDir, TRIAL_EXECUTION_IDENTITY)),
     readOptionalTokenSummary(join(trialDir, TRIAL_USAGE_CHECKPOINT)),
