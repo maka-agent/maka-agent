@@ -20,8 +20,8 @@ import type {
 } from '@maka/core';
 import type { BackendSendInput, BackendStopMode, PermissionDecision } from '@maka/core/backend-types';
 import { expect } from '../test-helpers.js';
-import { MockLanguageModelV3, simulateReadableStream } from 'ai/test';
-import type { LanguageModelV3StreamPart } from '@ai-sdk/provider';
+import { MockLanguageModelV4, simulateReadableStream } from 'ai/test';
+import type { LanguageModelV4StreamPart } from '@ai-sdk/provider';
 import { z } from 'zod';
 import type { LlmConnection } from '@maka/core';
 import { AiSdkBackend } from '../ai-sdk-backend.js';
@@ -6409,15 +6409,15 @@ async function waitUntil(predicate: () => boolean): Promise<void> {
 }
 
 /** Mock model: first request calls the Probe tool, second finishes with text. */
-function steeringToolThenDoneModel(): MockLanguageModelV3 {
+function steeringToolThenDoneModel(): MockLanguageModelV4 {
   const usage = {
     inputTokens: { total: 100, noCache: 100, cacheRead: 0, cacheWrite: 0 },
     outputTokens: { total: 10, text: 10, reasoning: 0 },
   };
-  const model: MockLanguageModelV3 = new MockLanguageModelV3({
+  const model: MockLanguageModelV4 = new MockLanguageModelV4({
     doStream: async () => {
       const call = model.doStreamCalls.length;
-      const chunks: LanguageModelV3StreamPart[] = call === 1
+      const chunks: LanguageModelV4StreamPart[] = call === 1
         ? [
             { type: 'stream-start', warnings: [] },
             { type: 'tool-call', toolCallId: 'tool-1', toolName: 'Probe', input: JSON.stringify({ q: 'x' }) },
@@ -6444,7 +6444,7 @@ function steeringToolThenDoneModel(): MockLanguageModelV3 {
  */
 async function steeringDeliverySession(
   runStore: MemoryAgentRunStore,
-  model: MockLanguageModelV3,
+  model: MockLanguageModelV4,
   duringTool: (manager: SessionManager, sessionId: string) => void,
 ) {
   const store = new MemorySessionStore();

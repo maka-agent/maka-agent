@@ -71,8 +71,8 @@ describe('model-factory Google chat wiring', () => {
     );
     assert.doesNotMatch(
       caseRegion,
-      /createGoogleGenerativeAI\(\{\s*apiKey,\s*baseURL\s*\}\)/,
-      'Google chat must not pass the raw effectiveBaseUrl to createGoogleGenerativeAI',
+      /createGoogle\(\{\s*apiKey,\s*baseURL\s*\}\)/,
+      'Google chat must not pass the raw effectiveBaseUrl to createGoogle',
     );
   });
 });

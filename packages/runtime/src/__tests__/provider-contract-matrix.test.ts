@@ -36,7 +36,7 @@ import {
   type ProviderContractGeneratedCell,
   type ProviderContractWire,
 } from '@maka/core';
-import { generateText, stepCountIs, tool } from 'ai';
+import { generateText, isStepCount, tool } from 'ai';
 import { z } from 'zod';
 import { fetchProviderModels } from '../model-fetcher.js';
 import { getAIModel } from '../model-factory.js';
@@ -579,7 +579,7 @@ async function runOpenAiChatWire(
   const result = await generateText({
     model: getAIModel({ connection, apiKey: credential.apiKey, modelId }),
     prompt: 'Call echo with hello.',
-    stopWhen: stepCountIs(2),
+    stopWhen: isStepCount(2),
     tools: { echo: echoTool },
   });
 
@@ -697,7 +697,7 @@ async function runAnthropicMessagesWire(
   const result = await generateText({
     model: getAIModel({ connection, apiKey: credential.apiKey, modelId: sample }),
     prompt: 'Call echo with hello.',
-    stopWhen: stepCountIs(2),
+    stopWhen: isStepCount(2),
     tools: { echo: echoTool },
   });
 
@@ -792,7 +792,7 @@ async function runGoogleGenerateWire(
   const result = await generateText({
     model: getAIModel({ connection, apiKey: credential.apiKey, modelId: sample }),
     prompt: 'Call echo with hello.',
-    stopWhen: stepCountIs(2),
+    stopWhen: isStepCount(2),
     tools: { echo: echoTool },
   });
 
@@ -878,7 +878,7 @@ async function runCohereV2Wire(
   const result = await generateText({
     model: getAIModel({ connection, apiKey: credential.apiKey, modelId: sample }),
     prompt: 'Call echo with hello.',
-    stopWhen: stepCountIs(2),
+    stopWhen: isStepCount(2),
     tools: { echo: echoTool },
   });
 

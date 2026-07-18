@@ -39,7 +39,7 @@ function inputWith(events: RuntimeEvent[], abortSignal?: AbortSignal): HistoryCo
 
 describe('buildLlmHistorySummarizer', () => {
   test('returns the LLM summary and sends the tool-bearing conversation to generateText', async () => {
-    const seen: Array<{ system: string; messages: unknown[] }> = [];
+    const seen: Array<{ instructions: string; messages: unknown[] }> = [];
     const generateText: AiSdkGenerateTextLike = async (opts) => {
       seen.push(opts);
       return { text: '## Goal\n做到 X' };
@@ -124,7 +124,7 @@ describe('buildLlmHistorySummarizer', () => {
     }>;
     const toolPart = messages.find((m) => m.role === 'tool')!.content[0]!;
     expect(toolPart.type).toBe('tool-result');
-    // toolName must be present (AI SDK v6 tool-result content requires it)
+    // toolName must be present in AI SDK tool-result content.
     expect(toolPart.toolName).toBe('read');
     // output must be the {type, value} wrapper, not the raw result object
     expect(toolPart.output).toEqual({ type: 'json', value: { name: 'maka' } });

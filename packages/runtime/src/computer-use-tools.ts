@@ -1683,8 +1683,7 @@ export function buildComputerUseTools(deps: {
       }
     },
     // Map the raw result into model-visible content: the summary as text, plus the
-    // screenshot as a native image block when present. `image-data` becomes the
-    // provider's native image part. Robust to the runtime's synthetic
+    // screenshot as a native file block when present. Robust to the runtime's synthetic
     // failure return shape ({ error }) from permission/loop-gate blocks, which
     // reaches here as `output` too.
     toModelOutput: ({ output }) => {
@@ -1701,7 +1700,11 @@ export function buildComputerUseTools(deps: {
         value: [
           { type: 'text', text },
           ...(o.screenshot
-            ? [{ type: 'image-data' as const, data: o.screenshot.base64, mediaType: o.screenshot.mimeType }]
+            ? [{
+                type: 'file' as const,
+                data: { type: 'data' as const, data: o.screenshot.base64 },
+                mediaType: o.screenshot.mimeType,
+              }]
             : []),
         ],
       };

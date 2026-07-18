@@ -7,7 +7,7 @@
  * AsyncEventQueue, SessionStore JSONL persistence.
  *
  * The agent loop (multi-step tool calling) is owned by ai-sdk's `streamText`.
- * An explicit `maxSteps` uses `stopWhen: stepCountIs(N)`; otherwise the loop
+ * An explicit `maxSteps` uses `stopWhen: isStepCount(N)`; otherwise the loop
  * has no step cap. Permission gating happens inside each tool's `execute()`
  * callback — that's the seam where we consult PermissionEngine and either run,
  * deny synthetically, or park awaiting user.
@@ -17,7 +17,7 @@
  *     ├─ build AsyncEventQueue<SessionEvent>
  *     ├─ resolve LanguageModelV2 via deps.modelFactory(connection, modelId)
  *     ├─ wrap each MakaTool's execute() with permission round-trip
- *     ├─ background task: pump streamText.fullStream → normalize → queue
+ *     ├─ background task: pump streamText.stream → normalize → queue
  *     └─ yield from queue
  *
  *   tool.execute(args)
@@ -94,6 +94,7 @@ import {
 import { AsyncEventQueue } from './async-queue.js';
 import { StreamWatchdog, formatStreamWatchdogError } from './stream-watchdog.js';
 import {
+  MAX_ACTIVE_CHILD_AGENT_RUNS_PER_TURN,
   MAX_ACTIVE_SUBAGENT_TOOLS_PER_TURN,
   TOOL_ERROR_RESULT_MAX_CHARS,
   ToolRuntime,
@@ -214,6 +215,7 @@ import {
 } from './mid-turn-capacity-compact.js';
 export {
   DEFAULT_PERMISSION_TIMEOUT_MS,
+  MAX_ACTIVE_CHILD_AGENT_RUNS_PER_TURN,
   MAX_ACTIVE_SUBAGENT_TOOLS_PER_TURN,
   TOOL_ERROR_RESULT_MAX_CHARS,
   formatSyntheticToolErrorText,
@@ -1146,7 +1148,7 @@ export class AiSdkBackend implements AgentBackend {
     // ledger records the text↔tool timeline at step granularity and each step's
     // Anthropic thinking signature stays paired with its own thinking text. The
     // turn's first step reuses this id; every later step rotates to a fresh one
-    // at its step boundary (see the fullStream loop below).
+    // at its step boundary (see the stream loop below).
     this.currentStepMessageId = this.newId();
     let stepText = '';
     let stepThinking = '';
@@ -1210,7 +1212,7 @@ export class AiSdkBackend implements AgentBackend {
     let tokenUsageCostUsd: number | undefined;
     // Per-send sum of every COMPLETED step's usage, merged at each finish-step
     // boundary. When the send aborts (mid-turn exhaust, user stop, stream
-    // error) the SDK's `totalUsage` promise never resolves, but this sum is
+    // error) the SDK's cumulative `usage` promise may not resolve, but this sum is
     // real provider-reported evidence for the steps that did finish — IF every
     // completed step produced a usable sample. One unusable sample makes the
     // sum a partial cost, and LlmCallRecord has no partial marker, so the flag
@@ -1220,7 +1222,7 @@ export class AiSdkBackend implements AgentBackend {
     // Input tokens from the last completed step — the actual prompt token count
     // of the final API request. Used to compute contextRemaining for the TUI
     // statusline ctx segment (#1067): contextRemaining = contextWindow - this.
-    // totalUsage.inputTokens is cumulative across steps and would produce
+    // result.usage.inputTokens is cumulative across steps and would produce
     // misleading >100% percentages, so the per-step value is captured here.
     let lastStepInputTokens: number | undefined;
     let streamStatus: LlmCallRecord['status'] = 'success';
@@ -1327,7 +1329,7 @@ export class AiSdkBackend implements AgentBackend {
       midTurnState.previousCheckpoint = priorReplay.latestHistoryCompactCheckpoint;
     }
 
-    // --- Background pump: streamText → fullStream → normalize → queue ---
+    // --- Background pump: streamText → stream → normalize → queue ---
     const pumpDone: Promise<void> = (async () => {
       let watchdog: StreamWatchdog | null = null;
       let watchdogTimeoutError: Error | null = null;
@@ -1551,7 +1553,8 @@ export class AiSdkBackend implements AgentBackend {
           : shapedPrepareStep;
 
         // Reactive overflow recovery (issue #882 PR 2). A request-level
-        // provider failure surfaces as a fullStream `error` chunk — both when
+        // provider failure surfaces through the stream — either as an `error`
+        // chunk or a thrown stream error — both when
         // the transport throws (finishReason then rejects with
         // NoOutputGeneratedError) and when it streams an error part — after
         // which this stream is dead. Capture it and, at most once, fold the
@@ -1597,12 +1600,12 @@ export class AiSdkBackend implements AgentBackend {
           // injection set (nack on any failure so the queue reclaims it).
           await this.drainSteeringInto(input, turnId, queue);
           // Steering joins the request BEFORE shaping so the capacity owner's
-          // verdict measures the payload the provider will actually receive
-          // (steering re-applied every step because prepareStep transforms are
-          // per-request, not persisted by the SDK). Dedupe is by structured
-          // identity — the ledger event id carried on every injected and every
-          // ledger-derived steering message — never by text, which a verbatim
-          // user message could forge or cancel.
+          // verdict measures the payload the provider will actually receive.
+          // AI SDK 7 carries a prepareStep messages override into later steps,
+          // so append only markers missing from the current SDK projection.
+          // Dedupe is by structured identity — the ledger event id carried on
+          // every injected and every ledger-derived steering message — never
+          // by text, which a verbatim user message could forge or cancel.
           const missingInBase = steeringMessagesMissingFromBase(
             this.injectedSteeringMessages,
             options.messages,
@@ -1673,7 +1676,7 @@ export class AiSdkBackend implements AgentBackend {
           let streamErrorChunk: unknown;
           let sawStreamError = false;
           try {
-            for await (const chunk of result.fullStream) {
+            for await (const chunk of result.stream) {
               if (this.aborted) break;
               watchdog.markActivity();
               // A request-level error ends this stream; capture it and stop
@@ -1684,8 +1687,9 @@ export class AiSdkBackend implements AgentBackend {
                 sawStreamError = true;
                 break;
               }
-              // Step boundary, version-tolerant: AI SDK v6 delimits steps with
-              // `start-step` / `finish-step`, older releases said `step-finish`.
+              // Step boundary: AI SDK 7 delimits steps with `start-step` /
+              // `finish-step`; `step-finish` remains accepted for replaying an
+              // older adapter fixture during the migration window.
               // Missing the boundary would silently degrade back to one message per
               // turn, so match both names. A duplicate boundary is harmless: the
               // second flush no-ops (accumulators already cleared) and one extra id
@@ -1716,7 +1720,7 @@ export class AiSdkBackend implements AgentBackend {
                 onThinking: (t) => { stepThinking += t; },
                 onThinkingSignature: (sig) => { stepSignature = sig; },
               });
-              // The step's text/thinking deltas are all in (the fullStream is
+              // The step's text/thinking deltas are all in (the stream is
               // drained in order), so flush this step's AssistantMessage and rotate
               // to a fresh id for the next step. The step's tool calls (appended
               // mid-step via execute()) already carry the pre-rotation id via
@@ -1843,18 +1847,18 @@ export class AiSdkBackend implements AgentBackend {
           runtimeSteps = stepLimit;
         }
 
-        // Final usage event. AI SDK `usage` is the last step only; `totalUsage`
-        // is the billing-relevant sum across all internal tool-loop steps.
+        // Final usage event. AI SDK 7 `usage` is the billing-relevant sum
+        // across all internal tool-loop steps; finalStep.usage is last-step only.
         // The send-level usage owner is `completedStepUsage`, the per-step
         // accumulator that spans every attempt: after a reactive overflow
-        // retry, the last attempt's totalUsage covers only that attempt, so
+        // retry, the last attempt's usage covers only that attempt, so
         // recording it would silently drop the first attempt's completed
-        // steps. totalUsage remains the authoritative shorthand only for the
+        // steps. result.usage remains the authoritative shorthand only for the
         // single-attempt send, and an unusable step sample in ANY attempt
         // fails the whole record closed (#972) — a later attempt's valid
-        // totalUsage must not wash it back to "complete".
+        // cumulative usage must not wash it back to "complete".
         try {
-          const attemptTotalUsage = normalizeAiSdkUsage(await (result.totalUsage ?? result.usage), { rawFinishReason });
+          const attemptTotalUsage = normalizeAiSdkUsage(await result.usage, { rawFinishReason });
           tokenUsage = overflowRetryUsed || transportRetryUsed
             ? (sawUnusableStepUsage ? undefined : completedStepUsage)
             : attemptTotalUsage;
@@ -2045,7 +2049,7 @@ export class AiSdkBackend implements AgentBackend {
           activeCompactDiagnosticPatch,
         );
         // The terminal record is fail-closed on usage evidence: no evidence,
-        // no record. An aborted send has no `totalUsage`, but when EVERY
+        // no record. An aborted send may have no final `usage`, but when EVERY
         // completed step produced a usable sample their accumulated usage IS
         // the complete evidence — record it, carrying the real cost of the
         // steps that ran plus the diagnostics riding this record. Otherwise
@@ -4212,7 +4216,10 @@ export class AiSdkBackend implements AgentBackend {
     if (!this.input.readAttachmentBytes) {
       return textContent;
     }
-    const parts: Array<{ type: 'text'; text: string } | { type: 'image'; image: Uint8Array; mediaType: string }> = [
+    const parts: Array<
+      | { type: 'text'; text: string }
+      | { type: 'file'; data: { type: 'data'; data: Uint8Array }; mediaType: string }
+    > = [
       { type: 'text', text: textContent },
     ];
     let omittedByBudget = 0;
@@ -4226,7 +4233,11 @@ export class AiSdkBackend implements AgentBackend {
         omittedByBudget += 1;
         continue;
       }
-      parts.push({ type: 'image', image: read.bytes, mediaType: image.mimeType });
+      parts.push({
+        type: 'file',
+        data: { type: 'data', data: read.bytes },
+        mediaType: image.mimeType,
+      });
     }
     if (omittedByBudget > 0) {
       parts.push({
@@ -4269,7 +4280,11 @@ export class AiSdkBackend implements AgentBackend {
       type: 'content',
       value: [
         { type: 'text', text: 'Image read successfully.' },
-        { type: 'image-data', data: Buffer.from(read.bytes).toString('base64'), mediaType: output.mimeType },
+        {
+          type: 'file',
+          data: { type: 'data', data: Buffer.from(read.bytes).toString('base64') },
+          mediaType: output.mimeType,
+        },
       ],
     };
   }

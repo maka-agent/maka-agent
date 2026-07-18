@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import { z } from 'zod';
-import { MockLanguageModelV3, convertArrayToReadableStream } from 'ai/test';
-import type { LanguageModelV3StreamPart, LanguageModelV3Usage } from '@ai-sdk/provider';
+import { MockLanguageModelV4, convertArrayToReadableStream } from 'ai/test';
+import type { LanguageModelV4StreamPart, LanguageModelV4Usage } from '@ai-sdk/provider';
 import type { LlmConnection, SessionEvent, SessionHeader } from '@maka/core';
 import type { LlmCallRecord } from '@maka/core/usage-stats/types';
 import type { RuntimeEvent } from '@maka/core/runtime-event';
@@ -30,7 +30,7 @@ import {
 // per-step prepareStep activation, the durable seed reconstructs prior-turn
 // loads, and the execute-boundary guard is fed by the live snapshot.
 
-const ZERO_USAGE: LanguageModelV3Usage = {
+const ZERO_USAGE: LanguageModelV4Usage = {
   inputTokens: { total: 0, noCache: 0, cacheRead: 0, cacheWrite: 0 },
   outputTokens: { total: 0, text: 0, reasoning: 0 },
 };
@@ -64,7 +64,7 @@ interface BackendOpts {
   recordLlmCall?: (record: LlmCallRecord) => void;
 }
 
-function backend(model: MockLanguageModelV3, implCalls: string[], opts: BackendOpts = {}): AiSdkBackend {
+function backend(model: MockLanguageModelV4, implCalls: string[], opts: BackendOpts = {}): AiSdkBackend {
   let n = 0;
   const resolved = opts.toolAvailability === null ? undefined : opts.toolAvailability ?? config;
   return new AiSdkBackend({
@@ -85,7 +85,7 @@ function backend(model: MockLanguageModelV3, implCalls: string[], opts: BackendO
 }
 
 function agentBackend(
-  model: MockLanguageModelV3,
+  model: MockLanguageModelV4,
   spawnCalls: unknown[],
   opts: BackendOpts & { permissionMode?: SessionHeader['permissionMode'] } = {},
 ): AiSdkBackend {
@@ -332,11 +332,11 @@ describe('AiSdkBackend deferred agent tools', () => {
 // Mock models
 // ---------------------------------------------------------------------------
 
-function capturingModel(captured: string[][]): MockLanguageModelV3 {
-  return new MockLanguageModelV3({
+function capturingModel(captured: string[][]): MockLanguageModelV4 {
+  return new MockLanguageModelV4({
     doStream: async ({ tools: stepTools }) => {
       captured.push((stepTools ?? []).map((t) => t.name));
-      const parts: LanguageModelV3StreamPart[] = [
+      const parts: LanguageModelV4StreamPart[] = [
         { type: 'stream-start', warnings: [] },
         { type: 'finish', finishReason: { unified: 'stop', raw: 'stop' }, usage: ZERO_USAGE },
       ];
@@ -345,12 +345,12 @@ function capturingModel(captured: string[][]): MockLanguageModelV3 {
   });
 }
 
-function parallelLoadUseModel(captured: string[][]): MockLanguageModelV3 {
-  return new MockLanguageModelV3({
+function parallelLoadUseModel(captured: string[][]): MockLanguageModelV4 {
+  return new MockLanguageModelV4({
     doStream: async ({ tools: stepTools }) => {
       captured.push((stepTools ?? []).map((t) => t.name));
       const first = captured.length === 1;
-      const parts: LanguageModelV3StreamPart[] = first
+      const parts: LanguageModelV4StreamPart[] = first
         ? [
             { type: 'stream-start', warnings: [] },
             { type: 'tool-call', toolCallId: 'tc-load', toolName: LOAD_TOOLS_NAME, input: JSON.stringify({ group: 'browser' }) },
@@ -375,12 +375,12 @@ const INVALID_FIXTURE: MakaTool = {
 };
 
 /** Step 0 loads the browser group, then the turn finishes (no use). */
-function loadBrowserThenFinishModel(): MockLanguageModelV3 {
+function loadBrowserThenFinishModel(): MockLanguageModelV4 {
   let step = 0;
-  return new MockLanguageModelV3({
+  return new MockLanguageModelV4({
     doStream: async () => {
       step += 1;
-      const parts: LanguageModelV3StreamPart[] =
+      const parts: LanguageModelV4StreamPart[] =
         step === 1
           ? [
               { type: 'stream-start', warnings: [] },
@@ -401,12 +401,12 @@ function loadBrowserThenFinishModel(): MockLanguageModelV3 {
  * (a provider that case-drifts a tool that only became active this step). The
  * AI SDK can't match the upper-cased name, so it calls the repair callback.
  */
-function loadThenMiscasedClickModel(captured: string[][]): MockLanguageModelV3 {
-  return new MockLanguageModelV3({
+function loadThenMiscasedClickModel(captured: string[][]): MockLanguageModelV4 {
+  return new MockLanguageModelV4({
     doStream: async ({ tools: stepTools }) => {
       captured.push((stepTools ?? []).map((t) => t.name));
       const step = captured.length;
-      const parts: LanguageModelV3StreamPart[] =
+      const parts: LanguageModelV4StreamPart[] =
         step === 1
           ? [
               { type: 'stream-start', warnings: [] },
@@ -428,12 +428,12 @@ function loadThenMiscasedClickModel(captured: string[][]): MockLanguageModelV3 {
   });
 }
 
-function loadAgentThenFinishModel(captured: string[][]): MockLanguageModelV3 {
-  return new MockLanguageModelV3({
+function loadAgentThenFinishModel(captured: string[][]): MockLanguageModelV4 {
+  return new MockLanguageModelV4({
     doStream: async ({ tools: stepTools }) => {
       captured.push((stepTools ?? []).map((t) => t.name));
       const first = captured.length === 1;
-      const parts: LanguageModelV3StreamPart[] = first
+      const parts: LanguageModelV4StreamPart[] = first
         ? [
             { type: 'stream-start', warnings: [] },
             { type: 'tool-call', toolCallId: 'tc-load', toolName: LOAD_TOOLS_NAME, input: JSON.stringify({ group: 'agent' }) },
@@ -448,12 +448,12 @@ function loadAgentThenFinishModel(captured: string[][]): MockLanguageModelV3 {
   });
 }
 
-function parallelLoadAgentAndSpawnModel(captured: string[][]): MockLanguageModelV3 {
-  return new MockLanguageModelV3({
+function parallelLoadAgentAndSpawnModel(captured: string[][]): MockLanguageModelV4 {
+  return new MockLanguageModelV4({
     doStream: async ({ tools: stepTools }) => {
       captured.push((stepTools ?? []).map((t) => t.name));
       const first = captured.length === 1;
-      const parts: LanguageModelV3StreamPart[] = first
+      const parts: LanguageModelV4StreamPart[] = first
         ? [
             { type: 'stream-start', warnings: [] },
             { type: 'tool-call', toolCallId: 'tc-load', toolName: LOAD_TOOLS_NAME, input: JSON.stringify({ group: 'agent' }) },
@@ -469,12 +469,12 @@ function parallelLoadAgentAndSpawnModel(captured: string[][]): MockLanguageModel
   });
 }
 
-function loadAgentThenSpawnModel(captured: string[][]): MockLanguageModelV3 {
-  return new MockLanguageModelV3({
+function loadAgentThenSpawnModel(captured: string[][]): MockLanguageModelV4 {
+  return new MockLanguageModelV4({
     doStream: async ({ tools: stepTools }) => {
       captured.push((stepTools ?? []).map((t) => t.name));
       const step = captured.length;
-      const parts: LanguageModelV3StreamPart[] =
+      const parts: LanguageModelV4StreamPart[] =
         step === 1
           ? [
               { type: 'stream-start', warnings: [] },

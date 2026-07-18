@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import { setImmediate as flushMacrotask } from 'node:timers/promises';
-import { MockLanguageModelV3, simulateReadableStream } from 'ai/test';
-import type { LanguageModelV3StreamPart } from '@ai-sdk/provider';
+import { MockLanguageModelV4, simulateReadableStream } from 'ai/test';
+import type { LanguageModelV4StreamPart } from '@ai-sdk/provider';
 import type { LlmConnection, SessionHeader } from '@maka/core';
 import type { SessionEvent } from '@maka/core/events';
 import type { RuntimeEvent } from '@maka/core/runtime-event';
@@ -27,7 +27,7 @@ const ANCHOR_TEXT = 'compact this very long turn but keep my exact words';
 
 interface MidTurnFixture {
   backend: AiSdkBackend;
-  model: MockLanguageModelV3;
+  model: MockLanguageModelV4;
   recorded: HistoryCompactCheckpoint[];
   recordedBeforeThirdRequest: () => boolean;
   toolExecutions: string[];
@@ -133,7 +133,7 @@ function buildFixture(options: MidTurnFixtureOptions = {}): MidTurnFixture {
     if (options.firstStepUsage) return usage(options.firstStepUsage.input, options.firstStepUsage.output);
     return usage(100, 20);
   };
-  const toolCallChunks = (id: string, name: string, args: object): LanguageModelV3StreamPart[] => [
+  const toolCallChunks = (id: string, name: string, args: object): LanguageModelV4StreamPart[] => [
     { type: 'stream-start', warnings: [] },
     { type: 'tool-call', toolCallId: id, toolName: name, input: JSON.stringify(args) },
     {
@@ -142,14 +142,14 @@ function buildFixture(options: MidTurnFixtureOptions = {}): MidTurnFixture {
       usage: id === 'tool-1' ? firstStepUsage() : usage(150, 30),
     },
   ];
-  const doneChunks = (): LanguageModelV3StreamPart[] => [
+  const doneChunks = (): LanguageModelV4StreamPart[] => [
     { type: 'stream-start', warnings: [] },
     { type: 'text-start', id: 'text-1' },
     { type: 'text-delta', id: 'text-1', delta: 'done' },
     { type: 'text-end', id: 'text-1' },
     { type: 'finish', finishReason: { unified: 'stop', raw: 'stop' }, usage: usage(120, 10) },
   ];
-  const chunksForCall = (call: number): LanguageModelV3StreamPart[] => {
+  const chunksForCall = (call: number): LanguageModelV4StreamPart[] => {
     if (options.bigToolGroup) {
       return call === 1 ? toolCallChunks('tool-1', 'load_tools', { group: 'big' }) : doneChunks();
     }
@@ -169,7 +169,7 @@ function buildFixture(options: MidTurnFixtureOptions = {}): MidTurnFixture {
     if (options.rollingOverflow && call === 3) return toolCallChunks('tool-3', 'Read', { path: 'three.md' });
     return doneChunks();
   };
-  const model = new MockLanguageModelV3({
+  const model = new MockLanguageModelV4({
     doStream: async (streamOptions: { abortSignal?: AbortSignal }) => {
       // A real transport rejects immediately on an already-aborted signal; the
       // mock must mirror that so an exhausted turn never streams the
@@ -713,7 +713,7 @@ function defineMidTurnSuite(consumer: ConsumerMode): void {
 
   test('an aborted multi-step send records the accumulated usage of the completed steps', async () => {
     // The terminal LLM-call record is fail-closed on usage evidence (#972),
-    // and an aborted send never resolves the SDK's totalUsage promise. But
+    // and an aborted send may never resolve the SDK's final usage promise. But
     // every COMPLETED step reported real usage at its finish-step boundary,
     // so the terminal record must carry that accumulated sum — the capacity
     // verdict diagnostics ride this record and the completed steps' cost is

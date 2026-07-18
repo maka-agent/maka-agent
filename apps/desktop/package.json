@@ -49,7 +49,7 @@
     "@maka/storage": "0.1.0",
     "@maka/ui": "0.1.0",
     "@vitejs/plugin-react": "^5.1.2",
-    "ai": "^6.0.185",
+    "ai": "^7.0.31",
     "electron": "^43.1.1",
     "qrcode": "^1.5.4",
     "react": "^19.2.1",

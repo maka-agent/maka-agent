@@ -36,7 +36,11 @@ test('buildMcpTools projects discovery, permissions, abort, and rich model outpu
   const model = await tools[0]?.toModelOutput?.({ toolCallId: 'call', input: {}, output: result });
   assert.deepEqual(model?.value.slice(0, 2), [
     { type: 'text', text: 'ok' },
-    { type: 'image-data', data: 'aW1n', mediaType: 'image/png' },
+    {
+      type: 'file',
+      data: { type: 'data', data: 'aW1n' },
+      mediaType: 'image/png',
+    },
   ]);
   assert.match(model?.value[2]?.type === 'text' ? model.value[2].text : '', /structuredContent/u);
 });
@@ -68,7 +72,7 @@ test('MCP annotations cannot lower permissions and model output has aggregate bo
     .filter((item) => item.type === 'text')
     .map((item) => item.type === 'text' ? item.text : '')
     .join('') ?? '';
-  const images = model?.value.filter((item) => item.type === 'image-data') ?? [];
+  const images = model?.value.filter((item) => item.type === 'file') ?? [];
   assert.ok(text.length <= 200_000);
   assert.equal(images.length, 4);
   assert.doesNotMatch(text, /secretBlob/u);

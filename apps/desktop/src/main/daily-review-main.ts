@@ -195,7 +195,7 @@ export function createDailyReviewMainService(deps: DailyReviewMainServiceDeps): 
         modelId: input.modelId,
         fetch: modelFetch,
       }),
-      system: dailyReviewSystemPrompt(input.config),
+      instructions: dailyReviewSystemPrompt(input.config),
       prompt: dailyReviewUserPrompt(input.summary, input.config, input.mode),
       providerOptions: buildProviderOptions(input.connection, input.modelId),
     });

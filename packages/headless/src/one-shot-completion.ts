@@ -24,7 +24,7 @@ export async function runOneShotCompletion(input: OneShotCompletionInput): Promi
   const result = await generateText({
     model,
     prompt: input.prompt,
-    ...(input.system !== undefined ? { system: input.system } : {}),
+    ...(input.system !== undefined ? { instructions: input.system } : {}),
     ...(input.maxOutputTokens !== undefined ? { maxOutputTokens: input.maxOutputTokens } : {}),
     ...(input.temperature !== undefined ? { temperature: input.temperature } : {}),
     ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
