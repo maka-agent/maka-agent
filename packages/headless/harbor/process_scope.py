@@ -6,6 +6,7 @@ import shlex
 
 
 COMMAND_SCOPE_ENV = "MAKA_HARBOR_COMMAND_SCOPE"
+COMMAND_ID_ENV = "MAKA_HARBOR_COMMAND_ID"
 COMMAND_SCOPE_ROOT = "/tmp/maka-harbor-command-scopes"
 
 
@@ -14,7 +15,9 @@ def scoped_command(command: str, scope: str, command_id: str) -> str:
     pgid_path = shlex.quote(f"{COMMAND_SCOPE_ROOT}/{scope}/{command_id}.pgid")
     return (
         f"mkdir -p -- {scope_dir}; set -m; "
-        f"env {COMMAND_SCOPE_ENV}={shlex.quote(scope)} bash -lc {shlex.quote(command)} & "
+        f"env {COMMAND_SCOPE_ENV}={shlex.quote(scope)} "
+        f"{COMMAND_ID_ENV}={shlex.quote(command_id)} "
+        f"bash -lc {shlex.quote(command)} & "
         "command_pid=$!; "
         f"printf '%s\\n' \"$command_pid\" > {pgid_path}; "
         "wait \"$command_pid\"; command_status=$?; "
@@ -26,7 +29,6 @@ def scoped_command(command: str, scope: str, command_id: str) -> str:
 def scoped_process_cleanup_command(scope: str, signal: str) -> str:
     if signal not in ("TERM", "KILL"):
         raise ValueError(f"unsupported cleanup signal: {signal}")
-    marker = shlex.quote(f"{COMMAND_SCOPE_ENV}={scope}")
     scope_dir = shlex.quote(f"{COMMAND_SCOPE_ROOT}/{scope}")
     return (
         f"for pgid_file in {scope_dir}/*.pgid; do "
@@ -35,12 +37,7 @@ def scoped_process_cleanup_command(scope: str, signal: str) -> str:
         "case $pgid in ''|*[!0-9]*) continue;; esac; "
         f"kill -{signal} -- \"-$pgid\" 2>/dev/null || true; "
         "done; "
-        "for env_file in /proc/[0-9]*/environ; do "
-        "[ -r \"$env_file\" ] || continue; "
-        f"if tr '\\000' '\\n' < \"$env_file\" | grep -Fqx -- {marker}; then "
-        "pid=${env_file#/proc/}; pid=${pid%/environ}; "
-        f"kill -{signal} \"$pid\" 2>/dev/null || true; "
-        "fi; done"
+        + _marked_process_cleanup_command(scope, signal)
         + (f"; rm -rf -- {scope_dir}" if signal == "KILL" else "")
     )
 
@@ -63,6 +60,30 @@ def scoped_command_cleanup_command(
         "pgid=$(cat -- \"$pgid_file\"); "
         "case $pgid in ''|*[!0-9]*) continue;; esac; "
         f"kill -{signal} -- \"-$pgid\" 2>/dev/null || true; "
-        "done"
+        "done; "
+        + _marked_process_cleanup_command(scope, signal, command_ids)
     )
     return command + (f"; rm -f -- {paths}" if signal == "KILL" else "")
+
+
+def _marked_process_cleanup_command(
+    scope: str, signal: str, command_ids: list[str] | None = None
+) -> str:
+    scope_marker = shlex.quote(f"{COMMAND_SCOPE_ENV}={scope}")
+    command_filter = ""
+    if command_ids is not None:
+        command_checks = " || ".join(
+            "tr '\\000' '\\n' 2>/dev/null < \"$env_file\" | grep -Fqx -- "
+            + shlex.quote(f"{COMMAND_ID_ENV}={command_id}")
+            for command_id in command_ids
+        )
+        command_filter = f" && {{ {command_checks}; }}"
+    return (
+        "for env_file in /proc/[0-9]*/environ; do "
+        "[ -r \"$env_file\" ] || continue; "
+        f"if tr '\\000' '\\n' 2>/dev/null < \"$env_file\" | grep -Fqx -- {scope_marker}"
+        f"{command_filter}; then "
+        "pid=${env_file#/proc/}; pid=${pid%/environ}; "
+        f"kill -{signal} \"$pid\" 2>/dev/null || true; "
+        "fi; done"
+    )
