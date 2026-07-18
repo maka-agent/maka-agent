@@ -549,7 +549,9 @@ export async function readFixedPromptWal(path: string): Promise<FixedPromptWalEv
       throw error;
     }
   }
-  return events.map(projectLegacyTimeoutOutcome);
+  return events
+    .map(projectLegacyTimeoutOutcome)
+    .map(projectStructuredVerifierPassOutcome);
 }
 
 export async function readHarborTaskRunOutput(
@@ -766,6 +768,8 @@ function taskEventFromOutput(input: {
   id: string;
   ts: number;
 }): FixedPromptTaskCompletedEvent | FixedPromptTaskPlumbingFailedEvent | FixedPromptTaskInfraFailedEvent {
+  const structuredVerifierPassed = input.output.harbor.reward > 0
+    && input.output.harbor.verifier?.outcome === 'passed';
   const identityMismatch = classifyExplicitIdentityMismatch(
     input.output.cell.executionIdentity,
     input.expectedPromptHash,
@@ -779,7 +783,7 @@ function taskEventFromOutput(input: {
       error: identityMismatch.error,
     });
   }
-  if (isProviderInfraFailure(input.output.cell.errorClass)) {
+  if (isProviderInfraFailure(input.output.cell.errorClass) && !structuredVerifierPassed) {
     return taskInfraFailedEvent({
       ...input,
       errorClass: input.output.cell.errorClass,
@@ -815,15 +819,19 @@ function taskCompletedEvent(input: {
   ts: number;
 }): FixedPromptTaskCompletedEvent {
   const { output } = input;
+  const promptHash = output.cell.promptHash ?? output.cell.executionIdentity?.systemPromptHash;
   const deadlineSettled = output.cell.deadlineSettlement?.source === 'benchmark.deadline';
+  const structuredVerifierPassed = output.harbor.reward > 0
+    && output.harbor.verifier?.outcome === 'passed';
   const verifierGraded = output.cell.status === 'completed'
     || deadlineSettled
+    || structuredVerifierPassed
     || (
       (output.cell.errorClass === 'max_tokens' || output.cell.errorClass === 'tool_step_cap_reached')
       && output.harbor.verifier !== undefined
     );
   const passed = verifierGraded && output.harbor.reward > 0;
-  const errorClass = output.cell.errorClass ?? (passed ? undefined : 'verification_failed');
+  const errorClass = passed ? undefined : output.cell.errorClass ?? 'verification_failed';
   const scored = verifierGraded && !isUnscoredCellFailure(errorClass);
   const agentFailure = output.cell.status === 'failed' && errorClass === 'tool_step_cap_reached';
   return {
@@ -840,7 +848,7 @@ function taskCompletedEvent(input: {
     scored,
     eligible: scored || agentFailure,
     ...(errorClass ? { errorClass } : {}),
-    ...(output.cell.promptHash ? { promptHash: output.cell.promptHash } : {}),
+    ...(promptHash ? { promptHash } : {}),
     ...(output.cell.executionIdentity ? { executionIdentity: output.cell.executionIdentity } : {}),
     ...(output.cell.deadlineSettlement ? { deadlineSettlement: output.cell.deadlineSettlement } : {}),
     ...(output.cell.tokenSummary ? { tokenSummary: output.cell.tokenSummary } : {}),
@@ -1204,6 +1212,21 @@ function projectLegacyTimeoutOutcome(event: FixedPromptWalEvent): FixedPromptWal
   };
 }
 
+function projectStructuredVerifierPassOutcome(event: FixedPromptWalEvent): FixedPromptWalEvent {
+  if (
+    event.type !== 'task_completed'
+    || event.harbor.reward <= 0
+    || event.harbor.verifier?.outcome !== 'passed'
+  ) return event;
+  const { errorClass: _legacyFailureClass, ...rest } = event;
+  return {
+    ...rest,
+    passed: true,
+    scored: true,
+    eligible: true,
+  };
+}
+
 function budgetExhaustedArtifactRefs(error: unknown): FixedPromptBudgetExhaustedArtifactRefs {
   if (isBudgetExhaustedError(error)) {
     const refs = (error as { artifactRefs?: FixedPromptBudgetExhaustedArtifactRefs }).artifactRefs;
@@ -1242,7 +1265,7 @@ function terminalTaskEvents(
       || event.type === 'task_plumbing_failed'
       || (includeInfraFailure && event.type === 'task_infra_failed')
     ) {
-      byTask.set(event.taskId, event);
+      setAuthoritativeTaskEvent(byTask, event);
     }
   }
   return byTask;
@@ -1321,9 +1344,22 @@ function roundTaskEvents(
     if (!isTaskEvent(event)) continue;
     if (event.runId !== runId || event.roundId !== roundId) continue;
     if (!eventMatchesResumeIdentity(event, expectedPromptHash, resumeFingerprint)) continue;
-    byTask.set(event.taskId, event);
+    setAuthoritativeTaskEvent(byTask, event);
   }
   return byTask;
+}
+
+function setAuthoritativeTaskEvent(
+  byTask: Map<string, FixedPromptTaskWalEvent>,
+  event: FixedPromptTaskWalEvent,
+): void {
+  const existing = byTask.get(event.taskId);
+  if (
+    existing?.scored
+    && event.type === 'task_plumbing_failed'
+    && event.errorClass === 'orphaned_sampled_attempt'
+  ) return;
+  byTask.set(event.taskId, event);
 }
 
 export function selectFixedPromptRoundTaskEvents(
@@ -1347,6 +1383,10 @@ function eventMatchesResumeIdentity(
     return resumeFingerprint !== undefined && event.expectedPromptHash === expectedPromptHash;
   }
   if (event.promptHash === expectedPromptHash) return true;
+  if (
+    'executionIdentity' in event
+    && event.executionIdentity?.systemPromptHash === expectedPromptHash
+  ) return true;
   return event.type === 'task_plumbing_failed' && event.expectedPromptHash === expectedPromptHash;
 }
 

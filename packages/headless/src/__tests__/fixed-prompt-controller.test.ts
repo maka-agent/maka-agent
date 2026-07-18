@@ -2365,6 +2365,168 @@ describe('fixed prompt controller', () => {
       assert.equal(result.events[0]?.expectedPromptHash, hashSystemPrompt('fixed prompt\n'));
     });
   });
+
+  test('resumes a legacy terminal whose prompt hash is attested by execution identity', async () => {
+    await withDir(async (dir) => {
+      const systemPromptPath = join(dir, 'system_prompt.md');
+      const resultsJsonlPath = join(dir, 'results.jsonl');
+      const promptHash = hashSystemPrompt('fixed prompt\n');
+      await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
+      const seeded = taskCompletedEvent({ taskId: 'task-a', resumeFingerprint: 'sha256:manifest' });
+      assert.equal(seeded.type, 'task_completed');
+      if (seeded.type !== 'task_completed') throw new Error('expected completed fixture');
+      const { promptHash: _legacyMissingPromptHash, ...withoutPromptHash } = seeded;
+      await appendFixedPromptWalEvent(resultsJsonlPath, {
+        ...withoutPromptHash,
+        executionIdentity: {
+          llmConnectionSlug: 'fake',
+          model: 'fake-model',
+          reasoningEffort: 'off',
+          systemPromptHash: promptHash,
+          pricingProfile: 'test-profile',
+        },
+      });
+      let harborCalls = 0;
+
+      const result = await runFixedPromptController({
+        runId: 'run-1',
+        roundId: 'round-1',
+        config,
+        systemPromptPath,
+        resultsJsonlPath,
+        tasks: [{ id: 'task-a', path: '/bench/task-a' }],
+        resumeFingerprint: 'sha256:manifest',
+        protectPassAtOne: true,
+        harborRunner: async () => {
+          harborCalls += 1;
+          return harborOutput({ taskId: 'task-a' });
+        },
+      });
+
+      assert.equal(harborCalls, 0);
+      assert.equal(result.events[0]?.type, 'task_completed');
+    });
+  });
+
+  test('keeps a scored terminal authoritative over a later orphan marker', async () => {
+    await withDir(async (dir) => {
+      const systemPromptPath = join(dir, 'system_prompt.md');
+      const resultsJsonlPath = join(dir, 'results.jsonl');
+      await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
+      await appendFixedPromptWalEvent(resultsJsonlPath, taskCompletedEvent({
+        taskId: 'task-a',
+        resumeFingerprint: 'sha256:manifest',
+      }));
+      await appendFixedPromptWalEvent(resultsJsonlPath, {
+        schemaVersion: 1,
+        type: 'task_plumbing_failed',
+        id: 'orphan-1',
+        ts: 20,
+        runId: 'run-1',
+        roundId: 'round-1',
+        resumeFingerprint: 'sha256:manifest',
+        taskId: 'task-a',
+        status: 'plumbing_failed',
+        passed: false,
+        scored: false,
+        eligible: false,
+        errorClass: 'orphaned_sampled_attempt',
+        error: 'terminal WAL append raced an old orphan marker',
+        expectedPromptHash: hashSystemPrompt('fixed prompt\n'),
+      });
+
+      const result = await runFixedPromptController({
+        runId: 'run-1',
+        roundId: 'round-1',
+        config,
+        systemPromptPath,
+        resultsJsonlPath,
+        tasks: [{ id: 'task-a', path: '/bench/task-a' }],
+        resumeFingerprint: 'sha256:manifest',
+        protectPassAtOne: true,
+        harborRunner: async () => harborOutput({ taskId: 'task-a' }),
+      });
+
+      assert.equal(result.events[0]?.type, 'task_completed');
+      assert.equal(result.events[0]?.scored, true);
+    });
+  });
+
+  test('keeps a structured verifier pass authoritative after an agent infrastructure exit', async () => {
+    await withDir(async (dir) => {
+      const systemPromptPath = join(dir, 'system_prompt.md');
+      await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
+
+      const result = await runFixedPromptController({
+        runId: 'run-1',
+        roundId: 'round-1',
+        config,
+        systemPromptPath,
+        resultsJsonlPath: join(dir, 'results.jsonl'),
+        tasks: [{ id: 'task-a', path: '/bench/task-a' }],
+        harborRunner: async () => harborOutput({
+          taskId: 'task-a',
+          reward: 1,
+          status: 'failed',
+          errorClass: 'infra_failed',
+          verifier: {
+            outcome: 'passed',
+            attempts: [{ attempt: 1, classification: 'passed', durationMs: 20, reward: 1 }],
+          },
+        }),
+      });
+
+      assert.equal(result.events[0]?.type, 'task_completed');
+      assert.equal(result.events[0]?.passed, true);
+      assert.equal(result.events[0]?.scored, true);
+      assert.equal(result.events[0]?.errorClass, undefined);
+    });
+  });
+
+  test('projects a stored structured verifier pass without resampling Harbor', async () => {
+    await withDir(async (dir) => {
+      const systemPromptPath = join(dir, 'system_prompt.md');
+      const resultsJsonlPath = join(dir, 'results.jsonl');
+      await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
+      const stored = taskCompletedEvent({ taskId: 'task-a' });
+      assert.equal(stored.type, 'task_completed');
+      if (stored.type !== 'task_completed') throw new Error('expected completed fixture');
+      await appendFixedPromptWalEvent(resultsJsonlPath, {
+        ...stored,
+        status: 'failed',
+        passed: false,
+        scored: false,
+        eligible: false,
+        errorClass: 'infra_failed',
+        harbor: {
+          reward: 1,
+          verifier: {
+            outcome: 'passed',
+            attempts: [{ attempt: 1, classification: 'passed', durationMs: 20, reward: 1 }],
+          },
+        },
+      });
+      let harborCalls = 0;
+
+      const result = await runFixedPromptController({
+        runId: 'run-1',
+        roundId: 'round-1',
+        config,
+        systemPromptPath,
+        resultsJsonlPath,
+        tasks: [{ id: 'task-a', path: '/bench/task-a' }],
+        harborRunner: async () => {
+          harborCalls += 1;
+          return harborOutput({ taskId: 'task-a' });
+        },
+      });
+
+      assert.equal(harborCalls, 0);
+      assert.equal(result.events[0]?.passed, true);
+      assert.equal(result.events[0]?.scored, true);
+      assert.equal(result.events[0]?.errorClass, undefined);
+    });
+  });
 });
 
 function taskCompletedEvent(input: { taskId: string; promptHash?: string; resumeFingerprint?: string }): FixedPromptWalEvent {
