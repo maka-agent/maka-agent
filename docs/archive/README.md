@@ -34,7 +34,7 @@ Tracked `notes/` files were retired as an undocumented parallel authority. Point
 
 ## Implementation plans
 
-The dated runtime and sandbox files are completed execution plans. Each file records the pull request that landed its implementation.
+The dated runtime files are completed execution plans. Each file records the pull request that landed its implementation.
 
 `heavy-task-mainline-system-design.md` preserves the original PR, trace, and rollout chronicle. Backend architecture chapters 4–5 and the headless source own current heavy-task mechanisms.
 
@@ -43,8 +43,6 @@ The dated runtime and sandbox files are completed execution plans. Each file rec
 `runtime-kernel.md`, `runtime-v2-architecture-evolution.md`, and `runtime-mainline-teaching-manual.md` preserve the extraction rationale and overlapping teaching narrative that led to the current runtime. Current authority starts at `ARCHITECTURE.md`.
 
 `runtime-v2-implementation-notes.md` records the initial Phase 1–4 runtime skeleton and is superseded by the backend architecture chapters and current source.
-
-`agent-runtime-codex-sandbox-alignment.md` and `agent-runtime-codex-sandbox-todo.md` preserve the original sandbox discussion and phased checklist. Stable boundaries now live beside the runtime implementation; remaining work is tracked in issue #843.
 
 ## Computer use follow-up records
 
