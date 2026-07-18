@@ -96,8 +96,8 @@ export function sanitizeForeignText(input: unknown, maxCodePoints: number): stri
   const cleaned = input
     .normalize('NFC')
     .replace(/[\u0000-\u001F\u007F\u0080-\u009F]/g, ' ')
-    .replace(/[\u202A-\u202E\u2066-\u2069]/g, ' ')
-    .replace(/[\u200B\u200C\u200D\uFEFF]/g, '')
+    .replace(/[\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/g, ' ')
+    .replace(/[\u200B-\u200D\u2060-\u2064\uFEFF]/g, '')
     .replace(/\s+/g, ' ')
     .trim();
   const points = Array.from(cleaned);
@@ -124,8 +124,20 @@ export function isSafeForeignId(value: unknown): value is string {
   if (typeof value !== 'string' || value.length === 0 || value.length > FOREIGN_SESSION_ID_MAX_CHARS) {
     return false;
   }
-  return !/[\u0000-\u001F\u007F\u0080-\u009F\u200B-\u200D\uFEFF\u202A-\u202E\u2066-\u2069\s]/.test(value);
+  return !FOREIGN_UNSAFE_CHARS.test(value);
 }
+
+/**
+ * Control, bidi, zero-width, and whitespace code points that must never
+ * appear in a verbatim-rendered id, and that the display sanitizer strips.
+ * Kept as one source of truth so the id guard and the sanitizer cannot drift.
+ * Covers: C0/C1 controls, ALM (U+061C), bidi marks + embeddings/overrides/
+ * isolates (U+200E/200F, U+202A-202E, U+2066-2069), zero-width joiners +
+ * invisible operators (U+200B-200D, U+2060-2064), the BOM (U+FEFF), and any
+ * whitespace.
+ */
+const FOREIGN_UNSAFE_CHARS =
+  /[\u0000-\u001F\u007F\u0080-\u009F\u061C\u200B-\u200F\u2060-\u2064\u2066-\u2069\u202A-\u202E\uFEFF\s]/;
 
 /* ------------------------------------------------------------------ *
  * Claude Code transcript records

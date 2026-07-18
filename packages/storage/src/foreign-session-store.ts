@@ -213,15 +213,25 @@ class FileForeignSessionStore implements ForeignSessionStore {
     options: ForeignSessionScanOptions,
     now: number,
   ): Promise<ForeignSessionSummary[]> {
-    // Try state DBs newest-generation first; a DB that opens but yields no
-    // usable rows (freshly created, not yet migrated) is not authoritative,
-    // so keep descending and finally fall back to the rollout walk.
+    // Try state DBs newest-generation first. A DB that cannot be opened or
+    // lacks the threads schema (rows === undefined) is skipped so a freshly
+    // created, not-yet-migrated newest generation doesn't hide an older
+    // populated one. But a DB that opens and returns rows IS authoritative:
+    // if those rows filter to empty (a cwd with no Codex threads, or an
+    // all-archived project) that is a real "no sessions" — returning it keeps
+    // the scan cheap and, critically, prevents the rollout walk from
+    // resurrecting archived sessions (rollout files carry no archived flag).
+    let sawUsableDb = false;
     for (const dbPath of await codexStateDbsNewestFirst(this.codexRoot)) {
       const rows = await readCodexThreadRows(dbPath);
       if (rows === undefined) continue;
+      sawUsableDb = true;
       const sessions = await this.codexRowsToSummaries(rows, options, now);
       if (sessions.length > 0) return sessions;
     }
+    // Every usable DB was empty → authoritative "no DB-backed sessions". Only
+    // when there is NO usable DB at all do we fall back to the rollout walk.
+    if (sawUsableDb) return [];
     return this.listCodexSessionsFromRollouts(options, now);
   }
 
