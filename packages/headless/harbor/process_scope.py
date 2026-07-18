@@ -73,15 +73,16 @@ def _marked_process_cleanup_command(
     command_filter = ""
     if command_ids is not None:
         command_checks = " || ".join(
-            "tr '\\000' '\\n' 2>/dev/null < \"$env_file\" | grep -Fqx -- "
+            "tr '\\000' '\\n' 2>/dev/null < \"$env_file\" | grep -Fx -- "
             + shlex.quote(f"{COMMAND_ID_ENV}={command_id}")
+            + " > /dev/null"
             for command_id in command_ids
         )
         command_filter = f" && {{ {command_checks}; }}"
     return (
         "for env_file in /proc/[0-9]*/environ; do "
         "[ -r \"$env_file\" ] || continue; "
-        f"if tr '\\000' '\\n' 2>/dev/null < \"$env_file\" | grep -Fqx -- {scope_marker}"
+        f"if tr '\\000' '\\n' 2>/dev/null < \"$env_file\" | grep -Fx -- {scope_marker} > /dev/null"
         f"{command_filter}; then "
         "pid=${env_file#/proc/}; pid=${pid%/environ}; "
         f"kill -{signal} \"$pid\" 2>/dev/null || true; "
