@@ -50,6 +50,7 @@ export type VisualSmokeScenario =
   | 'settings-usage'
   | 'settings-health'
   | 'module-skills'
+  | 'module-mcp'
   | 'module-daily-review'
   | 'workstation-statuses'
   | 'plan-reminders'
