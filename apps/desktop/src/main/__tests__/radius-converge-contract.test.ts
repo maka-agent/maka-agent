@@ -398,13 +398,18 @@ describe('radius token governance (#406 gap 4)', () => {
       '.maka-first-run-checklist': '--radius-surface',
       '.providerLogo': '--radius-surface',
       '.maka-browser-address': '--radius-control',
-      '.maka-plan-shell': '--radius-surface',
+      // .maka-plan-shell dropped: unboxed to a plain layout container
+      // (the MCP page set the no-outer-frame precedent) — no card chrome,
+      // no radius.
       '.maka-plan-card': '--radius-surface',
       '.maka-plan-template-strip[data-layout="cards"] .maka-plan-template-card': '--radius-surface',
       // .maka-skill-library dropped: unboxed to a plain layout container
       // (the MCP page set the no-outer-frame precedent) — no card chrome,
       // no radius.
-      '.maka-module-main .maka-daily-review-panel': '--radius-surface',
+      // .maka-module-main .maka-daily-review-panel dropped: unboxed to a
+      // plain layout container alongside the skills / plan module unbox
+      // (the MCP page set the no-outer-frame precedent) — no card chrome,
+      // no radius.
       // .maka-daily-review-info dropped: unboxed to a plain hint line in
       // the daily-review IA restructure — no card chrome, no radius.
       '.maka-daily-review-archive-body': '--radius-surface',
