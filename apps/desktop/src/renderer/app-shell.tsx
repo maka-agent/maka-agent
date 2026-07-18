@@ -477,6 +477,7 @@ function AppShellContent({
     useMemo(
       () =>
         deriveAppShellTurnViewModel({
+          uiLocale,
       activeId,
       messages,
       pendingTurnActions,

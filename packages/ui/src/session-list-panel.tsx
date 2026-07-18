@@ -3,6 +3,8 @@ import type { NavSelection } from './nav-selection.js';
 import { SessionHistoryList, type SessionHistoryStatusGroup, type SessionRowActions } from './session-history-list.js';
 import { SessionSidebarFooter, SessionSidebarNav } from './session-sidebar-nav.js';
 import { Segmented } from './primitives/segmented.js';
+import { useUiLocale } from './locale-context.js';
+import { getConversationCopy } from './conversation-copy.js';
 
 export type SessionViewMode = 'status' | 'project';
 
@@ -23,6 +25,7 @@ export function SessionListPanel(props: {
   rowActions?: SessionRowActions;
   sidebarCollapsed?: boolean;
 }) {
+  const copy = getConversationCopy(useUiLocale()).sessions;
   const {
     viewMode = 'status',
     onViewModeChange,
@@ -33,7 +36,7 @@ export function SessionListPanel(props: {
   return (
     <aside
       className="maka-session-panel agents-sidebar"
-      aria-label="对话列表"
+      aria-label={copy.listAriaLabel}
       data-collapsed={props.sidebarCollapsed ? 'true' : undefined}
       data-content={showSessionNavigation ? 'sessions' : 'module'}
     >
@@ -54,9 +57,9 @@ export function SessionListPanel(props: {
               (--surface-secondary etc.), rendering an invisible chrome. */}
           <Segmented
             value={viewMode}
-            options={[['status', '按状态'], ['project', '按项目']]}
+            options={[['status', copy.groupByStatus], ['project', copy.groupByProject]]}
             onChange={(mode) => onViewModeChange(mode)}
-            ariaLabel="会话分组方式"
+            ariaLabel={copy.groupingAriaLabel}
             className="maka-view-mode-segmented"
           />
         </div>

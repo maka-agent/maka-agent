@@ -22,6 +22,7 @@
  */
 
 import { uiLocaleToIntlLocale, type UiLocale } from '@maka/core';
+import { getConversationCopy } from './conversation-copy.js';
 
 function createAbsoluteTimeFormat(locale: UiLocale): Intl.DateTimeFormat {
   if (typeof Intl === 'undefined' || typeof Intl.DateTimeFormat !== 'function') {
@@ -63,9 +64,10 @@ export function formatTurnDuration(ms: number): string {
   return `${m}m ${s}s`;
 }
 
-export function turnAbortMarkerLabel(abortSource: string | undefined): string {
+export function turnAbortMarkerLabel(abortSource: string | undefined, locale: UiLocale): string {
+  const copy = getConversationCopy(locale).messages;
   switch (abortSource) {
-    case 'renderer.stop_button': return '(已中断 · 由停止按钮触发)';
-    default: return '(已中断)';
+    case 'renderer.stop_button': return copy.abortedByStop;
+    default: return copy.aborted;
   }
 }

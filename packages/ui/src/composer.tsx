@@ -13,8 +13,8 @@ import {
 import { useMountedRef } from './use-mounted-ref.js';
 import { ArrowUp, Blocks, Paperclip, Plus } from './icons.js';
 import { ChatModelSwitcher, ModelChipStatic, NewChatModelPicker } from './chat-model-switcher.js';
-import type { UiCatalog } from '@maka/core';
 import { useUiLocale } from './locale-context.js';
+import { getConversationCopy } from './conversation-copy.js';
 import { type ChatModelChoice, modelChoiceValue } from './chat-model-helpers.js';
 import { appendPromptContextDraft } from './composer-helpers.js';
 import { useComposerDraft } from './use-composer-draft.js';
@@ -49,59 +49,6 @@ const COMPOSER_MAX_HEIGHT = 240;
  * OnboardingHero gets a separate `<small>` example hint below the
  * textarea so first-run users still know what to type.
  */
-const COMPOSER_COPY_BY_LOCALE: UiCatalog<{
-  placeholder: string;
-  textareaAriaLabel: string;
-  awaitingPermission: string;
-  sending: string;
-  streamingHintPrefix: string;
-  streamingHintProcessingPrefix: string;
-  streamingHintContinuingPrefix: string;
-  streamingHintInterrupt: string;
-}> = {
-  zh: {
-    // Placeholder honesty: '/' quick-invoke and '@' context syntax do not
-    // exist yet — the old copy advertised affordances the input can't honor.
-    placeholder: '描述任务…',
-    textareaAriaLabel: '消息输入框',
-    awaitingPermission: '等待你确认权限…',
-    sending: '正在发送…',
-    // PR-UX-POLISH-1 (yuejing UX audit msg `9c779b56`): composer streaming
-    // hint now reads `正在回答` so it doesn't conflict with the
-    // ReasoningPanel's `正在思考` (which displays the model's actual
-    // extended-thinking stream). Composer = output-streaming;
-    // ReasoningPanel = reasoning-streaming; distinct signals, distinct copy.
-    streamingHintPrefix: 'Maka 正在回答…',
-    // #646: before the first token, nothing is being answered yet — match the
-    // timeline's "正在处理…" model-wait indicator so the two aren't at odds.
-    streamingHintProcessingPrefix: 'Maka 正在处理…',
-    // #646: a mid-turn step-to-step lull after content has already streamed —
-    // matches the timeline's calm "继续中…" hint, never re-showing "正在处理…".
-    streamingHintContinuingPrefix: 'Maka 继续中…',
-    streamingHintInterrupt: '或点停止中断',
-  },
-  en: {
-    placeholder: 'Describe a task, / for commands, @ for context…',
-    textareaAriaLabel: 'Message input',
-    awaitingPermission: 'Waiting for your permission decision…',
-    sending: 'Sending…',
-    // PR-UX-POLISH-1: parallel en-locale fix — `is responding` instead of
-    // `is thinking`, so it doesn't collide with the ReasoningPanel's
-    // `Thinking…` label.
-    streamingHintPrefix: 'Maka is responding…',
-    // #646: pre-first-token wait — Maka is working, not yet answering.
-    streamingHintProcessingPrefix: 'Maka is working…',
-    // #646: mid-turn step-to-step lull after content — calmer than the head wait.
-    streamingHintContinuingPrefix: 'Maka is continuing…',
-    streamingHintInterrupt: 'or click Stop to interrupt',
-  },
-};
-
-const COMPOSER_BUTTON_COPY_BY_LOCALE: UiCatalog<{ sendLabel: string; stopLabel: string }> = {
-  zh: { sendLabel: '发送', stopLabel: '停止' },
-  en: { sendLabel: 'Send', stopLabel: 'Stop' },
-};
-
 export interface ComposerHandle {
   /** Replace the textarea value and resize, leaving focus on the input. */
   setText(text: string): void;
@@ -278,8 +225,7 @@ export const Composer = forwardRef<
   });
   // PR-UI-15: locale-aware copy for placeholder + toolbar states. We
   const locale = useUiLocale();
-  const copy = COMPOSER_COPY_BY_LOCALE[locale];
-  const buttonCopy = COMPOSER_BUTTON_COPY_BY_LOCALE[locale];
+  const copy = getConversationCopy(locale).composer;
 
   useEffect(() => {
     return () => {
@@ -522,13 +468,13 @@ export const Composer = forwardRef<
 
   const importActionBusy = pendingImportAction !== null;
   const sendDisabled = props.disabled || sendPending || importActionBusy || !hasDraftText;
-  const modelChipLabel = props.modelLabel?.trim() || '选择模型';
+  const modelChipLabel = props.modelLabel?.trim() || copy.selectModel;
   const modelSwitcherDisabledReason = props.streaming
-    ? '当前对话正在流式输出，等结束后再切换模型。'
+    ? copy.switchDisabledStreaming
     : props.activeSession?.status === 'running'
-      ? '当前对话正在运行，等结束后再切换模型。'
+      ? copy.switchDisabledRunning
       : props.activeSession?.status === 'waiting_for_user'
-        ? '当前有工具调用正在等待确认，处理后再切换模型。'
+        ? copy.switchDisabledPermission
         : undefined;
 
   return (
@@ -599,7 +545,7 @@ export const Composer = forwardRef<
         ) : null}
         {dragActive && (
           <span className="maka-visually-hidden" role="status" aria-live="polite">
-            松开以导入文件内容
+            {copy.dropToImport}
           </span>
         )}
         <div className="maka-composer-toolbar composerActions" data-streaming={props.streaming ? 'true' : undefined}>
@@ -616,10 +562,10 @@ export const Composer = forwardRef<
                       type="button"
                       disabled={props.disabled || importActionBusy}
                       onClick={(e) => { menuToggleClick?.(e); }}
-                      aria-label={pendingImportAction === 'pick' ? '正在添加附件' : '添加'}
+                      aria-label={pendingImportAction === 'pick' ? copy.addingAttachment : copy.add}
                       aria-busy={importActionBusy ? 'true' : undefined}
                       data-pending={importActionBusy ? 'true' : undefined}
-                      title="添加文件、专家团…"
+                      title={copy.addTitle}
                     >
                       <Plus size={15} aria-hidden="true" />
                     </UiButton>
@@ -629,14 +575,14 @@ export const Composer = forwardRef<
                   {props.onPickAttachments ? (
                     <MenuItem onClick={() => void runImportAction('pick', props.onPickAttachments)}>
                       <Paperclip size={13} aria-hidden="true" />
-                      <span>添加文件或目录</span>
+                      <span>{copy.addFileOrDirectory}</span>
                     </MenuItem>
                   ) : null}
                   {(props.expertTeams?.length ?? 0) > 0 ? (
                     <MenuSub>
                       <MenuSubTrigger>
                         <Blocks size={13} aria-hidden="true" />
-                        <span>专家团</span>
+                        <span>{copy.expertTeam}</span>
                       </MenuSubTrigger>
                       <MenuSubPopup>
                         {props.expertTeams?.map((team) => (
@@ -692,15 +638,15 @@ export const Composer = forwardRef<
             ) : sendPending ? (
               copy.sending
             ) : importActionBusy ? (
-              '正在导入…'
+              copy.importing
             ) : props.streaming ? (
               <span className="maka-composer-streaming-hint">
                 <span className="maka-composer-streaming-dot" aria-hidden="true" />
                 {props.processing
-                  ? copy.streamingHintProcessingPrefix
+                  ? copy.processing
                   : props.continuing
-                    ? copy.streamingHintContinuingPrefix
-                    : copy.streamingHintPrefix} <Kbd>Esc</Kbd> {copy.streamingHintInterrupt}
+                    ? copy.continuing
+                    : copy.streaming} <Kbd>Esc</Kbd> {copy.interruptHint}
               </span>
             ) : (
               null
@@ -759,7 +705,7 @@ export const Composer = forwardRef<
                 aria-busy={props.stopPending ? 'true' : undefined}
                 data-pending={props.stopPending ? 'true' : undefined}
               >
-                {props.stopPending ? '停止中…' : buttonCopy.stopLabel}
+                {props.stopPending ? copy.stopping : copy.stopLabel}
               </UiButton>
             ) : (
               <UiButton
@@ -768,10 +714,10 @@ export const Composer = forwardRef<
                 shape="pill"
                 type="submit"
                 disabled={sendDisabled}
-                aria-label={buttonCopy.sendLabel}
+                aria-label={copy.sendLabel}
                 aria-busy={sendPending ? 'true' : undefined}
                 data-pending={sendPending ? 'true' : undefined}
-                title={buttonCopy.sendLabel}
+                title={copy.sendLabel}
               >
                 <ArrowUp size={16} aria-hidden="true" />
               </UiButton>

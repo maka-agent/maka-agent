@@ -13,7 +13,7 @@ export { AutomationsPage, DailyReviewPage, SkillsPage } from './module-pages.js'
 export { Composer } from './composer.js';
 export type { ComposerHandle } from './composer.js';
 export {
-  PERMISSION_MODE_META,
+  getPermissionModeMeta,
   PERMISSION_MODE_ORDER,
   PermissionModeSelect,
 } from './permission-mode-menu.js';

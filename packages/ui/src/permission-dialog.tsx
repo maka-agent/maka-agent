@@ -17,6 +17,8 @@ import { Collapsible, CollapsibleTrigger, CollapsiblePanel } from './primitives/
 import { Button as UiButton, Checkbox } from './ui.js';
 import { redactSecrets } from './redact.js';
 import { formatRedactedJson } from './tool-format.js';
+import { useUiLocale } from './locale-context.js';
+import { getConversationCopy, type ConversationCopy } from './conversation-copy.js';
 
 // Per-reason presentation hints. The headline states the decision while tone
 // handles the minimum visual distinction needed for higher-risk requests.
@@ -29,18 +31,8 @@ interface ReasonPreset {
   tone: 'info' | 'caution' | 'destructive';
 }
 
-const REASON_PRESETS: Record<ReasonKind, ReasonPreset> = {
-  shell_dangerous: { prompt: '允许执行高风险 shell 命令？', tone: 'caution' },
-  file_write: { prompt: '允许写入或创建文件？', tone: 'info' },
-  fs_destructive: { prompt: '允许执行不可恢复的文件操作？', tone: 'destructive' },
-  git_destructive: { prompt: '允许执行不可恢复的 Git 操作？', tone: 'destructive' },
-  network: { prompt: '允许发起网络请求？', tone: 'info' },
-  privileged: { prompt: '允许执行特权操作？', tone: 'destructive' },
-  browser: { prompt: '允许操作已登录的浏览器？', tone: 'caution' },
-  computer_use: { prompt: '允许读取或操作本机应用？', tone: 'caution' },
-  additional_permissions: { prompt: '允许本次额外权限？', tone: 'caution' },
-  sandbox_escalation: { prompt: '允许本次在 sandbox 外执行？', tone: 'destructive' },
-  custom: { prompt: '允许执行此操作？', tone: 'info' },
+const REASON_TONE: Record<ReasonKind, ReasonPreset['tone']> = {
+  shell_dangerous: 'caution', file_write: 'info', fs_destructive: 'destructive', git_destructive: 'destructive', network: 'info', privileged: 'destructive', browser: 'caution', computer_use: 'caution', additional_permissions: 'caution', sandbox_escalation: 'destructive', custom: 'info',
 };
 
 export function PermissionPrompt(props: {
@@ -54,6 +46,7 @@ export function PermissionPrompt(props: {
   onStop(): void | Promise<void>;
   stopPending?: boolean;
 }) {
+  const copy = getConversationCopy(useUiLocale()).permissionPrompt;
   const [rememberForTurn, setRememberForTurn] = useState(false);
   const [expandedRequestId, setExpandedRequestId] = useState<string | null>(null);
   const [responsePending, setResponsePending] = useState(false);
@@ -109,18 +102,19 @@ export function PermissionPrompt(props: {
   }
 
   const fullArgsOpen = expandedRequestId === props.request.requestId;
-  const preset = REASON_PRESETS[props.request.reason] ?? REASON_PRESETS.custom;
-  const summary = renderPermissionSummary(props.request);
-  const details = renderPermissionDetails(props.request, fullArgsOpen);
+  const reason = props.request.reason in REASON_TONE ? props.request.reason as ReasonKind : 'custom';
+  const preset: ReasonPreset = { prompt: copy.reason[reason], tone: REASON_TONE[reason] };
+  const summary = renderPermissionSummary(props.request, copy);
+  const details = renderPermissionDetails(props.request, fullArgsOpen, copy);
   const additionalArgs = permissionAdditionalArgs(props.request);
   const showDisclosure = props.request.toolName === 'WriteStdin'
     || details !== undefined
     || additionalArgs !== undefined;
-  const disclosureLabel = permissionDisclosureLabel(props.request, additionalArgs);
-  const prompt = permissionPrompt(props.request, preset);
+  const disclosureLabel = permissionDisclosureLabel(props.request, additionalArgs, copy);
+  const prompt = permissionPrompt(props.request, preset, copy);
   const isDestructive = preset.tone === 'destructive';
   const context = props.request.hint ?? (isDestructive
-    ? '此操作无法恢复，请确认上面的内容。'
+    ? copy.destructiveContext
     : undefined);
   const health = derivePermissionRequestHealth({ requestedAt: props.request.ts, now });
   const waitLabel = formatPermissionRequestWait(health.ageMs);
@@ -139,7 +133,7 @@ export function PermissionPrompt(props: {
             <h2 className="maka-permission-title" id="permissionTitle">{prompt}</h2>
             {health.status !== 'fresh' && (
               <span className="maka-permission-age" data-status={health.status}>
-                已等待 {waitLabel}
+                {copy.waited(waitLabel)}
               </span>
             )}
           </div>
@@ -151,12 +145,12 @@ export function PermissionPrompt(props: {
           )}
           {props.request.reason === 'browser' && rememberForTurn && (
             <p className="maka-permission-context">
-              勾选后，本轮接下来的浏览、读取页面、导航、点击、输入都不再逐次询问。你会全程看到它操作的页面，随时可以停止；本轮结束后授权失效。
+              {copy.rememberBrowser}
             </p>
           )}
           {props.request.reason === 'computer_use' && rememberForTurn && (
             <p className="maka-permission-context" role="note">
-              只会记住上方显示的目标、动作和授权类别。读取授权不会扩展为截图或输入授权；目标或动作类别变化时仍会再次询问。
+              {copy.rememberScoped}
             </p>
           )}
         </div>
@@ -181,11 +175,11 @@ export function PermissionPrompt(props: {
                     disabled={decisionsDisabled}
                     onCheckedChange={(checked) => setRememberForTurn(checked === true)}
                   />
-                  本轮记住
+                  {copy.rememberTurn}
                 </label>
               )}
             </div>
-            <div className="maka-permission-decision-actions" role="group" aria-label="权限操作">
+            <div className="maka-permission-decision-actions" role="group" aria-label={copy.actionsAriaLabel}>
               <UiButton
                 variant="ghost"
                 size="md"
@@ -193,7 +187,7 @@ export function PermissionPrompt(props: {
                 disabled={props.stopPending}
                 onClick={() => void props.onStop()}
               >
-                {props.stopPending ? '停止中…' : '停止'}
+                {props.stopPending ? copy.stopping : copy.stop}
               </UiButton>
               <UiButton
                 ref={denyButtonRef}
@@ -203,7 +197,7 @@ export function PermissionPrompt(props: {
                 disabled={decisionsDisabled}
                 onClick={() => submit('deny')}
               >
-                拒绝操作
+                {copy.deny}
               </UiButton>
               <UiButton
                 variant={isDestructive ? 'destructive' : 'default'}
@@ -212,8 +206,8 @@ export function PermissionPrompt(props: {
                 disabled={decisionsDisabled}
                 onClick={() => submit('allow')}
               >
-                {responsePending ? '正在提交…'
-                  : isOneShotPermissionRequest(props.request) ? '允许这一次' : '允许操作'}
+                {responsePending ? copy.submitting
+                  : isOneShotPermissionRequest(props.request) ? copy.allowOnce : copy.allow}
               </UiButton>
             </div>
           </footer>
@@ -229,24 +223,24 @@ export function PermissionPrompt(props: {
  * tool call — reinforcing that a browser grant spans reads AND acts. The typed
  * text and full args stay in the raw Collapsible block below.
  */
-function renderBrowserSummary(toolName: string, args: Record<string, unknown>): ReactNode {
+function renderBrowserSummary(toolName: string, args: Record<string, unknown>, copy: ConversationCopy['permissionPrompt']): ReactNode {
   const ref = typeof args.ref === 'string' ? args.ref : '';
   const url = typeof args.url === 'string' ? args.url : '';
   const selector = typeof args.selector === 'string' ? args.selector : '';
   const line =
     toolName === 'browser_navigate'
-      ? `即将在浏览器中打开 ${url || '一个网址'}`
+      ? copy.browser.navigate(url || copy.browser.urlFallback)
       : toolName === 'browser_click'
-        ? `即将在当前页面点击元素 ${ref}`.trim()
+        ? copy.browser.click(ref)
         : toolName === 'browser_type'
-          ? `即将在当前页面输入文本${ref ? ` 到元素 ${ref}` : ''}`
+          ? copy.browser.type(ref)
           : toolName === 'browser_snapshot'
-            ? '即将读取当前页面的可交互元素列表'
+            ? copy.browser.snapshot
             : toolName === 'browser_extract'
-              ? `即将读取当前页面内容${selector ? `（${selector}）` : ''}`
+              ? copy.browser.extract(selector)
               : toolName === 'browser_wait'
-                ? '即将等待当前页面满足某个条件'
-                : '即将操作当前浏览器页面';
+                ? copy.browser.wait
+                : copy.browser.generic;
   return <p className="maka-permission-line">{line}</p>;
 }
 
@@ -255,28 +249,28 @@ function renderBrowserSummary(toolName: string, args: Record<string, unknown>): 
  * top of the permission prompt body. Falls back to undefined if we can't
  * recognize the tool — the raw args Collapsible block is always available.
  */
-function renderPermissionSummary(request: AnyPermissionRequestEvent): ReactNode | undefined {
+function renderPermissionSummary(request: AnyPermissionRequestEvent, copy: ConversationCopy['permissionPrompt']): ReactNode | undefined {
   if (isAdditionalPermissionRequest(request)) {
     const entries = request.additionalPermissions.fileSystem?.entries ?? [];
     return (
       <>
         <p className="maka-permission-line">{request.justification}</p>
-        <p className="maka-permission-meta">工作目录 <code>{redactSecrets(request.cwd)}</code></p>
+        <p className="maka-permission-meta">{copy.workingDirectory} <code>{redactSecrets(request.cwd)}</code></p>
         {entries.map((entry) => (
           <p className="maka-permission-path" key={`${entry.access}:${entry.scope}:${entry.path}`}>
             <code>{redactSecrets(entry.path)}</code>
-            {' · '}{entry.access === 'write' ? '读写' : '只读'}
-            {' · '}{entry.scope === 'exact' ? '仅此路径' : '目录及子目录'}
+            {' · '}{entry.access === 'write' ? copy.readWrite : copy.readOnly}
+            {' · '}{entry.scope === 'exact' ? copy.exactPath : copy.directoryTree}
           </p>
         ))}
         {request.risk.networkEnabled && (
-          <p className="maka-permission-meta">本次调用将临时允许网络访问。</p>
+          <p className="maka-permission-meta">{copy.temporaryNetwork}</p>
         )}
         {request.risk.outsideWorkspace && (
-          <p className="maka-permission-meta">包含工作区外路径。</p>
+          <p className="maka-permission-meta">{copy.outsideWorkspace}</p>
         )}
         {request.risk.protectedMetadata && (
-          <p className="maka-permission-meta">包含受保护的 Git/Agent 元数据。</p>
+          <p className="maka-permission-meta">{copy.protectedMetadata}</p>
         )}
       </>
     );
@@ -285,10 +279,10 @@ function renderPermissionSummary(request: AnyPermissionRequestEvent): ReactNode 
     return (
       <>
         <p className="maka-permission-line">{request.justification}</p>
-        <p className="maka-permission-meta">工作目录 <code>{redactSecrets(request.cwd)}</code></p>
+        <p className="maka-permission-meta">{copy.workingDirectory} <code>{redactSecrets(request.cwd)}</code></p>
         <pre className="maka-code maka-permission-command">{redactSecrets(request.command)}</pre>
         <p className="maka-permission-context" data-tone="destructive">
-          本次命令将不经过平台 sandbox，可访问工作区外文件、网络和受保护元数据。
+          {copy.outsideSandbox}
         </p>
       </>
     );
@@ -307,7 +301,7 @@ function renderPermissionSummary(request: AnyPermissionRequestEvent): ReactNode 
           </p>
           {(app || windowId !== undefined) && (
             <p className="maka-permission-meta">
-              目标 {app ?? '当前应用'}{windowId !== undefined ? ` · window ${windowId}` : ''}
+              {copy.target} {app ?? copy.currentApp}{windowId !== undefined ? ` · window ${windowId}` : ''}
             </p>
           )}
         </>
@@ -319,13 +313,13 @@ function renderPermissionSummary(request: AnyPermissionRequestEvent): ReactNode 
     case 'browser_type':
     case 'browser_wait':
     case 'browser_extract':
-      return renderBrowserSummary(request.toolName, args);
+      return renderBrowserSummary(request.toolName, args, copy);
     case 'Bash': {
       const command = typeof args.command === 'string' ? args.command : undefined;
       const cwd = typeof args.cwd === 'string' ? args.cwd : undefined;
       if (!command) return undefined;
       const commandSummary = cwd
-        ? `在 ${redactSecrets(cwd)}\n${redactSecrets(command)}`
+        ? `${copy.inDirectory(redactSecrets(cwd))}\n${redactSecrets(command)}`
         : redactSecrets(command);
       return <pre className="maka-code maka-permission-command">{commandSummary}</pre>;
     }
@@ -334,7 +328,7 @@ function renderPermissionSummary(request: AnyPermissionRequestEvent): ReactNode 
       if (!writeStdin.ref && !writeStdin.input && !writeStdin.size) return undefined;
       return (
         <>
-          <p className="maka-permission-line">即将与后台终端交互</p>
+          <p className="maka-permission-line">{copy.terminalInteraction}</p>
           {writeStdin.ref && (
             <p className="maka-permission-path">
               <code>{writeStdin.ref.text}{writeStdin.ref.truncated ? '…' : ''}</code>
@@ -347,14 +341,14 @@ function renderPermissionSummary(request: AnyPermissionRequestEvent): ReactNode 
               </pre>
               {writeStdin.input.truncated && (
                 <p className="maka-permission-meta">
-                  完整输入共 <strong>{writeStdin.input.bytes}</strong> 字节
+                  {copy.fullInputBytes(writeStdin.input.bytes)}
                 </p>
               )}
             </>
           )}
           {writeStdin.size && (
             <p className="maka-permission-meta">
-              目标尺寸 <strong>{writeStdin.size.cols}x{writeStdin.size.rows}</strong>
+              {copy.targetSize(writeStdin.size.cols, writeStdin.size.rows)}
             </p>
           )}
         </>
@@ -370,7 +364,7 @@ function renderPermissionSummary(request: AnyPermissionRequestEvent): ReactNode 
         <>
           <p className="maka-permission-path"><code>{redactSecrets(path)}</code></p>
           <p className="maka-permission-meta">
-            <strong>{bytes}</strong> 字节 · <strong>{lines}</strong> 行
+            {copy.byteLineCount(bytes, lines)}
           </p>
         </>
       );
@@ -386,7 +380,7 @@ function renderPermissionSummary(request: AnyPermissionRequestEvent): ReactNode 
         <>
           <p className="maka-permission-path"><code>{redactSecrets(path)}</code></p>
           <p className="maka-permission-meta">
-            删除 <strong>{oldLines}</strong> 行 · 写入 <strong>{newLines}</strong> 行
+            {copy.editLineCount(oldLines, newLines)}
           </p>
         </>
       );
@@ -411,6 +405,7 @@ function renderPermissionSummary(request: AnyPermissionRequestEvent): ReactNode 
 function renderPermissionDetails(
   request: AnyPermissionRequestEvent,
   writeStdinExpanded: boolean,
+  copy: ConversationCopy['permissionPrompt'],
 ): ReactNode | undefined {
   if (isAdditionalPermissionRequest(request)) return undefined;
   const args = (request.args ?? {}) as Record<string, unknown>;
@@ -455,17 +450,17 @@ function renderPermissionDetails(
       const propEntries = Object.entries(propsArg).slice(0, 6);
       const hiddenProps = Math.max(0, Object.keys(propsArg).length - propEntries.length);
       const lines = [
-        operation && `操作=${redactSecrets(operation)}`,
-        target && `目标=${redactSecrets(target)}`,
-        elementType && `元素=${redactSecrets(elementType)}`,
-        index !== undefined && `位置=${index}`,
-        ...propEntries.map(([key, value]) => `${redactSecrets(key)}=${permissionValuePreview(value)}`),
+        operation && `${copy.officeField.operation}=${redactSecrets(operation)}`,
+        target && `${copy.officeField.target}=${redactSecrets(target)}`,
+        elementType && `${copy.officeField.element}=${redactSecrets(elementType)}`,
+        index !== undefined && `${copy.officeField.position}=${index}`,
+        ...propEntries.map(([key, value]) => `${redactSecrets(key)}=${permissionValuePreview(value, copy)}`),
       ].filter((line): line is string => Boolean(line));
       if (lines.length === 0) return undefined;
       return (
         <pre className="maka-code maka-permission-preview">
           {lines.join('\n')}
-          {hiddenProps > 0 && `\n… 另有 ${hiddenProps} 个属性`}
+          {hiddenProps > 0 && `\n… ${copy.hiddenProperties(hiddenProps)}`}
         </pre>
       );
     }
@@ -507,29 +502,30 @@ function prefixPermissionDiff(value: string, prefix: '-' | '+'): string {
   return value.split('\n').map((line) => `${prefix} ${line}`).join('\n');
 }
 
-function permissionPrompt(request: AnyPermissionRequestEvent, preset: ReasonPreset): string {
-  if (isAdditionalPermissionRequest(request)) return '允许本次额外权限？';
-  if (isSandboxEscalationRequest(request)) return '允许本次在 sandbox 外执行？';
-  if (request.toolName === 'Edit') return '允许修改文件？';
-  if (request.toolName === 'OfficeDocumentEdit') return '允许编辑 Office 文档？';
+function permissionPrompt(request: AnyPermissionRequestEvent, preset: ReasonPreset, copy: ConversationCopy['permissionPrompt']): string {
+  if (isAdditionalPermissionRequest(request)) return copy.additionalPermission;
+  if (isSandboxEscalationRequest(request)) return copy.sandboxEscalation;
+  if (request.toolName === 'Edit') return copy.editFile;
+  if (request.toolName === 'OfficeDocumentEdit') return copy.editOffice;
   return preset.prompt;
 }
 
 function permissionDisclosureLabel(
   request: AnyPermissionRequestEvent,
   additionalArgs: Record<string, unknown> | undefined,
+  copy: ConversationCopy['permissionPrompt'],
 ): string {
   switch (request.toolName) {
     case 'Edit':
-      return '查看变更';
+      return copy.disclosure.changes;
     case 'Write':
-      return '查看内容';
+      return copy.disclosure.content;
     case 'WriteStdin':
-      return '查看输入';
+      return copy.disclosure.input;
     case 'OfficeDocumentEdit':
-      return '查看变更';
+      return copy.disclosure.changes;
     default:
-      return additionalArgs ? '完整参数' : '查看详情';
+      return additionalArgs ? copy.disclosure.fullArguments : copy.disclosure.details;
   }
 }
 
@@ -549,12 +545,12 @@ function isOneShotPermissionRequest(request: AnyPermissionRequestEvent): boolean
   return isAdditionalPermissionRequest(request) || isSandboxEscalationRequest(request);
 }
 
-function permissionValuePreview(value: unknown): string {
+function permissionValuePreview(value: unknown, copy: ConversationCopy['permissionPrompt']): string {
   if (typeof value === 'string') {
     const safe = redactSecrets(value);
     return safe.length > 160 ? `${safe.slice(0, 160)}…` : safe;
   }
   if (typeof value === 'number' && Number.isFinite(value)) return String(value);
   if (typeof value === 'boolean') return value ? 'true' : 'false';
-  return '不支持的属性值';
+  return copy.unsupportedValue;
 }

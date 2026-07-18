@@ -2,7 +2,7 @@
 
 ## Scope
 
-This change implements only PR 3 from issue #1052. It migrates the complete desktop fake-backend conversation journey after the reactive locale foundation from PR 1, while remaining independent from PR 2's shell, onboarding, and Settings translation slice.
+This change implements only PR 3 from issue #1052. It migrates the complete desktop fake-backend conversation journey on top of the reactive locale foundation from PR 1 and the merged shell, onboarding, and Settings translation slice from PR 2 (#1170).
 
 The localized journey includes:
 
@@ -55,11 +55,11 @@ Create `apps/desktop/src/renderer/locales/conversation-copy.ts` for renderer-own
 
 ### Existing locale authority
 
-PR 1 remains the only authority:
+The locale foundation remains the only authority:
 
 1. `personalization.uiLocale` is persisted once.
 2. `LocaleProvider` derives `zh | en` once.
-3. React surfaces call `useUiLocale()`.
+3. React surfaces call `useUiLocale()` from `@maka/ui`.
 4. Pure presenters receive that locale explicitly.
 5. `<html lang>` and `Intl` continue to use the same resolved locale.
 
@@ -81,7 +81,7 @@ Dynamic values flow through typed formatter functions:
 - Desktop action failures keep the current state rollback and pending-action behavior.
 - Sanitized error classification remains semantic; only the selected user-facing title/fallback changes by locale.
 - Unknown tool payloads continue to use defensive generic previews, now with locale-aware labels.
-- Missing provider/context usage still fails through the PR 1 `useUiLocale()` invariant rather than silently selecting Chinese.
+- Missing provider/context usage still fails through the locale-foundation `useUiLocale()` invariant rather than silently selecting Chinese.
 - Catalog access is direct and total; English never falls back to Chinese.
 
 ## Testing
@@ -100,4 +100,4 @@ Verification runs the focused UI and desktop tests, build, typecheck, lint, exac
 
 ## Delivery boundary
 
-PR 3 delivers a coherent bilingual conversation/session/tool journey and presentation helpers. It intentionally does not localize remaining specialized Settings or desktop surfaces, does not change `auto -> zh`, and does not add the representative end-to-end locale matrix reserved for PR 4. It is based directly on upstream `main`, so PR 2 and PR 3 can be reviewed and merged independently.
+PR 3 delivers a coherent bilingual conversation/session/tool journey and presentation helpers. It intentionally does not localize remaining specialized Settings or desktop surfaces, does not change `auto -> zh`, and does not add the representative end-to-end locale matrix reserved for PR 4. It builds on merged PR 2 without duplicating the two narrowly scoped delivery fixes tracked in follow-up PR #1184.

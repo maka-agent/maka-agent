@@ -1,3 +1,6 @@
+import type { UiLocale } from '@maka/core';
+import { getToolActivityCopy } from './copy.js';
+
 export const TOOL_LINE_CAP = 500;
 
 export function capLines(text: string): { body: string; capped: number } {
@@ -25,8 +28,8 @@ export function formatDuration(ms: number | undefined): string | null {
   return `${minutes}m ${seconds}s`;
 }
 
-export function formatUserVisibleToolText(text: string): string {
-  return text.replace(/\bUser denied permission\b/g, '用户已拒绝权限请求');
+export function formatUserVisibleToolText(text: string, locale: UiLocale = 'zh'): string {
+  return text.replace(/\bUser denied permission(?: request)?\b|用户已拒绝权限请求/g, getToolActivityCopy(locale).permissionDenied);
 }
 
 /** One concise default summary of a tool failure: cap both characters and

@@ -16,6 +16,7 @@ import { Bubble, Marker, markerVariants, Message, TextShimmer } from './primitiv
 import { Tooltip, TooltipTrigger, TooltipContent } from './primitives/tooltip.js';
 import { ToolTrow } from './tool-activity.js';
 import { useUiLocale } from './locale-context.js';
+import { getConversationCopy } from './conversation-copy.js';
 
 /**
  * Injected host capability that reads a session attachment's bytes. @maka/ui is
@@ -45,6 +46,7 @@ export type ReadAttachmentBytes = (
  * delta; this keeps already-final bubbles from re-parsing markdown.
  */
 function AttachmentImage(props: { attachment: AttachmentRef; onReadAttachmentBytes?: ReadAttachmentBytes }) {
+  const copy = getConversationCopy(useUiLocale()).messages;
   const [src, setSrc] = useState<string | undefined>(undefined);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const { onReadAttachmentBytes } = props;
@@ -77,7 +79,7 @@ function AttachmentImage(props: { attachment: AttachmentRef; onReadAttachmentByt
         type="button"
         className="group relative inline-flex rounded-md overflow-hidden border border-[var(--border)] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
         onClick={() => setLightboxOpen(true)}
-        aria-label={`查看图片 ${props.attachment.name}`}
+        aria-label={copy.imageAriaLabel(props.attachment.name)}
       >
         <img className="h-32 w-32 object-cover transition group-hover:opacity-90" src={src} alt={props.attachment.name} />
       </button>
@@ -153,6 +155,7 @@ const MessageBody = memo(function MessageBody(props: { role: string; text: strin
 });
 
 function MessageCopyButton(props: { text: string; label?: string; footerStyle?: boolean }) {
+  const copyText = getConversationCopy(useUiLocale()).messages;
   const copyFeedback = useClipboardCopyFeedback(1400, { redact: false });
   const copyPhase = copyFeedback.phaseFor('message');
   const copyPending = copyPhase === 'pending';
@@ -170,13 +173,13 @@ function MessageCopyButton(props: { text: string; label?: string; footerStyle?: 
   const footer = props.footerStyle === true;
   const iconSize = footer ? 12 : 14;
 
-  const baseLabel = props.label ?? (footer ? '复制' : '复制消息');
+  const baseLabel = props.label ?? (footer ? copyText.copy : copyText.copyMessage);
   const actionLabel = copyPhase === 'pending'
-    ? '复制中'
+    ? copyText.copying
     : copyPhase === 'copied'
-      ? '已复制'
+      ? copyText.copied
       : copyPhase === 'failed'
-        ? '复制失败'
+        ? copyText.copyFailed
         : baseLabel;
   const icon = copied
     ? <Check size={iconSize} aria-hidden="true" />
@@ -225,7 +228,7 @@ function MessageCopyButton(props: { text: string; label?: string; footerStyle?: 
       data-labelled={props.label ? 'true' : undefined}
     >
       {icon}
-      {props.label && <span>{copyPhase === 'pending' ? '复制中…' : copyPhase === 'failed' ? '复制失败' : copied ? '已复制' : props.label}</span>}
+      {props.label && <span>{copyPhase === 'pending' ? `${copyText.copying}…` : copyPhase === 'failed' ? copyText.copyFailed : copied ? copyText.copied : props.label}</span>}
     </BaseButton>
   );
 }
@@ -298,6 +301,7 @@ export const TurnView = memo(function TurnView(props: {
   onReadAttachmentBytes?: ReadAttachmentBytes;
 }) {
   const locale = useUiLocale();
+  const copy = getConversationCopy(locale).messages;
   const { turn } = props;
   const forwardBadges = props.lineageBadges?.filter((b) => b.direction === 'forward') ?? [];
   const reverseBadges = props.lineageBadges?.filter((b) => b.direction === 'reverse') ?? [];
@@ -321,7 +325,7 @@ export const TurnView = memo(function TurnView(props: {
       tabIndex={props.searchHighlighted ? -1 : undefined}
     >
       {forwardBadges.length > 0 && (
-        <Marker variant="lineage-row" aria-label="本轮回答的来源">
+        <Marker variant="lineage-row" aria-label={copy.sourceAriaLabel}>
           {forwardBadges.map((badge) => (
             <UiButton
               key={badge.id}
@@ -346,16 +350,16 @@ export const TurnView = memo(function TurnView(props: {
         <Marker
           variant="automation-origin"
           role="note"
-          title={`由定时任务触发 · ${turn.user.automationOrigin.automationId}`}
+          title={copy.automationTitle(turn.user.automationOrigin.automationId)}
         >
           <Timer size={12} aria-hidden="true" />
-          <span>定时任务触发</span>
+          <span>{copy.automationTriggered}</span>
         </Marker>
       )}
       {turn.user && (
         <Message
           variant="user"
-          aria-label="你发送的消息"
+          aria-label={copy.userAriaLabel}
           title={turn.user.ts ? formatAbsoluteTimestamp(turn.user.ts, locale) : undefined}
           className="group/usermsg"
         >
@@ -375,7 +379,7 @@ export const TurnView = memo(function TurnView(props: {
         <Message
           variant="assistant"
           data-turn-status={turn.status}
-          aria-label="Maka 的回答"
+          aria-label={copy.assistantAriaLabel}
           className="group/answer"
         >
           <div className="flex flex-col gap-2">
@@ -386,7 +390,7 @@ export const TurnView = memo(function TurnView(props: {
             {turn.status === 'aborted' && (
               <Marker variant="aborted" role="status">
                 <Ban size={12} aria-hidden="true" />
-                <em>{turnAbortMarkerLabel(turn.abortSource)}</em>
+                <em>{turnAbortMarkerLabel(turn.abortSource, locale)}</em>
               </Marker>
             )}
             {/* PR109e-d: failed turn AlertOctagon banner with generalized
@@ -424,7 +428,7 @@ export const TurnView = memo(function TurnView(props: {
             )}
           </div>
           {reverseBadges.length > 0 && (
-            <Marker variant="lineage-row-reverse" aria-label="本轮回答的衍生">
+            <Marker variant="lineage-row-reverse" aria-label={copy.derivativesAriaLabel}>
               {reverseBadges.map((badge) => (
                 <UiButton
                   key={badge.id}
@@ -513,6 +517,7 @@ function TurnFooterActions(props: {
   /** Assistant text used by the inline copy action. */
   assistantText?: string;
 }) {
+  const copy = getConversationCopy(useUiLocale()).messages;
   const [copyPhase, setCopyPhase] = useState<ClipboardCopyPhase | null>(null);
   const copyPendingRef = useRef(false);
   const copyResetTimerRef = useRef<number | null>(null);
@@ -568,7 +573,7 @@ function TurnFooterActions(props: {
     <Marker
       variant="footer"
       role="toolbar"
-      aria-label="本轮回答操作"
+      aria-label={copy.answerActionsAriaLabel}
     >
       {props.actions.map((action) => {
         // Per @kenji review: pending state must keep the original button
@@ -577,15 +582,15 @@ function TurnFooterActions(props: {
         // are the signals — the `footer-action` marker shell renders as a
         // bare `quiet` button in every state, so pending never keys off the
         // Button `variant`, and no presentation-priority hook is emitted.
-        const isPending = action.tooltip === '正在处理…';
+        const isPending = action.tooltip === copy.processing;
         const isCopyAction = action.id === 'copy';
         const copyIsPending = isCopyAction && copyPhase === 'pending';
         const copyFeedbackLabel = copyPhase === 'pending'
-          ? '复制中…'
+          ? `${copy.copying}…`
           : copyPhase === 'copied'
-            ? '已复制'
+            ? copy.copied
             : copyPhase === 'failed'
-              ? '复制失败'
+              ? copy.copyFailed
               : action.label;
         const isActionPending = isPending || copyIsPending;
         // Copy's tooltip comes from the helper (enabled affordance vs disabled
@@ -663,6 +668,7 @@ const STATUS_FOOTER_ICON: Record<TurnFooterActionMeta['id'], ReactNode> = {
  * `useDelayedFlag`, so by the time this renders the wait is already worth showing.
  */
 export function ModelProcessingIndicator() {
+  const copy = getConversationCopy(useUiLocale()).messages;
   return (
     <div className="flex items-center gap-2 py-0.5" role="status" aria-live="polite">
       <Loader2
@@ -670,7 +676,7 @@ export function ModelProcessingIndicator() {
         aria-hidden="true"
         className="shrink-0 animate-spin text-[color:var(--muted-foreground)]"
       />
-      <TextShimmer active className="min-w-0 truncate text-[length:var(--font-size-base)]">正在处理…</TextShimmer>
+      <TextShimmer active className="min-w-0 truncate text-[length:var(--font-size-base)]">{copy.processing}</TextShimmer>
     </div>
   );
 }
@@ -685,18 +691,20 @@ export function ModelProcessingIndicator() {
  * whitelisted fade-in is the only motion; reduced-motion neutralizes it globally.
  */
 export function ModelContinuingIndicator() {
+  const copy = getConversationCopy(useUiLocale()).messages;
   return (
     <div
       className="flex items-center py-0.5 text-[length:var(--font-size-base)] text-[color:var(--muted-foreground)] opacity-70 [animation:maka-stream-fade-in_var(--duration-emphasized)_var(--ease-out-strong)_both]"
       role="status"
       aria-live="polite"
     >
-      <span className="min-w-0 truncate">继续中…</span>
+      <span className="min-w-0 truncate">{copy.continuing}</span>
     </div>
   );
 }
 
 function StreamingAssistantBubble(props: { text: string; live: boolean; truncated?: boolean; onSettled?: () => void }) {
+  const copy = getConversationCopy(useUiLocale()).messages;
   // PR-UI-C1 review fixup (@kenji msg fbb8f119): the smoother
   // typewriters PREFIXES of its input string. If the raw text
   // contains a mid-delta secret like `Authorization: Bearer sk-...`,
@@ -740,9 +748,9 @@ function StreamingAssistantBubble(props: { text: string; live: boolean; truncate
           className="mt-1.5 inline-block cursor-help rounded-[var(--radius-control)] border border-[oklch(from_var(--warning)_l_c_h_/_0.24)] bg-[oklch(from_var(--warning)_l_c_h_/_0.05)] px-1 text-xs text-[color:var(--warning-text,var(--info-text))]"
           role="status"
           aria-live="polite"
-          title="助手输出已超过单次回合上限，超出部分未渲染。如需完整内容请重新生成或查看持久化的会话日志。"
+          title={copy.outputTruncatedTitle}
         >
-          已截断
+          {copy.truncated}
         </div>
       )}
     </Bubble>
@@ -803,6 +811,7 @@ function TurnTimelineEntry(props: {
  * fires when the thinking cap dropped content.
  */
 function DeepThinking(props: { text: string; live: boolean; truncated?: boolean }) {
+  const copy = getConversationCopy(useUiLocale()).messages;
   const snap = useStreamSnap();
   const safeText = prepareSmoothStreamText(props.text);
   const { displayed } = useSmoothStreamContent(safeText, { streaming: props.live, snap });
@@ -839,9 +848,9 @@ function DeepThinking(props: { text: string; live: boolean; truncated?: boolean 
           className="shrink-0 text-[color:var(--muted-foreground)]"
         />
         {props.live ? (
-          <TextShimmer active={!snap} className="min-w-0 truncate text-[length:var(--font-size-base)]">深度思考</TextShimmer>
+          <TextShimmer active={!snap} className="min-w-0 truncate text-[length:var(--font-size-base)]">{copy.thinking}</TextShimmer>
         ) : (
-          <span className="min-w-0 truncate text-[length:var(--font-size-base)] text-[color:var(--muted-foreground)]">深度思考</span>
+          <span className="min-w-0 truncate text-[length:var(--font-size-base)] text-[color:var(--muted-foreground)]">{copy.thinking}</span>
         )}
         {/* "已截断" pill: the thinking cap (applyThinkingDelta /
             applyThinkingComplete) dropped content; same chrome as the
@@ -850,9 +859,9 @@ function DeepThinking(props: { text: string; live: boolean; truncated?: boolean 
           <span
             className="rounded-[var(--radius-control)] border border-[oklch(from_var(--warning)_l_c_h_/_0.30)] bg-[oklch(from_var(--warning)_l_c_h_/_0.06)] px-1 text-[length:var(--font-size-caption)] text-[color:var(--warning-text,var(--info-text))]"
             data-truncated="true"
-            title="部分 reasoning 已截断；显示的是最近的内容"
+            title={copy.thinkingTruncatedTitle}
           >
-            已截断
+            {copy.truncated}
           </span>
         )}
         {/* Quiet chevron sits right after the label (near the text, not pinned
@@ -892,7 +901,7 @@ function DeepThinking(props: { text: string; live: boolean; truncated?: boolean 
                 {props.text}
               </div>
               <div className="absolute right-0 top-0 opacity-0 [transition:opacity_var(--duration-quick)_var(--ease-out-strong)] group-hover/reasoning:opacity-100 focus-within:opacity-100">
-                <MessageCopyButton text={props.text} label="复制思考过程" footerStyle />
+                <MessageCopyButton text={props.text} label={copy.copyThinking} footerStyle />
               </div>
             </>
           )}
