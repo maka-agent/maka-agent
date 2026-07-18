@@ -28,7 +28,9 @@ import {
   type HarnessOracleTaskResult,
 } from './harness-oracle-policy.js';
 import {
+  summarizeProviderTelemetry,
   startProviderAuthProxy,
+  type ProviderRequestTelemetry,
   type ProviderTokenUsage,
   type ProviderUsageProtocol,
 } from './provider-auth-proxy.js';
@@ -61,6 +63,7 @@ const TRIAL_VERIFIER_STDOUT = 'verifier/test-stdout.txt';
 const TRIAL_VERIFIER_OUTCOME = 'verifier/maka-verifier-outcome.json';
 const TRIAL_RESULT = 'result.json';
 const TRIAL_TRACE_EVENTS_ROOT = 'agent/maka-storage/sessions';
+const PROVIDER_REQUEST_TELEMETRY = 'provider-request-telemetry.json';
 
 /** A Harbor-side failure (build/docker/timeout/missing artifact) — NOT a benchmark
  * result. The controller turns a thrown error into an infra_failed event so it is
@@ -70,6 +73,7 @@ export class HarborInfraError extends Error {
     message: string,
     readonly detail?: string,
     readonly kind: 'infra_failed' | 'timed_out' = 'infra_failed',
+    readonly artifactRefs?: { providerTelemetryPath?: string },
   ) {
     super(message);
     this.name = 'HarborInfraError';
@@ -225,6 +229,8 @@ export function createHarborTaskRunner(options: HarborTaskRunnerOptions): Harbor
     const args = ['run', '--config', configPath, '--yes'];
     let result: HarborRunResult;
     let providerUsage: ProviderTokenUsage | null = null;
+    let providerTelemetry: ProviderRequestTelemetry[] = [];
+    const providerTelemetryPath = join(jobsDir, PROVIDER_REQUEST_TELEMETRY);
     try {
       const providerRuntime = await hostSideProviderRuntime(runnerOptions);
       try {
@@ -238,14 +244,28 @@ export function createHarborTaskRunner(options: HarborTaskRunnerOptions): Harbor
           timeoutMs: resolveHarborTimeoutMs(runnerOptions, input),
           env: { PYTHONPATH: pythonPath, ...(providerRuntime?.env ?? {}) },
         });
-        providerUsage = providerRuntime?.usage?.() ?? null;
       } finally {
         await providerRuntime?.close?.();
+        providerUsage = providerRuntime?.usage?.() ?? null;
+        providerTelemetry = providerRuntime?.telemetry?.() ?? [];
+        if (providerTelemetry.length > 0) {
+          await writeFile(providerTelemetryPath, `${JSON.stringify({
+            schemaVersion: 1,
+            summary: summarizeProviderTelemetry(providerTelemetry),
+            requests: providerTelemetry,
+          }, null, 2)}\n`, 'utf8');
+        }
       }
     } catch (error) {
       if (isBudgetExhaustedError(error)) throw error;
-      throw new HarborInfraError(`harbor run failed to launch for task ${input.task.id}`, errorText(error));
+      throw new HarborInfraError(
+        `harbor run failed to launch for task ${input.task.id}`,
+        errorText(error),
+        'infra_failed',
+        providerTelemetryArtifactRefs(providerTelemetry, providerTelemetryPath),
+      );
     }
+    try {
     if (result.timedOut) {
       throw new HarborInfraError(
         `harbor run timed out for task ${input.task.id}`,
@@ -280,7 +300,9 @@ export function createHarborTaskRunner(options: HarborTaskRunnerOptions): Harbor
         throw new FixedPromptBudgetExhaustedError(
           `agent budget exhausted for task ${input.task.id}`,
           trialException,
-          artifactRefs ?? undefined,
+          artifactRefs || providerTelemetry.length > 0
+            ? { ...(artifactRefs ?? {}), ...(providerTelemetry.length > 0 ? { providerTelemetryPath } : {}) }
+            : undefined,
         );
       }
       completeTimedOutTrial = true;
@@ -318,6 +340,7 @@ export function createHarborTaskRunner(options: HarborTaskRunnerOptions): Harbor
       // controller's reward-hack scan and structural smoke can read raw events.
       cell: {
         ...cell,
+        ...(providerTelemetry.length > 0 ? { providerTelemetryPath } : {}),
         runtimeEventsPath: hostEventsPath,
         traceEventsPath: join(
           trialDir,
@@ -329,8 +352,32 @@ export function createHarborTaskRunner(options: HarborTaskRunnerOptions): Harbor
         ),
       },
     };
+    } catch (error) {
+      throw withProviderTelemetryArtifact(error, providerTelemetry, providerTelemetryPath);
+    }
   };
   return runner;
+}
+
+function providerTelemetryArtifactRefs(
+  telemetry: readonly ProviderRequestTelemetry[],
+  providerTelemetryPath: string,
+): { providerTelemetryPath: string } | undefined {
+  return telemetry.length > 0 ? { providerTelemetryPath } : undefined;
+}
+
+function withProviderTelemetryArtifact(
+  error: unknown,
+  telemetry: readonly ProviderRequestTelemetry[],
+  providerTelemetryPath: string,
+): unknown {
+  const artifactRefs = providerTelemetryArtifactRefs(telemetry, providerTelemetryPath);
+  if (!(error instanceof HarborInfraError) || !artifactRefs || error.artifactRefs?.providerTelemetryPath) {
+    return error;
+  }
+  const enriched = new HarborInfraError(error.message, error.detail, error.kind, artifactRefs);
+  enriched.stack = error.stack;
+  return enriched;
 }
 
 export function createHarborOracleQualifier(options: HarborOracleQualifierOptions): HarborOracleQualifier {
@@ -767,6 +814,7 @@ function verifierPolicy(task: HarborTaskRunInput['task']): {
 async function hostSideProviderRuntime(options: HarborTaskRunnerOptions): Promise<{
   env: Record<string, string>;
   usage?: () => ProviderTokenUsage | null;
+  telemetry?: () => ProviderRequestTelemetry[];
   close?: () => Promise<void>;
 } | null> {
   const provider = options.provider ?? 'deepseek';
@@ -810,6 +858,7 @@ async function hostSideProviderRuntime(options: HarborTaskRunnerOptions): Promis
         MAKA_PROVIDER_PROXY_TOKEN: proxy.token,
       },
       usage: proxy.usage,
+      telemetry: proxy.telemetry,
       close: proxy.close,
     };
   }
@@ -857,7 +906,7 @@ function providerTokenSummary(
     cacheMissInput,
     cacheWriteInput: usage.cacheWrite,
     cacheMissInputSource: 'explicit',
-    reasoning: 0,
+    reasoning: usage.reasoning ?? 0,
     total: usage.input + usage.output,
     costUsd,
     pricingSource: 'runtime',

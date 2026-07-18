@@ -506,7 +506,9 @@ describe('fixed prompt controller', () => {
         resultsTsvPath: join(dir, 'results.tsv'),
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
         harborRunner: async () => {
-          throw new Error('container crashed before result.json');
+          throw Object.assign(new Error('container crashed before result.json'), {
+            artifactRefs: { providerTelemetryPath: '/logs/task-a/provider-request-telemetry.json' },
+          });
         },
         now: () => 100,
         newId: idFactory(),
@@ -517,6 +519,10 @@ describe('fixed prompt controller', () => {
       assert.equal(result.events[0]?.eligible, false);
       assert.equal(result.events[0]?.scored, false);
       assert.equal(result.events[0]?.errorClass, 'infra_error');
+      assert.equal(
+        result.events[0]?.type === 'task_infra_failed' ? result.events[0].providerTelemetryPath : undefined,
+        '/logs/task-a/provider-request-telemetry.json',
+      );
       assert.match(await readFile(resultsJsonlPath, 'utf8'), /"type":"task_infra_failed"/);
     });
   });
@@ -998,6 +1004,7 @@ describe('fixed prompt controller', () => {
       assert.equal(event.tokenSummarySource, 'final');
       assert.equal(event.runtimeEventsPath, cell.runtimeEventsPath);
       assert.equal(event.traceEventsPath, cell.traceEventsPath);
+      assert.equal(event.providerTelemetryPath, '/logs/task-a/provider-request-telemetry.json');
       assert.deepEqual(
         'contextBudgetSummary' in event ? event.contextBudgetSummary : undefined,
         retainedContextBudgetSummary,
@@ -1981,6 +1988,10 @@ describe('fixed prompt controller', () => {
       assert.equal(result.events[0]?.type, 'task_infra_failed');
       assert.equal(result.events[0]?.eligible, false);
       assert.equal(result.events[0]?.errorClass, 'rate_limit');
+      assert.equal(
+        result.events[0]?.type === 'task_infra_failed' ? result.events[0].providerTelemetryPath : undefined,
+        '/logs/task-a/provider-request-telemetry.json',
+      );
     });
   });
 
@@ -2414,6 +2425,7 @@ function harborOutput(input: {
   executionIdentity?: HarborTaskRunOutput['cell']['executionIdentity'];
   deadlineSettlement?: HarborTaskRunOutput['cell']['deadlineSettlement'];
   verifier?: HarborTaskRunOutput['harbor']['verifier'];
+  providerTelemetryPath?: string;
 }): HarborTaskRunOutput {
   return {
     harbor: { reward: input.reward ?? 1, ...(input.verifier ? { verifier: input.verifier } : {}) },
@@ -2423,6 +2435,7 @@ function harborOutput(input: {
       ...(input.errorClass ? { errorClass: input.errorClass } : {}),
       runtimeEventsPath: `/logs/${input.taskId}/runtime-events.jsonl`,
       traceEventsPath: `/logs/${input.taskId}/events.jsonl`,
+      providerTelemetryPath: input.providerTelemetryPath ?? `/logs/${input.taskId}/provider-request-telemetry.json`,
       ...(input.omitPromptHash ? {} : { promptHash: input.promptHash ?? hashSystemPrompt('fixed prompt\n') }),
       ...(input.executionIdentity ? { executionIdentity: input.executionIdentity } : {}),
       ...(input.deadlineSettlement ? { deadlineSettlement: input.deadlineSettlement } : {}),

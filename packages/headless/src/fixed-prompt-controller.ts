@@ -40,6 +40,7 @@ export interface FixedPromptTask {
 
 export type HarborTaskRunCellOutput = HarborCellOutput & {
   traceEventsPath?: string;
+  providerTelemetryPath?: string;
 };
 
 export interface HarborVerifierAttempt {
@@ -79,6 +80,7 @@ export interface HarborTaskRunner {
 export interface FixedPromptBudgetExhaustedArtifactRefs {
   runtimeEventsPath?: string;
   traceEventsPath?: string;
+  providerTelemetryPath?: string;
   runtimeEventsUnavailableReason?: string;
   tokenSummary?: HarborCellTokenSummary;
   cellOutput?: HarborTaskRunCellOutput;
@@ -127,6 +129,7 @@ export interface FixedPromptTaskCompletedEvent {
   durationMs: number;
   runtimeEventsPath: string;
   traceEventsPath?: string;
+  providerTelemetryPath?: string;
   harbor: {
     reward: number;
     verifierFailureSummary?: string;
@@ -161,6 +164,7 @@ export interface FixedPromptTaskInfraFailedEvent {
   eligible: false;
   errorClass: 'infra_error' | 'provider_billing' | 'auth' | 'rate_limit' | 'provider_unavailable' | 'network';
   error: string;
+  providerTelemetryPath?: string;
 }
 
 export interface FixedPromptTaskBudgetExhaustedEvent {
@@ -183,6 +187,7 @@ export interface FixedPromptTaskBudgetExhaustedEvent {
   expectedPromptHash: string;
   runtimeEventsPath?: string;
   traceEventsPath?: string;
+  providerTelemetryPath?: string;
   runtimeEventsUnavailableReason?: string;
   tokenSummary?: HarborCellTokenSummary;
   tokenSummarySource?: 'final' | 'checkpoint';
@@ -221,6 +226,7 @@ export interface FixedPromptTaskPlumbingFailedEvent {
   durationMs?: number;
   runtimeEventsPath?: string;
   traceEventsPath?: string;
+  providerTelemetryPath?: string;
   harbor?: {
     reward: number;
   };
@@ -846,6 +852,7 @@ function taskCompletedEvent(input: {
     durationMs: output.cell.durationMs,
     runtimeEventsPath: output.cell.runtimeEventsPath,
     ...(output.cell.traceEventsPath ? { traceEventsPath: output.cell.traceEventsPath } : {}),
+    ...(output.cell.providerTelemetryPath ? { providerTelemetryPath: output.cell.providerTelemetryPath } : {}),
     harbor: {
       reward: output.harbor.reward,
       ...(output.harbor.verifierFailureSummary ? { verifierFailureSummary: output.harbor.verifierFailureSummary } : {}),
@@ -904,6 +911,9 @@ function taskPlumbingFailedEvent(input: {
     durationMs: input.output.cell.durationMs,
     runtimeEventsPath: input.output.cell.runtimeEventsPath,
     ...(input.output.cell.traceEventsPath ? { traceEventsPath: input.output.cell.traceEventsPath } : {}),
+    ...(input.output.cell.providerTelemetryPath
+      ? { providerTelemetryPath: input.output.cell.providerTelemetryPath }
+      : {}),
     harbor: {
       reward: input.output.harbor.reward,
     },
@@ -1009,6 +1019,7 @@ function classifyExplicitIdentityMismatch(
 
 function taskInfraFailedEvent(input: {
   error: unknown;
+  output?: HarborTaskRunOutput;
   errorClass?: FixedPromptTaskInfraFailedEvent['errorClass'];
   taskId: string;
   runId: string;
@@ -1017,6 +1028,8 @@ function taskInfraFailedEvent(input: {
   id: string;
   ts: number;
 }): FixedPromptTaskInfraFailedEvent {
+  const providerTelemetryPath = input.output?.cell.providerTelemetryPath
+    ?? providerTelemetryPathFromError(input.error);
   return {
     schemaVersion: FIXED_PROMPT_WAL_SCHEMA_VERSION,
     type: 'task_infra_failed',
@@ -1032,7 +1045,16 @@ function taskInfraFailedEvent(input: {
     eligible: false,
     errorClass: input.errorClass ?? 'infra_error',
     error: errorMessage(input.error),
+    ...(providerTelemetryPath ? { providerTelemetryPath } : {}),
   };
+}
+
+function providerTelemetryPathFromError(error: unknown): string | undefined {
+  if (!(error instanceof Error)) return undefined;
+  const path = (error as Error & {
+    artifactRefs?: { providerTelemetryPath?: unknown };
+  }).artifactRefs?.providerTelemetryPath;
+  return typeof path === 'string' && path.length > 0 ? path : undefined;
 }
 
 function taskBudgetExhaustedEvent(input: {
@@ -1104,6 +1126,7 @@ function taskBudgetExhaustedEvent(input: {
   const cellOutput = artifactRefs.cellOutput;
   const runtimeEventsPath = artifactRefs.runtimeEventsPath ?? cellOutput?.runtimeEventsPath;
   const traceEventsPath = artifactRefs.traceEventsPath ?? cellOutput?.traceEventsPath;
+  const providerTelemetryPath = artifactRefs.providerTelemetryPath ?? cellOutput?.providerTelemetryPath;
   return {
     schemaVersion: FIXED_PROMPT_WAL_SCHEMA_VERSION,
     type: 'task_budget_exhausted',
@@ -1127,6 +1150,7 @@ function taskBudgetExhaustedEvent(input: {
     ...(executionIdentity ? { executionIdentity } : {}),
     ...(runtimeEventsPath ? { runtimeEventsPath } : {}),
     ...(traceEventsPath ? { traceEventsPath } : {}),
+    ...(providerTelemetryPath ? { providerTelemetryPath } : {}),
     ...(artifactRefs.runtimeEventsUnavailableReason
       ? { runtimeEventsUnavailableReason: artifactRefs.runtimeEventsUnavailableReason }
       : {}),
@@ -1170,6 +1194,7 @@ function projectLegacyTimeoutOutcome(event: FixedPromptWalEvent): FixedPromptWal
     ...(event.tokenSummary ? { tokenSummary: event.tokenSummary } : {}),
     ...(event.runtimeEventsPath ? { runtimeEventsPath: event.runtimeEventsPath } : {}),
     ...(event.traceEventsPath ? { traceEventsPath: event.traceEventsPath } : {}),
+    ...(event.providerTelemetryPath ? { providerTelemetryPath: event.providerTelemetryPath } : {}),
     ...(event.contextBudgetPolicy ? { contextBudgetPolicy: event.contextBudgetPolicy } : {}),
     ...(event.contextBudgetSummary ? { contextBudgetSummary: event.contextBudgetSummary } : {}),
     ...(event.continuationSummary ? { continuationSummary: event.continuationSummary } : {}),
@@ -1187,6 +1212,7 @@ function budgetExhaustedArtifactRefs(error: unknown): FixedPromptBudgetExhausted
       && (
         refs.runtimeEventsPath
         || refs.traceEventsPath
+        || refs.providerTelemetryPath
         || refs.runtimeEventsUnavailableReason
         || refs.tokenSummary
         || refs.cellOutput
