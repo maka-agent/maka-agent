@@ -45,6 +45,7 @@ interface Connection {
   transport?: Transport;
   stdioTransport?: StdioClientTransport;
   connectPromise?: Promise<McpServerStatus>;
+  connectController?: AbortController;
   status: McpServerStatus;
   closing: boolean;
 }
@@ -132,8 +133,20 @@ export class McpClientManager {
     if (entry.config.enabled === false) return cloneStatus(entry.status);
     if (entry.status.state === 'connected') return cloneStatus(entry.status);
     if (entry.connectPromise) return entry.connectPromise;
-    entry.connectPromise = this.connectEntry(serverId, entry).finally(() => { entry.connectPromise = undefined; });
+    const controller = new AbortController();
+    entry.connectController = controller;
+    entry.connectPromise = this.connectEntry(serverId, entry, controller.signal).finally(() => {
+      entry.connectPromise = undefined;
+      if (entry.connectController === controller) entry.connectController = undefined;
+    });
     return entry.connectPromise;
+  }
+
+  cancelConnect(serverId: string): boolean {
+    const controller = this.connections.get(serverId)?.connectController;
+    if (!controller || controller.signal.aborted) return false;
+    controller.abort(new Error(`MCP installation cancelled: ${serverId}`));
+    return true;
   }
 
   async reconnect(serverId: string): Promise<McpServerStatus> {
@@ -145,6 +158,7 @@ export class McpClientManager {
     const entry = this.connections.get(serverId);
     if (!entry) return;
     entry.closing = true;
+    entry.connectController?.abort(new Error(`MCP connection closed: ${serverId}`));
     await entry.connectPromise?.catch(() => {});
     await safeClose(entry.client, entry.transport);
     entry.client = undefined;
@@ -228,11 +242,11 @@ export class McpClientManager {
     }
   }
 
-  private async connectEntry(serverId: string, entry: Connection): Promise<McpServerStatus> {
+  private async connectEntry(serverId: string, entry: Connection, signal: AbortSignal): Promise<McpServerStatus> {
     entry.closing = false;
     this.update(entry, { ...entry.status, state: 'connecting', error: undefined, updatedAt: this.now() });
     try {
-      const connected = await this.openClient(serverId, entry);
+      const connected = await this.openClient(serverId, entry, signal);
       entry.client = connected.client;
       entry.transport = connected.transport;
       entry.stdioTransport = connected.stdioTransport;
@@ -266,12 +280,12 @@ export class McpClientManager {
       entry.client = undefined;
       entry.transport = undefined;
       entry.stdioTransport = undefined;
-      this.markError(entry, error);
+      if (!signal.aborted) this.markError(entry, error);
       throw error;
     }
   }
 
-  private async openClient(serverId: string, entry: Connection): Promise<{
+  private async openClient(serverId: string, entry: Connection, signal: AbortSignal): Promise<{
     client: Client; transport: Transport; stdioTransport?: StdioClientTransport;
     kind: 'stdio' | 'streamable-http' | 'sse';
   }> {
@@ -289,7 +303,7 @@ export class McpClientManager {
       const client = this.createClient();
       client.onclose = () => this.handleTransportClose(entry);
       try {
-        await client.connect(transport, { timeout: this.timeouts.stdioConnectMs });
+        await client.connect(transport, { timeout: this.timeouts.stdioConnectMs, signal });
         return { client, transport, stdioTransport: transport, kind: 'stdio' };
       } catch (error) {
         await safeClose(client, transport);
@@ -305,7 +319,7 @@ export class McpClientManager {
       });
       client.onclose = () => this.handleTransportClose(entry);
       try {
-        await client.connect(transport, { timeout: this.timeouts.remoteConnectMs });
+        await client.connect(transport, { timeout: this.timeouts.remoteConnectMs, signal });
         return { client, transport, kind: 'streamable-http' };
       } catch (error) {
         await safeClose(client, transport);
@@ -318,7 +332,7 @@ export class McpClientManager {
     });
     client.onclose = () => this.handleTransportClose(entry);
     try {
-      await client.connect(transport, { timeout: this.timeouts.remoteConnectMs });
+      await client.connect(transport, { timeout: this.timeouts.remoteConnectMs, signal });
       return { client, transport, kind: 'sse' };
     } catch (error) {
       await safeClose(client, transport);

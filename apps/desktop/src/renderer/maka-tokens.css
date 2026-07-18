@@ -122,6 +122,14 @@
   --brand-deep-hover: oklch(from var(--accent) calc(l - 0.06) c h);
   /* Fixed external channel identity; unlike palette-derived Maka accents. */
   --brand-wechat: #07c160;
+  /* Fixed service identities used only by the MCP market marks. */
+  --brand-dingtalk: #1677ff;
+  --brand-feishu: #3370ff;
+  --brand-slack: #4a154b;
+  --brand-line: #06c755;
+  --brand-google-calendar: #4285f4;
+  --brand-figma: #f24e1e;
+  --brand-supabase: #3ecf8e;
   --bot-brand-default: var(--accent);
   /* PALETTE-LEAK-0: semantic alias for informational system banners (the
      plan-reminders 系统提醒 banner) — component CSS derives its tint family

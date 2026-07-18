@@ -6,13 +6,14 @@ import type { McpConfigStore } from '@maka/storage';
 export interface McpIpcMainDeps {
   ipcMain: Pick<IpcMain, 'handle'>;
   store: McpConfigStore;
-  manager: Pick<McpClientManager, 'sync' | 'statuses' | 'test' | 'reconnect'>;
+  manager: Pick<McpClientManager, 'sync' | 'statuses' | 'test' | 'reconnect' | 'cancelConnect'>;
   ensureReady(): Promise<void>;
   refreshIdleBackends(): Promise<void>;
   emitChanged(statuses: McpServerStatus[]): void;
 }
 
 export function registerMcpIpcMain(deps: McpIpcMainDeps): void {
+  const installs = new Map<string, { cancelled: boolean; settled: Promise<void>; settle(): void }>();
   deps.ipcMain.handle('mcp:getConfig', async () => {
     await deps.ensureReady();
     return deps.store.get();
@@ -33,7 +34,41 @@ export function registerMcpIpcMain(deps: McpIpcMainDeps): void {
     await changed(deps);
     return next;
   });
+  deps.ipcMain.handle('mcp:install', async (_event, serverId: string, config: McpServerConfig) => {
+    if (installs.has(serverId)) throw new Error(`MCP install already in progress: ${serverId}`);
+    let settle!: () => void;
+    const operation = {
+      cancelled: false,
+      settled: new Promise<void>((resolve) => { settle = resolve; }),
+      settle: () => settle(),
+    };
+    installs.set(serverId, operation);
+    try {
+      const next = await deps.store.upsert(serverId, config);
+      if (operation.cancelled) return next;
+      try {
+        await deps.manager.sync(next);
+      } catch (error) {
+        if (!operation.cancelled) throw error;
+      }
+      if (!operation.cancelled) await changed(deps);
+      return next;
+    } finally {
+      if (installs.get(serverId) === operation) installs.delete(serverId);
+      operation.settle();
+    }
+  });
   deps.ipcMain.handle('mcp:remove', async (_event, serverId: string) => {
+    const next = await deps.store.remove(serverId);
+    await deps.manager.sync(next);
+    await changed(deps);
+    return next;
+  });
+  deps.ipcMain.handle('mcp:cancelInstall', async (_event, serverId: string) => {
+    const operation = installs.get(serverId);
+    if (operation) operation.cancelled = true;
+    deps.manager.cancelConnect(serverId);
+    await operation?.settled;
     const next = await deps.store.remove(serverId);
     await deps.manager.sync(next);
     await changed(deps);

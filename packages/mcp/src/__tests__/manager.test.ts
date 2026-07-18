@@ -109,6 +109,17 @@ describe('McpClientManager stdio E2E', () => {
     assert.deepEqual(status?.stderrTail, ['fixture startup failed: deliberate diagnostic']);
   });
 
+  test('cancels an in-flight installation connect without leaving tools visible', async () => {
+    const manager = createManager();
+    const sync = manager.sync(fixtureConfig(['--slow-start']));
+    await waitFor(() => manager.status('fixture')?.state === 'connecting');
+    assert.equal(manager.cancelConnect('fixture'), true);
+    await sync;
+    await manager.sync({ version: 1, mcpServers: {} });
+    assert.equal(manager.status('fixture'), undefined);
+    assert.deepEqual(manager.tools(), []);
+  });
+
   test('captures and redacts a final stderr fragment without a newline', async () => {
     const manager = createManager();
     await manager.sync(fixtureConfig(['--crash-secret-tail']));
@@ -168,6 +179,14 @@ function remoteConfig(url: string, transport: 'auto' | 'streamable-http' = 'stre
       remote: { url, transport, headers: { Authorization: 'Bearer remote-test' } },
     },
   };
+}
+
+async function waitFor(predicate: () => boolean, timeoutMs = 1_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() >= deadline) throw new Error('condition was not reached');
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
 }
 
 interface RemoteRequest {

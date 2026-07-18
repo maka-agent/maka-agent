@@ -45,6 +45,24 @@ test('MCP module completes stdio add, discovery, disable, JSON import, and delet
     await page.setViewportSize(viewport);
   }
 
+  const dingtalkCard = mcp.getByRole('article').filter({ hasText: '钉钉' });
+  const installDingtalk = dingtalkCard.getByRole('button', { name: '安装 钉钉' });
+  await installDingtalk.click();
+  const cancelDingtalk = dingtalkCard.getByRole('button', { name: '取消安装 钉钉' });
+  await expect(cancelDingtalk).toBeVisible();
+  await page.mouse.move(0, 0);
+  await expect(cancelDingtalk.locator('.maka-mcp-install-spinner')).toHaveCSS('opacity', '1');
+  if (screenshotPath) await page.screenshot({ path: variantPath(screenshotPath, 'installing') });
+  await cancelDingtalk.hover();
+  await expect(cancelDingtalk.locator('.maka-mcp-install-cancel')).toHaveCSS('opacity', '1');
+  if (screenshotPath) await page.screenshot({ path: variantPath(screenshotPath, 'install-cancel-hover') });
+  await cancelDingtalk.click();
+  await expect(dingtalkCard.getByRole('button', { name: '安装 钉钉' })).toBeVisible();
+  await expect.poll(async () => {
+    const next = await page.evaluate(() => window.maka.mcp.getConfig());
+    return next.mcpServers.dingtalk;
+  }).toBeUndefined();
+
   await mcp.getByRole('button', { name: '添加 MCP' }).click();
   const editor = page.getByRole('dialog', { name: '添加 MCP' });
   if (screenshotPath) await page.screenshot({ path: variantPath(screenshotPath, 'manual') });

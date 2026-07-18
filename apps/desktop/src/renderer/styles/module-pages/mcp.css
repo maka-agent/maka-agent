@@ -157,10 +157,10 @@
 
 .maka-mcp-market-card {
   min-width: 0;
-  min-height: 144px;
+  min-height: 112px;
   display: grid;
-  grid-template-columns: 48px minmax(0, 1fr) auto;
-  align-items: start;
+  grid-template-columns: 52px minmax(0, 1fr) auto;
+  align-items: center;
   gap: var(--space-3);
   padding: var(--space-4);
   border: var(--border-width-hairline) solid var(--border);
@@ -175,8 +175,8 @@
 }
 
 .maka-mcp-market-icon {
-  width: 48px;
-  height: 48px;
+  width: 52px;
+  height: 52px;
   display: grid;
   place-items: center;
   border-radius: var(--radius-control);
@@ -184,9 +184,59 @@
   color: var(--foreground-secondary);
 }
 
+.maka-mcp-market-icon span {
+  font-size: var(--font-size-heading);
+  font-weight: var(--font-weight-bold);
+  letter-spacing: var(--tracking-normal);
+}
+
 .maka-mcp-market-icon svg {
-  width: 22px;
-  height: 22px;
+  width: 27px;
+  height: 27px;
+}
+
+.maka-mcp-market-icon[data-brand="figma"] svg {
+  width: 18px;
+  height: 28px;
+}
+
+.maka-mcp-market-icon[data-brand="line"] span {
+  font-size: var(--font-size-caption);
+}
+
+.maka-mcp-market-icon[data-brand="dingtalk"] {
+  background: color-mix(in oklab, var(--brand-dingtalk) 12%, var(--background));
+  color: color-mix(in oklab, var(--brand-dingtalk) 72%, var(--foreground));
+}
+
+.maka-mcp-market-icon[data-brand="feishu"] {
+  background: color-mix(in oklab, var(--brand-feishu) 12%, var(--background));
+  color: color-mix(in oklab, var(--brand-feishu) 72%, var(--foreground));
+}
+
+.maka-mcp-market-icon[data-brand="slack"] {
+  background: color-mix(in oklab, var(--brand-slack) 10%, var(--background));
+  color: color-mix(in oklab, var(--brand-slack) 72%, var(--foreground));
+}
+
+.maka-mcp-market-icon[data-brand="line"] {
+  background: color-mix(in oklab, var(--brand-line) 15%, var(--background));
+  color: color-mix(in oklab, var(--brand-line) 62%, var(--foreground));
+}
+
+.maka-mcp-market-icon[data-brand="google-calendar"] {
+  background: color-mix(in oklab, var(--brand-google-calendar) 12%, var(--background));
+  color: color-mix(in oklab, var(--brand-google-calendar) 72%, var(--foreground));
+}
+
+.maka-mcp-market-icon[data-brand="figma"] {
+  background: color-mix(in oklab, var(--brand-figma) 12%, var(--background));
+  color: color-mix(in oklab, var(--brand-figma) 70%, var(--foreground));
+}
+
+.maka-mcp-market-icon[data-brand="supabase"] {
+  background: color-mix(in oklab, var(--brand-supabase) 14%, var(--background));
+  color: color-mix(in oklab, var(--brand-supabase) 62%, var(--foreground));
 }
 
 .maka-mcp-market-copy {
@@ -209,13 +259,77 @@
 
 .maka-mcp-market-copy p {
   display: -webkit-box;
-  margin: var(--space-1) 0 0;
+  margin: 0;
   overflow: hidden;
   color: var(--foreground-secondary);
   font-size: var(--font-size-ui);
   line-height: var(--leading-normal);
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 2;
+}
+
+.maka-mcp-install-button {
+  position: relative;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  padding: 0;
+  border: var(--border-width-hairline) solid transparent;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--foreground);
+  transition:
+    background-color var(--duration-quick) var(--ease-out-strong),
+    border-color var(--duration-quick) var(--ease-out-strong),
+    color var(--duration-quick) var(--ease-out-strong);
+}
+
+.maka-mcp-install-button:hover,
+.maka-mcp-install-button:focus-visible {
+  border-color: var(--border);
+  background: var(--state-hover-bg);
+}
+
+.maka-mcp-install-button:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.maka-mcp-install-button svg {
+  position: absolute;
+  width: 19px;
+  height: 19px;
+}
+
+.maka-mcp-install-cancel {
+  opacity: 0;
+  color: var(--destructive-text);
+  transform: scale(var(--scale-press));
+  transition:
+    opacity var(--duration-quick) var(--ease-out-strong),
+    transform var(--duration-quick) var(--ease-out-strong);
+}
+
+.maka-mcp-install-button[data-phase="installing"]:hover .maka-mcp-install-spinner,
+.maka-mcp-install-button[data-phase="installing"]:focus-visible .maka-mcp-install-spinner {
+  opacity: 0;
+}
+
+.maka-mcp-install-button[data-phase="installing"]:hover .maka-mcp-install-cancel,
+.maka-mcp-install-button[data-phase="installing"]:focus-visible .maka-mcp-install-cancel,
+.maka-mcp-install-button[data-phase="cancelling"] .maka-mcp-install-cancel {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.maka-mcp-install-button[data-phase="cancelling"] .maka-mcp-install-spinner {
+  opacity: 0;
+}
+
+.maka-mcp-install-button:disabled {
+  cursor: wait;
 }
 
 .maka-mcp-server-list {
@@ -537,6 +651,15 @@
 
 @media (prefers-reduced-motion: reduce) {
   .maka-mcp-market-card {
+    transition-duration: 0.01ms;
+  }
+
+  .maka-mcp-install-spinner {
+    animation: none;
+  }
+
+  .maka-mcp-install-button,
+  .maka-mcp-install-cancel {
     transition-duration: 0.01ms;
   }
 }

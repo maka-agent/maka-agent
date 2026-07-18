@@ -13,6 +13,9 @@ if (process.argv.includes('--crash-secret-tail')) {
   process.stderr.write('token=sk-live-secret-token-value');
   process.exit(24);
 }
+if (process.argv.includes('--slow-start')) {
+  await new Promise((resolve) => setTimeout(resolve, 30_000));
+}
 
 const server = new Server(
   { name: 'maka-mcp-fixture', version: '1.0.0' },

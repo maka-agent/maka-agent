@@ -336,8 +336,14 @@ contextBridge.exposeInMainWorld('maka', {
     upsert(serverId: string, config: McpServerConfig): Promise<McpConfigFile> {
       return ipcRenderer.invoke('mcp:upsert', serverId, config);
     },
+    install(serverId: string, config: McpServerConfig): Promise<McpConfigFile> {
+      return ipcRenderer.invoke('mcp:install', serverId, config);
+    },
     remove(serverId: string): Promise<McpConfigFile> {
       return ipcRenderer.invoke('mcp:remove', serverId);
+    },
+    cancelInstall(serverId: string): Promise<McpConfigFile> {
+      return ipcRenderer.invoke('mcp:cancelInstall', serverId);
     },
     test(serverId: string): Promise<McpTestResult> {
       return ipcRenderer.invoke('mcp:test', serverId);

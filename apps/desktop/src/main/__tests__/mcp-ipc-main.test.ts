@@ -28,6 +28,7 @@ test('MCP IPC reconciles config before invalidating idle backends and emitting s
       },
     },
     manager: {
+      cancelConnect: () => { calls.push('cancel'); return true; },
       sync: async () => { calls.push('sync'); },
       statuses: () => [connected],
       reconnect: async () => connected,
@@ -61,4 +62,69 @@ test('MCP IPC reconciles config before invalidating idle backends and emitting s
   assert.ok(testHandler);
   assert.equal((await testHandler({}, 'fixture')).ok, true);
   assert.deepEqual(calls, ['ready', 'emit']);
+
+  calls.length = 0;
+  config = { version: 1, mcpServers: { fixture: { command: 'node' } } };
+  const cancelInstall = handlers.get('mcp:cancelInstall');
+  assert.ok(cancelInstall);
+  const cancelled = await cancelInstall({}, 'fixture');
+  assert.equal(cancelled.mcpServers.fixture, undefined);
+  assert.deepEqual(calls, ['cancel', 'sync', 'refresh', 'emit']);
+});
+
+test('MCP market cancellation waits for an in-flight config write before rolling it back', async () => {
+  const handlers = new Map<string, (...args: any[]) => Promise<any>>();
+  let config: McpConfigFile = { version: 1, mcpServers: {} };
+  let releaseWrite!: () => void;
+  let markWriteStarted!: () => void;
+  const writeGate = new Promise<void>((resolve) => { releaseWrite = resolve; });
+  const writeStarted = new Promise<void>((resolve) => { markWriteStarted = resolve; });
+  const calls: string[] = [];
+
+  registerMcpIpcMain({
+    ipcMain: { handle(channel, handler) { handlers.set(channel, handler as (...args: any[]) => Promise<any>); } },
+    store: {
+      get: async () => config,
+      set: async (next) => { config = next; return next; },
+      upsert: async (serverId, server) => {
+        calls.push('write:start');
+        markWriteStarted();
+        await writeGate;
+        config = { version: 1, mcpServers: { ...config.mcpServers, [serverId]: server } };
+        calls.push('write:end');
+        return config;
+      },
+      remove: async (serverId) => {
+        calls.push('remove');
+        const { [serverId]: _removed, ...mcpServers } = config.mcpServers;
+        config = { version: 1, mcpServers };
+        return config;
+      },
+    },
+    manager: {
+      cancelConnect: () => { calls.push('cancel'); return true; },
+      sync: async () => { calls.push('sync'); },
+      statuses: () => [],
+      reconnect: async () => { throw new Error('not used'); },
+      test: async () => { throw new Error('not used'); },
+    },
+    ensureReady: async () => {},
+    refreshIdleBackends: async () => { calls.push('refresh'); },
+    emitChanged: () => { calls.push('emit'); },
+  });
+
+  const install = handlers.get('mcp:install');
+  const cancelInstall = handlers.get('mcp:cancelInstall');
+  assert.ok(install);
+  assert.ok(cancelInstall);
+
+  const installing = install({}, 'fixture', { command: 'node' });
+  await writeStarted;
+  const cancelling = cancelInstall({}, 'fixture');
+  releaseWrite();
+
+  const [, cancelled] = await Promise.all([installing, cancelling]);
+  assert.equal(cancelled.mcpServers.fixture, undefined);
+  assert.equal(config.mcpServers.fixture, undefined);
+  assert.deepEqual(calls, ['write:start', 'cancel', 'write:end', 'remove', 'sync', 'refresh', 'emit']);
 });

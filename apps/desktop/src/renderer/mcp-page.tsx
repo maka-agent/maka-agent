@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { McpConfigFile, McpServerConfig, McpServerStatus } from '@maka/core/mcp';
 import { isMcpStdioConfig } from '@maka/core/mcp';
 import {
@@ -17,9 +17,9 @@ import {
   useToast,
 } from '@maka/ui';
 import {
-  Database,
   FileCode,
   Globe,
+  Loader2,
   Pencil,
   Plug,
   Plus,
@@ -27,7 +27,9 @@ import {
   Search,
   Terminal,
   Trash2,
+  X,
 } from '@maka/ui/icons';
+import { MCP_CATALOG, catalogEntryMatches, type McpCatalogEntry } from './mcp-catalog';
 import { parseMcpImport } from './mcp-import';
 import { settingsActionErrorMessage } from './settings/settings-error-copy';
 
@@ -49,67 +51,10 @@ type EditorState =
   | { mode: 'json'; source: string }
   | null;
 
-type CatalogEntry = {
-  id: string;
-  name: string;
-  description: string;
-  category: string;
-  Icon: typeof Plug;
-  draft: Draft;
-};
-
 const EMPTY_CONFIG: McpConfigFile = { version: 1, mcpServers: {} };
+const MIN_INSTALL_INDICATOR_MS = 500;
 
-const MCP_CATALOG: CatalogEntry[] = [
-  {
-    id: 'filesystem',
-    name: '本地文件',
-    description: '在你指定的目录中安全地读取、写入和管理文件。',
-    category: '文件与知识',
-    Icon: FileCode,
-    draft: {
-      id: 'filesystem', kind: 'stdio', enabled: true, command: 'npx',
-      args: '-y\n@modelcontextprotocol/server-filesystem\n/path/to/folder', cwd: '', env: '',
-      url: '', transport: 'auto', headers: '',
-    },
-  },
-  {
-    id: 'memory',
-    name: '持久记忆',
-    description: '用结构化的知识图谱记住实体、关系和重要事实。',
-    category: '文件与知识',
-    Icon: Database,
-    draft: {
-      id: 'memory', kind: 'stdio', enabled: true, command: 'npx',
-      args: '-y\n@modelcontextprotocol/server-memory', cwd: '', env: '',
-      url: '', transport: 'auto', headers: '',
-    },
-  },
-  {
-    id: 'playwright',
-    name: '浏览器自动化',
-    description: '让 Maka 通过 Playwright 读取和操作真实网页。',
-    category: '开发工具',
-    Icon: Globe,
-    draft: {
-      id: 'playwright', kind: 'stdio', enabled: true, command: 'npx',
-      args: '-y\n@playwright/mcp@latest', cwd: '', env: '',
-      url: '', transport: 'auto', headers: '',
-    },
-  },
-  {
-    id: 'sequential-thinking',
-    name: '序列思考',
-    description: '为需要分解、修正和验证的复杂问题提供结构化思考工具。',
-    category: '推理与规划',
-    Icon: Plug,
-    draft: {
-      id: 'sequential-thinking', kind: 'stdio', enabled: true, command: 'npx',
-      args: '-y\n@modelcontextprotocol/server-sequential-thinking', cwd: '', env: '',
-      url: '', transport: 'auto', headers: '',
-    },
-  },
-];
+type InstallPhase = 'installing' | 'cancelling';
 
 export function McpPage() {
   const [config, setConfig] = useState<McpConfigFile>(EMPTY_CONFIG);
@@ -118,6 +63,8 @@ export function McpPage() {
   const [activeTab, setActiveTab] = useState<'market' | 'installed'>('market');
   const [query, setQuery] = useState('');
   const [busy, setBusy] = useState<string | null>('load');
+  const [installPhases, setInstallPhases] = useState<Record<string, InstallPhase>>({});
+  const cancelledInstalls = useRef(new Set<string>());
   const mounted = useMountedRef();
   const toast = useToast();
 
@@ -151,9 +98,7 @@ export function McpPage() {
   );
   const entries = Object.entries(config.mcpServers);
   const normalizedQuery = query.trim().toLocaleLowerCase();
-  const marketEntries = MCP_CATALOG.filter((entry) =>
-    !normalizedQuery || [entry.name, entry.description, entry.category, entry.id]
-      .some((value) => value.toLocaleLowerCase().includes(normalizedQuery)));
+  const marketEntries = MCP_CATALOG.filter((entry) => catalogEntryMatches(entry, normalizedQuery));
   const installedEntries = entries.filter(([serverId, server]) => {
     if (!normalizedQuery) return true;
     const status = statusById.get(serverId);
@@ -167,6 +112,54 @@ export function McpPage() {
 
   function openEdit(serverId: string, server: McpServerConfig) {
     setEditor({ mode: 'manual', draft: draftFromConfig(serverId, server), editingId: serverId });
+  }
+
+  async function installCatalogEntry(entry: McpCatalogEntry) {
+    if (installPhases[entry.id] || config.mcpServers[entry.id]) return;
+    cancelledInstalls.current.delete(entry.id);
+    setInstallPhases((current) => ({ ...current, [entry.id]: 'installing' }));
+    try {
+      const minimumIndicator = delay(MIN_INSTALL_INDICATOR_MS);
+      const next = await window.maka.mcp.install(entry.id, structuredClone(entry.config));
+      await minimumIndicator;
+      if (!mounted.current || cancelledInstalls.current.has(entry.id)) return;
+      setConfig(next);
+      if (entry.setupRequired) {
+        toast.success(`${entry.name} 模板已安装`, '请在「已安装」中完成凭据配置，再启用连接。');
+      } else {
+        toast.success(`${entry.name} 已安装`, '发现的工具会从下一次 agent turn 开始生效。');
+      }
+    } catch (error) {
+      if (mounted.current && !cancelledInstalls.current.has(entry.id)) {
+        toast.error(`安装 ${entry.name} 失败`, settingsActionErrorMessage(error));
+      }
+    } finally {
+      const wasCancelled = cancelledInstalls.current.delete(entry.id);
+      if (mounted.current && !wasCancelled) {
+        setInstallPhases((current) => omitKey(current, entry.id));
+      }
+    }
+  }
+
+  async function cancelCatalogInstall(entry: McpCatalogEntry) {
+    if (installPhases[entry.id] !== 'installing') return;
+    cancelledInstalls.current.add(entry.id);
+    setInstallPhases((current) => ({ ...current, [entry.id]: 'cancelling' }));
+    try {
+      const next = await window.maka.mcp.cancelInstall(entry.id);
+      if (!mounted.current) return;
+      setConfig(next);
+      setStatuses((current) => current.filter((status) => status.serverId !== entry.id));
+      toast.info(`已取消安装 ${entry.name}`);
+    } catch (error) {
+      cancelledInstalls.current.delete(entry.id);
+      if (mounted.current) {
+        toast.error(`取消安装 ${entry.name} 失败`, settingsActionErrorMessage(error));
+        void reload();
+      }
+    } finally {
+      if (mounted.current) setInstallPhases((current) => omitKey(current, entry.id));
+    }
   }
 
   async function saveDraft(event: React.FormEvent) {
@@ -315,7 +308,9 @@ export function McpPage() {
                     key={entry.id}
                     entry={entry}
                     installed={Boolean(config.mcpServers[entry.id])}
-                    onAdd={() => openManual(entry.draft)}
+                    phase={installPhases[entry.id]}
+                    onInstall={() => void installCatalogEntry(entry)}
+                    onCancel={() => void cancelCatalogInstall(entry)}
                     onManage={() => {
                       const installed = config.mcpServers[entry.id];
                       if (installed) openEdit(entry.id, installed);
@@ -365,24 +360,79 @@ export function McpPage() {
   );
 }
 
-function McpCatalogCard(props: { entry: CatalogEntry; installed: boolean; onAdd(): void; onManage(): void }) {
+function McpCatalogCard(props: {
+  entry: McpCatalogEntry;
+  installed: boolean;
+  phase?: InstallPhase;
+  onInstall(): void;
+  onCancel(): void;
+  onManage(): void;
+}) {
+  const installing = props.phase === 'installing';
+  const cancelling = props.phase === 'cancelling';
   return (
     <article className="maka-mcp-market-card">
-      <div className="maka-mcp-market-icon"><props.entry.Icon aria-hidden="true" /></div>
+      <div className="maka-mcp-market-icon" data-brand={props.entry.id} aria-hidden="true">
+        <McpBrandMark entry={props.entry} />
+      </div>
       <div className="maka-mcp-market-copy">
         <strong>{props.entry.name}</strong>
-        <small>{props.entry.category}</small>
         <p>{props.entry.description}</p>
+        <small>
+          {props.entry.category}
+          {props.entry.platform === 'darwin' ? ' · 仅 macOS' : ''}
+          {props.entry.setupLabel ? ` · ${props.entry.setupLabel}` : ''}
+        </small>
       </div>
-      <Button
-        size="sm"
-        variant={props.installed ? 'secondary' : 'quiet'}
-        onClick={props.installed ? props.onManage : props.onAdd}
-      >
-        {props.installed ? '管理' : '添加'}
-      </Button>
+      {props.installed ? (
+        <Button size="sm" variant="secondary" onClick={props.onManage}>管理</Button>
+      ) : (
+        <button
+          type="button"
+          className="maka-mcp-install-button"
+          data-phase={props.phase ?? 'idle'}
+          aria-label={cancelling ? `正在取消安装 ${props.entry.name}` : installing ? `取消安装 ${props.entry.name}` : `安装 ${props.entry.name}`}
+          title={cancelling ? '正在取消…' : installing ? '取消安装' : '安装'}
+          onClick={installing ? props.onCancel : props.onInstall}
+          disabled={cancelling}
+        >
+          {props.phase ? (
+            <>
+              <Loader2 className="maka-mcp-install-spinner animate-spin" aria-hidden="true" />
+              <X className="maka-mcp-install-cancel" aria-hidden="true" />
+            </>
+          ) : <Plus aria-hidden="true" />}
+        </button>
+      )}
     </article>
   );
+}
+
+function McpBrandMark({ entry }: { entry: McpCatalogEntry }) {
+  if (entry.id === 'slack') return (
+    <svg viewBox="0 0 256 256" aria-hidden="true">
+      <path fill="#e01e5a" d="M53.84 161.32c0 14.83-11.99 26.82-26.82 26.82S.2 176.15.2 161.32s11.99-26.82 26.82-26.82h26.82zm13.41 0c0-14.83 11.99-26.82 26.82-26.82s26.82 11.99 26.82 26.82v67.05c0 14.83-11.99 26.82-26.82 26.82s-26.82-11.99-26.82-26.82z" />
+      <path fill="#36c5f0" d="M94.07 53.64c-14.83 0-26.82-11.99-26.82-26.82S79.24 0 94.07 0s26.82 11.99 26.82 26.82v26.82zm0 13.61c14.83 0 26.82 11.99 26.82 26.82s-11.99 26.82-26.82 26.82H26.82C11.99 120.89 0 108.9 0 94.07s11.99-26.82 26.82-26.82z" />
+      <path fill="#2eb67d" d="M201.55 94.07c0-14.83 11.99-26.82 26.82-26.82s26.82 11.99 26.82 26.82s-11.99 26.82-26.82 26.82h-26.82zm-13.41 0c0 14.83-11.99 26.82-26.82 26.82s-26.82-11.99-26.82-26.82V26.82C134.5 11.99 146.49 0 161.32 0s26.82 11.99 26.82 26.82z" />
+      <path fill="#ecb22e" d="M161.32 201.55c14.83 0 26.82 11.99 26.82 26.82s-11.99 26.82-26.82 26.82s-26.82-11.99-26.82-26.82v-26.82zm0-13.41c-14.83 0-26.82-11.99-26.82-26.82s11.99-26.82 26.82-26.82h67.25c14.83 0 26.82 11.99 26.82 26.82s-11.99 26.82-26.82 26.82z" />
+    </svg>
+  );
+  if (entry.id === 'line') return (
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M19.37 9.86a.63.63 0 0 1 0 1.26h-1.76v1.13h1.76a.63.63 0 1 1 0 1.26h-2.39a.63.63 0 0 1-.63-.63V8.11a.63.63 0 0 1 .63-.63h2.39a.63.63 0 0 1 0 1.26h-1.76v1.12zm-3.86 3.02a.63.63 0 0 1-1.14.38l-2.44-3.32v2.94a.63.63 0 0 1-1.26 0V8.11a.63.63 0 0 1 1.12-.38l2.46 3.33V8.11a.63.63 0 0 1 1.26 0zm-5.74 0a.63.63 0 0 1-1.26 0V8.11a.63.63 0 0 1 1.26 0zm-2.47.63H4.92a.63.63 0 0 1-.63-.63V8.11a.63.63 0 0 1 1.26 0v4.14H7.3a.63.63 0 0 1 0 1.26M24 10.31C24 4.94 18.62.57 12 .57S0 4.94 0 10.31c0 4.81 4.27 8.84 10.04 9.61.39.08.92.26 1.06.59.12.3.08.77.04 1.08l-.17 1.02c-.04.3-.24 1.19 1.05.65 1.29-.54 6.92-4.08 9.44-6.98C23.18 14.39 24 12.46 24 10.31" /></svg>
+  );
+  if (entry.id === 'google-calendar') return (
+    <svg viewBox="0 0 256 256" aria-hidden="true">
+      <path fill="#fff" d="M195.37 60.63H60.63v134.74h134.74z" /><path fill="#ea4335" d="M195.37 256 256 195.37l-60.63-5.17z" /><path fill="#188038" d="M0 195.37v40.42A20.21 20.21 0 0 0 20.21 256h40.42l6.23-30.32-6.23-30.31z" /><path fill="#1967d2" d="M256 60.63V20.21A20.21 20.21 0 0 0 235.79 0h-40.42l-5.54 33.2 5.54 27.43z" /><path fill="#fbbc04" d="M256 60.63h-60.63v134.74H256z" /><path fill="#34a853" d="M195.37 195.37H60.63V256h134.74z" /><path fill="#4285f4" d="M195.37 0H20.21A20.21 20.21 0 0 0 0 20.21v175.16h60.63V60.63h134.74z" /><path fill="#4285f4" d="M88.27 165.15c-5.04-3.4-8.52-8.37-10.43-14.94l11.69-4.81c2.77 8.49 7.82 12.71 15.12 12.71 7.67 0 13.48-5.28 13.48-12.36 0-8.32-6.88-12.18-14.72-12.18h-6.75V122h6.06c8.09 0 13.29-4.32 13.29-11.34 0-6.21-4.58-10.31-12.14-10.31-6.77 0-11.18 3.64-12.6 9.5l-11.57-4.81c3.55-10.06 12.38-16.49 24.27-16.49 14.2 0 24.83 8.71 24.83 21 0 8.18-4.12 13.79-10.31 17.04v.69c8.27 3.46 13.07 9.97 13.07 19.12 0 14.01-11.25 24.08-26.88 24.08-5.91.02-11.37-1.68-16.41-5.08m71.8-58-12.84 9.28-6.41-9.73 23.02-16.61h8.83v78.33h-12.6z" />
+    </svg>
+  );
+  if (entry.id === 'figma') return (
+    <svg viewBox="0 0 256 384" aria-hidden="true"><path fill="#0acf83" d="M64 384a64 64 0 0 0 64-64v-64H64a64 64 0 1 0 0 128" /><path fill="#a259ff" d="M0 192a64 64 0 0 1 64-64h64v128H64a64 64 0 0 1-64-64" /><path fill="#f24e1e" d="M0 64A64 64 0 0 1 64 0h64v128H64A64 64 0 0 1 0 64" /><path fill="#ff7262" d="M128 0h64a64 64 0 1 1 0 128h-64z" /><path fill="#1abcfe" d="M256 192a64 64 0 1 1-128 0 64 64 0 0 1 128 0" /></svg>
+  );
+  if (entry.id === 'vercel') return <svg viewBox="0 0 256 222" aria-hidden="true"><path fill="currentColor" d="m128 0 128 221.71H0z" /></svg>;
+  if (entry.id === 'supabase') return (
+    <svg viewBox="0 0 256 263" aria-hidden="true"><path fill="#249361" d="M149.6 258.58c-6.72 8.46-20.34 3.82-20.5-6.98l-2.37-157.98h106.23c19.24 0 29.97 22.22 18.01 37.29z" /><path fill="#3ecf8e" d="M106.4 4.37c6.72-8.46 20.34-3.83 20.5 6.98l1.04 157.98H23.04c-19.24 0-29.97-22.22-18.01-37.29z" /></svg>
+  );
+  return <span>{entry.mark}</span>;
 }
 
 function McpServerRow(props: {
@@ -562,6 +612,15 @@ function endpointFor(server: McpServerConfig): string {
 
 function replaceStatus(statuses: McpServerStatus[], next: McpServerStatus): McpServerStatus[] {
   return [...statuses.filter((status) => status.serverId !== next.serverId), next];
+}
+
+function omitKey<T>(record: Record<string, T>, key: string): Record<string, T> {
+  const { [key]: _removed, ...rest } = record;
+  return rest;
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 function presentStatus(status: McpServerStatus | undefined, enabled: boolean): { label: string; tone: 'neutral' | 'info' | 'success' | 'warning' | 'destructive' } {

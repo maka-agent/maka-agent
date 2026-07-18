@@ -219,7 +219,9 @@ declare global {
         listStatuses(): Promise<McpServerStatus[]>;
         setConfig(config: McpConfigFile): Promise<McpConfigFile>;
         upsert(serverId: string, config: McpServerConfig): Promise<McpConfigFile>;
+        install(serverId: string, config: McpServerConfig): Promise<McpConfigFile>;
         remove(serverId: string): Promise<McpConfigFile>;
+        cancelInstall(serverId: string): Promise<McpConfigFile>;
         test(serverId: string): Promise<McpTestResult>;
         reconnect(serverId: string): Promise<McpServerStatus>;
         subscribeChanges(handler: (statuses: McpServerStatus[]) => void): () => void;
