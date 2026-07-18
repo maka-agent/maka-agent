@@ -82,11 +82,7 @@ export function AppShellWorkspaceTopActions(props: {
 }) {
   const locale = useUiLocale();
   const copy = getShellCopy(locale).chrome;
-  const workbarLabel = !props.workbarAvailable
-    ? copy.workbarUnavailable
-    : props.workbarCollapsed
-      ? copy.expandWorkbar
-      : copy.collapseWorkbar;
+  const workbarLabel = props.workbarCollapsed ? copy.expandWorkbar : copy.collapseWorkbar;
 
   return (
     <div className="maka-workspace-top-actions" role="toolbar" aria-label={copy.workspaceActions}>
@@ -138,19 +134,21 @@ export function AppShellWorkspaceTopActions(props: {
         </TooltipTrigger>
         <TooltipContent>{copy.openHealth}</TooltipContent>
       </Tooltip>
-      <Tooltip>
-        <TooltipTrigger
-          render={<UiButton variant="quiet" size="icon-sm" disabled={!props.workbarAvailable} />}
-          type="button"
-          className="maka-titlebar-action"
-          onClick={props.onToggleWorkbar}
-          aria-label={workbarLabel}
-          aria-expanded={props.workbarAvailable && !props.workbarCollapsed}
-        >
-          {props.workbarCollapsed ? <PanelRightOpen aria-hidden="true" /> : <PanelRightClose aria-hidden="true" />}
-        </TooltipTrigger>
-        <TooltipContent>{workbarLabel}</TooltipContent>
-      </Tooltip>
+      {props.workbarAvailable && (
+        <Tooltip>
+          <TooltipTrigger
+            render={<UiButton variant="quiet" size="icon-sm" />}
+            type="button"
+            className="maka-titlebar-action"
+            onClick={props.onToggleWorkbar}
+            aria-label={workbarLabel}
+            aria-expanded={!props.workbarCollapsed}
+          >
+            {props.workbarCollapsed ? <PanelRightOpen aria-hidden="true" /> : <PanelRightClose aria-hidden="true" />}
+          </TooltipTrigger>
+          <TooltipContent>{workbarLabel}</TooltipContent>
+        </Tooltip>
+      )}
     </div>
   );
 }

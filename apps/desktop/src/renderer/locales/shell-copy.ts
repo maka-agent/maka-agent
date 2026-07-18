@@ -356,7 +356,6 @@ type ShellCopy = {
     expandSidebar: string;
     collapseSidebar: string;
     newTask: string;
-    workbarUnavailable: string;
     expandWorkbar: string;
     collapseWorkbar: string;
     workspaceActions: string;
@@ -987,7 +986,6 @@ const SHELL_COPY_BY_LOCALE = {
       expandSidebar: '展开侧边栏',
       collapseSidebar: '收起侧边栏',
       newTask: '新任务',
-      workbarUnavailable: '暂无可用的会话工作栏',
       expandWorkbar: '展开会话工作栏',
       collapseWorkbar: '收起会话工作栏',
       workspaceActions: '工作区辅助操作',
@@ -1443,7 +1441,6 @@ const SHELL_COPY_BY_LOCALE = {
       expandSidebar: 'Expand sidebar',
       collapseSidebar: 'Collapse sidebar',
       newTask: 'New task',
-      workbarUnavailable: 'No conversation workbar is available',
       expandWorkbar: 'Expand conversation workbar',
       collapseWorkbar: 'Collapse conversation workbar',
       workspaceActions: 'Workspace actions',
