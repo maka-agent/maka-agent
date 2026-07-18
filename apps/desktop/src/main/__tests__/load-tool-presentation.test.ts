@@ -30,11 +30,11 @@ describe('load_tools presentation', () => {
     const one = describeLoadToolResult({ group: 'office' }, { loaded: ['OfficeDocument'] }, 'en');
     assert.ok(one);
     assert.equal(one.title, 'Loaded office tools');
-    assert.equal(one.countLabel, '1 tool now available:');
+    assert.equal(one.countLabel, 'Added 1 available tool:');
     assert.equal(one.toolsText, 'OfficeDocument');
 
     const many = describeLoadToolResult({ group: 'office' }, { loaded: ['a', 'b'] }, 'en');
-    assert.equal(many?.countLabel, '2 tools now available:');
+    assert.equal(many?.countLabel, 'Added 2 available tools:');
   });
 
   test('historical load_tool namespace arg still renders (replayed old sessions)', () => {
