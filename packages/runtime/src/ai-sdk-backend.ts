@@ -1307,7 +1307,7 @@ export class AiSdkBackend implements AgentBackend {
             const message = formatStreamWatchdogError(timeout);
             watchdogTimeoutError = new Error(message);
             queue.push(this.makeErrorEvent(turnId, watchdogTimeoutError));
-            trace.modelStreamFailed('Timeout', watchdogTimeoutError);
+            trace.modelStreamFailed('Timeout', watchdogTimeoutError, priorReplayFailureTrace(priorReplay));
             this.abortController?.abort(watchdogTimeoutError);
           },
         });
@@ -1333,11 +1333,13 @@ export class AiSdkBackend implements AgentBackend {
                 content: this.appendTurnTailPrompt(currentUserContent, turnTailPrompt),
               } as ModelMessage,
             ];
-        const activeCompactionHeadAnchor = buildActiveCompactionHeadAnchor(
-          messages,
-          messages.length - 1,
-          this.input.contextBudget?.charsPerToken,
-        );
+        const activeCompactionHeadAnchor = messages[messages.length - 1]?.role === 'user'
+          ? buildActiveCompactionHeadAnchor(
+              messages,
+              messages.length - 1,
+              this.input.contextBudget?.charsPerToken,
+            )
+          : undefined;
         // Diagnostics describe the provider-visible (active) tool subset. A group
         // loaded *this* turn expands that subset on later steps (via prepareStep),
         // so the durable cost record is refined against the final active set once
@@ -1969,7 +1971,7 @@ export class AiSdkBackend implements AgentBackend {
         } else {
           if (!watchdogTimeoutError) {
             queue.push(this.makeErrorEvent(turnId, err));
-            trace.modelStreamFailed(streamErrorClass, err);
+            trace.modelStreamFailed(streamErrorClass, err, priorReplayFailureTrace(priorReplay));
           }
           queue.push({
             type: 'complete',
@@ -2358,8 +2360,10 @@ export class AiSdkBackend implements AgentBackend {
     );
     if (plan.items.length === 0) {
       return {
-        messages: projectedMessages,
-        gate: 'stored_message_projection',
+        messages: input.continuation
+          ? await this.materializeRuntimeReplayTextOnly(plan)
+          : projectedMessages,
+        gate: input.continuation ? 'runtime_replay_text_only' : 'stored_message_projection',
         diagnostics: plan.diagnostics,
         runtimeEventCount: runtimeContext.length,
         ...(contextBudgetDiagnostic ? { contextBudget: contextBudgetDiagnostic } : {}),
@@ -2369,8 +2373,10 @@ export class AiSdkBackend implements AgentBackend {
 
     if (hasBlockingReplayDiagnostics(plan)) {
       return {
-        messages: projectedMessages,
-        gate: 'runtime_replay_unsupported_semantics',
+        messages: input.continuation
+          ? await this.materializeRuntimeReplayTextOnly(plan)
+          : projectedMessages,
+        gate: input.continuation ? 'runtime_replay_text_only' : 'runtime_replay_unsupported_semantics',
         diagnostics: plan.diagnostics,
         runtimeEventCount: runtimeContext.length,
         ...(contextBudgetDiagnostic ? { contextBudget: contextBudgetDiagnostic } : {}),
@@ -2391,8 +2397,10 @@ export class AiSdkBackend implements AgentBackend {
 
     if (!this.canReplayProviderNative(plan)) {
       return {
-        messages: projectedMessages,
-        gate: 'runtime_replay_unsupported_semantics',
+        messages: input.continuation
+          ? await this.materializeRuntimeReplayTextOnly(plan)
+          : projectedMessages,
+        gate: input.continuation ? 'runtime_replay_text_only' : 'runtime_replay_unsupported_semantics',
         diagnostics: plan.diagnostics,
         runtimeEventCount: runtimeContext.length,
         ...(contextBudgetDiagnostic ? { contextBudget: contextBudgetDiagnostic } : {}),
@@ -2511,7 +2519,7 @@ export class AiSdkBackend implements AgentBackend {
     turnId: string,
     model: unknown,
     runtimeEvents: readonly RuntimeEvent[] | undefined,
-    headAnchor: ActiveCompactionHeadAnchor,
+    headAnchor: ActiveCompactionHeadAnchor | undefined,
     requestShapeHashForMessages: (
       messages: readonly ModelMessage[],
       activeToolsForStep: readonly string[] | undefined,
@@ -2519,7 +2527,7 @@ export class AiSdkBackend implements AgentBackend {
     onDiagnosticPatch?: (patch: Partial<ContextBudgetDiagnostic>) => void,
   ): PrepareStepFunctionLike | undefined {
     const policy = this.input.contextBudget?.semanticCompact;
-    if (policy?.enabled !== true || policy.mode === 'off') return undefined;
+    if (policy?.enabled !== true || policy.mode === 'off' || !headAnchor) return undefined;
 
     let acceptedProjection: ActiveFullCompactPrepareStepProjection | undefined;
     const controllerState: SemanticCompactControllerState = {
@@ -2627,7 +2635,7 @@ export class AiSdkBackend implements AgentBackend {
   private buildActiveFullCompactPrepareStep(
     turnId: string,
     runtimeEvents: readonly RuntimeEvent[] | undefined,
-    headAnchor: ActiveCompactionHeadAnchor,
+    headAnchor: ActiveCompactionHeadAnchor | undefined,
     requestShapeHashForMessages: (
       messages: readonly ModelMessage[],
       activeToolsForStep: readonly string[] | undefined,
@@ -2656,7 +2664,7 @@ export class AiSdkBackend implements AgentBackend {
         now: this.now(),
         charsPerToken: this.input.contextBudget?.charsPerToken,
         requestShapeHashForMessages: (messages) => requestShapeHashForMessages(messages, activeToolsForStep),
-        headAnchor,
+        ...(headAnchor ? { headAnchor } : {}),
         dryRun,
         ...(dryRun ? { dryRunReason: policy.mode } : {}),
       });
@@ -4034,6 +4042,14 @@ export class AiSdkBackend implements AgentBackend {
     return out;
   }
 
+  private async materializeRuntimeReplayTextOnly(plan: RuntimeEventModelReplayPlan): Promise<ModelMessage[]> {
+    const messages: ModelMessage[] = [];
+    for (const item of plan.items) {
+      if (item.kind === 'text') messages.push(await this.materializeRuntimeReplayItem(item));
+    }
+    return messages;
+  }
+
   private async materializeRuntimeReplayItem(item: RuntimeEventModelReplayItem): Promise<ModelMessage> {
     switch (item.kind) {
       case 'text':
@@ -4299,6 +4315,16 @@ function hasBlockingReplayDiagnostics(plan: RuntimeEventModelReplayPlan): boolea
     diagnostic.code === 'unsupported_content' ||
     diagnostic.code === 'tool_id_mismatch'
   );
+}
+
+function priorReplayFailureTrace(replay: {
+  gate: string;
+  diagnostics: readonly { code: string }[];
+}): { gate: string; diagnosticCodes: string[] } {
+  return {
+    gate: replay.gate,
+    diagnosticCodes: [...new Set(replay.diagnostics.map((diagnostic) => diagnostic.code))],
+  };
 }
 
 function mergeActiveToolResultPruneDiagnosticPatches(

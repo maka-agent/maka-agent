@@ -126,6 +126,258 @@ describe('AiSdkBackend model history', () => {
     ]);
   });
 
+  test('continuation replays the original user after diagnostic terminal errors with no StoredMessage context', async () => {
+    const model = completionModel();
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    await drain(backend.send({
+      turnId: 'turn-resume',
+      text: '',
+      context: [],
+      runtimeContext: [
+        runtimeTextEvent({ id: 'rt-u', turnId: 'turn-source', role: 'user', author: 'user', text: 'original user' }),
+        runtimeEvent({
+          id: 'rt-failed',
+          turnId: 'turn-source',
+          role: 'system',
+          author: 'system',
+          status: 'failed',
+          content: { kind: 'error', reason: 'runtime_error', message: 'previous attempt failed' },
+          actions: { endInvocation: true },
+        }),
+      ],
+      continuation: {
+        sourceInvocationId: 'invocation-source',
+        sourceRunId: 'run-source',
+        sourceTurnId: 'turn-source',
+        sourceRuntimeEventHighWater: 2,
+      },
+    }));
+
+    assert.deepEqual(compactPrompt(model), [
+      { role: 'user', content: [{ type: 'text', text: 'original user' }] },
+    ]);
+  });
+
+  test('continuation materializes validated RuntimeEvents when provider-native replay is unavailable', async () => {
+    const model = completionModel();
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: { ...connection(), providerType: 'openai' },
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    await drain(backend.send({
+      turnId: 'turn-resume',
+      text: '',
+      context: [],
+      runtimeContext: [
+        runtimeTextEvent({ id: 'rt-u', turnId: 'turn-source', role: 'user', author: 'user', text: 'original user' }),
+        runtimeEvent({
+          id: 'rt-thinking',
+          turnId: 'turn-source',
+          role: 'model',
+          author: 'agent',
+          content: { kind: 'thinking', text: 'private reasoning', signature: 'sig-1' },
+        }),
+      ],
+      continuation: {
+        sourceInvocationId: 'invocation-source',
+        sourceRunId: 'run-source',
+        sourceTurnId: 'turn-source',
+        sourceRuntimeEventHighWater: 2,
+      },
+    }));
+
+    assert.deepEqual(compactPrompt(model), [
+      { role: 'user', content: [{ type: 'text', text: 'original user' }] },
+    ]);
+  });
+
+  test('continuation never substitutes StoredMessages when RuntimeEvent replay has blocking diagnostics', async () => {
+    const model = completionModel();
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    await drain(backend.send({
+      turnId: 'turn-resume',
+      text: '',
+      context: [
+        { type: 'user', id: 'projection-u', turnId: 'turn-source', ts: 1, text: 'must not replay projection' },
+      ],
+      runtimeContext: [
+        runtimeTextEvent({ id: 'rt-u', turnId: 'turn-source', role: 'user', author: 'user', text: 'original user' }),
+        runtimeEvent({
+          id: 'rt-call',
+          turnId: 'turn-source',
+          role: 'model',
+          author: 'agent',
+          content: { kind: 'function_call', id: 'tool-1', name: 'Bash', args: { command: 'printf ok' } },
+        }),
+        runtimeEvent({
+          id: 'rt-invalid-result',
+          turnId: 'turn-source',
+          role: 'tool',
+          author: 'tool',
+          content: {
+            kind: 'function_response',
+            id: 'tool-1',
+            name: 'Bash',
+            result: {
+              kind: 'terminal',
+              cwd: '/workspace',
+              cmd: 'printf ok',
+              status: 'completed',
+              exitCode: 0,
+              stdout: 'ok',
+              stderr: '',
+              stdoutTruncated: false,
+              stderrTruncated: false,
+              output: {
+                mode: 'pipes', stdout: 'ok', stderr: '',
+                stdoutTruncated: false, stderrTruncated: false, redacted: false,
+              },
+            },
+          },
+        }),
+      ],
+      continuation: {
+        sourceInvocationId: 'invocation-source',
+        sourceRunId: 'run-source',
+        sourceTurnId: 'turn-source',
+        sourceRuntimeEventHighWater: 3,
+      },
+    }));
+
+    assert.deepEqual(compactPrompt(model), [
+      { role: 'user', content: [{ type: 'text', text: 'original user' }] },
+    ]);
+  });
+
+  test('continuation replay may end with an assistant message without an active user head anchor', async () => {
+    const model = completionModel();
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    await drain(backend.send({
+      turnId: 'turn-resume',
+      text: '',
+      context: [],
+      runtimeContext: [
+        runtimeTextEvent({ id: 'rt-u', turnId: 'turn-source', role: 'user', author: 'user', text: 'original user' }),
+        runtimeTextEvent({ id: 'rt-a', turnId: 'turn-source', role: 'model', author: 'agent', text: 'partial answer' }),
+      ],
+      continuation: {
+        sourceInvocationId: 'invocation-source',
+        sourceRunId: 'run-source',
+        sourceTurnId: 'turn-source',
+        sourceRuntimeEventHighWater: 2,
+      },
+    }));
+
+    assert.deepEqual(compactPrompt(model), [
+      { role: 'user', content: [{ type: 'text', text: 'original user' }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'partial answer' }] },
+    ]);
+  });
+
+  test('continuation replay may end at a paired tool boundary without an active user head anchor', async () => {
+    const model = completionModel();
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    await drain(backend.send({
+      turnId: 'turn-resume',
+      text: '',
+      context: [],
+      runtimeContext: [
+        runtimeTextEvent({ id: 'rt-u', turnId: 'turn-source', role: 'user', author: 'user', text: 'run the check' }),
+        runtimeEvent({
+          id: 'rt-call',
+          turnId: 'turn-source',
+          role: 'model',
+          author: 'agent',
+          content: { kind: 'function_call', id: 'tool-1', name: 'Read', args: { path: 'README.md' } },
+        }),
+        runtimeEvent({
+          id: 'rt-result',
+          turnId: 'turn-source',
+          role: 'tool',
+          author: 'tool',
+          content: {
+            kind: 'function_response',
+            id: 'tool-1',
+            name: 'Read',
+            result: { kind: 'text', text: 'contents' },
+          },
+        }),
+      ],
+      continuation: {
+        sourceInvocationId: 'invocation-source',
+        sourceRunId: 'run-source',
+        sourceTurnId: 'turn-source',
+        sourceRuntimeEventHighWater: 3,
+      },
+    }));
+
+    const prompt = compactPrompt(model) as Array<{ role: string }>;
+    assert.equal(prompt[0]?.role, 'user');
+    assert.equal(prompt.at(-1)?.role, 'tool');
+  });
+
   test('uses StoredMessage projection when RuntimeEvent replay is empty', async () => {
     const model = completionModel();
     const backend = new AiSdkBackend({
@@ -3505,7 +3757,7 @@ describe('AiSdkBackend model history', () => {
     ]);
   });
 
-  test('uses StoredMessage projection when RuntimeEvent replay has unsupported content', async () => {
+  test('keeps RuntimeEvent replay when a system error fact is diagnostic-only', async () => {
     const model = completionModel();
     const backend = new AiSdkBackend({
       sessionId: 'session-1',
@@ -3541,8 +3793,7 @@ describe('AiSdkBackend model history', () => {
     }));
 
     assert.deepEqual(compactPrompt(model), [
-      { role: 'user', content: [{ type: 'text', text: 'projection user' }] },
-      { role: 'assistant', content: [{ type: 'text', text: 'projection assistant' }] },
+      { role: 'user', content: [{ type: 'text', text: 'runtime user' }] },
       { role: 'user', content: [{ type: 'text', text: 'current user' }] },
     ]);
   });
@@ -5558,6 +5809,55 @@ describe('AiSdkBackend context budget and prompt attribution', () => {
 });
 
 describe('AiSdkBackend RunTrace', () => {
+  test('records the continuation replay gate and blocking diagnostics on stream failure', async () => {
+    const trace: RunTraceEvent[] = [];
+    const model = new MockLanguageModelV3({
+      doStream: async () => {
+        throw new Error('provider failed');
+      },
+    });
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+      recordRunTrace: (event) => trace.push(event),
+    });
+
+    await drain(backend.send({
+      turnId: 'turn-resume',
+      text: '',
+      context: [],
+      runtimeContext: [
+        runtimeTextEvent({ id: 'rt-u', turnId: 'turn-source', role: 'user', author: 'user', text: 'original user' }),
+        runtimeEvent({
+          id: 'rt-invalid-role',
+          turnId: 'turn-source',
+          role: 'tool',
+          author: 'tool',
+          content: { kind: 'text', text: 'invalid text lane' },
+        }),
+      ],
+      continuation: {
+        sourceInvocationId: 'invocation-source',
+        sourceRunId: 'run-source',
+        sourceTurnId: 'turn-source',
+        sourceRuntimeEventHighWater: 2,
+      },
+    }));
+
+    const failure = trace.find((event) => event.type === 'model_stream_failed');
+    assert.equal(failure?.data?.priorReplayGate, 'runtime_replay_text_only');
+    assert.deepEqual(failure?.data?.priorReplayDiagnosticCodes, ['unsupported_role']);
+  });
+
   test('records turn, model, usage, and completion trace events without changing SessionEvents', async () => {
     const trace: RunTraceEvent[] = [];
     const events: SessionEvent[] = [];

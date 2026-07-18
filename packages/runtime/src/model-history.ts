@@ -341,6 +341,15 @@ export function buildRuntimeEventModelReplayPlan(
       continue;
     }
 
+    if (event.role === 'system' && event.content.kind === 'error') {
+      diagnostics.push(diagnostic(
+        event,
+        'system_runtime_fact_diagnostic_only',
+        'system error RuntimeEvent is diagnostic-only for model replay',
+      ));
+      continue;
+    }
+
     if (!runtimeEventHasModelVisibleContent(event)) {
       // A model-role empty text event is the step closer of a thinking-only /
       // tool-only step (the backend emits text_complete with '' so the

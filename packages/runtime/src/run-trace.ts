@@ -137,9 +137,17 @@ export class RunTrace {
     });
   }
 
-  modelStreamFailed(errorClass: string | undefined, error: unknown): void {
+  modelStreamFailed(
+    errorClass: string | undefined,
+    error: unknown,
+    replay?: { gate: string; diagnosticCodes: readonly string[] },
+  ): void {
     this.emit('model', 'model_stream_failed', 'Model stream failed', {
       ...(errorClass ? { errorClass } : {}),
+      ...(replay ? {
+        priorReplayGate: replay.gate,
+        priorReplayDiagnosticCodes: [...replay.diagnosticCodes],
+      } : {}),
       error: explainError(error),
       ...diagnoseError(error),
     });
