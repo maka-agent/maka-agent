@@ -3,10 +3,6 @@
   align-content: start;
 }
 
-.maka-mcp-header {
-  align-items: center;
-}
-
 .maka-mcp-workspace {
   width: min(100%, 900px);
   min-height: 0;
@@ -51,29 +47,44 @@
 }
 
 .maka-mcp-hero-signal {
-  min-width: 240px;
   display: flex;
   align-items: center;
   justify-content: flex-end;
+  gap: var(--space-3);
+}
+
+/* Labeled pictogram cluster — the same "framed glyph + caption" tiles the
+   skills featured banner uses, so the two extension pages read as siblings.
+   Icons ride the @maka/ui library (Task A); no inline SVG here. */
+.maka-mcp-hero-signal span {
+  width: 76px;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1-5);
+  padding: var(--space-3) var(--space-2);
+  border: var(--border-width-hairline) solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--background);
   color: var(--foreground-secondary);
 }
 
 .maka-mcp-hero-signal svg {
-  width: 38px;
-  height: 38px;
-  padding: var(--space-2);
-  border: var(--border-width-hairline) solid var(--border);
-  border-radius: var(--radius-control);
-  background: var(--background);
+  width: 22px;
+  height: 22px;
 }
 
-.maka-mcp-hero-signal span {
-  width: 24px;
-  height: 1px;
-  background: var(--border);
+.maka-mcp-hero-signal small {
+  color: var(--muted-foreground);
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--leading-tight);
 }
 
-.maka-mcp-controls {
+/* Tab row rhythm mirrors the skills page (.maka-skill-tabs-bar): an
+   underline TabsList on the left, the search field pinned to the right,
+   so the two extension pages read as siblings. */
+.maka-mcp-tabs-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -83,46 +94,26 @@
 
 .maka-mcp-tabs {
   display: flex;
-  align-items: center;
   gap: var(--space-4);
+  border-bottom: 0;
 }
 
-.maka-mcp-tabs button {
+.maka-mcp-tab {
   position: relative;
-  min-height: 36px;
+  height: 32px;
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
   padding: 0 1px;
   border: 0;
+  border-radius: 0;
   background: transparent;
   color: var(--muted-foreground);
-  font: inherit;
   font-size: var(--font-size-ui);
   font-weight: var(--font-weight-medium);
 }
 
-.maka-mcp-tabs button::after {
-  position: absolute;
-  right: 0;
-  bottom: -1px;
-  left: 0;
-  height: 2px;
-  border-radius: var(--radius-pill);
-  background: transparent;
-  content: '';
-}
-
-.maka-mcp-tabs button[data-active="true"] {
-  color: var(--foreground);
-  font-weight: var(--font-weight-semibold);
-}
-
-.maka-mcp-tabs button[data-active="true"]::after {
-  background: var(--foreground);
-}
-
-.maka-mcp-tabs button span {
+.maka-mcp-tab span {
   min-width: 16px;
   height: 16px;
   display: inline-flex;
@@ -130,15 +121,18 @@
   justify-content: center;
   padding-inline: var(--space-1);
   border-radius: var(--radius-pill);
-  background: var(--state-hover-bg);
+  background: oklch(from var(--foreground) l c h / 0.06);
+  color: var(--muted-foreground);
   font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-semibold);
   font-variant-numeric: tabular-nums;
 }
 
 .maka-mcp-search {
   width: min(300px, 38vw);
-  height: var(--h-control-md);
+  height: var(--h-control-sm);
   margin-bottom: var(--space-2);
+  flex: 0 0 auto;
 }
 
 .maka-mcp-tab-panel {
@@ -188,16 +182,6 @@
   font-size: var(--font-size-heading);
   font-weight: var(--font-weight-bold);
   letter-spacing: var(--tracking-normal);
-}
-
-.maka-mcp-market-icon svg {
-  width: 27px;
-  height: 27px;
-}
-
-.maka-mcp-market-icon[data-brand="figma"] svg {
-  width: 18px;
-  height: 28px;
 }
 
 .maka-mcp-market-icon[data-brand="line"] span {
@@ -369,9 +353,15 @@
   background: var(--muted-foreground);
 }
 
-.maka-mcp-status-dot[data-tone="success"] { background: var(--success); }
-.maka-mcp-status-dot[data-tone="info"] { background: var(--info); }
+/* Status-color restraint (#651): the dot stays neutral for every expected
+   state; only a genuine failure (data-tone="destructive") raises color. */
 .maka-mcp-status-dot[data-tone="destructive"] { background: var(--destructive); }
+
+.maka-mcp-server-state {
+  color: var(--muted-foreground);
+  font-size: var(--font-size-caption);
+  font-variant-numeric: tabular-nums;
+}
 
 .maka-mcp-server-identity {
   min-width: 0;
@@ -461,34 +451,20 @@
   white-space: pre-wrap;
 }
 
-.maka-mcp-empty,
+/* The empty / no-results panels ride the shared EmptyState primitive; this
+   class is only a light layout override on top of `.maka-empty-state`. */
+.maka-mcp-empty {
+  align-self: start;
+}
+
 .maka-mcp-loading {
   min-height: 240px;
   display: grid;
   place-items: center;
   align-content: center;
-  gap: var(--space-2);
   padding: var(--space-8);
   color: var(--muted-foreground);
   text-align: center;
-}
-
-.maka-mcp-empty > svg {
-  width: 32px;
-  height: 32px;
-  margin-bottom: var(--space-2);
-  color: var(--foreground-secondary);
-}
-
-.maka-mcp-empty strong {
-  color: var(--foreground);
-  font-size: var(--font-size-heading);
-}
-
-.maka-mcp-empty span {
-  max-width: 52ch;
-  font-size: var(--font-size-ui);
-  line-height: var(--leading-normal);
 }
 
 .maka-mcp-editor-dialog {
@@ -622,17 +598,13 @@
 }
 
 @media (max-width: 760px) {
-  .maka-mcp-header,
-  .maka-mcp-controls {
-    align-items: stretch;
-  }
-
   .maka-mcp-hero-signal {
     display: none;
   }
 
-  .maka-mcp-controls {
-    display: grid;
+  .maka-mcp-tabs-bar {
+    flex-wrap: wrap;
+    align-items: stretch;
   }
 
   .maka-mcp-search {
