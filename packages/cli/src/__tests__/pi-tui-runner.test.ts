@@ -34,6 +34,7 @@ import type {
   SessionResumeAvailability,
 } from '../session-driver.js';
 import { CliGoalContinuation, type CliGoalTurnHost } from '../cli-goal-continuation.js';
+import type { ModelChoice } from '../connection-target.js';
 import {
   runMakaPiTui as runMakaPiTuiImpl,
   type MakaPiTuiGoalLifecycle,
@@ -2463,6 +2464,44 @@ describe('Maka Pi TUI runner', () => {
     await run;
   });
 
+  test('quit during a running turn closes the TUI instead of steering it', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SteeringTurnDriver();
+    const run = runMakaPiTui({
+      title: 'Maka', driver, cwd: '/repo', model: 'm', connectionSlug: 'c', permissionMode: 'bypass', terminal,
+    });
+
+    terminal.input('start the work');
+    terminal.input('\r');
+    await waitFor(() => terminal.progressStates.at(-1) === true);
+
+    terminal.input('quit');
+    terminal.input('\r');
+
+    await run;
+    assert.deepEqual(driver.steered, []);
+    assert.equal(driver.stopCalls, 1);
+  });
+
+  test('/quit during a running turn closes the TUI instead of steering it', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SteeringTurnDriver();
+    const run = runMakaPiTui({
+      title: 'Maka', driver, cwd: '/repo', model: 'm', connectionSlug: 'c', permissionMode: 'bypass', terminal,
+    });
+
+    terminal.input('start the work');
+    terminal.input('\r');
+    await waitFor(() => terminal.progressStates.at(-1) === true);
+
+    terminal.input('/quit');
+    terminal.input('\r');
+
+    await run;
+    assert.deepEqual(driver.steered, []);
+    assert.equal(driver.stopCalls, 1);
+  });
+
   test('Alt+Enter during a turn queues a followup and shows a pending Queued line', async () => {
     const terminal = new FakeTerminal();
     const driver = new SteeringTurnDriver();
@@ -3773,6 +3812,60 @@ describe('Maka Pi TUI runner', () => {
     await waitFor(() => plainTerminalOutput(terminal.output()).includes('previous answer'));
     const output = plainTerminalOutput(terminal.output());
     assert.equal(output.includes('Session: session-2'), false);
+
+    exitMaka(terminal);
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close during test cleanup');
+      }),
+    ]);
+  });
+
+  test('switching to a session on a different model updates the ctx total in the status line', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new ModelSwitchDriver();
+    const modelChoices: ModelChoice[] = [
+      {
+        connectionSlug: 'claude-subscription',
+        connectionName: 'Claude',
+        providerType: 'claude-subscription',
+        model: 'claude-sonnet-4-5',
+        isDefaultConnection: true,
+        contextWindow: 1_000,
+      },
+      {
+        connectionSlug: 'conn-b',
+        connectionName: 'B',
+        providerType: 'claude-subscription',
+        model: 'model-b',
+        isDefaultConnection: false,
+        contextWindow: 200_000,
+      },
+    ];
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      modelChoices,
+      modelContextWindow: 1_000,
+      terminal,
+    });
+
+    terminal.input('/session session-2');
+    terminal.input('\r');
+    await waitFor(() => terminal.output().includes('Resumed session "Existing chat"'));
+
+    terminal.input('go');
+    terminal.input('\r');
+    // contextWindow after the switch (200_000) minus contextRemaining (50_000)
+    // is 150_000 used, 75% — only correct if applySwitchResult re-resolved
+    // modelContextWindow for the switched-to connection+model instead of
+    // leaving the pre-switch session's 1_000 window in place.
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('ctx 150k/200k 75%'));
 
     exitMaka(terminal);
     await Promise.race([
@@ -7132,6 +7225,32 @@ class SlashCommandDriver implements MakaSessionDriver {
 class FailingSwitchSessionDriver extends SlashCommandDriver {
   async switchSession(_sessionId: string): Promise<MakaSessionSwitchResult> {
     throw new Error('session not found');
+  }
+}
+
+// Switches onto a session on a different connection/model, then emits a
+// token_usage event on the next turn so the ctx statusline segment can be
+// checked against the *new* session's context window.
+class ModelSwitchDriver extends SlashCommandDriver {
+  constructor() {
+    super([{
+      ...fakeSessionSummary('session-2', '/repo'),
+      llmConnectionSlug: 'conn-b',
+      model: 'model-b',
+    }]);
+  }
+
+  override async *promptEvents(_prompt: string, turnId = 'turn-1'): AsyncIterable<SessionEvent> {
+    yield {
+      type: 'token_usage',
+      id: 'event-token-usage',
+      turnId,
+      ts: 1,
+      input: 150_000,
+      output: 0,
+      contextRemaining: 50_000,
+    };
+    yield { type: 'complete', id: 'event-complete', turnId, ts: 2, stopReason: 'end_turn' };
   }
 }
 

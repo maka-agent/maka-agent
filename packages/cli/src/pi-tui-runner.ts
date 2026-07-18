@@ -648,8 +648,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       requestRender();
       return;
     }
-    const trimmed = prompt.trim();
-    if (trimmed === 'quit' || trimmed === 'exit') {
+    if (isExitPrompt(prompt)) {
       beginGracefulClose();
       return;
     }
@@ -858,6 +857,13 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
 
   editor.onSubmit = (prompt) => {
     if (turnRunning) {
+      // A quit/exit form typed while a turn is running must close the TUI, not
+      // steer it into the model as prompt text (review finding on turnRunning
+      // input routing): check it before handing off to steering.
+      if (isExitPrompt(prompt)) {
+        beginGracefulClose();
+        return;
+      }
       steerRunningTurn(prompt);
       return;
     }
@@ -1075,9 +1081,20 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     model = summary.model;
     const previousConnectionSlug = connectionSlug;
     connectionSlug = summary.llmConnectionSlug;
-    providerType = input.modelChoices?.find((choice) => (
+    const matchingChoice = input.modelChoices?.find((choice) => (
       choice.connectionSlug === summary.llmConnectionSlug
-    ))?.providerType ?? (previousConnectionSlug === summary.llmConnectionSlug ? providerType : undefined);
+    ));
+    providerType = matchingChoice?.providerType
+      ?? (previousConnectionSlug === summary.llmConnectionSlug ? providerType : undefined);
+    // Statusline ctx total for the now-active session (review finding: a
+    // switch/rewind onto a different connection or model left the previous
+    // session's window in place). Mirrors setModel/setModelChoice's own
+    // lookup above; a miss (model not in the choice list) leaves
+    // modelContextWindow unchanged rather than erroring.
+    const contextWindowMatch = input.modelChoices?.find((choice) => (
+      choice.connectionSlug === summary.llmConnectionSlug && choice.model === summary.model
+    ));
+    if (contextWindowMatch) modelContextWindow = contextWindowMatch.contextWindow;
     permissionMode = summary.permissionMode;
     thinkingLevel = summary.thinkingLevel;
     thinkingLevels = providerType ? thinkingVariantsForModel(providerType, summary.model) : [];
@@ -2149,6 +2166,15 @@ const EDITOR_AUTOCOMPLETE_MAX_VISIBLE = 13;
 // sessions apart in the picker without showing the full unreadable uuid.
 function shortSessionId(id: string): string {
   return id.slice(0, 8);
+}
+
+// Matches only the four exact "close the TUI" spellings — bare `quit`/`exit`
+// and their slash forms — never a prefix or a phrase merely containing one, so
+// it can gate both the idle submit path and mid-turn input without swallowing
+// an in-turn steering message that happens to mention "quit".
+function isExitPrompt(prompt: string): boolean {
+  const trimmed = prompt.trim();
+  return trimmed === 'quit' || trimmed === 'exit' || trimmed === '/quit' || trimmed === '/exit';
 }
 
 // Two Escapes this close together read as one deliberate "stop the turn".

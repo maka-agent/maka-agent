@@ -5,7 +5,7 @@ import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describeChatConfigurationReason, parseNoRealConnectionError } from '@maka/core';
 import { fetchProviderModels, resolveSelectedModelContextWindow, SessionActivityRegistry } from '@maka/runtime';
-import { createConnectionStore, createFileCredentialStore } from '@maka/storage';
+import { createConnectionStore, createFileCredentialStore, createSessionStore } from '@maka/storage';
 import { createMakaSessionDriver, type MakaSessionDriver } from './session-driver.js';
 import { createMakaCliRuntimeContext } from './runtime-bootstrap.js';
 import { selectableModelIdsForTarget } from './connection-target.js';
@@ -29,8 +29,12 @@ export function parseMakaCliArgs(argv: string[], version: string): MakaCliComman
   if (first === '--version' || first === '-v') return { kind: 'version', text: version };
   if (first === '--resume') {
     const sessionId = argv[1];
-    if (!sessionId) {
+    if (!sessionId || sessionId.startsWith('-')) {
       return { kind: 'error', message: '--resume requires a session id', exitCode: 2 };
+    }
+    const extra = argv[2];
+    if (extra !== undefined) {
+      return { kind: 'error', message: `Unexpected argument: ${extra}`, exitCode: 2 };
     }
     return { kind: 'tui', resumeSessionId: sessionId };
   }
@@ -102,6 +106,51 @@ export function formatResumeHint(sessionId: string | null): string | null {
   return `Resume this session with:\n  maka --resume ${sessionId}`;
 }
 
+/** The subset of a resumed session's stored header the TUI needs to anchor
+ *  startup before `createMakaCliRuntimeContext` resolves any connection. */
+export interface TuiResumeBootstrap {
+  cwd: string;
+  requestedConnectionSlug: string;
+  requestedModel: string;
+}
+
+export type ResolveTuiResumeBootstrapResult =
+  | { kind: 'ready'; bootstrap: TuiResumeBootstrap }
+  | { kind: 'error'; message: string };
+
+/**
+ * Pre-check a `--resume` target before the runtime context — and its
+ * default-connection resolution — is created. Without this, `tui` startup
+ * always resolved the *default* connection first and only switched onto the
+ * resumed session's connection/model afterward (inside the runner, via
+ * `switchSession`); a session resumed on a non-default (or the only ready)
+ * connection could misfire onboarding or fail outright before `switchSession`
+ * ever ran. Reading the stored header here lets startup anchor the
+ * connection/model/cwd to the session being resumed instead, so the later
+ * `switchSession` call (still exercising the same transcript/header
+ * validation) has a live driver to switch. Mirrors `maka run --resume`'s
+ * session-not-found error text (see run-session-selection.ts).
+ */
+export async function resolveTuiResumeBootstrap(
+  workspaceRoot: string,
+  sessionId: string,
+): Promise<ResolveTuiResumeBootstrapResult> {
+  const store = createSessionStore(workspaceRoot);
+  try {
+    const header = await store.readHeader(sessionId);
+    return {
+      kind: 'ready',
+      bootstrap: {
+        cwd: header.cwd ?? process.cwd(),
+        requestedConnectionSlug: header.llmConnectionSlug,
+        requestedModel: header.model,
+      },
+    };
+  } catch {
+    return { kind: 'error', message: `session not found: ${sessionId}` };
+  }
+}
+
 export async function runMakaCli(argv: string[] = process.argv.slice(2)): Promise<number> {
   const version = await readPackageVersion();
   const command = parseMakaCliArgs(argv, version);
@@ -129,13 +178,29 @@ export async function runMakaCli(argv: string[] = process.argv.slice(2)): Promis
       return command.exitCode;
     case 'tui': {
       const workspaceRoot = resolveMakaWorkspaceRoot();
+      let resumeBootstrap: TuiResumeBootstrap | undefined;
+      if (command.resumeSessionId) {
+        const resolved = await resolveTuiResumeBootstrap(workspaceRoot, command.resumeSessionId);
+        if (resolved.kind === 'error') {
+          process.stderr.write(`${resolved.message}\n`);
+          return 1;
+        }
+        resumeBootstrap = resolved.bootstrap;
+      }
+      const contextInput = {
+        surface: 'tui' as const,
+        workspaceRoot,
+        cwd: resumeBootstrap?.cwd ?? process.cwd(),
+        ...(resumeBootstrap
+          ? {
+              requestedConnectionSlug: resumeBootstrap.requestedConnectionSlug,
+              requestedModel: resumeBootstrap.requestedModel,
+            }
+          : {}),
+      };
       let context;
       try {
-        context = await createMakaCliRuntimeContext({
-          surface: 'tui',
-          workspaceRoot,
-          cwd: process.cwd(),
-        });
+        context = await createMakaCliRuntimeContext(contextInput);
       } catch (error) {
         const { matched, reason } = parseNoRealConnectionError(error);
         const isFirstRun = matched && reason === 'missing_default_connection';
@@ -153,11 +218,7 @@ export async function runMakaCli(argv: string[] = process.argv.slice(2)): Promis
           return 1;
         }
         try {
-          context = await createMakaCliRuntimeContext({
-            surface: 'tui',
-            workspaceRoot,
-            cwd: process.cwd(),
-          });
+          context = await createMakaCliRuntimeContext(contextInput);
         } catch (retryError) {
           // A failure after onboarding (e.g. the saved connection still isn't
           // ready) gets the same classified guidance as the first attempt,

@@ -13,6 +13,7 @@ import {
   formatStartupConnectionError,
   formatMakaCliFatalError,
   resolveMakaCliExitCode,
+  resolveTuiResumeBootstrap,
 } from '../cli.js';
 
 const execFileAsync = promisify(execFile);
@@ -22,9 +23,10 @@ const legacyCliPath = new URL('../../../headless/dist/cli.js', import.meta.url).
 function runCliProcess(
   entrypoint: string,
   args: string[],
+  env: NodeJS.ProcessEnv = process.env,
 ): Promise<{ code: number | null; stdout: string; stderr: string }> {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [entrypoint, ...args]);
+    const child = spawn(process.execPath, [entrypoint, ...args], { env });
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString('utf8'); });
@@ -99,6 +101,22 @@ describe('Maka CLI args', () => {
     assert.deepEqual(parseMakaCliArgs(['--resume'], '0.1.0'), {
       kind: 'error',
       message: '--resume requires a session id',
+      exitCode: 2,
+    });
+  });
+
+  test('rejects --resume when the next token is another flag', () => {
+    assert.deepEqual(parseMakaCliArgs(['--resume', '--help'], '0.1.0'), {
+      kind: 'error',
+      message: '--resume requires a session id',
+      exitCode: 2,
+    });
+  });
+
+  test('rejects --resume with a trailing extra argument', () => {
+    assert.deepEqual(parseMakaCliArgs(['--resume', 'abc', 'extra'], '0.1.0'), {
+      kind: 'error',
+      message: 'Unexpected argument: extra',
       exitCode: 2,
     });
   });
@@ -269,6 +287,66 @@ describe('Maka CLI args', () => {
       assert.equal(stdout.trim(), '0.1.0');
     } finally {
       await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('exits with a stderr error and never launches the TUI when --resume targets a missing session', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'maka-cli-resume-missing-'));
+    try {
+      const result = await runCliProcess(cliPath, ['--resume', 'missing-session'], {
+        ...process.env,
+        HOME: home,
+        XDG_CONFIG_HOME: join(home, '.config'),
+      });
+
+      assert.equal(result.code, 1);
+      assert.match(result.stderr, /session not found: missing-session/);
+      assert.equal(result.stdout, '');
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('resolveTuiResumeBootstrap', () => {
+  test('anchors the resumed session\'s stored connection, model, and cwd', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-cli-resume-bootstrap-'));
+    try {
+      const session = await createSessionStore(root).create({
+        cwd: '/tmp/some-workspace',
+        name: 'Resume target',
+        backend: 'ai-sdk',
+        llmConnectionSlug: 'some-connection',
+        model: 'some-model',
+        permissionMode: 'ask',
+      });
+
+      const result = await resolveTuiResumeBootstrap(root, session.id);
+
+      assert.deepEqual(result, {
+        kind: 'ready',
+        bootstrap: {
+          cwd: '/tmp/some-workspace',
+          requestedConnectionSlug: 'some-connection',
+          requestedModel: 'some-model',
+        },
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('reports a clear error for a session that does not exist', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-cli-resume-bootstrap-missing-'));
+    try {
+      const result = await resolveTuiResumeBootstrap(root, 'nonexistent-session');
+
+      assert.deepEqual(result, {
+        kind: 'error',
+        message: 'session not found: nonexistent-session',
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
     }
   });
 });
