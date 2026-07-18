@@ -764,6 +764,41 @@ Use Office tools.`,
     });
   });
 
+  it('resolves the Skill tool host per session', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      await writeSkill(
+        workspaceRoot,
+        'office-helper',
+        `---
+name: Office Helper
+description: Office document work.
+required-tools: [OfficeDocument]
+---
+# Office Helper
+Use Office tools.`,
+      );
+      const hosts = new Map([
+        ['text-session', { toolNames: new Set<string>(['Read']) }],
+        ['office-session', { toolNames: new Set<string>(['Read', 'OfficeDocument']) }],
+      ]);
+      const tool = buildSkillAgentTool(
+        workspaceRoot,
+        ({ sessionId }) => hosts.get(sessionId) ?? { toolNames: new Set<string>() },
+      );
+
+      const hidden = await tool.impl({ name: 'office-helper' }, {
+        sessionId: 'text-session',
+      } as unknown as MakaToolContext);
+      assert.equal(hidden.ok, false);
+      if (!hidden.ok) assert.equal(hidden.reason, 'host_incompatible');
+
+      const loaded = await tool.impl({ name: 'office-helper' }, {
+        sessionId: 'office-session',
+      } as unknown as MakaToolContext);
+      assert.equal(loaded.ok, true);
+    });
+  });
+
   it('buildSkillsPromptFragment filters out skills whose required tools are missing on the host', async () => {
     await withWorkspace(async (workspaceRoot) => {
       await writeSkill(

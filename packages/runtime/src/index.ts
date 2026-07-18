@@ -1236,6 +1236,7 @@ export type {
   RuntimeSkillDefinition,
   ScannedSkill,
   HostCapabilities,
+  HostCapabilitiesResolver,
   SkillCatalogBudgetOptions,
   SkillHostCompatibility,
   GatedSkill,

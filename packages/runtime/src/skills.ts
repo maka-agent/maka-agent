@@ -155,6 +155,11 @@ export interface HostCapabilities {
   capabilities?: Set<string>;
 }
 
+/** Resolves the capability surface for the session executing a Skill call. */
+export type HostCapabilitiesResolver = (
+  context: Pick<MakaToolContext, 'sessionId' | 'cwd'>,
+) => HostCapabilities;
+
 export interface SkillCatalogBudgetOptions {
   /** Selected model context window in tokens. Uses the legacy fixed budget when unknown. */
   contextWindow?: number;
@@ -636,7 +641,7 @@ export const SKILL_TOOL_NAME = 'Skill';
 
 export function buildSkillAgentTool(
   source: SkillSource | SkillSourceResolver,
-  host?: HostCapabilities,
+  host?: HostCapabilities | HostCapabilitiesResolver,
 ): MakaTool<{ name: string }, LoadSkillInstructionsResult> {
   return {
     name: SKILL_TOOL_NAME,
@@ -648,7 +653,11 @@ export function buildSkillAgentTool(
     permissionRequired: false,
     displayName: SKILL_TOOL_NAME,
     impl: async ({ name }, ctx) =>
-      loadSkillInstructions(typeof source === 'function' ? source(ctx) : source, name, host),
+      loadSkillInstructions(
+        typeof source === 'function' ? source(ctx) : source,
+        name,
+        typeof host === 'function' ? host(ctx) : host,
+      ),
   };
 }
 

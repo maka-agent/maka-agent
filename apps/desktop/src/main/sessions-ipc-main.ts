@@ -80,6 +80,7 @@ export interface SessionsIpcDeps {
   ) => void;
   ensureSessionCanSend: (sessionId: string) => Promise<void>;
   invalidateSessionBindings?: (sessionId: string) => void;
+  clearSkillHost?: (sessionId: string) => void;
   ensureSessionWorkspaceAvailable: (sessionId: string) => Promise<void>;
   createSession: (input: CreateSessionInput) => ReturnType<SessionManager['createSession']>;
   getReadyConnection: (
@@ -157,6 +158,7 @@ export function registerSessionsIpc(deps: SessionsIpcDeps): void {
     emitSessionsChanged,
     ensureSessionCanSend,
     invalidateSessionBindings,
+    clearSkillHost,
     ensureSessionWorkspaceAvailable,
     createSession,
     getReadyConnection,
@@ -387,6 +389,7 @@ export function registerSessionsIpc(deps: SessionsIpcDeps): void {
     computerUseTools.clearSession(sessionId);
     await goalWiring.archiveSession(sessionId, () => runtime.archive(sessionId));
     invalidateSessionBindings?.(sessionId);
+    clearSkillHost?.(sessionId);
     // An archived conversation is no longer shown: drop its browser connection
     // and view so it does not keep a live Chromium page in the background.
     await releaseBrowserSession(sessionId);
@@ -465,6 +468,7 @@ export function registerSessionsIpc(deps: SessionsIpcDeps): void {
     computerUseTools.clearSession(sessionId);
     await goalWiring.removeSession(sessionId, () => runtime.remove(sessionId));
     invalidateSessionBindings?.(sessionId);
+    clearSkillHost?.(sessionId);
     // Drop the conversation's browser connection and destroy its view (no-op
     // if it never opened one). releaseBrowserSession disposes the view via the
     // host, covering both agent-driven and hand-opened views.

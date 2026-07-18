@@ -19,8 +19,8 @@ import {
   resolveProjectGitInfo,
   buildSessionEnvironmentPromptFragment,
   resolveSkillDiscoveryPaths,
-  type GoalManager,
   type HostCapabilities,
+  type GoalManager,
 } from '@maka/runtime';
 import { buildSkillsPromptFragment } from './skills.js';
 import { buildWorkspaceInstructionsPromptFragment } from './workspace-instructions.js';
@@ -38,6 +38,7 @@ interface SystemPromptMainDeps {
   goalManager?: Pick<GoalManager, 'get'>;
   /** Binding-derived skill host gate (#1099 S2). */
   hostCapabilities?: HostCapabilities;
+  host?: HostCapabilities;
 }
 
 interface SkillPromptBudgetContext {
@@ -48,7 +49,7 @@ export function createSystemPromptMainService(deps: SystemPromptMainDeps) {
   async function buildSystemPrompt(
     header: Pick<SessionHeader, 'labels'>,
     cwd?: string,
-    options?: { memoryFragment?: string | null; includePersonalization?: boolean; skillBudget?: SkillPromptBudgetContext; forChildTurn?: boolean },
+    options?: { memoryFragment?: string | null; includePersonalization?: boolean; skillBudget?: SkillPromptBudgetContext; forChildTurn?: boolean; host?: HostCapabilities },
   ): Promise<string | undefined> {
     const settings = await deps.settingsStore.get();
     const includePersonalization = options?.includePersonalization !== false;
@@ -58,7 +59,7 @@ export function createSystemPromptMainService(deps: SystemPromptMainDeps) {
     const skillSource = resolveSkillDiscoveryPaths(cwd ?? deps.workspaceRoot, deps.workspaceRoot);
     const skills = await buildSkillsPromptFragment(
       skillSource,
-      deps.hostCapabilities,
+      options?.host ?? deps.host ?? deps.hostCapabilities,
       options?.skillBudget,
     );
     const workspaceInstructions = settings.workspaceInstructions.enabled && cwd
@@ -92,12 +93,12 @@ export function createSystemPromptMainService(deps: SystemPromptMainDeps) {
   async function buildBackendSystemPrompt(
     header: Pick<SessionHeader, 'labels'>,
     cwd: string | undefined,
-    options: { memoryFragment?: string | null; childInstruction?: string | null; skillBudget?: SkillPromptBudgetContext },
+    options: { memoryFragment?: string | null; childInstruction?: string | null; skillBudget?: SkillPromptBudgetContext; host?: HostCapabilities },
   ): Promise<string | undefined> {
     const childInstruction = options.childInstruction?.trim();
     const base = await buildSystemPrompt(header, cwd, childInstruction
-      ? { memoryFragment: null, includePersonalization: false, forChildTurn: true, skillBudget: options.skillBudget }
-      : { memoryFragment: options.memoryFragment, skillBudget: options.skillBudget });
+      ? { memoryFragment: null, includePersonalization: false, forChildTurn: true, skillBudget: options.skillBudget, host: options.host }
+      : { memoryFragment: options.memoryFragment, skillBudget: options.skillBudget, host: options.host });
     if (!childInstruction) return base;
     return [
       base,

@@ -76,6 +76,8 @@ import type {
   BotIncomingMessage,
   BotStatus,
   GoalTurnOutcome,
+  HostCapabilities,
+  HostCapabilitiesResolver,
   MakaTool,
   SessionActivityLease,
   ToolAvailabilityConfig,
@@ -450,6 +452,7 @@ const automationWiring = createMainAutomationWiring({
     // its run/trace) is preserved under the archive, labelled automation/cron.
     try {
       await goalWiring.archiveSession(session.id, () => runtime.archive(session.id));
+      desktopSessionSkillHosts.delete(session.id);
       emitSessionsChanged('archived', session.id);
     } catch {}
     return { runId: turnId, ok: r.ok, ...(r.error ? { error: r.error } : {}) };
@@ -561,6 +564,12 @@ const localMemory = new LocalMemoryService({
   updateSettings: (patch) => settingsStore.update(patch),
   getPrivacyContext: getWorkspacePrivacyContext,
 });
+// Resolve a session's backend host at Skill invocation time. The fallback is
+// the binding-derived Desktop surface created after the product tool catalog
+// is assembled below.
+const desktopSessionSkillHosts = new Map<string, HostCapabilities>();
+const resolveDesktopSkillHost: HostCapabilitiesResolver = ({ sessionId }) =>
+  desktopSessionSkillHosts.get(sessionId) ?? desktopHostCapabilities;
 // Window is created hidden for E2E and visual-smoke runs so it never steals
 // focus. Derived from the same isE2e gate as userData/fake-backend so the
 // hidden-window switch stays in lockstep with the rest of the E2E isolation.
@@ -776,7 +785,7 @@ const desktopHostCapabilities = buildHostCapabilitiesFromBinding(desktopBoundToo
 // discovered — matching the CLI and the Agent Skills spec (#1068).
 const skillTool = buildSkillAgentTool(
   ({ cwd }) => resolveSkillDiscoveryPaths(cwd, workspaceRoot),
-  desktopHostCapabilities,
+  resolveDesktopSkillHost,
 );
 const builtinTools: MakaTool[] = [...toolsBeforeSkill, skillTool, ...toolsAfterSkill];
 const toolAvailability: ToolAvailabilityConfig = {
@@ -1001,6 +1010,27 @@ backends.register('ai-sdk', async (ctx) => {
     candidateToolAvailability,
     supportsVision,
   );
+  const backendToolNames = new Set([
+    ...backendTools.map((tool) => tool.name),
+    ...(expertDispatchTool ? [expertDispatchTool.name, ...agentTeamLeadTools.map((tool) => tool.name)] : []),
+  ]);
+  const backendCapabilities = new Set<string>();
+  for (const [capability, tools] of [
+    ['rive', riveTools],
+    ['office', officeTools],
+    ['browser', browserTools],
+    ['computer_use', computerUseTools],
+  ] as const) {
+    if (tools.some((tool) => backendToolNames.has(tool.name))) backendCapabilities.add(capability);
+  }
+  const backendSkillHost: HostCapabilities = {
+    toolNames: backendToolNames,
+    capabilities: backendCapabilities,
+  };
+  // Child backends share the parent sessionId but intentionally have a
+  // narrower tool surface. They do not receive the Desktop Skill tool, so
+  // they must not overwrite the parent session's resolver entry.
+  if (!ctx.tools) desktopSessionSkillHosts.set(ctx.sessionId, backendSkillHost);
 
   return new AiSdkBackend({
     sessionId: ctx.sessionId,
@@ -1028,6 +1058,7 @@ backends.register('ai-sdk', async (ctx) => {
       memoryFragment: memoryPromptSnapshot,
       childInstruction: ctx.systemPrompt,
       skillBudget: { contextWindow: resolveSelectedModelContextWindow(connection, model) },
+      host: backendSkillHost,
     }),
     turnTailPrompt: ({ cwd, sessionId }) => systemPromptService.buildTurnTailPrompt(cwd, sessionId),
     shellRunContextSummary: ctx.shellRunContextSummary,
@@ -1269,6 +1300,7 @@ function registerIpc(): void {
     emitSessionsChanged,
     ensureSessionCanSend,
     invalidateSessionBindings: (sessionId) => botIncoming.invalidateSessionBindings(sessionId),
+    clearSkillHost: (sessionId) => desktopSessionSkillHosts.delete(sessionId),
     ensureSessionWorkspaceAvailable,
     createSession: createDesktopSession,
     getReadyConnection,

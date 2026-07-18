@@ -24,6 +24,7 @@ import {
   updateManagedSkill,
 } from '../skills.js';
 import { importManagedSkillSource } from '../managed-skill-sources.js';
+import { createSystemPromptMainService } from '../system-prompt-main.js';
 import { readRendererShellCombinedSource } from './renderer-shell-source-helpers.js';
 import { extractFunctionBlock } from './function-block-helpers.js';
 
@@ -49,6 +50,72 @@ Use concise prose.`);
       assert.equal(skills[0].validationStatus, 'missing_lock');
       assert.deepEqual(skills[0].validationCodes, ['missing_lock']);
     });
+  });
+
+  it('applies Desktop host tool and capability gates to the system skill prompt', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      await writeSkill(workspaceRoot, 'office-helper', `---
+name: Office Helper
+description: Work with Office documents.
+allowed-tools: [Read]
+required-tools: [OfficeDocument]
+required-capabilities: [office]
+---
+# Office Helper
+Use the Office tools.`);
+
+      const makeService = (host: { toolNames: Set<string>; capabilities: Set<string> }) =>
+        createSystemPromptMainService({
+          settingsStore: {
+            get: async () => ({
+              personalization: {},
+              workspaceInstructions: { enabled: false },
+            }) as never,
+          },
+          workspaceRoot,
+          localMemory: {
+            getState: async () => ({ status: 'ok', agentReadEnabled: false, content: '' }) as never,
+            consumePendingPromptUpdates: () => [],
+          },
+          taskLedger: { list: async () => [] },
+          host,
+        });
+
+      const missingTool = await makeService({
+        toolNames: new Set(['Read']),
+        capabilities: new Set(['office']),
+      }).buildBackendSystemPrompt({ labels: [] }, workspaceRoot, { memoryFragment: null });
+      assert.doesNotMatch(missingTool ?? '', /office-helper/, 'missing required tools must hide the skill');
+
+      const missingCapability = await makeService({
+        toolNames: new Set(['Read', 'OfficeDocument']),
+        capabilities: new Set(),
+      }).buildBackendSystemPrompt({ labels: [] }, workspaceRoot, { memoryFragment: null });
+      assert.doesNotMatch(missingCapability ?? '', /office-helper/, 'missing required capabilities must hide the skill');
+
+      const eligible = await makeService({
+        toolNames: new Set(['Read', 'OfficeDocument']),
+        capabilities: new Set(['office']),
+      }).buildBackendSystemPrompt({ labels: [] }, workspaceRoot, { memoryFragment: null });
+      assert.ok(eligible);
+      assert.match(eligible, /<available-skill id="office-helper"/);
+    });
+  });
+
+  it('shares one Desktop host capability surface between the prompt and Skill tool', async () => {
+    const mainProcess = await readMainProcessCombinedSource();
+    assert.match(mainProcess, /const desktopHostCapabilities = buildHostCapabilitiesFromBinding\(desktopBoundToolNames\)/);
+    assert.match(mainProcess, /hostCapabilities: desktopHostCapabilities/);
+    assert.match(mainProcess, /buildSkillsPromptFragment\(\s*skillSource,\s*options\?\.host \?\? deps\.host \?\? deps\.hostCapabilities,\s*options\?\.skillBudget,\s*\)/);
+    assert.match(mainProcess, /buildSkillAgentTool\([\s\S]*resolveDesktopSkillHost(?:,\s*)?\)/);
+    assert.match(mainProcess, /const backendSkillHost: HostCapabilities =/);
+    assert.match(mainProcess, /\[\.\.\.builtinTools, \.\.\.buildMcpTools\(mcpManager\)\]/);
+    assert.match(mainProcess, /const backendTools = computerUseToolsForModel\(/);
+    assert.match(mainProcess, /const backendToolNames = new Set\(/);
+    assert.match(mainProcess, /if \(tools\.some\(\(tool\) => backendToolNames\.has\(tool\.name\)\)\) backendCapabilities\.add\(capability\)/);
+    assert.match(mainProcess, /backendTools\.map\(\(tool\) => tool\.name\)/);
+    assert.match(mainProcess, /if \(!ctx\.tools\) desktopSessionSkillHosts\.set\(ctx\.sessionId, backendSkillHost\)/);
+    assert.match(mainProcess, /host: backendSkillHost/);
   });
 
   it('lists available skills in the system prompt and loads instructions lazily', async () => {
