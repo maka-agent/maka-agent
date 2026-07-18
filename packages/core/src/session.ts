@@ -75,6 +75,8 @@ export interface SessionHeader {
   id: string;
   workspaceRoot: string;
   cwd: string;
+  /** One-shot model context to inject after a CLI session cwd move. */
+  pendingCwdReminder?: { from: string; to: string };
 
   // Lifecycle timestamps
   createdAt: number;
@@ -118,6 +120,8 @@ export type BackendKind = 'ai-sdk' | 'fake' | 'pi-agent';
 export interface SessionSummary {
   id: string;
   cwd?: string;
+  /** One-shot model context to inject after a CLI session cwd move. */
+  pendingCwdReminder?: { from: string; to: string };
   name: string;
   isFlagged: boolean;
   isArchived: boolean;

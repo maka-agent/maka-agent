@@ -37,7 +37,7 @@ export interface MakaSessionRuntime {
   respondToPermission(sessionId: string, response: PermissionResponse): Promise<void>;
   respondToUserQuestion?(sessionId: string, response: UserQuestionResponse): Promise<void>;
   setPermissionMode(sessionId: string, mode: PermissionMode): Promise<SessionSummary>;
-  updateSession(sessionId: string, patch: { cwd?: string; model?: string; llmConnectionSlug?: string; thinkingLevel?: ThinkingLevel | undefined; name?: string }): Promise<SessionSummary>;
+  updateSession(sessionId: string, patch: { cwd?: string; pendingCwdReminder?: SessionSummary['pendingCwdReminder']; model?: string; llmConnectionSlug?: string; thinkingLevel?: ThinkingLevel | undefined; name?: string }): Promise<SessionSummary>;
   // Rewind reuses the runtime's branch primitives: a non-destructive copy of the
   // transcript + RuntimeEvent ledger at a turn boundary, so resume correctness is
   // inherited and the original session's log is left intact. `branchBeforeTurn`
@@ -205,24 +205,31 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
       sessionId,
       turnId,
       events: pendingReminder
-        ? this.clearCwdReminderAfterStart(events, pendingReminder)
+        ? this.clearCwdReminderAfterStart(sessionId, events, pendingReminder)
         : events,
     };
   }
 
   private async *clearCwdReminderAfterStart(
+    sessionId: string,
     events: AsyncIterable<SessionEvent>,
     reminder: { from: string; to: string },
   ): AsyncIterable<SessionEvent> {
     const iterator = events[Symbol.asyncIterator]();
     const first = await iterator.next();
+    if (first.done) return;
     if (
       this.pendingCwdReminder?.from === reminder.from
       && this.pendingCwdReminder.to === reminder.to
     ) {
-      this.pendingCwdReminder = undefined;
+      try {
+        await this.input.runtime.updateSession(sessionId, { pendingCwdReminder: undefined });
+        this.pendingCwdReminder = undefined;
+      } catch {
+        // Keep the durable reminder when header cleanup fails. The next turn
+        // may repeat it, but the session cannot lose the cwd context.
+      }
     }
-    if (first.done) return;
     yield first.value;
     while (true) {
       const next = await iterator.next();
@@ -339,12 +346,16 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
     }
     const inspectCwdChanges = this.input.inspectCwdChanges ?? inspectGitCwdChanges;
     const oldCwdDirty = await inspectCwdChanges(previousCwd).catch(() => undefined);
-    const summary = await this.input.runtime.updateSession(this.sessionId, { cwd: nextCwd });
-    this.cwd = summary.cwd ?? nextCwd;
     const reminderFrom = this.pendingCwdReminder?.from ?? previousCwd;
-    this.pendingCwdReminder = reminderFrom === this.cwd
+    const pendingCwdReminder = reminderFrom === nextCwd
       ? undefined
-      : { from: reminderFrom, to: this.cwd };
+      : { from: reminderFrom, to: nextCwd };
+    const summary = await this.input.runtime.updateSession(this.sessionId, {
+      cwd: nextCwd,
+      pendingCwdReminder,
+    });
+    this.cwd = summary.cwd ?? nextCwd;
+    this.pendingCwdReminder = summary.pendingCwdReminder ?? pendingCwdReminder;
     return { previousCwd, cwd: this.cwd, changed: true, oldCwdDirty };
   }
 
@@ -359,7 +370,7 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
     const sessionCwd = summary.cwd!;
     const messages = await this.input.runtime.getMessages(summary.id);
     this.sessionId = summary.id;
-    this.pendingCwdReminder = undefined;
+    this.pendingCwdReminder = summary.pendingCwdReminder;
     this.cwd = sessionCwd;
     this.model = summary.model;
     this.llmConnectionSlug = summary.llmConnectionSlug;

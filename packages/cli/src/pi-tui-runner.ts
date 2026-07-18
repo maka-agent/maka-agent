@@ -1874,8 +1874,8 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     {
       name: 'move',
       description: 'Move current session to another directory',
-      run: (parts: string[]) => {
-        const targetCwd = parts.slice(1).join(' ').trim();
+      run: (parts: string[], rawTail?: string) => {
+        const targetCwd = (rawTail ?? parts.slice(1).join(' ')).trim();
         if (targetCwd) {
           void runControl(() => moveSession(targetCwd));
           return;
@@ -2005,13 +2005,15 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   ].sort((left, right) => left.name.localeCompare(right.name));
 
   const handleSlashCommand = (prompt: string): boolean => {
-    const parts = prompt.trim().split(/\s+/);
+    const trimmed = prompt.trim();
+    const commandToken = trimmed.split(/\s+/, 1)[0] ?? '';
     const command = slashCommands.find((candidate) => (
-      `/${candidate.name}` === parts[0]
-      || candidate.aliases?.some((alias) => `/${alias}` === parts[0])
+      `/${candidate.name}` === commandToken
+      || candidate.aliases?.some((alias) => `/${alias}` === commandToken)
     ));
     if (!command) return false;
-    command.run(parts);
+    const rawTail = trimmed.slice(commandToken.length).trimStart();
+    command.run(trimmed.split(/\s+/), rawTail);
     return true;
   };
 

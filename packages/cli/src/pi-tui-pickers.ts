@@ -218,6 +218,21 @@ export class DirectoryAutocompleteProvider implements AutocompleteProvider {
     item: AutocompleteItem,
     prefix: string,
   ): { lines: string[]; cursorLine: number; cursorCol: number } {
+    const currentLine = lines[cursorLine] || '';
+    const beforePrefix = currentLine.slice(0, cursorCol - prefix.length);
+    if (prefix.startsWith('/') && beforePrefix.trim() === '') {
+      // Directory completion is path syntax even when the editor sees a
+      // slash-prefixed token. Do not route an absolute path through the
+      // slash-command completion rule, which would add a second slash.
+      const completed = item.value.startsWith('/') ? item.value : `/${item.value}`;
+      const nextLines = [...lines];
+      nextLines[cursorLine] = `${beforePrefix}${completed} ${currentLine.slice(cursorCol)}`;
+      return {
+        lines: nextLines,
+        cursorLine,
+        cursorCol: beforePrefix.length + completed.length + 1,
+      };
+    }
     return this.provider.applyCompletion(lines, cursorLine, cursorCol, item, prefix);
   }
 
@@ -232,7 +247,7 @@ export interface MakaSlashCommandMetadata {
 }
 
 export interface MakaSlashCommand extends MakaSlashCommandMetadata {
-  run(parts: string[]): void;
+  run(parts: string[], rawTail?: string): void;
   /** Alternate names that dispatch to this command without appearing in
    *  completion or the /help menu (e.g. /quit as an alias of /exit). */
   aliases?: readonly string[];

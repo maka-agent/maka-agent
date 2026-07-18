@@ -81,6 +81,21 @@ describe('FileSessionStore CRUD', () => {
     });
   });
 
+  test('persists and clears the pending cwd reminder in the session header', async () => {
+    await withStore(async (store) => {
+      const header = await store.create(makeInput({ name: 'Moved session' }));
+      const reminder = { from: '/tmp/old-worktree', to: '/tmp/new-worktree' };
+
+      await store.updateHeader(header.id, { pendingCwdReminder: reminder });
+      assert.deepEqual((await store.readHeader(header.id)).pendingCwdReminder, reminder);
+      assert.deepEqual((await store.list())[0]?.pendingCwdReminder, reminder);
+
+      await store.updateHeader(header.id, { pendingCwdReminder: undefined });
+      assert.equal((await store.readHeader(header.id)).pendingCwdReminder, undefined);
+      assert.equal((await store.list())[0]?.pendingCwdReminder, undefined);
+    });
+  });
+
   test('create with a thinking level surfaces it in the list summary', async () => {
     await withStore(async (store) => {
       const header = await store.create(makeInput({ name: 'Thinking from start', thinkingLevel: 'medium' }));

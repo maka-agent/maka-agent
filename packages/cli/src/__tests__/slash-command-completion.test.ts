@@ -191,6 +191,19 @@ describe('DirectoryAutocompleteProvider', () => {
       rmSync(baseDir, { recursive: true, force: true });
     }
   });
+
+  test('applies the first absolute path segment without adding a second slash', () => {
+    const provider = new DirectoryAutocompleteProvider('/');
+    const applied = provider.applyCompletion(
+      ['/U'],
+      0,
+      2,
+      { value: 'Users/', label: 'Users/' },
+      '/U',
+    );
+    assert.deepEqual(applied.lines, ['/Users/ ']);
+    assert.equal(applied.cursorCol, '/Users/ '.length);
+  });
 });
 
 describe('MakaSkillHighlightEditor mid-message skill trigger', () => {

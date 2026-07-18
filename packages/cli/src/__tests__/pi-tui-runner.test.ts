@@ -3712,6 +3712,35 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('preserves repeated whitespace in a quoted /move path', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('/move "/repo/a  b"');
+    terminal.input('\r');
+
+    await waitFor(() => driver.moves.length === 1);
+    assert.deepEqual(driver.moves, ['"/repo/a  b"']);
+    assert.deepEqual(driver.prompts, []);
+
+    exitMaka(terminal);
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close during test cleanup');
+      }),
+    ]);
+  });
+
   test('opens the /move directory picker', async () => {
     const terminal = new FakeTerminal();
     const driver = new SlashCommandDriver();

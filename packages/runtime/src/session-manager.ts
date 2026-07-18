@@ -1290,6 +1290,7 @@ export function headerToSummary(h: SessionHeader): SessionSummary {
   const summary: SessionSummary = {
     id: h.id,
     cwd: h.cwd,
+    ...(h.pendingCwdReminder ? { pendingCwdReminder: h.pendingCwdReminder } : {}),
     name: h.name === 'New Session' ? 'New Chat' : h.name,
     isFlagged: h.isFlagged,
     isArchived: h.isArchived,

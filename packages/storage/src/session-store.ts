@@ -547,6 +547,7 @@ function normalizeMigratedHeader(header: SessionHeader, sessionId: string): Sess
   const valid = header.id === sessionId &&
     typeof header.workspaceRoot === 'string' &&
     typeof header.cwd === 'string' &&
+    (header.pendingCwdReminder === undefined || isCwdReminder(header.pendingCwdReminder)) &&
     isFiniteNumber(header.createdAt) &&
     isFiniteNumber(header.lastUsedAt) &&
     (header.lastMessageAt === undefined || isFiniteNumber(header.lastMessageAt)) &&
@@ -583,6 +584,12 @@ function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
 }
 
+function isCwdReminder(value: unknown): value is NonNullable<SessionHeader['pendingCwdReminder']> {
+  return typeof value === 'object' && value !== null
+    && typeof (value as { from?: unknown }).from === 'string'
+    && typeof (value as { to?: unknown }).to === 'string';
+}
+
 function toSummary(header: SessionHeader, messages: StoredMessage[] = []): SessionSummary {
   const preview = lastMessagePreview(messages);
   const derivedLastMessageAt = latestVisibleMessageAt(messages);
@@ -590,6 +597,7 @@ function toSummary(header: SessionHeader, messages: StoredMessage[] = []): Sessi
   return {
     id: header.id,
     cwd: header.cwd,
+    ...(header.pendingCwdReminder ? { pendingCwdReminder: header.pendingCwdReminder } : {}),
     name: normalizeSessionName(header.name),
     isFlagged: header.isFlagged,
     isArchived: header.isArchived,
