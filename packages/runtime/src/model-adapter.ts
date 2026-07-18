@@ -13,7 +13,10 @@ import type { ModelMessage } from 'ai';
 
 import type { AsyncEventQueue } from './async-queue.js';
 import { resolveModelRuntime } from './model-runtime.js';
-import { classifyError, errorPresentationFromClass } from './tool-runtime.js';
+import {
+  classifyError,
+  errorPresentationFromClass,
+} from './provider-error-classification.js';
 
 /**
  * Build an ai-sdk LanguageModel from a single input object.
