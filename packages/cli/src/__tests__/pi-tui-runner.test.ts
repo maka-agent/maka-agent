@@ -5814,6 +5814,209 @@ describe('Maka Pi TUI runner', () => {
     });
   });
 
+  test('a bare "quit" line exits Maka without sending a prompt', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('quit');
+    terminal.input('\r');
+
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close on a bare "quit" line');
+      }),
+    ]);
+
+    assert.equal(terminal.stopCalls, 1);
+    assert.deepEqual(driver.prompts, []);
+  });
+
+  test('a bare "exit" line exits Maka without sending a prompt', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('exit');
+    terminal.input('\r');
+
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close on a bare "exit" line');
+      }),
+    ]);
+
+    assert.equal(terminal.stopCalls, 1);
+    assert.deepEqual(driver.prompts, []);
+  });
+
+  test('"quit now" and "请 exit" are sent as ordinary prompts, not the exit word', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('quit now');
+    terminal.input('\r');
+    await waitFor(() => driver.prompts.length === 1);
+    assert.equal(driver.prompts[0], 'quit now');
+
+    terminal.input('请 exit');
+    terminal.input('\r');
+    await waitFor(() => driver.prompts.length === 2);
+    assert.equal(driver.prompts[1], '请 exit');
+
+    exitMaka(terminal);
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close during test cleanup');
+      }),
+    ]);
+  });
+
+  test('/quit exits Maka (alias of /exit)', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('/quit');
+    terminal.input('\r');
+
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close on /quit');
+      }),
+    ]);
+
+    assert.equal(terminal.stopCalls, 1);
+    assert.deepEqual(driver.prompts, []);
+  });
+
+  test('/quit is a hidden alias of /exit, not its own autocomplete entry', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'deepseek-v4-flash',
+      connectionSlug: 'deepseek',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('/');
+
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('/exit'));
+    const output = plainTerminalOutput(terminal.output());
+    assert.ok(output.includes('/exit'));
+    assert.ok(!output.includes('/quit'));
+
+    exitMaka(terminal);
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close during test cleanup');
+      }),
+    ]);
+  });
+
+  test('resumes a session at startup via resumeSessionId', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver([fakeSessionSummary('session-2', '/repo')]);
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+      resumeSessionId: 'session-2',
+    });
+
+    await waitFor(() => driver.sessionIds.length === 1);
+    await waitFor(() => terminal.output().includes('Resumed session "Existing chat"'));
+
+    assert.deepEqual(driver.sessionIds, ['session-2']);
+    assert.deepEqual(driver.prompts, []);
+
+    exitMaka(terminal);
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close during test cleanup');
+      }),
+    ]);
+  });
+
+  test('reports a resume failure and continues with the fresh session', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new FailingSwitchSessionDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+      resumeSessionId: 'missing-session',
+    });
+
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('Could not resume session missing-session'));
+    // The notice line-wraps at the terminal width, so normalize whitespace
+    // before matching instead of asserting on a single unbroken line.
+    const normalized = plainTerminalOutput(terminal.output()).replace(/\s+/g, ' ');
+    assert.match(
+      normalized,
+      /Could not resume session missing-session: session not found\. Starting fresh\./,
+    );
+
+    exitMaka(terminal);
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close during test cleanup');
+      }),
+    ]);
+  });
+
 });
 
 /** Count the standalone BEL bytes the attention layer wrote. */
@@ -6923,6 +7126,12 @@ class SlashCommandDriver implements MakaSessionDriver {
   }
   getSessionId(): string | null {
     return this.sessionId;
+  }
+}
+
+class FailingSwitchSessionDriver extends SlashCommandDriver {
+  async switchSession(_sessionId: string): Promise<MakaSessionSwitchResult> {
+    throw new Error('session not found');
   }
 }
 

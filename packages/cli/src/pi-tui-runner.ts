@@ -147,6 +147,14 @@ export interface MakaPiTuiInput {
    * unavailability and no auto-recap is ever scheduled.
    */
   recap?: SessionRecapGenerator;
+  /**
+   * When present, the runner switches onto this session as its first action
+   * (before entering the interactive loop), reusing the same `switchSession`
+   * path as `/session <id>`. A failed switch (missing session, stale cwd)
+   * surfaces as a transcript notice and the runner falls back to the fresh
+   * session the driver was created with.
+   */
+  resumeSessionId?: string;
 }
 
 export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
@@ -638,6 +646,11 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   const submitPrompt = (prompt: string) => {
     if (busy || !prompt.trim()) {
       requestRender();
+      return;
+    }
+    const trimmed = prompt.trim();
+    if (trimmed === 'quit' || trimmed === 'exit') {
+      beginGracefulClose();
       return;
     }
     // Captured BEFORE lastActivityAt is refreshed, so the idle gap measures up
@@ -1545,7 +1558,12 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     // Derive the command list from the registry so /help never drifts from the
     // real commands. Keybindings are not commands, so they are listed by hand.
     const commands = slashCommands
-      .map((command) => `  /${command.name} — ${command.description}`)
+      .map((command) => {
+        const aliasSuffix = command.aliases && command.aliases.length > 0
+          ? ` (${command.aliases.map((alias) => `/${alias}`).join(', ')})`
+          : '';
+        return `  /${command.name}${aliasSuffix} — ${command.description}`;
+      })
       .join('\n');
     const keybindings = [
       '  Ctrl+O — expand or collapse all tool output',
@@ -1698,6 +1716,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     {
       name: 'exit',
       description: 'Exit Maka',
+      aliases: ['quit'],
       run: () => {
         beginGracefulClose();
       },
@@ -1892,7 +1911,10 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
 
   const handleSlashCommand = (prompt: string): boolean => {
     const parts = prompt.trim().split(/\s+/);
-    const command = slashCommands.find((candidate) => `/${candidate.name}` === parts[0]);
+    const command = slashCommands.find((candidate) => (
+      `/${candidate.name}` === parts[0]
+      || candidate.aliases?.some((alias) => `/${alias}` === parts[0])
+    ));
     if (!command) return false;
     command.run(parts);
     return true;
@@ -2096,6 +2118,21 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     if (input.firstRun) showSetupWizard();
   } catch (error) {
     beginClose(error instanceof Error ? error : new Error(String(error)));
+  }
+
+  if (input.resumeSessionId) {
+    void runControl(async () => {
+      try {
+        await switchSession(input.resumeSessionId!);
+      } catch (error) {
+        state.entries.push({
+          kind: 'notice',
+          level: 'error',
+          text: `Could not resume session ${input.resumeSessionId}: ${error instanceof Error ? error.message : String(error)}. Starting fresh.`,
+        });
+        requestRender();
+      }
+    });
   }
 
   return closedPromise;

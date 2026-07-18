@@ -14,7 +14,7 @@ import { runMakaPiTui, type MakaPiTuiGoalLifecycle } from './pi-tui-runner.js';
 import { createApiKeyOnboardingSurface } from './onboarding.js';
 
 export type MakaCliCommand =
-  | { kind: 'tui' }
+  | { kind: 'tui'; resumeSessionId?: string }
   | { kind: 'run'; args: string[] }
   | { kind: 'eval'; args: string[] }
   | { kind: 'inspect'; args: string[] }
@@ -27,6 +27,13 @@ export function parseMakaCliArgs(argv: string[], version: string): MakaCliComman
   const [first] = argv;
   if (first === '--help' || first === '-h') return { kind: 'help', text: helpText() };
   if (first === '--version' || first === '-v') return { kind: 'version', text: version };
+  if (first === '--resume') {
+    const sessionId = argv[1];
+    if (!sessionId) {
+      return { kind: 'error', message: '--resume requires a session id', exitCode: 2 };
+    }
+    return { kind: 'tui', resumeSessionId: sessionId };
+  }
   if (first === 'run' || first === '-p') return { kind: 'run', args: argv.slice(1) };
   if (first === 'eval') return { kind: 'eval', args: argv.slice(1) };
   if (first === 'inspect') return { kind: 'inspect', args: argv.slice(1) };
@@ -86,7 +93,13 @@ function helpText(): string {
     'Options:',
     '  -h, --help        Show help',
     '  -v, --version     Show version',
+    '  --resume <session-id>  Reopen a previous session in the TUI',
   ].join('\n');
+}
+
+export function formatResumeHint(sessionId: string | null): string | null {
+  if (!sessionId) return null;
+  return `Resume this session with:\n  maka --resume ${sessionId}`;
 }
 
 export async function runMakaCli(argv: string[] = process.argv.slice(2)): Promise<number> {
@@ -181,7 +194,10 @@ export async function runMakaCli(argv: string[] = process.argv.slice(2)): Promis
           onboarding: context.onboarding,
           recap: context.recap,
           onProcessExit: handleMakaCliProcessExit,
+          resumeSessionId: command.resumeSessionId,
         });
+        const hint = formatResumeHint(driver.getSessionId());
+        if (hint) process.stdout.write(`${hint}\n`);
         return 0;
       } finally {
         await context.close();
