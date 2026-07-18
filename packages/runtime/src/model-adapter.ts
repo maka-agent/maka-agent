@@ -6,6 +6,7 @@ import type {
   CompleteEvent,
 } from '@maka/core/events';
 import { providerAuthRequiresSecret, type LlmConnection } from '@maka/core/llm-connections';
+import { lookupModelMetadata } from '@maka/core/model-metadata';
 import { generalizedErrorMessage } from '@maka/core/redaction';
 import type { CacheMissInputSource } from '@maka/core/usage-stats/types';
 import type { ModelMessage } from 'ai';
@@ -180,6 +181,7 @@ export class ModelAdapter {
     };
 
     const maxSteps = input.maxSteps ?? this.input.maxSteps;
+    const maxOutputTokens = selectedModelMaxOutputTokens(this.input.connection, this.input.modelId);
     const configuredStop = maxSteps === undefined
       ? isLoopFinished()
       : isStepCount(maxSteps);
@@ -192,6 +194,7 @@ export class ModelAdapter {
       ...(input.prepareStep ? { prepareStep: input.prepareStep } : {}),
       repairToolCall: input.repairToolCall,
       ...(input.system ? { instructions: input.system } : {}),
+      ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
       providerOptions: this.input.providerOptions,
       // streamText defaults to one step when stopWhen is omitted. Its exported
       // non-stopping condition is required for an unbounded tool loop.
@@ -345,6 +348,11 @@ export class ModelAdapter {
       default:               return 'end_turn';
     }
   }
+}
+
+function selectedModelMaxOutputTokens(connection: LlmConnection, modelId: string): number | undefined {
+  return connection.models?.find((model) => model.id === modelId)?.maxOutputTokens
+    ?? lookupModelMetadata(connection.providerType, modelId).maxOutputTokens;
 }
 
 export interface ModelAdapterRuntimeEventReplaySupport {

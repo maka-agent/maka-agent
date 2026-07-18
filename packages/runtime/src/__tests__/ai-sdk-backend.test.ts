@@ -81,6 +81,39 @@ describe('AiSdkBackend model history', () => {
     ]);
   });
 
+  test('sends the selected Kimi model output limit instead of the Anthropic unknown-model default', async () => {
+    const model = completionModel();
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: {
+        slug: 'kimi-coding-plan',
+        name: 'Kimi Coding Plan',
+        providerType: 'kimi-coding-plan',
+        defaultModel: 'k3',
+        enabled: true,
+        createdAt: 1,
+        updatedAt: 1,
+      },
+      apiKey: 'sk-test',
+      modelId: 'k3',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    await drain(backend.send({
+      turnId: 'turn-current',
+      text: 'current user',
+      context: [],
+    }));
+
+    assert.equal(model.doStreamCalls[0]?.maxOutputTokens, 131_072);
+  });
+
   test('prefers RuntimeEvent prior messages and appends current user once', async () => {
     const model = completionModel();
     const backend = new AiSdkBackend({
