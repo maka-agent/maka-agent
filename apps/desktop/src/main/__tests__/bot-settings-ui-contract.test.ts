@@ -317,6 +317,9 @@ describe('Bot settings UI contract', () => {
     assert.match(onboardingModal, /settingsActionErrorMessage\(result\.error\.message\)/, 'Unified onboarding Result failures must be scrubbed before rendering');
     assert.match(onboardingModal, /Promise\.resolve\(props\.onConnected\(snapshot\)\)\.catch/, 'Connected follow-up failures must not become unhandled rejections');
     assert.doesNotMatch(onboardingContract, /secret|token|deviceCode|opaqueToken/i, 'Renderer-safe onboarding snapshots must not contain provider secrets or device codes');
+    const onboardingModalStyles = styles.match(/\.settingsBotOnboardingModal\s*\{[^}]*\}/)?.[0] ?? '';
+    assert.match(onboardingModalStyles, /position:\s*fixed;/, 'Unified onboarding modal must preserve viewport-fixed positioning');
+    assert.doesNotMatch(onboardingModalStyles, /position:\s*relative;/, 'Unified onboarding modal must not override shared viewport centering with relative positioning');
     assert.match(settings, /function WechatQrLoginModal\b/, 'WeChat scan login must render its own QR modal');
     assert.match(settings, /const loadingQrRef = useRef\(false\)/, 'WeChat bridge QR modal must keep a synchronous reload guard');
     assert.match(settings, /function reloadQrCode\(\) \{[\s\S]*if \(loadingQrRef\.current\) return;[\s\S]*loadingQrRef\.current = true;[\s\S]*setLoading\(true\);[\s\S]*setReloadNonce\(\(current\) => current \+ 1\)/, 'WeChat bridge QR refresh buttons and polling must share the reload guard');

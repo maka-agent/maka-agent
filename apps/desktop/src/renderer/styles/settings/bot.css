@@ -399,7 +399,9 @@
 }
 
 .settingsBotOnboardingModal {
-  position: relative;
+  /* Keep the shared DialogContent viewport positioning. `relative` here
+     overrides its fixed centering and pushes the popup toward the bottom. */
+  position: fixed;
   width: min(520px, calc(100vw - 32px));
   overflow: visible;
 }

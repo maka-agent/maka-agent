@@ -25,10 +25,14 @@ test('IM 快捷接入完成真实 QR session、扫码状态和本机凭据落盘
   expect(dialogBox).not.toBeNull();
   expect(qrFrameBox).not.toBeNull();
   expect(qrBox).not.toBeNull();
+  const viewport = await page.evaluate(() => ({ width: window.innerWidth, height: window.innerHeight }));
   expect(dialogBox!.width).toBeLessThanOrEqual(522);
   expect(qrFrameBox!.width).toBe(284);
   expect(qrBox!.width).toBe(qrFrameBox!.width - 2);
   expect(Math.abs((dialogBox!.x + dialogBox!.width / 2) - (qrBox!.x + qrBox!.width / 2))).toBeLessThan(2);
+  expect(Math.abs((dialogBox!.y + dialogBox!.height / 2) - viewport.height / 2)).toBeLessThan(2);
+  expect(dialogBox!.y).toBeGreaterThan(24);
+  expect(dialogBox!.y + dialogBox!.height).toBeLessThan(viewport.height - 24);
 
   await expect(dialog.getByText('已扫码，请在钉钉中完成确认')).toBeVisible({ timeout: 4_000 });
   await expect(dialog.getByText('钉钉 已连接')).toBeVisible({ timeout: 5_000 });
