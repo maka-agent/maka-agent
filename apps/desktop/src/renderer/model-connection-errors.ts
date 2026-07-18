@@ -4,6 +4,7 @@ import {
 } from '@maka/core';
 import { getDesktopConversationCopy } from './locales/conversation-copy.js';
 import { localizedShellErrorMessage } from './locales/shell-copy.js';
+import { describeSessionErrorReason } from './session-error-presentation.js';
 
 const NO_REAL_CONNECTION_CODE = 'NO_REAL_CONNECTION';
 const NO_REAL_CONNECTION_REASON_RE = /NO_REAL_CONNECTION:([a-z_]+): /;
@@ -37,6 +38,8 @@ export function sessionEventErrorMessage(
   event: Extract<SessionEvent, { type: 'error' }>,
   locale: UiLocale = 'zh',
 ): string {
+  const reasonDescription = describeSessionErrorReason(event.reason, locale);
+  if (reasonDescription) return reasonDescription;
   const fallback = getDesktopConversationCopy(locale).actions.conversationErrorFallback;
   return localizedShellErrorMessage(new Error(event.message), fallback, locale);
 }

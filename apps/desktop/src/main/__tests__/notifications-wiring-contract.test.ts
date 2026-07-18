@@ -36,8 +36,8 @@ describe('run-complete notification renderer wiring contract', () => {
     // The error path fires the error notification.
     assert.match(
       source,
-      /notifyRunEnded\?\.\(\{ kind: 'errored'/,
-      'the error event must fire an errored notification',
+      /notifyRunEnded\?\.\(\{ kind: 'errored', sessionId, body: sessionEventErrorMessage\(event, uiLocale\) \}\)/,
+      'the error notification must use the same safe, reason-aware presentation as the toast',
     );
   });
 

@@ -29,6 +29,7 @@ import {
   type SessionStatusTone,
 } from '@maka/ui';
 import { getDesktopConversationCopy } from './locales/conversation-copy.js';
+import { describeSessionErrorReason } from './session-error-presentation.js';
 export { presentSessionStatus } from '@maka/ui';
 export { describeBlockedReason } from '@maka/ui';
 export type { SessionStatusPresentation, SessionStatusTone } from '@maka/ui';
@@ -112,6 +113,8 @@ export function sessionStatusAriaLabel(status: SessionStatus, blockedReason?: Se
 export function describeTurnErrorClass(errorClass: string | undefined, locale: UiLocale = 'zh'): string {
   const copy = getDesktopConversationCopy(locale).turnError;
   if (!errorClass) return copy.unknown;
+  const reasonDescription = describeSessionErrorReason(errorClass, locale);
+  if (reasonDescription) return reasonDescription;
   const lower = errorClass.toLowerCase();
   if (lower === 'timeout' || lower.includes('timeout')) return copy.timeout;
   if (lower === 'auth' || lower.includes('auth') || lower === '401' || lower === '403') return copy.auth;
@@ -160,7 +163,7 @@ export function deriveFailedTurnRecovery(input: FailedTurnRecoveryInput, locale:
   if (input.erroredToolCount > 0 || lower === 'tool_failed' || lower.includes('tool')) {
     return { action: 'inspect_tool', label: copy.toolError };
   }
-  if (lower === 'auth' || lower.includes('auth') || lower === '401' || lower === '403') {
+  if (lower === 'provider_billing' || lower === 'auth' || lower.includes('auth') || lower === '401' || lower === '403') {
     return { action: 'check_connection', label: copy.connection };
   }
   if (input.partialOutputRetained) {

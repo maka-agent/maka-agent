@@ -36,6 +36,53 @@ describe('desktop conversation presentation localization', () => {
     assert.doesNotMatch(message, /数据库/);
   });
 
+  it('presents stable provider reasons consistently in Chinese and English', () => {
+    const cases = [
+      ['context_overflow', '上下文窗口已超出限制', 'Context window exceeded'],
+      ['timeout', '请求超时', 'Request timed out'],
+      ['auth', '鉴权失败', 'Authentication failed'],
+      ['provider_billing', '模型服务计费受限', 'Provider billing required'],
+      ['provider_unavailable', '模型服务返回错误', 'Model service error'],
+      ['rate_limit', '触发模型速率限制', 'Model rate limit reached'],
+      ['network', '网络错误', 'Network error'],
+    ] as const;
+
+    for (const [reason, zh, en] of cases) {
+      const event = {
+        id: `error-${reason}`,
+        turnId: 'turn-1',
+        ts: 1,
+        type: 'error' as const,
+        recoverable: false,
+        reason,
+        message: 'safe runtime projection',
+      };
+      assert.equal(sessionEventErrorMessage(event, 'zh'), zh);
+      assert.equal(sessionEventErrorMessage(event, 'en'), en);
+      assert.equal(describeTurnErrorClass(reason, 'zh'), zh);
+      assert.equal(describeTurnErrorClass(reason, 'en'), en);
+    }
+  });
+
+  it('keeps unknown event reasons and secret-bearing messages safely generalized', () => {
+    const event = {
+      id: 'error-future-provider',
+      turnId: 'turn-1',
+      ts: 1,
+      type: 'error' as const,
+      recoverable: false,
+      reason: 'future_provider_failure',
+      message: 'Provider failed with token=provider-secret',
+    };
+
+    assert.equal(sessionEventErrorMessage(event, 'zh'), '对话运行失败，请稍后重试。');
+    assert.equal(sessionEventErrorMessage(event, 'en'), 'The conversation run failed. Try again later.');
+    assert.equal(JSON.stringify([
+      sessionEventErrorMessage(event, 'zh'),
+      sessionEventErrorMessage(event, 'en'),
+    ]).includes('provider-secret'), false);
+  });
+
   it('localizes status, recovery, footer, and lineage helpers', () => {
     assert.equal(sessionStatusAriaLabel('running', undefined, 'en'), 'Running');
     assert.equal(sessionStatusAriaLabel('blocked', 'auth', 'en'), 'Needs attention · Sign in again');
