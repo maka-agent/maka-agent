@@ -401,6 +401,7 @@ export type {
   IsolatedWriteFileResult,
   RealBackendIsolation,
 } from './isolation.js';
+export type { HeadlessSessionCapabilities } from './session-capabilities.js';
 export {
   ISOLATED_HEADLESS_TOOL_NAMES,
 } from './isolation.js';

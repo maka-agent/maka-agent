@@ -70,7 +70,12 @@ export function formatToolResultContent(content: ToolResultContent): string {
     case 'subagent':
       return content.summary;
     case 'agent_swarm':
-      return `Agent swarm: ${content.status}`;
+      return limitText([
+        `Agent swarm: ${content.status}`,
+        ...content.items.map(
+          (item) => `${item.itemId}: ${item.status}\n${limitText(item.summary, 1_000)}`,
+        ),
+      ].join('\n\n'), 16_000);
     case 'rive_workflow':
       return content.summary;
     case 'archived_tool_result':

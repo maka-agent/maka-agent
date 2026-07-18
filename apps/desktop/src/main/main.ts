@@ -54,8 +54,7 @@ import {
   buildAgentTeamChildTools,
   buildAgentTeamLeadTools,
   buildExpertDispatchToolForTeamId,
-  buildSubagentProjectionTools,
-  buildSubagentSpawnTool,
+  buildParentAgentTools,
   buildSubagentToolGroup,
   getAIModel,
   buildProviderOptions,
@@ -687,10 +686,9 @@ const computerUseTools = applyComputerUseRealModelPolicy(
       )
     : undefined,
 );
-const agentTools: MakaTool[] = [
-  buildSubagentSpawnTool({ taskLedger: taskLedgerStore }),
-  ...buildSubagentProjectionTools(),
-];
+const agentTools: MakaTool[] = buildParentAgentTools({
+  taskLedger: taskLedgerStore,
+});
 const agentTeamLeadTools = buildAgentTeamLeadTools({
   mailbox: agentMailboxStore,
   taskLedger: taskLedgerStore,

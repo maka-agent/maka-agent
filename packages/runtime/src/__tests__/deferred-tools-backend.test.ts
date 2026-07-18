@@ -17,12 +17,12 @@ import {
 } from '../tool-availability.js';
 import { toolSchemaCharsForDiagnostics } from '../request-shape.js';
 import { LOCAL_READ_AGENT_ID, LOCAL_READ_AGENT_PROFILE } from '../agent-catalog.js';
+import { AGENT_SWARM_TOOL_NAME } from '../agent-swarm-tools.js';
 import {
   AGENT_LIST_TOOL_NAME,
   AGENT_OUTPUT_TOOL_NAME,
   AGENT_SPAWN_TOOL_NAME,
-  buildSubagentProjectionTools,
-  buildSubagentSpawnTool,
+  buildParentAgentTools,
   buildSubagentToolGroup,
 } from '../subagent-tools.js';
 
@@ -100,18 +100,16 @@ function agentBackend(
     modelId: 'mock-model-id',
     permissionEngine: new PermissionEngine({ newId: () => 'perm', now: () => 1 }),
     modelFactory: () => model,
-    tools: [
-      buildSubagentSpawnTool(),
-      ...buildSubagentProjectionTools(),
-    ],
+    tools: buildParentAgentTools(),
     ...(resolved ? { toolAvailability: resolved } : {}),
     spawnChildAgent: async (input) => {
+      const childIndex = spawnCalls.length;
       spawnCalls.push(input);
       return {
         agentId: input.spec.id,
         agentName: input.spec.name,
-        runId: 'child-run',
-        turnId: 'child-turn',
+        runId: `child-run-${childIndex}`,
+        turnId: `child-turn-${childIndex}`,
         status: 'completed',
         permissionMode: 'explore',
         summary: 'done',
@@ -275,10 +273,12 @@ describe('AiSdkBackend deferred agent tools', () => {
 
     assert.ok(captured[0].includes(LOAD_TOOLS_NAME), 'load_tools advertised');
     assert.ok(!captured[0].includes(AGENT_SPAWN_TOOL_NAME), 'agent_spawn hidden at step 0');
+    assert.ok(!captured[0].includes(AGENT_SWARM_TOOL_NAME), 'agent_swarm hidden at step 0');
     assert.ok(!captured[0].includes(AGENT_LIST_TOOL_NAME), 'agent_list hidden at step 0');
     assert.ok(!captured[0].includes(AGENT_OUTPUT_TOOL_NAME), 'agent_output hidden at step 0');
 
     assert.ok(captured[1].includes(AGENT_SPAWN_TOOL_NAME), 'agent_spawn visible after loading the agent group');
+    assert.ok(captured[1].includes(AGENT_SWARM_TOOL_NAME), 'agent_swarm visible after loading the agent group');
     assert.ok(captured[1].includes(AGENT_LIST_TOOL_NAME), 'agent_list visible after loading the agent group');
     assert.ok(captured[1].includes(AGENT_OUTPUT_TOOL_NAME), 'agent_output visible after loading the agent group');
   });
@@ -295,6 +295,20 @@ describe('AiSdkBackend deferred agent tools', () => {
 
     assert.ok(!captured[0].includes(AGENT_SPAWN_TOOL_NAME), 'agent_spawn is not advertised at step 0');
     assert.deepEqual(spawnCalls, [], 'agent_spawn must not run before the agent group is active');
+  });
+
+  test('guard rejects same-step load_tools(agent)+agent_swarm before spawning children', async () => {
+    const captured: string[][] = [];
+    const spawnCalls: unknown[] = [];
+    await drain(agentBackend(parallelLoadAgentAndSwarmModel(captured), spawnCalls).send({
+      turnId: 'turn-1',
+      text: 'load and fan out in one step',
+      context: [],
+      runId: 'parent-run',
+    }));
+
+    assert.ok(!captured[0].includes(AGENT_SWARM_TOOL_NAME), 'agent_swarm is not advertised at step 0');
+    assert.deepEqual(spawnCalls, [], 'agent_swarm must not run before the agent group is active');
   });
 
   test('deferred agent group is prompt economy only: loaded agent_spawn still uses its permission model', async () => {
@@ -325,6 +339,54 @@ describe('AiSdkBackend deferred agent tools', () => {
       abortSignal: assertAbortSignal(spawnCalls[0]),
       onEvent: assertOnEvent(spawnCalls[0]),
     });
+  });
+
+  test('loaded agent_swarm fans out through the shared spawn capability', async () => {
+    const captured: string[][] = [];
+    const spawnCalls: unknown[] = [];
+    const events = await collect(
+      agentBackend(loadAgentThenSwarmModel(captured), spawnCalls, {
+        permissionMode: 'execute',
+      }).send({
+        turnId: 'turn-1',
+        text: 'load then fan out',
+        context: [],
+        runId: 'parent-run',
+      }),
+    );
+
+    assert.ok(captured[1].includes(AGENT_SWARM_TOOL_NAME));
+    assert.equal(spawnCalls.length, 2);
+    assert.deepEqual(
+      spawnCalls.map((call) => (call as { prompt?: string }).prompt),
+      ['Inspect auth.', 'Inspect storage.'],
+    );
+    assert.ok(
+      spawnCalls.every((call) =>
+        (call as { parentRunId?: string }).parentRunId === 'parent-run'
+      ),
+    );
+    const result = events.find(
+      (
+        event,
+      ): event is Extract<SessionEvent, { type: 'tool_result' }> & {
+        content: Extract<SessionEvent, { type: 'tool_result' }>['content'] & {
+          kind: 'agent_swarm';
+        };
+      } => event.type === 'tool_result' && event.content.kind === 'agent_swarm',
+    );
+    assert.ok(result);
+    assert.deepEqual(
+      result.content.items.map((item) => ({
+        itemId: item.itemId,
+        runId: item.runId,
+        turnId: item.turnId,
+      })),
+      [
+        { itemId: 'auth', runId: 'child-run-0', turnId: 'child-turn-0' },
+        { itemId: 'storage', runId: 'child-run-1', turnId: 'child-turn-1' },
+      ],
+    );
   });
 });
 
@@ -469,6 +531,27 @@ function parallelLoadAgentAndSpawnModel(captured: string[][]): MockLanguageModel
   });
 }
 
+function parallelLoadAgentAndSwarmModel(captured: string[][]): MockLanguageModelV4 {
+  return new MockLanguageModelV4({
+    doStream: async ({ tools: stepTools }) => {
+      captured.push((stepTools ?? []).map((t) => t.name));
+      const first = captured.length === 1;
+      const parts: LanguageModelV4StreamPart[] = first
+        ? [
+            { type: 'stream-start', warnings: [] },
+            { type: 'tool-call', toolCallId: 'tc-load', toolName: LOAD_TOOLS_NAME, input: JSON.stringify({ group: 'agent' }) },
+            { type: 'tool-call', toolCallId: 'tc-swarm', toolName: AGENT_SWARM_TOOL_NAME, input: agentSwarmInput() },
+            { type: 'finish', finishReason: { unified: 'tool-calls', raw: 'tool_calls' }, usage: ZERO_USAGE },
+          ]
+        : [
+            { type: 'stream-start', warnings: [] },
+            { type: 'finish', finishReason: { unified: 'stop', raw: 'stop' }, usage: ZERO_USAGE },
+          ];
+      return { stream: convertArrayToReadableStream(parts) };
+    },
+  });
+}
+
 function loadAgentThenSpawnModel(captured: string[][]): MockLanguageModelV4 {
   return new MockLanguageModelV4({
     doStream: async ({ tools: stepTools }) => {
@@ -496,10 +579,55 @@ function loadAgentThenSpawnModel(captured: string[][]): MockLanguageModelV4 {
   });
 }
 
+function loadAgentThenSwarmModel(captured: string[][]): MockLanguageModelV4 {
+  return new MockLanguageModelV4({
+    doStream: async ({ tools: stepTools }) => {
+      captured.push((stepTools ?? []).map((t) => t.name));
+      const step = captured.length;
+      const parts: LanguageModelV4StreamPart[] =
+        step === 1
+          ? [
+              { type: 'stream-start', warnings: [] },
+              { type: 'tool-call', toolCallId: 'tc-load', toolName: LOAD_TOOLS_NAME, input: JSON.stringify({ group: 'agent' }) },
+              { type: 'finish', finishReason: { unified: 'tool-calls', raw: 'tool_calls' }, usage: ZERO_USAGE },
+            ]
+          : step === 2
+            ? [
+                { type: 'stream-start', warnings: [] },
+                { type: 'tool-call', toolCallId: 'tc-swarm', toolName: AGENT_SWARM_TOOL_NAME, input: agentSwarmInput() },
+                { type: 'finish', finishReason: { unified: 'tool-calls', raw: 'tool_calls' }, usage: ZERO_USAGE },
+              ]
+            : [
+                { type: 'stream-start', warnings: [] },
+                { type: 'finish', finishReason: { unified: 'stop', raw: 'stop' }, usage: ZERO_USAGE },
+              ];
+      return { stream: convertArrayToReadableStream(parts) };
+    },
+  });
+}
+
 function agentSpawnInput(): string {
   return JSON.stringify({
     profile: LOCAL_READ_AGENT_PROFILE,
     task: 'Inspect the runtime tests.',
+  });
+}
+
+function agentSwarmInput(): string {
+  return JSON.stringify({
+    items: [
+      {
+        item_id: 'auth',
+        profile: LOCAL_READ_AGENT_PROFILE,
+        task: 'Inspect auth.',
+      },
+      {
+        item_id: 'storage',
+        profile: LOCAL_READ_AGENT_PROFILE,
+        task: 'Inspect storage.',
+      },
+    ],
+    max_concurrency: 2,
   });
 }
 
@@ -544,6 +672,14 @@ async function drain(iterable: AsyncIterable<unknown>): Promise<void> {
   for await (const _ of iterable) {
     void _;
   }
+}
+
+async function collect(
+  iterable: AsyncIterable<SessionEvent>,
+): Promise<SessionEvent[]> {
+  const events: SessionEvent[] = [];
+  for await (const event of iterable) events.push(event);
+  return events;
 }
 
 function header(permissionMode: SessionHeader['permissionMode'] = 'ask'): SessionHeader {

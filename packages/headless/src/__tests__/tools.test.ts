@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import {
+  AGENT_SWARM_TOOL_NAME,
   buildChildAgentTools,
   LOAD_TOOLS_NAME,
   ToolAvailabilityRuntime,
@@ -239,6 +240,7 @@ describe('isolated headless tools', () => {
     assert.ok(names.includes('Read'));
     assert.ok(names.includes('Write'));
     assert.ok(names.includes('agent_spawn'));
+    assert.ok(names.includes(AGENT_SWARM_TOOL_NAME));
     assert.ok(names.includes('agent_list'));
     assert.ok(names.includes('agent_output'));
     assert.ok(!names.includes('inventory_submit'));
@@ -1280,6 +1282,7 @@ describe('isolated headless tools', () => {
     assert.ok(plan.activeTools.includes('Read'));
     assert.ok(plan.activeTools.includes(LOAD_TOOLS_NAME));
     assert.ok(!plan.activeTools.includes('agent_spawn'));
+    assert.ok(!plan.activeTools.includes(AGENT_SWARM_TOOL_NAME));
     assert.ok(!plan.activeTools.includes('agent_list'));
     assert.ok(!plan.activeTools.includes('agent_output'));
 
@@ -1287,6 +1290,7 @@ describe('isolated headless tools', () => {
       steps: [{ toolCalls: [{ toolName: LOAD_TOOLS_NAME, input: { group: 'agent' } }] }],
     }).activeTools;
     assert.ok(loaded.includes('agent_spawn'));
+    assert.ok(loaded.includes(AGENT_SWARM_TOOL_NAME));
     assert.ok(loaded.includes('agent_list'));
     assert.ok(loaded.includes('agent_output'));
   });
@@ -1308,6 +1312,7 @@ describe('isolated headless tools', () => {
     assert.equal(plan.prepareStep, undefined);
     assert.ok(!plan.activeTools.includes(LOAD_TOOLS_NAME));
     assert.ok(!plan.activeTools.includes('agent_spawn'));
+    assert.ok(!plan.activeTools.includes(AGENT_SWARM_TOOL_NAME));
   });
 
   test('README real-backend sketch preserves child tool overrides', async () => {

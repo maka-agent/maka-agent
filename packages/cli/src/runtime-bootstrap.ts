@@ -24,8 +24,7 @@ import {
   buildDefaultContextBudgetPolicy,
   buildSkillAgentTool,
   buildGoalTools,
-  buildSubagentProjectionTools,
-  buildSubagentSpawnTool,
+  buildParentAgentTools,
   buildSubagentToolGroup,
   buildLlmHistorySummarizer,
   cleanupLegacyHistoryCompactArtifacts,
@@ -446,7 +445,7 @@ export async function createMakaCliRuntimeContext(
       })
     : [];
   const subagentTools = input.surface === 'tui'
-    ? [buildSubagentSpawnTool(), ...buildSubagentProjectionTools()]
+    ? buildParentAgentTools()
     : [];
   const toolAvailability: ToolAvailabilityConfig | undefined = input.surface === 'tui'
     ? {

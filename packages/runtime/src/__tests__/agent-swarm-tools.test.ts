@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import type { LlmConnection, SessionHeader } from "@maka/core";
+import type { LlmConnection, SessionEvent, SessionHeader } from "@maka/core";
 import {
 	AGENT_SWARM_DEFAULT_CONCURRENCY,
 	AGENT_SWARM_MAX_CONCURRENCY,
@@ -29,7 +29,7 @@ import {
 } from "../tool-runtime.js";
 
 describe("AgentSwarm adapter", () => {
-	test("declares a bounded schema and reserves the name without host registration", () => {
+	test("declares a bounded schema and joins the deferred parent Agent group", () => {
 		const tool = buildAgentSwarmTool();
 		const schema = tool.parameters as {
 			safeParse(input: unknown): {
@@ -43,7 +43,7 @@ describe("AgentSwarm adapter", () => {
 		assert.equal(tool.categoryHint, "subagent");
 		assert.equal(
 			([...AGENT_TOOL_NAMES] as string[]).includes(AGENT_SWARM_TOOL_NAME),
-			false,
+			true,
 		);
 		assert.deepEqual(
 			schema.safeParse({
@@ -401,11 +401,7 @@ describe("AgentSwarm adapter", () => {
 	});
 
 	test("persists partial as settled and cancellation as interrupted", async () => {
-		const events: Array<{
-			type: string;
-			toolUseId?: string;
-			isError?: boolean;
-		}> = [];
+		const events: SessionEvent[] = [];
 		const runtime = buildRuntime(async (input) => {
 			const index = Number(input.prompt.slice("task-".length));
 			return childResult(index, index === 1 ? "failed" : "completed");
@@ -439,18 +435,62 @@ describe("AgentSwarm adapter", () => {
 
 		assert.equal(
 			events.find(
-				(event) =>
+				(
+					event,
+				): event is Extract<SessionEvent, { type: "tool_result" }> =>
 					event.type === "tool_result" && event.toolUseId === "tool-partial",
 			)?.isError,
 			false,
 		);
 		assert.equal(
 			events.find(
-				(event) =>
+				(
+					event,
+				): event is Extract<SessionEvent, { type: "tool_result" }> =>
 					event.type === "tool_result" && event.toolUseId === "tool-cancelled",
 			)?.isError,
 			true,
 		);
+	});
+
+	test("one denied parent permission starts zero children", async () => {
+		const events: SessionEvent[] = [];
+		let starts = 0;
+		const permissionEngine = new PermissionEngine({
+			newId: nextId(),
+			now: () => 1,
+		});
+		const runtime = buildRuntime(
+			async () => {
+				starts += 1;
+				return childResult(0);
+			},
+			{ permissionEngine, permissionMode: "ask" },
+		);
+		const pending = executeTool(
+			runtime,
+			buildAgentSwarmTool(),
+			{ items: [swarmItem(0), swarmItem(1)] },
+			new AbortController(),
+			events,
+			"tool-denied",
+		);
+
+		await waitFor(() =>
+			events.some((event) => event.type === "permission_request"),
+		);
+		const requests = events.filter(
+			(event): event is Extract<SessionEvent, { type: "permission_request" }> =>
+				event.type === "permission_request",
+		);
+		assert.equal(requests.length, 1);
+		permissionEngine.recordResponse("turn-1", {
+			requestId: requests[0]!.requestId,
+			decision: "deny",
+		});
+
+		assert.deepEqual(await pending, { error: "用户已拒绝权限请求" });
+		assert.equal(starts, 0);
 	});
 
 	test("child tool construction excludes agent_swarm", () => {
@@ -554,15 +594,21 @@ function buildRuntime(
 	spawnChildAgent: NonNullable<
 		ConstructorParameters<typeof ToolRuntime>[0]["spawnChildAgent"]
 	>,
+	options: {
+		permissionEngine?: PermissionEngine;
+		permissionMode?: SessionHeader["permissionMode"];
+	} = {},
 ): ToolRuntime {
-	const permissionEngine = new PermissionEngine({
-		newId: nextId(),
-		now: () => 1,
-	});
+	const permissionEngine =
+		options.permissionEngine ??
+		new PermissionEngine({
+			newId: nextId(),
+			now: () => 1,
+		});
 	permissionEngine.beginTurn("turn-1");
 	return new ToolRuntime({
 		sessionId: "session-1",
-		header: testHeader(),
+		header: testHeader(options.permissionMode),
 		connection: testConnection(),
 		modelId: "mock-model",
 		appendMessage: async () => {},
@@ -580,11 +626,7 @@ async function executeTool(
 	tool: MakaTool,
 	input: unknown,
 	controller: AbortController,
-	events: Array<{
-		type: string;
-		toolUseId?: string;
-		isError?: boolean;
-	}> = [],
+	events: SessionEvent[] = [],
 	toolCallId = "tool-test",
 ): Promise<unknown> {
 	return await runtime.wrapToolExecute(tool, "turn-1", {
@@ -595,7 +637,9 @@ async function executeTool(
 	});
 }
 
-function testHeader(): SessionHeader {
+function testHeader(
+	permissionMode: SessionHeader["permissionMode"] = "execute",
+): SessionHeader {
 	return {
 		id: "session-1",
 		workspaceRoot: "/tmp",
@@ -613,7 +657,7 @@ function testHeader(): SessionHeader {
 		llmConnectionSlug: "anthropic-main",
 		connectionLocked: true,
 		model: "mock-model",
-		permissionMode: "execute",
+		permissionMode,
 		schemaVersion: 1,
 	};
 }

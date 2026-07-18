@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { formatToolResultContent } from '../pi-transcript-format.js';
 
-test('keeps the pre-exposure agent swarm fallback bounded', () => {
+test('formats an agent swarm without exposing internal child references', () => {
   const output = formatToolResultContent({
     kind: 'agent_swarm',
     status: 'partial',
@@ -35,9 +35,40 @@ test('keeps the pre-exposure agent swarm fallback bounded', () => {
     durationMs: 10,
   });
 
-  assert.equal(output, 'Agent swarm: partial');
+  assert.equal(
+    output,
+    [
+      'Agent swarm: partial',
+      'auth: completed\nAuth boundaries are documented.',
+      'storage: failed\nStorage inspection failed.',
+    ].join('\n\n'),
+  );
   assert.doesNotMatch(
     output,
-    /auth|storage|turn-auth|run-auth|artifact-auth|local-read/,
+    /turn-auth|run-auth|artifact-auth|local-read/,
   );
+});
+
+test('bounds individual and aggregate agent swarm text', () => {
+  const output = formatToolResultContent({
+    kind: 'agent_swarm',
+    status: 'completed',
+    items: Array.from({ length: 32 }, (_, index) => ({
+      itemId: `item-${index}`,
+      index,
+      profile: 'local_read',
+      started: true,
+      status: 'completed' as const,
+      summary: 'x'.repeat(2_000),
+      artifactIds: [],
+    })),
+    startedAt: 10,
+    completedAt: 20,
+    durationMs: 10,
+  });
+
+  assert.ok(output.length < 16_100);
+  assert.match(output, /chars truncated/);
+  assert.match(output, /item-0: completed/);
+  assert.doesNotMatch(output, /item-31: completed/);
 });

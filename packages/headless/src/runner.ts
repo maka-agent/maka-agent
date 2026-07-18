@@ -20,6 +20,7 @@ import { defaultFinalScorer } from './scorer.js';
 import { buildIsolatedHeadlessTools } from './tools.js';
 import { normalizeVerifier, runVerifier, verifierProtectedPaths } from './verifier.js';
 import type { BenchmarkAdapterRegistry } from './benchmark-adapters.js';
+import { createHeadlessSessionCapabilityBridge } from './session-capabilities.js';
 
 export interface RunExperimentDeps {
   /**
@@ -99,12 +100,14 @@ export async function runExperiment(
     const agentWorkspaceDir = deps.realBackendIsolation?.workspaceDir ?? workspace.dir;
     const verifier = normalizeVerifier(task);
     const backends = new BackendRegistry();
+    const sessionCapabilities = createHeadlessSessionCapabilityBridge();
     const registerBackends: NonNullable<RunExperimentDeps['registerBackends']> =
       deps.registerBackends ?? ((registry) => registerFakeBackend(registry));
     await registerBackends(backends, {
       config,
       task,
       workspaceDir: agentWorkspaceDir,
+      ...sessionCapabilities.capabilities,
       ...(backendNeedsIsolation(config.backend)
         ? { realBackendIsolation: deps.realBackendIsolation, toolExecutor: deps.realBackendIsolation?.toolExecutor }
         : {}),
@@ -126,6 +129,7 @@ export async function runExperiment(
         invocation = result;
       },
     });
+    sessionCapabilities.bind(manager);
 
     const session = await manager.createSession({
       cwd: agentWorkspaceDir,
