@@ -35,7 +35,6 @@
 import type {
   SessionEvent,
   CompleteEvent,
-  ContextBudgetExhaustedDetail,
   AbortEvent,
   ErrorEvent,
   TextCompleteEvent,
@@ -124,10 +123,7 @@ import {
   type ActiveFullCompactBlock,
 } from './active-full-compact.js';
 import type { SemanticCompactBlock } from './semantic-compact.js';
-import {
-  compactionDecisionDiagnosticPatch,
-  historyCompactBlockToCompactionBoundary,
-} from './compaction-boundary.js';
+import { compactionDecisionDiagnosticPatch } from './compaction-boundary.js';
 import {
   AiSdkCompaction,
   composeActiveCompactionPrepareStep,
@@ -188,9 +184,7 @@ import {
   replaceHistoryCompactReplayBlocks,
 } from './history-compact.js';
 import { selectSynthesisCacheForReplay } from './synthesis-cache.js';
-import { HistoryCompactSummarizerError } from './history-compact-error.js';
 import {
-  buildHistoryCompactCheckpoint,
   historyCompactCheckpointToRuntimeEvent,
   matchHistoryCompactCheckpointPrefix,
   projectHistoryCompactCheckpointReplay,
@@ -271,18 +265,6 @@ export function composePrepareStep(
     return result;
   };
 }
-
-// ============================================================================
-// Mid-turn capacity compaction — per-send trigger state
-// ============================================================================
-
-/**
- * Per-send() state for the mid-turn capacity invariant. The coverage pool is
- * NOT mirrored here: every trigger reads the current turn's persisted
- * RuntimeEvents through the injected durable-read seam, so coverage can only
- * span events the ledger already replays. This class keeps only the trigger's
- * cursor state between steps.
- */
 
 function joinPromptFragments(fragments: readonly (string | undefined)[]): string | undefined {
   const joined = fragments
@@ -2272,13 +2254,6 @@ export class AiSdkBackend implements AgentBackend {
       ...(latestHistoryCompactCheckpoint ? { latestHistoryCompactCheckpoint } : {}),
     };
   }
-
-  /**
-   * Mid-turn capacity compaction eligibility (issue #882 PR 1). Explicit
-   * opt-in via `historyCompact.midTurn.enabled`; requires the checkpoint
-   * writer seams plus the durable turn-ledger read, the persisted head anchor
-   * for this turn, and a known model context window.
-   */
 
   private canReplayProviderNative(plan: RuntimeEventModelReplayPlan): boolean {
     const support = this.modelAdapter.runtimeEventReplaySupport();

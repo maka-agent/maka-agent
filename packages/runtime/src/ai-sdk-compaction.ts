@@ -6,7 +6,7 @@
  * streamText adaptation drives. Behavior-neutral collaborator: methods move
  * verbatim, turn-scoped state (abortSignal, requestShapeHashBefore) is passed
  * per call, and replay/telemetry capabilities that stay on AiSdkBackend are
- * injected as host callbacks (added as later families move in).
+ * injected as host callbacks.
  */
 
 import type { RuntimeEvent } from '@maka/core/runtime-event';
@@ -91,7 +91,7 @@ import {
 } from './mid-turn-capacity-compact.js';
 import { resolveSelectedModelContextWindow } from './context-budget-policy.js';
 
-/** Constructor dependencies for AiSdkCompaction. Grows as more families move in. */
+/** Constructor dependencies for AiSdkCompaction. */
 export interface AiSdkCompactionDeps {
   input: AiSdkBackendInput;
   sessionId: string;
@@ -1208,6 +1208,12 @@ export class AiSdkCompaction {
     }
   }
 
+  /**
+   * Mid-turn capacity compaction eligibility (issue #882 PR 1). Explicit
+   * opt-in via `historyCompact.midTurn.enabled`; requires the checkpoint
+   * writer seams plus the durable turn-ledger read, the persisted head anchor
+   * for this turn, and a known model context window.
+   */
   public buildMidTurnCapacityCompactState(
     input: BackendSendInput,
   ): MidTurnCapacityCompactState | undefined {
@@ -2009,14 +2015,14 @@ function collectPrunablePrepareStepToolCallIds(
   return out;
 }
 
-export interface ActiveFullCompactPrepareStepProjection {
+interface ActiveFullCompactPrepareStepProjection {
   sourceSignatures: readonly string[];
   sourceSignatureMode: 'exact' | 'active_prune_lineage';
   projectedMessages: readonly ModelMessage[];
   semanticBlock?: SemanticCompactBlock;
 }
 
-export function projectAcceptedActiveFullCompactMessages(
+function projectAcceptedActiveFullCompactMessages(
   incomingMessages: readonly ModelMessage[],
   acceptedProjection: ActiveFullCompactPrepareStepProjection | undefined,
 ): ModelMessage[] | undefined {
@@ -2041,7 +2047,7 @@ function sha256(text: string): string {
   return createHash('sha256').update(text).digest('hex');
 }
 
-export function modelMessageSignature(message: ModelMessage): string {
+function modelMessageSignature(message: ModelMessage): string {
   return sha256(stableStringifyForSignature(message));
 }
 
@@ -2089,8 +2095,13 @@ export function hasActiveToolResultPruneDiagnosticPatch(
   );
 }
 
-// -- moved helpers (mid-turn / replay) ----------------------------------------
-
+/**
+ * Per-send() state for the mid-turn capacity invariant. The coverage pool is
+ * NOT mirrored here: every trigger reads the current turn's persisted
+ * RuntimeEvents through the injected durable-read seam, so coverage can only
+ * span events the ledger already replays. This class keeps only the trigger's
+ * cursor state between steps.
+ */
 export class MidTurnCapacityCompactState {
   /**
    * Chars of the final (system prompt + messages + active tool schema)
