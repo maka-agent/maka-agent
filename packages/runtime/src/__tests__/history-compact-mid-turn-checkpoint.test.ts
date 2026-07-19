@@ -8,7 +8,7 @@ import {
   projectHistoryCompactCheckpointReplay,
   validateHistoryCompactCheckpointShape,
 } from '../history-compact-checkpoint.js';
-import { applyRuntimeEventHistoryCompact } from '../context-budget.js';
+import { applyRuntimeEventHistoryCompact } from '../history-compact.js';
 
 describe('mid-turn history compact checkpoint', () => {
   test('builds a mid_turn checkpoint that re-renders the covered head anchor verbatim', () => {
@@ -266,11 +266,12 @@ describe('mid-turn history compact checkpoint', () => {
     // Normal thresholds: the raw projection is far below the default high
     // water, and the accepted mid_turn checkpoint must STILL replay — the
     // covered raw span may never be re-injected on recovery.
-    const replay = applyRuntimeEventHistoryCompact(events, {
-      maxHistoryEstimatedTokens: 10_000,
-      charsPerToken: 1,
-      historyCompact: { enabled: true, mode: 'read_write', checkpoint },
-    });
+    const replay = applyRuntimeEventHistoryCompact(
+      events,
+      { enabled: true, mode: 'read_write', checkpoint },
+      1,
+      10_000,
+    );
 
     assert.equal(replay.checkpoint?.checkpointId, checkpoint.checkpointId);
     assert.deepEqual(

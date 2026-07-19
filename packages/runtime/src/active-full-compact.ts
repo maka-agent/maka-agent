@@ -8,12 +8,12 @@ import {
   type CompactionBoundary,
   type CompactionDecisionKind,
 } from './compaction-boundary.js';
+import { estimateTokens } from './context-budget-helpers.js';
+import { serializeToolResultForArchive } from './tool-result-archive.js';
 import {
-  estimateTokens,
-  serializeToolResultForArchive,
   type ActiveArchivedToolResultPlaceholder,
-} from './context-budget.js';
-import { isActiveArchivedToolResultPlaceholder } from './active-tool-result-prune.js';
+  isActiveArchivedToolResultPlaceholder,
+} from './active-tool-result-prune.js';
 
 const DEFAULT_CHARS_PER_TOKEN = 4;
 const MAX_PROVIDER_VISIBLE_ARCHIVE_REFS = 12;

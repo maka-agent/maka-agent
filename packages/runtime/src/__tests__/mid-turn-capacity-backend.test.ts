@@ -17,10 +17,8 @@ import {
 } from '../ai-sdk-flow.js';
 import type { InvocationContext } from '../invocation-context.js';
 import { PermissionEngine } from '../permission-engine.js';
-import {
-  applyRuntimeEventContextBudget,
-  evaluateHistoryCompactCheckpointReplay,
-} from '../context-budget.js';
+import { applyRuntimeEventContextBudget } from '../context-budget.js';
+import { evaluateHistoryCompactCheckpointReplay } from '../history-compact.js';
 import type { HistoryCompactCheckpoint } from '../history-compact-checkpoint.js';
 import type { ContextBudgetDiagnostic } from '@maka/core/usage-stats/types';
 import { HistoryCompactSummarizerError } from '../history-compact-error.js';
@@ -473,11 +471,12 @@ function defineMidTurnSuite(consumer: ConsumerMode): void {
     // Invariant: a persisted checkpoint always passes the single replay gate
     // under the same policy the backend replays with — the next projection
     // selects it (no coverage_miss, no size rejection).
-    const fit = evaluateHistoryCompactCheckpointReplay(checkpoint, fixture.ledger, {
-      maxHistoryEstimatedTokens: 100_000,
-      minRecentTurns: 1,
-      historyCompact: { enabled: true, mode: 'read_write' },
-    });
+    const fit = evaluateHistoryCompactCheckpointReplay(
+      checkpoint,
+      fixture.ledger,
+      undefined,
+      100_000,
+    );
     assert.equal(fit.fits, true);
   });
 

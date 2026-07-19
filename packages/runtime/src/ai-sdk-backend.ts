@@ -118,6 +118,7 @@ import {
 import {
   activeToolResultLineageIdentity,
   rewriteActiveToolResultsInMessages,
+  type ActiveToolResultArchiveCandidate,
   type ActiveToolResultPruneDiagnosticPatch,
 } from './active-tool-result-prune.js';
 import { toolResultOutput } from './ai-sdk-tool-output.js';
@@ -166,27 +167,21 @@ import {
   buildHistoryCompactBlockFromSummary,
   buildHistorySearchSource,
   buildPromptSegmentEstimates,
-  collectStaleToolResultArchiveCandidates,
-  evaluateHistoryCompactCheckpointReplay,
   estimateRuntimeEventsTokens,
-  isHistoryCompactContentEvent,
   mergeContextBudgetDiagnostic,
   mergeContextBudgetDiagnosticPatches,
   mergeRuntimeEventsInOriginalOrder,
   minimalContextBudgetDiagnostic,
   rawEvidenceRequestReason,
-  replaceHistoryCompactReplayBlocks,
   retrieveArchivedToolResultsForReplay,
   retrieveReplayHistoryAroundSearchSource,
   retrieveRuntimeEventHistoryAround,
   runtimeEventTurnKey,
-  selectSynthesisCacheForReplay,
   shouldAppendContextCompactedNote,
   shouldAppendContextCompactionFailedOpenNote,
   type ContextBudgetPolicy,
   type HistoryCompactBlock,
   type ActiveArchivedToolResultPlaceholder,
-  type ActiveToolResultArchiveCandidate,
   type StaleToolResultArchiveCandidate,
   type SynthesisCacheBlock,
   type SynthesisSourceRef,
@@ -194,6 +189,13 @@ import {
   type ToolResultArchiveReader,
   type ToolResultArchiveRef,
 } from './context-budget.js';
+import { collectStaleToolResultArchiveCandidates } from './tool-result-archive.js';
+import {
+  evaluateHistoryCompactCheckpointReplay,
+  isHistoryCompactContentEvent,
+  replaceHistoryCompactReplayBlocks,
+} from './history-compact.js';
+import { selectSynthesisCacheForReplay } from './synthesis-cache.js';
 import { HistoryCompactSummarizerError } from './history-compact-error.js';
 import {
   buildHistoryCompactCheckpoint,
@@ -2680,7 +2682,12 @@ export class AiSdkBackend implements AgentBackend {
     let nextPolicy = policy;
 
     if (policy.staleToolResultPrune?.enabled === true) {
-      const candidates = collectStaleToolResultArchiveCandidates(runtimeContext, policy);
+      const candidates = collectStaleToolResultArchiveCandidates(
+        runtimeContext,
+        policy?.staleToolResultPrune,
+        policy?.charsPerToken ?? 4,
+        policy?.minRecentTurns,
+      );
       if (candidates.length > 0) {
         const archiveRefs = new Map<string, ToolResultArchiveRef>();
         const existingArchiveRefs = nextPolicy.staleToolResultPrune?.archiveRefs;
@@ -3385,7 +3392,8 @@ export class AiSdkBackend implements AgentBackend {
     const replayFit = evaluateHistoryCompactCheckpointReplay(
       plan.checkpoint,
       plan.replacementEvents.slice(1),
-      policy,
+      policy?.charsPerToken,
+      policy?.maxHistoryEstimatedTokens,
     );
     if (!replayFit.fits) {
       return {
@@ -4005,7 +4013,8 @@ export class AiSdkBackend implements AgentBackend {
       evaluateHistoryCompactCheckpointReplay(
         previousCheckpoint,
         retainedRuntimeEvents,
-        input.contextBudget,
+        input.contextBudget?.charsPerToken,
+        input.contextBudget?.maxHistoryEstimatedTokens,
         { sourceReplayEvents: [...foldedRuntimeEvents, ...retainedRuntimeEvents] },
       ).fits;
     if (
@@ -4083,7 +4092,8 @@ export class AiSdkBackend implements AgentBackend {
       const replayFit = evaluateHistoryCompactCheckpointReplay(
         checkpoint,
         retainedRuntimeEvents,
-        input.contextBudget,
+        input.contextBudget?.charsPerToken,
+        input.contextBudget?.maxHistoryEstimatedTokens,
         { sourceReplayEvents: [...foldedRuntimeEvents, ...retainedRuntimeEvents] },
       );
       const rejectedReason = !replayFit.fits ? replayFit.reason : undefined;
@@ -5126,9 +5136,15 @@ function buildHistoryCompactCheckpointFailOpenContext(
     match.coveredRuntimeEvents,
     replayTail,
   );
-  return evaluateHistoryCompactCheckpointReplay(checkpoint, replayEvents.slice(1), policy, {
-    sourceReplayEvents: [...match.coveredRuntimeEvents, ...replayTail],
-  }).fits
+  return evaluateHistoryCompactCheckpointReplay(
+    checkpoint,
+    replayEvents.slice(1),
+    policy?.charsPerToken,
+    policy?.maxHistoryEstimatedTokens,
+    {
+      sourceReplayEvents: [...match.coveredRuntimeEvents, ...replayTail],
+    },
+  ).fits
     ? replayEvents
     : [...retainedCandidates];
 }

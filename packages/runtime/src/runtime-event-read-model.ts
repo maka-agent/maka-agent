@@ -15,7 +15,7 @@ import {
   isTerminalRuntimeEventStatus,
   normalizeShellToolResultContent,
 } from '@maka/core';
-import { isArchivedToolResultPlaceholder } from './context-budget.js';
+import { isArchivedToolResultPlaceholder } from './tool-result-archive.js';
 
 export type RuntimeEventReadModelDiagnosticCode =
   | 'partial_skipped'

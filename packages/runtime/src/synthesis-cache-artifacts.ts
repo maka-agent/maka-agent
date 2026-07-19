@@ -1,10 +1,10 @@
 import type { ArtifactRecord, ArtifactSource } from '@maka/core';
+import { estimateTokens } from './context-budget-helpers.js';
 import {
   buildSynthesisCacheBlocksFromHydratedArchives,
-  estimateTokens,
   validateSynthesisCacheBlockShape,
   type SynthesisCacheBlock,
-} from './context-budget.js';
+} from './synthesis-cache.js';
 import type {
   SynthesisCacheLoadInput,
   SynthesisCacheLoadResult,

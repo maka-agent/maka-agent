@@ -11,7 +11,8 @@ import {
   validateHistoryCompactCheckpointShape,
 } from '../history-compact-checkpoint.js';
 import { loadLatestHistoryCompactCheckpointFromRunLedger } from '../history-compact-ledger.js';
-import { applyRuntimeEventHistoryCompact, estimateRuntimeEventsTokens } from '../context-budget.js';
+import { estimateRuntimeEventsTokens } from '../context-budget.js';
+import { applyRuntimeEventHistoryCompact } from '../history-compact.js';
 
 describe('history compact checkpoint', () => {
   test('keeps 10K-event coverage bounded and validates the exact ordered prefix', () => {
@@ -53,17 +54,18 @@ describe('history compact checkpoint', () => {
       prefixMatch.successorRuntimeEvents.map((event) => event.id),
       ['event-10000'],
     );
-    const replay = applyRuntimeEventHistoryCompact([...events, textEvent(10_000)], {
-      maxHistoryEstimatedTokens: 1_000_000,
-      charsPerToken: 1,
-      historyCompact: {
+    const replay = applyRuntimeEventHistoryCompact(
+      [...events, textEvent(10_000)],
+      {
         enabled: true,
         mode: 'read_write',
         checkpoint,
         highWaterRatio: 0.000001,
         tailEstimatedTokens: 1,
       },
-    });
+      1,
+      1_000_000,
+    );
     assert.equal(replay.checkpoint?.checkpointId, checkpoint.checkpointId);
     assert.ok(Buffer.byteLength(JSON.stringify(replay.diagnosticPatch), 'utf8') < 16 * 1024);
 
@@ -451,17 +453,18 @@ describe('history compact checkpoint', () => {
       summary: 'checkpoint summary',
     });
 
-    const replay = applyRuntimeEventHistoryCompact(events, {
-      maxHistoryEstimatedTokens: 1_000,
-      charsPerToken: 1,
-      historyCompact: {
+    const replay = applyRuntimeEventHistoryCompact(
+      events,
+      {
         enabled: true,
         mode: 'read_write',
         checkpoint,
         highWaterRatio: 0.01,
         tailEstimatedTokens: 1,
       },
-    });
+      1,
+      1_000,
+    );
 
     assert.equal(replay.events[0]?.id, `history-compact:${checkpoint.checkpointId}`);
     assert.match(
@@ -491,10 +494,9 @@ describe('history compact checkpoint', () => {
     });
     assert.ok(checkpoint.estimatedTokens > 100);
 
-    const replay = applyRuntimeEventHistoryCompact(events, {
-      maxHistoryEstimatedTokens: 10_000,
-      charsPerToken: 1,
-      historyCompact: {
+    const replay = applyRuntimeEventHistoryCompact(
+      events,
+      {
         enabled: true,
         mode: 'read_write',
         checkpoint,
@@ -503,7 +505,9 @@ describe('history compact checkpoint', () => {
         highWaterRatio: 0.000001,
         tailEstimatedTokens: 1,
       },
-    });
+      1,
+      10_000,
+    );
 
     assert.equal(replay.checkpoint?.checkpointId, checkpoint.checkpointId);
     assert.equal(
@@ -532,18 +536,16 @@ describe('history compact checkpoint', () => {
     const replay = applyRuntimeEventHistoryCompact(
       events,
       {
-        maxHistoryEstimatedTokens: 10_000,
-        charsPerToken: 1,
-        historyCompact: {
-          enabled: true,
-          mode: 'read_write',
-          checkpoint,
-          maxBlockEstimatedTokens: 10_000,
-          maxEstimatedTokens: 10_000,
-          highWaterRatio: 0.000001,
-          tailEstimatedTokens: 1,
-        },
+        enabled: true,
+        mode: 'read_write',
+        checkpoint,
+        maxBlockEstimatedTokens: 10_000,
+        maxEstimatedTokens: 10_000,
+        highWaterRatio: 0.000001,
+        tailEstimatedTokens: 1,
       },
+      1,
+      10_000,
       { maxHistoryEstimatedTokens: overrideMax },
     );
 

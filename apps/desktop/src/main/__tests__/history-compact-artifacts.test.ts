@@ -232,24 +232,25 @@ describe('desktop history compact artifact lifecycle', () => {
         now: () => 1_800_000_000_100,
         summarize: () => 'host summary alpha beta',
       });
-      const replay = applyRuntimeEventHistoryCompact([
-        ...foldedEvents,
-        textEvent('recent', 'turn-3', 'recent retained fact'),
-      ], {
-        name: 'archive-required-replay',
-        maxHistoryEstimatedTokens: 2_048,
-        minRecentTurns: 1,
-        charsPerToken: 4,
-        historyCompact: {
-          enabled: true,
-          mode: 'lookup',
-          highWaterRatio: 0.000001,
-          tailEstimatedTokens: 1,
-          minRecentTurns: 1,
-          archiveRequired: true,
-          blocks: write.blocks,
+      const replay = applyRuntimeEventHistoryCompact(
+        [
+          ...foldedEvents,
+          textEvent('recent', 'turn-3', 'recent retained fact'),
+        ],
+        {
+          historyCompact: {
+            enabled: true,
+            mode: 'lookup',
+            highWaterRatio: 0.000001,
+            tailEstimatedTokens: 1,
+            minRecentTurns: 1,
+            archiveRequired: true,
+            blocks: write.blocks,
+          },
+          charsPerToken: 4,
+          maxHistoryEstimatedTokens: 2_048,
         },
-      });
+      );
 
       assert.equal(replay.blocks.length, 1);
       assert.equal(replay.blocks[0]?.sourceArchiveRefs?.length, 2);

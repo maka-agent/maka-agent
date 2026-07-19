@@ -1,15 +1,54 @@
-import { createHash } from 'node:crypto';
 import type { JSONValue, ModelMessage } from 'ai';
 
 import {
-  ACTIVE_ARCHIVED_TOOL_RESULT_PLACEHOLDER_KIND,
   ARCHIVED_TOOL_RESULT_REWRITE_VERSION,
-  estimateTokens,
   serializeToolResultForArchive,
-  type ActiveArchivedToolResultPlaceholder,
-  type ActiveToolResultArchiveCandidate,
-  type ActiveToolResultPrunePolicy,
-} from './context-budget.js';
+} from './tool-result-archive.js';
+import {
+  estimateTokens,
+  finitePositive,
+  sha256,
+  utf8ByteLength,
+} from './context-budget-helpers.js';
+
+export const ACTIVE_ARCHIVED_TOOL_RESULT_PLACEHOLDER_KIND = 'maka.active_archived_tool_result';
+
+export type ActiveArchivedToolResultReason =
+  'active_current_turn_tool_result_pruned_before_next_step';
+
+export interface ActiveToolResultPrunePolicy {
+  enabled: boolean;
+  /** Tool result payloads above this estimate are archived and replaced. Defaults to 2048. */
+  maxCurrentResultEstimatedTokens?: number;
+  /** Do not rewrite before this SDK step. Defaults to 1, so step 0 is untouched. */
+  minStepNumber?: number;
+}
+
+export interface ActiveToolResultArchiveCandidate {
+  turnId: string;
+  toolCallId: string;
+  toolName: string;
+  result: unknown;
+  serializedResult: string;
+  originalEstimatedTokens: number;
+  originalBytes: number;
+  rewriteVersion: typeof ARCHIVED_TOOL_RESULT_REWRITE_VERSION;
+  reason: ActiveArchivedToolResultReason;
+  runtimeEventId?: string;
+}
+
+export interface ActiveArchivedToolResultPlaceholder {
+  kind: typeof ACTIVE_ARCHIVED_TOOL_RESULT_PLACEHOLDER_KIND;
+  rewriteVersion: typeof ARCHIVED_TOOL_RESULT_REWRITE_VERSION;
+  artifactId: string;
+  turnId: string;
+  toolCallId: string;
+  toolName: string;
+  bodySha256: string;
+  originalEstimatedTokens: number;
+  originalBytes: number;
+  reason: ActiveArchivedToolResultReason;
+}
 
 const DEFAULT_MAX_CURRENT_RESULT_ESTIMATED_TOKENS = 2048;
 const DEFAULT_CHARS_PER_TOKEN = 4;
@@ -358,16 +397,4 @@ function isActiveArchivedToolResultPlaceholderText(value: string): boolean {
 
 function isUsableArtifactId(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0;
-}
-
-function utf8ByteLength(value: string): number {
-  return Buffer.byteLength(value, 'utf8');
-}
-
-function sha256(value: string): string {
-  return createHash('sha256').update(value).digest('hex');
-}
-
-function finitePositive(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined;
 }

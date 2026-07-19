@@ -23,7 +23,7 @@ import {
   compactionDecisionDiagnosticPatch,
   type CompactionBoundary,
 } from './compaction-boundary.js';
-import { estimateTokens } from './context-budget.js';
+import { estimateTokens } from './context-budget-helpers.js';
 import type { CompactSummaryResult, NormalizedAiSdkUsage } from './model-adapter.js';
 
 const DEFAULT_CHARS_PER_TOKEN = 4;

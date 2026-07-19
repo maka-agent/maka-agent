@@ -1,14 +1,14 @@
 import { Buffer } from 'node:buffer';
 import { createHash, randomUUID } from 'node:crypto';
 import type { ArtifactRecord, ArtifactSource } from '@maka/core';
+import { estimateTokens } from './context-budget-helpers.js';
 import {
   buildHistoryCompactBlockFromSummary,
-  estimateTokens,
   renderHistoryCompactBlock,
   validateHistoryCompactBlockShape,
   type HistoryCompactBlock,
   type HistoryCompactSourceArchiveRef,
-} from './context-budget.js';
+} from './history-compact.js';
 import type {
   HistoryCompactLoadInput,
   HistoryCompactLoadResult,
