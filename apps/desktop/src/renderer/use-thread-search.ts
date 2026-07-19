@@ -31,7 +31,9 @@
  */
 
 import { useEffect, useRef, useState, useCallback } from 'react';
-import type { SearchErrorReason, SearchRequest, SearchResult } from '@maka/core';
+import type { SearchErrorReason, SearchRequest, SearchResult, UiLocale } from '@maka/core';
+import { useUiLocale } from '@maka/ui';
+import { getShellRemainingCopy } from './locales/shell-remaining-copy.js';
 
 /** Min query length before issuing an IPC request. Avoids one-char churn. */
 export const THREAD_SEARCH_MIN_QUERY_CODE_POINTS = 2;
@@ -125,7 +127,9 @@ export interface ThreadSearchPoller {
 export function createThreadSearchPoller(
   deps: UseThreadSearchDeps,
   callbacks: ThreadSearchPollerCallbacks,
+  locale: UiLocale = 'zh',
 ): ThreadSearchPoller {
+  const copy = getShellRemainingCopy(locale).threadSearch;
   let inflightTicket = 0;
   let mounted = true;
 
@@ -162,9 +166,9 @@ export function createThreadSearchPoller(
             const hits = normalizeHits(response);
             emit({ kind: 'results', query: trimmed, hits });
           } else if (response.reason === 'incognito_active') {
-            emit({ kind: 'blocked', query: trimmed, reason: response.reason, message: response.message });
+            emit({ kind: 'blocked', query: trimmed, reason: response.reason, message: locale === 'zh' ? response.message : copy.blocked });
           } else {
-            emit({ kind: 'error', query: trimmed, reason: response.reason, message: response.message });
+            emit({ kind: 'error', query: trimmed, reason: response.reason, message: locale === 'zh' ? response.message : copy.failed });
           }
         } catch {
           if (ticket !== inflightTicket) return;
@@ -174,7 +178,7 @@ export function createThreadSearchPoller(
             kind: 'error',
             query: trimmed,
             reason: 'parse_error',
-            message: '搜索暂时失败，请稍后重试。',
+            message: copy.failed,
           });
         }
       })();
@@ -191,14 +195,17 @@ export function createThreadSearchPoller(
  * via `useThreadSearch`. Wraps `createThreadSearchPoller` with React
  * lifecycle (debounce + dispose on unmount).
  */
-export function useThreadSearchImpl(query: string, deps: UseThreadSearchDeps): UseThreadSearchResult {
+export function useThreadSearchImpl(query: string, deps: UseThreadSearchDeps, locale: UiLocale = 'zh'): UseThreadSearchResult {
   const [state, setState] = useState<ThreadSearchState>({ kind: 'idle' });
   const pollerRef = useRef<ThreadSearchPoller | null>(null);
+  const pollerLocaleRef = useRef<UiLocale>(locale);
 
-  if (pollerRef.current === null) {
+  if (pollerRef.current === null || pollerLocaleRef.current !== locale) {
+    pollerRef.current?.dispose();
+    pollerLocaleRef.current = locale;
     pollerRef.current = createThreadSearchPoller(deps, {
       onState: (next) => setState(next),
-    });
+    }, locale);
   }
 
   // Dispose on unmount.
@@ -231,7 +238,8 @@ export function useThreadSearch(
   query: string,
   deps: UseThreadSearchDeps = LIVE_DEPS,
 ): UseThreadSearchResult {
-  return useThreadSearchImpl(query, deps);
+  const locale = useUiLocale();
+  return useThreadSearchImpl(query, deps, locale);
 }
 
 const LIVE_DEPS: UseThreadSearchDeps = {

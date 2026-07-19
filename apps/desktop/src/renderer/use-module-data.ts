@@ -44,6 +44,7 @@ export function useAppShellModuleData(options: {
   const [planReminders, setPlanReminders] = useState<PlanReminder[]>([]);
 
   const planActions = createAppShellPlanActions({
+    uiLocale,
     getPlanReminders: () => planReminders,
     isAutomationsSurfaceActive,
     setPlanReminders,

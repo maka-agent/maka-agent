@@ -15,6 +15,7 @@ import {
 } from '../../renderer/settings/account-auth-ui.js';
 import { getSettingsPreferencesCopy } from '../../renderer/locales/settings-preferences-copy.js';
 import { getConnectionStatusCopy } from '../../renderer/locales/connection-status-copy.js';
+import { getProviderSettingsCopy } from '../../renderer/locales/settings-provider-copy.js';
 
 function contract(input: {
   providerType: ProviderType;
@@ -209,9 +210,10 @@ describe('Account settings credential probe UI', () => {
       /generalizedErrorMessageChinese\(new Error\(result\.errorMessage\), fallback\)/,
       'Account page connection-test failures must classify/redact raw provider messages before toast',
     );
-    assert.match(fallback, /statusCode === 429[\s\S]*触发速率限制/);
+    assert.match(fallback, /const shared = getProviderSettingsCopy\(locale\)\.shared/);
+    assert.match(fallback, /statusCode === 429[\s\S]*return shared\.rateLimit/);
     assert.match(fallback, /errorClass === 'auth'[\s\S]*copy\.auth/);
-    assert.match(fallback, /errorClass === 'network'[\s\S]*网络错误，请检查服务地址或代理设置后重试/);
+    assert.match(fallback, /errorClass === 'network'[\s\S]*return shared\.network/);
     assert.doesNotMatch(fallback, /Base URL/);
     assert.match(
       source,
@@ -220,7 +222,7 @@ describe('Account settings credential probe UI', () => {
     );
     assert.match(
       page,
-      /toast\.error\(copy\.connectionTestFailed, connectionTestFailureMessage\(result, copy\.testCopy\)\)/,
+      /toast\.error\(copy\.connectionTestFailed, connectionTestFailureMessage\(result, copy\.testCopy, locale\)\)/,
       'Account page test failure toast must not use result.errorMessage directly',
     );
     assert.match(
@@ -307,23 +309,23 @@ describe('Account settings credential probe UI', () => {
       readSettingsCombinedSource(),
       readProviderSettingsSources(),
     ]);
-    const helper = providerSources.shared.match(/function connectionLastTestMessageDisplay\(message: string \| undefined\): string \| undefined \{[\s\S]*?\n\}/)?.[0] ?? '';
+    const helper = providerSources.shared.match(/function connectionLastTestMessageDisplay\([\s\S]*?\n\}/)?.[0] ?? '';
     const row = source.match(/function AccountConnectionRow[\s\S]*?function AccountAuthActionView/)?.[0] ?? '';
 
-    assert.match(helper, /'connection verified': '连接已验证'/);
-    assert.match(helper, /'authentication failed': '鉴权失败'/);
-    assert.match(helper, /'request timed out': '请求超时'/);
-    assert.match(helper, /'network error': '网络错误'/);
-    assert.match(helper, /'provider returned an error': '模型服务返回错误'/);
-    assert.match(helper, /'connection test failed': '连接测试失败'/);
-    assert.match(
-      helper,
-      /generalizedErrorMessageChinese\(new Error\(trimmed\), ''\)/,
-      'unknown legacy raw provider messages should be classified/redacted before display',
-    );
+    const zhLastTest = getProviderSettingsCopy('zh').shared.lastTest;
+    const enLastTest = getProviderSettingsCopy('en').shared.lastTest;
+    assert.equal(zhLastTest['connection verified'], '连接已验证');
+    assert.equal(zhLastTest['authentication failed'], '鉴权失败');
+    assert.equal(zhLastTest['request timed out'], '请求超时');
+    assert.equal(zhLastTest['network error'], '网络错误');
+    assert.equal(zhLastTest['provider returned an error'], '模型服务返回错误');
+    assert.equal(zhLastTest['connection test failed'], '连接测试失败');
+    assert.equal(enLastTest['连接已验证'], 'Connection verified');
+    assert.match(helper, /const copy = getProviderSettingsCopy\(locale\)\.shared/);
+    assert.match(helper, /locale === 'zh'[\s\S]*generalizedErrorMessageChinese[\s\S]*generalizedErrorMessage/);
     assert.match(
       row,
-      /const lastTestMessage = connectionLastTestMessageDisplay\(props\.connection\.lastTestMessage\)/,
+      /const lastTestMessage = connectionLastTestMessageDisplay\(props\.connection\.lastTestMessage, locale\)/,
       'Account connection rows must not render persisted lastTestMessage directly',
     );
     assert.doesNotMatch(

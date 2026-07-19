@@ -4,10 +4,10 @@
  * "未归属项目" group. Used by the sidebar "按项目" view-mode.
  */
 
-import type { SessionSummary } from '@maka/core';
+import type { SessionSummary, UiLocale } from '@maka/core';
 import type { SessionHistoryStatusGroup } from '@maka/ui';
+import { getShellRemainingCopy } from './locales/shell-remaining-copy.js';
 
-const UNGROUPED_LABEL = '未归属项目';
 const UNGROUPED_KEY = '__ungrouped__';
 
 /**
@@ -15,7 +15,7 @@ const UNGROUPED_KEY = '__ungrouped__';
  * Groups are returned in insertion order; the ungrouped bucket (if any)
  * appears last. The label is the basename of the project directory.
  */
-export function deriveProjectGroups(sessions: ReadonlyArray<SessionSummary>): SessionHistoryStatusGroup[] {
+export function deriveProjectGroups(sessions: ReadonlyArray<SessionSummary>, locale: UiLocale = 'zh'): SessionHistoryStatusGroup[] {
   const map = new Map<string, SessionSummary[]>();
   for (const session of sessions) {
     const key = session.cwd ?? UNGROUPED_KEY;
@@ -43,7 +43,7 @@ export function deriveProjectGroups(sessions: ReadonlyArray<SessionSummary>): Se
   if (ungrouped) {
     groups.push({
       id: UNGROUPED_KEY,
-      label: UNGROUPED_LABEL,
+      label: getShellRemainingCopy(locale).projects.ungrouped,
       sessions: ungrouped,
       collapsible: true,
       defaultExpanded: true,

@@ -18,6 +18,7 @@ import { getHealthCenterCopy } from '../../renderer/locales/settings-health-copy
 import { getMemorySettingsCopy } from '../../renderer/locales/settings-memory-copy.js';
 import { getProviderSettingsCopy } from '../../renderer/locales/settings-provider-copy.js';
 import { getBotSettingsCopy } from '../../renderer/locales/settings-bot-copy.js';
+import { getShellRemainingCopy } from '../../renderer/locales/shell-remaining-copy.js';
 import {
   findInlineCjkLiterals,
   findSilentCatalogFallbacks,
@@ -95,6 +96,18 @@ const PR4_DESKTOP_PRESENTATION_FILES = [
   'apps/desktop/src/renderer/settings/bot-chat-shared.tsx',
   'apps/desktop/src/renderer/settings/bot-onboarding-modal.tsx',
   'apps/desktop/src/renderer/settings/bot-wechat-login.tsx',
+  'apps/desktop/src/renderer/app-shell-plan-actions.ts',
+  'apps/desktop/src/renderer/command-palette-content-search.ts',
+  'apps/desktop/src/renderer/app-shell-effects.ts',
+  'apps/desktop/src/renderer/app-shell-overlays.tsx',
+  'apps/desktop/src/renderer/daily-review-actions.ts',
+  'apps/desktop/src/renderer/app-shell-daily-review-bridge.ts',
+  'apps/desktop/src/renderer/use-shell-connections.ts',
+  'apps/desktop/src/renderer/use-session-tasks.ts',
+  'apps/desktop/src/renderer/use-thread-search.ts',
+  'apps/desktop/src/renderer/session-project-grouping.ts',
+  'apps/desktop/src/renderer/model-catalog-choices.ts',
+  'apps/desktop/src/renderer/conversation-markdown.ts',
 ] as const;
 
 const PR4_DESKTOP_CATALOG_FILES = [
@@ -114,6 +127,7 @@ const PR4_DESKTOP_CATALOG_FILES = [
   'apps/desktop/src/renderer/locales/settings-provider-copy.ts',
   'apps/desktop/src/renderer/settings/provider-display-copy.ts',
   'apps/desktop/src/renderer/locales/settings-bot-copy.ts',
+  'apps/desktop/src/renderer/locales/shell-remaining-copy.ts',
 ] as const;
 
 function repoSource(file: string): string {
@@ -182,6 +196,9 @@ describe('PR4 remaining desktop copy contract', () => {
     assert.equal(getBotSettingsCopy('zh').overview.active, '正在使用');
     assert.equal(getBotSettingsCopy('en').overview.active, 'In use');
     assert.equal(getBotSettingsCopy('en').onboarding.privacy, 'Credentials stay on this device and are never sent to the renderer or Maka cloud.');
+    assert.equal(getShellRemainingCopy('zh').contentSearch.group, '内容搜索');
+    assert.equal(getShellRemainingCopy('en').contentSearch.group, 'Content search');
+    assert.equal(getShellRemainingCopy('en').projects.ungrouped, 'No project');
   });
 
   it('contains no inline user-visible Chinese in migrated desktop owners', () => {

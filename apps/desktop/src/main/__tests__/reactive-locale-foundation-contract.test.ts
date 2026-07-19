@@ -40,7 +40,7 @@ describe('reactive locale foundation', () => {
     assert.match(shellAppearance, /setUiLocaleOverride\(smoke\?\.locale \?\? null\)/);
     assert.match(
       source,
-      /<LocaleProvider locale=\{uiLocale\} override=\{uiLocaleOverride\}>[\s\S]*?<AppShellOverlays/,
+      /<LocaleProvider locale=\{uiLocale\} override=\{uiLocaleOverride\}>[\s\S]*?<ToastProvider>[\s\S]*?<AppShellOverlays/,
     );
     assert.match(html, /<html lang="en">/, 'the static fallback must match the unsupported-language fallback');
     assert.match(html, /aria-label="Maka"/, 'the pre-JavaScript skeleton must not ship Chinese-only copy');

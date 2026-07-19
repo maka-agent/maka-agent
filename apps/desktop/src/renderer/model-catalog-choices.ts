@@ -7,8 +7,10 @@ import {
   type ModelCatalogEntry,
   type ProviderType,
   type SavedModelChoice,
+  type UiLocale,
 } from '@maka/core';
 import type { ChatModelChoice } from '@maka/ui';
+import { getShellRemainingCopy } from './locales/shell-remaining-copy.js';
 
 const DAILY_REVIEW_MODEL_KEY_SEPARATOR = '::';
 
@@ -65,6 +67,7 @@ export function buildCatalogModelChoices(connection: Pick<
 export function buildCatalogDailyReviewModelOptions(
   connections: readonly LlmConnection[],
   currentModelKey: string,
+  locale: UiLocale = 'zh',
 ): Array<readonly [string, string]> {
   const current = parseDailyReviewModelKey(currentModelKey);
   const candidates: Array<{ key: string; label: string; safeSourceLabel: string }> = [];
@@ -81,7 +84,7 @@ export function buildCatalogDailyReviewModelOptions(
       const key = dailyReviewModelKey(connection.slug, entry.id);
       if (seenKeys.has(key)) continue;
       seenKeys.add(key);
-      candidates.push({ key, label: dailyReviewModelDisplayLabel(entry), safeSourceLabel });
+      candidates.push({ key, label: dailyReviewModelDisplayLabel(entry, locale), safeSourceLabel });
     }
   }
 
@@ -101,7 +104,7 @@ export function buildCatalogDailyReviewModelOptions(
   if (trimmedCurrent && !options.some(([value]) => value === trimmedCurrent)) {
     const label = current?.model || trimmedCurrent.split(DAILY_REVIEW_MODEL_KEY_SEPARATOR).pop() || trimmedCurrent;
     const sourceLabel = current?.connectionSlug ? ` · ${current.connectionSlug}` : '';
-    options.push([trimmedCurrent, `${label}${sourceLabel} · 当前不可用`]);
+    options.push([trimmedCurrent, `${label}${sourceLabel} · ${getShellRemainingCopy(locale).models.unavailable}`]);
   }
 
   return options;
@@ -169,9 +172,10 @@ function modelDisplayLabel(entry: Pick<ModelCatalogEntry, 'id' | 'displayName'>)
 
 function dailyReviewModelDisplayLabel(
   entry: Pick<ModelCatalogEntry, 'id' | 'displayName' | 'canUseAsChatDefault'>,
+  locale: UiLocale = 'zh',
 ): string {
   const label = modelDisplayLabel(entry);
-  return entry.canUseAsChatDefault ? label : `${label} · 当前不可用`;
+  return entry.canUseAsChatDefault ? label : `${label} · ${getShellRemainingCopy(locale).models.unavailable}`;
 }
 
 function isModelConsumerConnection(connection: Pick<LlmConnection, 'enabled' | 'providerType'>): boolean {

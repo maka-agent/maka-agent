@@ -135,8 +135,8 @@ export function CommandPalette(props: {
   // sessions first, then matched content. Single empty / blocked /
   // error tile per state.
   const contentCommands = useMemo(() => {
-    return buildContentSearchCommands(threadSearch.state, props.onSelectSession, props.onOpenSearchModal);
-  }, [threadSearch.state, props.onSelectSession, props.onOpenSearchModal]);
+    return buildContentSearchCommands(threadSearch.state, props.onSelectSession, props.onOpenSearchModal, locale);
+  }, [threadSearch.state, props.onSelectSession, props.onOpenSearchModal, locale]);
 
   // Combine. Filtered commands keep their existing order; content
   // commands always sit at the end so they don't disrupt muscle

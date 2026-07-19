@@ -91,7 +91,7 @@ describe('sidebar project view mode', () => {
 
     assert.match(appShell, /const visibleSessions = useMemo\(\(\) => filterSessions\(sessions, navSelection\), \[sessions, navSelection\]\)/);
     assert.match(appShell, /deriveSessionStatusGroups\(visibleSessions, \{ pinFirst: true, locale: uiLocale \}\)/);
-    assert.match(appShell, /deriveProjectGroups\(visibleSessions\)/);
+    assert.match(appShell, /deriveProjectGroups\(visibleSessions, uiLocale\)/);
     assert.match(appShell, /const sessionListGroups = viewMode === 'project' \? sessionProjectGroups : sessionStatusGroups/);
     assert.match(appShell, /statusGroups=\{sessionListGroups\}/);
     assert.doesNotMatch(appShell, /projectGroups=\{/);

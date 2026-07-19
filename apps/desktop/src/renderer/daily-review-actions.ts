@@ -1,10 +1,13 @@
 import type { LlmConnection, UiLocale } from '@maka/core';
 import { generalizedErrorMessage, generalizedErrorMessageChinese } from '@maka/core';
 import { buildCatalogDailyReviewModelOptions } from './model-catalog-choices.js';
+import { getShellRemainingCopy } from './locales/shell-remaining-copy.js';
 
 export const DAILY_REVIEW_CONFIG_MODEL_VALUE = '__maka_daily_review_config_model__';
 
 export function dailyReviewExportDefaultName(label: string): string {
+  const zh = getShellRemainingCopy('zh').dailyReview;
+  const en = getShellRemainingCopy('en').dailyReview;
   const today = new Date();
   const yyyy = today.getFullYear();
   const mm = String(today.getMonth() + 1).padStart(2, '0');
@@ -13,9 +16,9 @@ export function dailyReviewExportDefaultName(label: string): string {
     ? '30d'
     : label.includes('7')
       ? '7d'
-      : label === '昨天'
+      : label === zh.yesterday || label === en.yesterday
         ? 'yesterday'
-        : label === '今天'
+        : label === zh.today || label === en.today
           ? 'today'
           : 'day';
   return `maka-daily-review-${scope}-${yyyy}-${mm}-${dd}.md`;
@@ -27,11 +30,13 @@ export function dailyReviewActionErrorMessage(error: unknown, fallback: string, 
 
 export function buildDailyReviewRunModelOptions(
   connections: readonly LlmConnection[],
+  locale: UiLocale = 'zh',
 ): Array<readonly [string, string]> {
+  const copy = getShellRemainingCopy(locale).dailyReview;
   return [
     // Compact default option for the panel's inline 分析模型 picker — a run
     // with no explicit override falls back to the model configured in Settings.
-    [DAILY_REVIEW_CONFIG_MODEL_VALUE, '跟随设置'],
-    ...buildCatalogDailyReviewModelOptions(connections, ''),
+    [DAILY_REVIEW_CONFIG_MODEL_VALUE, copy.followSettings],
+    ...buildCatalogDailyReviewModelOptions(connections, '', locale),
   ];
 }

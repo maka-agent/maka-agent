@@ -14,6 +14,7 @@ import { ShellRunUpdateBuffer, generalizedErrorMessageChinese, type ShellRunUpda
 import type { LiveTurnProjection, NavSelection } from '@maka/ui';
 import { messageReadErrorMessage } from './app-shell-copy';
 import { getDesktopConversationCopy } from './locales/conversation-copy.js';
+import { getShellRemainingCopy } from './locales/shell-remaining-copy.js';
 import { applyTheme, applyThemePalette } from './theme';
 import { safeLocalStorageSet } from './browser-storage';
 import {
@@ -257,14 +258,15 @@ export function useAppShellBootstrapSubscriptions(options: {
     void options.refreshPlanReminders();
   });
   const handlePlanDue = useEffectEvent((reminder: PlanReminder) => {
+    const copy = getShellRemainingCopy(options.uiLocale).notifications;
     void options.refreshPlanReminders();
     options.toastApi.toast({
-      title: '计划提醒',
+      title: copy.planReminder,
       description: reminder.title,
       variant: 'info',
       duration: 8000,
       action: {
-        label: '查看定时任务',
+        label: copy.viewScheduledTasks,
         onClick: () => options.setNavSelection({ section: 'automations' }),
       },
     });

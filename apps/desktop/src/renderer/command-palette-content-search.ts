@@ -22,14 +22,18 @@
  */
 
 import { EyeOff, Search } from '@maka/ui/icons';
+import type { UiLocale } from '@maka/core';
 import type { Command } from './command-palette-types';
 import type { NormalizedThreadHit, ThreadSearchState } from './use-thread-search';
+import { getShellRemainingCopy } from './locales/shell-remaining-copy.js';
 
 export function buildContentSearchCommands(
   state: ThreadSearchState,
   onSelectSession?: (sessionId: string, turnId?: string) => void,
   onOpenSearchModal?: (query: string) => void,
+  locale: UiLocale = 'zh',
 ): Command[] {
+  const copy = getShellRemainingCopy(locale).contentSearch;
   switch (state.kind) {
     case 'idle':
       return [];
@@ -38,9 +42,9 @@ export function buildContentSearchCommands(
         {
           id: 'thread-search:loading',
           kind: 'action',
-          label: '搜索中…',
+          label: copy.loading,
           hint: `"${truncateForHint(state.query)}"`,
-          group: '内容搜索',
+          group: copy.group,
           Icon: Search,
           keywords: [],
           // xuan `fd675604`: status tiles MUST be inert. `commit()`
@@ -58,11 +62,11 @@ export function buildContentSearchCommands(
         {
           id: 'thread-search:blocked',
           kind: 'action',
-          label: '搜索已在隐私模式下停用',
-          hint: state.message,
-          group: '内容搜索',
+          label: copy.blocked,
+          hint: locale === 'zh' ? state.message : copy.blockedHint,
+          group: copy.group,
           Icon: EyeOff,
-          keywords: ['incognito', 'privacy', '隐私', '停用'],
+          keywords: [...copy.keywords],
           disabled: true,
           run: () => undefined,
         },
@@ -72,9 +76,9 @@ export function buildContentSearchCommands(
         {
           id: 'thread-search:error',
           kind: 'action',
-          label: '搜索失败',
-          hint: state.message,
-          group: '内容搜索',
+          label: copy.failed,
+          hint: locale === 'zh' ? state.message : copy.failedHint,
+          group: copy.group,
           Icon: Search,
           keywords: [],
           disabled: true,
@@ -87,9 +91,9 @@ export function buildContentSearchCommands(
           {
             id: 'thread-search:empty',
             kind: 'action',
-            label: '没有匹配内容',
+            label: copy.empty,
             hint: `"${truncateForHint(state.query)}"`,
-            group: '内容搜索',
+            group: copy.group,
             Icon: Search,
             keywords: [],
             disabled: true,
@@ -98,7 +102,7 @@ export function buildContentSearchCommands(
         ];
       }
       return [
-        ...state.hits.map((hit, index) => contentSearchHitCommand(hit, index, onSelectSession)),
+        ...state.hits.map((hit, index) => contentSearchHitCommand(hit, index, onSelectSession, locale)),
         // Funnel bridge: the palette shows quick-jump hits; the search modal
         // is the browse surface (same window.maka.search.thread backend).
         // A terminal row hands the query over so the two entry points read
@@ -107,9 +111,9 @@ export function buildContentSearchCommands(
           ? [{
               id: 'thread-search:open-modal',
               kind: 'action' as const,
-              label: '在搜索面板中查看全部结果',
+              label: copy.openAll,
               hint: `"${truncateForHint(state.query)}"`,
-              group: '内容搜索',
+              group: copy.group,
               Icon: Search,
               keywords: [],
               run: () => onOpenSearchModal(state.query),
@@ -123,13 +127,15 @@ function contentSearchHitCommand(
   hit: NormalizedThreadHit,
   index: number,
   onSelectSession?: (sessionId: string, turnId?: string) => void,
+  locale: UiLocale = 'zh',
 ): Command {
+  const copy = getShellRemainingCopy(locale).contentSearch;
   return {
     id: `thread-search:hit:${hit.sessionId}:${hit.turnId ?? 'session'}:${index}`,
     kind: 'session',
     label: hit.title,
-    hint: formatContentSearchHint(hit),
-    group: '内容搜索',
+    hint: formatContentSearchHint(hit, locale),
+    group: copy.group,
     Icon: Search,
     keywords: [],
     run: () => {
@@ -138,8 +144,8 @@ function contentSearchHitCommand(
   };
 }
 
-function formatContentSearchHint(hit: NormalizedThreadHit): string | undefined {
-  if (hit.summary && hit.snippet) return `${hit.summary} · ${hit.snippet}`;
+function formatContentSearchHint(hit: NormalizedThreadHit, locale: UiLocale = 'zh'): string | undefined {
+  if (hit.summary && hit.snippet) return `${hit.summary}${getShellRemainingCopy(locale).contentSearch.separator}${hit.snippet}`;
   return hit.summary ?? hit.snippet;
 }
 
@@ -147,5 +153,5 @@ function formatContentSearchHint(hit: NormalizedThreadHit): string | undefined {
 function truncateForHint(query: string): string {
   const codePoints = Array.from(query);
   if (codePoints.length <= 24) return query;
-  return codePoints.slice(0, 23).join('') + '…';
+  return codePoints.slice(0, 23).join('') + getShellRemainingCopy('zh').contentSearch.ellipsis;
 }

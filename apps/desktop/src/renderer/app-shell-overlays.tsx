@@ -6,11 +6,12 @@ import type {
   ThemePreference,
   UiLocalePreference,
 } from '@maka/core';
-import { SearchModal } from '@maka/ui';
+import { SearchModal, useUiLocale } from '@maka/ui';
 import { KeyboardHelpModal } from './keyboard-help';
 import { CommandPalette } from './command-palette';
 import { useAppShellCommands, type AppShellCommandListOptions } from './app-shell-command-actions';
 import type { UiLocaleUpdateGate } from './settings/ui-locale-update-gate';
+import { getShellRemainingCopy } from './locales/shell-remaining-copy.js';
 
 // Settings is a large surface (providers, OAuth, network, bots, daily-review,
 // usage, etc.) that is only needed once the user opens the Settings modal.
@@ -22,15 +23,16 @@ const SettingsModal = lazy(() => import('./settings/SettingsModal').then((m) => 
 type SearchModalProps = Parameters<typeof SearchModal>[0];
 
 function SettingsModalFallback() {
+  const copy = getShellRemainingCopy(useUiLocale()).overlays;
   return (
     <div
       role="status"
       aria-busy="true"
-      aria-label="正在加载设置"
+      aria-label={copy.loadingSettings}
       className="settingsModal settingsPage agents-layout-root"
       data-agents-page
     >
-      <div className="maka-lazy-fallback" data-surface="modal">正在加载设置…</div>
+      <div className="maka-lazy-fallback" data-surface="modal">{copy.loadingSettingsProgress}</div>
     </div>
   );
 }

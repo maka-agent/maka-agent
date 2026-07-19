@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { generalizedErrorMessageChinese, type Task } from '@maka/core';
+import { generalizedErrorMessage, generalizedErrorMessageChinese, type Task } from '@maka/core';
+import { useUiLocale } from '@maka/ui';
+import { getShellRemainingCopy } from './locales/shell-remaining-copy.js';
 
 interface SessionTaskSnapshot {
   sessionId?: string;
@@ -14,6 +16,8 @@ const EMPTY_SNAPSHOT: SessionTaskSnapshot = {
 };
 
 export function useSessionTasks(sessionId: string | undefined): SessionTaskSnapshot & { retry: () => void } {
+  const locale = useUiLocale();
+  const copy = getShellRemainingCopy(locale).tasks;
   const revisionRef = useRef(0);
   const [snapshot, setSnapshot] = useState<SessionTaskSnapshot>(EMPTY_SNAPSHOT);
 
@@ -35,11 +39,13 @@ export function useSessionTasks(sessionId: string | undefined): SessionTaskSnaps
           sessionId: targetSessionId,
           tasks: current.sessionId === targetSessionId ? current.tasks : [],
           loading: false,
-          error: generalizedErrorMessageChinese(error, '任务载入失败，请重试。'),
+          error: locale === 'zh'
+            ? generalizedErrorMessageChinese(error, copy.loadFailed)
+            : generalizedErrorMessage(error, copy.loadFailed),
         }));
       },
     );
-  }, []);
+  }, [copy.loadFailed, locale]);
 
   useEffect(() => {
     revisionRef.current += 1;

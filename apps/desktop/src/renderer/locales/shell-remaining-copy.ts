@@ -1,0 +1,71 @@
+import type { UiCatalog, UiLocale } from '@maka/core';
+
+type WidenCopy<T> = T extends string
+  ? string
+  : T extends (...args: infer Args) => string
+    ? (...args: Args) => string
+    : { [K in keyof T]: WidenCopy<T[K]> };
+
+const zhCopy = {
+  planActions: {
+    refreshFailed: '刷新计划失败', refreshFallback: '刷新计划提醒失败，请稍后重试。',
+    created: '已创建计划提醒', createFailed: '创建计划失败', createFallback: '创建计划提醒失败，请稍后重试。',
+    saved: '已保存计划提醒', saveFailed: '保存计划失败', saveFallback: '保存计划提醒失败，请稍后重试。',
+    enabled: '已启用提醒', paused: '已暂停提醒', updateFailed: '更新计划失败', updateFallback: '更新计划提醒失败，请稍后重试。',
+    triggered: '已触发计划提醒', triggerFailed: '触发计划失败', triggerFallback: '触发计划提醒失败，请稍后重试。',
+    snoozed: '已延后 10 分钟', snoozeFailed: '延后计划失败', snoozeFallback: '延后计划提醒失败，请稍后重试。',
+    reminder: '计划提醒', clearTitle: (name: string) => `清空 “${name}” 的执行记录`, clearDescription: '定时任务本身会保留；只清空最近执行记录和最近状态。', clear: '清空记录', cancel: '取消',
+    cleared: '已清空执行记录', clearFailed: '清空记录失败', clearFallback: '清空定时任务记录失败，请稍后重试。',
+    deleteTitle: (name: string) => `删除 “${name}”`, deleteDescription: '该提醒和最近执行记录会被删除。该操作不可撤销。', delete: '删除', deleted: '已删除计划提醒', deleteFailed: '删除计划失败', deleteFallback: '删除计划提醒失败，请稍后重试。',
+  },
+  contentSearch: {
+    group: '内容搜索', loading: '搜索中…', blocked: '搜索已在隐私模式下停用', blockedHint: '隐私模式下无法搜索会话内容。', failed: '搜索失败', failedHint: '搜索暂时失败，请稍后重试。', empty: '没有匹配内容', openAll: '在搜索面板中查看全部结果', keywords: ['incognito', 'privacy', '隐私', '停用'] as readonly string[], separator: ' · ', ellipsis: '…',
+  },
+  dailyReview: {
+    yesterday: '昨天', today: '今天', followSettings: '跟随设置', unavailable: '每日回顾生成暂不可用', historyUnavailable: '每日回顾历史暂不可用', archiveMissing: '找不到每日回顾报告', settingsUnavailable: '每日回顾设置暂不可用',
+  },
+  connections: { refreshFailed: '刷新模型连接失败', refreshFallback: '模型连接暂时无法刷新，请稍后重试。' },
+  tasks: { loadFailed: '任务载入失败，请重试。' },
+  threadSearch: { failed: '搜索暂时失败，请稍后重试。', blocked: '隐私模式下无法搜索会话内容。' },
+  projects: { ungrouped: '未归属项目' },
+  models: { unavailable: '当前不可用' },
+  overlays: { loadingSettings: '正在加载设置', loadingSettingsProgress: '正在加载设置…' },
+  notifications: { planReminder: '计划提醒', viewScheduledTasks: '查看定时任务' },
+  conversationExport: { exported: (date: string) => `由 Maka 于 ${date} 导出。`, you: '你', toolCalls: '工具调用', intentSeparator: ' — ' },
+} as const;
+
+export type ShellRemainingCopy = WidenCopy<typeof zhCopy>;
+
+const enCopy: ShellRemainingCopy = {
+  planActions: {
+    refreshFailed: 'Failed to refresh reminders', refreshFallback: 'Plan reminders could not be refreshed. Try again later.',
+    created: 'Plan reminder created', createFailed: 'Failed to create reminder', createFallback: 'The plan reminder could not be created. Try again later.',
+    saved: 'Plan reminder saved', saveFailed: 'Failed to save reminder', saveFallback: 'The plan reminder could not be saved. Try again later.',
+    enabled: 'Reminder enabled', paused: 'Reminder paused', updateFailed: 'Failed to update reminder', updateFallback: 'The plan reminder could not be updated. Try again later.',
+    triggered: 'Plan reminder triggered', triggerFailed: 'Failed to trigger reminder', triggerFallback: 'The plan reminder could not be triggered. Try again later.',
+    snoozed: 'Snoozed for 10 minutes', snoozeFailed: 'Failed to snooze reminder', snoozeFallback: 'The plan reminder could not be snoozed. Try again later.',
+    reminder: 'Plan reminder', clearTitle: (name) => `Clear run history for “${name}”?`, clearDescription: 'The scheduled task will remain. Only recent run history and status will be cleared.', clear: 'Clear history', cancel: 'Cancel',
+    cleared: 'Run history cleared', clearFailed: 'Failed to clear history', clearFallback: 'The scheduled-task history could not be cleared. Try again later.',
+    deleteTitle: (name) => `Delete “${name}”?`, deleteDescription: 'The reminder and its recent run history will be deleted. This cannot be undone.', delete: 'Delete', deleted: 'Plan reminder deleted', deleteFailed: 'Failed to delete reminder', deleteFallback: 'The plan reminder could not be deleted. Try again later.',
+  },
+  contentSearch: {
+    group: 'Content search', loading: 'Searching…', blocked: 'Search is disabled in privacy mode', blockedHint: 'Conversation content cannot be searched in privacy mode.', failed: 'Search failed', failedHint: 'Search is temporarily unavailable. Try again later.', empty: 'No matching content', openAll: 'View all results in Search', keywords: ['incognito', 'privacy', 'private', 'disabled'], separator: ' · ', ellipsis: '…',
+  },
+  dailyReview: {
+    yesterday: 'Yesterday', today: 'Today', followSettings: 'Follow Settings', unavailable: 'Daily Review generation is unavailable', historyUnavailable: 'Daily Review history is unavailable', archiveMissing: 'Daily Review report not found', settingsUnavailable: 'Daily Review settings are unavailable',
+  },
+  connections: { refreshFailed: 'Failed to refresh model connections', refreshFallback: 'Model connections are temporarily unavailable. Try again later.' },
+  tasks: { loadFailed: 'Failed to load tasks. Try again.' },
+  threadSearch: { failed: 'Search is temporarily unavailable. Try again later.', blocked: 'Conversation content cannot be searched in privacy mode.' },
+  projects: { ungrouped: 'No project' },
+  models: { unavailable: 'Currently unavailable' },
+  overlays: { loadingSettings: 'Loading Settings', loadingSettingsProgress: 'Loading Settings…' },
+  notifications: { planReminder: 'Plan reminder', viewScheduledTasks: 'View scheduled tasks' },
+  conversationExport: { exported: (date) => `Exported ${date} from Maka.`, you: 'You', toolCalls: 'Tool calls', intentSeparator: ' — ' },
+};
+
+const COPY = { zh: zhCopy, en: enCopy } satisfies UiCatalog<ShellRemainingCopy>;
+
+export function getShellRemainingCopy(locale: UiLocale): ShellRemainingCopy {
+  return COPY[locale];
+}

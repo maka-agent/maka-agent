@@ -21,6 +21,7 @@ function buildDailyReviewModelOptions(
   connections: readonly LlmConnection[],
   currentModelKey: string,
   copy: DailyReviewSettingsCopy,
+  locale: 'zh' | 'en',
 ): Array<readonly [string, string]> {
   const options: Array<readonly [string, string]> = [
     [DAILY_REVIEW_DEFAULT_MODEL_VALUE, copy.defaultModel],
@@ -28,6 +29,7 @@ function buildDailyReviewModelOptions(
   options.push(...buildCatalogDailyReviewModelOptions(
     connections,
     currentModelKey.trim() === DAILY_REVIEW_DEFAULT_MODEL_VALUE ? '' : currentModelKey,
+    locale,
   ));
   return options;
 }
@@ -120,8 +122,8 @@ export function DailyReviewSettingsPage(props: { connections: readonly LlmConnec
   const effectiveConfig = config;
   const formDisabled = !hasConfigIpc || loading || Boolean(loadError) || !effectiveConfig || savingKey !== null;
   const modelOptions = useMemo(
-    () => buildDailyReviewModelOptions(props.connections, effectiveConfig?.modelKey ?? '', copy),
-    [copy, effectiveConfig?.modelKey, props.connections],
+    () => buildDailyReviewModelOptions(props.connections, effectiveConfig?.modelKey ?? '', copy, locale),
+    [copy, effectiveConfig?.modelKey, locale, props.connections],
   );
   const selectedModelValue = effectiveConfig?.modelKey?.trim()
     ? effectiveConfig.modelKey.trim()

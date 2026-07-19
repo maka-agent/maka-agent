@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import type { ConnectionEvent, LlmConnection } from '@maka/core';
-import { generalizedErrorMessageChinese } from '@maka/core';
+import type { ConnectionEvent, LlmConnection, UiLocale } from '@maka/core';
+import { getShellRemainingCopy } from './locales/shell-remaining-copy.js';
+import { localizedShellErrorMessage } from './locales/shell-copy.js';
 
 type ToastApi = {
   error(title: string, description?: string): void;
@@ -31,7 +32,7 @@ function connectionsEqual(a: LlmConnection[], b: LlmConnection[]): boolean {
  * session-health-notice secret probe, #1038 review) that they must
  * re-run. The revision can.
  */
-export function useShellConnections(options: { toastApi: ToastApi }): {
+export function useShellConnections(options: { toastApi: ToastApi; uiLocale: UiLocale }): {
   connections: LlmConnection[];
   connectionsRevision: number;
   defaultConnection: string | null;
@@ -40,7 +41,8 @@ export function useShellConnections(options: { toastApi: ToastApi }): {
   refreshConnections: () => Promise<void>;
   handleConnectionEvent: (event: ConnectionEvent) => void;
 } {
-  const { toastApi } = options;
+  const { toastApi, uiLocale } = options;
+  const copy = getShellRemainingCopy(uiLocale).connections;
   const [connections, setConnections] = useState<LlmConnection[]>([]);
   const [connectionsRevision, setConnectionsRevision] = useState(0);
   const [defaultConnection, setDefaultConnection] = useState<string | null>(null);
@@ -55,7 +57,7 @@ export function useShellConnections(options: { toastApi: ToastApi }): {
       setDefaultConnection(nextDefault);
       setConnectionsRevision((revision) => revision + 1);
     } catch (error) {
-      toastApi.error('刷新模型连接失败', generalizedErrorMessageChinese(error, '模型连接暂时无法刷新，请稍后重试。'));
+      toastApi.error(copy.refreshFailed, localizedShellErrorMessage(error, copy.refreshFallback, uiLocale));
     }
   }
 

@@ -1,6 +1,7 @@
-import type { StoredMessage } from '@maka/core';
+import type { StoredMessage, UiLocale } from '@maka/core';
 import { userFacingText } from '@maka/core/session';
 import { redactSecrets } from '@maka/ui';
+import { getShellRemainingCopy } from './locales/shell-remaining-copy.js';
 
 /**
  * Serialize a conversation to a Markdown document suitable for pasting into
@@ -22,11 +23,12 @@ import { redactSecrets } from '@maka/ui';
  *   export that the user is going to paste somewhere public.
  * - **user text** left untouched (the user typed it, they own it).
  */
-export function renderConversationMarkdown(sessionName: string, messages: StoredMessage[]): string {
+export function renderConversationMarkdown(sessionName: string, messages: StoredMessage[], locale: UiLocale = 'zh'): string {
+  const copy = getShellRemainingCopy(locale).conversationExport;
   const lines: string[] = [];
   lines.push(`# ${sessionName}`);
   lines.push('');
-  lines.push(`*Exported ${new Date().toLocaleString()} from Maka.*`);
+  lines.push(`*${copy.exported(new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date()))}*`);
   lines.push('');
 
   // Group by turnId in encounter order so we preserve narrative flow.
@@ -54,7 +56,7 @@ export function renderConversationMarkdown(sessionName: string, messages: Stored
     if (user && user.type === 'user') {
       lines.push('---');
       lines.push('');
-      lines.push('## 你');
+      lines.push(`## ${copy.you}`);
       lines.push('');
       // Prefer displayText when the model text is a composed envelope (skill
       // invocation) so exports match what the user typed, not the injected body.
@@ -63,12 +65,12 @@ export function renderConversationMarkdown(sessionName: string, messages: Stored
     }
 
     if (toolCalls.length > 0) {
-      lines.push('### 工具调用');
+      lines.push(`### ${copy.toolCalls}`);
       lines.push('');
       for (const call of toolCalls) {
         const c = call as { toolName: string; intent?: string };
         const intent = c.intent ? redactSecrets(c.intent) : undefined;
-        const intentSuffix = intent ? ` — ${intent}` : '';
+        const intentSuffix = intent ? `${copy.intentSeparator}${intent}` : '';
         lines.push(`- \`${c.toolName}\`${intentSuffix}`);
       }
       lines.push('');
