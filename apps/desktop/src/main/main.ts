@@ -1,8 +1,7 @@
-import { app, ipcMain, nativeImage, powerSaveBlocker, safeStorage, shell } from 'electron';
+import { app, ipcMain, powerSaveBlocker, shell } from 'electron';
 import { randomUUID } from 'node:crypto';
-import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { startConfigFileWatcher, type ConfigFileWatcher } from './config-file-watcher.js';
+import { wireAppLifecycle } from './app-lifecycle.js';
 import {
   DEFAULT_SESSION_NAME,
   filterModelVisibleTaskLedgerTasks,
@@ -26,7 +25,6 @@ import { OpenAiCodexService } from './oauth/openai-codex-service.js';
 import { GitHubCopilotSubscriptionService } from './oauth/github-copilot-subscription-service.js';
 import { CursorSubscriptionService } from './oauth/cursor-subscription-service.js';
 import { AntigravitySubscriptionService } from './oauth/antigravity-subscription-service.js';
-import { importLegacyOAuthTokenFiles } from './oauth/shared-credential-bridge.js';
 import type { WorkspacePrivacyContext } from '@maka/core/incognito';
 import { ok } from '@maka/core/settings/result';
 import {
@@ -40,7 +38,6 @@ import {
   buildProviderOptions,
   buildPricingLookup,
   BotRegistry,
-  setActiveProxy,
   ShellRunProcessManager,
   SessionActivityRegistry,
 } from '@maka/runtime';
@@ -73,15 +70,12 @@ import {
   errorMessage,
   requireReadyConnection,
 } from './chat-readiness.js';
-import { createFileCredentialStore, migrateLegacyCredentials } from './credential-store.js';
+import { createFileCredentialStore } from './credential-store.js';
 import { bindOnboardingDeps, createOnboardingService } from './onboarding-service.js';
 import { handleQuickChatStart as runQuickChatStart, type QuickChatResult } from './quick-chat.js';
 import { createDailyReviewArchiveStore } from './daily-review-archive-store.js';
 import { resolveDefaultPermissionMode } from './permission-mode-default.js';
-import {
-  resolveVisualSmokeFixture,
-  seedVisualSmokeFixture,
-} from './visual-smoke-fixture.js';
+import { resolveVisualSmokeFixture } from './visual-smoke-fixture.js';
 import { resolveBuildInfo } from './build-info.js';
 import { OpenGatewayService } from './open-gateway.js';
 import { LocalMemoryService } from './local-memory-service.js';
@@ -98,7 +92,6 @@ import { createMainTaskLedgerWiring } from './task-ledger-wiring.js';
 import { createMainAutomationWiring, evaluateAutomationCanFire } from './automation-wiring.js';
 import { createMainGoalWiring } from './goal-wiring.js';
 import { createOAuthModelConnectionsMainService } from './oauth-model-connections-main.js';
-import { toContractNetworkSettings } from './network-settings-main.js';
 import { registerMemoryIpc } from './memory-ipc-main.js';
 import { registerSubscriptionIpc } from './subscription-ipc-main.js';
 import { registerBrowserIpc } from './browser-ipc-main.js';
@@ -195,7 +188,6 @@ try {
   throw error;
 }
 const workspaceRoot = join(app.getPath('userData'), 'workspaces', visualSmokeFixture?.workspaceName ?? 'default');
-let configWatcher: ConfigFileWatcher | undefined;
 // 保持系统唤醒 (settings.system.keepSystemAwake): holds an Electron
 // `powerSaveBlocker` so in-process scheduled tasks keep firing while the
 // machine would otherwise sleep. Injected with electron's blocker; the
@@ -1140,228 +1132,39 @@ function emitSessionsChanged(
   safeSendToRenderer('sessions:changed', event);
 }
 
-async function recoverInterruptedSessionsOnStartup(): Promise<void> {
-  try {
-    await runtime.recoverInterruptedSessions();
-    if (process.env.MAKA_RUNTIME_SAFE_BOUNDARY_RESUME !== '1') return;
-    for (const session of await runtime.listSessions()) {
-      const plan = await runtime.planLatestAuthoritativeSafeBoundaryContinuation(session.id);
-      if (!plan.continuation) continue;
-      const iterator = runtime.resumeSafeBoundaryContinuation(plan.continuation);
-      void streamEvents(session.id, iterator, {
-        turnId: plan.continuation.turnId,
-        goalBoundary: 'none',
-      });
-    }
-  } catch {
-    // Best-effort: startup should still reach the renderer so users can inspect
-    // and repair any remaining local session state.
-  }
-}
-
-async function ensureBootstrapConnection(): Promise<void> {
-  await mkdir(workspaceRoot, { recursive: true });
-  if ((await connectionStore.list()).length > 0) return;
-
-  if (process.env.ANTHROPIC_API_KEY) {
-    const slug = 'env-anthropic';
-    await connectionStore.create({
-      slug,
-      name: 'Anthropic (env)',
-      providerType: 'anthropic',
-      defaultModel: 'claude-sonnet-4-5-20250929',
-    });
-    await credentialStore.setSecret(slug, 'api_key', process.env.ANTHROPIC_API_KEY);
-    await connectionStore.setDefault(slug);
-    // Bootstrap runs in BACKGROUND startup (#456): the renderer may have
-    // already seeded its connection list from the onboarding snapshot,
-    // so push the change or the model picker stays empty until an
-    // unrelated action refreshes it.
-    emitConnectionListChanged();
-    return;
-  }
-
-  if (process.env.OPENAI_API_KEY) {
-    const slug = 'env-openai';
-    await connectionStore.create({
-      slug,
-      name: 'OpenAI (env)',
-      providerType: 'openai',
-      defaultModel: 'gpt-4o-mini',
-    });
-    await credentialStore.setSecret(slug, 'api_key', process.env.OPENAI_API_KEY);
-    await connectionStore.setDefault(slug);
-    emitConnectionListChanged();
-  }
-}
-
 registerIpc();
 
-app.whenReady().then(async () => {
-  // PR-GRAY-CARD-LIFT-0 (WAWQAQ msg `0eb99429` 2026-06-20): set the
-  // app's dock icon (macOS) so the dev `npm start` run shows Maka's
-  // brand mark instead of the generic Electron icon. Packaged
-  // builds get the icon via .app bundle Info.plist; this covers the
-  // dev path.
-  if (process.platform === 'darwin' && app.dock) {
-    if (process.env.MAKA_VISUAL_SMOKE_FIXTURE || isIsolatedE2e) {
-      // PR-VISUAL-SMOKE-HEADLESS: hide the dock icon so the spawned
-      // Electron runs as an accessory app — no dock bounce, and it
-      // never becomes frontmost / steals focus from the developer's
-      // active window during a capture run or an E2E run.
-      app.dock.hide();
-    } else {
-      try {
-        const iconPath = join(import.meta.dirname, '..', '..', 'assets', 'icon.png');
-        app.dock.setIcon(nativeImage.createFromPath(iconPath));
-      } catch (error) {
-        console.error('[icon] failed to set dock icon:', error);
-      }
-    }
-  }
-
-  // Credential migration is the one startup phase that must finish before an
-  // interactive window exists: OAuth logout is otherwise able to race the
-  // one-shot legacy import. The work is local and normally a missing-file
-  // check; all non-critical startup below still runs behind the first paint.
-  // The renderer's first
-  // IPC calls (session enumeration, settings read, connection listing)
-  // all read from stores that are initialized synchronously at module load,
-  // so they succeed regardless of whether background startup has
-  // settled. Any state that background startup mutates is pushed to the
-  // renderer via the existing `sessions:changed` / `connections:event`
-  // / `settings:bots:statusChanged` channels, so the UI converges lazily.
-  // Visual-smoke fixture mode wipes and reseeds the whole workspace
-  // (`rm -rf` first). That wipe must finish BEFORE the window opens and
-  // before background startup touches the workspace: createWindow reads
-  // the settings store, and a concurrent wipe lands inside the store's
-  // read-or-create write (mkdir → tmp → rename), rejecting createWindow
-  // so the window never appears. Fixture runs trade first-paint latency
-  // for determinism by definition; production launches skip this await.
-  if (visualSmokeFixture) {
-    console.log(`[visual-smoke] scenario=${visualSmokeFixture.scenario} workspace=${workspaceRoot}`);
-    await seedVisualSmokeFixture({ workspaceRoot, fixture: visualSmokeFixture, credentialStore });
-  }
-  await runCredentialStartup();
-  app.on('second-instance', focusOrCreateMainWindow);
-  app.on('activate', focusOrCreateMainWindow);
-  const backgroundStartup = runBackgroundStartup();
-  await mainWindowController.createWindow();
-  // Keep the process alive until background work settles so schedulers
-  // / bridges aren't torn down mid-start by a fast window-all-closed.
-  await backgroundStartup;
+wireAppLifecycle({
+  isIsolatedE2e,
+  visualSmokeFixture,
+  workspaceRoot,
+  credentialStore,
+  connectionStore,
+  settingsStore,
+  telemetryRepo,
+  keepSystemAwake,
+  botRegistry,
+  openGateway,
+  planReminders,
+  dailyReview,
+  automationWiring,
+  goalWiring,
+  computerUse,
+  computerUseOverlay,
+  shellRuns,
+  mcpManager,
+  runtimePersistence,
+  mainWindowController,
+  runtime,
+  streamEvents,
+  focusOrCreateMainWindow,
+  emitConnectionListChanged,
+  handleExternalSettingsChange,
+  getSettingsIpc: () => settingsIpc,
+  setLookupPricing: (value) => {
+    lookupPricing = value;
+  },
 });
-
-async function runCredentialStartup(): Promise<void> {
-  // One-time migration of credentials.json off Electron safeStorage so
-  // the pure-Node runtime can read it (issue #32). Runs before any
-  // credential read/write below; failure is non-fatal (legacy file is
-  // left intact and later credential reads fail closed with guidance).
-  try {
-    await migrateLegacyCredentials(workspaceRoot, safeStorage);
-  } catch (error) {
-    console.error('[credentials] migration off safeStorage failed; legacy file left intact:', error);
-  }
-  // One-shot import of pre-#1125 safeStorage-encrypted OAuth token
-  // files into the shared CredentialStore, which is the only token
-  // authority from here on. Best-effort like the migration above:
-  // files that cannot be decrypted are left intact for a later start.
-  try {
-    const userDataDir = app.getPath('userData');
-    const reports = await importLegacyOAuthTokenFiles({
-      credentialStore,
-      decryptor: safeStorage,
-      files: [
-        { slug: 'claude-subscription', filePath: join(userDataDir, '.claude_subscription_token') },
-        { slug: 'codex-subscription', filePath: join(userDataDir, '.codex_subscription_token') },
-        { slug: 'cursor-subscription', filePath: join(userDataDir, '.cursor_subscription_token') },
-        { slug: 'antigravity-subscription', filePath: join(userDataDir, '.antigravity_subscription_token') },
-      ],
-    });
-    for (const report of reports) {
-      const log = report.outcome === 'failed' ? console.error : console.log;
-      log(`[credentials] legacy OAuth token file for ${report.slug}: ${report.outcome}`, report.error ?? '');
-    }
-  } catch (error) {
-    console.error('[credentials] legacy OAuth token import failed; files left intact:', error);
-  }
-}
-
-/**
- * Non-critical startup work that must NOT block the first window paint.
- *
- * `setActiveProxy` must be applied before any network-bearing step
- * (`botRegistry.applySettings`, `openGateway.sync`); pricing depends on
- * `telemetryRepo.load()`. Everything here is best-effort and logged on
- * failure — none of it should prevent the user from seeing and interacting
- * with the app shell.
- */
-async function runBackgroundStartup(): Promise<void> {
-  // Visual-smoke seeding happens synchronously in `whenReady` before the
-  // window opens (see there for why); only the real bootstrap runs here.
-  if (!visualSmokeFixture) {
-    await ensureBootstrapConnection();
-  }
-  const settings = await settingsStore.get();
-  setActiveProxy(toContractNetworkSettings(settings.network).proxy);
-  // Re-hold the power-save blocker at launch if the user left it enabled, so
-  // scheduled tasks survive machine sleep across restarts.
-  keepSystemAwake.apply(settings.system.keepSystemAwake);
-  await telemetryRepo.load();
-  lookupPricing = buildPricingLookup(telemetryRepo.listPricingOverrides());
-  await recoverInterruptedSessionsOnStartup();
-  await botRegistry.applySettings(settings.botChat);
-  await openGateway.sync(settings.openGateway);
-  await planReminders.refreshTimers();
-  dailyReview.startScheduler();
-  configWatcher = startConfigFileWatcher(workspaceRoot, {
-    onConnectionsChanged: () => emitConnectionListChanged(),
-    onSettingsChanged: () => void handleExternalSettingsChange(),
-  });
-  automationWiring.scheduler.start();
-}
-
-app.on('window-all-closed', () => {
-  computerUseOverlay.destroyAll();
-  if (process.platform !== 'darwin') app.quit();
-});
-
-let beforeQuitCleanupComplete = false;
-let beforeQuitCleanupStarted = false;
-
-app.on('before-quit', (event) => {
-  if (beforeQuitCleanupComplete) return;
-  event.preventDefault();
-  if (beforeQuitCleanupStarted) return;
-  beforeQuitCleanupStarted = true;
-  void runBeforeQuitCleanup().finally(() => {
-    beforeQuitCleanupComplete = true;
-    app.quit();
-  });
-});
-
-async function runBeforeQuitCleanup(): Promise<void> {
-  automationWiring.scheduler.dispose();
-  goalWiring.coordinator.dispose();
-  goalWiring.manager.dispose();
-  configWatcher?.stop();
-  planReminders.stopTimers();
-  dailyReview.stopScheduler();
-  settingsIpc?.dispose();
-  const results = await Promise.allSettled([
-    Promise.resolve().then(() => computerUseOverlay.destroyAll()),
-    Promise.resolve().then(() => computerUse.backend?.dispose?.()),
-    botRegistry.stopAll(),
-    openGateway.stop(),
-    Promise.resolve(mainWindowController.disposeBrowserViews()),
-    shellRuns.terminateAll(),
-    mcpManager.close(),
-  ]);
-  for (const result of results) {
-    if (result.status === 'rejected') console.error('[shutdown] cleanup failed:', result.reason);
-  }
-  runtimePersistence.close();
-}
 
 function computerUseCapabilityInput() {
   const serviceState = computerUse.backend?.serviceState?.();
