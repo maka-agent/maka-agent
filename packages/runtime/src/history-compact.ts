@@ -293,7 +293,10 @@ export function applyRuntimeEventHistoryCompact(
             historyCompactBlockIds: [midTurnCheckpoint.checkpointId],
             historyCompactedTurns: midTurnCheckpoint.coverage.turnCount,
             historyCompactedEvents: midTurnCheckpoint.coverage.eventCount,
-            historyCompactedEstimatedTokensBefore: estimateRuntimeEventsTokens(match.coveredRuntimeEvents, charsPerTokenResolved),
+            historyCompactedEstimatedTokensBefore: estimateRuntimeEventsTokens(
+              match.coveredRuntimeEvents,
+              charsPerTokenResolved,
+            ),
             historyCompactedEstimatedTokensAfter: fit.checkpointTokens,
             historyCompactCoverageHashes: [midTurnCheckpoint.coverage.sourceDigest],
             highWaterName: midTurnCheckpoint.highWaterName,
@@ -307,7 +310,10 @@ export function applyRuntimeEventHistoryCompact(
               boundaryKind: 'historyCompact',
               boundaryIds: [midTurnCheckpoint.checkpointId],
               coverage: { bodySha256: [midTurnCheckpoint.coverage.sourceDigest] },
-              estimatedTokensBefore: estimateRuntimeEventsTokens(match.coveredRuntimeEvents, charsPerTokenResolved),
+              estimatedTokensBefore: estimateRuntimeEventsTokens(
+                match.coveredRuntimeEvents,
+                charsPerTokenResolved,
+              ),
               estimatedTokensAfter: fit.checkpointTokens,
             }),
           },
@@ -412,7 +418,10 @@ export function applyRuntimeEventHistoryCompact(
             historyCompactBlockIds: [checkpoint.checkpointId],
             historyCompactedTurns: checkpoint.coverage.turnCount,
             historyCompactedEvents: checkpoint.coverage.eventCount,
-            historyCompactedEstimatedTokensBefore: estimateRuntimeEventsTokens(match.coveredRuntimeEvents, charsPerTokenResolved),
+            historyCompactedEstimatedTokensBefore: estimateRuntimeEventsTokens(
+              match.coveredRuntimeEvents,
+              charsPerTokenResolved,
+            ),
             historyCompactedEstimatedTokensAfter: checkpointTokens,
             historyCompactCoverageHashes: [checkpoint.coverage.sourceDigest],
             highWaterName: checkpoint.highWaterName,
@@ -427,7 +436,10 @@ export function applyRuntimeEventHistoryCompact(
               coverage: {
                 bodySha256: [checkpoint.coverage.sourceDigest],
               },
-              estimatedTokensBefore: estimateRuntimeEventsTokens(match.coveredRuntimeEvents, charsPerTokenResolved),
+              estimatedTokensBefore: estimateRuntimeEventsTokens(
+                match.coveredRuntimeEvents,
+                charsPerTokenResolved,
+              ),
               estimatedTokensAfter: checkpointTokens,
             }),
           },

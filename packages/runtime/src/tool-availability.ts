@@ -1,7 +1,7 @@
 import type { ToolAvailabilityDiagnostic } from '@maka/core/usage-stats/types';
 import { z } from 'zod';
 
-import { estimateTokens } from './context-budget.js';
+import { estimateTokens } from './context-budget-helpers.js';
 import { canonicalizeToolSet, toolSchemaCharsForDiagnostics } from './request-shape.js';
 import type { MakaTool, ToolGating } from './tool-runtime.js';
 

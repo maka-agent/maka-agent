@@ -1,6 +1,9 @@
 import type { RuntimeEvent } from '@maka/core/runtime-event';
 import type { ContextBudgetDiagnostic } from '@maka/core/usage-stats/types';
-import type { ArchivedToolResultSourceRef } from './context-source-ref.js';
+import type {
+  ArchivedToolResultSourceRef,
+  ArchivedToolResultReason,
+} from './context-source-ref.js';
 import {
   estimateTokens,
   finitePositive,
@@ -44,8 +47,6 @@ export const ARCHIVED_TOOL_RESULT_PLACEHOLDER_KIND = 'maka.archived_tool_result'
 export const ARCHIVED_TOOL_RESULT_REWRITE_VERSION = 1;
 
 const DEFAULT_MAX_TOOL_RESULT_ESTIMATED_TOKENS = 2048;
-
-export type ArchivedToolResultReason = 'stale_tool_result_pruned_before_compact';
 
 export interface ArchivedToolResultPlaceholder {
   kind: typeof ARCHIVED_TOOL_RESULT_PLACEHOLDER_KIND;

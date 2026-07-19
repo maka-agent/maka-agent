@@ -238,16 +238,18 @@ describe('desktop history compact artifact lifecycle', () => {
           textEvent('recent', 'turn-3', 'recent retained fact'),
         ],
         {
-          enabled: true,
-          mode: 'lookup',
-          highWaterRatio: 0.000001,
-          tailEstimatedTokens: 1,
-          minRecentTurns: 1,
-          archiveRequired: true,
-          blocks: write.blocks,
+          historyCompact: {
+            enabled: true,
+            mode: 'lookup',
+            highWaterRatio: 0.000001,
+            tailEstimatedTokens: 1,
+            minRecentTurns: 1,
+            archiveRequired: true,
+            blocks: write.blocks,
+          },
+          charsPerToken: 4,
+          maxHistoryEstimatedTokens: 2_048,
         },
-        4,
-        2_048,
       );
 
       assert.equal(replay.blocks.length, 1);

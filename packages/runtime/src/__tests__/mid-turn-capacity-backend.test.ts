@@ -17,10 +17,8 @@ import {
 } from '../ai-sdk-flow.js';
 import type { InvocationContext } from '../invocation-context.js';
 import { PermissionEngine } from '../permission-engine.js';
-import {
-  applyRuntimeEventContextBudget,
-  evaluateHistoryCompactCheckpointReplay,
-} from '../context-budget.js';
+import { applyRuntimeEventContextBudget } from '../context-budget.js';
+import { evaluateHistoryCompactCheckpointReplay } from '../history-compact.js';
 import type { HistoryCompactCheckpoint } from '../history-compact-checkpoint.js';
 import type { ContextBudgetDiagnostic } from '@maka/core/usage-stats/types';
 import { HistoryCompactSummarizerError } from '../history-compact-error.js';

@@ -19,12 +19,15 @@ import {
 } from './context-budget-helpers.js';
 import {
   ARCHIVED_TOOL_RESULT_REWRITE_VERSION,
-  type ArchivedToolResultReason,
   type ArchiveRetrievalMode,
   isArchivedToolResultPlaceholder,
   serializeToolResultForArchive,
 } from './tool-result-archive.js';
-import { type SynthesisSourceRef, isValidSynthesisSourceRef } from './context-source-ref.js';
+import {
+  type ArchivedToolResultReason,
+  type SynthesisSourceRef,
+  isValidSynthesisSourceRef,
+} from './context-source-ref.js';
 import { runtimeEventSearchText } from './runtime-event-history-search.js';
 
 export interface SynthesisCachePolicy {

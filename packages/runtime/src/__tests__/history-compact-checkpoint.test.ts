@@ -11,7 +11,8 @@ import {
   validateHistoryCompactCheckpointShape,
 } from '../history-compact-checkpoint.js';
 import { loadLatestHistoryCompactCheckpointFromRunLedger } from '../history-compact-ledger.js';
-import { applyRuntimeEventHistoryCompact, estimateRuntimeEventsTokens } from '../context-budget.js';
+import { estimateRuntimeEventsTokens } from '../context-budget.js';
+import { applyRuntimeEventHistoryCompact } from '../history-compact.js';
 
 describe('history compact checkpoint', () => {
   test('keeps 10K-event coverage bounded and validates the exact ordered prefix', () => {

@@ -118,6 +118,7 @@ import {
 import {
   activeToolResultLineageIdentity,
   rewriteActiveToolResultsInMessages,
+  type ActiveToolResultArchiveCandidate,
   type ActiveToolResultPruneDiagnosticPatch,
 } from './active-tool-result-prune.js';
 import { toolResultOutput } from './ai-sdk-tool-output.js';
@@ -166,27 +167,21 @@ import {
   buildHistoryCompactBlockFromSummary,
   buildHistorySearchSource,
   buildPromptSegmentEstimates,
-  collectStaleToolResultArchiveCandidates,
-  evaluateHistoryCompactCheckpointReplay,
   estimateRuntimeEventsTokens,
-  isHistoryCompactContentEvent,
   mergeContextBudgetDiagnostic,
   mergeContextBudgetDiagnosticPatches,
   mergeRuntimeEventsInOriginalOrder,
   minimalContextBudgetDiagnostic,
   rawEvidenceRequestReason,
-  replaceHistoryCompactReplayBlocks,
   retrieveArchivedToolResultsForReplay,
   retrieveReplayHistoryAroundSearchSource,
   retrieveRuntimeEventHistoryAround,
   runtimeEventTurnKey,
-  selectSynthesisCacheForReplay,
   shouldAppendContextCompactedNote,
   shouldAppendContextCompactionFailedOpenNote,
   type ContextBudgetPolicy,
   type HistoryCompactBlock,
   type ActiveArchivedToolResultPlaceholder,
-  type ActiveToolResultArchiveCandidate,
   type StaleToolResultArchiveCandidate,
   type SynthesisCacheBlock,
   type SynthesisSourceRef,
@@ -194,6 +189,13 @@ import {
   type ToolResultArchiveReader,
   type ToolResultArchiveRef,
 } from './context-budget.js';
+import { collectStaleToolResultArchiveCandidates } from './tool-result-archive.js';
+import {
+  evaluateHistoryCompactCheckpointReplay,
+  isHistoryCompactContentEvent,
+  replaceHistoryCompactReplayBlocks,
+} from './history-compact.js';
+import { selectSynthesisCacheForReplay } from './synthesis-cache.js';
 import { HistoryCompactSummarizerError } from './history-compact-error.js';
 import {
   buildHistoryCompactCheckpoint,

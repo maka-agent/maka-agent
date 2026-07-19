@@ -10,7 +10,7 @@ import {
   type PlanMidTurnCapacityCompactionInput,
 } from '../mid-turn-capacity-compact.js';
 import { HistoryCompactSummarizerError } from '../history-compact-summarizer.js';
-import { applyRuntimeEventHistoryCompact } from '../context-budget.js';
+import { applyRuntimeEventHistoryCompact } from '../history-compact.js';
 import { matchHistoryCompactCheckpointPrefix } from '../history-compact-checkpoint.js';
 
 describe('mid-turn capacity trigger measurement', () => {

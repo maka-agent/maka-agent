@@ -1,5 +1,5 @@
 import type { RuntimeEvent } from '@maka/core/runtime-event';
-import { estimateRuntimeEventsTokens } from './context-budget.js';
+import { estimateRuntimeEventsTokens } from './context-budget-helpers.js';
 import {
   HistoryCompactSummarizerError,
   type HistoryCompactSummarizerFailureReason,

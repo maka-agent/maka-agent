@@ -1,65 +1,101 @@
-import { Buffer } from 'node:buffer';
 import {
   estimateTokens,
-  estimateRuntimeEventChars,
   estimateRuntimeEventsTokens,
   stableJsonLength,
   turnKey,
   groupEventsByTurn,
-  uniqueSorted,
-  sha256,
-  stableStringify,
   finitePositive,
-  nonEmpty,
-  allNonEmpty,
-  increment,
-  escapeAttribute,
-  tokenizeSearchQuery,
-  finiteRatio,
-  normalizeWhitespace,
-  boundText,
-  optionalNonNegativeFiniteNumber,
-  utf8ByteLength,
 } from './context-budget-helpers.js';
 
-export { estimateTokens, estimateRuntimeEventsTokens };
-
-export * from './synthesis-cache.js';
-import { SynthesisCachePolicy } from './synthesis-cache.js';
-
-export * from './runtime-event-history-search.js';
-import {
+// Public re-export surface for @maka/runtime consumers. Explicit list keeps
+// the ./context-budget subpath from leaking leaf-internal collaboration symbols.
+export { estimateRuntimeEventsTokens, estimateTokens } from './context-budget-helpers.js';
+export {
+  ARCHIVED_TOOL_RESULT_PLACEHOLDER_KIND,
+  ARCHIVED_TOOL_RESULT_REWRITE_VERSION,
+  isArchivedToolResultPlaceholder,
+  deserializeToolResultArchive,
+  retrieveArchivedToolResultsForReplay,
+  serializeToolResultForArchive,
+} from './tool-result-archive.js';
+export type {
+  ArchiveRetrievalMode,
+  ArchiveRetrievalPolicy,
+  ArchiveRetrievalResult,
+  StaleToolResultPrunePolicy,
+  StaleToolResultArchiveCandidate,
+  ToolResultArchiveReader,
+  ToolResultArchiveReaderInput,
+  ToolResultArchiveReadFailureReason,
+  ToolResultArchiveReadResult,
+  ToolResultArchiveRef,
+  ArchivedToolResultPlaceholder,
+} from './tool-result-archive.js';
+export type { ArchivedToolResultReason, SynthesisSourceRef } from './context-source-ref.js';
+export {
   retrieveRuntimeEventHistoryAround,
+  searchRuntimeEventHistory,
+} from './runtime-event-history-search.js';
+export type {
+  RuntimeEventHistoryAroundResult,
+  RuntimeEventHistorySearchHit,
+  RuntimeEventHistorySearchPolicy,
+} from './runtime-event-history-search.js';
+export {
+  buildSynthesisCacheBlocksFromHydratedArchives,
+  deriveSynthesisCoverageFromSourceRefs,
+  rawEvidenceRequestReason,
+  stableSynthesisBlockId,
+  validateSynthesisCacheBlockShape,
+} from './synthesis-cache.js';
+export type {
+  SynthesisCacheBlock,
+  SynthesisCacheCoverage,
+  SynthesisCachePolicy,
+} from './synthesis-cache.js';
+export {
+  buildHistoryCompactBlockFromSummary,
+  historyCompactBlockToRuntimeEvent,
+  renderHistoryCompactBlock,
+  validateHistoryCompactBlockShape,
+} from './history-compact.js';
+export type {
+  HistoryCompactBlock,
+  HistoryCompactCoverage,
+  HistoryCompactMidTurnPolicy,
+  HistoryCompactPolicy,
+  HistoryCompactReplayResult,
+  HistoryCompactSourceArchiveRef,
+  HistoryRewriteGatePolicy,
+} from './history-compact.js';
+export { ACTIVE_ARCHIVED_TOOL_RESULT_PLACEHOLDER_KIND } from './active-tool-result-prune.js';
+export type { ActiveArchivedToolResultPlaceholder } from './active-tool-result-prune.js';
+
+import { SynthesisCachePolicy } from './synthesis-cache.js';
+import {
   searchRuntimeEventHistory,
   type RuntimeEventHistoryAroundResult,
   type RuntimeEventHistorySearchPolicy,
 } from './runtime-event-history-search.js';
-
-export * from './tool-result-archive.js';
 import {
   ArchiveRetrievalPolicy,
+  collectStaleToolResultArchiveCandidates as collectStaleToolResultArchiveCandidatesNarrow,
   pruneStaleToolResultsBeforeCompact,
-  StaleToolResultPrunePolicy,
+  type StaleToolResultPrunePolicy,
+  type StaleToolResultArchiveCandidate,
 } from './tool-result-archive.js';
-
-export * from './context-source-ref.js';
 import { isValidSynthesisSourceRef, type SynthesisSourceRef } from './context-source-ref.js';
-
-export * from './active-tool-result-prune.js';
 import { type ActiveToolResultPrunePolicy } from './active-tool-result-prune.js';
-
-export * from './history-compact.js';
 import {
-  applyRuntimeEventHistoryCompact,
+  applyRuntimeEventHistoryCompact as applyRuntimeEventHistoryCompactNarrow,
+  evaluateHistoryCompactCheckpointReplay as evaluateHistoryCompactCheckpointReplayNarrow,
   isHistoryCompactContentEvent,
   type HistoryCompactBlock,
   type HistoryCompactPolicy,
   type HistoryCompactReplayOptions,
+  type HistoryCompactReplayResult,
+  type HistoryCompactCheckpointReplayFit,
   type HistoryRewriteGatePolicy,
-  HistoryCompactSourceArchiveRef,
-  isValidHistoryCompactSourceArchiveRef,
-  runtimeEventArchiveBody,
-  runtimeEventBodySha256,
 } from './history-compact.js';
 
 import type { ModelMessage } from 'ai';
@@ -75,7 +111,6 @@ import {
 } from './compaction-boundary.js';
 import type { ActiveFullCompactPolicy } from './active-full-compact.js';
 import type { SemanticCompactPolicy } from './semantic-compact.js';
-import type { CompactionDecisionKind } from './compaction-boundary.js';
 import {
   historyCompactCheckpointToRuntimeEvent,
   matchHistoryCompactCheckpointPrefix,
@@ -178,7 +213,7 @@ export function applyRuntimeEventContextBudget(
     charsPerToken,
     policy?.minRecentTurns,
   );
-  const compacted = applyRuntimeEventHistoryCompact(
+  const compacted = applyRuntimeEventHistoryCompactNarrow(
     pruned.events,
     policy?.historyCompact,
     policy?.charsPerToken,
@@ -605,4 +640,48 @@ function mergeCompactionDecisionDiagnostics(
       )
     : (left ?? []);
   return { compactionDecisions: [...retainedLeft, ...right] };
+}
+
+// Public compat wrappers: preserve the pre-split `(events, policy, options)`
+// signature for @maka/runtime consumers. Internal callers (this module and
+// ai-sdk-backend) import the narrow leaf API directly from the leaf modules.
+export function collectStaleToolResultArchiveCandidates(
+  events: readonly RuntimeEvent[],
+  policy: ContextBudgetPolicy | undefined,
+): StaleToolResultArchiveCandidate[] {
+  return collectStaleToolResultArchiveCandidatesNarrow(
+    events,
+    policy?.staleToolResultPrune,
+    policy?.charsPerToken ?? 4,
+    policy?.minRecentTurns,
+  );
+}
+
+export function applyRuntimeEventHistoryCompact(
+  events: readonly RuntimeEvent[],
+  policy: ContextBudgetPolicy | undefined,
+  options: HistoryCompactReplayOptions = {},
+): HistoryCompactReplayResult {
+  return applyRuntimeEventHistoryCompactNarrow(
+    events,
+    policy?.historyCompact,
+    policy?.charsPerToken,
+    policy?.maxHistoryEstimatedTokens,
+    options,
+  );
+}
+
+export function evaluateHistoryCompactCheckpointReplay(
+  checkpoint: HistoryCompactCheckpoint,
+  replayTail: readonly RuntimeEvent[],
+  policy: ContextBudgetPolicy | undefined,
+  options: HistoryCompactReplayOptions = {},
+): HistoryCompactCheckpointReplayFit {
+  return evaluateHistoryCompactCheckpointReplayNarrow(
+    checkpoint,
+    replayTail,
+    policy?.charsPerToken,
+    policy?.maxHistoryEstimatedTokens,
+    options,
+  );
 }

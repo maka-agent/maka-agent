@@ -8,8 +8,9 @@
  * lets every producer/consumer depend on it without reaching across domain
  * modules. `SynthesisSourceRef` is retained as a compatibility alias.
  */
-import type { ArchivedToolResultReason } from './tool-result-archive.js';
 import { nonEmpty } from './context-budget-helpers.js';
+
+export type ArchivedToolResultReason = 'stale_tool_result_pruned_before_compact';
 
 export interface ArchivedToolResultSourceRef {
   kind: 'archived_tool_result';

@@ -8,7 +8,7 @@ import {
   projectHistoryCompactCheckpointReplay,
   validateHistoryCompactCheckpointShape,
 } from '../history-compact-checkpoint.js';
-import { applyRuntimeEventHistoryCompact } from '../context-budget.js';
+import { applyRuntimeEventHistoryCompact } from '../history-compact.js';
 
 describe('mid-turn history compact checkpoint', () => {
   test('builds a mid_turn checkpoint that re-renders the covered head anchor verbatim', () => {

@@ -6,21 +6,20 @@ import type { RuntimeEvent } from '@maka/core/runtime-event';
 import {
   ARCHIVED_TOOL_RESULT_PLACEHOLDER_KIND,
   ARCHIVED_TOOL_RESULT_REWRITE_VERSION,
-  applyRuntimeEventHistoryCompact,
   applyRuntimeEventContextBudget,
   buildHistoryCompactBlockFromSummary,
   buildSynthesisCacheBlocksFromHydratedArchives,
   deserializeToolResultArchive,
   renderHistoryCompactBlock,
-  renderSynthesisCacheBlock,
   retrieveArchivedToolResultsForReplay,
   retrieveRuntimeEventHistoryAround,
-  selectSynthesisCacheForReplay,
   serializeToolResultForArchive,
   validateHistoryCompactBlockShape,
   validateSynthesisCacheBlockShape,
   type SynthesisCacheBlock,
 } from '../context-budget.js';
+import { applyRuntimeEventHistoryCompact } from '../history-compact.js';
+import { renderSynthesisCacheBlock, selectSynthesisCacheForReplay } from '../synthesis-cache.js';
 import { historyCompactBlockToCompactionBoundary } from '../compaction-boundary.js';
 
 describe('context-budget archive retrieval', () => {
