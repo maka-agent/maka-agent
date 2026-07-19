@@ -742,6 +742,14 @@ export function buildAiSdkCellBackendRegistration(input: {
         sessionId: ctx.sessionId,
         modelId: input.model,
       });
+      const tools = buildHarborCellAiSdkTools(context.toolExecutor!, {
+        ...(context.heavyTaskEvidence ? { heavyTaskEvidence: context.heavyTaskEvidence } : {}),
+        ...(context.heavyTaskProgress ? { heavyTaskProgress: context.heavyTaskProgress } : {}),
+        ...(context.heavyTaskSelfCheck ? { heavyTaskSelfCheck: context.heavyTaskSelfCheck } : {}),
+        ...(taskLedgerExperimentStore && taskLedgerExperimentPolicy
+          ? { taskLedgerExperiment: { store: taskLedgerExperimentStore } }
+          : {}),
+      });
       return new AiSdkBackend({
         sessionId: ctx.sessionId,
         header: { ...ctx.header, model: input.model },
@@ -756,15 +764,8 @@ export function buildAiSdkCellBackendRegistration(input: {
             ...modelInput,
             ...(subscriptionFetch ? { fetch: subscriptionFetch } : {}),
           }),
-        tools: buildHarborCellAiSdkTools(context.toolExecutor!, {
-          ...(context.heavyTaskEvidence ? { heavyTaskEvidence: context.heavyTaskEvidence } : {}),
-          ...(context.heavyTaskProgress ? { heavyTaskProgress: context.heavyTaskProgress } : {}),
-          ...(context.heavyTaskSelfCheck ? { heavyTaskSelfCheck: context.heavyTaskSelfCheck } : {}),
-          ...(taskLedgerExperimentStore && taskLedgerExperimentPolicy
-            ? { taskLedgerExperiment: { store: taskLedgerExperimentStore } }
-            : {}),
-        }),
-        toolAvailability: buildIsolatedHeadlessToolAvailability(),
+        tools,
+        toolAvailability: buildIsolatedHeadlessToolAvailability(tools.map((tool) => tool.name)),
         spawnChildAgent: context.spawnChildAgent
           ? (childInput) => context.spawnChildAgent!(ctx.sessionId, childInput)
           : undefined,

@@ -1535,12 +1535,16 @@ describe('isolated headless tools', () => {
         return { exitCode: 0, stdout: '', stderr: '' };
       },
     });
-    const plan = new ToolAvailabilityRuntime(tools, buildIsolatedHeadlessToolAvailability(), {
-      name: 'invalid',
-      description: 'invalid',
-      parameters: {},
-      impl: () => ({}),
-    }).prepare([]);
+    const plan = new ToolAvailabilityRuntime(
+      tools,
+      buildIsolatedHeadlessToolAvailability(tools.map((tool) => tool.name)),
+      {
+        name: 'invalid',
+        description: 'invalid',
+        parameters: {},
+        impl: () => ({}),
+      },
+    ).prepare([]);
 
     assert.ok(plan.activeTools.includes('Bash'));
     assert.ok(plan.activeTools.includes('Read'));
@@ -1566,12 +1570,16 @@ describe('isolated headless tools', () => {
       },
     });
     const childTools = buildChildAgentTools(parentTools);
-    const plan = new ToolAvailabilityRuntime(childTools, buildIsolatedHeadlessToolAvailability(), {
-      name: 'invalid',
-      description: 'invalid',
-      parameters: {},
-      impl: () => ({}),
-    }).prepare([]);
+    const plan = new ToolAvailabilityRuntime(
+      childTools,
+      buildIsolatedHeadlessToolAvailability(parentTools.map((tool) => tool.name)),
+      {
+        name: 'invalid',
+        description: 'invalid',
+        parameters: {},
+        impl: () => ({}),
+      },
+    ).prepare([]);
 
     assert.deepEqual([...plan.activeTools].sort(), ['Glob', 'Grep', 'Read']);
     assert.equal(plan.prepareStep, undefined);
