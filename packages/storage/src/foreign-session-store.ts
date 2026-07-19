@@ -371,7 +371,12 @@ class FileForeignSessionStore implements ForeignSessionStore {
         continue;
       }
       if (summary.source === 'claude-code') {
-        if (record.type === 'user' && record.isSidechain !== true) {
+        // Sidechain records are a sub-agent's own conversation interleaved
+        // into the main transcript; they belong to neither role of the main
+        // session and must not enter its handoff (drop them for BOTH the user
+        // and assistant branches, not just the user one).
+        if (record.isSidechain === true) continue;
+        if (record.type === 'user') {
           // claudeUserAuthoredText drops isMeta / isCompactSummary records so
           // Claude's own injected context and generated compaction summaries
           // never enter the handoff as user-authored text.

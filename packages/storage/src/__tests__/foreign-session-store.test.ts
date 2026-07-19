@@ -354,6 +354,58 @@ describe('foreign session store — digest', () => {
     assert.ok(digest.warnings.some((w) => w.includes('malformed')), JSON.stringify(digest.warnings));
   });
 
+  it('excludes interleaved sidechain records (both user and assistant) from the digest', async () => {
+    const home = await tempHome();
+    // A main-session transcript (first record is not sidechain, so the file
+    // is not dropped) with a sub-agent's sidechain user AND assistant records
+    // interleaved. None of the sidechain content may enter the main handoff.
+    const dir = join(home, '.claude', 'projects', '-repo');
+    await mkdir(dir, { recursive: true });
+    const id = '0fb0463a-ec8e-4d50-896d-c825c3148ae7';
+    await writeFile(
+      join(dir, `${id}.jsonl`),
+      [
+        claudeLine({ type: 'user', cwd: '/repo', isSidechain: false, message: { content: 'main request' } }),
+        claudeLine({
+          type: 'user',
+          isSidechain: true,
+          message: { content: 'SIDECHAIN USER PROMPT' },
+        }),
+        claudeLine({
+          type: 'assistant',
+          isSidechain: true,
+          message: {
+            content: [
+              { type: 'text', text: 'SIDECHAIN ASSISTANT REPLY' },
+              { type: 'tool_use', name: 'Edit', input: { file_path: '/repo/sidechain-only.ts' } },
+            ],
+          },
+        }),
+        claudeLine({
+          type: 'assistant',
+          isSidechain: false,
+          message: {
+            content: [
+              { type: 'text', text: 'main reply' },
+              { type: 'tool_use', name: 'Edit', input: { file_path: '/repo/main.ts' } },
+            ],
+          },
+        }),
+      ].join(''),
+      'utf8',
+    );
+    const store = createForeignSessionStore({ homeDir: home, env: {} });
+    const [session] = await store.listSessions();
+    assert.ok(session);
+    const digest = await store.readDigest(session);
+    assert.deepEqual(digest.userMessages, ['main request']);
+    assert.deepEqual(digest.assistantTexts, ['main reply']);
+    assert.deepEqual(digest.filesTouched, ['/repo/main.ts']);
+    const flat = JSON.stringify(digest);
+    assert.ok(!flat.includes('SIDECHAIN'), flat);
+    assert.ok(!flat.includes('sidechain-only.ts'), flat);
+  });
+
   it('reads codex rollout digests and drops function calls', async () => {
     const home = await tempHome();
     await seedCodexSqlite(home, [{ id: 'c1', cwd: '/repo' }]);
