@@ -17,9 +17,11 @@ import {
   ItemMedia,
   ItemTitle,
   RelativeTime,
+  useUiLocale,
 } from '@maka/ui';
 import { deriveBotChannelViewState } from './bot-settings-view-model';
 import { BOT_LABELS, BotBrandLogo, botReadinessCopyForSupport, botStatusDetail } from './bot-chat-shared';
+import { getBotSettingsCopy } from '../locales/settings-bot-copy';
 
 /**
  * Remote-access overview: the "正在使用" list of configured channels plus
@@ -34,6 +36,9 @@ export function BotChatOverview(props: {
   onOpenChannel(provider: BotProvider): void;
   onRefreshStatuses(): Promise<boolean>;
 }) {
+  const locale = useUiLocale();
+  const botCopy = getBotSettingsCopy(locale);
+  const copy = botCopy.overview;
   const overviewChannels = BOT_PROVIDERS.map((provider, index) => {
     const providerChannel = props.channels[provider];
     const providerStatus = props.statuses?.[provider];
@@ -42,7 +47,7 @@ export function BotChatOverview(props: {
       channel: providerChannel,
       status: providerStatus,
     });
-    const providerCopy = botReadinessCopyForSupport(providerSupport, providerViewState.readiness);
+    const providerCopy = botReadinessCopyForSupport(providerSupport, providerViewState.readiness, locale);
     return {
       provider,
       index,
@@ -68,11 +73,11 @@ export function BotChatOverview(props: {
     <div className="settingsRemoteAccessOverview">
       {props.statusLoadError && (
         <Alert variant="error">
-          <AlertTitle>远程接入状态载入失败</AlertTitle>
+          <AlertTitle>{copy.loadFailed}</AlertTitle>
           <AlertDescription>{props.statusLoadError}</AlertDescription>
           <AlertAction>
             <Button type="button" variant="secondary" onClick={() => void props.onRefreshStatuses()}>
-              重新载入
+              {copy.reload}
             </Button>
           </AlertAction>
         </Alert>
@@ -80,15 +85,15 @@ export function BotChatOverview(props: {
 
       <section className="settingsRemoteAccessSection" aria-labelledby="remote-access-active-heading">
         <div className="settingsRemoteAccessSectionHeader">
-          <h3 id="remote-access-active-heading">正在使用</h3>
-          <span>按需要处理、最近活动排序</span>
+          <h3 id="remote-access-active-heading">{copy.active}</h3>
+          <span>{copy.sortHint}</span>
         </div>
         <div className="settingsRemoteAccessActiveList">
           {activeChannels.length === 0 ? (
             <Item className="settingsRemoteAccessEmptyRow" interactive={false}>
               <ItemContent>
-                <ItemTitle>还没有正在使用的渠道</ItemTitle>
-                <ItemDescription>从下方选择一个消息平台开始配置。</ItemDescription>
+                <ItemTitle>{copy.empty}</ItemTitle>
+                <ItemDescription>{copy.emptyHelp}</ItemDescription>
               </ItemContent>
             </Item>
           ) : activeChannels.map((entry) => (
@@ -99,7 +104,7 @@ export function BotChatOverview(props: {
               render={(
                 <button
                   type="button"
-                  aria-label={`管理 ${BOT_LABELS[entry.provider].label}，${entry.copy.label}`}
+                  aria-label={copy.manageAria(botCopy.providers[entry.provider].label, entry.copy.label)}
                   aria-describedby={`settings-remote-access-${entry.provider}-summary`}
                   onClick={() => props.onOpenChannel(entry.provider)}
                 />
@@ -108,11 +113,11 @@ export function BotChatOverview(props: {
               <ItemMedia><BotBrandLogo provider={entry.provider} /></ItemMedia>
               <ItemContent>
                 <ItemTitle>
-                  {BOT_LABELS[entry.provider].label}
+                  {botCopy.providers[entry.provider].label}
                   <Chip dot size="sm" variant={entry.copy.tone}>{entry.copy.label}</Chip>
                 </ItemTitle>
                 <ItemDescription id={`settings-remote-access-${entry.provider}-summary`}>
-                  {botOverviewDetail(entry.status, entry.currentError, entry.copy.detail, entry.liveOperational)}
+                  {botOverviewDetail(entry.status, entry.currentError, entry.copy.detail, entry.liveOperational, locale)}
                 </ItemDescription>
               </ItemContent>
               <ItemActions><ChevronRight size={16} aria-hidden="true" /></ItemActions>
@@ -123,8 +128,8 @@ export function BotChatOverview(props: {
 
       <section className="settingsRemoteAccessSection" aria-labelledby="remote-access-available-heading">
         <div className="settingsRemoteAccessSectionHeader">
-          <h3 id="remote-access-available-heading">接入更多渠道</h3>
-          <span>选择平台开始配置</span>
+          <h3 id="remote-access-available-heading">{copy.more}</h3>
+          <span>{copy.choose}</span>
         </div>
         <div className="settingsRemoteAccessCatalog">
           {availableChannels.map((entry) => (
@@ -135,15 +140,15 @@ export function BotChatOverview(props: {
               render={(
                 <button
                   type="button"
-                  aria-label={`接入 ${BOT_LABELS[entry.provider].label}`}
+                  aria-label={copy.connectAria(botCopy.providers[entry.provider].label)}
                   onClick={() => props.onOpenChannel(entry.provider)}
                 />
               )}
             >
               <ItemMedia><BotBrandLogo provider={entry.provider} /></ItemMedia>
               <ItemContent>
-                <ItemTitle>{BOT_LABELS[entry.provider].label}</ItemTitle>
-                <ItemDescription>{BOT_LABELS[entry.provider].help}</ItemDescription>
+                <ItemTitle>{botCopy.providers[entry.provider].label}</ItemTitle>
+                <ItemDescription>{botCopy.providers[entry.provider].help}</ItemDescription>
               </ItemContent>
               <ItemActions><ChevronRight size={16} aria-hidden="true" /></ItemActions>
             </Item>
@@ -159,17 +164,19 @@ function botOverviewDetail(
   currentError: string | undefined,
   fallback: string,
   liveOperational: boolean,
+  locale: 'zh' | 'en',
 ): ReactNode {
+  const copy = getBotSettingsCopy(locale).overview;
   const identity = status?.identity?.username ?? status?.identity?.displayName;
   if (liveOperational) {
     return (
       <>
-        监听中{identity ? ` · ${identity}` : ''}
+        {copy.listening}{identity ? ` · ${identity}` : ''}
         {status?.lastEventAt ? <> · <RelativeTime ts={status.lastEventAt} /></> : ''}
       </>
     );
   }
-  if (currentError) return currentError;
-  if (status?.reason) return botStatusDetail(status);
+  if (currentError) return locale === 'zh' ? currentError : fallback;
+  if (status?.reason) return botStatusDetail(status, locale);
   return fallback;
 }

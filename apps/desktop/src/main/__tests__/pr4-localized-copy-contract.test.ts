@@ -17,6 +17,7 @@ import { getDailyReviewSettingsCopy } from '../../renderer/locales/settings-dail
 import { getHealthCenterCopy } from '../../renderer/locales/settings-health-copy.js';
 import { getMemorySettingsCopy } from '../../renderer/locales/settings-memory-copy.js';
 import { getProviderSettingsCopy } from '../../renderer/locales/settings-provider-copy.js';
+import { getBotSettingsCopy } from '../../renderer/locales/settings-bot-copy.js';
 import {
   findInlineCjkLiterals,
   findSilentCatalogFallbacks,
@@ -88,6 +89,12 @@ const PR4_DESKTOP_PRESENTATION_FILES = [
   'apps/desktop/src/renderer/settings/provider-panel-shared.ts',
   'apps/desktop/src/renderer/settings/claude-subscription-card.tsx',
   'apps/desktop/src/renderer/settings/use-oauth-login-flow.ts',
+  'apps/desktop/src/renderer/settings/bot-chat-detail.tsx',
+  'apps/desktop/src/renderer/settings/bot-chat-overview.tsx',
+  'apps/desktop/src/renderer/settings/bot-chat-settings-page.tsx',
+  'apps/desktop/src/renderer/settings/bot-chat-shared.tsx',
+  'apps/desktop/src/renderer/settings/bot-onboarding-modal.tsx',
+  'apps/desktop/src/renderer/settings/bot-wechat-login.tsx',
 ] as const;
 
 const PR4_DESKTOP_CATALOG_FILES = [
@@ -106,6 +113,7 @@ const PR4_DESKTOP_CATALOG_FILES = [
   'apps/desktop/src/renderer/locales/settings-memory-copy.ts',
   'apps/desktop/src/renderer/locales/settings-provider-copy.ts',
   'apps/desktop/src/renderer/settings/provider-display-copy.ts',
+  'apps/desktop/src/renderer/locales/settings-bot-copy.ts',
 ] as const;
 
 function repoSource(file: string): string {
@@ -171,6 +179,9 @@ describe('PR4 remaining desktop copy contract', () => {
     assert.equal(getProviderSettingsCopy('zh').panel.connected, '已连接');
     assert.equal(getProviderSettingsCopy('en').panel.connected, 'Connected');
     assert.equal(getProviderSettingsCopy('en').shared.lastTest['连接已验证'], 'Connection verified');
+    assert.equal(getBotSettingsCopy('zh').overview.active, '正在使用');
+    assert.equal(getBotSettingsCopy('en').overview.active, 'In use');
+    assert.equal(getBotSettingsCopy('en').onboarding.privacy, 'Credentials stay on this device and are never sent to the renderer or Maka cloud.');
   });
 
   it('contains no inline user-visible Chinese in migrated desktop owners', () => {

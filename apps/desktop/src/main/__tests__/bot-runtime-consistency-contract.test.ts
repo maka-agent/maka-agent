@@ -41,7 +41,7 @@ describe('Bot runtime / delivery / label cross-source consistency (PR-BOT-RUNTIM
     // Extract the BOT_LABELS literal block. We want each platform's
     // `support: 'runtime' | 'credentials' | 'planned'` literal.
     const labelsBlock = settings.match(
-      /const BOT_LABELS:[\s\S]*?\n\};\n/,
+      /const BOT_LABELS:[\s\S]*?\r?\n\};\r?\n/,
     );
     assert.ok(labelsBlock, 'BOT_LABELS literal block must exist');
 
@@ -58,7 +58,7 @@ describe('Bot runtime / delivery / label cross-source consistency (PR-BOT-RUNTIM
 
     // 1) registry.isImplemented must include every runtime platform.
     const implementedFn = registry.match(
-      /function isImplemented\([^)]*\): boolean \{[\s\S]*?\n\}\n/,
+      /function isImplemented\([^)]*\): boolean \{[\s\S]*?\r?\n\}\r?\n/,
     );
     assert.ok(implementedFn, 'bot-registry.isImplemented must exist');
     for (const platform of runtimePlatforms) {
@@ -86,7 +86,7 @@ describe('Bot runtime / delivery / label cross-source consistency (PR-BOT-RUNTIM
     // that flips a platform back to credentials-only does not slide by
     // unnoticed. Update this list when a real platform transition lands.
     const settings = await readSettingsCombinedSource();
-    const labelsBlock = settings.match(/const BOT_LABELS:[\s\S]*?\n\};\n/)!;
+    const labelsBlock = settings.match(/const BOT_LABELS:[\s\S]*?\r?\n\};\r?\n/)!;
 
     // WeChat is intentionally NOT in this set: it has a live wechat-bridge
     // adapter and is in BOT_DELIVERY_PROVIDERS, but its `support` stays

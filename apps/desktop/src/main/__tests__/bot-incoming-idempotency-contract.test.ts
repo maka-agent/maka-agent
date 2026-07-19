@@ -53,7 +53,7 @@ describe('Bot incoming idempotency contract (PR-BOT-INCOMING-IDEMPOTENCY-0)', ()
 
   it('rate-limits and session-caps bot turns before create/send side effects', async () => {
     const main = await readRepo('apps/desktop/src/main/main.ts');
-    const processBlock = main.match(/async function processBotIncomingMessage\([^)]*\): Promise<void> \{[\s\S]*?\n\s*\}\n\n\s*async function collectBotReply/);
+    const processBlock = main.match(/async function processBotIncomingMessage\([^)]*\): Promise<void> \{[\s\S]*?\r?\n\s*\}\r?\n\r?\n\s*async function collectBotReply/);
 
     assert.ok(processBlock, 'processBotIncomingMessage block must exist');
     assert.match(main, /const BOT_CONVERSATION_SESSION_LIMIT = 500;/);
@@ -61,8 +61,8 @@ describe('Bot incoming idempotency contract (PR-BOT-INCOMING-IDEMPOTENCY-0)', ()
     assert.match(main, /const BOT_CONVERSATION_RATE_REFILL_MS = 5_000;/);
     assert.match(main, /const BOT_CONVERSATION_RATE_BUCKET_TTL_MS = 60 \* 60 \* 1_000;/);
     assert.match(main, /const BOT_CONVERSATION_RATE_BUCKET_LIMIT = 1_000;/);
-    const consumeToken = main.match(/function consumeBotConversationToken\([^]*?\n\s*\}\n\n\s*async function sendTransientBotNotice/);
-    const pruneBuckets = main.match(/function pruneExpiredBotConversationRateBuckets\([^)]*\): void \{[\s\S]*?\n\}/);
+    const consumeToken = main.match(/function consumeBotConversationToken\([^]*?\r?\n\s*\}\r?\n\r?\n\s*async function sendTransientBotNotice/);
+    const pruneBuckets = main.match(/function pruneExpiredBotConversationRateBuckets\([^)]*\): void \{[\s\S]*?\r?\n\}/);
     assert.ok(consumeToken, 'consumeBotConversationToken helper must exist');
     assert.ok(pruneBuckets, 'rate bucket TTL pruning helper must exist');
     assert.match(consumeToken![0], /BOT_CONVERSATION_RATE_BURST/);
@@ -111,7 +111,7 @@ describe('Bot incoming idempotency contract (PR-BOT-INCOMING-IDEMPOTENCY-0)', ()
 
   it('forces existing bot-bound sessions back to explore before send or refuses the turn', async () => {
     const main = await readRepo('apps/desktop/src/main/main.ts');
-    const processBlock = main.match(/async function processBotIncomingMessage\([^)]*\): Promise<void> \{[\s\S]*?\n\s*\}\n\n\s*async function collectBotReply/);
+    const processBlock = main.match(/async function processBotIncomingMessage\([^)]*\): Promise<void> \{[\s\S]*?\r?\n\s*\}\r?\n\r?\n\s*async function collectBotReply/);
     const guard = main.match(/async function ensureBotSessionExploreMode\([^)]*\): Promise<boolean> \{[\s\S]*?\n\}/);
 
     assert.ok(processBlock, 'processBotIncomingMessage block must exist');

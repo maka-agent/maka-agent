@@ -35,7 +35,7 @@ describe('Bot restart flow contract (PR-BOT-RESTART-RACE-0)', () => {
     assert.ok(restartCatch, 'restartBotProvider must exist');
     assert.match(
       restartCatch[0],
-      /const message = settingsActionErrorMessage\(error\);[\s\S]*toast\.error\(`\$\{BOT_LABELS\[provider\]\.label\} 启动失败`, message\)/,
+      /const message = settingsActionErrorMessage\(error, locale\);[\s\S]*toast\.error\(copy\.startFailed\(botCopy\.providers\[provider\]\.label\), message\)/,
       'restart catch must classify, redact, and fall back through settingsActionErrorMessage',
     );
     assert.doesNotMatch(

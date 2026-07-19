@@ -25,6 +25,7 @@ import {
   Textarea,
   useMountedRef,
   useToast,
+  useUiLocale,
 } from '@maka/ui';
 import { PasswordInput } from './password-input';
 import { BotWeChatFields, WechatQrLoginModal } from './bot-wechat-login';
@@ -37,6 +38,7 @@ import {
   botStatusDetail,
   type BotPendingActionName,
 } from './bot-chat-shared';
+import { getBotSettingsCopy, type BotSettingsCopy } from '../locales/settings-bot-copy';
 
 function canEnableBotChannel(readiness: BotReadinessState): boolean {
   return readiness === 'credentials_valid' || readiness === 'operational' || readiness === 'degraded';
@@ -79,11 +81,15 @@ export function BotChatChannelDetail(props: {
   );
   const botDetailMountedRef = useMountedRef();
   const toast = useToast();
+  const locale = useUiLocale();
+  const botCopy = getBotSettingsCopy(locale);
+  const detailCopy = botCopy.detail;
+  const providerPresentation = botCopy.providers[provider];
 
   const support = BOT_LABELS[provider].support;
   const viewState = deriveBotChannelViewState({ channel, status });
   const readiness = viewState.readiness;
-  const copy = botReadinessCopyForSupport(support, readiness);
+  const readinessCopy = botReadinessCopyForSupport(support, readiness, locale);
   const quickOnboarding = supportsQuickOnboarding(provider);
   // PR1197 review (P1-8): the scan-login action row belongs to quick mode only.
   // WeChat has no manual mode, so it always uses the scan affordance. In manual
@@ -93,14 +99,14 @@ export function BotChatChannelDetail(props: {
   const inQuickOnboarding = quickOnboarding && (provider === 'wechat' || setupMode === 'quick');
   const enableSwitchDisabled = support === 'planned' || (!channel.enabled && !canEnableBotChannel(readiness));
   const enableSwitchHint = support === 'planned'
-    ? '该平台未开放，暂不能启用。'
+    ? detailCopy.unavailableHint
     : !channel.enabled && !canEnableBotChannel(readiness)
       // PR1197 review (P1-8): point the user at the action that actually exists
       // in the current mode — scanning in quick onboarding, test-and-connect
       // everywhere else — instead of a stale reference to the removed button.
       ? inQuickOnboarding
-        ? '先扫码接入后才能启用。'
-        : '先测试并连接后才能启用。'
+        ? detailCopy.scanFirstHint
+        : detailCopy.testFirstHint
       : undefined;
   const enableSwitchHintId = `settings-bot-enable-hint-${provider}`;
 
@@ -128,33 +134,34 @@ export function BotChatChannelDetail(props: {
         type="button"
         variant="quiet"
         className="settingsRemoteAccessBack"
-        aria-label="返回远程接入"
+        aria-label={detailCopy.back}
         disabled={props.actionBusy}
         onClick={props.onBack}
       >
         <ArrowLeft size={16} aria-hidden="true" />
-        返回远程接入
+        {detailCopy.back}
       </Button>
       <section className="settingsBotDetail">
         <header className="settingsBotDetailHeader" data-support={support}>
           <BotBrandLogo provider={provider} size="large" />
           <div className="settingsBotDetailHeaderBody">
             <h3>
-              {BOT_LABELS[provider].label}
-              <Chip dot size="sm" variant={copy.tone}>{copy.label}</Chip>
+              {providerPresentation.label}
+              <Chip dot size="sm" variant={readinessCopy.tone}>{readinessCopy.label}</Chip>
             </h3>
             <p>
-              {BOT_LABELS[provider].help}
+              {providerPresentation.help}
               {BOT_BRAND[provider].configDocUrl && (
                 <>
                   {' '}
                   <a
                     className="settingsBotConfigDocLink"
                     href={BOT_BRAND[provider].configDocUrl}
+                    aria-label={detailCopy.configDocs}
                     target="_blank"
                     rel="noopener noreferrer"
                   >
-                    查看配置文档
+                    {detailCopy.configDocs}
                   </a>
                 </>
               )}
@@ -166,7 +173,7 @@ export function BotChatChannelDetail(props: {
             )}
           </div>
           <Switch
-            ariaLabel={`启用${BOT_LABELS[provider].label}渠道`}
+            ariaLabel={detailCopy.enableAria(providerPresentation.label)}
             ariaDescribedBy={enableSwitchHint ? enableSwitchHintId : undefined}
             checked={channel.enabled}
             onChange={(enabled) => props.onUpdateChannel({ enabled })}
@@ -177,115 +184,115 @@ export function BotChatChannelDetail(props: {
         <section className="settingsBotRuntime" aria-labelledby="settings-bot-runtime-heading">
           <div className="settingsBotRuntimeHeader">
             <div>
-              <h4 id="settings-bot-runtime-heading">{viewState.liveOperational ? '正在监听新消息' : copy.label}</h4>
-              <p>{viewState.liveOperational ? '连接正常，无需处理。' : copy.detail}</p>
+              <h4 id="settings-bot-runtime-heading">{viewState.liveOperational ? detailCopy.listening : readinessCopy.label}</h4>
+              <p>{viewState.liveOperational ? detailCopy.healthy : readinessCopy.detail}</p>
             </div>
-            <div className="settingsBotActionStack" role="group" aria-label={`${BOT_LABELS[provider].label}渠道操作`}>
+            <div className="settingsBotActionStack" role="group" aria-label={detailCopy.actionsAria(providerPresentation.label)}>
               {inQuickOnboarding ? (
                 <>
                   <Button type="button" disabled={props.actionBusy} onClick={() => setScanLoginOpen(true)}>
-                    {provider === 'wecom' ? '快捷绑定' : provider === 'wechat' ? '扫码登录' : '扫码接入'}
+                    {provider === 'wecom' ? detailCopy.quickBind : provider === 'wechat' ? detailCopy.scanLogin : detailCopy.scanConnect}
                   </Button>
                   {provider === 'wechat' && (channel.token || status?.identity) && (
                     <Button type="button" variant="secondary" disabled={props.actionBusy} onClick={() => void props.onDisconnectWechat()}>
-                      {props.pendingAction === 'disconnect' ? '断开中…' : '断开微信登录'}
+                      {props.pendingAction === 'disconnect' ? detailCopy.disconnecting : detailCopy.disconnectWechat}
                     </Button>
                   )}
                   {provider === 'wechat' && (
                     <Button type="button" variant="secondary" disabled={props.actionBusy} onClick={() => setWechatQrOpen(true)}>
-                      本机桥接二维码
+                      {detailCopy.bridgeQr}
                     </Button>
                   )}
                   <Button type="button" variant="secondary" disabled={props.actionBusy} onClick={() => void props.onTest()}>
-                    {props.pendingAction === 'test' ? '测试中…' : '测试连接'}
+                    {props.pendingAction === 'test' ? detailCopy.testing : detailCopy.test}
                   </Button>
                 </>
               ) : support === 'runtime' && !status?.running ? (
                 <Button type="button" disabled={props.actionBusy} onClick={() => void props.onTestAndConnect()}>
-                  {props.pendingAction === 'connect' ? '连接中…' : '测试并连接'}
+                  {props.pendingAction === 'connect' ? detailCopy.connecting : detailCopy.testAndConnect}
                 </Button>
               ) : (
                 <Button type="button" variant="secondary" disabled={props.actionBusy || support === 'planned'} onClick={() => void props.onTest()}>
-                  {props.pendingAction === 'test' ? '测试中…' : support === 'runtime' ? '测试连接' : '测试并连接'}
+                  {props.pendingAction === 'test' ? detailCopy.testing : support === 'runtime' ? detailCopy.test : detailCopy.testAndConnect}
                 </Button>
               )}
               {support === 'runtime' && (status?.running || props.restarting) && provider !== 'wechat' && (
                 <Button type="button" variant="secondary" disabled={props.actionBusy} onClick={() => void props.onRestart()}>
-                  {props.restarting ? '重启中…' : '重启监听'}
+                  {props.restarting ? detailCopy.restarting : detailCopy.restart}
                 </Button>
               )}
             </div>
           </div>
 
-          <dl className="settingsBotStatusGrid" aria-label={`${BOT_LABELS[provider].label}运行状态`}>
-            <div><dt>身份</dt><dd>{status?.identity?.username ?? status?.identity?.displayName ?? '未获取'}</dd></div>
-            <div><dt>通道类型</dt><dd>{botConnectionLabel(status?.connection ?? 'none')}</dd></div>
-            <div><dt>最近事件</dt><dd>{status?.lastEventAt ? <RelativeTime ts={status.lastEventAt} className="settingsBotMetaTime" /> : '暂无'}</dd></div>
-            <div><dt>最近一次测试</dt><dd>{channel.lastTestAt ? <RelativeTime ts={channel.lastTestAt} className="settingsBotMetaTime" /> : '从未测试'}</dd></div>
+          <dl className="settingsBotStatusGrid" aria-label={detailCopy.runtimeAria(providerPresentation.label)}>
+            <div><dt>{detailCopy.identity}</dt><dd>{status?.identity?.username ?? status?.identity?.displayName ?? detailCopy.unknownIdentity}</dd></div>
+            <div><dt>{detailCopy.connectionType}</dt><dd>{botConnectionLabel(status?.connection ?? 'none', locale)}</dd></div>
+            <div><dt>{detailCopy.lastEvent}</dt><dd>{status?.lastEventAt ? <RelativeTime ts={status.lastEventAt} className="settingsBotMetaTime" /> : detailCopy.noneYet}</dd></div>
+            <div><dt>{detailCopy.lastTest}</dt><dd>{channel.lastTestAt ? <RelativeTime ts={channel.lastTestAt} className="settingsBotMetaTime" /> : detailCopy.neverTested}</dd></div>
           </dl>
         </section>
 
         {props.statusLoadError && (
           <Alert variant="error">
-            <AlertTitle>运行状态刷新失败</AlertTitle>
+            <AlertTitle>{detailCopy.statusRefreshFailed}</AlertTitle>
             <AlertDescription>{props.statusLoadError}</AlertDescription>
           </Alert>
         )}
         {status?.reason && channel.enabled && !viewState.liveOperational && (
           <Alert variant="warning">
-            <AlertTitle>{botStatusDetail(status)}</AlertTitle>
-            <AlertDescription>{copy.detail}</AlertDescription>
+            <AlertTitle>{botStatusDetail(status, locale)}</AlertTitle>
+            <AlertDescription>{readinessCopy.detail}</AlertDescription>
           </Alert>
         )}
         {viewState.currentError && support !== 'planned' && (
           <Alert variant="error">
-            <AlertTitle>最近一次失败</AlertTitle>
-            <AlertDescription>{viewState.currentError}</AlertDescription>
+            <AlertTitle>{detailCopy.latestFailure}</AlertTitle>
+            <AlertDescription>{locale === 'zh' ? viewState.currentError : detailCopy.latestFailureDetail}</AlertDescription>
           </Alert>
         )}
 
         <div className="settingsBotConfigurationHeader">
-          <h4>{quickOnboarding && provider !== 'wechat' ? '接入方式' : '连接配置'}</h4>
-          <span>{quickOnboarding ? '凭据仅保存在本机' : '自动保存'}</span>
+          <h4>{quickOnboarding && provider !== 'wechat' ? detailCopy.setupMethod : detailCopy.connectionSettings}</h4>
+          <span>{quickOnboarding ? detailCopy.localCredentials : detailCopy.autosave}</span>
         </div>
 
         {quickOnboarding && provider !== 'wechat' && (
           <Segmented<'quick' | 'manual'>
             className="settingsBotSetupModes"
             value={setupMode}
-            ariaLabel={`${BOT_LABELS[provider].label}接入方式`}
+            ariaLabel={detailCopy.setupAria(providerPresentation.label)}
             options={[
-              ['quick', '快捷接入（推荐）'],
-              ['manual', '手动配置'],
+              ['quick', detailCopy.quickRecommended],
+              ['manual', detailCopy.manual],
             ]}
             onChange={setSetupMode}
           />
         )}
 
         {quickOnboarding && provider !== 'wechat' && setupMode === 'quick' && (
-          <section className="settingsBotQuickSetup" aria-label={`${BOT_LABELS[provider].label}快捷接入`}>
+          <section className="settingsBotQuickSetup" aria-label={detailCopy.quickAria(providerPresentation.label)}>
             <div>
-              <strong>{provider === 'wecom' ? '扫码创建并绑定机器人' : '扫码自动创建应用与机器人'}</strong>
+              <strong>{provider === 'wecom' ? detailCopy.quickWecomTitle : detailCopy.quickTitle}</strong>
               <p>
                 {provider === 'wecom'
-                  ? '企业管理员扫码确认后，Maka 会保存 Bot ID 与 Secret 并启动长连接。'
-                  : '扫码确认后，Maka 会在 main process 内保存凭据并启动消息连接。'}
+                  ? detailCopy.quickWecomDetail
+                  : detailCopy.quickDetail}
               </p>
             </div>
             {provider === 'feishu' ? (
               <Segmented<BotOnboardingBrand>
                 className="settingsBotBrandChoice"
                 value={feishuBrand}
-                ariaLabel="选择飞书账号区域"
+                ariaLabel={detailCopy.feishuRegionAria}
                 options={[
-                  ['feishu', '飞书'],
+                  ['feishu', detailCopy.feishu],
                   ['lark', 'Lark'],
                 ]}
                 onChange={setFeishuBrand}
               />
             ) : null}
             <Button type="button" onClick={() => setScanLoginOpen(true)}>
-              {provider === 'wecom' ? '开始快捷绑定' : `使用${provider === 'feishu' && feishuBrand === 'lark' ? ' Lark ' : BOT_LABELS[provider].label}扫码接入`}
+              {provider === 'wecom' ? detailCopy.beginQuickBind : detailCopy.scanWith(provider === 'feishu' && feishuBrand === 'lark' ? 'Lark' : providerPresentation.label)}
             </Button>
           </section>
         )}
@@ -316,7 +323,7 @@ export function BotChatChannelDetail(props: {
 
         {support === 'planned' && (
           <div className="settingsNotice" data-tone="passive">
-            这个平台当前只作为平台清单展示，不会进入可用渠道，也不会保存为计划提醒投递目标。
+            {detailCopy.planned}
           </div>
         )}
 
@@ -337,12 +344,15 @@ export function BotChatChannelDetail(props: {
               // though credentials saved. Reflect that honestly instead of a
               // success toast that overstates the connection.
               if (snapshot.warning) {
-                toast.warning(`${BOT_LABELS[provider].label}凭据已保存`, snapshot.warning);
+                toast.warning(
+                  detailCopy.credentialsSaved(providerPresentation.label),
+                  locale === 'zh' ? snapshot.warning : detailCopy.savedButNotConnected,
+                );
                 return;
               }
               toast.success(
-                `${BOT_LABELS[provider].label}已完成扫码接入`,
-                snapshot.identity?.displayName ?? snapshot.identity?.id ?? '凭据已安全保存并开始连接',
+                detailCopy.scanComplete(providerPresentation.label),
+                snapshot.identity?.displayName ?? snapshot.identity?.id ?? detailCopy.savedAndConnected,
               );
             }}
           />
@@ -384,30 +394,31 @@ type BotCredentialField =
   | { kind: 'allowed-user-ids' }
   | { kind: 'notice'; text: string };
 
-const BOT_CREDENTIAL_FIELDS: Partial<Record<BotProvider, ReadonlyArray<BotCredentialField>>> = {
+function botCredentialFields(copy: BotSettingsCopy['detail']): Partial<Record<BotProvider, ReadonlyArray<BotCredentialField>>> {
+  return {
   telegram: [
     { kind: 'password', key: 'token', label: 'Bot Token', placeholder: '123456:ABC-DEF...', ariaLabel: 'Telegram Bot Token' },
     {
       kind: 'text',
       key: 'proxyUrl',
-      label: <>代理地址 <em className="settingsFieldHint">(国内网络必填)</em></>,
+      label: <>{copy.proxy} <em className="settingsFieldHint">{copy.chinaRequired}</em></>,
       placeholder: 'http://127.0.0.1:7890',
-      ariaLabel: 'Telegram 代理地址',
+      ariaLabel: copy.telegramProxyAria,
     },
     { kind: 'allowed-user-ids' },
-    { kind: 'notice', text: '请打开网络的 TUN 模式后重启应用，以便完成 Telegram Bot 设置' },
+    { kind: 'notice', text: copy.telegramNotice },
   ],
   feishu: [
-    { kind: 'text', key: 'appId', label: 'App ID', placeholder: 'cli_xxxx', ariaLabel: '飞书凭据 ID' },
-    { kind: 'password', key: 'appSecret', label: 'App Secret', placeholder: 'xxxx', ariaLabel: '飞书 App Secret' },
+    { kind: 'text', key: 'appId', label: 'App ID', placeholder: 'cli_xxxx', ariaLabel: copy.feishuCredentialId },
+    { kind: 'password', key: 'appSecret', label: 'App Secret', placeholder: 'xxxx', ariaLabel: copy.feishuSecret },
     {
       kind: 'select',
       key: 'domain',
-      label: '域名',
-      ariaLabel: '飞书域名',
+      label: copy.domain,
+      ariaLabel: copy.feishuDomain,
       defaultValue: 'feishu.cn',
       options: [
-        ['feishu.cn', '飞书 (feishu.cn)'],
+        ['feishu.cn', copy.feishuOption],
         ['larksuite.com', 'Lark (larksuite.com)'],
       ],
     },
@@ -417,32 +428,34 @@ const BOT_CREDENTIAL_FIELDS: Partial<Record<BotProvider, ReadonlyArray<BotCreden
     {
       kind: 'text',
       key: 'proxyUrl',
-      label: <>代理地址 <em className="settingsFieldHint">(仅用于 Bot 鉴权)</em></>,
+      label: <>{copy.proxy} <em className="settingsFieldHint">{copy.authOnly}</em></>,
       placeholder: 'http://127.0.0.1:7890',
-      ariaLabel: 'Discord 代理地址',
+      ariaLabel: copy.discordProxyAria,
     },
-    { kind: 'notice', text: '国内网络访问 Discord：上方代理仅作用于 Bot 鉴权请求，消息收发走 WebSocket 长连接需要系统级代理。请打开网络的 TUN 模式后重启应用。' },
+    { kind: 'notice', text: copy.discordNotice },
   ],
   dingtalk: [
-    { kind: 'text', key: 'appId', label: 'Client ID (AppKey)', placeholder: 'dingxxxxxxxx', ariaLabel: '钉钉应用密钥' },
-    { kind: 'password', key: 'appSecret', label: 'Client Secret (AppSecret)', placeholder: 'xxxx', ariaLabel: '钉钉 Client Secret' },
+    { kind: 'text', key: 'appId', label: 'Client ID (AppKey)', placeholder: 'dingxxxxxxxx', ariaLabel: copy.dingtalkId },
+    { kind: 'password', key: 'appSecret', label: 'Client Secret (AppSecret)', placeholder: 'xxxx', ariaLabel: copy.dingtalkSecret },
   ],
   wecom: [
-    { kind: 'text', key: 'appId', label: 'Bot ID', placeholder: '企业微信 AI 应用 Bot ID', ariaLabel: '企业微信 Bot ID' },
-    { kind: 'password', key: 'appSecret', label: 'Secret', placeholder: 'AI 应用 Secret', ariaLabel: '企业微信 Secret' },
+    { kind: 'text', key: 'appId', label: 'Bot ID', placeholder: copy.wecomBotPlaceholder, ariaLabel: copy.wecomBotAria },
+    { kind: 'password', key: 'appSecret', label: 'Secret', placeholder: copy.wecomSecretPlaceholder, ariaLabel: copy.wecomSecretAria },
   ],
   qq: [
-    { kind: 'text', key: 'appId', label: 'AppID', placeholder: '102xxxxxx', ariaLabel: 'QQ 应用编号' },
+    { kind: 'text', key: 'appId', label: 'AppID', placeholder: '102xxxxxx', ariaLabel: copy.qqId },
     { kind: 'password', key: 'appSecret', label: 'AppSecret', placeholder: 'xxxx', ariaLabel: 'QQ AppSecret' },
   ],
-};
+  };
+}
 
 function BotCredentialFields(props: {
   provider: BotProvider;
   channel: BotChannelSettings;
   onUpdateChannel(patch: Partial<BotChannelSettings>): Promise<boolean>;
 }) {
-  const fields = BOT_CREDENTIAL_FIELDS[props.provider];
+  const copy = getBotSettingsCopy(useUiLocale()).detail;
+  const fields = botCredentialFields(copy)[props.provider];
   if (!fields) return null;
   return (
     <>
@@ -520,6 +533,8 @@ function BotAllowedUserIdsField(props: {
   value: ReadonlyArray<string> | undefined;
   onChange(next: ReadonlyArray<string> | undefined): void;
 }): ReactNode {
+  const locale = useUiLocale();
+  const copy = getBotSettingsCopy(locale).detail;
   const persisted = props.value ?? [];
   const [buffer, setBuffer] = useState<string>(persisted.join('\n'));
 
@@ -558,23 +573,23 @@ function BotAllowedUserIdsField(props: {
 
   return (
     <label className="settingsField">
-      <span>允许的用户 ID（{parsed.length} / {MAX_ALLOWED_USER_IDS}）</span>
+      <span>{copy.allowedUsersLabel(parsed.length, MAX_ALLOWED_USER_IDS)}</span>
       <Textarea
         value={buffer}
         onChange={(event) => setBuffer(event.currentTarget.value)}
         onBlur={commit}
         rows={3}
         spellCheck={false}
-        placeholder={'每行一个用户 ID，留空表示不限\n例如：123456789'}
-        aria-label="允许的用户 ID"
+        placeholder={copy.allowedUsersPlaceholder}
+        aria-label={copy.allowedUsersAria}
       />
       <small>
-        Telegram 用户 ID 是 64 位整数；填入后只接收列表里这些 ID 的来信，其它人发的消息会被静默忽略（不会回弹任何提示）。
-        {atCap && <strong>（已达到上限）</strong>}
+        {copy.allowedUsersHelp}
+        {atCap && <strong>{copy.limitReached}</strong>}
         {invalidEntries.length > 0 && (
           <span className="settingsFieldWarning" data-tone="warning">
-            下列不是数字 ID，可能是用户名之类的输入，匹配不到任何人：{invalidEntries.slice(0, 3).join('、')}
-            {invalidEntries.length > 3 && ` 等 ${invalidEntries.length} 项`}
+            {copy.invalidUsers(invalidEntries.slice(0, 3).join(locale === 'zh' ? '、' : ', '))}
+            {invalidEntries.length > 3 && copy.moreInvalid(invalidEntries.length)}
           </span>
         )}
       </small>
@@ -582,11 +597,12 @@ function BotAllowedUserIdsField(props: {
   );
 }
 
-function botConnectionLabel(connection: BotStatus['connection']): string {
+function botConnectionLabel(connection: BotStatus['connection'], locale: 'zh' | 'en'): string {
+  const copy = getBotSettingsCopy(locale).status;
   switch (connection) {
-    case 'polling': return '长轮询';
-    case 'gateway': return '事件通道';
-    case 'webhook': return 'Webhook';
-    case 'none': return '无';
+    case 'polling': return copy.polling;
+    case 'gateway': return copy.gateway;
+    case 'webhook': return copy.webhook;
+    case 'none': return copy.none;
   }
 }

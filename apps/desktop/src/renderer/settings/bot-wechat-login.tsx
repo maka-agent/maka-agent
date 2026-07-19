@@ -2,9 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import { Button as BaseButton } from '@base-ui/react/button';
 import type { BotChannelSettings } from '@maka/core';
 import type { WechatBridgeQrCodeResult } from '@maka/runtime';
-import { Button, DialogContent, DialogHeader, DialogRoot, Input } from '@maka/ui';
+import { Button, DialogContent, DialogHeader, DialogRoot, Input, useUiLocale } from '@maka/ui';
 import { PasswordInput } from './password-input';
 import { settingsActionErrorMessage } from './settings-error-copy';
+import { getBotSettingsCopy } from '../locales/settings-bot-copy';
 
 /**
  * PR-BOT-WECHAT-SCAN-LOGIN-0 (WAWQAQ msg `1d9c412e` / `e0ae9de2`):
@@ -23,6 +24,7 @@ export function BotWeChatFields(props: {
   updateChannel(patch: Partial<BotChannelSettings>): Promise<boolean>;
 }) {
   const { channel, updateChannel } = props;
+  const copy = getBotSettingsCopy(useUiLocale()).wechat;
   const hasAdvanced = Boolean(channel.appId || channel.appSecret || channel.webhookUrl);
   const [advancedOpen, setAdvancedOpen] = useState<boolean>(hasAdvanced);
   return (
@@ -32,8 +34,8 @@ export function BotWeChatFields(props: {
         <PasswordInput
           value={channel.token}
           onChange={(next) => updateChannel({ token: next })}
-          placeholder="本机 wechat-bridge Bearer Token"
-          ariaLabel="微信 Bot Token"
+          placeholder={copy.tokenPlaceholder}
+          ariaLabel={copy.tokenAria}
         />
       </label>
       <div className="settingsBotAdvanced">
@@ -43,39 +45,39 @@ export function BotWeChatFields(props: {
           aria-expanded={advancedOpen}
           onClick={() => setAdvancedOpen((current) => !current)}
         >
-          {advancedOpen ? '收起高级设置' : '高级设置（公众号 / 本机 bridge 地址）'}
+          {advancedOpen ? copy.collapseAdvanced : copy.expandAdvanced}
         </BaseButton>
         {advancedOpen && (
           <div className="settingsBotAdvancedBody">
             <label className="settingsField">
-              <span>本机 bridge 地址</span>
+              <span>{copy.bridgeAddress}</span>
               <Input
                 value={channel.webhookUrl ?? ''}
                 onChange={(event) => updateChannel({ webhookUrl: event.currentTarget.value })}
                 placeholder="http://127.0.0.1:18400"
-                aria-label="微信本机 bridge 地址"
+                aria-label={copy.bridgeAria}
               />
             </label>
             <label className="settingsField">
-              <span>公众号 App ID</span>
+              <span>{copy.appId}</span>
               <Input
                 value={channel.appId ?? ''}
                 onChange={(event) => updateChannel({ appId: event.currentTarget.value })}
-                placeholder="微信公众号 App ID"
-                aria-label="微信公众号 App ID"
+                placeholder={copy.appIdPlaceholder}
+                aria-label={copy.appIdAria}
               />
             </label>
             <label className="settingsField">
-              <span>公众号 App Secret</span>
+              <span>{copy.appSecret}</span>
               <PasswordInput
                 value={channel.appSecret ?? ''}
                 onChange={(next) => updateChannel({ appSecret: next })}
-                placeholder="微信公众号 App Secret"
-                ariaLabel="微信公众号 App Secret"
+                placeholder={copy.appSecretPlaceholder}
+                ariaLabel={copy.appSecretAria}
               />
             </label>
             <div className="settingsNotice">
-              本机 bridge 默认为 <code>http://127.0.0.1:18400</code>。公众号 App ID / App Secret 仅用于公众号消息发送，个人微信扫码登录走本机 bridge。
+              {copy.advancedNotice}
             </div>
           </div>
         )}
@@ -88,6 +90,8 @@ export function WechatQrLoginModal(props: {
   onClose(): void;
   onRefreshStatuses(): void | Promise<unknown>;
 }) {
+  const locale = useUiLocale();
+  const copy = getBotSettingsCopy(locale).wechat;
   const [result, setResult] = useState<WechatBridgeQrCodeResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [reloadNonce, setReloadNonce] = useState(0);
@@ -118,8 +122,8 @@ export function WechatQrLoginModal(props: {
         if (!active) return;
         setResult({
           ok: false,
-          error: settingsActionErrorMessage(error),
-          hint: '读取本机 wechat-bridge 二维码失败，请确认 bridge 已启动。',
+          error: settingsActionErrorMessage(error, locale),
+          hint: copy.readQrFailed,
         });
       })
       .finally(() => {
@@ -168,49 +172,49 @@ export function WechatQrLoginModal(props: {
         showClose={false}
       >
         <DialogHeader
-          title="微信扫码登录"
+          title={copy.title}
           titleId="settingsWechatQrTitle"
-          subtitle="使用手机微信扫描二维码，并在手机上确认登录本机 wechat-bridge。"
-          closeLabel="关闭微信扫码登录"
+          subtitle={copy.subtitle}
+          closeLabel={copy.close}
           onClose={props.onClose}
         />
 
         <div className="settingsWechatQrBody">
           {loading ? (
             <div className="settingsWechatQrState" data-tone="loading">
-              正在生成二维码…
+              {copy.generating}
             </div>
           ) : loggedIn ? (
             <div className="settingsWechatQrState" data-tone="success">
-              微信已登录，返回后可以测试连接或重启监听。
+              {copy.loggedIn}
             </div>
           ) : expired ? (
             <div className="settingsWechatQrState" data-tone="warning">
-              二维码已过期
+              {copy.expired}
               <Button type="button" variant="secondary" size="sm" disabled={loading} onClick={reloadQrCode}>
-                {loading ? '刷新中…' : '刷新二维码'}
+                {loading ? copy.refreshing : copy.refresh}
               </Button>
             </div>
           ) : qrDataUrl ? (
             <>
               <div className="settingsWechatQrFrame">
-                <img src={qrDataUrl} alt="微信扫码登录二维码" />
+                <img src={qrDataUrl} alt={copy.qrAlt} />
               </div>
-              <p className="settingsWechatQrCaption">等待扫码确认… 窗口会每 3 秒刷新登录状态。</p>
+              <p className="settingsWechatQrCaption">{copy.waiting}</p>
             </>
           ) : error ? (
             <div className="settingsWechatQrState" data-tone="error" role="alert">
               <strong>{error.error}</strong>
               <span>{error.hint}</span>
               <Button type="button" variant="secondary" size="sm" disabled={loading} onClick={reloadQrCode}>
-                {loading ? '重试中…' : '重试'}
+                {loading ? copy.retrying : copy.retry}
               </Button>
             </div>
           ) : (
             <div className="settingsWechatQrState" data-tone="loading">
-              bridge 正在生成二维码
+              {copy.bridgeGenerating}
               <Button type="button" variant="secondary" size="sm" disabled={loading} onClick={reloadQrCode}>
-                {loading ? '获取中…' : '重新获取'}
+                {loading ? copy.fetching : copy.fetchAgain}
               </Button>
             </div>
           )}
