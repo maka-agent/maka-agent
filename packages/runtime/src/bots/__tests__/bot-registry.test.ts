@@ -13,16 +13,21 @@ describe('BotRegistry', () => {
       onStatusChange: (status) => statuses.push(status),
     });
 
-    await registry.applySettings(settingsWith({
-      wecom: { enabled: true, token: '', appId: undefined, appSecret: undefined },
-    }));
+    await registry.applySettings(
+      settingsWith({
+        wecom: { enabled: true, token: '', appId: undefined, appSecret: undefined },
+      }),
+    );
 
     assert.equal(registry.getStatus('telegram').reason, 'disabled');
     assert.equal(registry.getStatus('telegram').readiness, 'scaffolded');
     assert.equal(registry.getStatus('wecom').reason, 'no-credentials');
     assert.equal(registry.getStatus('wecom').running, false);
     assert.equal(registry.getStatus('wecom').readiness, 'scaffolded');
-    assert.equal(statuses.some((status) => status.platform === 'wecom' && status.readiness === 'scaffolded'), true);
+    assert.equal(
+      statuses.some((status) => status.platform === 'wecom' && status.readiness === 'scaffolded'),
+      true,
+    );
   });
 
   // PR-BOT-DISCORD-OPERATIONAL-0: Discord is now an implemented platform
@@ -35,18 +40,25 @@ describe('BotRegistry', () => {
       onStatusChange: (status) => statuses.push(status),
     });
 
-    await registry.applySettings(settingsWith({
-      wecom: { enabled: true, token: '', appId: undefined, appSecret: undefined },
-    }));
+    await registry.applySettings(
+      settingsWith({
+        wecom: { enabled: true, token: '', appId: undefined, appSecret: undefined },
+      }),
+    );
 
     assert.equal(registry.getStatus('wecom').running, false);
     assert.equal(registry.getStatus('wecom').reason, 'no-credentials');
     assert.equal(registry.getStatus('wecom').readiness, 'scaffolded');
-    assert.equal(statuses.some((status) => status.platform === 'wecom' && status.readiness === 'operational'), false);
+    assert.equal(
+      statuses.some((status) => status.platform === 'wecom' && status.readiness === 'operational'),
+      false,
+    );
 
-    await registry.applySettings(settingsWith({
-      wecom: { enabled: false, token: '' },
-    }));
+    await registry.applySettings(
+      settingsWith({
+        wecom: { enabled: false, token: '' },
+      }),
+    );
 
     assert.equal(registry.getStatus('wecom').running, false);
     assert.equal(registry.getStatus('wecom').reason, 'disabled');
@@ -103,16 +115,18 @@ describe('BotRegistry', () => {
     });
 
     return registry
-      .applySettings(settingsWith({
-        wecom: {
-          enabled: true,
-          token: '',
-          appId: undefined,
-          appSecret: undefined,
-          connected: true,
-          readiness: 'credentials_valid',
-        },
-      }))
+      .applySettings(
+        settingsWith({
+          wecom: {
+            enabled: true,
+            token: '',
+            appId: undefined,
+            appSecret: undefined,
+            connected: true,
+            readiness: 'credentials_valid',
+          },
+        }),
+      )
       .then(() => {
         const status = registry.getStatus('wecom');
         assert.equal(status.running, false);
@@ -171,9 +185,11 @@ describe('BotRegistry', () => {
       onStatusChange: () => {},
     });
 
-    await registry.applySettings(settingsWith({
-      wecom: { enabled: true, token: '', appId: undefined, appSecret: undefined },
-    }));
+    await registry.applySettings(
+      settingsWith({
+        wecom: { enabled: true, token: '', appId: undefined, appSecret: undefined },
+      }),
+    );
 
     // A bridge is registered, but the official SDK has no typing API.
     const result = await registry.sendTypingIndicator('wecom', 'chat-x');

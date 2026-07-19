@@ -8,7 +8,7 @@ import {
 import type { BotChannelSettings } from '@maka/core';
 import { generalizedErrorMessage } from '@maka/core/redaction';
 import { BaseBotAdapter, botReadinessFromSettings } from './base-adapter.js';
-import type { BotPlatform, BotSendOptions, BotStatus, SendCapable } from './types.js';
+import type { BotSendOptions, BotStatus, SendCapable } from './types.js';
 
 const HANDSHAKE_TIMEOUT_MS = 15_000;
 
@@ -28,8 +28,20 @@ export async function closeLarkChannel(channel: ClosableLarkChannel): Promise<vo
   await channel.disconnect().catch(() => {});
 }
 
-export function feishuMessageToEvent(message: NormalizedMessage, receivedAt: number) {
+export function feishuMessageToEvent(
+  message: NormalizedMessage,
+  receivedAt: number,
+  allowedUserIds?: ReadonlyArray<string>,
+) {
   if (!message.content.trim() || !message.senderId || !message.chatId) return null;
+  // PR-BOT-USER-ALLOWLIST-0 / PR1197 review: the Lark SDK policy gate only
+  // enforces the allowlist for DMs (PolicyGate.evaluateGroup checks
+  // groupAllowlist + requireMention, and this bridge sets requireMention:false),
+  // so group messages from unauthorized senders slip past the SDK. Mirror the
+  // WeCom/Telegram local check: an empty/absent list allows all, otherwise the
+  // sender must be listed. Dropped silently — no bounce that would let scanners
+  // enumerate the policy.
+  if (allowedUserIds?.length && !allowedUserIds.includes(message.senderId)) return null;
   return {
     platform: 'feishu' as const,
     userId: message.senderId,
@@ -90,16 +102,8 @@ export class FeishuBotBridge extends BaseBotAdapter implements SendCapable {
     try {
       await channel.connect();
       if (this.explicitlyStopped || this.channel !== channel) return;
-      this.running = true;
       this.startedAt = Date.now();
-      this.reason = undefined;
-      this.readiness = 'credentials_valid';
-      this.identity = {
-        id: channel.botIdentity?.openId ?? appId,
-        username: appId,
-        displayName: channel.botIdentity?.name ?? appId,
-      };
-      this.emitStatusChange();
+      this.markConnected(channel, appId);
     } catch (error) {
       if (this.explicitlyStopped || this.channel !== channel) return;
       this.running = false;
@@ -122,7 +126,11 @@ export class FeishuBotBridge extends BaseBotAdapter implements SendCapable {
     this.emitStatusChange();
   }
 
-  async sendMessage(chatId: string, text: string, options?: BotSendOptions): Promise<string | null> {
+  async sendMessage(
+    chatId: string,
+    text: string,
+    options?: BotSendOptions,
+  ): Promise<string | null> {
     const channel = this.channel;
     if (!channel || !this.running || !chatId.trim()) return null;
     try {
@@ -145,11 +153,12 @@ export class FeishuBotBridge extends BaseBotAdapter implements SendCapable {
   }
 
   override updateSettings(next: BotChannelSettings): { needsRestart: boolean } {
-    const needsRestart = next.enabled !== this.settings.enabled
-      || next.appId !== this.settings.appId
-      || next.appSecret !== this.settings.appSecret
-      || next.token !== this.settings.token
-      || next.domain !== this.settings.domain;
+    const needsRestart =
+      next.enabled !== this.settings.enabled ||
+      next.appId !== this.settings.appId ||
+      next.appSecret !== this.settings.appSecret ||
+      next.token !== this.settings.token ||
+      next.domain !== this.settings.domain;
     this.settings = next;
     if (!needsRestart) {
       this.channel?.updatePolicy({
@@ -168,7 +177,7 @@ export class FeishuBotBridge extends BaseBotAdapter implements SendCapable {
     this.unsubscribe.push(
       channel.on('message', (message) => {
         const receivedAt = Date.now();
-        const event = feishuMessageToEvent(message, receivedAt);
+        const event = feishuMessageToEvent(message, receivedAt, this.settings.allowedUserIds);
         if (!event || this.channel !== channel) return;
         this.lastEventAt = receivedAt;
         this.readiness = 'operational';
@@ -190,17 +199,22 @@ export class FeishuBotBridge extends BaseBotAdapter implements SendCapable {
       }),
       channel.on('reconnected', () => {
         if (this.channel !== channel || this.explicitlyStopped) return;
-        this.running = true;
-        this.reason = undefined;
-        this.readiness = 'credentials_valid';
-        this.identity = {
-          id: channel.botIdentity?.openId ?? appId,
-          username: appId,
-          displayName: channel.botIdentity?.name ?? appId,
-        };
-        this.emitStatusChange();
+        this.markConnected(channel, appId);
       }),
     );
+  }
+
+  /** Shared connected-state transition for the initial handshake and reconnects. */
+  private markConnected(channel: LarkChannel, appId: string): void {
+    this.running = true;
+    this.reason = undefined;
+    this.readiness = 'credentials_valid';
+    this.identity = {
+      id: channel.botIdentity?.openId ?? appId,
+      username: appId,
+      displayName: channel.botIdentity?.name ?? appId,
+    };
+    this.emitStatusChange();
   }
 
   private async disconnectChannel(channel: LarkChannel): Promise<void> {

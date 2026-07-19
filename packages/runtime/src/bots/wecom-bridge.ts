@@ -2,7 +2,7 @@ import { WSClient, type TextMessage, type WsFrame } from '@wecom/aibot-node-sdk'
 import type { BotChannelSettings } from '@maka/core';
 import { generalizedErrorMessage } from '@maka/core/redaction';
 import { BaseBotAdapter, botReadinessFromSettings } from './base-adapter.js';
-import type { BotPlatform, BotSendOptions, BotStatus, SendCapable } from './types.js';
+import type { BotSendOptions, BotStatus, SendCapable } from './types.js';
 
 const AUTH_TIMEOUT_MS = 15_000;
 
@@ -103,23 +103,25 @@ export class WeComBotBridge extends BaseBotAdapter implements SendCapable {
       client.once('authenticated', onAuthenticated);
       client.once('error', onError);
       client.connect();
-    }).then(() => {
-      if (this.explicitlyStopped || this.client !== client) return;
-      this.running = true;
-      this.startedAt = Date.now();
-      this.identity = { id: botId, username: botId, displayName: botId };
-      this.reason = undefined;
-      this.readiness = 'credentials_valid';
-      this.emitStatusChange();
-    }).catch((error) => {
-      if (this.explicitlyStopped || this.client !== client) return;
-      this.running = false;
-      this.reason = generalizedErrorMessage(error);
-      this.readiness = 'configured';
-      this.emitStatusChange();
-      this.client = null;
-      closeWeComClient(client);
-    });
+    })
+      .then(() => {
+        if (this.explicitlyStopped || this.client !== client) return;
+        this.running = true;
+        this.startedAt = Date.now();
+        this.identity = { id: botId, username: botId, displayName: botId };
+        this.reason = undefined;
+        this.readiness = 'credentials_valid';
+        this.emitStatusChange();
+      })
+      .catch((error) => {
+        if (this.explicitlyStopped || this.client !== client) return;
+        this.running = false;
+        this.reason = generalizedErrorMessage(error);
+        this.readiness = 'configured';
+        this.emitStatusChange();
+        this.client = null;
+        closeWeComClient(client);
+      });
   }
 
   async stop(): Promise<void> {
@@ -133,7 +135,11 @@ export class WeComBotBridge extends BaseBotAdapter implements SendCapable {
     this.emitStatusChange();
   }
 
-  async sendMessage(chatId: string, text: string, _options?: BotSendOptions): Promise<string | null> {
+  async sendMessage(
+    chatId: string,
+    text: string,
+    _options?: BotSendOptions,
+  ): Promise<string | null> {
     const client = this.client;
     if (!client || !this.running || !chatId.trim()) return null;
     try {
@@ -155,9 +161,10 @@ export class WeComBotBridge extends BaseBotAdapter implements SendCapable {
   }
 
   override updateSettings(next: BotChannelSettings): { needsRestart: boolean } {
-    const needsRestart = next.enabled !== this.settings.enabled
-      || next.appId !== this.settings.appId
-      || next.appSecret !== this.settings.appSecret;
+    const needsRestart =
+      next.enabled !== this.settings.enabled ||
+      next.appId !== this.settings.appId ||
+      next.appSecret !== this.settings.appSecret;
     this.settings = next;
     return { needsRestart };
   }

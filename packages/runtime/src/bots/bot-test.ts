@@ -9,6 +9,16 @@ import {
 
 const BOT_TEST_TIMEOUT_MS = 10_000;
 
+/**
+ * PR1197 review (P1-4): Feishu and Lark share one Maka channel but live on
+ * different open-platform hosts. Brand-switch by the persisted channel domain,
+ * mirroring the onboarding flow, so a Lark tenant is not probed against the
+ * feishu.cn host.
+ */
+export function feishuOpenApiHost(domain: string | undefined): string {
+  return domain?.trim() === 'larksuite.com' ? 'open.larksuite.com' : 'open.feishu.cn';
+}
+
 export async function testBotChannel(
   provider: BotProvider,
   channel: BotChannelSettings,
@@ -115,55 +125,38 @@ async function testDiscord(channel: BotChannelSettings): Promise<BotTestResult> 
 }
 
 /**
- * PR-BOT-WECOM-CREDENTIALS-TEST-0 (external bot research: wecom_crypto pattern):
- * verify WeCom (企业微信) self-built app credentials by issuing an
- * `access_token` via the corp gettoken endpoint. Success proves the
- * corp_id + corp_secret pair are real and the app exists; it does NOT
- * prove that message send/receive will work — that needs the callback
- * + agent_id wiring which lands separately.
+ * PR1197 review (P1-4): WeCom onboarding + the live bridge now use the
+ * enterprise-WeChat **AI bot** credentials, stored as:
+ *   - `appId` = AI 应用 Bot ID
+ *   - `appSecret` = AI 应用 Secret
  *
- * WeCom stores credentials as:
- *   - `appId` = corp_id (the company's corporation id)
- *   - `appSecret` = the self-built app's secret
+ * The previous probe issued a corp `gettoken` (corp_id + corp_secret), which is
+ * a DIFFERENT credential shape. Running it against valid AI-bot credentials
+ * fails with an errcode, and the settings layer would then persist
+ * `connected: false` over a channel whose credentials are actually good —
+ * breaking a working channel with a wrong-endpoint test.
  *
- * Token is reused only for the test request; we discard it immediately
- * because the calling layer is just verifying credentials shape.
+ * The `@wecom/aibot-node-sdk` verifies credentials only through its WebSocket
+ * auth handshake (`WSAuthFailureError`); there is no cheap REST endpoint to
+ * validate a botId/secret pair without opening a live connection. So this probe
+ * validates shape/non-empty only and marks the result `verified: false`. The
+ * live bridge status (surfaced via readiness) remains the authority on whether
+ * the connection is actually up; the settings layer must not downgrade it on
+ * the strength of this unverified check.
  */
 async function testWeCom(channel: BotChannelSettings): Promise<BotTestResult> {
-  const corpId = channel.appId?.trim() ?? '';
-  const corpSecret = channel.appSecret?.trim() ?? '';
-  if (!corpId || !corpSecret) {
-    return { ok: false, error: '企业微信需要 corp_id 与 corp_secret' };
+  const botId = channel.appId?.trim() ?? '';
+  const secret = channel.appSecret?.trim() ?? '';
+  if (!botId || !secret) {
+    return { ok: false, error: '企业微信 AI 机器人需要 Bot ID 与 Secret', verified: false };
   }
-  const url =
-    'https://qyapi.weixin.qq.com/cgi-bin/gettoken?corpid=' +
-    encodeURIComponent(corpId) +
-    '&corpsecret=' +
-    encodeURIComponent(corpSecret);
-  try {
-    const response = await proxiedFetch(url, {
-      method: 'GET',
-      timeoutMs: BOT_TEST_TIMEOUT_MS,
-    });
-    const json = await response.json().catch(() => ({}));
-    if (json.errcode && json.errcode !== 0) {
-      return {
-        ok: false,
-        error: json.errmsg ? `WeCom: ${json.errmsg}` : `WeCom errcode ${json.errcode}`,
-      };
-    }
-    if (typeof json.access_token !== 'string' || json.access_token.length === 0) {
-      return { ok: false, error: 'WeCom 凭据测试未返回 access_token' };
-    }
-    return {
-      ok: true,
-      identity: { id: corpId, username: corpId, displayName: corpId },
-      capabilities: { auth: true },
-      hint: '凭据有效；接收消息需要在企业后台配置 callback 域名。',
-    };
-  } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : String(error) };
-  }
+  return {
+    ok: true,
+    verified: false,
+    identity: { id: botId, username: botId, displayName: botId },
+    capabilities: { auth: false },
+    hint: '已保存凭据；企业微信 AI 机器人的连接状态以运行态长连接为准。',
+  };
 }
 
 /**
@@ -272,9 +265,14 @@ async function testFeishu(channel: BotChannelSettings): Promise<BotTestResult> {
   const appId = channel.appId ?? '';
   const appSecret = channel.appSecret || channel.token;
   if (!appId || !appSecret) return { ok: false, error: 'Feishu appId and appSecret are required' };
+  // PR1197 review (P1-4): brand-switch the account host by the channel domain,
+  // exactly like the onboarding flow does. A Lark tenant (larksuite.com) cannot
+  // issue a tenant_access_token from the feishu.cn host, so a hardcoded host
+  // wrongly fails a valid Lark channel.
+  const host = feishuOpenApiHost(channel.domain);
   try {
     const response = await proxiedFetch(
-      'https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal',
+      `https://${host}/open-apis/auth/v3/tenant_access_token/internal`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

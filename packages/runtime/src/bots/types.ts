@@ -82,4 +82,13 @@ export interface BotTestResult {
   capabilities?: Record<string, boolean>;
   error?: string;
   hint?: string;
+  /**
+   * `false` when `ok` reflects only a shape/non-empty check and the credentials
+   * could NOT be verified against a live endpoint (e.g. WeCom AI-bot creds,
+   * which the SDK only validates through a WebSocket auth handshake). Callers
+   * that persist connection state must NOT downgrade a working channel on the
+   * strength of an unverified probe. Absent/`true` means the result came from a
+   * real credential probe.
+   */
+  verified?: boolean;
 }

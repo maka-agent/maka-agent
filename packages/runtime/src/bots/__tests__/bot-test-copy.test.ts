@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import { createDefaultBotChannel, type BotProvider } from '@maka/core';
-import { testBotChannel } from '../bot-test.js';
+import { feishuOpenApiHost, testBotChannel } from '../bot-test.js';
 
 describe('testBotChannel copy', () => {
   test('all bot platforms now route to a real credential probe, not the planned fallback', async () => {
@@ -30,11 +30,29 @@ describe('testBotChannel copy', () => {
     }
   });
 
-  test('wecom rejects empty credentials with product copy (not a generic "Bot token required")', async () => {
+  test('wecom rejects empty credentials with AI-bot product copy (not corp_id/corp_secret)', async () => {
+    // PR1197 review (P1-4): WeCom now stores AI-bot Bot ID + Secret, so the
+    // empty-credential copy must reflect that shape, not the retired corp probe.
     const result = await testBotChannel('wecom', createDefaultBotChannel('wecom'));
     assert.equal(result.ok, false);
-    assert.match(result.error ?? '', /corp_id/);
-    assert.match(result.error ?? '', /corp_secret/);
+    assert.equal(result.verified, false);
+    assert.match(result.error ?? '', /Bot ID/);
+    assert.match(result.error ?? '', /Secret/);
+    assert.doesNotMatch(result.error ?? '', /corp_id|corp_secret/);
+  });
+
+  test('wecom shape-valid AI-bot credentials pass as unverified without a wrong-endpoint downgrade', async () => {
+    // PR1197 review (P1-4): the AI-bot SDK only validates over its WebSocket
+    // handshake, so a shape-valid probe must return ok+verified:false and NEVER
+    // fail (which would let the settings layer mark a working channel disconnected).
+    const result = await testBotChannel('wecom', {
+      ...createDefaultBotChannel('wecom'),
+      appId: 'bot-123',
+      appSecret: 'secret-abc',
+    });
+    assert.equal(result.ok, true);
+    assert.equal(result.verified, false);
+    assert.equal(result.identity?.id, 'bot-123');
   });
 
   test('dingtalk rejects empty credentials with product copy (not a generic "Bot token required")', async () => {
@@ -55,6 +73,15 @@ describe('testBotChannel copy', () => {
       `${result.error ?? ''} ${result.hint ?? ''}`,
       /当前不支持凭据测试|planned|not implemented|scaffold/i,
     );
+  });
+
+  test('feishu credential probe brand-switches the open-platform host by channel domain', () => {
+    // PR1197 review (P1-4): a Lark tenant must probe open.larksuite.com, not the
+    // feishu.cn host, otherwise a valid Lark channel test wrongly fails.
+    assert.equal(feishuOpenApiHost(undefined), 'open.feishu.cn');
+    assert.equal(feishuOpenApiHost('feishu.cn'), 'open.feishu.cn');
+    assert.equal(feishuOpenApiHost('larksuite.com'), 'open.larksuite.com');
+    assert.equal(feishuOpenApiHost(' larksuite.com '), 'open.larksuite.com');
   });
 
   test('qq rejects empty credentials with product copy (not a generic "Bot token required")', async () => {
