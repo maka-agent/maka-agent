@@ -61,6 +61,10 @@ export function BotOnboardingModal(props: {
   const sessionIdRef = useRef<string | null>(null);
   const generationRef = useRef(0);
   const connectedNotifiedRef = useRef(false);
+  // PR1197 review (P2-13): main emits the (large) QR data URL only on the start
+  // snapshot; poll snapshots omit it. Cache it here so re-renders driven by
+  // subsequent polls keep showing the QR without re-sending it over IPC.
+  const qrCacheRef = useRef<string | null>(null);
   const copy = providerCopy(props.provider, props.brand);
   const accessibleTitle = props.provider === 'feishu' && props.brand === 'lark'
     ? `${copy.title} `
@@ -82,6 +86,7 @@ export function BotOnboardingModal(props: {
     setError(null);
     setSnapshot(null);
     connectedNotifiedRef.current = false;
+    qrCacheRef.current = null;
     try {
       const result = await window.maka.settings.bots.onboarding.start({
         provider: props.provider,
@@ -94,6 +99,7 @@ export function BotOnboardingModal(props: {
         return;
       }
       sessionIdRef.current = result.data.sessionId;
+      if (result.data.qrCodeDataUrl) qrCacheRef.current = result.data.qrCodeDataUrl;
       setSnapshot(result.data);
     } catch (startError) {
       if (!mountedRef.current || generation !== generationRef.current) return;
@@ -156,7 +162,8 @@ export function BotOnboardingModal(props: {
   }
 
   const status = statusCopy(snapshot, starting, error, copy);
-  const showQr = Boolean(snapshot?.qrCodeDataUrl)
+  const qrDataUrl = snapshot?.qrCodeDataUrl ?? qrCacheRef.current;
+  const showQr = Boolean(qrDataUrl)
     && snapshot?.state !== 'expired'
     && snapshot?.state !== 'denied'
     && snapshot?.state !== 'error';
@@ -175,13 +182,19 @@ export function BotOnboardingModal(props: {
         <div className="settingsBotOnboardingBody" aria-live="polite">
           <div className="settingsBotOnboardingQrFrame" data-state={snapshot?.state ?? (starting ? 'starting' : 'error')}>
             {showQr ? (
-              <img src={snapshot?.qrCodeDataUrl} alt={`${accessibleTitle}二维码`} />
+              <img src={qrDataUrl ?? undefined} alt={`${accessibleTitle}二维码`} />
             ) : starting || snapshot?.state === 'connecting' ? (
               <Spinner size={28} aria-label="正在生成二维码" />
             ) : snapshot?.state === 'connected' ? (
-              <span className="settingsBotOnboardingSuccess" aria-hidden="true">
-                <Check size={28} />
-              </span>
+              snapshot.warning ? (
+                <span className="settingsBotOnboardingEmpty" aria-hidden="true">
+                  <AlertCircle size={28} />
+                </span>
+              ) : (
+                <span className="settingsBotOnboardingSuccess" aria-hidden="true">
+                  <Check size={28} />
+                </span>
+              )
             ) : (
               <span className="settingsBotOnboardingEmpty" aria-hidden="true">
                 <AlertCircle size={28} />
@@ -247,7 +260,9 @@ function statusCopy(
     case 'waiting': return copy.waiting;
     case 'scanned': return copy.scanned;
     case 'connecting': return '授权完成，正在保存凭据并启动连接…';
-    case 'connected': return `${BOT_LABELS[snapshot.provider].label} 已连接`;
+    // PR1197 review (P0-3): honour the honest "saved but not connected" notice
+    // instead of claiming a healthy connection.
+    case 'connected': return snapshot.warning ?? `${BOT_LABELS[snapshot.provider].label} 已连接`;
     case 'expired': return '二维码已过期，请重新生成';
     case 'denied': return '授权已取消，请重新生成二维码';
     case 'cancelled': return '扫码接入已取消';

@@ -84,17 +84,39 @@ export function BotChatChannelDetail(props: {
   const viewState = deriveBotChannelViewState({ channel, status });
   const readiness = viewState.readiness;
   const copy = botReadinessCopyForSupport(support, readiness);
+  const quickOnboarding = supportsQuickOnboarding(provider);
+  // PR1197 review (P1-8): the scan-login action row belongs to quick mode only.
+  // WeChat has no manual mode, so it always uses the scan affordance. In manual
+  // mode the runtime providers (e.g. DingTalk) must fall through to the shared
+  // 测试并连接 CTA — otherwise the manual credential form has no way to start the
+  // listener and the connect action is lost.
+  const inQuickOnboarding = quickOnboarding && (provider === 'wechat' || setupMode === 'quick');
   const enableSwitchDisabled = support === 'planned' || (!channel.enabled && !canEnableBotChannel(readiness));
   const enableSwitchHint = support === 'planned'
     ? '该平台未开放，暂不能启用。'
     : !channel.enabled && !canEnableBotChannel(readiness)
-      ? '先测试并连接后才能启用。'
+      // PR1197 review (P1-8): point the user at the action that actually exists
+      // in the current mode — scanning in quick onboarding, test-and-connect
+      // everywhere else — instead of a stale reference to the removed button.
+      ? inQuickOnboarding
+        ? '先扫码接入后才能启用。'
+        : '先测试并连接后才能启用。'
       : undefined;
   const enableSwitchHintId = `settings-bot-enable-hint-${provider}`;
-  const quickOnboarding = supportsQuickOnboarding(provider);
 
+  // PR1197 review (P1-7): reset to the quick tab ONLY when the provider
+  // changes. Folding channel.domain into this effect ejected a user out of
+  // manual mode the moment they picked a different Feishu/Lark domain (a
+  // channel.domain write), because the effect re-ran and forced setupMode back
+  // to 'quick'. Mode reset is a provider-change concern; brand sync is a
+  // domain-change concern — they must not share a dependency array.
   useEffect(() => {
     setSetupMode('quick');
+  }, [provider]);
+
+  // Keep the Feishu/Lark brand toggle in sync with the persisted domain. Safe
+  // to run on domain changes: it only mirrors state, it never resets the tab.
+  useEffect(() => {
     if (provider === 'feishu') {
       setFeishuBrand(channel.domain === 'larksuite.com' ? 'lark' : 'feishu');
     }
@@ -159,7 +181,7 @@ export function BotChatChannelDetail(props: {
               <p>{viewState.liveOperational ? '连接正常，无需处理。' : copy.detail}</p>
             </div>
             <div className="settingsBotActionStack" role="group" aria-label={`${BOT_LABELS[provider].label}渠道操作`}>
-              {quickOnboarding ? (
+              {inQuickOnboarding ? (
                 <>
                   <Button type="button" disabled={props.actionBusy} onClick={() => setScanLoginOpen(true)}>
                     {provider === 'wecom' ? '快捷绑定' : provider === 'wechat' ? '扫码登录' : '扫码接入'}
@@ -311,6 +333,13 @@ export function BotChatChannelDetail(props: {
               if (!botDetailMountedRef.current) return;
               await props.onRefreshStatuses();
               if (!botDetailMountedRef.current) return;
+              // PR1197 review (P0-3): the bridge may have failed to start even
+              // though credentials saved. Reflect that honestly instead of a
+              // success toast that overstates the connection.
+              if (snapshot.warning) {
+                toast.warning(`${BOT_LABELS[provider].label}凭据已保存`, snapshot.warning);
+                return;
+              }
               toast.success(
                 `${BOT_LABELS[provider].label}已完成扫码接入`,
                 snapshot.identity?.displayName ?? snapshot.identity?.id ?? '凭据已安全保存并开始连接',

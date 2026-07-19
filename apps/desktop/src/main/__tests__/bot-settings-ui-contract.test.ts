@@ -280,8 +280,17 @@ describe('Bot settings UI contract', () => {
 
   it('renders the listener restart action only once outside quick onboarding actions', async () => {
     const detail = await readRepo('apps/desktop/src/renderer/settings/bot-chat-detail.tsx');
-    const quickActions = detail.match(/\{quickOnboarding \? \([\s\S]*?\) : support === 'runtime'/)?.[0] ?? '';
+    // PR1197 review (P1-8): the scan-login action row is gated on
+    // `inQuickOnboarding` (quick mode or WeChat), so manual mode falls through
+    // to the shared runtime 测试并连接 CTA instead of losing the connect action.
+    const quickActions = detail.match(/\{inQuickOnboarding \? \([\s\S]*?\) : support === 'runtime'/)?.[0] ?? '';
 
+    assert.notEqual(quickActions, '', 'The quick-onboarding action row must stay gated behind inQuickOnboarding');
+    assert.match(
+      detail,
+      /const inQuickOnboarding = quickOnboarding && \(provider === 'wechat' \|\| setupMode === 'quick'\)/,
+      'Manual mode must drop out of the scan-login action row so runtime providers keep 测试并连接',
+    );
     assert.doesNotMatch(quickActions, /props\.onRestart|重启监听/, 'Quick onboarding actions must not embed a duplicate listener restart button');
     assert.match(
       detail,
@@ -306,6 +315,9 @@ describe('Bot settings UI contract', () => {
     assert.doesNotMatch(settings, /window\.maka\.settings\.bots\.wechat\.(?:fetchQrcode|pollQrcodeStatus)/, 'Renderer code must not bypass unified onboarding IPC');
     assert.equal((settings.match(/<BotOnboardingModal\b/g) ?? []).length, 1, 'All quick-onboarding providers must share one modal authority');
     assert.match(onboardingMain, /case 'wechat':[\s\S]*token: credential\.botToken[\s\S]*webhookUrl: credential\.baseUrl[\s\S]*botUserId: credential\.botId/, 'Confirmed iLink credentials must be persisted by the main-process onboarding authority');
+    // PR1197 review (P2-12): onboarding device-code HTTP must be proxy-aware.
+    assert.match(onboardingMain, /import \{ proxiedFetch \} from '@maka\/runtime'/, 'Onboarding HTTP must import the proxy-aware fetch');
+    assert.doesNotMatch(onboardingMain, /await fetch\(/, 'Onboarding provider calls must not bypass the proxy with a bare fetch');
     assert.match(
       settings,
       /onConnected=\{async \(snapshot\) => \{[\s\S]*await props\.onReload\(\);[\s\S]*if \(!botDetailMountedRef\.current\) return;[\s\S]*await props\.onRefreshStatuses\(\);[\s\S]*toast\.success/,
