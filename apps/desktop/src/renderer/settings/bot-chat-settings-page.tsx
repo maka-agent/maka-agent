@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type {
   AppSettings,
+  BotOnboardingProvider,
   BotProvider,
   UpdateAppSettingsResult,
 } from '@maka/core';
@@ -30,6 +31,10 @@ export function BotChatSettingsPage(props: {
 }) {
   const [selected, setSelected] = useState<BotProvider>('telegram');
   const [detailOpen, setDetailOpen] = useState(false);
+  // #1233 deferral: the `settings-bots-onboarding` visual-smoke fixture opens a
+  // provider's scan-login modal deterministically. `visualSmoke.getState()`
+  // resolves null for real users, so this only fires under the dev fixture.
+  const [autoOpenScanProvider, setAutoOpenScanProvider] = useState<BotOnboardingProvider | null>(null);
   const [pendingBotAction, setPendingBotAction] = useState<BotPendingAction | null>(null);
   const [statuses, setStatuses] = useState<Record<BotProvider, BotStatus> | null>(null);
   const [statusLoadError, setStatusLoadError] = useState<string | null>(null);
@@ -45,6 +50,22 @@ export function BotChatSettingsPage(props: {
   useEffect(() => {
     return () => {
       pendingBotActionRef.current = null;
+    };
+  }, []);
+
+  // #1233 deferral: under the settings-bots-onboarding visual-smoke fixture,
+  // jump straight to the seeded provider's detail view and flag the scan-login
+  // modal to auto-open so the QR waiting state captures deterministically.
+  useEffect(() => {
+    let active = true;
+    void window.maka.visualSmoke.getState().then((smoke) => {
+      if (!active || !smoke?.botOnboardingProvider) return;
+      setSelected(smoke.botOnboardingProvider);
+      setDetailOpen(true);
+      setAutoOpenScanProvider(smoke.botOnboardingProvider);
+    }).catch(() => undefined);
+    return () => {
+      active = false;
     };
   }, []);
 
@@ -292,6 +313,7 @@ export function BotChatSettingsPage(props: {
   return (
     <BotChatChannelDetail
       provider={selected}
+      autoOpenScanLogin={autoOpenScanProvider === selected}
       channel={channel}
       status={selectedStatus}
       statusLoadError={statusLoadError}

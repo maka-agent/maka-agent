@@ -82,6 +82,11 @@ const ALL_SCENARIOS = [
   // PR-SETTINGS-IA-CONSOLIDATE-0 + PR-SETTINGS-REVIEW-0: memory split out.
   'settings-appearance',
   'settings-bots',
+  // #1233 deferral: deterministic bot QR-onboarding modal. Opens 远程接入 →
+  // DingTalk detail with the scan-login modal auto-opened, backed by a
+  // hold-in-waiting onboarding adapter (fixed QR + long TTL) so the modal's
+  // waiting layout is captured deterministically in light + dark.
+  'settings-bots-onboarding',
   'settings-about',
   'settings-general',
   'settings-memory',

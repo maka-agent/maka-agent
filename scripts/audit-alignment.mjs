@@ -26,6 +26,8 @@ const FIXTURES = [
   'settings-gateway',
   'turn-narrative',
   'settings-permissions',
+  // #1233 deferral: bot QR-onboarding modal in its deterministic waiting state.
+  'settings-bots-onboarding',
 ];
 const BOOT_TIMEOUT_MS = Number(process.env.AUDIT_BOOT_TIMEOUT_MS ?? 30_000);
 const SETTLE_MS = Number(process.env.AUDIT_SETTLE_MS ?? 2_500);

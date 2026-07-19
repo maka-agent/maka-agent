@@ -1,3 +1,4 @@
+import type { BotOnboardingProvider } from './bot-onboarding.js';
 import type { PermissionRequestEvent, ToolResultContent } from './events.js';
 import type { SettingsSection } from './settings.js';
 import type { UiLocale } from './ui-locale.js';
@@ -39,6 +40,13 @@ export type VisualSmokeScenario =
   // their own nav items.
   | 'settings-appearance'
   | 'settings-bots'
+  // #1233 deferral: the bot QR-onboarding modal (bot-onboarding-modal.tsx)
+  // had no deterministic capture because a real device-code start contacts an
+  // external IM platform and the QR + TTL drift every run. This scenario opens
+  // Settings → 远程接入 → a bot detail with the scan-login modal auto-opened,
+  // backed by a visual-smoke adapter that holds the 'waiting' state with a
+  // FIXED QR + long TTL, so the modal's waiting layout captures deterministically.
+  | 'settings-bots-onboarding'
   | 'settings-about'
   | 'settings-general'
   | 'settings-memory'
@@ -297,4 +305,13 @@ export interface VisualSmokeState {
   /** Fixture-only session workbar state for deterministic tab screenshots. */
   workbarCollapsed?: boolean;
   workbarTab?: 'tasks' | 'browser' | 'files';
+  /**
+   * #1233 deferral — bot QR-onboarding modal capture. When set, the Settings
+   * 远程接入 page (bot-chat-settings-page) opens the given provider's detail
+   * view and auto-opens its scan-login modal at mount, so the deterministic
+   * waiting-state QR fixture is what the screenshot pipeline captures. Only the
+   * `settings-bots-onboarding` scenario sets this; real users never receive a
+   * visual smoke state so production onboarding is untouched.
+   */
+  botOnboardingProvider?: BotOnboardingProvider;
 }

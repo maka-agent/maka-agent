@@ -1271,6 +1271,41 @@ describe('visual smoke fixture mode', () => {
   });
 });
 
+describe('settings-bots-onboarding fixture (#1233 deferral)', () => {
+  it('opens 远程接入 and seeds the DingTalk provider so the scan-login modal auto-opens', () => {
+    const fixture = resolveVisualSmokeFixture('settings-bots-onboarding', false);
+    assert.ok(fixture, 'settings-bots-onboarding should resolve');
+    const state = getVisualSmokeState(fixture);
+    assert.equal(state?.scenario, 'settings-bots-onboarding');
+    assert.equal(state?.openSettingsSection, 'bot-chat');
+    // botOnboardingProvider is the contract the renderer reads to jump to the
+    // provider detail + auto-open the QR modal in its waiting state.
+    assert.equal(state?.botOnboardingProvider, 'dingtalk');
+    // Active session is the standard turn fixture so the chat surface behind
+    // the Settings modal renders meaningful context.
+    assert.equal(state?.activeSessionId, 'visual-smoke-turn');
+  });
+
+  it('reuses the standard turn seed so no bot-specific on-disk seed is needed', async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-visual-smoke-bots-onboarding-'));
+    try {
+      const fixture = resolveVisualSmokeFixture('settings-bots-onboarding', false);
+      assert.ok(fixture);
+      await seedVisualSmokeFixture({
+        workspaceRoot,
+        fixture,
+        credentialStore: fakeCredentialStore(),
+        now: 1_700_000_000_000,
+      });
+      const file = await readFile(join(workspaceRoot, 'sessions', 'visual-smoke-turn', 'session.jsonl'), 'utf8');
+      const header = JSON.parse(file.split('\n')[0]!) as { id: string };
+      assert.equal(header.id, 'visual-smoke-turn');
+    } finally {
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('browser-empty chrome fixture (#819)', () => {
   it('seeds a live browser session id so BrowserPanel mounts over the turn chat in empty state', () => {
     const fixture = resolveVisualSmokeFixture('browser-empty', false);
