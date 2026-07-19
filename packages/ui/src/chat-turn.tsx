@@ -424,7 +424,7 @@ export const TurnView = memo(function TurnView(props: {
                     disabled={props.safeResumeAction.pending}
                     onClick={props.safeResumeAction.onResume}
                   >
-                    {props.safeResumeAction.pending ? '正在验证…' : '安全恢复'}
+                    {props.safeResumeAction.pending ? copy.safeResumePending : copy.safeResume}
                   </UiButton>
                 )}
               </Marker>

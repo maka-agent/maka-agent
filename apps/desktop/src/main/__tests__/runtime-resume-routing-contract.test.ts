@@ -21,7 +21,8 @@ describe('runtime resume desktop routing contract', () => {
     const turn = await readFile(resolve(REPO_ROOT, 'packages/ui/src/chat-turn.tsx'), 'utf8');
     assert.match(turn, /safeResumeAction/);
     assert.match(turn, /maka-turn-failed-resume/);
-    assert.match(turn, /安全恢复/);
+    assert.match(turn, /copy\.safeResumePending/);
+    assert.match(turn, /copy\.safeResume/);
   });
 
   it('main plans from authoritative state and streams only an approved latest continuation', async () => {

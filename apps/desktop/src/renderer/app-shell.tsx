@@ -904,14 +904,14 @@ function AppShellContent({
           void _removed;
           return remaining;
         });
-        toastApi.info('已开始安全恢复', '正在从最后一个完整执行边界继续');
+        toastApi.info(shellCopy.resumeStartedTitle, shellCopy.resumeStartedDescription);
       }
     } catch (error) {
       toastApi.error(
-        '恢复失败',
+        shellCopy.resumeFailedTitle,
         localizedShellErrorMessage(
           error,
-          '无法启动安全恢复，请检查会话状态后重试。',
+          shellCopy.resumeFailedFallback,
           uiLocale,
         ),
       );

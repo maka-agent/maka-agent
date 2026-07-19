@@ -180,6 +180,8 @@ export interface ConversationCopy {
     assistant: string;
     processing: string;
     continuing: string;
+    safeResumePending: string;
+    safeResume: string;
     thinking: string;
     truncated: string;
     copied: string;
@@ -323,7 +325,7 @@ const CONVERSATION_COPY = {
       branchTitle: (branch) => branch ? `分支：${branch}` : '选择分支', branchAriaLabel: (branch) => branch ? `切换分支：${branch}` : '选择分支',
     },
     messages: {
-      you: '你', assistant: 'Maka', processing: '正在处理…', continuing: '继续中…', thinking: '深度思考', truncated: '已截断', copied: '已复制', copying: '复制中', copyFailed: '复制失败', copy: '复制', copyMessage: '复制消息', copyThinking: '复制思考过程',
+      you: '你', assistant: 'Maka', processing: '正在处理…', continuing: '继续中…', safeResumePending: '正在验证…', safeResume: '安全恢复', thinking: '深度思考', truncated: '已截断', copied: '已复制', copying: '复制中', copyFailed: '复制失败', copy: '复制', copyMessage: '复制消息', copyThinking: '复制思考过程',
       imageAriaLabel: (name) => `查看图片 ${name}`, userAriaLabel: '你发送的消息', assistantAriaLabel: 'Maka 的回答', answerActionsAriaLabel: '本轮回答操作', sourceAriaLabel: '本轮回答的来源', derivativesAriaLabel: '本轮回答的衍生', automationTriggered: '定时任务触发', automationTitle: (id) => `由定时任务触发 · ${id}`,
       thinkingTruncatedTitle: '部分 reasoning 已截断；显示的是最近的内容', outputTruncatedTitle: '助手输出已超过单次回合上限，超出部分未渲染。如需完整内容请重新生成或查看持久化的会话日志。', removeAttachmentAriaLabel: (name) => `移除 ${name}`, aborted: '(已中断)', abortedByStop: '(已中断 · 由停止按钮触发)',
     },
@@ -431,7 +433,7 @@ const CONVERSATION_COPY = {
       branchTitle: (branch) => branch ? `Branch: ${branch}` : 'Choose branch', branchAriaLabel: (branch) => branch ? `Switch branch: ${branch}` : 'Choose branch',
     },
     messages: {
-      you: 'You', assistant: 'Maka', processing: 'Working…', continuing: 'Continuing…', thinking: 'Thinking', truncated: 'Truncated', copied: 'Copied', copying: 'Copying', copyFailed: 'Copy failed', copy: 'Copy', copyMessage: 'Copy message', copyThinking: 'Copy reasoning',
+      you: 'You', assistant: 'Maka', processing: 'Working…', continuing: 'Continuing…', safeResumePending: 'Checking…', safeResume: 'Safe recovery', thinking: 'Thinking', truncated: 'Truncated', copied: 'Copied', copying: 'Copying', copyFailed: 'Copy failed', copy: 'Copy', copyMessage: 'Copy message', copyThinking: 'Copy reasoning',
       imageAriaLabel: (name) => `View image ${name}`, userAriaLabel: 'Your message', assistantAriaLabel: "Maka's response", answerActionsAriaLabel: 'Response actions', sourceAriaLabel: 'Source of this response', derivativesAriaLabel: 'Responses derived from this one', automationTriggered: 'Triggered by automation', automationTitle: (id) => `Triggered by automation · ${id}`,
       thinkingTruncatedTitle: 'Some reasoning was truncated; showing the most recent content', outputTruncatedTitle: 'The assistant output exceeded the per-turn limit. Regenerate it or inspect the persisted session log for the complete content.', removeAttachmentAriaLabel: (name) => `Remove ${name}`, aborted: '(Interrupted)', abortedByStop: '(Interrupted · Stop button)',
     },

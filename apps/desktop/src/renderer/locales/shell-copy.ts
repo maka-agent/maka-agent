@@ -377,6 +377,10 @@ type ShellCopy = {
     newConversation: string;
     compactErrorTitle: string;
     compactErrorFallback: string;
+    resumeStartedTitle: string;
+    resumeStartedDescription: string;
+    resumeFailedTitle: string;
+    resumeFailedFallback: string;
     appearanceLoadErrorTitle: string;
     appearanceLoadErrorFallback: string;
     memoryRefreshErrorTitle: string;
@@ -1012,6 +1016,10 @@ const SHELL_COPY_BY_LOCALE = {
       newConversation: '新建对话',
       compactErrorTitle: '压缩失败',
       compactErrorFallback: '对话暂时无法压缩，请稍后重试。',
+      resumeStartedTitle: '已开始安全恢复',
+      resumeStartedDescription: '正在从最后一个完整执行边界继续',
+      resumeFailedTitle: '恢复失败',
+      resumeFailedFallback: '无法启动安全恢复，请检查会话状态后重试。',
       appearanceLoadErrorTitle: '载入外观设置失败',
       appearanceLoadErrorFallback: '外观设置暂时无法载入，请稍后重试。',
       memoryRefreshErrorTitle: '刷新本地记忆状态失败',
@@ -1472,6 +1480,10 @@ const SHELL_COPY_BY_LOCALE = {
       newConversation: 'New conversation',
       compactErrorTitle: 'Compaction failed',
       compactErrorFallback: 'The conversation could not be compacted. Try again later.',
+      resumeStartedTitle: 'Safe recovery started',
+      resumeStartedDescription: 'Continuing from the last complete execution boundary',
+      resumeFailedTitle: 'Recovery failed',
+      resumeFailedFallback: 'Safe recovery could not start. Check the conversation state and try again.',
       appearanceLoadErrorTitle: 'Could not load appearance settings',
       appearanceLoadErrorFallback: 'Appearance settings are temporarily unavailable. Try again later.',
       memoryRefreshErrorTitle: 'Could not refresh local memory status',
