@@ -17,7 +17,6 @@ import {
   buildToolsForAgentDefinition,
   requireBuiltinAgentDefinitionByProfile,
 } from './agent-catalog.js';
-import type { ToolGroup } from './tool-availability.js';
 import { AGENT_TEAM_CHILD_TOOL_NAMES } from './agent-team-tool-names.js';
 import { AGENT_SWARM_TOOL_NAME, buildAgentSwarmTool } from './agent-swarm-tools.js';
 
@@ -350,13 +349,4 @@ export function buildSubagentProjectionTools(): MakaTool[] {
 
 export function buildParentAgentTools(deps: { taskLedger?: TaskLedgerStore } = {}): MakaTool[] {
   return [buildSubagentSpawnTool(deps), buildAgentSwarmTool(), ...buildSubagentProjectionTools()];
-}
-
-export function buildSubagentToolGroup(): ToolGroup {
-  return {
-    id: AGENT_TOOL_GROUP_ID,
-    label: 'Agent',
-    description: 'Spawn, fan out, and inspect foreground child agents.',
-    toolNames: AGENT_TOOL_NAMES,
-  };
 }

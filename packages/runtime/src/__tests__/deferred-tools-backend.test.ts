@@ -22,9 +22,10 @@ import {
   AGENT_LIST_TOOL_NAME,
   AGENT_OUTPUT_TOOL_NAME,
   AGENT_SPAWN_TOOL_NAME,
+  AGENT_TOOL_NAMES,
   buildParentAgentTools,
-  buildSubagentToolGroup,
 } from '../subagent-tools.js';
+import { buildDeferredToolGroupsFromCatalog } from '../tool-catalog-derive.js';
 
 // End-to-end through the live AiSdkBackend: the availability config drives the
 // per-step prepareStep activation, the durable seed reconstructs prior-turn
@@ -42,7 +43,7 @@ const config: ToolAvailabilityConfig = {
 
 const agentConfig: ToolAvailabilityConfig = {
   economy: true,
-  groups: [buildSubagentToolGroup()],
+  groups: buildDeferredToolGroupsFromCatalog('headless', AGENT_TOOL_NAMES),
 };
 
 function tools(implCalls: string[]): MakaTool[] {

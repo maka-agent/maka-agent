@@ -455,7 +455,6 @@ export {
   buildParentAgentTools,
   buildSubagentProjectionTools,
   buildSubagentSpawnTool,
-  buildSubagentToolGroup,
 } from './subagent-tools.js';
 export {
   BUILTIN_EXPERT_TEAMS,

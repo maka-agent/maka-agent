@@ -36,8 +36,6 @@ import {
 } from '../agent-catalog.js';
 import { AGENT_SWARM_TOOL_NAME } from '../agent-swarm-tools.js';
 import {
-  AGENT_TOOL_GROUP_ID,
-  AGENT_TOOL_NAMES,
   AGENT_LIST_TOOL_NAME,
   AGENT_OUTPUT_TOOL_NAME,
   AGENT_SPAWN_TOOL_NAME,
@@ -47,26 +45,12 @@ import {
   buildSubagentListTool,
   buildSubagentOutputTool,
   buildSubagentSpawnTool,
-  buildSubagentToolGroup,
 } from '../subagent-tools.js';
 import { ToolRuntime, type MakaTool } from '../tool-runtime.js';
 import { expect } from '../test-helpers.js';
 
 describe('subagent tools', () => {
-  test('agent deferred group declares the parent-facing agent tools only', () => {
-    const group = buildSubagentToolGroup();
-
-    expect(group.id).toBe(AGENT_TOOL_GROUP_ID);
-    expect(group.label).toBe('Agent');
-    expect([...group.toolNames]).toEqual([...AGENT_TOOL_NAMES]);
-    expect([...group.toolNames]).toEqual([
-      AGENT_SPAWN_TOOL_NAME,
-      AGENT_SWARM_TOOL_NAME,
-      AGENT_LIST_TOOL_NAME,
-      AGENT_OUTPUT_TOOL_NAME,
-    ]);
-    expect(group.description).toMatch(/Spawn, fan out, and inspect/);
-
+  test('parent-facing agent tools declare permission hints and names', () => {
     const spawnTool = buildSubagentSpawnTool();
     expect(spawnTool.permissionRequired).toBe(true);
     expect(spawnTool.categoryHint).toBe('subagent');
