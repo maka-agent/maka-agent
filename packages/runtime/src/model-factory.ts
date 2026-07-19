@@ -17,10 +17,7 @@ import type { ThinkingLevel } from '@maka/core/model-thinking';
 import { thinkingOptionsForModel, thinkingVariantsForModel } from '@maka/core/model-thinking';
 import { anthropicV1BaseUrl, googleV1BetaBaseUrl } from './provider-urls.js';
 import { resolveModelRuntime } from './model-runtime.js';
-import {
-  claudeSubscriptionHeaders,
-  openAiCodexHeaders,
-} from './subscription-auth.js';
+import { claudeSubscriptionHeaders, openAiCodexHeaders } from './subscription-auth.js';
 
 export interface ModelFactoryInput {
   connection: LlmConnection;
@@ -29,8 +26,7 @@ export interface ModelFactoryInput {
   fetch?: typeof globalThis.fetch;
 }
 
-const ANTHROPIC_BETA =
-  'interleaved-thinking-2025-05-14,fine-grained-tool-streaming-2025-05-14';
+const ANTHROPIC_BETA = 'interleaved-thinking-2025-05-14,fine-grained-tool-streaming-2025-05-14';
 export function getAIModel(input: ModelFactoryInput): LanguageModelV4 {
   const { connection, apiKey, modelId, fetch } = input;
   const { adapter, baseUrl: baseURL, apiProtocol } = resolveModelRuntime(connection, modelId);
@@ -91,8 +87,9 @@ export function getAIModel(input: ModelFactoryInput): LanguageModelV4 {
       // account-declared protocol wins (mirrors the github-copilot case above);
       // otherwise the model's declared OpenAI-adapter protocol decides. gpt-5*
       // families are Responses-only; everything else uses Chat Completions.
-      const apiProtocol = connection.models?.find((model) => model.id === modelId)?.apiProtocol
-        ?? openAiAdapterApiProtocol(modelId);
+      const apiProtocol =
+        connection.models?.find((model) => model.id === modelId)?.apiProtocol ??
+        openAiAdapterApiProtocol(modelId);
       return apiProtocol === 'openai-responses' ? openai.responses(modelId) : openai.chat(modelId);
     }
 
@@ -107,7 +104,9 @@ export function getAIModel(input: ModelFactoryInput): LanguageModelV4 {
 
     case 'openai-compatible': {
       if (adapter.requireBaseUrl && !baseURL) {
-        throw new Error(`${connection.providerType} connection ${connection.slug} requires a base URL`);
+        throw new Error(
+          `${connection.providerType} connection ${connection.slug} requires a base URL`,
+        );
       }
       const name = adapter.name === 'connection' ? connection.slug : connection.providerType;
       const model = createOpenAICompatible({
@@ -160,7 +159,9 @@ function replayAssistantReasoning(field: 'reasoning', replayDetails: boolean) {
         changed = true;
         return rest;
       });
-      return reasoningDetails ? { ...message, reasoning_details: reasoningDetails, tool_calls: toolCalls } : message;
+      return reasoningDetails
+        ? { ...message, reasoning_details: reasoningDetails, tool_calls: toolCalls }
+        : message;
     });
     return changed ? { ...body, messages } : body;
   };
@@ -206,32 +207,39 @@ function attachReasoningDetails(model: LanguageModelV4): LanguageModelV4 {
         return async (...args: Parameters<LanguageModelV4['doGenerate']>) => {
           const result = await target.doGenerate(...args);
           const details = reasoningDetailsFromMetadata(result.providerMetadata);
-          return details ? { ...result, content: withReasoningDetails(result.content, details) } : result;
+          return details
+            ? { ...result, content: withReasoningDetails(result.content, details) }
+            : result;
         };
       }
       if (property === 'doStream') {
         return async (...args: Parameters<LanguageModelV4['doStream']>) => {
           const result = await target.doStream(...args);
-          let pendingToolCalls: Array<Extract<LanguageModelV4StreamPart, { type: 'tool-call' }>> = [];
-          const stream = result.stream.pipeThrough(new TransformStream({
-            transform(chunk, controller) {
-              if (chunk.type === 'tool-call') {
-                pendingToolCalls.push(chunk);
-                return;
-              }
-              if (chunk.type === 'finish') {
-                const details = reasoningDetailsFromMetadata(chunk.providerMetadata);
-                for (const toolCall of pendingToolCalls) {
-                  controller.enqueue(details ? withReasoningDetails([toolCall], details)[0] : toolCall);
+          let pendingToolCalls: Array<Extract<LanguageModelV4StreamPart, { type: 'tool-call' }>> =
+            [];
+          const stream = result.stream.pipeThrough(
+            new TransformStream({
+              transform(chunk, controller) {
+                if (chunk.type === 'tool-call') {
+                  pendingToolCalls.push(chunk);
+                  return;
                 }
-                pendingToolCalls = [];
-              }
-              controller.enqueue(chunk);
-            },
-            flush(controller) {
-              for (const toolCall of pendingToolCalls) controller.enqueue(toolCall);
-            },
-          }));
+                if (chunk.type === 'finish') {
+                  const details = reasoningDetailsFromMetadata(chunk.providerMetadata);
+                  for (const toolCall of pendingToolCalls) {
+                    controller.enqueue(
+                      details ? withReasoningDetails([toolCall], details)[0] : toolCall,
+                    );
+                  }
+                  pendingToolCalls = [];
+                }
+                controller.enqueue(chunk);
+              },
+              flush(controller) {
+                for (const toolCall of pendingToolCalls) controller.enqueue(toolCall);
+              },
+            }),
+          );
           return { ...result, stream };
         };
       }
@@ -241,27 +249,30 @@ function attachReasoningDetails(model: LanguageModelV4): LanguageModelV4 {
   });
 }
 
-function reasoningDetailsFromMetadata(metadata: SharedV4ProviderMetadata | undefined): JSONArray | undefined {
+function reasoningDetailsFromMetadata(
+  metadata: SharedV4ProviderMetadata | undefined,
+): JSONArray | undefined {
   const details = metadata?.zenmux?.reasoningDetails;
   return isJSONArray(details) ? details : undefined;
 }
 
-function withReasoningDetails<Content extends { type: string; providerMetadata?: SharedV4ProviderMetadata }>(
-  content: Content[],
-  details: JSONArray,
-): Content[] {
-  return content.map((part) => part.type === 'tool-call'
-    ? {
-        ...part,
-        providerMetadata: {
-          ...part.providerMetadata,
-          openaiCompatible: {
-            ...part.providerMetadata?.openaiCompatible,
-            reasoning_details: details,
+function withReasoningDetails<
+  Content extends { type: string; providerMetadata?: SharedV4ProviderMetadata },
+>(content: Content[], details: JSONArray): Content[] {
+  return content.map((part) =>
+    part.type === 'tool-call'
+      ? {
+          ...part,
+          providerMetadata: {
+            ...part.providerMetadata,
+            openaiCompatible: {
+              ...part.providerMetadata?.openaiCompatible,
+              reasoning_details: details,
+            },
           },
-        },
-      }
-    : part);
+        }
+      : part,
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -279,22 +290,23 @@ export function buildProviderOptions(
   switch (connection.providerType) {
     case 'kimi-coding-plan':
       return {
-        anthropic: modelId === 'k3'
-          ? {
-              // K3 supports adaptive thinking only and currently fixes effort
-              // at max on Kimi Coding Plan.
-              thinking: { type: 'adaptive' as const },
-              effort: 'max',
-            }
-          : modelId === 'kimi-for-coding'
-          ? {
-              // Kimi's managed coding route requires enabled thinking and max
-              // effort. The Anthropic AI SDK also requires a compatibility
-              // budget and otherwise injects the same value with a warning.
-              thinking: { type: 'enabled' as const, budgetTokens: 1_024 },
-              effort: 'max',
-            }
-          : {},
+        anthropic:
+          modelId === 'k3'
+            ? {
+                // K3 supports adaptive thinking only and currently fixes effort
+                // at max on Kimi Coding Plan.
+                thinking: { type: 'adaptive' as const },
+                effort: 'max',
+              }
+            : modelId === 'kimi-for-coding'
+              ? {
+                  // Kimi's managed coding route requires enabled thinking and max
+                  // effort. The Anthropic AI SDK also requires a compatibility
+                  // budget and otherwise injects the same value with a warning.
+                  thinking: { type: 'enabled' as const, budgetTokens: 1_024 },
+                  effort: 'max',
+                }
+              : {},
       };
     // Anthropic-protocol: effort enum models send `effort`; toggle/budget
     // models send `thinking.disabled` for off. No budget-token mapping — the
@@ -329,9 +341,10 @@ export function buildProviderOptions(
       };
     case 'cohere':
       return {
-        cohere: level === 'off' && thinkingOptions?.offBehavior === 'cohere-thinking-disabled'
-          ? { thinking: { type: 'disabled' as const } }
-          : {},
+        cohere:
+          level === 'off' && thinkingOptions?.offBehavior === 'cohere-thinking-disabled'
+            ? { thinking: { type: 'disabled' as const } }
+            : {},
       };
     case 'volcengine-ark':
       return {
@@ -343,7 +356,11 @@ export function buildProviderOptions(
     case 'vercel':
     case 'ollama-cloud':
       return level
-        ? { [openaiCompatibleNamespace(connection.providerType)]: { reasoningEffort: level === 'off' ? 'none' : level } }
+        ? {
+            [openaiCompatibleNamespace(connection.providerType)]: {
+              reasoningEffort: level === 'off' ? 'none' : level,
+            },
+          }
         : {};
     case 'google':
       return {
@@ -367,11 +384,12 @@ export function buildProviderOptions(
     case 'cloudflare-workers-ai':
       return level
         ? {
-            [openaiCompatibleNamespace(connection.providerType)]: level === 'off'
-              ? thinkingOptions?.offBehavior === 'cloudflare-chat-template-thinking-false'
-                ? { chat_template_kwargs: { thinking: false } }
-                : {}
-              : { reasoningEffort: level },
+            [openaiCompatibleNamespace(connection.providerType)]:
+              level === 'off'
+                ? thinkingOptions?.offBehavior === 'cloudflare-chat-template-thinking-false'
+                  ? { chat_template_kwargs: { thinking: false } }
+                  : {}
+                : { reasoningEffort: level },
           }
         : {};
     // DeepInfra and OpenRouter document `none` as their real off wire. Other
@@ -379,7 +397,11 @@ export function buildProviderOptions(
     case 'deepinfra':
     case 'openrouter':
       return level
-        ? { [openaiCompatibleNamespace(connection.providerType)]: { reasoningEffort: level === 'off' ? 'none' : level } }
+        ? {
+            [openaiCompatibleNamespace(connection.providerType)]: {
+              reasoningEffort: level === 'off' ? 'none' : level,
+            },
+          }
         : {};
     // Groq accepts `reasoning_effort` for gpt-oss-120b / gpt-oss-20b only, with
     // low/medium/high (no `none`). Per-model thinkingOptions constrain which

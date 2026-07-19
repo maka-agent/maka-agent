@@ -44,13 +44,17 @@ class FileAutomationStore<T extends AutomationRecord> implements AutomationStore
       // A present-but-unreadable file (EMFILE/EBUSY/EACCES/…) must NOT be masked
       // as empty: a caller that then full-overwrites the store would erase data
       // it never read. Fail loud so the host disables persistence instead.
-      throw new Error(`[automation-store] failed to read ${this.filePath}: ${(error as Error).message}`);
+      throw new Error(
+        `[automation-store] failed to read ${this.filePath}: ${(error as Error).message}`,
+      );
     }
     let parsed: unknown;
     try {
       parsed = JSON.parse(text);
     } catch (error) {
-      throw new Error(`[automation-store] ${this.filePath} is not valid JSON: ${(error as Error).message}`);
+      throw new Error(
+        `[automation-store] ${this.filePath} is not valid JSON: ${(error as Error).message}`,
+      );
     }
     if (!isAutomationFile(parsed)) {
       // Present but unrecognized (wrong version/shape) — same danger as a read
@@ -63,7 +67,7 @@ class FileAutomationStore<T extends AutomationRecord> implements AutomationStore
   async save(automation: T): Promise<void> {
     await chainWrite(this.writeQueue, FileAutomationStore.QUEUE_KEY, async () => {
       const current = await this.loadAll();
-      const index = current.findIndex(a => a.id === automation.id);
+      const index = current.findIndex((a) => a.id === automation.id);
       if (index >= 0) {
         current[index] = automation;
       } else {
@@ -76,7 +80,7 @@ class FileAutomationStore<T extends AutomationRecord> implements AutomationStore
   async remove(id: string): Promise<void> {
     await chainWrite(this.writeQueue, FileAutomationStore.QUEUE_KEY, async () => {
       const current = await this.loadAll();
-      const filtered = current.filter(a => a.id !== id);
+      const filtered = current.filter((a) => a.id !== id);
       if (filtered.length === current.length) return;
       await this.writeFile(filtered);
     });

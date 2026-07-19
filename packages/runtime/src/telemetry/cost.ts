@@ -25,16 +25,18 @@ export function computeCost(usage: CostInput, pricing: PricingConfig | null): Co
   const cacheHitInputTokens = usage.cacheHitInputTokens ?? usage.cachedInputTokens ?? 0;
   const cacheWriteInputTokens = usage.cacheWriteInputTokens ?? 0;
   const cacheMissInputTokens =
-    usage.cacheMissInputTokens
-    ?? Math.max(0, usage.inputTokens - cacheHitInputTokens - cacheWriteInputTokens);
+    usage.cacheMissInputTokens ??
+    Math.max(0, usage.inputTokens - cacheHitInputTokens - cacheWriteInputTokens);
   const inputCost = (cacheMissInputTokens / 1_000_000) * pricing.inputUsdPer1M;
   const outputCost = (usage.outputTokens / 1_000_000) * pricing.outputUsdPer1M;
-  const cacheReadCost = pricing.cacheReadUsdPer1M && cacheHitInputTokens
-    ? (cacheHitInputTokens / 1_000_000) * pricing.cacheReadUsdPer1M
-    : 0;
-  const cacheWriteCost = pricing.cacheWriteUsdPer1M && cacheWriteInputTokens
-    ? (cacheWriteInputTokens / 1_000_000) * pricing.cacheWriteUsdPer1M
-    : 0;
+  const cacheReadCost =
+    pricing.cacheReadUsdPer1M && cacheHitInputTokens
+      ? (cacheHitInputTokens / 1_000_000) * pricing.cacheReadUsdPer1M
+      : 0;
+  const cacheWriteCost =
+    pricing.cacheWriteUsdPer1M && cacheWriteInputTokens
+      ? (cacheWriteInputTokens / 1_000_000) * pricing.cacheWriteUsdPer1M
+      : 0;
   return {
     inputCost,
     outputCost,

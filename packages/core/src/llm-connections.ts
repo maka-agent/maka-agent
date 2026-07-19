@@ -129,9 +129,7 @@ export interface ConnectionTestResult {
   errorClass?: ConnectionTestErrorClass;
 }
 
-export const CODEX_SUBSCRIPTION_UNSUPPORTED_CHATGPT_MODELS = new Set([
-  'gpt-5-codex',
-]);
+export const CODEX_SUBSCRIPTION_UNSUPPORTED_CHATGPT_MODELS = new Set(['gpt-5-codex']);
 
 export const PROVIDER_DEFAULTS = PROVIDER_REGISTRY;
 

@@ -32,7 +32,8 @@ export const FORBIDDEN_HEAVY_TASK_POLICY_TERMS = [
 const DEFAULT_DISABLED_REASON = 'heavy-task mode was not explicitly enabled';
 const DEFAULT_CONFIG_ENABLED_REASON = 'heavy-task mode explicitly enabled by config';
 const DEFAULT_CONFIG_DISABLED_REASON = 'heavy-task mode explicitly disabled by config';
-const DEFAULT_TASK_METADATA_ENABLED_REASON = 'heavy-task mode explicitly enabled by task benchmark metadata';
+const DEFAULT_TASK_METADATA_ENABLED_REASON =
+  'heavy-task mode explicitly enabled by task benchmark metadata';
 
 export function resolveHeavyTaskMode(config: Config, task?: Task): HeavyTaskModeSelection {
   const configMode = normalizeModeConfig(config.heavyTaskMode);
@@ -71,7 +72,8 @@ export function resolveHeavyTaskMode(config: Config, task?: Task): HeavyTaskMode
       schemaVersion: 1,
       enabled: true,
       triggerSource: 'task_metadata',
-      triggerReason: signalMode.reason ?? 'heavy-task mode enabled by benchmark task complexity signal',
+      triggerReason:
+        signalMode.reason ?? 'heavy-task mode enabled by benchmark task complexity signal',
       policyVersion: signalMode.policyVersion ?? HEAVY_TASK_POLICY_VERSION,
     };
   }
@@ -86,7 +88,9 @@ export function resolveHeavyTaskMode(config: Config, task?: Task): HeavyTaskMode
 }
 
 export function buildHeavyTaskSystemPromptPolicy(
-  selection: Pick<HeavyTaskModeSelection, 'policyVersion'> = { policyVersion: HEAVY_TASK_POLICY_VERSION },
+  selection: Pick<HeavyTaskModeSelection, 'policyVersion'> = {
+    policyVersion: HEAVY_TASK_POLICY_VERSION,
+  },
 ): string {
   return [
     `Heavy-task benchmark policy (${selection.policyVersion})`,
@@ -122,13 +126,18 @@ export function appendHeavyTaskPolicyToSystemPrompt(
     .join('\n\n');
 }
 
-export function configWithHeavyTaskPolicy(config: Config, selection: HeavyTaskModeSelection): Config {
+export function configWithHeavyTaskPolicy(
+  config: Config,
+  selection: HeavyTaskModeSelection,
+): Config {
   const systemPrompt = appendHeavyTaskPolicyToSystemPrompt(config.systemPrompt, selection);
   if (systemPrompt === config.systemPrompt) return config;
   return { ...config, systemPrompt };
 }
 
-function normalizeTaskMetadataMode(metadata: Record<string, unknown> | undefined): HeavyTaskModeConfig | undefined {
+function normalizeTaskMetadataMode(
+  metadata: Record<string, unknown> | undefined,
+): HeavyTaskModeConfig | undefined {
   if (!metadata) return undefined;
   const mode = normalizeModeConfig(metadata.heavyTaskMode);
   if (mode) return mode;
@@ -143,11 +152,17 @@ function normalizeTaskSignalMode(task: Task | undefined): HeavyTaskModeConfig | 
     return { enabled: true, reason: `benchmark task complexity signal: ${taskComplexity}` };
   }
   const runtimeSignal = cleanString(metadata.runtimeSignal);
-  if (runtimeSignal && ['heavy_task', 'long_running', 'complex_engineering'].includes(runtimeSignal.toLowerCase())) {
+  if (
+    runtimeSignal &&
+    ['heavy_task', 'long_running', 'complex_engineering'].includes(runtimeSignal.toLowerCase())
+  ) {
     return { enabled: true, reason: `benchmark runtime signal: ${runtimeSignal}` };
   }
   const instructionSignal = cleanString(metadata.instructionSignal);
-  if (instructionSignal && ['heavy_task', 'long_running', 'complex_engineering'].includes(instructionSignal.toLowerCase())) {
+  if (
+    instructionSignal &&
+    ['heavy_task', 'long_running', 'complex_engineering'].includes(instructionSignal.toLowerCase())
+  ) {
     return { enabled: true, reason: `benchmark instruction signal: ${instructionSignal}` };
   }
   return undefined;
@@ -159,7 +174,8 @@ function normalizeModeConfig(value: unknown): HeavyTaskModeConfig | undefined {
   const enabled = typeof value.enabled === 'boolean' ? value.enabled : undefined;
   const reason = cleanString(value.reason);
   const policyVersion = cleanPolicyVersion(value.policyVersion);
-  if (enabled === undefined && reason === undefined && policyVersion === undefined) return undefined;
+  if (enabled === undefined && reason === undefined && policyVersion === undefined)
+    return undefined;
   return {
     ...(enabled !== undefined ? { enabled } : {}),
     ...(reason ? { reason } : {}),

@@ -38,13 +38,15 @@ export function resolveHarnessOracleWatchdogTimeoutMs(input: {
   agentTimeoutSec: number;
   verifierTimeoutSec: number;
 }): number {
-  const nativePhasesSec = (
-    input.agentTimeoutSec + input.verifierTimeoutSec
-  ) * HARBOR_ORACLE_EXECUTION_POLICY.job.timeoutMultiplier;
-  return Math.max(
-    HARBOR_ORACLE_EXECUTION_POLICY.watchdog.minimumSec,
-    nativePhasesSec + HARBOR_ORACLE_EXECUTION_POLICY.watchdog.setupTeardownGraceSec,
-  ) * 1_000;
+  const nativePhasesSec =
+    (input.agentTimeoutSec + input.verifierTimeoutSec) *
+    HARBOR_ORACLE_EXECUTION_POLICY.job.timeoutMultiplier;
+  return (
+    Math.max(
+      HARBOR_ORACLE_EXECUTION_POLICY.watchdog.minimumSec,
+      nativePhasesSec + HARBOR_ORACLE_EXECUTION_POLICY.watchdog.setupTeardownGraceSec,
+    ) * 1_000
+  );
 }
 
 export interface HarnessOracleTaskResult {

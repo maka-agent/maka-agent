@@ -65,7 +65,11 @@ import { fetchProviderModels } from '@maka/runtime';
 import { createApiKeyOnboardingSurface, type MakaOnboardingSurface } from './onboarding.js';
 import { resolveModelVisionSupport } from '@maka/core';
 import type { ModelChoice, ReadySessionTarget } from './connection-target.js';
-import { listReadyModelChoices, resolveDefaultSessionTarget, resolveSessionTargetForSlug } from './connection-target.js';
+import {
+  listReadyModelChoices,
+  resolveDefaultSessionTarget,
+  resolveSessionTargetForSlug,
+} from './connection-target.js';
 import { buildCliSystemPrompt, buildCliTurnTailPrompt } from './cli-system-prompt.js';
 import { CliGoalContinuation } from './cli-goal-continuation.js';
 import { RECAP_INSTRUCTION, cleanRecapText } from './session-recap.js';
@@ -132,7 +136,10 @@ export interface CreateMakaCliRuntimeContextInput {
    * (reviewer G1: a host derives cron support from the executor it passes in).
    * Omitted by the default CLI (no multi-session surface) — heartbeat only.
    */
-  automationCreateFreshRun?: (prompt: string, automationId: string) => Promise<import('@maka/runtime').AutomationFireResult>;
+  automationCreateFreshRun?: (
+    prompt: string,
+    automationId: string,
+  ) => Promise<import('@maka/runtime').AutomationFireResult>;
 }
 
 export interface GetOrCreateCliClaudeDeviceIdDeps {
@@ -170,7 +177,11 @@ export async function createMakaCliRuntimeContext(
   // generator projects through this instead of re-deriving its own lossy
   // StoredMessage-based projection). Built once and shared — mirrors
   // SessionManager's own construction in session-manager.ts's readModel().
-  const runtimeReadModel = new RuntimeReadModel({ runStore, runtimeEventStore, projectionCache: store });
+  const runtimeReadModel = new RuntimeReadModel({
+    runStore,
+    runtimeEventStore,
+    projectionCache: store,
+  });
   const targetInput = {
     connectionStore,
     credentialStore,
@@ -198,15 +209,16 @@ export async function createMakaCliRuntimeContext(
     },
   });
   const sandboxManager = createBuiltinSandboxManager();
-  const filesystemWorker = process.platform === 'darwin' && sandboxManager
-    ? new FilesystemWorkerClient({
-        sandboxManager,
-        getLaunchSpec: createFilesystemWorkerLaunchSpecProvider({
-          runtime: 'node',
-          resourceLocation: { kind: 'runtime' },
-        }),
-      })
-    : undefined;
+  const filesystemWorker =
+    process.platform === 'darwin' && sandboxManager
+      ? new FilesystemWorkerClient({
+          sandboxManager,
+          getLaunchSpec: createFilesystemWorkerLaunchSpecProvider({
+            runtime: 'node',
+            resourceLocation: { kind: 'runtime' },
+          }),
+        })
+      : undefined;
   const tools = buildBuiltinTools({
     shellRuns,
     runtimeResources: shellRuns,
@@ -214,26 +226,33 @@ export async function createMakaCliRuntimeContext(
     ptyControls: shellRuns,
     snapshotImage: createReadImageSnapshotter(artifactStore),
     ...(sandboxManager ? { sandboxManager } : {}),
-    ...(filesystemWorker ? {
-      filesystemWorker,
-      enableBashAdditionalPermissions: true,
-      enableFileToolAdditionalPermissions: true,
-    } : {}),
+    ...(filesystemWorker
+      ? {
+          filesystemWorker,
+          enableBashAdditionalPermissions: true,
+          enableFileToolAdditionalPermissions: true,
+        }
+      : {}),
   });
   // Child sessions get fresh file-only tools. In particular, their Read tool
   // cannot inspect parent runtime resources and no write/shell/agent tool is
   // present for the catalog allowlist to select.
-  const childAgentTools = input.surface === 'tui'
-    ? buildChildAgentTools(buildBuiltinTools({
-        snapshotImage: createReadImageSnapshotter(artifactStore),
-        ...(sandboxManager ? { sandboxManager } : {}),
-        ...(filesystemWorker ? {
-          filesystemWorker,
-          enableBashAdditionalPermissions: true,
-          enableFileToolAdditionalPermissions: true,
-        } : {}),
-      }))
-    : [];
+  const childAgentTools =
+    input.surface === 'tui'
+      ? buildChildAgentTools(
+          buildBuiltinTools({
+            snapshotImage: createReadImageSnapshotter(artifactStore),
+            ...(sandboxManager ? { sandboxManager } : {}),
+            ...(filesystemWorker
+              ? {
+                  filesystemWorker,
+                  enableBashAdditionalPermissions: true,
+                  enableFileToolAdditionalPermissions: true,
+                }
+              : {}),
+          }),
+        )
+      : [];
   const automationManager = new AutomationManager({
     generateId: () => randomUUID(),
     now: () => Date.now(),
@@ -256,12 +275,16 @@ export async function createMakaCliRuntimeContext(
   const syncAutomations = cronEnabled
     ? (): void => {
         if (!durableStoreReadable) return;
-        const durable = automationManager.listAll().filter(a => a.durable && (a.status === 'active' || a.status === 'paused'));
-        automationStore.sync(durable).catch(err => {
+        const durable = automationManager
+          .listAll()
+          .filter((a) => a.durable && (a.status === 'active' || a.status === 'paused'));
+        automationStore.sync(durable).catch((err) => {
           console.warn('[runtime-bootstrap] failed to persist durable automations:', err);
         });
       }
-    : (): void => { /* heartbeat-only host owns no durable automations; never overwrite the shared store */ };
+    : (): void => {
+        /* heartbeat-only host owns no durable automations; never overwrite the shared store */
+      };
   const automationTool = buildAutomationTool({
     automationManager,
     onAutomationChange: syncAutomations,
@@ -276,7 +299,10 @@ export async function createMakaCliRuntimeContext(
       automationManager.registerAll(saved);
     } catch (err) {
       durableStoreReadable = false;
-      console.error('[runtime-bootstrap] durable automation store unreadable; persistence disabled to avoid data loss:', err);
+      console.error(
+        '[runtime-bootstrap] durable automation store unreadable; persistence disabled to avoid data loss:',
+        err,
+      );
     }
   }
 
@@ -289,7 +315,7 @@ export async function createMakaCliRuntimeContext(
     goalManager,
     evaluator: {
       async evaluate(prompt: string, sessionId: string): Promise<string> {
-        const ai = await import('ai') as unknown as {
+        const ai = (await import('ai')) as unknown as {
           generateText(opts: Record<string, unknown>): Promise<{ text: string }>;
         };
         const header = await store.readHeader(sessionId);
@@ -302,13 +328,15 @@ export async function createMakaCliRuntimeContext(
           connection: ready.connection,
           sessionId: 'goal-evaluator',
           modelId: ready.model,
-          ...(ready.connection.providerType === 'claude-subscription' ? {
-            claude: {
-              cloakEnabled: isMakaClaudeSubscriptionCloakEnabled(),
-              deviceId: await getOrCreateCliClaudeDeviceId(input.workspaceRoot),
-              accountUuid: ready.oauthTokens?.account_uuid ?? '',
-            },
-          } : {}),
+          ...(ready.connection.providerType === 'claude-subscription'
+            ? {
+                claude: {
+                  cloakEnabled: isMakaClaudeSubscriptionCloakEnabled(),
+                  deviceId: await getOrCreateCliClaudeDeviceId(input.workspaceRoot),
+                  accountUuid: ready.oauthTokens?.account_uuid ?? '',
+                },
+              }
+            : {}),
         });
         const result = await ai.generateText({
           model: getAIModel({
@@ -318,7 +346,11 @@ export async function createMakaCliRuntimeContext(
             fetch: modelFetch,
           }),
           prompt,
-          providerOptions: buildProviderOptions(ready.connection, ready.model, header.thinkingLevel),
+          providerOptions: buildProviderOptions(
+            ready.connection,
+            ready.model,
+            header.thinkingLevel,
+          ),
           maxOutputTokens: 1024,
         });
         return result.text;
@@ -328,14 +360,18 @@ export async function createMakaCliRuntimeContext(
       const messages = await runtime.getMessages(sessionId);
       let total = 0;
       for (const message of messages) {
-        if (message.type === 'token_usage') total += (message.total ?? (message.input + message.output));
+        if (message.type === 'token_usage')
+          total += message.total ?? message.input + message.output;
       }
       goalTokenCache.set(sessionId, total);
       return messages
         .slice(-10)
         .filter((message) => message.type === 'user' || message.type === 'assistant')
         .slice(-6)
-        .map((message) => `[${message.type}]: ${(message.type === 'user' || message.type === 'assistant' ? message.text : '').slice(0, 500)}`)
+        .map(
+          (message) =>
+            `[${message.type}]: ${(message.type === 'user' || message.type === 'assistant' ? message.text : '').slice(0, 500)}`,
+        )
         .join('\n');
     },
     getTokenCount: (sessionId: string) => goalTokenCache.get(sessionId) ?? 0,
@@ -370,13 +406,15 @@ export async function createMakaCliRuntimeContext(
           connection: ready.connection,
           sessionId: 'session-recap',
           modelId: ready.model,
-          ...(ready.connection.providerType === 'claude-subscription' ? {
-            claude: {
-              cloakEnabled: isMakaClaudeSubscriptionCloakEnabled(),
-              deviceId: await getOrCreateCliClaudeDeviceId(input.workspaceRoot),
-              accountUuid: ready.oauthTokens?.account_uuid ?? '',
-            },
-          } : {}),
+          ...(ready.connection.providerType === 'claude-subscription'
+            ? {
+                claude: {
+                  cloakEnabled: isMakaClaudeSubscriptionCloakEnabled(),
+                  deviceId: await getOrCreateCliClaudeDeviceId(input.workspaceRoot),
+                  accountUuid: ready.oauthTokens?.account_uuid ?? '',
+                },
+              }
+            : {}),
         });
         const contextWindow = resolveSelectedModelContextWindow(ready.connection, ready.model);
         // Same budget-policy construction the backend uses (buildDefaultContextBudgetPolicy
@@ -392,12 +430,13 @@ export async function createMakaCliRuntimeContext(
           if (budgetPolicy?.maxHistoryEstimatedTokens !== undefined) {
             budgetPolicy.maxHistoryEstimatedTokens = Math.floor(contextWindow * 0.85) - 4096;
           }
-          trimmedEvents = applyRuntimeEventContextBudget(view.events, budgetPolicy)?.events ?? view.events;
+          trimmedEvents =
+            applyRuntimeEventContextBudget(view.events, budgetPolicy)?.events ?? view.events;
         }
         const plan = buildRuntimeEventModelReplayPlan(trimmedEvents);
         requestMessages = replayPlanItemsToModelMessages(plan.items);
         requestMessages.push({ role: 'user', content: RECAP_INSTRUCTION });
-        const ai = await import('ai') as unknown as {
+        const ai = (await import('ai')) as unknown as {
           generateText(opts: Record<string, unknown>): Promise<{ text: string }>;
         };
         const result = await ai.generateText({
@@ -408,7 +447,11 @@ export async function createMakaCliRuntimeContext(
             fetch: modelFetch,
           }),
           messages: requestMessages,
-          providerOptions: buildProviderOptions(ready.connection, ready.model, header.thinkingLevel),
+          providerOptions: buildProviderOptions(
+            ready.connection,
+            ready.model,
+            header.thinkingLevel,
+          ),
           maxOutputTokens: 1024,
         });
         rawText = result.text;
@@ -446,35 +489,33 @@ export async function createMakaCliRuntimeContext(
     },
   };
 
-  const goalTools = input.surface === 'tui'
-    ? buildGoalTools({
-        goalManager,
-        goalContinuation,
-        getTokenCount: (sessionId: string) => goalTokenCache.get(sessionId) ?? 0,
-      })
-    : [];
-  const subagentTools = input.surface === 'tui'
-    ? buildParentAgentTools()
-    : [];
-  const toolAvailability: ToolAvailabilityConfig | undefined = input.surface === 'tui'
-    ? {
-        economy: !process.env.MAKA_DISABLE_DEFERRED_TOOLS,
-        groups: [buildSubagentToolGroup()],
-      }
-    : undefined;
+  const goalTools =
+    input.surface === 'tui'
+      ? buildGoalTools({
+          goalManager,
+          goalContinuation,
+          getTokenCount: (sessionId: string) => goalTokenCache.get(sessionId) ?? 0,
+        })
+      : [];
+  const subagentTools = input.surface === 'tui' ? buildParentAgentTools() : [];
+  const toolAvailability: ToolAvailabilityConfig | undefined =
+    input.surface === 'tui'
+      ? {
+          economy: !process.env.MAKA_DISABLE_DEFERRED_TOOLS,
+          groups: [buildSubagentToolGroup()],
+        }
+      : undefined;
   // CLI host capability surface for the skill-compatibility gate: the tool
   // names registered on this host. The CLI has no Office tools, so bundled
   // Office skills (requiredTools includes OfficeDocument/OfficeDocumentEdit)
   // are hard-hidden here without seeding them — desktop owns Office seeding.
   const surfaceTools = input.surface === 'tui' ? [buildAskUserQuestionTool()] : [];
   const host: HostCapabilities = {
-    toolNames: new Set([
-      ...tools,
-      automationTool,
-      ...goalTools,
-      ...subagentTools,
-      ...surfaceTools,
-    ].map((tool) => tool.name)),
+    toolNames: new Set(
+      [...tools, automationTool, ...goalTools, ...subagentTools, ...surfaceTools].map(
+        (tool) => tool.name,
+      ),
+    ),
   };
   const skillTool = buildSkillAgentTool(
     ({ cwd }) => resolveSkillDiscoveryPaths(cwd, input.workspaceRoot),
@@ -490,9 +531,10 @@ export async function createMakaCliRuntimeContext(
   ];
 
   backends.register('ai-sdk', async (ctx) => {
-    const header = input.sessionCwdOverride?.sessionId === ctx.sessionId
-      ? { ...ctx.header, cwd: input.sessionCwdOverride.cwd }
-      : ctx.header;
+    const header =
+      input.sessionCwdOverride?.sessionId === ctx.sessionId
+        ? { ...ctx.header, cwd: input.sessionCwdOverride.cwd }
+        : ctx.header;
     // Resolve the session's own connection — not the global default — so a
     // /model switch that rebinds the session to another provider actually runs
     // on that provider (the desktop app resolves the backend the same way).
@@ -505,18 +547,21 @@ export async function createMakaCliRuntimeContext(
       connection: ready.connection,
       sessionId: ctx.sessionId,
       modelId: ready.model,
-      ...(ready.connection.providerType === 'claude-subscription' ? {
-        claude: {
-          cloakEnabled: isMakaClaudeSubscriptionCloakEnabled(),
-          deviceId: await getOrCreateCliClaudeDeviceId(input.workspaceRoot),
-          accountUuid: ready.oauthTokens?.account_uuid ?? '',
-        },
-      } : {}),
+      ...(ready.connection.providerType === 'claude-subscription'
+        ? {
+            claude: {
+              cloakEnabled: isMakaClaudeSubscriptionCloakEnabled(),
+              deviceId: await getOrCreateCliClaudeDeviceId(input.workspaceRoot),
+              accountUuid: ready.oauthTokens?.account_uuid ?? '',
+            },
+          }
+        : {}),
     });
     return new AiSdkBackend({
       sessionId: ctx.sessionId,
       header: { ...header, model: ready.model },
-      appendMessage: ctx.appendMessage ?? ((message) => ctx.store.appendMessage(ctx.sessionId, message)),
+      appendMessage:
+        ctx.appendMessage ?? ((message) => ctx.store.appendMessage(ctx.sessionId, message)),
       connection: ready.connection,
       apiKey: ready.apiKey,
       modelId: ready.model,
@@ -524,11 +569,14 @@ export async function createMakaCliRuntimeContext(
       modelFactory: (modelInput) => getAIModel({ ...modelInput, fetch: modelFetch }),
       tools: allTools,
       toolAvailability,
-      ...(input.surface === 'tui' ? {
-        spawnChildAgent: (childInput) => runtime.spawnChildAgent(ctx.sessionId, childInput),
-        listChildAgents: () => runtime.listChildAgents(ctx.sessionId),
-        readChildAgentOutput: (childInput) => runtime.readChildAgentOutput(ctx.sessionId, childInput),
-      } : {}),
+      ...(input.surface === 'tui'
+        ? {
+            spawnChildAgent: (childInput) => runtime.spawnChildAgent(ctx.sessionId, childInput),
+            listChildAgents: () => runtime.listChildAgents(ctx.sessionId),
+            readChildAgentOutput: (childInput) =>
+              runtime.readChildAgentOutput(ctx.sessionId, childInput),
+          }
+        : {}),
       providerOptions: buildProviderOptions(ready.connection, ready.model, header.thinkingLevel),
       contextBudget: buildDefaultContextBudgetPolicy(ready.connection, {
         name: 'cli-default-history-budget',
@@ -566,7 +614,8 @@ export async function createMakaCliRuntimeContext(
           modelContextWindow: resolveSelectedModelContextWindow(ready.connection, ready.model),
         });
       },
-      turnTailPrompt: ({ cwd }) => buildCliTurnTailPrompt({ cwd, sessionId: ctx.sessionId, automationManager, goalManager }),
+      turnTailPrompt: ({ cwd }) =>
+        buildCliTurnTailPrompt({ cwd, sessionId: ctx.sessionId, automationManager, goalManager }),
       shellRunContextSummary: ctx.shellRunContextSummary,
       newId: randomUUID,
       now: Date.now,
@@ -584,37 +633,41 @@ export async function createMakaCliRuntimeContext(
     ...(input.surface === 'tui' ? { childTools: childAgentTools } : {}),
     runtimeInvocationObserver: input.runtimeInvocationObserver,
     onSessionTitleChanged: input.onSessionTitleChanged,
-    ...(input.surface === 'tui' ? {
-      generateSessionTitle: async ({ sessionId, header, sourceText }) => {
-        const ready = await resolveSessionTargetForSlug(header.llmConnectionSlug, {
-          connectionStore,
-          credentialStore,
-          requestedModel: header.model,
-        });
-        const modelFetch = buildSubscriptionModelFetch({
-          connection: ready.connection,
-          sessionId,
-          modelId: ready.model,
-          ...(ready.connection.providerType === 'claude-subscription' ? {
-            claude: {
-              cloakEnabled: isMakaClaudeSubscriptionCloakEnabled(),
-              deviceId: await getOrCreateCliClaudeDeviceId(input.workspaceRoot),
-              accountUuid: ready.oauthTokens?.account_uuid ?? '',
-            },
-          } : {}),
-        });
-        return generateRuntimeSessionTitle({
-          model: getAIModel({
-            connection: ready.connection,
-            apiKey: ready.apiKey ?? '',
-            modelId: ready.model,
-            fetch: modelFetch,
-          }),
-          providerOptions: buildProviderOptions(ready.connection, ready.model),
-          sourceText,
-        });
-      },
-    } : {}),
+    ...(input.surface === 'tui'
+      ? {
+          generateSessionTitle: async ({ sessionId, header, sourceText }) => {
+            const ready = await resolveSessionTargetForSlug(header.llmConnectionSlug, {
+              connectionStore,
+              credentialStore,
+              requestedModel: header.model,
+            });
+            const modelFetch = buildSubscriptionModelFetch({
+              connection: ready.connection,
+              sessionId,
+              modelId: ready.model,
+              ...(ready.connection.providerType === 'claude-subscription'
+                ? {
+                    claude: {
+                      cloakEnabled: isMakaClaudeSubscriptionCloakEnabled(),
+                      deviceId: await getOrCreateCliClaudeDeviceId(input.workspaceRoot),
+                      accountUuid: ready.oauthTokens?.account_uuid ?? '',
+                    },
+                  }
+                : {}),
+            });
+            return generateRuntimeSessionTitle({
+              model: getAIModel({
+                connection: ready.connection,
+                apiKey: ready.apiKey ?? '',
+                modelId: ready.model,
+                fetch: modelFetch,
+              }),
+              providerOptions: buildProviderOptions(ready.connection, ready.model),
+              sourceText,
+            });
+          },
+        }
+      : {}),
     cleanupHistoryCompactArtifacts: async (cleanupInput) => {
       await cleanupLegacyHistoryCompactArtifacts({
         ...cleanupInput,
@@ -631,14 +684,15 @@ export async function createMakaCliRuntimeContext(
     automationManager,
     canFire: async (automation) => {
       if (
-        automation.kind === 'heartbeat'
-        && goalContinuation.activities.whenIdle(automation.sessionId)
+        automation.kind === 'heartbeat' &&
+        goalContinuation.activities.whenIdle(automation.sessionId)
       ) {
         return false;
       }
       return evaluateAutomationCanFire(automation, {
         // The CLI has no incognito UI, but the setting is shared — honour it if set.
-        isIncognitoActive: async () => (await settingsStore.get()).privacy?.incognitoActive === true,
+        isIncognitoActive: async () =>
+          (await settingsStore.get()).privacy?.incognitoActive === true,
         readSessionHeader: (sessionId) => store.readHeader(sessionId),
         // Default idle set {active, done, waiting_for_user} — a session parked
         // waiting for the user IS the wakeup's home scenario (#639): the
@@ -655,15 +709,19 @@ export async function createMakaCliRuntimeContext(
       const outcome = await goalContinuation.runAutomationTurn({
         sessionId,
         turnId,
-        start: () => runtime.sendMessage(sessionId, {
-          turnId, text: prompt, origin: { kind: 'automation', automationId },
-        }),
+        start: () =>
+          runtime.sendMessage(sessionId, {
+            turnId,
+            text: prompt,
+            origin: { kind: 'automation', automationId },
+          }),
       });
-      const error = outcome.kind === 'errored' || outcome.kind === 'suspended'
-        ? outcome.reason
-        : outcome.kind === 'aborted'
-          ? 'Automation turn was aborted.'
-          : undefined;
+      const error =
+        outcome.kind === 'errored' || outcome.kind === 'suspended'
+          ? outcome.reason
+          : outcome.kind === 'aborted'
+            ? 'Automation turn was aborted.'
+            : undefined;
       return {
         runId: turnId,
         ok: outcome.kind === 'completed',
@@ -705,7 +763,11 @@ export async function createMakaCliRuntimeContext(
     listShellRunUpdates: (sessionId) => runtime.listShellRunUpdates(sessionId),
     goalManager,
     goalContinuation,
-    onboarding: createApiKeyOnboardingSurface({ connectionStore, credentialStore, fetchModels: fetchProviderModels }),
+    onboarding: createApiKeyOnboardingSurface({
+      connectionStore,
+      credentialStore,
+      fetchModels: fetchProviderModels,
+    }),
     recap,
     foreignSessions,
     close: async () => {

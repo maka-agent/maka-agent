@@ -1,9 +1,4 @@
-export type TimeRange =
-  | '24h'
-  | '7d'
-  | '30d'
-  | 'all'
-  | { from: number; to: number };
+export type TimeRange = '24h' | '7d' | '30d' | 'all' | { from: number; to: number };
 
 export type UsageGroupBy = 'provider' | 'model' | 'tool' | 'day' | 'hour';
 
@@ -277,7 +272,12 @@ export interface ContextBudgetDiagnostic {
   historyAroundEstimatedTokens?: number;
   historyAroundSkippedEvents?: number;
   synthesisCacheEnabled?: boolean;
-  synthesisCacheMode?: 'off' | 'lookup' | 'read_write' | 'write_only' | 'fallback_archive_retrieval';
+  synthesisCacheMode?:
+    | 'off'
+    | 'lookup'
+    | 'read_write'
+    | 'write_only'
+    | 'fallback_archive_retrieval';
   synthesisCacheBlocksLoaded?: number;
   synthesisCacheLoadSkipped?: number;
   synthesisCacheLoadSkippedReasonCounts?: Record<string, number>;

@@ -7,30 +7,45 @@ describe('maka run session selection', () => {
   test('new runs canonicalize the explicit cwd or process cwd', async () => {
     const deps = canonicalizer({ '/link': '/repo', '/process': '/process-real' });
 
-    assert.deepEqual(await selectMakaRunSession({
-      sessions: [],
-      continueLatest: false,
-      explicitCwd: '/link',
-      processCwd: '/process',
-      thinkingSpecified: false,
-    }, deps), { kind: 'new', cwd: '/repo' });
-    assert.deepEqual(await selectMakaRunSession({
-      sessions: [],
-      continueLatest: false,
-      processCwd: '/process',
-      thinkingSpecified: false,
-    }, deps), { kind: 'new', cwd: '/process-real' });
+    assert.deepEqual(
+      await selectMakaRunSession(
+        {
+          sessions: [],
+          continueLatest: false,
+          explicitCwd: '/link',
+          processCwd: '/process',
+          thinkingSpecified: false,
+        },
+        deps,
+      ),
+      { kind: 'new', cwd: '/repo' },
+    );
+    assert.deepEqual(
+      await selectMakaRunSession(
+        {
+          sessions: [],
+          continueLatest: false,
+          processCwd: '/process',
+          thinkingSpecified: false,
+        },
+        deps,
+      ),
+      { kind: 'new', cwd: '/process-real' },
+    );
   });
 
   test('resume uses the stored canonical cwd and ignores implicit process cwd', async () => {
     const stored = session({ id: 'resume-me', cwd: '/stored-link' });
-    const selected = await selectMakaRunSession({
-      sessions: [stored],
-      resumeId: stored.id,
-      continueLatest: false,
-      processCwd: '/unrelated-process-cwd',
-      thinkingSpecified: false,
-    }, canonicalizer({ '/stored-link': '/repo' }));
+    const selected = await selectMakaRunSession(
+      {
+        sessions: [stored],
+        resumeId: stored.id,
+        continueLatest: false,
+        processCwd: '/unrelated-process-cwd',
+        thinkingSpecified: false,
+      },
+      canonicalizer({ '/stored-link': '/repo' }),
+    );
 
     assert.equal(selected.kind, 'existing');
     assert.equal(selected.cwd, '/repo');
@@ -46,51 +61,78 @@ describe('maka run session selection', () => {
       '/other': '/other',
     });
 
-    const selected = await selectMakaRunSession({
-      sessions: [stored],
-      resumeId: stored.id,
-      continueLatest: false,
-      explicitCwd: '/explicit-link',
-      processCwd: '/ignored',
-      thinkingSpecified: false,
-    }, deps);
+    const selected = await selectMakaRunSession(
+      {
+        sessions: [stored],
+        resumeId: stored.id,
+        continueLatest: false,
+        explicitCwd: '/explicit-link',
+        processCwd: '/ignored',
+        thinkingSpecified: false,
+      },
+      deps,
+    );
     assert.equal(selected.cwd, '/repo');
 
-    await assert.rejects(selectMakaRunSession({
-      sessions: [stored],
-      resumeId: stored.id,
-      continueLatest: false,
-      explicitCwd: '/other',
-      processCwd: '/ignored',
-      thinkingSpecified: false,
-    }, deps), /--cwd conflicts/);
+    await assert.rejects(
+      selectMakaRunSession(
+        {
+          sessions: [stored],
+          resumeId: stored.id,
+          continueLatest: false,
+          explicitCwd: '/other',
+          processCwd: '/ignored',
+          thinkingSpecified: false,
+        },
+        deps,
+      ),
+      /--cwd conflicts/,
+    );
   });
 
   test('resume rejects missing cwd, ask mode, unsupported backend, and explicit config conflicts', async () => {
     const deps = canonicalizer({ '/repo': '/repo' });
     const base = session({ id: 'resume-me', cwd: '/repo', thinkingLevel: 'high' });
 
-    await assert.rejects(selectMakaRunSession({
-      sessions: [session({ id: 'resume-me', cwd: undefined })],
-      resumeId: 'resume-me',
-      continueLatest: false,
-      processCwd: '/ignored',
-      thinkingSpecified: false,
-    }, deps), /has no stored cwd/);
-    await assert.rejects(selectMakaRunSession({
-      sessions: [session({ id: 'resume-me', permissionMode: 'ask' })],
-      resumeId: 'resume-me',
-      continueLatest: false,
-      processCwd: '/ignored',
-      thinkingSpecified: false,
-    }, deps), /interactive permission mode ask/);
-    await assert.rejects(selectMakaRunSession({
-      sessions: [session({ id: 'resume-me', backend: 'pi-agent' })],
-      resumeId: 'resume-me',
-      continueLatest: false,
-      processCwd: '/ignored',
-      thinkingSpecified: false,
-    }, deps), /unsupported backend/);
+    await assert.rejects(
+      selectMakaRunSession(
+        {
+          sessions: [session({ id: 'resume-me', cwd: undefined })],
+          resumeId: 'resume-me',
+          continueLatest: false,
+          processCwd: '/ignored',
+          thinkingSpecified: false,
+        },
+        deps,
+      ),
+      /has no stored cwd/,
+    );
+    await assert.rejects(
+      selectMakaRunSession(
+        {
+          sessions: [session({ id: 'resume-me', permissionMode: 'ask' })],
+          resumeId: 'resume-me',
+          continueLatest: false,
+          processCwd: '/ignored',
+          thinkingSpecified: false,
+        },
+        deps,
+      ),
+      /interactive permission mode ask/,
+    );
+    await assert.rejects(
+      selectMakaRunSession(
+        {
+          sessions: [session({ id: 'resume-me', backend: 'pi-agent' })],
+          resumeId: 'resume-me',
+          continueLatest: false,
+          processCwd: '/ignored',
+          thinkingSpecified: false,
+        },
+        deps,
+      ),
+      /unsupported backend/,
+    );
 
     for (const conflict of [
       { explicitConnection: 'other' },
@@ -98,37 +140,46 @@ describe('maka run session selection', () => {
       { thinkingSpecified: true, explicitThinking: undefined },
       { explicitPermissionMode: 'bypass' as const },
     ]) {
-      await assert.rejects(selectMakaRunSession({
-        sessions: [base],
-        resumeId: base.id,
-        continueLatest: false,
-        processCwd: '/ignored',
-        thinkingSpecified: false,
-        ...conflict,
-      }, deps), /conflicts with resumed session/);
+      await assert.rejects(
+        selectMakaRunSession(
+          {
+            sessions: [base],
+            resumeId: base.id,
+            continueLatest: false,
+            processCwd: '/ignored',
+            thinkingSpecified: false,
+            ...conflict,
+          },
+          deps,
+        ),
+        /conflicts with resumed session/,
+      );
     }
   });
 
   test('continue selects by lastMessageAt descending then id ascending after cwd filtering', async () => {
-    const selected = await selectMakaRunSession({
-      sessions: [
-        session({ id: 'archived', lastMessageAt: 500, isArchived: true }),
-        session({ id: 'done', lastMessageAt: 500, status: 'done' }),
-        session({ id: 'ask', lastMessageAt: 500, permissionMode: 'ask' }),
-        session({ id: 'missing-time', lastMessageAt: undefined }),
-        session({ id: 'inaccessible', cwd: '/missing', lastMessageAt: 400 }),
-        session({ id: 'b', cwd: '/repo-link', lastMessageAt: 300 }),
-        session({ id: 'a', cwd: '/repo', lastMessageAt: 300, status: 'aborted' }),
-        session({ id: 'older', cwd: '/repo', lastMessageAt: 200 }),
-      ],
-      continueLatest: true,
-      processCwd: '/process-link',
-      thinkingSpecified: false,
-    }, canonicalizer({
-      '/process-link': '/repo',
-      '/repo-link': '/repo',
-      '/repo': '/repo',
-    }));
+    const selected = await selectMakaRunSession(
+      {
+        sessions: [
+          session({ id: 'archived', lastMessageAt: 500, isArchived: true }),
+          session({ id: 'done', lastMessageAt: 500, status: 'done' }),
+          session({ id: 'ask', lastMessageAt: 500, permissionMode: 'ask' }),
+          session({ id: 'missing-time', lastMessageAt: undefined }),
+          session({ id: 'inaccessible', cwd: '/missing', lastMessageAt: 400 }),
+          session({ id: 'b', cwd: '/repo-link', lastMessageAt: 300 }),
+          session({ id: 'a', cwd: '/repo', lastMessageAt: 300, status: 'aborted' }),
+          session({ id: 'older', cwd: '/repo', lastMessageAt: 200 }),
+        ],
+        continueLatest: true,
+        processCwd: '/process-link',
+        thinkingSpecified: false,
+      },
+      canonicalizer({
+        '/process-link': '/repo',
+        '/repo-link': '/repo',
+        '/repo': '/repo',
+      }),
+    );
 
     assert.equal(selected.kind, 'existing');
     assert.equal(selected.kind === 'existing' ? selected.session.id : undefined, 'a');
@@ -136,12 +187,18 @@ describe('maka run session selection', () => {
   });
 
   test('continue returns a preflight failure when no cwd-compatible session exists', async () => {
-    await assert.rejects(selectMakaRunSession({
-      sessions: [session({ id: 'other', cwd: '/other', lastMessageAt: 10 })],
-      continueLatest: true,
-      processCwd: '/repo',
-      thinkingSpecified: false,
-    }, canonicalizer({ '/repo': '/repo', '/other': '/other' })), /no compatible session found/);
+    await assert.rejects(
+      selectMakaRunSession(
+        {
+          sessions: [session({ id: 'other', cwd: '/other', lastMessageAt: 10 })],
+          continueLatest: true,
+          processCwd: '/repo',
+          thinkingSpecified: false,
+        },
+        canonicalizer({ '/repo': '/repo', '/other': '/other' }),
+      ),
+      /no compatible session found/,
+    );
   });
 });
 

@@ -87,11 +87,7 @@ export async function runPromptControlExperiment(
   await mkdir(eventsDir, { recursive: true });
   await mkdir(jobsDir, { recursive: true });
 
-  const {
-    agentCwdPath,
-    programPath,
-    systemPromptPath,
-  } = await ensurePromptOptimizationPromptRepo({
+  const { agentCwdPath, programPath, systemPromptPath } = await ensurePromptOptimizationPromptRepo({
     promptRepoDir,
     program: CONTROL_PROGRAM,
     systemPrompt: CONTROL_BASE_SYSTEM_PROMPT,
@@ -160,7 +156,11 @@ export async function runPromptControlExperiment(
 }
 
 function createControlHarborRunner(eventsDir: string) {
-  return async ({ roundId, task, systemPrompt }: HarborTaskRunInput): Promise<HarborTaskRunOutput> => {
+  return async ({
+    roundId,
+    task,
+    systemPrompt,
+  }: HarborTaskRunInput): Promise<HarborTaskRunOutput> => {
     const hasRule = systemPrompt.includes(CONTROL_RULE_MARKER);
     const errorClass = hasRule ? undefined : `missing_${CONTROL_RULE_MARKER}`;
     const runtimeEventsPath = join(eventsDir, `${roundId}__${task.id}.jsonl`);
@@ -199,7 +199,11 @@ function createControlHarborRunner(eventsDir: string) {
   };
 }
 
-function modelVisibleControlEvent(roundId: string, taskId: string, errorClass: string | undefined): unknown {
+function modelVisibleControlEvent(
+  roundId: string,
+  taskId: string,
+  errorClass: string | undefined,
+): unknown {
   return {
     id: `control-${roundId}-${taskId}`,
     invocationId: `inv-${roundId}-${taskId}`,
@@ -212,9 +216,7 @@ function modelVisibleControlEvent(roundId: string, taskId: string, errorClass: s
     author: 'agent',
     content: {
       kind: 'text',
-      text: errorClass
-        ? `control verifier failed with ${errorClass}`
-        : 'control verifier passed',
+      text: errorClass ? `control verifier failed with ${errorClass}` : 'control verifier passed',
     },
   };
 }
@@ -263,17 +265,19 @@ function controlTokenSummary(): HarborCellTokenSummary {
 }
 
 function renderPromptControlReport(result: PromptControlExperimentResult): string {
-  return [
-    '# RSI Prompt Control Experiment',
-    '',
-    `run id: ${result.runId}`,
-    `decision: ${result.decision?.decision ?? 'none'} (${result.decision?.reason ?? 'none'})`,
-    `learned rule: ${result.learnedRulePresent ? CONTROL_RULE_MARKER : 'missing'}`,
-    '',
-    `held-in before: ${result.heldInBefore.passEligibleRate}`,
-    `held-in after: ${result.heldInAfter.passEligibleRate}`,
-    `held-out after: ${result.heldOutAfter.passEligibleRate}`,
-    '',
-    `result: ${result.resultPath}`,
-  ].join('\n') + '\n';
+  return (
+    [
+      '# RSI Prompt Control Experiment',
+      '',
+      `run id: ${result.runId}`,
+      `decision: ${result.decision?.decision ?? 'none'} (${result.decision?.reason ?? 'none'})`,
+      `learned rule: ${result.learnedRulePresent ? CONTROL_RULE_MARKER : 'missing'}`,
+      '',
+      `held-in before: ${result.heldInBefore.passEligibleRate}`,
+      `held-in after: ${result.heldInAfter.passEligibleRate}`,
+      `held-out after: ${result.heldOutAfter.passEligibleRate}`,
+      '',
+      `result: ${result.resultPath}`,
+    ].join('\n') + '\n'
+  );
 }

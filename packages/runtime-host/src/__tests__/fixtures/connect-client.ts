@@ -1,9 +1,6 @@
 import { connectOrSpawnRuntimeHostWithDependencies } from '../../client/connect-or-spawn.js';
 import { launchDetachedRuntimeHostCandidate } from '../../client/launcher.js';
-import {
-  RUNTIME_HOST_PROTOCOL_VERSION,
-  type ClientSurface,
-} from '../../protocol/index.js';
+import { RUNTIME_HOST_PROTOCOL_VERSION, type ClientSurface } from '../../protocol/index.js';
 
 const [rootPath, surface] = process.argv.slice(2);
 if (!rootPath || !isClientSurface(surface)) {

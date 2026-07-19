@@ -37,7 +37,8 @@ const DEFAULT_MIN_SAVINGS_RATIO = 0.05;
 const DEFAULT_COMPACT_CALL_TOKEN_COST_WEIGHT = 1;
 const DEFAULT_MAX_CONSECUTIVE_INVALID_SUMMARIES = 2;
 const DEFAULT_INVALID_SUMMARY_COOLDOWN_STEPS = 8;
-const PRIVATE_VERIFIER_PATTERN = /\b(hidden|private|official)\s+(verifier|evaluation|eval|test|assertion|oracle)\b/i;
+const PRIVATE_VERIFIER_PATTERN =
+  /\b(hidden|private|official)\s+(verifier|evaluation|eval|test|assertion|oracle)\b/i;
 const SUMMARY_FIELD_LABELS = {
   actionInProgress: ['action_in_progress', 'action in progress'],
 } as const;
@@ -96,7 +97,15 @@ export interface SemanticCompactControllerState {
 
 export interface SemanticCompactStateCard {
   /** @deprecated V1/V2 read compatibility only. New semantic blocks never generate or render state cards. */
-  kind: 'process' | 'vm' | 'artifact' | 'command' | 'constraint' | 'verifier' | 'next_action' | 'generic';
+  kind:
+    | 'process'
+    | 'vm'
+    | 'artifact'
+    | 'command'
+    | 'constraint'
+    | 'verifier'
+    | 'next_action'
+    | 'generic';
   text: string;
   sourceIds: string[];
 }
@@ -122,7 +131,12 @@ export interface SemanticCompactBlock {
   highWaterName: string;
   highWaterSeq: number;
   trigger: {
-    reason: 'high_water' | 'force_ratio' | 'predictive_growth' | 'reactive_prompt_too_long' | 'manual_test';
+    reason:
+      | 'high_water'
+      | 'force_ratio'
+      | 'predictive_growth'
+      | 'reactive_prompt_too_long'
+      | 'manual_test';
     stepNumber?: number;
     estimatedTokensBefore?: number;
     thresholdTokens?: number;
@@ -251,7 +265,10 @@ export async function rewriteSemanticCompactInMessages(
       }),
     };
   }
-  const predecessorMessageIndex = findSemanticProjectionMessageIndex(messages, headAnchor.messageIndex);
+  const predecessorMessageIndex = findSemanticProjectionMessageIndex(
+    messages,
+    headAnchor.messageIndex,
+  );
   if (input.predecessorBlock && predecessorMessageIndex === undefined) {
     return rejected(messages, index, 'predecessor_projection_missing');
   }
@@ -261,7 +278,9 @@ export async function rewriteSemanticCompactInMessages(
     messages,
     policy: selectionPolicy,
     headAnchor,
-    ...(predecessorMessageIndex !== undefined ? { afterMessageIndex: predecessorMessageIndex } : {}),
+    ...(predecessorMessageIndex !== undefined
+      ? { afterMessageIndex: predecessorMessageIndex }
+      : {}),
   });
   if (selection.decision !== 'selected') {
     const decision = selection.decision === 'failedOpen' ? 'failedOpen' : 'unchanged';
@@ -297,12 +316,17 @@ export async function rewriteSemanticCompactInMessages(
       stepNumber: input.stepNumber,
       estimatedTokensBefore: index.estimatedTokens,
       ...(policy.maxActiveEstimatedTokens !== undefined
-        ? { thresholdTokens: Math.floor(policy.maxActiveEstimatedTokens * finiteRatio(policy.highWaterRatio, 0.8)) }
+        ? {
+            thresholdTokens: Math.floor(
+              policy.maxActiveEstimatedTokens * finiteRatio(policy.highWaterRatio, 0.8),
+            ),
+          }
         : {}),
     },
     now: input.now,
     charsPerToken,
-    requestShapeHashBefore: input.requestShapeHashBefore ?? input.requestShapeHashForMessages?.(messages),
+    requestShapeHashBefore:
+      input.requestShapeHashBefore ?? input.requestShapeHashForMessages?.(messages),
     preActiveContextEstimatedTokens: index.estimatedTokens,
   });
   const validation = validateActiveFullCompactBlockForSourceIndex(validationBlock, index, {
@@ -333,21 +357,25 @@ export async function rewriteSemanticCompactInMessages(
 
   let summary: CompactSummaryResult;
   try {
-    summary = await callSummarizerWithTimeout(input.summarizer, {
-      system: semanticCompactSystemPrompt(policy),
-      messages: buildSummarizerMessages({
-        selection,
-        messages,
-        index,
-        headAnchor,
-        ...(predecessorMessageIndex !== undefined ? { predecessorMessageIndex } : {}),
-        ...(input.predecessorBlock ? { predecessorBlock: input.predecessorBlock } : {}),
-        policy,
-        charsPerToken,
-      }),
-      maxOutputTokens: Math.floor(policy.maxCompactCallTokens ?? DEFAULT_MAX_COMPACT_CALL_TOKENS),
-      abortSignal: input.abortSignal,
-    }, policy.timeoutMs);
+    summary = await callSummarizerWithTimeout(
+      input.summarizer,
+      {
+        system: semanticCompactSystemPrompt(policy),
+        messages: buildSummarizerMessages({
+          selection,
+          messages,
+          index,
+          headAnchor,
+          ...(predecessorMessageIndex !== undefined ? { predecessorMessageIndex } : {}),
+          ...(input.predecessorBlock ? { predecessorBlock: input.predecessorBlock } : {}),
+          policy,
+          charsPerToken,
+        }),
+        maxOutputTokens: Math.floor(policy.maxCompactCallTokens ?? DEFAULT_MAX_COMPACT_CALL_TOKENS),
+        abortSignal: input.abortSignal,
+      },
+      policy.timeoutMs,
+    );
   } catch {
     recordInvalidSummary(input.controllerState, policy, 'summarizer_failed', input.stepNumber);
     return rejected(messages, index, 'summarizer_failed');
@@ -374,26 +402,44 @@ export async function rewriteSemanticCompactInMessages(
         Math.max(
           80,
           Math.floor(
-            (policy.maxAcceptedProjectionEstimatedTokens
-              ?? policy.maxSummaryEstimatedTokens
-              ?? DEFAULT_MAX_SUMMARY_TOKENS) * charsPerToken / 2,
+            ((policy.maxAcceptedProjectionEstimatedTokens ??
+              policy.maxSummaryEstimatedTokens ??
+              DEFAULT_MAX_SUMMARY_TOKENS) *
+              charsPerToken) /
+              2,
           ),
         ),
       );
   if (!structuredSummary) {
-    recordInvalidSummary(input.controllerState, policy, 'fallback_projection_empty', input.stepNumber);
+    recordInvalidSummary(
+      input.controllerState,
+      policy,
+      'fallback_projection_empty',
+      input.stepNumber,
+    );
     return rejected(messages, index, 'fallback_projection_empty', compactCallUsage);
   }
   const summaryText = renderStructuredSemanticSummary(structuredSummary);
-  if (newPrivateVerifierSurface(
-    `${summary.text}\n${summaryText}`,
-    selectedSourceText({ startMessageIndex: headAnchor.messageIndex, endMessageIndex: selection.endMessageIndex }, messages),
-  )) {
-    recordInvalidSummary(input.controllerState, policy, 'private_verifier_surface', input.stepNumber);
+  if (
+    newPrivateVerifierSurface(
+      `${summary.text}\n${summaryText}`,
+      selectedSourceText(
+        { startMessageIndex: headAnchor.messageIndex, endMessageIndex: selection.endMessageIndex },
+        messages,
+      ),
+    )
+  ) {
+    recordInvalidSummary(
+      input.controllerState,
+      policy,
+      'private_verifier_surface',
+      input.stepNumber,
+    );
     return rejected(messages, index, 'private_verifier_surface', compactCallUsage);
   }
 
-  const requestShapeHashBefore = input.requestShapeHashBefore ?? input.requestShapeHashForMessages?.(messages);
+  const requestShapeHashBefore =
+    input.requestShapeHashBefore ?? input.requestShapeHashForMessages?.(messages);
   const block = buildSemanticCompactBlock({
     input,
     index,
@@ -409,24 +455,32 @@ export async function rewriteSemanticCompactInMessages(
     charsPerToken,
     projectionFormat: parsedSummary.ok ? 'structured' : 'bounded_text_fallback',
   });
-  if (!fitSemanticCompactBlockToAcceptedBudget(
-    block,
-    structuredSummary,
-    policy.maxAcceptedProjectionEstimatedTokens
-      ?? policy.maxSummaryEstimatedTokens
-      ?? DEFAULT_MAX_SUMMARY_TOKENS,
-    charsPerToken,
-  )) {
-    recordInvalidSummary(input.controllerState, policy, 'projection_budget_exceeded', input.stepNumber);
+  if (
+    !fitSemanticCompactBlockToAcceptedBudget(
+      block,
+      structuredSummary,
+      policy.maxAcceptedProjectionEstimatedTokens ??
+        policy.maxSummaryEstimatedTokens ??
+        DEFAULT_MAX_SUMMARY_TOKENS,
+      charsPerToken,
+    )
+  ) {
+    recordInvalidSummary(
+      input.controllerState,
+      policy,
+      'projection_budget_exceeded',
+      input.stepNumber,
+    );
     return rejected(messages, index, 'projection_budget_exceeded', compactCallUsage);
   }
   const replacementMessage = semanticCompactBlockToModelMessage(block);
   const replacementStartMessageIndex = predecessorMessageIndex ?? selection.startMessageIndex;
-  const predecessorEstimatedTokens = predecessorMessageIndex === undefined
-    ? 0
-    : index.entries
-        .filter((entry) => entry.messageIndex === predecessorMessageIndex)
-        .reduce((total, entry) => total + entry.estimatedTokens, 0);
+  const predecessorEstimatedTokens =
+    predecessorMessageIndex === undefined
+      ? 0
+      : index.entries
+          .filter((entry) => entry.messageIndex === predecessorMessageIndex)
+          .reduce((total, entry) => total + entry.estimatedTokens, 0);
   const replacementMessages = [
     ...messages.slice(0, replacementStartMessageIndex),
     replacementMessage,
@@ -480,7 +534,11 @@ export async function rewriteSemanticCompactInMessages(
   }
 
   block.acceptance = primaryWarningReason
-    ? { decision: 'accepted', reason: primaryWarningReason, validationReasons: uniqueWarningReasons }
+    ? {
+        decision: 'accepted',
+        reason: primaryWarningReason,
+        validationReasons: uniqueWarningReasons,
+      }
     : { decision: 'accepted' };
   recordAcceptedSemanticCompact(input.controllerState, block);
   return {
@@ -502,7 +560,9 @@ export async function rewriteSemanticCompactInMessages(
         preservedTailEstimatedTokens,
         acceptedProjectionEstimatedTokens: block.projection?.estimatedTokens,
         compactCallUsage: block.compactCallUsage,
-        ...(primaryWarningReason ? { reason: primaryWarningReason, skippedReasonCounts: warningReasonCounts } : {}),
+        ...(primaryWarningReason
+          ? { reason: primaryWarningReason, skippedReasonCounts: warningReasonCounts }
+          : {}),
         validationReasonCounts: validation.reasonCounts,
       }),
       ...(requestShapeHashBefore && requestShapeHashAfter
@@ -589,8 +649,8 @@ function policyForSemanticSelection(
     highWaterRatio: policy.highWaterRatio,
     maxActiveEstimatedTokens: policy.maxActiveEstimatedTokens,
     minSafePrefixEstimatedTokens: successor
-      ? policy.minNewPrefixEstimatedTokens ?? DEFAULT_MIN_NEW_PREFIX_TOKENS
-      : policy.minSafePrefixEstimatedTokens ?? DEFAULT_MIN_SAFE_PREFIX_TOKENS,
+      ? (policy.minNewPrefixEstimatedTokens ?? DEFAULT_MIN_NEW_PREFIX_TOKENS)
+      : (policy.minSafePrefixEstimatedTokens ?? DEFAULT_MIN_SAFE_PREFIX_TOKENS),
     // Attention compaction must not collapse the request to only an anchor and
     // a state-like projection. Keep the latest completed provider episode
     // verbatim so the next inference retains immediate execution momentum.
@@ -642,9 +702,11 @@ function buildSummarizerMessages(input: {
   return [
     input.messages[input.headAnchor.messageIndex]!,
     ...(input.predecessorMessageIndex !== undefined
-      ? [input.predecessorBlock
-          ? semanticCompactBlockToModelMessage(input.predecessorBlock)
-          : input.messages[input.predecessorMessageIndex]!]
+      ? [
+          input.predecessorBlock
+            ? semanticCompactBlockToModelMessage(input.predecessorBlock)
+            : input.messages[input.predecessorMessageIndex]!,
+        ]
       : []),
     ...input.messages.slice(input.selection.startMessageIndex, input.selection.endMessageIndex + 1),
     { role: 'user', content: request } as ModelMessage,
@@ -677,31 +739,44 @@ function buildSemanticCompactBlock(input: {
   projectionFormat: 'structured' | 'bounded_text_fallback';
 }): SemanticCompactBlock {
   const policy = input.input.policy!;
-  const archiveRefs = uniqueArchiveRefs(input.selection.entries.map((entry) => entry.archiveRef).filter(isArchiveRef));
-  const sourceRefs = input.selection.entries.map((entry): ActiveFullCompactSourceRef => ({
-    kind: entry.archiveRef ? 'active_archive_placeholder' : entry.runtimeEventId ? 'runtime_event' : 'provider_message',
-    sourceId: entry.sourceId,
-    messageIndex: entry.messageIndex,
-    ...(entry.partIndex !== undefined ? { partIndex: entry.partIndex } : {}),
-    sessionId: input.input.sessionId,
-    turnId: entry.turnId,
-    ...(entry.runtimeEventId ? { runtimeEventId: entry.runtimeEventId } : {}),
-    ...(entry.toolCallId ? { toolCallId: entry.toolCallId } : {}),
-    ...(entry.toolName ? { toolName: entry.toolName } : {}),
-    contentKind: entry.contentKind,
-    bodySha256: entry.bodySha256,
-    ...(entry.archiveRef ? { archiveRef: entry.archiveRef } : {}),
-  }));
+  const archiveRefs = uniqueArchiveRefs(
+    input.selection.entries.map((entry) => entry.archiveRef).filter(isArchiveRef),
+  );
+  const sourceRefs = input.selection.entries.map(
+    (entry): ActiveFullCompactSourceRef => ({
+      kind: entry.archiveRef
+        ? 'active_archive_placeholder'
+        : entry.runtimeEventId
+          ? 'runtime_event'
+          : 'provider_message',
+      sourceId: entry.sourceId,
+      messageIndex: entry.messageIndex,
+      ...(entry.partIndex !== undefined ? { partIndex: entry.partIndex } : {}),
+      sessionId: input.input.sessionId,
+      turnId: entry.turnId,
+      ...(entry.runtimeEventId ? { runtimeEventId: entry.runtimeEventId } : {}),
+      ...(entry.toolCallId ? { toolCallId: entry.toolCallId } : {}),
+      ...(entry.toolName ? { toolName: entry.toolName } : {}),
+      contentKind: entry.contentKind,
+      bodySha256: entry.bodySha256,
+      ...(entry.archiveRef ? { archiveRef: entry.archiveRef } : {}),
+    }),
+  );
   const preservedTailIndexes = preservedTailMessageIndexes(input.index, input.selection);
-  const preservedTailEntries = input.index.entries.filter((entry) => preservedTailIndexes.includes(entry.messageIndex));
+  const preservedTailEntries = input.index.entries.filter((entry) =>
+    preservedTailIndexes.includes(entry.messageIndex),
+  );
   const newCoverage = activeFullCompactCoverageFromEntries(input.selection.entries);
   const coverage = input.predecessorBlock
     ? mergeSemanticCoverage(input.predecessorBlock.coverage, newCoverage)
     : newCoverage;
-  const cumulativeCoverageDigest = sha256(stableStringify({
-    predecessor: input.predecessorBlock?.cumulativeCoverageDigest ?? input.predecessorBlock?.blockId,
-    newCoverage,
-  }));
+  const cumulativeCoverageDigest = sha256(
+    stableStringify({
+      predecessor:
+        input.predecessorBlock?.cumulativeCoverageDigest ?? input.predecessorBlock?.blockId,
+      newCoverage,
+    }),
+  );
   const draft = {
     sessionId: input.input.sessionId,
     turnId: input.input.turnId,
@@ -727,7 +802,11 @@ function buildSemanticCompactBlock(input: {
       stepNumber: input.input.stepNumber,
       estimatedTokensBefore: input.index.estimatedTokens,
       ...(policy.maxActiveEstimatedTokens !== undefined
-        ? { thresholdTokens: Math.floor(policy.maxActiveEstimatedTokens * finiteRatio(policy.highWaterRatio, 0.8)) }
+        ? {
+            thresholdTokens: Math.floor(
+              policy.maxActiveEstimatedTokens * finiteRatio(policy.highWaterRatio, 0.8),
+            ),
+          }
         : {}),
     },
     coverage,
@@ -738,16 +817,20 @@ function buildSemanticCompactBlock(input: {
       messageSignature: input.headAnchor.messageSignature,
       bodySha256: input.headAnchor.bodySha256,
       estimatedTokens: input.headAnchor.estimatedTokens,
-      sourceIds: uniqueSorted(input.index.entries
-        .filter((entry) => entry.messageIndex === input.headAnchor.messageIndex)
-        .map((entry) => entry.sourceId)),
+      sourceIds: uniqueSorted(
+        input.index.entries
+          .filter((entry) => entry.messageIndex === input.headAnchor.messageIndex)
+          .map((entry) => entry.sourceId),
+      ),
     },
     ...(input.predecessorBlock ? { predecessorBlockId: input.predecessorBlock.blockId } : {}),
     sourceRefs,
     ...(archiveRefs.length > 0 ? { archiveRefs } : {}),
     preservedTail: {
       messageIndexes: preservedTailIndexes,
-      toolCallIds: uniqueSorted(preservedTailEntries.map((entry) => entry.toolCallId).filter(nonEmpty)),
+      toolCallIds: uniqueSorted(
+        preservedTailEntries.map((entry) => entry.toolCallId).filter(nonEmpty),
+      ),
       sourceIds: uniqueSorted(preservedTailEntries.map((entry) => entry.sourceId)),
     },
     summary: {
@@ -758,15 +841,19 @@ function buildSemanticCompactBlock(input: {
     },
     projection: {
       format: input.projectionFormat,
-      generationBudgetTokens: Math.floor(policy.maxCompactCallTokens ?? DEFAULT_MAX_COMPACT_CALL_TOKENS),
+      generationBudgetTokens: Math.floor(
+        policy.maxCompactCallTokens ?? DEFAULT_MAX_COMPACT_CALL_TOKENS,
+      ),
       acceptedBudgetTokens: Math.floor(
-        policy.maxAcceptedProjectionEstimatedTokens
-          ?? policy.maxSummaryEstimatedTokens
-          ?? DEFAULT_MAX_SUMMARY_TOKENS,
+        policy.maxAcceptedProjectionEstimatedTokens ??
+          policy.maxSummaryEstimatedTokens ??
+          DEFAULT_MAX_SUMMARY_TOKENS,
       ),
       estimatedTokens: 0,
     },
-    ...(input.requestShapeHashBefore ? { requestShapeHashBefore: input.requestShapeHashBefore } : {}),
+    ...(input.requestShapeHashBefore
+      ? { requestShapeHashBefore: input.requestShapeHashBefore }
+      : {}),
     preActiveContextEstimatedTokens: input.index.estimatedTokens,
     postReplacementEstimatedTokens: input.index.estimatedTokens,
     estimatedTokensSavedSigned: 0,
@@ -782,30 +869,52 @@ function buildSemanticCompactBlock(input: {
     input.charsPerToken,
   );
   if (block.projection) {
-    block.projection.estimatedTokens = estimateTokens(renderSemanticCompactBlock(block).length, input.charsPerToken);
+    block.projection.estimatedTokens = estimateTokens(
+      renderSemanticCompactBlock(block).length,
+      input.charsPerToken,
+    );
   }
-  block.estimatedTokensSavedSigned = input.index.estimatedTokens - block.postReplacementEstimatedTokens;
+  block.estimatedTokensSavedSigned =
+    input.index.estimatedTokens - block.postReplacementEstimatedTokens;
   return block;
 }
 
-function semanticSavingsRejectionReason(block: SemanticCompactBlock, policy: SemanticCompactPolicy): string | undefined {
-  const minSavingsTokens = Math.max(0, Math.floor(policy.minSavingsTokens ?? DEFAULT_MIN_SAVINGS_TOKENS));
+function semanticSavingsRejectionReason(
+  block: SemanticCompactBlock,
+  policy: SemanticCompactPolicy,
+): string | undefined {
+  const minSavingsTokens = Math.max(
+    0,
+    Math.floor(policy.minSavingsTokens ?? DEFAULT_MIN_SAVINGS_TOKENS),
+  );
   if (block.estimatedTokensSavedSigned < minSavingsTokens) return 'below_min_savings_tokens';
   const minSavingsRatio = Math.max(0, policy.minSavingsRatio ?? DEFAULT_MIN_SAVINGS_RATIO);
-  const savingsRatio = block.preActiveContextEstimatedTokens > 0
-    ? block.estimatedTokensSavedSigned / block.preActiveContextEstimatedTokens
-    : 0;
+  const savingsRatio =
+    block.preActiveContextEstimatedTokens > 0
+      ? block.estimatedTokensSavedSigned / block.preActiveContextEstimatedTokens
+      : 0;
   if (savingsRatio < minSavingsRatio) return 'below_min_savings_ratio';
-  const minNetSavingsTokens = Math.max(0, Math.floor(policy.minNetSavingsTokens ?? minSavingsTokens));
-  if ((block.estimatedNetTokensSavedSigned ?? block.estimatedTokensSavedSigned) < minNetSavingsTokens) {
+  const minNetSavingsTokens = Math.max(
+    0,
+    Math.floor(policy.minNetSavingsTokens ?? minSavingsTokens),
+  );
+  if (
+    (block.estimatedNetTokensSavedSigned ?? block.estimatedTokensSavedSigned) < minNetSavingsTokens
+  ) {
     return 'below_min_net_savings_tokens';
   }
   return undefined;
 }
 
-function estimateSemanticNetTokensSaved(block: SemanticCompactBlock, policy: SemanticCompactPolicy): number {
+function estimateSemanticNetTokensSaved(
+  block: SemanticCompactBlock,
+  policy: SemanticCompactPolicy,
+): number {
   const compactCallTokens = block.compactCallUsage?.totalTokens ?? 0;
-  const weight = finiteNonNegativeNumber(policy.compactCallTokenCostWeight, DEFAULT_COMPACT_CALL_TOKEN_COST_WEIGHT);
+  const weight = finiteNonNegativeNumber(
+    policy.compactCallTokenCostWeight,
+    DEFAULT_COMPACT_CALL_TOKEN_COST_WEIGHT,
+  );
   return block.estimatedTokensSavedSigned - Math.ceil(compactCallTokens * weight);
 }
 
@@ -821,11 +930,18 @@ function semanticCompactBrakeReason(
     state.consecutiveInvalidSummaries = 0;
     delete state.lastInvalidReason;
   }
-  const maxConsecutiveInvalid = Math.floor(policy.maxConsecutiveInvalidSummaries ?? DEFAULT_MAX_CONSECUTIVE_INVALID_SUMMARIES);
+  const maxConsecutiveInvalid = Math.floor(
+    policy.maxConsecutiveInvalidSummaries ?? DEFAULT_MAX_CONSECUTIVE_INVALID_SUMMARIES,
+  );
   if (maxConsecutiveInvalid > 0 && state.consecutiveInvalidSummaries >= maxConsecutiveInvalid) {
-    const cooldownSteps = Math.floor(policy.invalidSummaryCooldownSteps ?? DEFAULT_INVALID_SUMMARY_COOLDOWN_STEPS);
+    const cooldownSteps = Math.floor(
+      policy.invalidSummaryCooldownSteps ?? DEFAULT_INVALID_SUMMARY_COOLDOWN_STEPS,
+    );
     if (cooldownSteps > 0) {
-      state.suppressedUntilStep = Math.max(state.suppressedUntilStep ?? 0, stepNumber + cooldownSteps);
+      state.suppressedUntilStep = Math.max(
+        state.suppressedUntilStep ?? 0,
+        stepNumber + cooldownSteps,
+      );
       return 'semantic_compact_cooldown';
     }
   }
@@ -851,10 +967,21 @@ function recordInvalidSummary(
   state.consecutiveInvalidSummaries += 1;
   state.totalInvalidSummaries += 1;
   state.lastInvalidReason = reason;
-  const maxConsecutiveInvalid = Math.floor(policy.maxConsecutiveInvalidSummaries ?? DEFAULT_MAX_CONSECUTIVE_INVALID_SUMMARIES);
-  const cooldownSteps = Math.floor(policy.invalidSummaryCooldownSteps ?? DEFAULT_INVALID_SUMMARY_COOLDOWN_STEPS);
-  if (maxConsecutiveInvalid > 0 && cooldownSteps > 0 && state.consecutiveInvalidSummaries >= maxConsecutiveInvalid) {
-    state.suppressedUntilStep = Math.max(state.suppressedUntilStep ?? 0, stepNumber + cooldownSteps);
+  const maxConsecutiveInvalid = Math.floor(
+    policy.maxConsecutiveInvalidSummaries ?? DEFAULT_MAX_CONSECUTIVE_INVALID_SUMMARIES,
+  );
+  const cooldownSteps = Math.floor(
+    policy.invalidSummaryCooldownSteps ?? DEFAULT_INVALID_SUMMARY_COOLDOWN_STEPS,
+  );
+  if (
+    maxConsecutiveInvalid > 0 &&
+    cooldownSteps > 0 &&
+    state.consecutiveInvalidSummaries >= maxConsecutiveInvalid
+  ) {
+    state.suppressedUntilStep = Math.max(
+      state.suppressedUntilStep ?? 0,
+      stepNumber + cooldownSteps,
+    );
   }
 }
 
@@ -897,19 +1024,27 @@ function semanticCompactDecisionDiagnosticPatch(input: {
       boundaryKind: 'semanticCompact',
       decision: input.decision,
       ...(input.boundaryIds ? { boundaryIds: input.boundaryIds } : {}),
-      ...(input.coverage ? {
-        coverage: {
-          turnIds: input.coverage.turnIds,
-          runtimeEventIds: input.coverage.runtimeEventIds,
-          toolCallIds: input.coverage.toolCallIds,
-          contentKinds: input.coverage.contentKinds,
-          bodySha256: input.coverage.bodySha256,
-          providerMessageSourceIds: input.coverage.providerMessageSourceIds,
-        },
-      } : {}),
-      ...(input.estimatedTokensBefore !== undefined ? { estimatedTokensBefore: input.estimatedTokensBefore } : {}),
-      ...(input.estimatedTokensAfter !== undefined ? { estimatedTokensAfter: input.estimatedTokensAfter } : {}),
-      ...(input.estimatedTokensSaved !== undefined ? { estimatedTokensSaved: input.estimatedTokensSaved } : {}),
+      ...(input.coverage
+        ? {
+            coverage: {
+              turnIds: input.coverage.turnIds,
+              runtimeEventIds: input.coverage.runtimeEventIds,
+              toolCallIds: input.coverage.toolCallIds,
+              contentKinds: input.coverage.contentKinds,
+              bodySha256: input.coverage.bodySha256,
+              providerMessageSourceIds: input.coverage.providerMessageSourceIds,
+            },
+          }
+        : {}),
+      ...(input.estimatedTokensBefore !== undefined
+        ? { estimatedTokensBefore: input.estimatedTokensBefore }
+        : {}),
+      ...(input.estimatedTokensAfter !== undefined
+        ? { estimatedTokensAfter: input.estimatedTokensAfter }
+        : {}),
+      ...(input.estimatedTokensSaved !== undefined
+        ? { estimatedTokensSaved: input.estimatedTokensSaved }
+        : {}),
       ...(input.candidateEstimatedTokens !== undefined
         ? { candidateEstimatedTokens: input.candidateEstimatedTokens }
         : {}),
@@ -926,7 +1061,9 @@ function semanticCompactDecisionDiagnosticPatch(input: {
       ...(input.reason ? { reason: input.reason } : {}),
       ...(input.failOpenReason ? { failOpenReason: input.failOpenReason } : {}),
       ...(input.skippedReasonCounts ? { skippedReasonCounts: input.skippedReasonCounts } : {}),
-      ...(input.validationReasonCounts ? { validationReasonCounts: input.validationReasonCounts } : {}),
+      ...(input.validationReasonCounts
+        ? { validationReasonCounts: input.validationReasonCounts }
+        : {}),
     }),
   };
 }
@@ -938,7 +1075,10 @@ async function callSummarizerWithTimeout(
 ): Promise<CompactSummaryResult> {
   if (!timeoutMs || timeoutMs <= 0) return Promise.resolve(summarizer(request));
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(new Error('semantic compact summarizer timeout')), timeoutMs);
+  const timer = setTimeout(
+    () => controller.abort(new Error('semantic compact summarizer timeout')),
+    timeoutMs,
+  );
   const parentAbort = () => controller.abort(request.abortSignal?.reason);
   request.abortSignal?.addEventListener('abort', parentAbort, { once: true });
   try {
@@ -955,7 +1095,12 @@ function estimatePostReplacementTokens(
   renderedReplacement: string,
   charsPerToken: number,
 ): number {
-  return Math.max(0, index.estimatedTokens - selectedTokens + estimateTokens(renderedReplacement.length, charsPerToken));
+  return Math.max(
+    0,
+    index.estimatedTokens -
+      selectedTokens +
+      estimateTokens(renderedReplacement.length, charsPerToken),
+  );
 }
 
 function preservedTailMessageIndexes(
@@ -963,7 +1108,11 @@ function preservedTailMessageIndexes(
   selection: { endMessageIndex: number },
 ): number[] {
   const indexes = new Set<number>();
-  for (let cursor = selection.endMessageIndex + 1; cursor < index.providerMessageCount; cursor += 1) {
+  for (
+    let cursor = selection.endMessageIndex + 1;
+    cursor < index.providerMessageCount;
+    cursor += 1
+  ) {
     indexes.add(cursor);
   }
   return [...indexes].sort((a, b) => a - b);
@@ -973,16 +1122,20 @@ function selectedSourceText(
   selection: { startMessageIndex: number; endMessageIndex: number },
   messages: readonly ModelMessage[],
 ): string {
-  return stableStringify(messages.slice(selection.startMessageIndex, selection.endMessageIndex + 1));
+  return stableStringify(
+    messages.slice(selection.startMessageIndex, selection.endMessageIndex + 1),
+  );
 }
 
-function parseSemanticCompactSummary(text: string): {
-  ok: true;
-  summary: SemanticCompactStructuredSummary;
-} | {
-  ok: false;
-  reason: string;
-} {
+function parseSemanticCompactSummary(text: string):
+  | {
+      ok: true;
+      summary: SemanticCompactStructuredSummary;
+    }
+  | {
+      ok: false;
+      reason: string;
+    } {
   const raw = text.trim();
   if (!raw) return { ok: false, reason: 'summary_missing' };
   const jsonText = extractJsonObjectText(raw);
@@ -1006,7 +1159,10 @@ function fallbackSemanticCompactSummary(
   reason: string,
   maxChars = FALLBACK_RAW_SUMMARY_MAX_CHARS,
 ): SemanticCompactStructuredSummary | undefined {
-  const fallbackText = boundedFallbackText(rawText, Math.min(FALLBACK_RAW_SUMMARY_MAX_CHARS, maxChars));
+  const fallbackText = boundedFallbackText(
+    rawText,
+    Math.min(FALLBACK_RAW_SUMMARY_MAX_CHARS, maxChars),
+  );
   if (!fallbackText) return undefined;
   return {
     establishedFindings: [
@@ -1027,7 +1183,9 @@ function renderStructuredSemanticSummary(summary: SemanticCompactStructuredSumma
     ...renderSummaryList('failed_paths', summary.failedPaths),
     ...renderSummaryList('partial_work_product', summary.partialWorkProduct),
     `action_in_progress: ${summary.actionInProgress}`,
-  ].join('\n').trim();
+  ]
+    .join('\n')
+    .trim();
 }
 
 function renderSummaryList(label: string, values: readonly string[]): string[] {
@@ -1067,7 +1225,9 @@ function findSemanticProjectionMessageIndex(
 
 function messageContainsSemanticCompactBlock(message: ModelMessage | undefined): boolean {
   if (!message) return false;
-  return stableStringify((message as { content?: unknown }).content).includes('<maka_semantic_compact_block');
+  return stableStringify((message as { content?: unknown }).content).includes(
+    '<maka_semantic_compact_block',
+  );
 }
 
 function isTruncatedFinishReason(reason: string | undefined): boolean {
@@ -1094,27 +1254,33 @@ function fitSemanticCompactBlockToAcceptedBudget(
     block.summary.text = renderStructuredSemanticSummary(fitted);
     block.summary.nextAction = fitted.actionInProgress;
   };
-  const fits = () => estimateTokens(renderSemanticCompactBlock(block).length, charsPerToken) <= maxTokens;
+  const fits = () =>
+    estimateTokens(renderSemanticCompactBlock(block).length, charsPerToken) <= maxTokens;
   const acceptFit = () => {
     if (
-      block.projection?.format === 'bounded_text_fallback'
-      && !block.summary.text.includes('continuation_notes:')
-    ) return false;
+      block.projection?.format === 'bounded_text_fallback' &&
+      !block.summary.text.includes('continuation_notes:')
+    )
+      return false;
     return updateProjectionEstimate(block, charsPerToken);
   };
   update();
   if (fits() && acceptFit()) return true;
 
-  const boundedListKeys: Array<keyof Pick<
-    SemanticCompactStructuredSummary,
-    'establishedFindings' | 'decisions' | 'failedPaths' | 'partialWorkProduct'
-  >> = ['establishedFindings', 'decisions', 'failedPaths', 'partialWorkProduct'];
+  const boundedListKeys: Array<
+    keyof Pick<
+      SemanticCompactStructuredSummary,
+      'establishedFindings' | 'decisions' | 'failedPaths' | 'partialWorkProduct'
+    >
+  > = ['establishedFindings', 'decisions', 'failedPaths', 'partialWorkProduct'];
   for (const key of boundedListKeys) {
     fitted[key] = fitted[key]
       .slice(0, 4)
-      .map((value) => block.projection?.format === 'bounded_text_fallback'
-        ? boundedFallbackText(value, 240)
-        : boundedCompleteText(value, 240))
+      .map((value) =>
+        block.projection?.format === 'bounded_text_fallback'
+          ? boundedFallbackText(value, 240)
+          : boundedCompleteText(value, 240),
+      )
       .filter(nonEmpty);
   }
   fitted.actionInProgress = boundedCompleteText(fitted.actionInProgress, 320);
@@ -1133,7 +1299,10 @@ function fitSemanticCompactBlockToAcceptedBudget(
 
 function updateProjectionEstimate(block: SemanticCompactBlock, charsPerToken: number): true {
   if (block.projection) {
-    block.projection.estimatedTokens = estimateTokens(renderSemanticCompactBlock(block).length, charsPerToken);
+    block.projection.estimatedTokens = estimateTokens(
+      renderSemanticCompactBlock(block).length,
+      charsPerToken,
+    );
   }
   return true;
 }
@@ -1165,13 +1334,15 @@ function extractJsonObjectText(raw: string): string | undefined {
   return undefined;
 }
 
-function normalizeStructuredSummary(value: unknown): {
-  ok: true;
-  summary: SemanticCompactStructuredSummary;
-} | {
-  ok: false;
-  reason: string;
-} {
+function normalizeStructuredSummary(value: unknown):
+  | {
+      ok: true;
+      summary: SemanticCompactStructuredSummary;
+    }
+  | {
+      ok: false;
+      reason: string;
+    } {
   if (!isRecord(value)) return { ok: false, reason: 'summary_schema_invalid' };
   const actionInProgress = stringField(value, 'action_in_progress');
   if (!actionInProgress) return { ok: false, reason: 'summary_missing_action_in_progress' };
@@ -1187,22 +1358,30 @@ function normalizeStructuredSummary(value: unknown): {
   };
 }
 
-function parseLegacyLabeledSummary(raw: string): {
-  ok: true;
-  summary: SemanticCompactStructuredSummary;
-} | {
-  ok: false;
-  reason: string;
-} {
+function parseLegacyLabeledSummary(raw: string):
+  | {
+      ok: true;
+      summary: SemanticCompactStructuredSummary;
+    }
+  | {
+      ok: false;
+      reason: string;
+    } {
   const actionInProgress = extractSummaryField(raw, SUMMARY_FIELD_LABELS.actionInProgress);
   if (!actionInProgress) return { ok: false, reason: 'summary_missing_action_in_progress' };
   return {
     ok: true,
     summary: {
-      establishedFindings: fieldListFromLegacy(raw, ['established_findings', 'established findings']),
+      establishedFindings: fieldListFromLegacy(raw, [
+        'established_findings',
+        'established findings',
+      ]),
       decisions: fieldListFromLegacy(raw, ['decisions']),
       failedPaths: fieldListFromLegacy(raw, ['failed_paths', 'failed paths']),
-      partialWorkProduct: fieldListFromLegacy(raw, ['partial_work_product', 'partial work product']),
+      partialWorkProduct: fieldListFromLegacy(raw, [
+        'partial_work_product',
+        'partial work product',
+      ]),
       actionInProgress,
     },
   };
@@ -1217,7 +1396,11 @@ function stringField(value: Record<string, unknown>, key: string): string | unde
 
 function stringListField(value: Record<string, unknown>, key: string): string[] {
   const field = value[key];
-  if (Array.isArray(field)) return field.map((item) => typeof item === 'string' ? singleLine(item) : '').filter(nonEmpty).slice(0, 8);
+  if (Array.isArray(field))
+    return field
+      .map((item) => (typeof item === 'string' ? singleLine(item) : ''))
+      .filter(nonEmpty)
+      .slice(0, 8);
   if (typeof field === 'string') {
     const trimmed = singleLine(field);
     return trimmed.length > 0 && trimmed.toLowerCase() !== 'none' ? [trimmed] : [];
@@ -1228,7 +1411,11 @@ function stringListField(value: Record<string, unknown>, key: string): string[] 
 function fieldListFromLegacy(raw: string, labels: readonly string[]): string[] {
   const field = extractSummaryField(raw, labels);
   if (!field || field.toLowerCase() === 'none') return [];
-  return field.split(/\n|;|\u2022/g).map((part) => singleLine(part.replace(/^-+\s*/, ''))).filter(nonEmpty).slice(0, 8);
+  return field
+    .split(/\n|;|\u2022/g)
+    .map((part) => singleLine(part.replace(/^-+\s*/, '')))
+    .filter(nonEmpty)
+    .slice(0, 8);
 }
 
 function extractSummaryField(summaryText: string, labels: readonly string[]): string | undefined {
@@ -1252,7 +1439,9 @@ function extractSummaryField(summaryText: string, labels: readonly string[]): st
 }
 
 function newPrivateVerifierSurface(summaryText: string, publicSourceText: string): boolean {
-  return PRIVATE_VERIFIER_PATTERN.test(summaryText) && !PRIVATE_VERIFIER_PATTERN.test(publicSourceText);
+  return (
+    PRIVATE_VERIFIER_PATTERN.test(summaryText) && !PRIVATE_VERIFIER_PATTERN.test(publicSourceText)
+  );
 }
 
 function rejected(
@@ -1288,7 +1477,9 @@ function unchanged(messages: ModelMessage[], reason: string): SemanticCompactRew
   };
 }
 
-function compactUsage(usage: NormalizedAiSdkUsage): NonNullable<SemanticCompactBlock['compactCallUsage']> {
+function compactUsage(
+  usage: NormalizedAiSdkUsage,
+): NonNullable<SemanticCompactBlock['compactCallUsage']> {
   return {
     inputTokens: usage.inputTokens,
     outputTokens: usage.outputTokens,
@@ -1298,7 +1489,9 @@ function compactUsage(usage: NormalizedAiSdkUsage): NonNullable<SemanticCompactB
   };
 }
 
-function uniqueArchiveRefs(refs: readonly ActiveFullCompactArchiveRef[]): ActiveFullCompactArchiveRef[] {
+function uniqueArchiveRefs(
+  refs: readonly ActiveFullCompactArchiveRef[],
+): ActiveFullCompactArchiveRef[] {
   const seen = new Set<string>();
   const out: ActiveFullCompactArchiveRef[] = [];
   for (const ref of refs) {
@@ -1311,10 +1504,12 @@ function uniqueArchiveRefs(refs: readonly ActiveFullCompactArchiveRef[]): Active
 }
 
 function isArchiveRef(value: unknown): value is ActiveFullCompactArchiveRef {
-  return isRecord(value)
-    && (value.kind === 'toolResult' || value.kind === 'compactSource')
-    && typeof value.artifactId === 'string'
-    && typeof value.bodySha256 === 'string';
+  return (
+    isRecord(value) &&
+    (value.kind === 'toolResult' || value.kind === 'compactSource') &&
+    typeof value.artifactId === 'string' &&
+    typeof value.bodySha256 === 'string'
+  );
 }
 
 function finiteRatio(value: number | undefined, fallback: number): number {
@@ -1335,7 +1530,9 @@ function sortJson(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(sortJson);
   if (!isRecord(value)) return value;
   return Object.fromEntries(
-    Object.keys(value).sort().map((key) => [key, sortJson(value[key])]),
+    Object.keys(value)
+      .sort()
+      .map((key) => [key, sortJson(value[key])]),
   );
 }
 

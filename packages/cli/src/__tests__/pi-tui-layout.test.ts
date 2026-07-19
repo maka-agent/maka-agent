@@ -105,9 +105,14 @@ describe('MakaPiLayoutComponent viewport geometry', () => {
       const { state, layout } = harness();
       // First entry: an expanded thinking block (full-text cache key), so an
       // in-place edit above the viewport top really changes rendered lines.
-      applyMakaSessionEventToTranscript(state, event({
-        type: 'thinking_delta', messageId: 'message-head', text: 'head-reasoning-xำy',
-      }));
+      applyMakaSessionEventToTranscript(
+        state,
+        event({
+          type: 'thinking_delta',
+          messageId: 'message-head',
+          text: 'head-reasoning-xำy',
+        }),
+      );
       const head = state.entries[0];
       assert.ok(head?.kind === 'thinking');
       head.expanded = true;
@@ -214,7 +219,11 @@ interface StubTerminal {
   columns: number;
 }
 
-function harness(): { state: MakaPiTranscriptState; layout: MakaPiLayoutComponent; terminal: StubTerminal } {
+function harness(): {
+  state: MakaPiTranscriptState;
+  layout: MakaPiLayoutComponent;
+  terminal: StubTerminal;
+} {
   const state = createMakaPiTranscriptState();
   const metadata = (): MakaPiTranscriptMetadata => ({
     title: 'Maka',
@@ -225,7 +234,10 @@ function harness(): { state: MakaPiTranscriptState; layout: MakaPiLayoutComponen
     usage: state.usage,
   });
   const terminal: StubTerminal = { rows: 24, columns: 80 };
-  const stubComponent = (lines: string[]): Component => ({ render: () => lines, invalidate: () => {} });
+  const stubComponent = (lines: string[]): Component => ({
+    render: () => lines,
+    invalidate: () => {},
+  });
   const layout = new MakaPiLayoutComponent(
     state,
     new MakaTranscriptComponent(state, metadata),
@@ -238,22 +250,40 @@ function harness(): { state: MakaPiTranscriptState; layout: MakaPiLayoutComponen
   return { state, layout, terminal };
 }
 
-function growTranscript(state: MakaPiTranscriptState, paragraphs: number, messageId = 'message-filler'): void {
-  applyMakaSessionEventToTranscript(state, event({
-    type: 'text_delta',
-    messageId,
-    text: Array.from({ length: paragraphs }, (_, i) => `${messageId}-filler-${i}`).join('\n\n'),
-  }));
+function growTranscript(
+  state: MakaPiTranscriptState,
+  paragraphs: number,
+  messageId = 'message-filler',
+): void {
+  applyMakaSessionEventToTranscript(
+    state,
+    event({
+      type: 'text_delta',
+      messageId,
+      text: Array.from({ length: paragraphs }, (_, i) => `${messageId}-filler-${i}`).join('\n\n'),
+    }),
+  );
 }
 
 function addTool(state: MakaPiTranscriptState, toolUseId: string, command: string): void {
-  applyMakaSessionEventToTranscript(state, event({
-    type: 'tool_start', toolUseId, toolName: 'Bash', args: { command },
-  }));
-  applyMakaSessionEventToTranscript(state, event({
-    type: 'tool_result', toolUseId, isError: false,
-    content: { kind: 'text', text: 'ok' },
-  }));
+  applyMakaSessionEventToTranscript(
+    state,
+    event({
+      type: 'tool_start',
+      toolUseId,
+      toolName: 'Bash',
+      args: { command },
+    }),
+  );
+  applyMakaSessionEventToTranscript(
+    state,
+    event({
+      type: 'tool_result',
+      toolUseId,
+      isError: false,
+      content: { kind: 'text', text: 'ok' },
+    }),
+  );
 }
 
 function event(input: { type: SessionEvent['type'] } & Record<string, unknown>): SessionEvent {

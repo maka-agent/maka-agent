@@ -20,12 +20,12 @@ export type AiSdkToolResultOutput =
  */
 export function jsonValue(value: unknown): JSONValue {
   if (
-    value === null
-    || typeof value === 'string'
-    || typeof value === 'number'
-    || typeof value === 'boolean'
-    || Array.isArray(value)
-    || typeof value === 'object'
+    value === null ||
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'boolean' ||
+    Array.isArray(value) ||
+    typeof value === 'object'
   ) {
     return value as JSONValue;
   }

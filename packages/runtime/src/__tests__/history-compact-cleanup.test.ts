@@ -141,25 +141,31 @@ describe('legacy history compact cleanup', () => {
     const result = await cleanupLegacyHistoryCompactArtifacts(cleanupInput);
 
     assert.deepEqual(result.purgedArtifactIds, []);
-    assert.equal(result.skipped.find((item) => item.artifactId === block.id)?.reason, 'block_invalid_json');
+    assert.equal(
+      result.skipped.find((item) => item.artifactId === block.id)?.reason,
+      'block_invalid_json',
+    );
     assert.equal(result.skipped.filter((item) => item.reason === 'source_unlinked').length, 3);
     assert.equal((await store.list('session-1', { includeDeleted: true })).length, 4);
-    assert.deepEqual(diagnostics, [{
-      kind: 'skipped',
-      artifactCount: 4,
-      reasonCounts: {
-        block_invalid_json: 1,
-        source_unlinked: 3,
+    assert.deepEqual(diagnostics, [
+      {
+        kind: 'skipped',
+        artifactCount: 4,
+        reasonCounts: {
+          block_invalid_json: 1,
+          source_unlinked: 3,
+        },
       },
-    }]);
+    ]);
   });
 
   test('preserves a V1 group when a linked source no longer matches the canonical event', async () => {
     const store = memoryArtifactStore();
     const runtimeEvents = [textEvent(0), textEvent(1), textEvent(2)];
     await writeLegacyArtifacts(store, runtimeEvents);
-    const source = (await store.list('session-1', { includeDeleted: true }))
-      .find((record) => record.source === 'history_compact_source')!;
+    const source = (await store.list('session-1', { includeDeleted: true })).find(
+      (record) => record.source === 'history_compact_source',
+    )!;
     await store.create({
       id: source.id,
       sessionId: source.sessionId,
@@ -191,8 +197,9 @@ describe('legacy history compact cleanup', () => {
     const store = memoryArtifactStore();
     const runtimeEvents = [textEvent(0), textEvent(1), textEvent(2)];
     await writeLegacyArtifacts(store, runtimeEvents);
-    const source = (await store.list('session-1', { includeDeleted: true }))
-      .find((record) => record.source === 'history_compact_source')!;
+    const source = (await store.list('session-1', { includeDeleted: true })).find(
+      (record) => record.source === 'history_compact_source',
+    )!;
     await store.delete(source.id);
     const checkpoint = buildHistoryCompactCheckpoint({
       sessionId: 'session-1',
@@ -229,24 +236,27 @@ describe('legacy history compact cleanup', () => {
     const diagnostics: unknown[] = [];
 
     await assert.rejects(
-      () => cleanupLegacyHistoryCompactArtifacts({
-        sessionId: 'session-1',
-        checkpoint,
-        runtimeEvents,
-        artifactStore: {
-          ...store,
-          async list() {
-            throw new Error('metadata unreadable');
+      () =>
+        cleanupLegacyHistoryCompactArtifacts({
+          sessionId: 'session-1',
+          checkpoint,
+          runtimeEvents,
+          artifactStore: {
+            ...store,
+            async list() {
+              throw new Error('metadata unreadable');
+            },
           },
-        },
-        onDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
-      }),
+          onDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
+        }),
       /metadata unreadable/,
     );
-    assert.deepEqual(diagnostics, [{
-      kind: 'failed',
-      message: 'metadata unreadable',
-    }]);
+    assert.deepEqual(diagnostics, [
+      {
+        kind: 'failed',
+        message: 'metadata unreadable',
+      },
+    ]);
   });
 });
 

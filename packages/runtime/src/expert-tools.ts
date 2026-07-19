@@ -43,7 +43,10 @@ function memberEnum(team: ExpertTeamDefinition): [string, ...string[]] {
  * the roster embedded in the description are the team's members, so the model
  * can only dispatch valid members and sees each member's lens and tool scope.
  */
-export function buildExpertDispatchTool(team: ExpertTeamDefinition, deps: ExpertDispatchToolDeps = {}): MakaTool<
+export function buildExpertDispatchTool(
+  team: ExpertTeamDefinition,
+  deps: ExpertDispatchToolDeps = {},
+): MakaTool<
   {
     member: string;
     task: string;
@@ -68,7 +71,9 @@ export function buildExpertDispatchTool(team: ExpertTeamDefinition, deps: Expert
         .string()
         .min(1)
         .max(60_000)
-        .describe('The bounded, self-contained task for the member, including the exact scope and evidence to return.'),
+        .describe(
+          'The bounded, self-contained task for the member, including the exact scope and evidence to return.',
+        ),
     }),
     permissionRequired: true,
     categoryHint: 'subagent',
@@ -92,27 +97,44 @@ export function buildExpertDispatchTool(team: ExpertTeamDefinition, deps: Expert
             systemPrompt: definition.systemPrompt,
           },
           prompt: input.task,
-          ...(deps.taskLedger ? {
-            onReady: ({ turnId, agentId }) => {
-              ready = { turnId, agentId };
-            },
-          } : {}),
+          ...(deps.taskLedger
+            ? {
+                onReady: ({ turnId, agentId }) => {
+                  ready = { turnId, agentId };
+                },
+              }
+            : {}),
         })) as Omit<SubagentToolResult, 'kind'>;
       } catch (error) {
         if (deps.taskLedger && ready) {
-          await settleSelfClaimedTasks(deps.taskLedger, ctx.sessionId, ready, {
-            status: 'failed',
-            reason: error instanceof Error ? error.message : 'Expert-team member failed before returning a result',
-          }, ctx.toolCallId);
+          await settleSelfClaimedTasks(
+            deps.taskLedger,
+            ctx.sessionId,
+            ready,
+            {
+              status: 'failed',
+              reason:
+                error instanceof Error
+                  ? error.message
+                  : 'Expert-team member failed before returning a result',
+            },
+            ctx.toolCallId,
+          );
         }
         throw error;
       }
       if (deps.taskLedger && ready) {
-        await settleSelfClaimedTasks(deps.taskLedger, ctx.sessionId, ready, {
-          status: result.status,
-          ...(result.runId ? { runId: result.runId } : {}),
-          reason: result.failureClass ?? result.summary,
-        }, ctx.toolCallId);
+        await settleSelfClaimedTasks(
+          deps.taskLedger,
+          ctx.sessionId,
+          ready,
+          {
+            status: result.status,
+            ...(result.runId ? { runId: result.runId } : {}),
+            reason: result.failureClass ?? result.summary,
+          },
+          ctx.toolCallId,
+        );
       }
       return {
         kind: 'subagent',
@@ -138,12 +160,12 @@ async function settleSelfClaimedTasks(
   result: { status: TaskAgentOutcome['status']; runId?: string; reason?: string },
   toolCallId: string,
 ): Promise<void> {
-  const claimed = (await taskLedger.list(sessionId, { includeTerminal: false }))
-    .filter((task) =>
-      task.owner?.actor === 'child_agent'
-      && task.owner.agentId === ready.agentId
-      && task.owner.turnId === ready.turnId
-    );
+  const claimed = (await taskLedger.list(sessionId, { includeTerminal: false })).filter(
+    (task) =>
+      task.owner?.actor === 'child_agent' &&
+      task.owner.agentId === ready.agentId &&
+      task.owner.turnId === ready.turnId,
+  );
   for (const task of claimed) {
     const runId = result.runId ?? task.owner?.runId;
     const owner: TaskOwner = {
@@ -152,17 +174,22 @@ async function settleSelfClaimedTasks(
       ...(runId ? { runId } : {}),
       turnId: ready.turnId,
     };
-    await taskLedger.settleAgentOutcome(sessionId, task.id, {
-      status: result.status,
-      owner,
-      reason: result.reason,
-    }, {
-      runId,
-      turnId: ready.turnId,
-      toolCallId,
-      source: 'system',
-      actor: 'child_agent',
-      reason: result.reason,
-    });
+    await taskLedger.settleAgentOutcome(
+      sessionId,
+      task.id,
+      {
+        status: result.status,
+        owner,
+        reason: result.reason,
+      },
+      {
+        runId,
+        turnId: ready.turnId,
+        toolCallId,
+        source: 'system',
+        actor: 'child_agent',
+        reason: result.reason,
+      },
+    );
   }
 }

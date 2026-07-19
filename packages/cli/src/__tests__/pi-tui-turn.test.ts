@@ -1,10 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import type { SessionEvent } from '@maka/core';
-import {
-  SessionActivityRegistry,
-  type GoalTurnOutcome,
-} from '@maka/runtime';
+import { SessionActivityRegistry, type GoalTurnOutcome } from '@maka/runtime';
 import { runMakaPiTuiTurn } from '../pi-tui-turn.js';
 
 describe('Maka Pi TUI turn', () => {
@@ -54,8 +51,12 @@ describe('Maka Pi TUI turn', () => {
         sessionId: null,
       },
       shouldAbort: () => false,
-      onStart: () => { sequence.push('start'); },
-      onEvent: (sessionEvent) => { sequence.push(`event:${sessionEvent.type}`); },
+      onStart: () => {
+        sequence.push('start');
+      },
+      onEvent: (sessionEvent) => {
+        sequence.push(`event:${sessionEvent.type}`);
+      },
     });
 
     assert.deepEqual(outcome, { kind: 'completed', turnId: 'turn-1' });
@@ -90,7 +91,9 @@ describe('Maka Pi TUI turn', () => {
       },
       request: { kind: 'external', prompt: 'hello', sessionId: null },
       shouldAbort: () => false,
-      onFailure: (error) => { failures.push(errorMessage(error)); },
+      onFailure: (error) => {
+        failures.push(errorMessage(error));
+      },
     });
 
     assert.deepEqual(outcome, {
@@ -126,7 +129,9 @@ describe('Maka Pi TUI turn', () => {
       },
       request: { kind: 'external', prompt: 'hello', sessionId: 'session-1' },
       shouldAbort: () => false,
-      onFailure: (error) => { failures.push(errorMessage(error)); },
+      onFailure: (error) => {
+        failures.push(errorMessage(error));
+      },
     });
 
     assert.deepEqual(outcome, { kind: 'errored', reason: 'prepare failed' });

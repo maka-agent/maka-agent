@@ -20,7 +20,8 @@ export function redactSecrets(value: string): string {
   }
   for (const pattern of SECRET_PATTERNS) {
     next = next.replace(pattern, (_match, prefixOrSecret: string) => {
-      if (prefixOrSecret.includes(':') || prefixOrSecret.includes('=')) return `${prefixOrSecret}[redacted]`;
+      if (prefixOrSecret.includes(':') || prefixOrSecret.includes('='))
+        return `${prefixOrSecret}[redacted]`;
       return '[redacted]';
     });
   }
@@ -29,7 +30,12 @@ export function redactSecrets(value: string): string {
 
 function redactSerializedJsonSecrets(value: string): string {
   const trimmed = value.trim();
-  if (!((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']')))) {
+  if (
+    !(
+      (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+      (trimmed.startsWith('[') && trimmed.endsWith(']'))
+    )
+  ) {
     return value;
   }
   try {
@@ -75,7 +81,9 @@ function redactUrlQuerySecrets(value: string): string {
 }
 
 function isSensitiveKey(key: string): boolean {
-  return /^(x-api-key|api[_-]?key|key|token|access[_-]?token|auth|authorization|password|secret)$/i.test(key);
+  return /^(x-api-key|api[_-]?key|key|token|access[_-]?token|auth|authorization|password|secret)$/i.test(
+    key,
+  );
 }
 
 export function generalizedErrorMessage(error: unknown, fallback = 'Operation failed'): string {
@@ -84,9 +92,16 @@ export function generalizedErrorMessage(error: unknown, fallback = 'Operation fa
   const lower = redacted.toLowerCase();
   if (lower.includes('timeout')) return 'Request timed out';
   if (lower.includes('429') || lower.includes('rate')) return 'Rate limit exceeded';
-  if (lower.includes('401') || lower.includes('403') || lower.includes('auth')) return 'Authentication failed';
+  if (lower.includes('401') || lower.includes('403') || lower.includes('auth'))
+    return 'Authentication failed';
   if (lower.includes('5') && /\b5\d\d\b/.test(lower)) return 'Provider returned an error';
-  if (lower.includes('network') || lower.includes('fetch') || lower.includes('econn') || lower.includes('enotfound')) return 'Network error';
+  if (
+    lower.includes('network') ||
+    lower.includes('fetch') ||
+    lower.includes('econn') ||
+    lower.includes('enotfound')
+  )
+    return 'Network error';
   return fallback;
 }
 
@@ -111,6 +126,12 @@ export function generalizedErrorMessageChinese(error: unknown, fallback = '操�
   if (lower.includes('429') || lower.includes('rate')) return '触发模型速率限制';
   if (lower.includes('401') || lower.includes('403') || lower.includes('auth')) return '鉴权失败';
   if (lower.includes('5') && /\b5\d\d\b/.test(lower)) return '模型服务返回错误';
-  if (lower.includes('network') || lower.includes('fetch') || lower.includes('econn') || lower.includes('enotfound')) return '网络错误';
+  if (
+    lower.includes('network') ||
+    lower.includes('fetch') ||
+    lower.includes('econn') ||
+    lower.includes('enotfound')
+  )
+    return '网络错误';
   return fallback;
 }

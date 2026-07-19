@@ -26,7 +26,7 @@
 import { redactSecrets } from './redaction.js';
 
 export const FOREIGN_SESSION_SOURCES = ['claude-code', 'codex'] as const;
-export type ForeignSessionSource = typeof FOREIGN_SESSION_SOURCES[number];
+export type ForeignSessionSource = (typeof FOREIGN_SESSION_SOURCES)[number];
 
 /** Scanner result caps (per issue #1057: max 50 sessions, 30-day window). */
 export const FOREIGN_SESSION_SCAN_MAX_SESSIONS = 50;
@@ -121,7 +121,11 @@ export function sanitizeForeignTitle(input: unknown): string {
  * whitespace characters. Anything else is dropped at the source.
  */
 export function isSafeForeignId(value: unknown): value is string {
-  if (typeof value !== 'string' || value.length === 0 || value.length > FOREIGN_SESSION_ID_MAX_CHARS) {
+  if (
+    typeof value !== 'string' ||
+    value.length === 0 ||
+    value.length > FOREIGN_SESSION_ID_MAX_CHARS
+  ) {
     return false;
   }
   return !FOREIGN_UNSAFE_CHARS.test(value);
@@ -195,9 +199,16 @@ export function parseForeignJsonLine(line: string): Record<string, unknown> | un
 }
 
 /** Extract scan metadata from a parsed Claude record, merging into `meta`. */
-export function collectClaudeMeta(record: Record<string, unknown>, meta: ClaudeTranscriptMeta): void {
+export function collectClaudeMeta(
+  record: Record<string, unknown>,
+  meta: ClaudeTranscriptMeta,
+): void {
   if (typeof record.cwd === 'string' && meta.cwd === undefined) meta.cwd = record.cwd;
-  if (typeof record.gitBranch === 'string' && record.gitBranch.length > 0 && meta.gitBranch === undefined) {
+  if (
+    typeof record.gitBranch === 'string' &&
+    record.gitBranch.length > 0 &&
+    meta.gitBranch === undefined
+  ) {
     meta.gitBranch = record.gitBranch;
   }
   if (typeof record.isSidechain === 'boolean' && meta.isSidechain === undefined) {
@@ -219,13 +230,19 @@ export function collectClaudeMeta(record: Record<string, unknown>, meta: ClaudeT
  * onto the opening request (from the head), and is filtered so synthetic /
  * meta / injection records never become the title.
  */
-export function collectClaudeTitle(record: Record<string, unknown>, titles: ClaudeTitleCandidates): void {
+export function collectClaudeTitle(
+  record: Record<string, unknown>,
+  titles: ClaudeTitleCandidates,
+): void {
   if (typeof record.customTitle === 'string' && record.customTitle.length > 0) {
     titles.customTitle = record.customTitle;
   }
-  if (typeof record.aiTitle === 'string' && record.aiTitle.length > 0) titles.aiTitle = record.aiTitle;
-  if (typeof record.summary === 'string' && record.summary.length > 0) titles.summary = record.summary;
-  if (typeof record.lastPrompt === 'string' && record.lastPrompt.length > 0) titles.lastPrompt = record.lastPrompt;
+  if (typeof record.aiTitle === 'string' && record.aiTitle.length > 0)
+    titles.aiTitle = record.aiTitle;
+  if (typeof record.summary === 'string' && record.summary.length > 0)
+    titles.summary = record.summary;
+  if (typeof record.lastPrompt === 'string' && record.lastPrompt.length > 0)
+    titles.lastPrompt = record.lastPrompt;
   if (titles.firstUserMessage === undefined) {
     const candidate = claudeFirstPromptCandidate(record);
     if (candidate !== undefined) titles.firstUserMessage = candidate;
@@ -270,14 +287,20 @@ export function isSyntheticClaudeUserText(text: string): boolean {
   const t = text.trimStart();
   return (
     t.startsWith('[Request interrupted by user') ||
-    /^<\/?(command-(name|message|args|contents)|local-command-(stdout|stderr)|bash-(input|stdout|stderr))[\s>]/.test(t)
+    /^<\/?(command-(name|message|args|contents)|local-command-(stdout|stderr)|bash-(input|stdout|stderr))[\s>]/.test(
+      t,
+    )
   );
 }
 
 export function pickClaudeTitle(titles: ClaudeTitleCandidates): string {
   return (
     sanitizeForeignTitle(
-      titles.customTitle ?? titles.aiTitle ?? titles.lastPrompt ?? titles.summary ?? titles.firstUserMessage,
+      titles.customTitle ??
+        titles.aiTitle ??
+        titles.lastPrompt ??
+        titles.summary ??
+        titles.firstUserMessage,
     ) || ''
   );
 }
@@ -389,8 +412,14 @@ export function codexSourceToken(value: unknown): string | undefined {
   if (value.startsWith('{')) {
     try {
       const parsed = JSON.parse(value) as unknown;
-      const custom = typeof parsed === 'object' && parsed !== null ? (parsed as Record<string, unknown>).custom : undefined;
-      if (typeof custom === 'string' && (CODEX_SUPPORTED_THREAD_SOURCES as readonly string[]).includes(custom)) {
+      const custom =
+        typeof parsed === 'object' && parsed !== null
+          ? (parsed as Record<string, unknown>).custom
+          : undefined;
+      if (
+        typeof custom === 'string' &&
+        (CODEX_SUPPORTED_THREAD_SOURCES as readonly string[]).includes(custom)
+      ) {
         return custom;
       }
     } catch {
@@ -429,14 +458,16 @@ export function normalizeCodexThreadRow(
   // (older schema) is allowed through — the SELECT simply didn't project it.
   if (row.source !== undefined && codexSourceToken(row.source) === undefined) return undefined;
   const updatedAtMs = normalizeEpochMs(row.updated_at_ms) ?? normalizeEpochMs(row.updated_at) ?? 0;
-  const title = sanitizeForeignTitle(row.title) || sanitizeForeignTitle(row.first_user_message) || row.id;
+  const title =
+    sanitizeForeignTitle(row.title) || sanitizeForeignTitle(row.first_user_message) || row.id;
   return {
     source: 'codex',
     id: row.id,
     title,
     cwd: typeof row.cwd === 'string' ? row.cwd : '',
     updatedAtMs,
-    gitBranch: typeof row.git_branch === 'string' && row.git_branch.length > 0 ? row.git_branch : undefined,
+    gitBranch:
+      typeof row.git_branch === 'string' && row.git_branch.length > 0 ? row.git_branch : undefined,
     rolloutPath: row.rollout_path,
   };
 }
@@ -475,7 +506,11 @@ export function codexRolloutMessage(
   const texts: string[] = [];
   for (const block of payload.content) {
     const rec = asRecord(block);
-    if (rec && (rec.type === 'input_text' || rec.type === 'output_text') && typeof rec.text === 'string') {
+    if (
+      rec &&
+      (rec.type === 'input_text' || rec.type === 'output_text') &&
+      typeof rec.text === 'string'
+    ) {
       texts.push(rec.text);
     }
   }
@@ -499,7 +534,11 @@ export function createDigestAccumulator(): DigestAccumulator {
   return { userMessages: [], assistantTexts: [], filesTouched: new Set(), warnings: [] };
 }
 
-export function pushDigestMessage(acc: DigestAccumulator, role: 'user' | 'assistant', raw: string): void {
+export function pushDigestMessage(
+  acc: DigestAccumulator,
+  role: 'user' | 'assistant',
+  raw: string,
+): void {
   const text = sanitizeForeignMessage(raw);
   if (text.length === 0) return;
   const list = role === 'user' ? acc.userMessages : acc.assistantTexts;
@@ -568,7 +607,11 @@ export function stripEnvelopeTags(text: string): string {
  */
 export function renderForeignSessionDigestForPrompt(digest: ForeignSessionDigest): string {
   const safe = (text: string): string =>
-    JSON.stringify(stripEnvelopeTags(redactSecrets(sanitizeForeignText(text, FOREIGN_SESSION_MESSAGE_MAX_CODE_POINTS))));
+    JSON.stringify(
+      stripEnvelopeTags(
+        redactSecrets(sanitizeForeignText(text, FOREIGN_SESSION_MESSAGE_MAX_CODE_POINTS)),
+      ),
+    );
   const lines: string[] = [
     '<foreign-session-digest>',
     `source=${digest.source}`,

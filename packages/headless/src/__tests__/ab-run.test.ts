@@ -3,7 +3,10 @@ import { describe, test } from 'node:test';
 import { runAbComparison } from '../ab-run.js';
 import { completed } from './helpers/ab-run-fixtures.js';
 import { sha256 } from './helpers/hash-fixture.js';
-import type { FixedPromptTaskBudgetExhaustedEvent, FixedPromptTaskInfraFailedEvent } from '../fixed-prompt-controller.js';
+import type {
+  FixedPromptTaskBudgetExhaustedEvent,
+  FixedPromptTaskInfraFailedEvent,
+} from '../fixed-prompt-controller.js';
 
 describe('runAbComparison', () => {
   test('rejects arm ids that collapse to the same round id suffix', async () => {
@@ -14,9 +17,7 @@ describe('runAbComparison', () => {
           { id: 'tools.off', kind: 'tools', fingerprint: sha256('tools-off') },
           { id: 'tools/off', kind: 'tools', fingerprint: sha256('tools-on') },
         ],
-        evaluationTasks: [
-          { id: 't1', path: '/tasks/t1' },
-        ],
+        evaluationTasks: [{ id: 't1', path: '/tasks/t1' }],
         reps: 1,
         runArm: async ({ task }) => completed(task.id, true),
       }),
@@ -40,9 +41,7 @@ describe('runAbComparison', () => {
       maxConcurrency: 1,
       runArm: async ({ roundId, task, arm }) => {
         calls.push(`${roundId}:${arm.id}:${task.id}`);
-        return arm.id === 'tools-on'
-          ? completed(task.id, true)
-          : completed(task.id, false);
+        return arm.id === 'tools-on' ? completed(task.id, true) : completed(task.id, false);
       },
     });
 
@@ -89,12 +88,7 @@ describe('runAbComparison', () => {
     });
 
     assert.equal(maxActive, 1);
-    assert.deepEqual(calls, [
-      't1:maka',
-      't1:opencode',
-      't2:opencode',
-      't2:maka',
-    ]);
+    assert.deepEqual(calls, ['t1:maka', 't1:opencode', 't2:opencode', 't2:maka']);
   });
 
   test('starts both arms for the same task-rep pair before waiting for either arm to finish', async () => {
@@ -133,28 +127,27 @@ describe('runAbComparison', () => {
     await runPromise;
 
     assert.equal(callsStartedBeforeFirstFinish, 2);
-    assert.deepEqual(calls, [
-      'ab-tools-off-r0-t1',
-      'ab-tools-on-r0-t1',
-    ]);
+    assert.deepEqual(calls, ['ab-tools-off-r0-t1', 'ab-tools-on-r0-t1']);
   });
 
   test('drains the sibling arm before propagating a pair rejection', async () => {
     const started: string[] = [];
     const finished: string[] = [];
     let bothStarted!: () => void;
-    const bothStartedPromise = new Promise<void>((resolve) => { bothStarted = resolve; });
+    const bothStartedPromise = new Promise<void>((resolve) => {
+      bothStarted = resolve;
+    });
     let releaseSibling!: () => void;
-    const siblingMayFinish = new Promise<void>((resolve) => { releaseSibling = resolve; });
+    const siblingMayFinish = new Promise<void>((resolve) => {
+      releaseSibling = resolve;
+    });
     const run = runAbComparison({
       runId: 'ab-run',
       arms: [
         { id: 'maka', kind: 'harness', fingerprint: sha256('maka') },
         { id: 'opencode', kind: 'harness', fingerprint: sha256('opencode') },
       ],
-      evaluationTasks: [
-        { id: 't1', path: '/tasks/t1' },
-      ],
+      evaluationTasks: [{ id: 't1', path: '/tasks/t1' }],
       reps: 1,
       maxConcurrency: 1,
       runArm: async ({ arm, task }) => {
@@ -170,14 +163,20 @@ describe('runAbComparison', () => {
     });
 
     let rejectionObserved = false;
-    const rejection = assert.rejects(run, /arm failed/).then(() => { rejectionObserved = true; });
+    const rejection = assert.rejects(run, /arm failed/).then(() => {
+      rejectionObserved = true;
+    });
     await bothStartedPromise;
     await new Promise<void>((resolve) => setImmediate(resolve));
     const rejectedBeforeSiblingFinished = rejectionObserved;
     releaseSibling();
     await rejection;
 
-    assert.equal(rejectedBeforeSiblingFinished, false, 'the pair must keep draining its sibling arm before rejecting');
+    assert.equal(
+      rejectedBeforeSiblingFinished,
+      false,
+      'the pair must keep draining its sibling arm before rejecting',
+    );
     assert.deepEqual(started, ['t1:maka', 't1:opencode']);
     assert.deepEqual(finished, ['t1:opencode']);
   });
@@ -186,9 +185,13 @@ describe('runAbComparison', () => {
     const started: string[] = [];
     const finished: string[] = [];
     let allStarted!: () => void;
-    const allStartedPromise = new Promise<void>((resolve) => { allStarted = resolve; });
+    const allStartedPromise = new Promise<void>((resolve) => {
+      allStarted = resolve;
+    });
     let releaseOtherPair!: () => void;
-    const otherPairMayFinish = new Promise<void>((resolve) => { releaseOtherPair = resolve; });
+    const otherPairMayFinish = new Promise<void>((resolve) => {
+      releaseOtherPair = resolve;
+    });
     const run = runAbComparison({
       runId: 'ab-run',
       arms: [
@@ -214,15 +217,24 @@ describe('runAbComparison', () => {
     });
 
     let rejectionObserved = false;
-    const rejection = assert.rejects(run, /arm failed/).then(() => { rejectionObserved = true; });
+    const rejection = assert.rejects(run, /arm failed/).then(() => {
+      rejectionObserved = true;
+    });
     await allStartedPromise;
     await new Promise<void>((resolve) => setImmediate(resolve));
     const rejectedBeforeOtherPairFinished = rejectionObserved;
     releaseOtherPair();
     await rejection;
 
-    assert.equal(rejectedBeforeOtherPairFinished, false, 'the comparison must keep draining every active pair before rejecting');
-    assert.deepEqual(new Set(started), new Set(['t1:maka', 't1:opencode', 't2:maka', 't2:opencode']));
+    assert.equal(
+      rejectedBeforeOtherPairFinished,
+      false,
+      'the comparison must keep draining every active pair before rejecting',
+    );
+    assert.deepEqual(
+      new Set(started),
+      new Set(['t1:maka', 't1:opencode', 't2:maka', 't2:opencode']),
+    );
     assert.deepEqual(new Set(finished), new Set(['t1:opencode', 't2:maka', 't2:opencode']));
   });
 
@@ -254,9 +266,13 @@ describe('runAbComparison', () => {
   test('closes pair admission as soon as one arm reaches the observed cost threshold', async () => {
     const calls: string[] = [];
     let releaseSibling!: () => void;
-    const siblingMayFinish = new Promise<void>((resolve) => { releaseSibling = resolve; });
+    const siblingMayFinish = new Promise<void>((resolve) => {
+      releaseSibling = resolve;
+    });
     let secondPairFinished!: () => void;
-    const secondPairFinishedPromise = new Promise<void>((resolve) => { secondPairFinished = resolve; });
+    const secondPairFinishedPromise = new Promise<void>((resolve) => {
+      secondPairFinished = resolve;
+    });
     let secondPairArms = 0;
     const comparison = runAbComparison({
       runId: 'ab-run',
@@ -322,9 +338,13 @@ describe('runAbComparison', () => {
   test('closes pair admission as soon as one arm reports a systemic provider failure', async () => {
     const calls: string[] = [];
     let releaseSibling!: () => void;
-    const siblingMayFinish = new Promise<void>((resolve) => { releaseSibling = resolve; });
+    const siblingMayFinish = new Promise<void>((resolve) => {
+      releaseSibling = resolve;
+    });
     let secondPairFinished!: () => void;
-    const secondPairFinishedPromise = new Promise<void>((resolve) => { secondPairFinished = resolve; });
+    const secondPairFinishedPromise = new Promise<void>((resolve) => {
+      secondPairFinished = resolve;
+    });
     let secondPairArms = 0;
     const comparison = runAbComparison({
       runId: 'ab-run',

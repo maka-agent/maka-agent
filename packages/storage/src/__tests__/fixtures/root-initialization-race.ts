@@ -14,10 +14,10 @@ let intercepted = false;
 
 fs.promises.open = (async (path, flags, mode) => {
   if (
-    !intercepted
-    && typeof path === 'string'
-    && path.startsWith(markerTempPrefix)
-    && path.endsWith('.tmp')
+    !intercepted &&
+    typeof path === 'string' &&
+    path.startsWith(markerTempPrefix) &&
+    path.endsWith('.tmp')
   ) {
     intercepted = true;
     await send({ type: 'marker_open_pending' });
@@ -27,12 +27,11 @@ fs.promises.open = (async (path, flags, mode) => {
 }) as typeof fs.promises.open;
 syncBuiltinESMExports();
 
-const {
-  resolveStorageRoot,
-  StorageRootAuthorityError,
-} = await import('../../root-authority.js');
+const { resolveStorageRoot, StorageRootAuthorityError } = await import('../../root-authority.js');
 
-const parentDisconnected = new Promise<void>((resolvePromise) => process.once('disconnect', resolvePromise));
+const parentDisconnected = new Promise<void>((resolvePromise) =>
+  process.once('disconnect', resolvePromise),
+);
 try {
   await resolveStorageRoot({ path: root, kind: 'interactive' });
   await send({ type: 'resolved' });

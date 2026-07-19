@@ -2,9 +2,7 @@ import { app, BrowserWindow, screen } from 'electron';
 import { getCuE2eScenario } from './cu-e2e-scenarios.mjs';
 import { createCuE2eFixture } from './cu-e2e-fixture.mjs';
 
-const scenario = getCuE2eScenario(
-  process.env.MAKA_CU_E2E_SCENARIO ?? 'l0-observe-only',
-);
+const scenario = getCuE2eScenario(process.env.MAKA_CU_E2E_SCENARIO ?? 'l0-observe-only');
 
 app.setActivationPolicy('accessory');
 app.on('window-all-closed', () => {});

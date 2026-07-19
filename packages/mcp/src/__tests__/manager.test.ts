@@ -29,8 +29,11 @@ describe('McpClientManager remote transport E2E', () => {
       content: [{ type: 'text', text: 'http' }],
       structuredContent: undefined,
     });
-    assert.ok(fixture.requests.some((request) =>
-      request.path === '/mcp' && request.authorization === 'Bearer remote-test'));
+    assert.ok(
+      fixture.requests.some(
+        (request) => request.path === '/mcp' && request.authorization === 'Bearer remote-test',
+      ),
+    );
   });
 
   test('auto falls back to legacy SSE without replacing protocol headers', async () => {
@@ -41,13 +44,19 @@ describe('McpClientManager remote transport E2E', () => {
     assert.equal(manager.status('remote')?.transport, 'sse');
     const result = await manager.callTool('remote', 'echo', { value: 'legacy' });
     assert.deepEqual(result.content, [{ type: 'text', text: 'legacy' }]);
-    const get = fixture.requests.find((request) => request.method === 'GET' && request.path === '/sse');
+    const get = fixture.requests.find(
+      (request) => request.method === 'GET' && request.path === '/sse',
+    );
     assert.equal(get?.authorization, 'Bearer remote-test');
     assert.match(get?.accept ?? '', /text\/event-stream/u);
-    assert.ok(fixture.requests.some((request) =>
-      request.method === 'POST'
-      && request.path === '/messages'
-      && request.authorization === 'Bearer remote-test'));
+    assert.ok(
+      fixture.requests.some(
+        (request) =>
+          request.method === 'POST' &&
+          request.path === '/messages' &&
+          request.authorization === 'Bearer remote-test',
+      ),
+    );
   });
 });
 
@@ -59,7 +68,10 @@ describe('McpClientManager stdio E2E', () => {
     const status = manager.status('fixture');
     assert.equal(status?.state, 'connected');
     assert.equal(status?.transport, 'stdio');
-    assert.deepEqual(status?.tools.map((tool) => tool.name), ['echo', 'rich', 'fail', 'slow']);
+    assert.deepEqual(
+      status?.tools.map((tool) => tool.name),
+      ['echo', 'rich', 'fail', 'slow'],
+    );
     assert.equal(status?.tools[0]?.annotations?.readOnlyHint, true);
 
     const echo = await manager.callTool('fixture', 'echo', { value: 'Maka' });
@@ -67,9 +79,10 @@ describe('McpClientManager stdio E2E', () => {
     assert.deepEqual(echo.structuredContent, { echoed: 'Maka' });
 
     const rich = await manager.callTool('fixture', 'rich', {});
-    assert.deepEqual(rich.content.map((block) => block.type), [
-      'text', 'image', 'audio', 'resource', 'resource_link',
-    ]);
+    assert.deepEqual(
+      rich.content.map((block) => block.type),
+      ['text', 'image', 'audio', 'resource', 'resource_link'],
+    );
   });
 
   test('maps protocol isError to the Maka error path', async () => {
@@ -77,7 +90,8 @@ describe('McpClientManager stdio E2E', () => {
     await manager.sync(fixtureConfig());
     await assert.rejects(
       manager.callTool('fixture', 'fail', {}),
-      (error: unknown) => error instanceof McpToolCallError && /deliberate failure/u.test(error.message),
+      (error: unknown) =>
+        error instanceof McpToolCallError && /deliberate failure/u.test(error.message),
     );
   });
 
@@ -148,14 +162,22 @@ test('buildStdioEnvironment uses an allowlist and explicit values override it', 
   assert.deepEqual(
     buildStdioEnvironment(
       { API_TOKEN: 'explicit', PATH: '/custom' },
-      { PATH: '/bin', HOME: '/home/u', AWS_SECRET_ACCESS_KEY: 'leak', LC_ALL: 'C', XDG_CONFIG_HOME: '/x' },
+      {
+        PATH: '/bin',
+        HOME: '/home/u',
+        AWS_SECRET_ACCESS_KEY: 'leak',
+        LC_ALL: 'C',
+        XDG_CONFIG_HOME: '/x',
+      },
     ),
     { PATH: '/custom', HOME: '/home/u', LC_ALL: 'C', XDG_CONFIG_HOME: '/x', API_TOKEN: 'explicit' },
   );
 });
 
 function createManager(): McpClientManager {
-  const manager = new McpClientManager({ timeouts: { stdioConnectMs: 5_000, listToolsMs: 5_000, callToolMs: 5_000 } });
+  const manager = new McpClientManager({
+    timeouts: { stdioConnectMs: 5_000, listToolsMs: 5_000, callToolMs: 5_000 },
+  });
   managers.push(manager);
   return manager;
 }
@@ -172,7 +194,10 @@ function fixtureConfig(extraArgs: string[] = []): McpConfigFile {
   };
 }
 
-function remoteConfig(url: string, transport: 'auto' | 'streamable-http' = 'streamable-http'): McpConfigFile {
+function remoteConfig(
+  url: string,
+  transport: 'auto' | 'streamable-http' = 'streamable-http',
+): McpConfigFile {
   return {
     version: 1,
     mcpServers: {
@@ -210,7 +235,9 @@ async function createRemoteFixture(kind: 'streamable-http' | 'sse'): Promise<Rem
     requests.push({
       method: req.method ?? 'GET',
       path: url.pathname,
-      ...(typeof req.headers.authorization === 'string' ? { authorization: req.headers.authorization } : {}),
+      ...(typeof req.headers.authorization === 'string'
+        ? { authorization: req.headers.authorization }
+        : {}),
       ...(typeof req.headers.accept === 'string' ? { accept: req.headers.accept } : {}),
     });
     try {
@@ -242,7 +269,9 @@ async function createRemoteFixture(kind: 'streamable-http' | 'sse'): Promise<Rem
         await entry.transport.handlePostMessage(req, res, await readJsonBody(req));
         return;
       }
-      res.writeHead(404, { 'content-type': 'application/json' }).end(JSON.stringify({ error: 'not found' }));
+      res
+        .writeHead(404, { 'content-type': 'application/json' })
+        .end(JSON.stringify({ error: 'not found' }));
     } catch (error) {
       if (!res.headersSent) res.writeHead(500);
       res.end(error instanceof Error ? error.message : String(error));
@@ -258,11 +287,15 @@ async function createRemoteFixture(kind: 'streamable-http' | 'sse'): Promise<Rem
     url: `http://127.0.0.1:${address.port}${kind === 'streamable-http' ? '/mcp' : ''}`,
     requests,
     close: async () => {
-      await Promise.all([...sseTransports.values()].map(async ({ transport, server }) => {
-        await transport.close().catch(() => {});
-        await server.close().catch(() => {});
-      }));
-      await new Promise<void>((resolve, reject) => httpServer.close((error) => error ? reject(error) : resolve()));
+      await Promise.all(
+        [...sseTransports.values()].map(async ({ transport, server }) => {
+          await transport.close().catch(() => {});
+          await server.close().catch(() => {});
+        }),
+      );
+      await new Promise<void>((resolve, reject) =>
+        httpServer.close((error) => (error ? reject(error) : resolve())),
+      );
     },
   };
   remoteFixtures.push(fixture);
@@ -275,11 +308,13 @@ function createProtocolServer(): McpServer {
     { capabilities: { tools: {} } },
   );
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: [{
-      name: 'echo',
-      description: 'Echo text',
-      inputSchema: { type: 'object', properties: { value: { type: 'string' } } },
-    }],
+    tools: [
+      {
+        name: 'echo',
+        description: 'Echo text',
+        inputSchema: { type: 'object', properties: { value: { type: 'string' } } },
+      },
+    ],
   }));
   server.setRequestHandler(CallToolRequestSchema, async ({ params }) => ({
     content: [{ type: 'text', text: String(params.arguments?.value ?? '') }],

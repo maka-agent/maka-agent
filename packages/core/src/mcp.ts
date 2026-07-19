@@ -24,12 +24,7 @@ export interface McpConfigFile {
   mcpServers: Record<string, McpServerConfig>;
 }
 
-export type McpConnectionState =
-  | 'disabled'
-  | 'disconnected'
-  | 'connecting'
-  | 'connected'
-  | 'error';
+export type McpConnectionState = 'disabled' | 'disconnected' | 'connecting' | 'connected' | 'error';
 
 export interface McpToolAnnotations {
   title?: string;

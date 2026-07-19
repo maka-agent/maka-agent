@@ -19,16 +19,21 @@ describe('BotRegistry', () => {
     // WeCom is the stand-in here. When WeCom-operational lands, this
     // assertion will need to move to Feishu (or to whichever credentials-
     // only platform is still unimplemented).
-    await registry.applySettings(settingsWith({
-      wecom: { enabled: true, token: 'unused', appId: 'corp', appSecret: 'secret' },
-    }));
+    await registry.applySettings(
+      settingsWith({
+        wecom: { enabled: true, token: 'unused', appId: 'corp', appSecret: 'secret' },
+      }),
+    );
 
     assert.equal(registry.getStatus('telegram').reason, 'disabled');
     assert.equal(registry.getStatus('telegram').readiness, 'scaffolded');
     assert.equal(registry.getStatus('wecom').reason, 'scaffold-only');
     assert.equal(registry.getStatus('wecom').running, false);
     assert.equal(registry.getStatus('wecom').readiness, 'configured');
-    assert.equal(statuses.some((status) => status.platform === 'wecom' && status.readiness === 'configured'), true);
+    assert.equal(
+      statuses.some((status) => status.platform === 'wecom' && status.readiness === 'configured'),
+      true,
+    );
   });
 
   // PR-BOT-DISCORD-OPERATIONAL-0: Discord is now an implemented platform
@@ -41,22 +46,32 @@ describe('BotRegistry', () => {
       onStatusChange: (status) => statuses.push(status),
     });
 
-    await registry.applySettings(settingsWith({
-      wecom: { enabled: true, token: 'wecom-token', appId: 'corp-id', appSecret: 'corp-secret' },
-    }));
+    await registry.applySettings(
+      settingsWith({
+        wecom: { enabled: true, token: 'wecom-token', appId: 'corp-id', appSecret: 'corp-secret' },
+      }),
+    );
 
     assert.equal(registry.getStatus('wecom').running, false);
     assert.equal(registry.getStatus('wecom').reason, 'scaffold-only');
     assert.equal(registry.getStatus('wecom').readiness, 'configured');
-    assert.equal(statuses.some((status) => status.platform === 'wecom' && status.readiness === 'operational'), false);
+    assert.equal(
+      statuses.some((status) => status.platform === 'wecom' && status.readiness === 'operational'),
+      false,
+    );
 
-    await registry.applySettings(settingsWith({
-      wecom: { enabled: false, token: 'wecom-token' },
-    }));
+    await registry.applySettings(
+      settingsWith({
+        wecom: { enabled: false, token: 'wecom-token' },
+      }),
+    );
 
     assert.equal(registry.getStatus('wecom').running, false);
     assert.equal(registry.getStatus('wecom').reason, 'disabled');
-    assert.equal(statuses.some((status) => status.platform === 'wecom' && status.reason === 'disabled'), true);
+    assert.equal(
+      statuses.some((status) => status.platform === 'wecom' && status.reason === 'disabled'),
+      true,
+    );
   });
 
   test('queues overlapping applySettings calls so the newest settings win deterministically', async () => {
@@ -111,16 +126,18 @@ describe('BotRegistry', () => {
     });
 
     return registry
-      .applySettings(settingsWith({
-        wecom: {
-          enabled: true,
-          token: 'tenant-token',
-          appId: 'corp-id',
-          appSecret: 'secret',
-          connected: true,
-          readiness: 'credentials_valid',
-        },
-      }))
+      .applySettings(
+        settingsWith({
+          wecom: {
+            enabled: true,
+            token: 'tenant-token',
+            appId: 'corp-id',
+            appSecret: 'secret',
+            connected: true,
+            readiness: 'credentials_valid',
+          },
+        }),
+      )
       .then(() => {
         const status = registry.getStatus('wecom');
         assert.equal(status.running, false);
@@ -141,15 +158,17 @@ describe('BotRegistry', () => {
       onStatusChange: () => {},
     });
 
-    await registry.applySettings(settingsWith({
-      wecom: {
-        enabled: true,
-        token: '',
-        appId: undefined,
-        appSecret: undefined,
-        readiness: 'credentials_valid',
-      },
-    }));
+    await registry.applySettings(
+      settingsWith({
+        wecom: {
+          enabled: true,
+          token: '',
+          appId: undefined,
+          appSecret: undefined,
+          readiness: 'credentials_valid',
+        },
+      }),
+    );
 
     const status = registry.getStatus('wecom');
     assert.equal(status.readiness, 'scaffolded');
@@ -177,9 +196,11 @@ describe('BotRegistry', () => {
       onStatusChange: () => {},
     });
 
-    await registry.applySettings(settingsWith({
-      wecom: { enabled: true, token: 'wecom-token', appId: 'corp', appSecret: 'secret' },
-    }));
+    await registry.applySettings(
+      settingsWith({
+        wecom: { enabled: true, token: 'wecom-token', appId: 'corp', appSecret: 'secret' },
+      }),
+    );
 
     // scaffoldStatus path means no live bridge is registered for wecom;
     // typing indicator must silently degrade to false.
@@ -199,15 +220,17 @@ describe('BotRegistry', () => {
       onStatusChange: () => {},
     });
 
-    await registry.applySettings(settingsWith({
-      wecom: {
-        enabled: true,
-        token: '',
-        appId: undefined,
-        appSecret: undefined,
-        readiness: 'operational',
-      },
-    }));
+    await registry.applySettings(
+      settingsWith({
+        wecom: {
+          enabled: true,
+          token: '',
+          appId: undefined,
+          appSecret: undefined,
+          readiness: 'operational',
+        },
+      }),
+    );
 
     const status = registry.getStatus('wecom');
     assert.equal(
@@ -218,8 +241,18 @@ describe('BotRegistry', () => {
   });
 });
 
-function settingsWith(overrides: Partial<Record<BotProvider, Partial<ReturnType<typeof createDefaultBotChannel>>>>): BotChatSettings {
-  const providers: BotProvider[] = ['telegram', 'feishu', 'wecom', 'wechat', 'discord', 'dingtalk', 'qq'];
+function settingsWith(
+  overrides: Partial<Record<BotProvider, Partial<ReturnType<typeof createDefaultBotChannel>>>>,
+): BotChatSettings {
+  const providers: BotProvider[] = [
+    'telegram',
+    'feishu',
+    'wecom',
+    'wechat',
+    'discord',
+    'dingtalk',
+    'qq',
+  ];
   return {
     channels: Object.fromEntries(
       providers.map((provider) => [

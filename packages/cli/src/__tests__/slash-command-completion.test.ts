@@ -42,7 +42,11 @@ describe('MakaAutocompleteProvider mid-message skill completion', () => {
   test('completes a `/skill:` token mid-message with a slash-less prefix', async () => {
     const provider = new MakaAutocompleteProvider(baseDir, commands, listSkills);
     const result = await provider.getSuggestions(['see /skill:w'], 0, 12, { signal });
-    assert.equal(result?.prefix, 'w', 'mid-message prefix must drop /skill: so select does not submit');
+    assert.equal(
+      result?.prefix,
+      'w',
+      'mid-message prefix must drop /skill: so select does not submit',
+    );
     assert.deepEqual(
       (result?.items ?? []).map((i) => i.value),
       ['weekly-report', 'web-search'],
@@ -53,7 +57,9 @@ describe('MakaAutocompleteProvider mid-message skill completion', () => {
     const provider = new MakaAutocompleteProvider(baseDir, commands, listSkills);
     await provider.getSuggestions(['see /skill:w'], 0, 12, { signal });
     const applied = provider.applyCompletion(
-      ['see /skill:w'], 0, 12,
+      ['see /skill:w'],
+      0,
+      12,
       { value: 'weekly-report', label: '/skill:weekly-report' },
       'w',
     );
@@ -104,7 +110,11 @@ describe('MakaAutocompleteProvider mid-message skill completion', () => {
   test('completes `/skill:xxx` from a bare mid-message `/` token', async () => {
     const provider = new MakaAutocompleteProvider(baseDir, commands, listSkills);
     const result = await provider.getSuggestions(['see /'], 0, 5, { signal });
-    assert.equal(result?.prefix, '', 'bare / prefix is empty (slash-less) so select does not submit');
+    assert.equal(
+      result?.prefix,
+      '',
+      'bare / prefix is empty (slash-less) so select does not submit',
+    );
     assert.deepEqual(
       (result?.items ?? []).map((i) => i.value),
       ['skill:weekly-report', 'skill:web-search'],
@@ -125,7 +135,9 @@ describe('MakaAutocompleteProvider mid-message skill completion', () => {
     const provider = new MakaAutocompleteProvider(baseDir, commands, listSkills);
     await provider.getSuggestions(['see /'], 0, 5, { signal });
     const applied = provider.applyCompletion(
-      ['see /'], 0, 5,
+      ['see /'],
+      0,
+      5,
       { value: 'skill:weekly-report', label: '/skill:weekly-report' },
       '',
     );
@@ -137,7 +149,9 @@ describe('MakaAutocompleteProvider mid-message skill completion', () => {
     const provider = new MakaAutocompleteProvider(baseDir, commands, listSkills);
     const result = await provider.getSuggestions(['see /zzz'], 0, 8, { signal });
     assert.equal(
-      (result?.items ?? []).some((i) => skills.some((s) => s.id === i.value || `skill:${s.id}` === i.value)),
+      (result?.items ?? []).some((i) =>
+        skills.some((s) => s.id === i.value || `skill:${s.id}` === i.value),
+      ),
       false,
     );
   });
@@ -151,7 +165,11 @@ describe('MakaAutocompleteProvider mid-message skill completion', () => {
     // behavior instead of introducing an auto-submit footgun.
     const provider = new MakaAutocompleteProvider('/', commands, listSkills);
     const result = await provider.getSuggestions(['see /U'], 0, 6, { signal });
-    assert.equal(result, null, 'must not fall through to file provider (would auto-submit on select)');
+    assert.equal(
+      result,
+      null,
+      'must not fall through to file provider (would auto-submit on select)',
+    );
   });
 
   test('a bare mid-message `/` keeps the original (non-lowercased) prefix for apply', async () => {
@@ -164,11 +182,7 @@ describe('MakaAutocompleteProvider mid-message skill completion', () => {
     const result = await provider.getSuggestions(['see /İ'], 0, 6, { signal });
     assert.equal(result?.prefix, 'İ', 'prefix must be the original text, not its lowercased form');
     assert.ok(result && result.items.length > 0, 'expected a skill match');
-    const applied = provider.applyCompletion(
-      ['see /İ'], 0, 6,
-      result.items[0],
-      result.prefix,
-    );
+    const applied = provider.applyCompletion(['see /İ'], 0, 6, result.items[0], result.prefix);
     assert.deepEqual(applied.lines, ['see /skill:info ']);
   });
 });
@@ -184,7 +198,10 @@ describe('DirectoryAutocompleteProvider', () => {
         signal: new AbortController().signal,
         force: true,
       });
-      assert.deepEqual(result?.items.map((item) => item.label), ['worktree-next/']);
+      assert.deepEqual(
+        result?.items.map((item) => item.label),
+        ['worktree-next/'],
+      );
     } finally {
       // The test directory is intentionally tiny; remove it synchronously so
       // the provider test does not need a second async lifecycle hook.
@@ -224,8 +241,14 @@ describe('MakaSkillHighlightEditor mid-message skill trigger', () => {
     for (const ch of 'see /skill:w') editor.handleInput(ch);
     await waitFor(() => editor.isShowingAutocomplete());
     const rendered = editor.render(80).join('\n');
-    assert.ok(rendered.includes('/skill:weekly-report'), `expected /skill:weekly-report in:\n${rendered}`);
-    assert.ok(rendered.includes('/skill:web-search'), `expected /skill:web-search in:\n${rendered}`);
+    assert.ok(
+      rendered.includes('/skill:weekly-report'),
+      `expected /skill:weekly-report in:\n${rendered}`,
+    );
+    assert.ok(
+      rendered.includes('/skill:web-search'),
+      `expected /skill:web-search in:\n${rendered}`,
+    );
   });
 
   test('selecting a mid-message skill inserts `/skill:name ` and does not submit', async () => {
@@ -233,7 +256,9 @@ describe('MakaSkillHighlightEditor mid-message skill trigger', () => {
     const editor = new MakaSkillHighlightEditor(tui, editorTheme(), { paddingX: 1 });
     editor.setAutocompleteProvider(new MakaAutocompleteProvider(tmpdir(), commands, listSkills));
     let submitted: string | undefined;
-    editor.onSubmit = (prompt: string) => { submitted = prompt; };
+    editor.onSubmit = (prompt: string) => {
+      submitted = prompt;
+    };
     for (const ch of 'see /skill:w') editor.handleInput(ch);
     await waitFor(() => editor.isShowingAutocomplete());
     editor.handleInput('\r');
@@ -262,8 +287,14 @@ describe('MakaSkillHighlightEditor mid-message skill trigger', () => {
     for (const ch of 'see /') editor.handleInput(ch);
     await waitFor(() => editor.isShowingAutocomplete());
     const rendered = editor.render(80).join('\n');
-    assert.ok(rendered.includes('/skill:weekly-report'), `expected /skill:weekly-report in:\n${rendered}`);
-    assert.ok(rendered.includes('/skill:web-search'), `expected /skill:web-search in:\n${rendered}`);
+    assert.ok(
+      rendered.includes('/skill:weekly-report'),
+      `expected /skill:weekly-report in:\n${rendered}`,
+    );
+    assert.ok(
+      rendered.includes('/skill:web-search'),
+      `expected /skill:web-search in:\n${rendered}`,
+    );
   });
 
   test('mid-message trigger works under Kitty CSI-u keyboard protocol', async () => {
@@ -278,7 +309,10 @@ describe('MakaSkillHighlightEditor mid-message skill trigger', () => {
       for (const ch of 'see /skill:w') editor.handleInput(`\x1b[${ch.codePointAt(0)}u`);
       await waitFor(() => editor.isShowingAutocomplete());
       const rendered = editor.render(80).join('\n');
-      assert.ok(rendered.includes('/skill:weekly-report'), `expected skill completion under Kitty CSI-u:\n${rendered}`);
+      assert.ok(
+        rendered.includes('/skill:weekly-report'),
+        `expected skill completion under Kitty CSI-u:\n${rendered}`,
+      );
     } finally {
       setKittyProtocolActive(false);
     }
@@ -294,7 +328,10 @@ describe('MakaSkillHighlightEditor mid-message skill trigger', () => {
     for (const ch of 'see /') editor.handleInput(`\x1b[27;1;${ch.codePointAt(0)}~`);
     await waitFor(() => editor.isShowingAutocomplete());
     const rendered = editor.render(80).join('\n');
-    assert.ok(rendered.includes('/skill:weekly-report'), `expected skill completion under modifyOtherKeys:\n${rendered}`);
+    assert.ok(
+      rendered.includes('/skill:weekly-report'),
+      `expected skill completion under modifyOtherKeys:\n${rendered}`,
+    );
   });
 });
 

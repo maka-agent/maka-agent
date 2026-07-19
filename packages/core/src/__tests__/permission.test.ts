@@ -49,10 +49,12 @@ describe('sandbox-aware execute policy', () => {
       turnRemembered: new Set<string>(),
     };
 
-    expect(preToolUse({
-      ...common,
-      sandbox: { platformSandboxAvailable: true },
-    }).proceed).toBe(true);
+    expect(
+      preToolUse({
+        ...common,
+        sandbox: { platformSandboxAvailable: true },
+      }).proceed,
+    ).toBe(true);
     const unavailable = preToolUse({
       ...common,
       sandbox: { platformSandboxAvailable: false },
@@ -134,7 +136,9 @@ describe('categorizeBash', () => {
   });
 
   test('PowerShell pipeline into Remove-Item → fs_destructive', () => {
-    expect(categorizeBash('Get-ChildItem -Recurse -Filter *.tmp | Remove-Item')).toBe('fs_destructive');
+    expect(categorizeBash('Get-ChildItem -Recurse -Filter *.tmp | Remove-Item')).toBe(
+      'fs_destructive',
+    );
     expect(categorizeBash('Get-ChildItem . | del')).toBe('fs_destructive');
   });
 
@@ -142,8 +146,12 @@ describe('categorizeBash', () => {
     // PowerShell shapes a model actually writes
     expect(categorizeBash('RM .\\foo.txt')).toBe('fs_destructive');
     expect(categorizeBash('RMDIR .\\build')).toBe('fs_destructive');
-    expect(categorizeBash('Get-ChildItem . | ForEach-Object { Remove-Item $_ }')).toBe('fs_destructive');
-    expect(categorizeBash('Get-ChildItem . | ForEach-Object -Process { Remove-Item $_ }')).toBe('fs_destructive');
+    expect(categorizeBash('Get-ChildItem . | ForEach-Object { Remove-Item $_ }')).toBe(
+      'fs_destructive',
+    );
+    expect(categorizeBash('Get-ChildItem . | ForEach-Object -Process { Remove-Item $_ }')).toBe(
+      'fs_destructive',
+    );
     expect(categorizeBash('gci *.tmp | % { ri $_ }')).toBe('fs_destructive');
     expect(categorizeBash('& Remove-Item foo.txt')).toBe('fs_destructive');
     expect(categorizeBash('cd C:\\tmp; Remove-Item -Recurse build')).toBe('fs_destructive');
@@ -162,7 +170,9 @@ describe('categorizeBash', () => {
     expect(categorizeBash("& 'Remove-Item' .\\foo.txt")).toBe('fs_destructive');
     expect(categorizeBash('& "ri" .\\foo.txt')).toBe('fs_destructive');
     expect(categorizeBash("& 'git' clean -fd")).toBe('git_destructive');
-    expect(categorizeBash("& 'C:\\Program Files\\Git\\bin\\git.exe' clean -fd")).toBe('git_destructive');
+    expect(categorizeBash("& 'C:\\Program Files\\Git\\bin\\git.exe' clean -fd")).toBe(
+      'git_destructive',
+    );
     expect(categorizeBash('/bin/rm -rf /tmp/x')).toBe('fs_destructive');
     expect(categorizeBash('\\rm -rf /tmp/x')).toBe('fs_destructive');
     expect(categorizeBash('C:\\Windows\\System32\\taskkill.exe /IM node.exe')).toBe('privileged');
@@ -284,7 +294,9 @@ describe('categorizeBash', () => {
     expect(categorizeBash('npm install lodash')).toBe('shell_unsafe');
     expect(categorizeBash('curl https://example.com')).toBe('shell_unsafe');
     expect(categorizeBash('python script.py')).toBe('shell_unsafe');
-    expect(categorizeBash('officecli set deck.pptx "/slide[1]" --prop title=Hi')).toBe('shell_unsafe');
+    expect(categorizeBash('officecli set deck.pptx "/slide[1]" --prop title=Hi')).toBe(
+      'shell_unsafe',
+    );
     expect(categorizeBash('officecli close deck.pptx')).toBe('shell_unsafe');
   });
 
@@ -424,7 +436,12 @@ describe('preToolUse — execute mode', () => {
   test('read-only shell prompts in execute too (no shell auto-runs; typed tools do)', () => {
     // git status is not provably safe (fsmonitor), so it prompts like any
     // other shell command. Read tool / Glob / Grep remain the auto-run path.
-    for (const command of ['git status', 'ls -la', 'officecli view deck.pptx html -o out.html', 'echo (New-Item .\\foo.txt)']) {
+    for (const command of [
+      'git status',
+      'ls -la',
+      'officecli view deck.pptx html -o out.html',
+      'echo (New-Item .\\foo.txt)',
+    ]) {
       const r = evaluate('Bash', { command }, 'execute');
       expect(r.proceed).toBe(false);
       expect(r.needsPrompt).toBe(true);
@@ -630,14 +647,13 @@ describe('preToolUse — turnRemembered', () => {
   });
 
   test('scope key normalizes shell whitespace and sorts custom args', () => {
-    expect(permissionScopeKey('Bash', { command: 'npm   test\n-- --runInBand' }, 'shell_unsafe')).toBe(
-      'shell_unsafe:Bash:npm test -- --runInBand',
-    );
+    expect(
+      permissionScopeKey('Bash', { command: 'npm   test\n-- --runInBand' }, 'shell_unsafe'),
+    ).toBe('shell_unsafe:Bash:npm test -- --runInBand');
     expect(permissionScopeKey('Custom', { b: 2, a: 1 }, 'custom_tool')).toBe(
       'custom_tool:Custom:{"a":1,"b":2}',
     );
   });
-
 });
 
 describe('preToolUse — browser permission contract', () => {
@@ -652,12 +668,18 @@ describe('preToolUse — browser permission contract', () => {
     // The whole observe→act loop collapses to a single scope key — unlike
     // file_write above, which scopes per path.
     expect(permissionScopeKey('browser_click', { ref: '[12]' }, 'browser')).toBe('browser');
-    expect(permissionScopeKey('browser_type', { ref: '[3]', text: 'hi' }, 'browser')).toBe('browser');
-    expect(permissionScopeKey('browser_navigate', { url: 'https://x.com' }, 'browser')).toBe('browser');
+    expect(permissionScopeKey('browser_type', { ref: '[3]', text: 'hi' }, 'browser')).toBe(
+      'browser',
+    );
+    expect(permissionScopeKey('browser_navigate', { url: 'https://x.com' }, 'browser')).toBe(
+      'browser',
+    );
   });
 
   test('"allow for this turn" on one browser action carries the rest of the loop', () => {
-    const remembered = [permissionScopeKey('browser_navigate', { url: 'https://x.com' }, 'browser')];
+    const remembered = [
+      permissionScopeKey('browser_navigate', { url: 'https://x.com' }, 'browser'),
+    ];
     // A different browser tool, different args → allowed without re-prompting.
     const click = evaluate('browser_click', { ref: '[99]' }, 'execute', remembered, 'browser');
     expect(click.proceed).toBe(true);
@@ -724,13 +746,7 @@ describe('preToolUse — Computer Use permission contract', () => {
       window_id: 42,
     };
     const remembered = [permissionScopeKey('maka_computer', metadataArgs, 'computer_use')];
-    const metadata = evaluate(
-      'maka_computer',
-      metadataArgs,
-      'execute',
-      remembered,
-      'computer_use',
-    );
+    const metadata = evaluate('maka_computer', metadataArgs, 'execute', remembered, 'computer_use');
     const screenshot = evaluate(
       'maka_computer',
       { ...metadataArgs, include_screenshot: true },
@@ -760,18 +776,8 @@ describe('preToolUse — Computer Use permission contract', () => {
       action: 'raw_unknown_action',
       app: 'Example',
     };
-    const remembered = [permissionScopeKey(
-      'maka_computer',
-      args,
-      'computer_use',
-    )];
-    const result = evaluate(
-      'maka_computer',
-      args,
-      'execute',
-      remembered,
-      'computer_use',
-    );
+    const remembered = [permissionScopeKey('maka_computer', args, 'computer_use')];
+    const result = evaluate('maka_computer', args, 'execute', remembered, 'computer_use');
     expect(result.needsPrompt).toBe(true);
     expect(result.proceed).toBe(false);
     expect(result.partialRequest?.rememberForTurnAllowed).toBe(false);

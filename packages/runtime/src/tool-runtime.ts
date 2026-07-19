@@ -34,10 +34,7 @@ import { redactSecrets } from '@maka/core/redaction';
 
 import type { PermissionEngine } from './permission-engine.js';
 import type { AsyncEventQueue } from './async-queue.js';
-import {
-  recordToolArtifactsSafely,
-  type ToolArtifactRecorder,
-} from './tool-artifacts.js';
+import { recordToolArtifactsSafely, type ToolArtifactRecorder } from './tool-artifacts.js';
 import { createToolOutputDeltaEmitter } from './tool-output-delta.js';
 import { truncateToolOutput } from './tool-output.js';
 import { stableHash } from './request-shape.js';
@@ -51,10 +48,7 @@ import {
   type AdditionalPermissionPlanResult,
   type ToolExecutionPermissionContext,
 } from './additional-permissions.js';
-import {
-  ApprovalCoordinator,
-  type AutoApprovalReviewContext,
-} from './approval-reviewer.js';
+import { ApprovalCoordinator, type AutoApprovalReviewContext } from './approval-reviewer.js';
 import {
   SandboxEscalationError,
   type SandboxEscalationPlanResult,
@@ -102,11 +96,13 @@ export interface MakaTool<P = any, R = unknown> {
     context: Pick<MakaToolContext, 'sessionId' | 'turnId' | 'toolCallId'>,
   ) => unknown;
   /** Optional trusted platform sandbox availability for this tool. */
-  sandbox?: {
-    platformSandboxAvailable: boolean;
-  } | ((context: { permissionMode: PermissionMode; cwd: string; args: P }) => {
-    platformSandboxAvailable: boolean;
-  });
+  sandbox?:
+    | {
+        platformSandboxAvailable: boolean;
+      }
+    | ((context: { permissionMode: PermissionMode; cwd: string; args: P }) => {
+        platformSandboxAvailable: boolean;
+      });
   /** Trusted runtime planner for one-call permission expansion. */
   planAdditionalPermissions?: (
     args: P,
@@ -150,11 +146,19 @@ export interface MakaToolContext {
   spawnChildAgent?: (input: {
     spec: AgentSpec;
     prompt: string;
-    onReady?: (input: { turnId: string; agentId: string; agentName: string }) => void | Promise<void>;
+    onReady?: (input: {
+      turnId: string;
+      agentId: string;
+      agentName: string;
+    }) => void | Promise<void>;
     onEvent?: (event: SessionEvent) => void;
   }) => Promise<unknown>;
   listChildAgents?: () => Promise<unknown>;
-  readChildAgentOutput?: (input: { runId?: string; turnId?: string; maxEvents?: number }) => Promise<unknown>;
+  readChildAgentOutput?: (input: {
+    runId?: string;
+    turnId?: string;
+    maxEvents?: number;
+  }) => Promise<unknown>;
   askUserQuestion?: (questions: UserQuestion[]) => Promise<UserQuestionResult>;
 }
 
@@ -166,7 +170,9 @@ export interface AgentTeamExecutionContext {
   parentRunId?: string;
 }
 
-export type AppendMessageFn = (m: ToolCallMessage | ToolResultMessage | PermissionDecisionMessage) => Promise<void>;
+export type AppendMessageFn = (
+  m: ToolCallMessage | ToolResultMessage | PermissionDecisionMessage,
+) => Promise<void>;
 export type ToolTelemetryRecorder = (record: ToolInvocationRecord) => void;
 
 /**
@@ -198,7 +204,8 @@ export const DEFAULT_PERMISSION_TIMEOUT_MS = 300_000;
  */
 export const LOOP_GATE_IDENTICAL_THRESHOLD = 3;
 
-const SUBAGENT_TOOL_LIMIT_MESSAGE = '只读探索并发过多：同一轮最多 5 个子代理。请等待已有探索完成后再继续。';
+const SUBAGENT_TOOL_LIMIT_MESSAGE =
+  '只读探索并发过多：同一轮最多 5 个子代理。请等待已有探索完成后再继续。';
 
 export interface ToolRuntimeInput {
   sessionId: string;
@@ -224,11 +231,19 @@ export interface ToolRuntimeInput {
     spec: AgentSpec;
     prompt: string;
     abortSignal: AbortSignal;
-    onReady?: (input: { turnId: string; agentId: string; agentName: string }) => void | Promise<void>;
+    onReady?: (input: {
+      turnId: string;
+      agentId: string;
+      agentName: string;
+    }) => void | Promise<void>;
     onEvent?: (event: SessionEvent) => void;
   }) => Promise<unknown>;
   listChildAgents?: () => Promise<unknown>;
-  readChildAgentOutput?: (input: { runId?: string; turnId?: string; maxEvents?: number }) => Promise<unknown>;
+  readChildAgentOutput?: (input: {
+    runId?: string;
+    turnId?: string;
+    maxEvents?: number;
+  }) => Promise<unknown>;
   getRunTrace?: () => RunTraceLike | null;
   permissionTimeoutMs?: number;
   permissionRules?: readonly ToolPermissionRule[];
@@ -280,7 +295,8 @@ export class ToolRuntime {
   endTurn(turnId: string, reason: 'completed' | 'aborted' = 'completed'): void {
     this.userQuestions.endTurn(
       turnId,
-      (requestId) => new Error(`Turn ${turnId} ${reason} before user question ${requestId} was answered`),
+      (requestId) =>
+        new Error(`Turn ${turnId} ${reason} before user question ${requestId} was answered`),
     );
     this.resetTurnState();
   }
@@ -289,12 +305,15 @@ export class ToolRuntime {
     if (!response || typeof response.requestId !== 'string' || !Array.isArray(response.answers)) {
       throw new Error('Invalid user question response');
     }
-    const pending = this.userQuestions.entries(turnId)
+    const pending = this.userQuestions
+      .entries(turnId)
       .find(([requestId]) => requestId === response.requestId)?.[1];
     if (!pending) return false;
     if (
-      response.answers.length !== pending.questions.length
-      || response.answers.some((answer) => answer !== null && (typeof answer !== 'string' || answer.length === 0))
+      response.answers.length !== pending.questions.length ||
+      response.answers.some(
+        (answer) => answer !== null && (typeof answer !== 'string' || answer.length === 0),
+      )
     ) {
       throw new Error('Invalid user question response');
     }
@@ -405,18 +424,21 @@ export class ToolRuntime {
     let permissionArgsError: unknown;
     try {
       permissionArgs = tool.permissionArgs
-        ? snapshotToolArgs(tool.permissionArgs(structuredClone(executionArgs) as never, {
-            sessionId: this.input.sessionId,
-            turnId,
-            toolCallId: toolUseId,
-          }))
+        ? snapshotToolArgs(
+            tool.permissionArgs(structuredClone(executionArgs) as never, {
+              sessionId: this.input.sessionId,
+              turnId,
+              toolCallId: toolUseId,
+            }),
+          )
         : executionArgs;
     } catch (error) {
       permissionArgsError = error;
     }
-    const persistedArgs = tool.categoryHint === 'computer_use'
-      ? snapshotToolArgs(computerUseApprovalSummary(permissionArgs))
-      : permissionArgs;
+    const persistedArgs =
+      tool.categoryHint === 'computer_use'
+        ? snapshotToolArgs(computerUseApprovalSummary(permissionArgs))
+        : permissionArgs;
     const now = this.input.now();
     const toolIntent = describeToolIntent(tool, persistedArgs);
     const trace = this.input.getRunTrace?.() ?? null;
@@ -458,13 +480,15 @@ export class ToolRuntime {
       ...(tool.categoryHint !== undefined ? { categoryHint: tool.categoryHint } : {}),
     });
     const callSignature = `${tool.name} ${loopGateArgsKey(executionArgs, toolUseId)}`;
-    const computerSemanticSignature = tool.categoryHint === 'computer_use'
-      ? computerUseSemanticSignature(permissionArgs)
-      : undefined;
+    const computerSemanticSignature =
+      tool.categoryHint === 'computer_use'
+        ? computerUseSemanticSignature(permissionArgs)
+        : undefined;
     if (permissionArgsError !== undefined) {
-      const msg = tool.categoryHint === 'computer_use'
-        ? 'Computer Use arguments failed validation'
-        : formatSyntheticToolErrorText(permissionArgsError);
+      const msg =
+        tool.categoryHint === 'computer_use'
+          ? 'Computer Use arguments failed validation'
+          : formatSyntheticToolErrorText(permissionArgsError);
       await this.writeSyntheticToolResult(toolUseId, turnId, msg, queue);
       this.input.recordToolInvocation?.({
         sessionId: this.input.sessionId,
@@ -476,9 +500,10 @@ export class ToolRuntime {
         durationMs: 0,
         status: 'error',
         errorClass: 'InvalidArguments',
-        argsSummary: tool.categoryHint === 'computer_use'
-          ? summarizePersistedArgs(persistedArgs)
-          : summarizeArgs(tool.name, executionArgs),
+        argsSummary:
+          tool.categoryHint === 'computer_use'
+            ? summarizePersistedArgs(persistedArgs)
+            : summarizeArgs(tool.name, executionArgs),
         bytesIn: byteLength(persistedArgs),
         bytesOut: byteLength(msg),
         startedAt: now,
@@ -504,8 +529,8 @@ export class ToolRuntime {
     // is told to change its approach. The block itself records no outcome, so the
     // streak stays parked and every further identical repeat stays blocked.
     if (
-      computerSemanticSignature
-      && computerSemanticSignature === this.lastAmbiguousComputerSignature
+      computerSemanticSignature &&
+      computerSemanticSignature === this.lastAmbiguousComputerSignature
     ) {
       const reason = formatAmbiguousComputerLoopGateText();
       await this.writeSyntheticToolResult(toolUseId, turnId, reason, queue);
@@ -518,15 +543,15 @@ export class ToolRuntime {
       return this.errorReturn(reason);
     }
     if (
-      this.lastAmbiguousComputerSignature
-      && computerSemanticSignature
-      && computerSemanticSignature !== this.lastAmbiguousComputerSignature
+      this.lastAmbiguousComputerSignature &&
+      computerSemanticSignature &&
+      computerSemanticSignature !== this.lastAmbiguousComputerSignature
     ) {
       this.lastAmbiguousComputerSignature = undefined;
     }
     if (
-      callSignature === this.lastFailedToolCallSignature
-      && this.failedToolCallStreak >= LOOP_GATE_IDENTICAL_THRESHOLD - 1
+      callSignature === this.lastFailedToolCallSignature &&
+      this.failedToolCallStreak >= LOOP_GATE_IDENTICAL_THRESHOLD - 1
     ) {
       const reason = formatLoopGateText(tool.name);
       await this.writeSyntheticToolResult(toolUseId, turnId, reason, queue);
@@ -546,7 +571,11 @@ export class ToolRuntime {
     // before permission eval and before the real impl. This also closes the AI
     // SDK `activeTools` leak (vercel/ai#8653). The rejection is recoverable: the
     // model loads via `load_tools`, then retries next step.
-    if (this.gating && this.gating.gatedNames.has(tool.name) && !this.gating.activeNames().has(tool.name)) {
+    if (
+      this.gating &&
+      this.gating.gatedNames.has(tool.name) &&
+      !this.gating.activeNames().has(tool.name)
+    ) {
       const reason = formatDeferredNotLoadedText(tool.name);
       await this.writeSyntheticToolResult(toolUseId, turnId, reason, queue);
       trace?.emit('tool', 'tool_failed', 'Deferred tool used before load', {
@@ -627,12 +656,11 @@ export class ToolRuntime {
           args: executionArgs,
           ...(this.recentSandboxDenials.has(
             sandboxDenialKey(tool.name, this.input.header.cwd, executionArgs),
-          ) ? { recentSandboxDenial: true } : {}),
+          )
+            ? { recentSandboxDenial: true }
+            : {}),
         });
-        const planned = await tool.planSandboxEscalation(
-          executionArgs as never,
-          plannerContext,
-        );
+        const planned = await tool.planSandboxEscalation(executionArgs as never, plannerContext);
         if (!isSandboxEscalationPlanResult(planned)) {
           throw new SandboxEscalationError({
             stage: 'planning',
@@ -650,11 +678,16 @@ export class ToolRuntime {
       }
       if (escalationPlan.kind === 'block') {
         const reason = formatSyntheticToolErrorText(escalationPlan.message);
-        trace?.emit('permission', 'sandbox_escalation_failed', 'Sandbox escalation planning failed', {
-          toolUseId,
-          toolName: tool.name,
-          reason: escalationPlan.reason,
-        });
+        trace?.emit(
+          'permission',
+          'sandbox_escalation_failed',
+          'Sandbox escalation planning failed',
+          {
+            toolUseId,
+            toolName: tool.name,
+            reason: escalationPlan.reason,
+          },
+        );
         await this.writeSyntheticToolResult(toolUseId, turnId, reason, queue);
         this.recordLoopGateOutcome(callSignature, true);
         return this.errorReturn(reason);
@@ -662,7 +695,8 @@ export class ToolRuntime {
     }
 
     if (additionalPlan.kind === 'request' && escalationPlan.kind === 'request') {
-      const reason = 'A tool call cannot request additional permissions and unsandboxed execution together.';
+      const reason =
+        'A tool call cannot request additional permissions and unsandboxed execution together.';
       await this.writeSyntheticToolResult(toolUseId, turnId, reason, queue);
       this.recordLoopGateOutcome(callSignature, true);
       return this.errorReturn(reason);
@@ -673,14 +707,20 @@ export class ToolRuntime {
       autoReviewEscalationKey = `${turnId}\u0000${escalationPlan.proposal.commandHash}`;
       const priorAttempt = this.autoReviewEscalationAttempts.get(autoReviewEscalationKey);
       if (priorAttempt) {
-        const reason = priorAttempt === 'pending'
-          ? '相同的 sandbox 提权请求正在自动审批；为防止重复送审，本轮不会再次执行。'
-          : '相同的 sandbox 提权请求已在当前轮次中被自动审批拒绝；需要用户发送新的消息后才能重新申请。';
-        trace?.emit('permission', 'sandbox_escalation_failed', 'Repeated automatic escalation review blocked', {
-          toolUseId,
-          toolName: tool.name,
-          reason: 'sandbox_escalation_denied',
-        });
+        const reason =
+          priorAttempt === 'pending'
+            ? '相同的 sandbox 提权请求正在自动审批；为防止重复送审，本轮不会再次执行。'
+            : '相同的 sandbox 提权请求已在当前轮次中被自动审批拒绝；需要用户发送新的消息后才能重新申请。';
+        trace?.emit(
+          'permission',
+          'sandbox_escalation_failed',
+          'Repeated automatic escalation review blocked',
+          {
+            toolUseId,
+            toolName: tool.name,
+            reason: 'sandbox_escalation_denied',
+          },
+        );
         await this.writeSyntheticToolResult(toolUseId, turnId, reason, queue);
         this.recordLoopGateOutcome(callSignature, true);
         return this.errorReturn(reason);
@@ -689,36 +729,38 @@ export class ToolRuntime {
     }
 
     if (
-      tool.permissionRequired !== false
-      || (this.input.permissionRules?.length ?? 0) > 0
-      || additionalPlan.kind === 'request'
-      || escalationPlan.kind === 'request'
+      tool.permissionRequired !== false ||
+      (this.input.permissionRules?.length ?? 0) > 0 ||
+      additionalPlan.kind === 'request' ||
+      escalationPlan.kind === 'request'
     ) {
       const verdict = this.input.permissionEngine.evaluate({
         sessionId: this.input.sessionId,
         turnId,
         toolUseId,
         toolName: tool.name,
-        args: structuredClone(
-          additionalPlan.kind === 'request' ? executionArgs : permissionArgs,
-        ),
+        args: structuredClone(additionalPlan.kind === 'request' ? executionArgs : permissionArgs),
         ...(tool.categoryHint !== undefined ? { categoryHint: tool.categoryHint } : {}),
         ...(tool.executionFacts !== undefined ? { executionFacts: tool.executionFacts } : {}),
         permissionRequired: tool.permissionRequired !== false,
-        ...(this.input.permissionRules !== undefined ? { permissionRules: this.input.permissionRules } : {}),
-        ...(tool.sandbox !== undefined ? {
-          sandbox: typeof tool.sandbox === 'function'
-            ? tool.sandbox({
-              permissionMode: this.input.header.permissionMode,
-              cwd: this.input.header.cwd,
-              args: structuredClone(executionArgs),
-            })
-            : tool.sandbox,
-        } : {}),
+        ...(this.input.permissionRules !== undefined
+          ? { permissionRules: this.input.permissionRules }
+          : {}),
+        ...(tool.sandbox !== undefined
+          ? {
+              sandbox:
+                typeof tool.sandbox === 'function'
+                  ? tool.sandbox({
+                      permissionMode: this.input.header.permissionMode,
+                      cwd: this.input.header.cwd,
+                      args: structuredClone(executionArgs),
+                    })
+                  : tool.sandbox,
+            }
+          : {}),
         mode: this.input.header.permissionMode,
-        cwd: escalationPlan.kind === 'request'
-          ? escalationPlan.proposal.cwd
-          : this.input.header.cwd,
+        cwd:
+          escalationPlan.kind === 'request' ? escalationPlan.proposal.cwd : this.input.header.cwd,
         ...(additionalPlan.kind === 'request'
           ? { additionalPermissionProposal: additionalPlan.proposal }
           : {}),
@@ -764,9 +806,8 @@ export class ToolRuntime {
         const reviewContext: AutoApprovalReviewContext = {
           sessionId: this.input.sessionId,
           turnId,
-          cwd: escalationPlan.kind === 'request'
-            ? escalationPlan.proposal.cwd
-            : this.input.header.cwd,
+          cwd:
+            escalationPlan.kind === 'request' ? escalationPlan.proposal.cwd : this.input.header.cwd,
           permissionMode: this.input.header.permissionMode,
           ...this.input.getAutoApprovalReviewContext?.(),
         };
@@ -778,21 +819,22 @@ export class ToolRuntime {
           reviewer: this.input.header.permissionMode === 'execute' ? 'auto_review' : 'user',
           requestKind: verdict.event.kind,
         });
-        trace?.emit('permission', isEscalation
-          ? 'sandbox_escalation_requested'
-          : 'permission_requested', 'Permission requested', {
-          requestId: verdict.event.requestId,
-          toolUseId,
-          toolName: tool.name,
-          category: verdict.event.category,
-          requestKind: verdict.event.kind,
-        });
+        trace?.emit(
+          'permission',
+          isEscalation ? 'sandbox_escalation_requested' : 'permission_requested',
+          'Permission requested',
+          {
+            requestId: verdict.event.requestId,
+            toolUseId,
+            toolName: tool.name,
+            category: verdict.event.category,
+            requestKind: verdict.event.kind,
+          },
+        );
         let response: PermissionDecision;
         try {
-          response = await this.awaitPermissionDecision(
-            verdict,
-            turnId,
-            () => this.approvalCoordinator.resolve({
+          response = await this.awaitPermissionDecision(verdict, turnId, () =>
+            this.approvalCoordinator.resolve({
               mode: this.input.header.permissionMode,
               verdict,
               permissionEngine: this.input.permissionEngine,
@@ -812,19 +854,25 @@ export class ToolRuntime {
             toolUseId,
             toolName: tool.name,
             requestKind: verdict.event.kind ?? 'tool_permission',
-            reason: err instanceof AdditionalPermissionError
-              ? err.reason
-              : err instanceof SandboxEscalationError
+            reason:
+              err instanceof AdditionalPermissionError
                 ? err.reason
-                : reason,
+                : err instanceof SandboxEscalationError
+                  ? err.reason
+                  : reason,
           });
           if (isEscalation) {
-            trace?.emit('permission', 'sandbox_escalation_failed', 'Sandbox escalation flow failed', {
-              requestId: verdict.event.requestId,
-              toolUseId,
-              toolName: tool.name,
-              reason,
-            });
+            trace?.emit(
+              'permission',
+              'sandbox_escalation_failed',
+              'Sandbox escalation flow failed',
+              {
+                requestId: verdict.event.requestId,
+                toolUseId,
+                toolName: tool.name,
+                reason,
+              },
+            );
           }
           await this.writeSyntheticToolResult(toolUseId, turnId, reason, queue);
           trace?.emit('tool', 'tool_failed', 'Tool execution failed before implementation', {
@@ -845,7 +893,9 @@ export class ToolRuntime {
           toolUseId,
           toolName: tool.name,
           decision: response.decision,
-          ...(response.rememberForTurn !== undefined ? { rememberForTurn: response.rememberForTurn } : {}),
+          ...(response.rememberForTurn !== undefined
+            ? { rememberForTurn: response.rememberForTurn }
+            : {}),
           ...(response.reviewer !== undefined ? { reviewer: response.reviewer } : {}),
           ...(response.rationale !== undefined ? { rationale: response.rationale } : {}),
           ...(response.riskLevel !== undefined ? { riskLevel: response.riskLevel } : {}),
@@ -859,7 +909,9 @@ export class ToolRuntime {
           requestId: response.requestId,
           toolUseId,
           decision: response.decision,
-          ...(response.rememberForTurn !== undefined ? { rememberForTurn: response.rememberForTurn } : {}),
+          ...(response.rememberForTurn !== undefined
+            ? { rememberForTurn: response.rememberForTurn }
+            : {}),
           ...(response.reviewer !== undefined ? { reviewer: response.reviewer } : {}),
           ...(response.rationale !== undefined ? { rationale: response.rationale } : {}),
           ...(response.riskLevel !== undefined ? { riskLevel: response.riskLevel } : {}),
@@ -870,7 +922,9 @@ export class ToolRuntime {
           toolName: tool.name,
           decision: response.decision,
           requestKind: verdict.event.kind ?? 'tool_permission',
-          ...(response.rememberForTurn !== undefined ? { rememberForTurn: response.rememberForTurn } : {}),
+          ...(response.rememberForTurn !== undefined
+            ? { rememberForTurn: response.rememberForTurn }
+            : {}),
           ...(response.reviewer !== undefined ? { reviewer: response.reviewer } : {}),
           ...(response.riskLevel !== undefined ? { riskLevel: response.riskLevel } : {}),
         });
@@ -879,9 +933,10 @@ export class ToolRuntime {
           if (autoReviewEscalationKey && response.reviewer === 'auto_review') {
             this.autoReviewEscalationAttempts.set(autoReviewEscalationKey, 'denied');
           }
-          const reason = response.reviewer === 'auto_review'
-            ? `自动审批已拒绝权限请求${response.rationale ? `：${response.rationale}` : ''}`
-            : '用户已拒绝权限请求';
+          const reason =
+            response.reviewer === 'auto_review'
+              ? `自动审批已拒绝权限请求${response.rationale ? `：${response.rationale}` : ''}`
+              : '用户已拒绝权限请求';
           if (isEscalation) {
             trace?.emit('permission', 'sandbox_escalation_denied', 'Sandbox escalation denied', {
               requestId: response.requestId,
@@ -909,9 +964,8 @@ export class ToolRuntime {
             toolUseId,
             toolName: tool.name,
             reviewer: response.reviewer ?? 'user',
-            commandHash: verdict.event.kind === 'sandbox_escalation'
-              ? verdict.event.commandHash
-              : undefined,
+            commandHash:
+              verdict.event.kind === 'sandbox_escalation' ? verdict.event.commandHash : undefined,
           });
         }
       } else {
@@ -964,14 +1018,20 @@ export class ToolRuntime {
         permissionContext = Object.freeze({ additionalGrant });
       } catch (error) {
         const reason = formatSyntheticToolErrorText(error);
-        trace?.emit('permission', 'permission_failed', 'Additional permission could not be applied', {
-          toolUseId,
-          toolName: tool.name,
-          requestKind: 'additional_permissions',
-          reason: error instanceof AdditionalPermissionError
-            ? error.reason
-            : 'invalid_additional_permissions',
-        });
+        trace?.emit(
+          'permission',
+          'permission_failed',
+          'Additional permission could not be applied',
+          {
+            toolUseId,
+            toolName: tool.name,
+            requestKind: 'additional_permissions',
+            reason:
+              error instanceof AdditionalPermissionError
+                ? error.reason
+                : 'invalid_additional_permissions',
+          },
+        );
         await this.writeSyntheticToolResult(toolUseId, turnId, reason, queue);
         this.recordLoopGateOutcome(callSignature, true);
         this.releaseSubagentSlot(tool);
@@ -1007,13 +1067,17 @@ export class ToolRuntime {
         });
       } catch (error) {
         const reason = formatSyntheticToolErrorText(error);
-        trace?.emit('permission', 'sandbox_escalation_failed', 'Sandbox escalation could not be applied', {
-          toolUseId,
-          toolName: tool.name,
-          reason: error instanceof SandboxEscalationError
-            ? error.reason
-            : 'sandbox_escalation_failed',
-        });
+        trace?.emit(
+          'permission',
+          'sandbox_escalation_failed',
+          'Sandbox escalation could not be applied',
+          {
+            toolUseId,
+            toolName: tool.name,
+            reason:
+              error instanceof SandboxEscalationError ? error.reason : 'sandbox_escalation_failed',
+          },
+        );
         await this.writeSyntheticToolResult(toolUseId, turnId, reason, queue);
         this.recordLoopGateOutcome(callSignature, true);
         this.releaseSubagentSlot(tool);
@@ -1056,27 +1120,32 @@ export class ToolRuntime {
           toolCallId: toolUseId,
           abortSignal: ctx.abortSignal,
           emitOutput: output.emit,
-          ...(trace ? {
-            emitRunTrace: (
-              type: 'tool_started' | 'tool_completed' | 'tool_failed',
-              message: string,
-              data?: Record<string, unknown>,
-            ) => trace.emit('tool', type, message, {
-              toolUseId,
-              toolName: tool.name,
-              ...(data ?? {}),
-            }),
-          } : {}),
+          ...(trace
+            ? {
+                emitRunTrace: (
+                  type: 'tool_started' | 'tool_completed' | 'tool_failed',
+                  message: string,
+                  data?: Record<string, unknown>,
+                ) =>
+                  trace.emit('tool', type, message, {
+                    toolUseId,
+                    toolName: tool.name,
+                    ...(data ?? {}),
+                  }),
+              }
+            : {}),
           ...(this.input.agentTeam ? { agentTeam: this.input.agentTeam } : {}),
           ...(permissionContext ? { permissionContext } : {}),
           ...(this.input.listChildAgents ? { listChildAgents: this.input.listChildAgents } : {}),
-          ...(this.input.readChildAgentOutput ? { readChildAgentOutput: this.input.readChildAgentOutput } : {}),
-          ...(this.buildSpawnChildAgentContext({
+          ...(this.input.readChildAgentOutput
+            ? { readChildAgentOutput: this.input.readChildAgentOutput }
+            : {}),
+          ...this.buildSpawnChildAgentContext({
             abortSignal: ctx.abortSignal,
             trace,
             toolUseId,
             toolName: tool.name,
-          })),
+          }),
           askUserQuestion: (questions) => this.askUserQuestion(turnId, toolUseId, questions, queue),
         });
         output.flush();
@@ -1087,14 +1156,21 @@ export class ToolRuntime {
         if (hasSandboxDenial(content)) {
           const denialKey = sandboxDenialKey(tool.name, this.input.header.cwd, executionArgs);
           this.recentSandboxDenials.add(denialKey);
-          this.recentSandboxDenials.add(sandboxDenialKey('Bash', this.input.header.cwd, {
-            command: content.cmd,
-          }));
-          trace?.emit('sandbox', 'sandbox_denial_detected', 'Command likely failed because of sandbox enforcement', {
-            toolUseId,
-            toolName: tool.name,
-            commandHash: denialKey,
-          });
+          this.recentSandboxDenials.add(
+            sandboxDenialKey('Bash', this.input.header.cwd, {
+              command: content.cmd,
+            }),
+          );
+          trace?.emit(
+            'sandbox',
+            'sandbox_denial_detected',
+            'Command likely failed because of sandbox enforcement',
+            {
+              toolUseId,
+              toolName: tool.name,
+              commandHash: denialKey,
+            },
+          );
         }
         const resultMsg: ToolResultMessage = {
           type: 'tool_result',
@@ -1127,9 +1203,10 @@ export class ToolRuntime {
           modelId: this.input.modelId,
           durationMs,
           status: toolResultStatus,
-          argsSummary: tool.categoryHint === 'computer_use'
-            ? summarizePersistedArgs(persistedArgs)
-            : summarizeArgs(tool.name, executionArgs),
+          argsSummary:
+            tool.categoryHint === 'computer_use'
+              ? summarizePersistedArgs(persistedArgs)
+              : summarizeArgs(tool.name, executionArgs),
           resultSummary: summarizeToolResultForTelemetry(content),
           bytesIn: byteLength(persistedArgs),
           bytesOut: byteLength(result),
@@ -1178,16 +1255,26 @@ export class ToolRuntime {
       }
     } catch (err) {
       output.flush();
-      const terminalFailure = coerceTerminalFailure(tool, this.input.header.cwd, executionArgs, err);
+      const terminalFailure = coerceTerminalFailure(
+        tool,
+        this.input.header.cwd,
+        executionArgs,
+        err,
+      );
       if (terminalFailure) {
         if (terminalFailure.sandboxDenied) {
           const denialKey = sandboxDenialKey(tool.name, this.input.header.cwd, executionArgs);
           this.recentSandboxDenials.add(denialKey);
-          trace?.emit('sandbox', 'sandbox_denial_detected', 'Command likely failed because of sandbox enforcement', {
-            toolUseId,
-            toolName: tool.name,
-            commandHash: denialKey,
-          });
+          trace?.emit(
+            'sandbox',
+            'sandbox_denial_detected',
+            'Command likely failed because of sandbox enforcement',
+            {
+              toolUseId,
+              toolName: tool.name,
+              commandHash: denialKey,
+            },
+          );
         }
         const durationMs = Math.max(0, this.input.now() - startedAt);
         const resultMsg: ToolResultMessage = {
@@ -1221,9 +1308,10 @@ export class ToolRuntime {
           durationMs,
           status: 'error',
           errorClass: classifyError(err),
-          argsSummary: tool.categoryHint === 'computer_use'
-            ? summarizePersistedArgs(persistedArgs)
-            : summarizeArgs(tool.name, executionArgs),
+          argsSummary:
+            tool.categoryHint === 'computer_use'
+              ? summarizePersistedArgs(persistedArgs)
+              : summarizeArgs(tool.name, executionArgs),
           resultSummary: summarizeToolResultForTelemetry(terminalFailure.content),
           bytesIn: byteLength(persistedArgs),
           bytesOut: byteLength(terminalFailure.content),
@@ -1238,9 +1326,10 @@ export class ToolRuntime {
         });
         return this.errorReturn(terminalFailure.message);
       }
-      const msg = tool.categoryHint === 'computer_use'
-        ? `Computer Use failed: ${classifyError(err)}`
-        : formatSyntheticToolErrorText(err);
+      const msg =
+        tool.categoryHint === 'computer_use'
+          ? `Computer Use failed: ${classifyError(err)}`
+          : formatSyntheticToolErrorText(err);
       await this.writeSyntheticToolResult(toolUseId, turnId, msg, queue);
       this.input.recordToolInvocation?.({
         sessionId: this.input.sessionId,
@@ -1252,9 +1341,10 @@ export class ToolRuntime {
         durationMs: Math.max(0, this.input.now() - startedAt),
         status: 'error',
         errorClass: classifyError(err),
-        argsSummary: tool.categoryHint === 'computer_use'
-          ? summarizePersistedArgs(persistedArgs)
-          : summarizeArgs(tool.name, executionArgs),
+        argsSummary:
+          tool.categoryHint === 'computer_use'
+            ? summarizePersistedArgs(persistedArgs)
+            : summarizeArgs(tool.name, executionArgs),
         bytesIn: byteLength(persistedArgs),
         bytesOut: 0,
         startedAt,
@@ -1332,27 +1422,37 @@ export class ToolRuntime {
         const waitingForPermit =
           limiter.activeCount >= limiter.capacity || limiter.waitingCount > 0;
         if (waitingForPermit) {
-          input.trace?.emit('tool', 'tool_started', 'Child run waiting for shared runtime capacity', {
-            toolUseId: input.toolUseId,
-            toolName: input.toolName,
-            boundary: 'shared_child_run_permit',
-            stage: 'waiting',
-            activeChildRuns: limiter.activeCount,
-            waitingChildRuns: limiter.waitingCount + 1,
-            capacity: limiter.capacity,
-          });
+          input.trace?.emit(
+            'tool',
+            'tool_started',
+            'Child run waiting for shared runtime capacity',
+            {
+              toolUseId: input.toolUseId,
+              toolName: input.toolName,
+              boundary: 'shared_child_run_permit',
+              stage: 'waiting',
+              activeChildRuns: limiter.activeCount,
+              waitingChildRuns: limiter.waitingCount + 1,
+              capacity: limiter.capacity,
+            },
+          );
         }
         let permit;
         try {
           permit = await limiter.acquire(input.abortSignal);
         } catch (error) {
-          input.trace?.emit('tool', 'tool_failed', 'Child run did not acquire shared runtime capacity', {
-            toolUseId: input.toolUseId,
-            toolName: input.toolName,
-            boundary: 'shared_child_run_permit',
-            stage: 'cancelled_while_waiting',
-            status: input.abortSignal.aborted ? 'aborted' : 'error',
-          });
+          input.trace?.emit(
+            'tool',
+            'tool_failed',
+            'Child run did not acquire shared runtime capacity',
+            {
+              toolUseId: input.toolUseId,
+              toolName: input.toolName,
+              boundary: 'shared_child_run_permit',
+              stage: 'cancelled_while_waiting',
+              status: input.abortSignal.aborted ? 'aborted' : 'error',
+            },
+          );
           throw error;
         }
         const childStartedAt = this.input.now();
@@ -1465,11 +1565,12 @@ function computerUseSemanticSignature(args: unknown): string | undefined {
   if (!args || typeof args !== 'object' || Array.isArray(args)) return undefined;
   const record = args as Record<string, unknown>;
   if (
-    record.action !== 'click_element'
-    && record.action !== 'set_value'
-    && record.action !== 'select_text'
-    && record.action !== 'secondary_action'
-  ) return undefined;
+    record.action !== 'click_element' &&
+    record.action !== 'set_value' &&
+    record.action !== 'select_text' &&
+    record.action !== 'secondary_action'
+  )
+    return undefined;
   try {
     const elementIdentity = stableElementIdentity(record.element_identity);
     return stableHash({
@@ -1513,9 +1614,9 @@ export function formatLoopGateText(toolName: string): string {
 
 export function formatAmbiguousComputerLoopGateText(): string {
   return (
-    'Blocked: this Computer Use semantic target was already rejected as ambiguous '
-    + 'after a fresh observation. Do not retry the same element identity or guess '
-    + 'between duplicates; choose a uniquely identified target or stop.'
+    'Blocked: this Computer Use semantic target was already rejected as ambiguous ' +
+    'after a fresh observation. Do not retry the same element identity or guess ' +
+    'between duplicates; choose a uniquely identified target or stop.'
   );
 }
 
@@ -1559,9 +1660,10 @@ function coerceTerminalFailure(
     sandboxType?: unknown;
   };
   if (typeof error.code !== 'number') return null;
-  const command = args && typeof args === 'object' && typeof (args as { command?: unknown }).command === 'string'
-    ? (args as { command: string }).command
-    : '';
+  const command =
+    args && typeof args === 'object' && typeof (args as { command?: unknown }).command === 'string'
+      ? (args as { command: string }).command
+      : '';
   const stdout = redactSecrets(String(error.stdout ?? ''));
   const stderr = redactSecrets(String(error.stderr ?? ''));
   const sandboxDenied = error.reason === 'sandbox_denial' && error.sandboxed === true;
@@ -1580,15 +1682,17 @@ function coerceTerminalFailure(
         stderrTruncated: error.stderrTruncated === true,
         redacted: stdout !== String(error.stdout ?? '') || stderr !== String(error.stderr ?? ''),
       },
-      ...(sandboxDenied ? {
-        sandboxDenial: {
-          likely: true,
-          ...(error.sandboxType === 'macos-seatbelt' || error.sandboxType === 'linux'
-            ? { backend: error.sandboxType }
-            : {}),
-          recovery: 'require_escalated',
-        },
-      } : {}),
+      ...(sandboxDenied
+        ? {
+            sandboxDenial: {
+              likely: true,
+              ...(error.sandboxType === 'macos-seatbelt' || error.sandboxType === 'linux'
+                ? { backend: error.sandboxType }
+                : {}),
+              recovery: 'require_escalated',
+            },
+          }
+        : {}),
     },
     // The in-turn result the model acts on is just this message (the structured
     // content above goes to session history). Without the actual output the
@@ -1623,14 +1727,17 @@ function buildTerminalFailureMessage(
 function hasSandboxDenial(
   content: ToolResultContent,
 ): content is Extract<ToolResultContent, { kind: 'terminal' } | { kind: 'shell_run' }> {
-  return (content.kind === 'terminal' || content.kind === 'shell_run')
-    && content.sandboxDenial?.likely === true;
+  return (
+    (content.kind === 'terminal' || content.kind === 'shell_run') &&
+    content.sandboxDenial?.likely === true
+  );
 }
 
 function sandboxDenialKey(toolName: string, cwd: string, args: unknown): string {
-  const command = args && typeof args === 'object' && typeof (args as { command?: unknown }).command === 'string'
-    ? (args as { command: string }).command
-    : '';
+  const command =
+    args && typeof args === 'object' && typeof (args as { command?: unknown }).command === 'string'
+      ? (args as { command: string }).command
+      : '';
   return `${toolName}\u0000${cwd}\u0000${command}`;
 }
 
@@ -1639,11 +1746,12 @@ function deriveToolResultStatus(
   raw?: unknown,
 ): ToolInvocationRecord['status'] {
   if (
-    raw
-    && typeof raw === 'object'
-    && typeof (raw as { error?: unknown }).error === 'string'
-    && (raw as { error: string }).error.length > 0
-  ) return 'error';
+    raw &&
+    typeof raw === 'object' &&
+    typeof (raw as { error?: unknown }).error === 'string' &&
+    (raw as { error: string }).error.length > 0
+  )
+    return 'error';
   if (content.kind === 'explore_agent' && content.ok === false) {
     return content.reason === 'aborted' ? 'aborted' : 'error';
   }
@@ -1669,10 +1777,11 @@ function deriveToolResultStatus(
     return 'error';
   }
   if (
-    content.kind === 'shell_run'
-    && content.operation?.kind === 'pty_control'
-    && content.operation.failed
-  ) return 'error';
+    content.kind === 'shell_run' &&
+    content.operation?.kind === 'pty_control' &&
+    content.operation.failed
+  )
+    return 'error';
   // All other structured results are successful tool executions. That includes
   // ShellRun observations: their embedded process status stays model-visible,
   // but reading or returning the observation itself succeeded.
@@ -1695,11 +1804,7 @@ function summarizeToolResultForTelemetry(
       artifactCount: projection.artifactCount,
     };
   }
-  if (
-    content.kind === 'terminal'
-    || content.kind === 'shell_run'
-    || content.kind === 'subagent'
-  ) {
+  if (content.kind === 'terminal' || content.kind === 'shell_run' || content.kind === 'subagent') {
     return { kind: content.kind, status: content.status };
   }
   if (content.kind === 'explore_agent') {
@@ -1716,10 +1821,10 @@ function summarizeToolResultForTelemetry(
 
 function isAmbiguousComputerFailure(raw: unknown): boolean {
   return Boolean(
-    raw
-    && typeof raw === 'object'
-    && (raw as { error?: unknown }).error === 'stale_frame'
-    && (raw as { failureClass?: unknown }).failureClass === 'ambiguous_target',
+    raw &&
+      typeof raw === 'object' &&
+      (raw as { error?: unknown }).error === 'stale_frame' &&
+      (raw as { failureClass?: unknown }).failureClass === 'ambiguous_target',
   );
 }
 
@@ -1747,18 +1852,18 @@ function describeToolIntent(tool: MakaTool, args: unknown): string | undefined {
   return `只读探索：${capped}`;
 }
 
-function isAdditionalPermissionPlanResult(
-  value: unknown,
-): value is AdditionalPermissionPlanResult {
+function isAdditionalPermissionPlanResult(value: unknown): value is AdditionalPermissionPlanResult {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const result = value as Record<string, unknown>;
   if (result.kind === 'not_required') return true;
   if (result.kind === 'request') {
     return Boolean(result.proposal && typeof result.proposal === 'object');
   }
-  return result.kind === 'block'
-    && typeof result.reason === 'string'
-    && typeof result.message === 'string';
+  return (
+    result.kind === 'block' &&
+    typeof result.reason === 'string' &&
+    typeof result.message === 'string'
+  );
 }
 
 function isSandboxEscalationPlanResult(value: unknown): value is SandboxEscalationPlanResult {
@@ -1768,9 +1873,11 @@ function isSandboxEscalationPlanResult(value: unknown): value is SandboxEscalati
   if (result.kind === 'request') {
     return Boolean(result.proposal && typeof result.proposal === 'object');
   }
-  return result.kind === 'block'
-    && typeof result.reason === 'string'
-    && typeof result.message === 'string';
+  return (
+    result.kind === 'block' &&
+    typeof result.reason === 'string' &&
+    typeof result.message === 'string'
+  );
 }
 
 function byteLength(value: unknown): number {

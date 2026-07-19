@@ -8,11 +8,7 @@ export type CuaDriverChildState =
   | 'unavailable'
   | 'disposed';
 
-export type CuaDriverRequestStage =
-  | 'queued'
-  | 'writing'
-  | 'delivered'
-  | 'settled';
+export type CuaDriverRequestStage = 'queued' | 'writing' | 'delivered' | 'settled';
 
 export interface CuaDriverRoleSnapshot {
   role: CuaDriverRole;
@@ -60,8 +56,7 @@ export function isCuaDriverLifecycleError(
   error: unknown,
   code?: CuaDriverLifecycleErrorCode,
 ): error is CuaDriverLifecycleError {
-  return error instanceof CuaDriverLifecycleError
-    && (code === undefined || error.code === code);
+  return error instanceof CuaDriverLifecycleError && (code === undefined || error.code === code);
 }
 
 export function cuaDriverLifecycleMessage(error: CuaDriverLifecycleError): string {

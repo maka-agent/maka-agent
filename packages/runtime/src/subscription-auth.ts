@@ -15,9 +15,11 @@ export function claudeSubscriptionHeaders(): Record<string, string> {
 export function openAiCodexHeaders(accessToken: string): Record<string, string> {
   const accountId = extractCodexAccountId(accessToken);
   return {
-    ...(accountId ? {
-      'ChatGPT-Account-Id': accountId,
-    } : {}),
+    ...(accountId
+      ? {
+          'ChatGPT-Account-Id': accountId,
+        }
+      : {}),
     'OpenAI-Beta': 'responses=experimental',
     originator: 'codex_cli_rs',
     'User-Agent': CODEX_SUBSCRIPTION_USER_AGENT,
@@ -50,7 +52,9 @@ function decodeJwtPayload(token: string): Record<string, unknown> | null {
   if (parts.length !== 3 || !parts[1]) return null;
   try {
     const padded = parts[1] + '='.repeat((4 - (parts[1].length % 4)) % 4);
-    const json = Buffer.from(padded.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8');
+    const json = Buffer.from(padded.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString(
+      'utf8',
+    );
     return JSON.parse(json) as Record<string, unknown>;
   } catch {
     return null;

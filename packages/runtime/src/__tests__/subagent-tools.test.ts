@@ -162,27 +162,31 @@ describe('subagent tools', () => {
       availability: { status: 'available' },
     });
 
-    expect(listBuiltinAgentDefinitions({
-      parentPermissionMode: 'execute',
-      tools: [
-        testCatalogTool('Read', 'read'),
-        testCatalogTool('Glob', 'read'),
-        testCatalogTool('Grep', 'read'),
-      ],
-    }).find((definition) => definition.id === WEB_RESEARCH_AGENT_ID)?.availability).toEqual({
+    expect(
+      listBuiltinAgentDefinitions({
+        parentPermissionMode: 'execute',
+        tools: [
+          testCatalogTool('Read', 'read'),
+          testCatalogTool('Glob', 'read'),
+          testCatalogTool('Grep', 'read'),
+        ],
+      }).find((definition) => definition.id === WEB_RESEARCH_AGENT_ID)?.availability,
+    ).toEqual({
       status: 'unavailable',
       reason: 'missing_tools',
       missingTools: ['WebSearch'],
     });
-    expect(listBuiltinAgentDefinitions({
-      parentPermissionMode: 'ask',
-      tools: [
-        testCatalogTool('Read', 'read'),
-        testCatalogTool('Glob', 'read'),
-        testCatalogTool('Grep', 'read'),
-        testCatalogTool('WebSearch', 'web_read'),
-      ],
-    }).find((definition) => definition.id === WEB_RESEARCH_AGENT_ID)?.availability).toEqual({
+    expect(
+      listBuiltinAgentDefinitions({
+        parentPermissionMode: 'ask',
+        tools: [
+          testCatalogTool('Read', 'read'),
+          testCatalogTool('Glob', 'read'),
+          testCatalogTool('Grep', 'read'),
+          testCatalogTool('WebSearch', 'web_read'),
+        ],
+      }).find((definition) => definition.id === WEB_RESEARCH_AGENT_ID)?.availability,
+    ).toEqual({
       status: 'unavailable',
       reason: 'parent_permission_mode',
       parentPermissionMode: 'ask',
@@ -202,7 +206,14 @@ describe('subagent tools', () => {
       supportedWriteBack: [AGENT_WRITE_BACK_PATCH],
     });
     expect(IMPLEMENTATION_AGENT_DEFINITION.permissionMode).toBe('execute');
-    expect([...IMPLEMENTATION_AGENT_DEFINITION.tools]).toEqual(['Read', 'Glob', 'Grep', 'Write', 'Edit', 'Bash']);
+    expect([...IMPLEMENTATION_AGENT_DEFINITION.tools]).toEqual([
+      'Read',
+      'Glob',
+      'Grep',
+      'Write',
+      'Edit',
+      'Bash',
+    ]);
     expect(IMPLEMENTATION_AGENT_DEFINITION.tools.includes('WebSearch')).toBe(false);
     expect(IMPLEMENTATION_AGENT_DEFINITION.tools.includes('ExploreAgent')).toBe(false);
 
@@ -225,76 +236,39 @@ describe('subagent tools', () => {
     });
 
     await expectRejects(
-      Promise.resolve().then(() => assertAgentDefinitionRunnable({
-        parentPermissionMode: 'execute',
-        definition: IMPLEMENTATION_AGENT_DEFINITION,
-        tools: [
-          testCatalogTool('Read', 'read'),
-          testCatalogTool('Glob', 'read'),
-          testCatalogTool('Grep', 'read'),
-          testCatalogTool('Write', 'file_write'),
-          testCatalogTool('Edit', 'file_write'),
-          testCatalogTool('Bash', 'shell_unsafe'),
-        ],
-      })),
+      Promise.resolve().then(() =>
+        assertAgentDefinitionRunnable({
+          parentPermissionMode: 'execute',
+          definition: IMPLEMENTATION_AGENT_DEFINITION,
+          tools: [
+            testCatalogTool('Read', 'read'),
+            testCatalogTool('Glob', 'read'),
+            testCatalogTool('Grep', 'read'),
+            testCatalogTool('Write', 'file_write'),
+            testCatalogTool('Edit', 'file_write'),
+            testCatalogTool('Bash', 'shell_unsafe'),
+          ],
+        }),
+      ),
       /worktree child executor/,
     );
   });
 
   test('agent definition availability reports missing tools and parent permission mismatches without running', () => {
-    expect(evaluateAgentDefinitionAvailability({
-      parentPermissionMode: 'ask',
-      definition: LOCAL_READ_AGENT_DEFINITION,
-      tools: [testCatalogTool('Read', 'read')],
-    })).toEqual({
+    expect(
+      evaluateAgentDefinitionAvailability({
+        parentPermissionMode: 'ask',
+        definition: LOCAL_READ_AGENT_DEFINITION,
+        tools: [testCatalogTool('Read', 'read')],
+      }),
+    ).toEqual({
       status: 'unavailable',
       reason: 'missing_tools',
       missingTools: ['Glob', 'Grep'],
     });
 
-    expect(evaluateAgentDefinitionAvailability({
-      parentPermissionMode: 'explore',
-      definition: {
-        ...LOCAL_READ_AGENT_DEFINITION,
-        id: 'writer',
-        permissionMode: 'execute',
-      },
-      tools: [
-        testCatalogTool('Read', 'read'),
-        testCatalogTool('Glob', 'read'),
-        testCatalogTool('Grep', 'read'),
-      ],
-    })).toEqual({
-      status: 'unavailable',
-      reason: 'parent_permission_mode',
-      parentPermissionMode: 'explore',
-      requiredPermissionMode: 'execute',
-    });
-  });
-
-  test('agent definition policy evaluates each tool through allowlist and category policy', () => {
-    expect(evaluateAgentDefinitionToolAccess(LOCAL_READ_AGENT_DEFINITION, testCatalogTool('Read', 'read'))).toEqual({
-      category: 'read',
-      decision: 'allow',
-    });
-    expect(evaluateAgentDefinitionToolAccess(LOCAL_READ_AGENT_DEFINITION, testCatalogTool('Write', 'file_write'))).toEqual({
-      category: 'file_write',
-      decision: 'block',
-    });
-    expect(evaluateAgentDefinitionToolAccess({
-      ...LOCAL_READ_AGENT_DEFINITION,
-      id: 'web-review',
-      tools: ['WebSearch'],
-      categoryPolicy: { web_read: 'prompt' },
-    }, testCatalogTool('WebSearch', 'web_read'))).toEqual({
-      category: 'web_read',
-      decision: 'prompt',
-    });
-  });
-
-  test('agent definition cannot require broader permissions than the parent turn', async () => {
-    await expectRejects(
-      Promise.resolve().then(() => assertAgentDefinitionRunnable({
+    expect(
+      evaluateAgentDefinitionAvailability({
         parentPermissionMode: 'explore',
         definition: {
           ...LOCAL_READ_AGENT_DEFINITION,
@@ -306,7 +280,67 @@ describe('subagent tools', () => {
           testCatalogTool('Glob', 'read'),
           testCatalogTool('Grep', 'read'),
         ],
-      })),
+      }),
+    ).toEqual({
+      status: 'unavailable',
+      reason: 'parent_permission_mode',
+      parentPermissionMode: 'explore',
+      requiredPermissionMode: 'execute',
+    });
+  });
+
+  test('agent definition policy evaluates each tool through allowlist and category policy', () => {
+    expect(
+      evaluateAgentDefinitionToolAccess(
+        LOCAL_READ_AGENT_DEFINITION,
+        testCatalogTool('Read', 'read'),
+      ),
+    ).toEqual({
+      category: 'read',
+      decision: 'allow',
+    });
+    expect(
+      evaluateAgentDefinitionToolAccess(
+        LOCAL_READ_AGENT_DEFINITION,
+        testCatalogTool('Write', 'file_write'),
+      ),
+    ).toEqual({
+      category: 'file_write',
+      decision: 'block',
+    });
+    expect(
+      evaluateAgentDefinitionToolAccess(
+        {
+          ...LOCAL_READ_AGENT_DEFINITION,
+          id: 'web-review',
+          tools: ['WebSearch'],
+          categoryPolicy: { web_read: 'prompt' },
+        },
+        testCatalogTool('WebSearch', 'web_read'),
+      ),
+    ).toEqual({
+      category: 'web_read',
+      decision: 'prompt',
+    });
+  });
+
+  test('agent definition cannot require broader permissions than the parent turn', async () => {
+    await expectRejects(
+      Promise.resolve().then(() =>
+        assertAgentDefinitionRunnable({
+          parentPermissionMode: 'explore',
+          definition: {
+            ...LOCAL_READ_AGENT_DEFINITION,
+            id: 'writer',
+            permissionMode: 'execute',
+          },
+          tools: [
+            testCatalogTool('Read', 'read'),
+            testCatalogTool('Glob', 'read'),
+            testCatalogTool('Grep', 'read'),
+          ],
+        }),
+      ),
       /cannot run in parent permission mode "explore" because it requires "execute"/,
     );
   });
@@ -350,7 +384,9 @@ describe('subagent tools', () => {
       await writeFile(join(cwd, 'notes.txt'), 'SUBAGENT_CHILD_TOOL_MARKER\n', 'utf8');
       const events: SessionEvent[] = [];
       const runtime = makeChildToolRuntime(cwd);
-      const tools = new Map(buildChildAgentTools(buildBuiltinTools()).map((tool) => [tool.name, tool]));
+      const tools = new Map(
+        buildChildAgentTools(buildBuiltinTools()).map((tool) => [tool.name, tool]),
+      );
 
       await runTool(runtime, tools, 'Read', { path: 'notes.txt' }, events);
       await runTool(runtime, tools, 'Glob', { pattern: '*.txt' }, events);
@@ -369,37 +405,51 @@ describe('subagent tools', () => {
     const calls: unknown[] = [];
     const output: Array<{ stream: string; chunk: string }> = [];
 
-    const result = await tool.impl({
-      profile: LOCAL_READ_AGENT_PROFILE,
-      task: 'Inspect the runtime tests.',
-    }, {
-      sessionId: 'session-1',
-      turnId: 'parent-turn',
-      cwd: '/tmp/cwd',
-      toolCallId: 'tool-1',
-      abortSignal: abortController.signal,
-      emitOutput: (stream, chunk) => output.push({ stream, chunk }),
-      spawnChildAgent: async (input) => {
-        calls.push(input);
-        input.onEvent?.({
-          type: 'tool_start', id: 'child-start', turnId: 'child-turn', ts: 1,
-          toolUseId: 'child-tool', toolName: 'Read', displayName: 'Read file', args: { path: 'secret.txt' },
-        });
-        input.onEvent?.({
-          type: 'tool_result', id: 'child-result', turnId: 'child-turn', ts: 2,
-          toolUseId: 'child-tool', isError: false, content: { kind: 'text', text: 'secret body' },
-        });
-        return {
-          agentId: input.spec.id,
-          agentName: input.spec.name,
-          turnId: 'child-turn',
-          status: 'completed',
-          permissionMode: 'explore',
-          summary: 'done',
-          artifactIds: [],
-        };
+    const result = await tool.impl(
+      {
+        profile: LOCAL_READ_AGENT_PROFILE,
+        task: 'Inspect the runtime tests.',
       },
-    });
+      {
+        sessionId: 'session-1',
+        turnId: 'parent-turn',
+        cwd: '/tmp/cwd',
+        toolCallId: 'tool-1',
+        abortSignal: abortController.signal,
+        emitOutput: (stream, chunk) => output.push({ stream, chunk }),
+        spawnChildAgent: async (input) => {
+          calls.push(input);
+          input.onEvent?.({
+            type: 'tool_start',
+            id: 'child-start',
+            turnId: 'child-turn',
+            ts: 1,
+            toolUseId: 'child-tool',
+            toolName: 'Read',
+            displayName: 'Read file',
+            args: { path: 'secret.txt' },
+          });
+          input.onEvent?.({
+            type: 'tool_result',
+            id: 'child-result',
+            turnId: 'child-turn',
+            ts: 2,
+            toolUseId: 'child-tool',
+            isError: false,
+            content: { kind: 'text', text: 'secret body' },
+          });
+          return {
+            agentId: input.spec.id,
+            agentName: input.spec.name,
+            turnId: 'child-turn',
+            status: 'completed',
+            permissionMode: 'explore',
+            summary: 'done',
+            artifactIds: [],
+          };
+        },
+      },
+    );
 
     expect(tool.name).toBe(AGENT_SPAWN_TOOL_NAME);
     expect(tool.categoryHint).toBe('subagent');
@@ -441,26 +491,42 @@ describe('subagent tools', () => {
     const tool = buildSubagentSpawnTool();
     const output: string[] = [];
 
-    await tool.impl({
-      profile: LOCAL_READ_AGENT_PROFILE,
-      task: 'Inspect many files.',
-    }, {
-      sessionId: 'session-1', turnId: 'parent-turn', cwd: '/tmp', toolCallId: 'tool-1',
-      abortSignal: new AbortController().signal,
-      emitOutput: (_stream, chunk) => output.push(chunk),
-      spawnChildAgent: async (input) => {
-        for (let index = 0; index < 100; index += 1) {
-          input.onEvent?.({
-            type: 'tool_start', id: `start-${index}`, turnId: 'child-turn', ts: index,
-            toolUseId: `child-tool-${index}`, toolName: 'Read', args: { path: `${index}.txt` },
-          });
-        }
-        return {
-          agentId: input.spec.id, agentName: input.spec.name, turnId: 'child-turn',
-          status: 'completed', permissionMode: 'explore', summary: 'done', artifactIds: [],
-        };
+    await tool.impl(
+      {
+        profile: LOCAL_READ_AGENT_PROFILE,
+        task: 'Inspect many files.',
       },
-    });
+      {
+        sessionId: 'session-1',
+        turnId: 'parent-turn',
+        cwd: '/tmp',
+        toolCallId: 'tool-1',
+        abortSignal: new AbortController().signal,
+        emitOutput: (_stream, chunk) => output.push(chunk),
+        spawnChildAgent: async (input) => {
+          for (let index = 0; index < 100; index += 1) {
+            input.onEvent?.({
+              type: 'tool_start',
+              id: `start-${index}`,
+              turnId: 'child-turn',
+              ts: index,
+              toolUseId: `child-tool-${index}`,
+              toolName: 'Read',
+              args: { path: `${index}.txt` },
+            });
+          }
+          return {
+            agentId: input.spec.id,
+            agentName: input.spec.name,
+            turnId: 'child-turn',
+            status: 'completed',
+            permissionMode: 'explore',
+            summary: 'done',
+            artifactIds: [],
+          };
+        },
+      },
+    );
 
     expect(output).toHaveLength(66);
     expect(output[0]).toBe('Starting child agent: Local Read\n');
@@ -471,15 +537,28 @@ describe('subagent tools', () => {
     const tool = buildSubagentSpawnTool();
     const output: string[] = [];
 
-    await expectRejects(Promise.resolve(tool.impl({
-      profile: LOCAL_READ_AGENT_PROFILE,
-      task: 'Fail.',
-    }, {
-      sessionId: 'session-1', turnId: 'parent-turn', cwd: '/tmp', toolCallId: 'tool-1',
-      abortSignal: new AbortController().signal,
-      emitOutput: (_stream, chunk) => output.push(chunk),
-      spawnChildAgent: async () => { throw new Error('x'.repeat(10_000)); },
-    })), /^x+$/);
+    await expectRejects(
+      Promise.resolve(
+        tool.impl(
+          {
+            profile: LOCAL_READ_AGENT_PROFILE,
+            task: 'Fail.',
+          },
+          {
+            sessionId: 'session-1',
+            turnId: 'parent-turn',
+            cwd: '/tmp',
+            toolCallId: 'tool-1',
+            abortSignal: new AbortController().signal,
+            emitOutput: (_stream, chunk) => output.push(chunk),
+            spawnChildAgent: async () => {
+              throw new Error('x'.repeat(10_000));
+            },
+          },
+        ),
+      ),
+      /^x+$/,
+    );
 
     expect(output).toHaveLength(2);
     expect((output[1]?.length ?? Number.POSITIVE_INFINITY) < 1_100).toBe(true);
@@ -489,31 +568,34 @@ describe('subagent tools', () => {
     const tool = buildSubagentSpawnTool();
     const calls: unknown[] = [];
 
-    const result = await tool.impl({
-      profile: WEB_RESEARCH_AGENT_PROFILE,
-      task: 'Find current sources.',
-      write_back: AGENT_WRITE_BACK_SUMMARY,
-      isolation: AGENT_WORKSPACE_SAME_WORKSPACE,
-    }, {
-      sessionId: 'session-1',
-      turnId: 'parent-turn',
-      cwd: '/tmp/cwd',
-      toolCallId: 'tool-1',
-      abortSignal: new AbortController().signal,
-      emitOutput: () => {},
-      spawnChildAgent: async (input) => {
-        calls.push(input);
-        return {
-          agentId: input.spec.id,
-          agentName: input.spec.name,
-          turnId: 'child-turn',
-          status: 'completed',
-          permissionMode: 'execute',
-          summary: 'done',
-          artifactIds: [],
-        };
+    const result = await tool.impl(
+      {
+        profile: WEB_RESEARCH_AGENT_PROFILE,
+        task: 'Find current sources.',
+        write_back: AGENT_WRITE_BACK_SUMMARY,
+        isolation: AGENT_WORKSPACE_SAME_WORKSPACE,
       },
-    });
+      {
+        sessionId: 'session-1',
+        turnId: 'parent-turn',
+        cwd: '/tmp/cwd',
+        toolCallId: 'tool-1',
+        abortSignal: new AbortController().signal,
+        emitOutput: () => {},
+        spawnChildAgent: async (input) => {
+          calls.push(input);
+          return {
+            agentId: input.spec.id,
+            agentName: input.spec.name,
+            turnId: 'child-turn',
+            status: 'completed',
+            permissionMode: 'execute',
+            summary: 'done',
+            artifactIds: [],
+          };
+        },
+      },
+    );
 
     expect(calls).toHaveLength(1);
     const call = calls[0] as {
@@ -538,47 +620,67 @@ describe('subagent tools', () => {
 
   test('agent_spawn binds a current-session task and records real child refs without auto-completing', async () => {
     const task: Task = {
-      id: 'task-uuid', key: 'T1', subject: 'inspect runtime', status: 'pending', createdAt: 1, updatedAt: 1,
+      id: 'task-uuid',
+      key: 'T1',
+      subject: 'inspect runtime',
+      status: 'pending',
+      createdAt: 1,
+      updatedAt: 1,
     };
     const calls: string[] = [];
     const ledger = taskLedgerStub(task, calls);
     const tool = buildSubagentSpawnTool({ taskLedger: ledger });
-    const result = await tool.impl({
-      profile: LOCAL_READ_AGENT_PROFILE,
-      task: 'Inspect the runtime tests.',
-      task_id: 'T1',
-    }, {
-      sessionId: 'session-1',
-      turnId: 'parent-turn',
-      cwd: '/tmp/cwd',
-      toolCallId: 'tool-1',
-      abortSignal: new AbortController().signal,
-      emitOutput: () => {},
-      spawnChildAgent: async (input) => {
-        await input.onReady?.({ turnId: 'child-turn', agentId: input.spec.id, agentName: input.spec.name });
-        return {
-          agentId: input.spec.id,
-          agentName: input.spec.name,
-          runId: 'child-run',
-          turnId: 'child-turn',
-          status: 'completed',
-          permissionMode: 'explore',
-          summary: 'inspection complete',
-          artifactIds: [],
-        };
+    const result = await tool.impl(
+      {
+        profile: LOCAL_READ_AGENT_PROFILE,
+        task: 'Inspect the runtime tests.',
+        task_id: 'T1',
       },
-    });
+      {
+        sessionId: 'session-1',
+        turnId: 'parent-turn',
+        cwd: '/tmp/cwd',
+        toolCallId: 'tool-1',
+        abortSignal: new AbortController().signal,
+        emitOutput: () => {},
+        spawnChildAgent: async (input) => {
+          await input.onReady?.({
+            turnId: 'child-turn',
+            agentId: input.spec.id,
+            agentName: input.spec.name,
+          });
+          return {
+            agentId: input.spec.id,
+            agentName: input.spec.name,
+            runId: 'child-run',
+            turnId: 'child-turn',
+            status: 'completed',
+            permissionMode: 'explore',
+            summary: 'inspection complete',
+            artifactIds: [],
+          };
+        },
+      },
+    );
     expect(calls).toEqual(['get:session-1:T1', 'claim:child-turn', 'settle:completed:child-run']);
     expect(task.status).toBe('in_progress');
     expect(task.owner).toEqual({
-      actor: 'child_agent', agentId: LOCAL_READ_AGENT_ID, runId: 'child-run', turnId: 'child-turn',
+      actor: 'child_agent',
+      agentId: LOCAL_READ_AGENT_ID,
+      runId: 'child-run',
+      turnId: 'child-turn',
     });
     expect(result).toMatchObject({ kind: 'subagent', runId: 'child-run', status: 'completed' });
   });
 
   test('agent_spawn permission denial leaves a bound task untouched and never starts a child', async () => {
     const task: Task = {
-      id: 'task-permission-denied', key: 'T1', subject: 'inspect runtime', status: 'pending', createdAt: 1, updatedAt: 1,
+      id: 'task-permission-denied',
+      key: 'T1',
+      subject: 'inspect runtime',
+      status: 'pending',
+      createdAt: 1,
+      updatedAt: 1,
     };
     const calls: string[] = [];
     const events: SessionEvent[] = [];
@@ -608,17 +710,21 @@ describe('subagent tools', () => {
       push: (event) => events.push(event),
     });
 
-    const pending = execute({
-      profile: LOCAL_READ_AGENT_PROFILE,
-      task: 'Inspect the runtime tests.',
-      task_id: task.key,
-    }, {
-      toolCallId: 'tool-agent-spawn-denied',
-      abortSignal: new AbortController().signal,
-    });
+    const pending = execute(
+      {
+        profile: LOCAL_READ_AGENT_PROFILE,
+        task: 'Inspect the runtime tests.',
+        task_id: task.key,
+      },
+      {
+        toolCallId: 'tool-agent-spawn-denied',
+        abortSignal: new AbortController().signal,
+      },
+    );
     await waitFor(() => events.some((event) => event.type === 'permission_request'));
     const request = events.find(
-      (event): event is Extract<SessionEvent, { type: 'permission_request' }> => event.type === 'permission_request',
+      (event): event is Extract<SessionEvent, { type: 'permission_request' }> =>
+        event.type === 'permission_request',
     );
     expect(request).toBeDefined();
     expect(calls).toEqual([]);
@@ -641,46 +747,77 @@ describe('subagent tools', () => {
     let spawned = false;
     const ledger = taskLedgerStub(undefined, []);
     const tool = buildSubagentSpawnTool({ taskLedger: ledger });
-    await expectRejects(Promise.resolve(tool.impl({
-      profile: LOCAL_READ_AGENT_PROFILE,
-      task: 'Inspect.',
-      task_id: 'T99',
-    }, {
-      sessionId: 'session-1', turnId: 'parent-turn', cwd: '/tmp', toolCallId: 'tool-1',
-      abortSignal: new AbortController().signal, emitOutput: () => {},
-      spawnChildAgent: async () => { spawned = true; return {}; },
-    })), /No such task in this session/);
+    await expectRejects(
+      Promise.resolve(
+        tool.impl(
+          {
+            profile: LOCAL_READ_AGENT_PROFILE,
+            task: 'Inspect.',
+            task_id: 'T99',
+          },
+          {
+            sessionId: 'session-1',
+            turnId: 'parent-turn',
+            cwd: '/tmp',
+            toolCallId: 'tool-1',
+            abortSignal: new AbortController().signal,
+            emitOutput: () => {},
+            spawnChildAgent: async () => {
+              spawned = true;
+              return {};
+            },
+          },
+        ),
+      ),
+      /No such task in this session/,
+    );
     expect(spawned).toBe(false);
   });
 
   test('agent_spawn records failed and cancelled child outcomes with real refs', async () => {
     for (const status of ['failed', 'cancelled'] as const) {
       const task: Task = {
-        id: `task-${status}`, key: 'T1', subject: status, status: 'pending', createdAt: 1, updatedAt: 1,
+        id: `task-${status}`,
+        key: 'T1',
+        subject: status,
+        status: 'pending',
+        createdAt: 1,
+        updatedAt: 1,
       };
       const calls: string[] = [];
       const tool = buildSubagentSpawnTool({ taskLedger: taskLedgerStub(task, calls) });
-      const result = await tool.impl({
-        profile: LOCAL_READ_AGENT_PROFILE,
-        task: `Run child that becomes ${status}.`,
-        task_id: task.key,
-      }, {
-        sessionId: 'session-1', turnId: 'parent-turn', cwd: '/tmp', toolCallId: 'tool-1',
-        abortSignal: new AbortController().signal, emitOutput: () => {},
-        spawnChildAgent: async (input) => {
-          await input.onReady?.({ turnId: `child-${status}`, agentId: input.spec.id, agentName: input.spec.name });
-          return {
-            agentId: input.spec.id,
-            agentName: input.spec.name,
-            runId: `run-${status}`,
-            turnId: `child-${status}`,
-            status,
-            permissionMode: 'explore',
-            summary: `${status} summary`,
-            artifactIds: [],
-          };
+      const result = await tool.impl(
+        {
+          profile: LOCAL_READ_AGENT_PROFILE,
+          task: `Run child that becomes ${status}.`,
+          task_id: task.key,
         },
-      });
+        {
+          sessionId: 'session-1',
+          turnId: 'parent-turn',
+          cwd: '/tmp',
+          toolCallId: 'tool-1',
+          abortSignal: new AbortController().signal,
+          emitOutput: () => {},
+          spawnChildAgent: async (input) => {
+            await input.onReady?.({
+              turnId: `child-${status}`,
+              agentId: input.spec.id,
+              agentName: input.spec.name,
+            });
+            return {
+              agentId: input.spec.id,
+              agentName: input.spec.name,
+              runId: `run-${status}`,
+              turnId: `child-${status}`,
+              status,
+              permissionMode: 'explore',
+              summary: `${status} summary`,
+              artifactIds: [],
+            };
+          },
+        },
+      );
       expect(calls).toEqual([
         'get:session-1:T1',
         `claim:child-${status}`,
@@ -688,7 +825,10 @@ describe('subagent tools', () => {
       ]);
       expect(task.status).toBe(status);
       expect(task.owner).toEqual({
-        actor: 'child_agent', agentId: LOCAL_READ_AGENT_ID, runId: `run-${status}`, turnId: `child-${status}`,
+        actor: 'child_agent',
+        agentId: LOCAL_READ_AGENT_ID,
+        runId: `run-${status}`,
+        turnId: `child-${status}`,
       });
       expect(result).toMatchObject({ kind: 'subagent', status, runId: `run-${status}` });
     }
@@ -696,43 +836,84 @@ describe('subagent tools', () => {
 
   test('agent_spawn marks a claimed task failed when child startup throws', async () => {
     const task: Task = {
-      id: 'task-startup-failure', key: 'T1', subject: 'startup', status: 'pending', createdAt: 1, updatedAt: 1,
+      id: 'task-startup-failure',
+      key: 'T1',
+      subject: 'startup',
+      status: 'pending',
+      createdAt: 1,
+      updatedAt: 1,
     };
     const calls: string[] = [];
     const tool = buildSubagentSpawnTool({ taskLedger: taskLedgerStub(task, calls) });
-    await expectRejects(Promise.resolve(tool.impl({
-      profile: LOCAL_READ_AGENT_PROFILE,
-      task: 'Fail after allocating the child turn.',
-      task_id: task.key,
-    }, {
-      sessionId: 'session-1', turnId: 'parent-turn', cwd: '/tmp', toolCallId: 'tool-1',
-      abortSignal: new AbortController().signal, emitOutput: () => {},
-      spawnChildAgent: async (input) => {
-        await input.onReady?.({ turnId: 'child-turn', agentId: input.spec.id, agentName: input.spec.name });
-        throw new Error('child startup failed');
-      },
-    })), /child startup failed/);
+    await expectRejects(
+      Promise.resolve(
+        tool.impl(
+          {
+            profile: LOCAL_READ_AGENT_PROFILE,
+            task: 'Fail after allocating the child turn.',
+            task_id: task.key,
+          },
+          {
+            sessionId: 'session-1',
+            turnId: 'parent-turn',
+            cwd: '/tmp',
+            toolCallId: 'tool-1',
+            abortSignal: new AbortController().signal,
+            emitOutput: () => {},
+            spawnChildAgent: async (input) => {
+              await input.onReady?.({
+                turnId: 'child-turn',
+                agentId: input.spec.id,
+                agentName: input.spec.name,
+              });
+              throw new Error('child startup failed');
+            },
+          },
+        ),
+      ),
+      /child startup failed/,
+    );
     expect(calls).toEqual(['get:session-1:T1', 'claim:child-turn', 'settle:failed:undefined']);
     expect(task.status).toBe('failed');
   });
 
   test('agent_spawn rejects a task reference that only exists in another session', async () => {
     const task: Task = {
-      id: 'other-task', key: 'T1', subject: 'other', status: 'pending', createdAt: 1, updatedAt: 1,
+      id: 'other-task',
+      key: 'T1',
+      subject: 'other',
+      status: 'pending',
+      createdAt: 1,
+      updatedAt: 1,
     };
     const ledger = taskLedgerStub(task, []);
-    ledger.get = async (sessionId) => sessionId === 'session-2' ? task : undefined;
+    ledger.get = async (sessionId) => (sessionId === 'session-2' ? task : undefined);
     let spawned = false;
     const tool = buildSubagentSpawnTool({ taskLedger: ledger });
-    await expectRejects(Promise.resolve(tool.impl({
-      profile: LOCAL_READ_AGENT_PROFILE,
-      task: 'Inspect.',
-      task_id: task.key,
-    }, {
-      sessionId: 'session-1', turnId: 'parent-turn', cwd: '/tmp', toolCallId: 'tool-1',
-      abortSignal: new AbortController().signal, emitOutput: () => {},
-      spawnChildAgent: async () => { spawned = true; return {}; },
-    })), /No such task in this session/);
+    await expectRejects(
+      Promise.resolve(
+        tool.impl(
+          {
+            profile: LOCAL_READ_AGENT_PROFILE,
+            task: 'Inspect.',
+            task_id: task.key,
+          },
+          {
+            sessionId: 'session-1',
+            turnId: 'parent-turn',
+            cwd: '/tmp',
+            toolCallId: 'tool-1',
+            abortSignal: new AbortController().signal,
+            emitOutput: () => {},
+            spawnChildAgent: async () => {
+              spawned = true;
+              return {};
+            },
+          },
+        ),
+      ),
+      /No such task in this session/,
+    );
     expect(spawned).toBe(false);
   });
 
@@ -742,14 +923,21 @@ describe('subagent tools', () => {
       safeParse(input: unknown): { success: boolean; data?: unknown };
     };
 
-    expect(schema.safeParse({ profile: LOCAL_READ_AGENT_PROFILE, task: 'Inspect the repo.' }).success).toBe(true);
-    expect(schema.safeParse({ profile: WEB_RESEARCH_AGENT_PROFILE, task: 'Find current sources.' }).success).toBe(true);
-    expect(schema.safeParse({
-      profile: IMPLEMENTATION_AGENT_PROFILE,
-      task: 'Edit the repo.',
-      write_back: AGENT_WRITE_BACK_PATCH,
-      isolation: AGENT_WORKSPACE_WORKTREE,
-    })).toEqual({
+    expect(
+      schema.safeParse({ profile: LOCAL_READ_AGENT_PROFILE, task: 'Inspect the repo.' }).success,
+    ).toBe(true);
+    expect(
+      schema.safeParse({ profile: WEB_RESEARCH_AGENT_PROFILE, task: 'Find current sources.' })
+        .success,
+    ).toBe(true);
+    expect(
+      schema.safeParse({
+        profile: IMPLEMENTATION_AGENT_PROFILE,
+        task: 'Edit the repo.',
+        write_back: AGENT_WRITE_BACK_PATCH,
+        isolation: AGENT_WORKSPACE_WORKTREE,
+      }),
+    ).toEqual({
       success: true,
       data: {
         profile: IMPLEMENTATION_AGENT_PROFILE,
@@ -758,12 +946,14 @@ describe('subagent tools', () => {
         isolation: AGENT_WORKSPACE_WORKTREE,
       },
     });
-    expect(schema.safeParse({
-      profile: LOCAL_READ_AGENT_PROFILE,
-      task: 'Inspect the repo.',
-      write_back: AGENT_WRITE_BACK_SUMMARY,
-      isolation: AGENT_WORKSPACE_SAME_WORKSPACE,
-    })).toEqual({
+    expect(
+      schema.safeParse({
+        profile: LOCAL_READ_AGENT_PROFILE,
+        task: 'Inspect the repo.',
+        write_back: AGENT_WRITE_BACK_SUMMARY,
+        isolation: AGENT_WORKSPACE_SAME_WORKSPACE,
+      }),
+    ).toEqual({
       success: true,
       data: {
         profile: LOCAL_READ_AGENT_PROFILE,
@@ -772,50 +962,72 @@ describe('subagent tools', () => {
         isolation: AGENT_WORKSPACE_SAME_WORKSPACE,
       },
     });
-    expect(schema.safeParse({
-      profile: LOCAL_READ_AGENT_PROFILE,
-      task: 'Inspect the repo.',
-      write_back: 'patch',
-    }).success).toBe(false);
-    expect(schema.safeParse({
-      profile: LOCAL_READ_AGENT_PROFILE,
-      task: 'Inspect the repo.',
-      isolation: 'worktree',
-    }).success).toBe(false);
-    expect(schema.safeParse({
-      profile: IMPLEMENTATION_AGENT_PROFILE,
-      task: 'Edit the repo.',
-      write_back: AGENT_WRITE_BACK_SUMMARY,
-      isolation: AGENT_WORKSPACE_WORKTREE,
-    }).success).toBe(false);
-    expect(schema.safeParse({
-      profile: IMPLEMENTATION_AGENT_PROFILE,
-      task: 'Edit the repo.',
-      write_back: AGENT_WRITE_BACK_PATCH,
-      isolation: AGENT_WORKSPACE_SAME_WORKSPACE,
-    }).success).toBe(false);
-    expect(schema.safeParse({ agent: LOCAL_READ_AGENT_ID, task: 'Inspect the repo.' }).success).toBe(false);
-    expect(schema.safeParse({ profile: LOCAL_READ_AGENT_ID, task: 'Inspect the repo.' }).success).toBe(false);
-    expect(schema.safeParse({ profile: WEB_RESEARCH_AGENT_ID, task: 'Find current sources.' }).success).toBe(false);
-    expect(schema.safeParse({ agent_name: 'Researcher', instructions: 'Read only.', prompt: 'Inspect.' }).success).toBe(false);
+    expect(
+      schema.safeParse({
+        profile: LOCAL_READ_AGENT_PROFILE,
+        task: 'Inspect the repo.',
+        write_back: 'patch',
+      }).success,
+    ).toBe(false);
+    expect(
+      schema.safeParse({
+        profile: LOCAL_READ_AGENT_PROFILE,
+        task: 'Inspect the repo.',
+        isolation: 'worktree',
+      }).success,
+    ).toBe(false);
+    expect(
+      schema.safeParse({
+        profile: IMPLEMENTATION_AGENT_PROFILE,
+        task: 'Edit the repo.',
+        write_back: AGENT_WRITE_BACK_SUMMARY,
+        isolation: AGENT_WORKSPACE_WORKTREE,
+      }).success,
+    ).toBe(false);
+    expect(
+      schema.safeParse({
+        profile: IMPLEMENTATION_AGENT_PROFILE,
+        task: 'Edit the repo.',
+        write_back: AGENT_WRITE_BACK_PATCH,
+        isolation: AGENT_WORKSPACE_SAME_WORKSPACE,
+      }).success,
+    ).toBe(false);
+    expect(
+      schema.safeParse({ agent: LOCAL_READ_AGENT_ID, task: 'Inspect the repo.' }).success,
+    ).toBe(false);
+    expect(
+      schema.safeParse({ profile: LOCAL_READ_AGENT_ID, task: 'Inspect the repo.' }).success,
+    ).toBe(false);
+    expect(
+      schema.safeParse({ profile: WEB_RESEARCH_AGENT_ID, task: 'Find current sources.' }).success,
+    ).toBe(false);
+    expect(
+      schema.safeParse({ agent_name: 'Researcher', instructions: 'Read only.', prompt: 'Inspect.' })
+        .success,
+    ).toBe(false);
 
     await expectRejects(
-      Promise.resolve(tool.impl({
-        profile: IMPLEMENTATION_AGENT_PROFILE,
-        task: 'Edit files.',
-        write_back: AGENT_WRITE_BACK_PATCH,
-        isolation: AGENT_WORKSPACE_WORKTREE,
-      }, {
-        sessionId: 'session-1',
-        turnId: 'parent-turn',
-        cwd: '/tmp/cwd',
-        toolCallId: 'tool-1',
-        abortSignal: new AbortController().signal,
-        emitOutput: () => {},
-        spawnChildAgent: async () => {
-          throw new Error('spawn should not be called');
-        },
-      })),
+      Promise.resolve(
+        tool.impl(
+          {
+            profile: IMPLEMENTATION_AGENT_PROFILE,
+            task: 'Edit files.',
+            write_back: AGENT_WRITE_BACK_PATCH,
+            isolation: AGENT_WORKSPACE_WORKTREE,
+          },
+          {
+            sessionId: 'session-1',
+            turnId: 'parent-turn',
+            cwd: '/tmp/cwd',
+            toolCallId: 'tool-1',
+            abortSignal: new AbortController().signal,
+            emitOutput: () => {},
+            spawnChildAgent: async () => {
+              throw new Error('spawn should not be called');
+            },
+          },
+        ),
+      ),
       /worktree child executor/,
     );
   });
@@ -824,27 +1036,33 @@ describe('subagent tools', () => {
     const listTool = buildSubagentListTool();
     const outputTool = buildSubagentOutputTool();
 
-    const list = await listTool.impl({}, {
-      sessionId: 'session-1',
-      turnId: 'parent-turn',
-      cwd: '/tmp/cwd',
-      toolCallId: 'tool-list',
-      abortSignal: new AbortController().signal,
-      emitOutput: () => {},
-      listChildAgents: async () => ({
-        definitions: [{ id: LOCAL_READ_AGENT_ID }],
-        runs: [{ runId: 'child-run', turnId: 'child-turn' }],
-      }),
-    });
-    const output = await outputTool.impl({ run_id: 'child-run' }, {
-      sessionId: 'session-1',
-      turnId: 'parent-turn',
-      cwd: '/tmp/cwd',
-      toolCallId: 'tool-output',
-      abortSignal: new AbortController().signal,
-      emitOutput: () => {},
-      readChildAgentOutput: async (input) => ({ requested: input }),
-    });
+    const list = await listTool.impl(
+      {},
+      {
+        sessionId: 'session-1',
+        turnId: 'parent-turn',
+        cwd: '/tmp/cwd',
+        toolCallId: 'tool-list',
+        abortSignal: new AbortController().signal,
+        emitOutput: () => {},
+        listChildAgents: async () => ({
+          definitions: [{ id: LOCAL_READ_AGENT_ID }],
+          runs: [{ runId: 'child-run', turnId: 'child-turn' }],
+        }),
+      },
+    );
+    const output = await outputTool.impl(
+      { run_id: 'child-run' },
+      {
+        sessionId: 'session-1',
+        turnId: 'parent-turn',
+        cwd: '/tmp/cwd',
+        toolCallId: 'tool-output',
+        abortSignal: new AbortController().signal,
+        emitOutput: () => {},
+        readChildAgentOutput: async (input) => ({ requested: input }),
+      },
+    );
 
     expect(listTool.name).toBe(AGENT_LIST_TOOL_NAME);
     expect(outputTool.name).toBe(AGENT_OUTPUT_TOOL_NAME);
@@ -972,7 +1190,7 @@ function nextId(): () => string {
 
 function taskLedgerStub(task: Task | undefined, calls: string[]): TaskLedgerStore {
   return {
-    list: async () => task ? [task] : [],
+    list: async () => (task ? [task] : []),
     get: async (sessionId, id) => {
       calls.push(`get:${sessionId}:${id}`);
       return task && (task.id === id || task.key === id) ? task : undefined;

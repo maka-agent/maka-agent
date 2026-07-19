@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import { type FixedPromptTaskWalEvent, type PromptCandidateRationale } from '../fixed-prompt-controller.js';
-import { buildRsiControllerAttribution, projectRsiPromptAttribution } from '../rsi-controller-attribution.js';
+import {
+  type FixedPromptTaskWalEvent,
+  type PromptCandidateRationale,
+} from '../fixed-prompt-controller.js';
+import {
+  buildRsiControllerAttribution,
+  projectRsiPromptAttribution,
+} from '../rsi-controller-attribution.js';
 import type { RsiRoundAnalysis } from '../rsi-round-analysis.js';
 import type { PromptAcceptanceResult } from '../prompt-acceptance-policy.js';
 import { tokenSummary } from './helpers/cell-output-fixtures.js';
@@ -63,9 +69,7 @@ describe('RSI controller attribution', () => {
       coverageRegressionTaskIds: ['task-b'],
       errorClassDistribution: [{ errorClass: 'max_tokens', count: 1 }],
       toolFailureClusters: [],
-      signals: [
-        { id: 'rsi-sig:coverage', kind: 'coverage_regression', taskIds: ['task-b'] },
-      ],
+      signals: [{ id: 'rsi-sig:coverage', kind: 'coverage_regression', taskIds: ['task-b'] }],
     };
 
     const attribution = buildRsiControllerAttribution({
@@ -96,9 +100,7 @@ describe('RSI controller attribution', () => {
       { taskId: 'task-a', outcome: 'improved' },
       { taskId: 'task-b', outcome: 'unscored' },
     ]);
-    assert.deepEqual(attribution.riskTasks, [
-      { taskId: 'task-c', outcome: 'regressed' },
-    ]);
+    assert.deepEqual(attribution.riskTasks, [{ taskId: 'task-c', outcome: 'regressed' }]);
     assert.deepEqual(attribution.unexpectedHeldInFlips, [
       { taskId: 'task-d', from: 'fail', to: 'pass' },
     ]);
@@ -192,7 +194,12 @@ describe('RSI controller attribution', () => {
       toolFailureClusters: [],
       signals: [
         { id: 'rsi-sig:coverage', kind: 'coverage_regression', taskIds: ['task-a'] },
-        { id: 'rsi-sig:tool', kind: 'tool_failure_cluster', taskIds: ['task-b'], cluster: { name: 'shell', count: 1, taskIds: ['task-b'] } },
+        {
+          id: 'rsi-sig:tool',
+          kind: 'tool_failure_cluster',
+          taskIds: ['task-b'],
+          cluster: { name: 'shell', count: 1, taskIds: ['task-b'] },
+        },
       ],
     };
 
@@ -251,8 +258,20 @@ describe('RSI controller attribution', () => {
       errorClassDistribution: [{ errorClass: 'runtime_error', count: 1 }],
       toolFailureClusters: [],
       signals: [
-        { id: 'rsi-sig:runtime', kind: 'error_class', taskIds: ['task-a'], errorClass: 'runtime_error', count: 1 },
-        { id: 'rsi-sig:max-tokens', kind: 'error_class', taskIds: ['task-b'], errorClass: 'max_tokens', count: 1 },
+        {
+          id: 'rsi-sig:runtime',
+          kind: 'error_class',
+          taskIds: ['task-a'],
+          errorClass: 'runtime_error',
+          count: 1,
+        },
+        {
+          id: 'rsi-sig:max-tokens',
+          kind: 'error_class',
+          taskIds: ['task-b'],
+          errorClass: 'max_tokens',
+          count: 1,
+        },
       ],
     };
 
@@ -273,7 +292,9 @@ describe('RSI controller attribution', () => {
       analysis,
       heldInTaskIds: ['task-a'],
       lastKeptEvents: [completed({ taskId: 'task-a', passed: true })],
-      candidateEvents: [completed({ taskId: 'task-a', passed: false, errorClass: 'runtime_error' })],
+      candidateEvents: [
+        completed({ taskId: 'task-a', passed: false, errorClass: 'runtime_error' }),
+      ],
       decision: acceptanceResult({ decision: 'discard', reason: 'coverage_regressed' }),
     });
 
@@ -294,7 +315,9 @@ describe('RSI controller attribution', () => {
       analysis,
       heldInTaskIds: ['task-a'],
       lastKeptEvents: [completed({ taskId: 'task-a', passed: true })],
-      candidateEvents: [completed({ taskId: 'task-a', passed: false, errorClass: 'runtime_error' })],
+      candidateEvents: [
+        completed({ taskId: 'task-a', passed: false, errorClass: 'runtime_error' }),
+      ],
       decision: acceptanceResult({ decision: 'discard', reason: 'coverage_regressed' }),
     });
 

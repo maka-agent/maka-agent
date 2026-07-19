@@ -70,15 +70,25 @@ describe('heavy-task policy', () => {
       triggerReason: 'heavy-task mode was not explicitly enabled',
       policyVersion: HEAVY_TASK_POLICY_VERSION,
     });
-    assert.equal(appendHeavyTaskPolicyToSystemPrompt(baseConfig.systemPrompt, selection), baseConfig.systemPrompt);
+    assert.equal(
+      appendHeavyTaskPolicyToSystemPrompt(baseConfig.systemPrompt, selection),
+      baseConfig.systemPrompt,
+    );
     assert.equal(configWithHeavyTaskPolicy(baseConfig, selection), baseConfig);
   });
 
   test('config enablement records source, reason, and policy version', () => {
-    const selection = resolveHeavyTaskMode({
-      ...baseConfig,
-      heavyTaskMode: { enabled: true, reason: 'long benchmark task', policyVersion: 'custom-policy' },
-    }, baseTask);
+    const selection = resolveHeavyTaskMode(
+      {
+        ...baseConfig,
+        heavyTaskMode: {
+          enabled: true,
+          reason: 'long benchmark task',
+          policyVersion: 'custom-policy',
+        },
+      },
+      baseTask,
+    );
 
     assert.equal(selection.enabled, true);
     assert.equal(selection.triggerSource, 'config');
@@ -101,7 +111,10 @@ describe('heavy-task policy', () => {
     const prompt = appendHeavyTaskPolicyToSystemPrompt(baseConfig.systemPrompt, selection) ?? '';
 
     assert.equal(selection.policyVersion, HEAVY_TASK_POLICY_VERSION);
-    assert.match(prompt, new RegExp(escapeRegExp(`Heavy-task benchmark policy (${HEAVY_TASK_POLICY_VERSION})`)));
+    assert.match(
+      prompt,
+      new RegExp(escapeRegExp(`Heavy-task benchmark policy (${HEAVY_TASK_POLICY_VERSION})`)),
+    );
     assert.doesNotMatch(prompt, /ignore centralized guardrails/);
   });
 
@@ -121,13 +134,16 @@ describe('heavy-task policy', () => {
   });
 
   test('explicit config disable wins over task metadata enablement', () => {
-    const selection = resolveHeavyTaskMode({
-      ...baseConfig,
-      heavyTaskMode: { enabled: false, reason: 'control group' },
-    }, {
-      ...baseTask,
-      benchmark: { metadata: { heavyTask: true } },
-    });
+    const selection = resolveHeavyTaskMode(
+      {
+        ...baseConfig,
+        heavyTaskMode: { enabled: false, reason: 'control group' },
+      },
+      {
+        ...baseTask,
+        benchmark: { metadata: { heavyTask: true } },
+      },
+    );
 
     assert.equal(selection.enabled, false);
     assert.equal(selection.triggerSource, 'config');
@@ -147,7 +163,10 @@ describe('heavy-task policy', () => {
     assert.match(prompt, /public_check/);
     assert.match(prompt, /Early runnable\/check phase gate/);
     assert.match(prompt, /self_check_submit/);
-    assert.match(prompt, /inventory -> runnable_artifact -> public_check -> repair_or_continue -> semantic_self_check -> finish_or_continue/);
+    assert.match(
+      prompt,
+      /inventory -> runnable_artifact -> public_check -> repair_or_continue -> semantic_self_check -> finish_or_continue/,
+    );
     assert.match(prompt, /public, task-derived semantic self-check evidence/);
     assert.match(prompt, /required runnable artifact or deliverable is present/);
     assert.match(prompt, /may be rejected once before official verification/);
@@ -165,7 +184,10 @@ describe('heavy-task policy', () => {
       assert.match(policy, new RegExp(escapeRegExp(term)));
     }
     for (const term of requiredForbiddenSourceCategories) {
-      assert.ok(FORBIDDEN_HEAVY_TASK_POLICY_TERMS.includes(term), `missing required category: ${term}`);
+      assert.ok(
+        FORBIDDEN_HEAVY_TASK_POLICY_TERMS.includes(term),
+        `missing required category: ${term}`,
+      );
     }
 
     assert.doesNotMatch(policy, /task-specific benchmark constants/i);

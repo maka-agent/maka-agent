@@ -27,7 +27,7 @@ import type { StoredMessage } from '@maka/core/session';
  * invocations like the ones in this node's test suite.
  */
 export const INVOCATION_SOURCES = ['desktop', 'bot', 'gateway', 'test'] as const;
-export type InvocationSource = typeof INVOCATION_SOURCES[number];
+export type InvocationSource = (typeof INVOCATION_SOURCES)[number];
 
 export function isInvocationSource(value: unknown): value is InvocationSource {
   return typeof value === 'string' && (INVOCATION_SOURCES as readonly string[]).includes(value);

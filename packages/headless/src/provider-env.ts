@@ -1,7 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { PROVIDER_DEFAULTS, type LlmConnection, type ModelInfo, type ProviderType } from '@maka/core';
+import {
+  PROVIDER_DEFAULTS,
+  type LlmConnection,
+  type ModelInfo,
+  type ProviderType,
+} from '@maka/core';
 import type { RunHarborCellEnv } from './headless-run-env.js';
 
 export interface ProviderCredentialEnv {
@@ -90,15 +95,10 @@ export function providerBaseUrlFromEnv(
     if (value) return value;
   }
 
-  const accountId = credentialEnv?.accountId
-    ? values[credentialEnv.accountId]?.trim()
-    : undefined;
+  const accountId = credentialEnv?.accountId ? values[credentialEnv.accountId]?.trim() : undefined;
   const template = PROVIDER_DEFAULTS[providerType].baseUrlTemplate;
   if (!accountId || !template) return undefined;
-  return template.replace(
-    '${CLOUDFLARE_ACCOUNT_ID}',
-    encodeURIComponent(accountId),
-  );
+  return template.replace('${CLOUDFLARE_ACCOUNT_ID}', encodeURIComponent(accountId));
 }
 
 function env(
@@ -161,7 +161,9 @@ function connectionFromEnv(
     providerType: provider,
     baseUrl: values.MAKA_BASE_URL ?? providerBaseUrlFromEnv(provider, values) ?? defaults.baseUrl,
     defaultModel: model,
-    ...(provider === 'github-copilot' ? { models: [{ id: model, apiProtocol: githubApiProtocol }] } : {}),
+    ...(provider === 'github-copilot'
+      ? { models: [{ id: model, apiProtocol: githubApiProtocol }] }
+      : {}),
     enabled: true,
     createdAt: ts,
     updatedAt: ts,
@@ -169,11 +171,16 @@ function connectionFromEnv(
 }
 
 function modelApiProtocolFromEnv(value: string | undefined): ModelInfo['apiProtocol'] {
-  if (value === 'openai-chat' || value === 'openai-responses' || value === 'anthropic-messages') return value;
+  if (value === 'openai-chat' || value === 'openai-responses' || value === 'anthropic-messages')
+    return value;
   return undefined;
 }
 
-function apiKeyFromEnv(provider: ProviderType, values: RunHarborCellEnv, connectionSlug: string): string {
+function apiKeyFromEnv(
+  provider: ProviderType,
+  values: RunHarborCellEnv,
+  connectionSlug: string,
+): string {
   const credentialEnv = providerCredentialEnv(provider);
   if (!credentialEnv) return '';
   return resolveApiKey(values, credentialEnv.apiKeys, connectionSlug);
@@ -182,7 +189,11 @@ function apiKeyFromEnv(provider: ProviderType, values: RunHarborCellEnv, connect
 // Resolve an API key from either the raw env var or its `<NAME>_FILE` companion.
 // The file path is what travels through the Harbor CLI / job config, so the secret
 // itself stays in a mounted file — never on a command line or in config.json.
-function resolveApiKey(values: RunHarborCellEnv, names: readonly string[], connectionSlug?: string): string {
+function resolveApiKey(
+  values: RunHarborCellEnv,
+  names: readonly string[],
+  connectionSlug?: string,
+): string {
   for (const name of names) {
     const raw = values[name];
     if (raw) return raw;
@@ -202,8 +213,17 @@ function resolveApiKey(values: RunHarborCellEnv, names: readonly string[], conne
 }
 
 function readStoredMakaApiKey(values: RunHarborCellEnv, connectionSlug: string): string {
-  const credentialPath = values.MAKA_CREDENTIALS_PATH
-    ?? join(homedir(), 'Library', 'Application Support', 'Maka', 'workspaces', 'default', 'credentials.json');
+  const credentialPath =
+    values.MAKA_CREDENTIALS_PATH ??
+    join(
+      homedir(),
+      'Library',
+      'Application Support',
+      'Maka',
+      'workspaces',
+      'default',
+      'credentials.json',
+    );
   try {
     const parsed = JSON.parse(readFileSync(credentialPath, 'utf8')) as {
       version?: unknown;

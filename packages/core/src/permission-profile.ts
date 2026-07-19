@@ -6,14 +6,18 @@
  * path preprocessing before calling these helpers.
  */
 
-export const FILE_SYSTEM_SANDBOX_KINDS = ['restricted', 'unrestricted', 'external_sandbox'] as const;
-export type FileSystemSandboxKind = typeof FILE_SYSTEM_SANDBOX_KINDS[number];
+export const FILE_SYSTEM_SANDBOX_KINDS = [
+  'restricted',
+  'unrestricted',
+  'external_sandbox',
+] as const;
+export type FileSystemSandboxKind = (typeof FILE_SYSTEM_SANDBOX_KINDS)[number];
 
 export const FILE_SYSTEM_ACCESS_MODES = ['read', 'write', 'deny'] as const;
-export type FileSystemAccessMode = typeof FILE_SYSTEM_ACCESS_MODES[number];
+export type FileSystemAccessMode = (typeof FILE_SYSTEM_ACCESS_MODES)[number];
 
 export const FILE_SYSTEM_PATH_MATCHES = ['exact', 'subtree'] as const;
-export type FileSystemPathMatch = typeof FILE_SYSTEM_PATH_MATCHES[number];
+export type FileSystemPathMatch = (typeof FILE_SYSTEM_PATH_MATCHES)[number];
 export const FILE_SYSTEM_SPECIAL_PATHS = [
   ':root',
   ':workspace_roots',
@@ -21,7 +25,7 @@ export const FILE_SYSTEM_SPECIAL_PATHS = [
   ':slash_tmp',
   ':minimal',
 ] as const;
-export type FileSystemSpecialPath = typeof FILE_SYSTEM_SPECIAL_PATHS[number];
+export type FileSystemSpecialPath = (typeof FILE_SYSTEM_SPECIAL_PATHS)[number];
 
 export type FileSystemSandboxEntry =
   | {
@@ -38,7 +42,7 @@ export type FileSystemSandboxEntry =
     };
 
 export const PROTECTED_METADATA_NAMES = ['.git', '.agents', '.codex'] as const;
-export type ProtectedMetadataName = typeof PROTECTED_METADATA_NAMES[number];
+export type ProtectedMetadataName = (typeof PROTECTED_METADATA_NAMES)[number];
 
 export interface FileSystemProtectedMetadataPolicy {
   access: 'deny_write';
@@ -52,13 +56,17 @@ export interface FileSystemSandboxPolicy {
 }
 
 export const NETWORK_SANDBOX_KINDS = ['restricted', 'enabled'] as const;
-export type NetworkSandboxKind = typeof NETWORK_SANDBOX_KINDS[number];
+export type NetworkSandboxKind = (typeof NETWORK_SANDBOX_KINDS)[number];
 
 export interface NetworkSandboxPolicy {
   kind: NetworkSandboxKind;
 }
 
-export type PermissionProfileName = 'read-only' | 'workspace-write' | 'danger-full-access' | 'custom';
+export type PermissionProfileName =
+  | 'read-only'
+  | 'workspace-write'
+  | 'danger-full-access'
+  | 'custom';
 
 export interface PermissionProfileManaged {
   type: 'managed';
@@ -78,7 +86,10 @@ export interface PermissionProfileExternal {
   network: NetworkSandboxPolicy;
 }
 
-export type PermissionProfile = PermissionProfileManaged | PermissionProfileDisabled | PermissionProfileExternal;
+export type PermissionProfile =
+  | PermissionProfileManaged
+  | PermissionProfileDisabled
+  | PermissionProfileExternal;
 
 export interface PermissionProfileMatchContext {
   root?: string;
@@ -180,7 +191,8 @@ export function canWritePath(
   const policy = fileSystemPolicy(profile);
   if (!policy) return true;
   if (isDeniedPath(profile, path, context)) return false;
-  if (isProtectedWriteDenied(policy, path, context) && !hasExplicitPathWrite(policy, path, context)) return false;
+  if (isProtectedWriteDenied(policy, path, context) && !hasExplicitPathWrite(policy, path, context))
+    return false;
   if (policy.kind === 'unrestricted' || policy.kind === 'external_sandbox') return true;
   return hasMatchingAccess(policy, path, context, ['write']);
 }
@@ -192,7 +204,9 @@ export function isDeniedPath(
 ): boolean {
   const policy = fileSystemPolicy(profile);
   if (!policy) return false;
-  return policy.entries.some((entry) => entry.access === 'deny' && entryMatchesPath(entry, path, context));
+  return policy.entries.some(
+    (entry) => entry.access === 'deny' && entryMatchesPath(entry, path, context),
+  );
 }
 
 export function isProtectedMetadataPath(
@@ -219,7 +233,9 @@ function hasMatchingAccess(
   context: PermissionProfileMatchContext,
   accessModes: readonly FileSystemAccessMode[],
 ): boolean {
-  return policy.entries.some((entry) => accessModes.includes(entry.access) && entryMatchesPath(entry, path, context));
+  return policy.entries.some(
+    (entry) => accessModes.includes(entry.access) && entryMatchesPath(entry, path, context),
+  );
 }
 
 function entryMatchesPath(
@@ -238,13 +254,15 @@ function hasExplicitPathWrite(
   path: string,
   context: PermissionProfileMatchContext,
 ): boolean {
-  return policy.entries.some((entry) => (
-    entry.kind === 'path'
-    && entry.access === 'write'
-    && entryMatchesPath(entry, path, context)
-  ));
+  return policy.entries.some(
+    (entry) =>
+      entry.kind === 'path' && entry.access === 'write' && entryMatchesPath(entry, path, context),
+  );
 }
-function entryRoots(entry: FileSystemSandboxEntry, context: PermissionProfileMatchContext): readonly string[] {
+function entryRoots(
+  entry: FileSystemSandboxEntry,
+  context: PermissionProfileMatchContext,
+): readonly string[] {
   if (entry.kind === 'path') return [entry.path];
   switch (entry.special) {
     case ':root':
@@ -266,7 +284,11 @@ function isProtectedWriteDenied(
   context: PermissionProfileMatchContext,
 ): boolean {
   if (policy.protectedMetadata?.access !== 'deny_write') return false;
-  return isProtectedMetadataPath(path, context.workspaceRoots ?? [], policy.protectedMetadata.names);
+  return isProtectedMetadataPath(
+    path,
+    context.workspaceRoots ?? [],
+    policy.protectedMetadata.names,
+  );
 }
 
 function relativeSegments(path: string, root: string): string[] | undefined {
@@ -274,9 +296,10 @@ function relativeSegments(path: string, root: string): string[] | undefined {
   const normalizedRoot = trimTrailingSlashes(root);
   if (!pathWithinRoot(normalizedPath, normalizedRoot)) return undefined;
   if (normalizedPath === normalizedRoot) return [];
-  const relative = normalizedRoot === '/'
-    ? normalizedPath.slice(1)
-    : normalizedPath.slice(normalizedRoot.length + 1);
+  const relative =
+    normalizedRoot === '/'
+      ? normalizedPath.slice(1)
+      : normalizedPath.slice(normalizedRoot.length + 1);
   return relative.split('/').filter(Boolean);
 }
 

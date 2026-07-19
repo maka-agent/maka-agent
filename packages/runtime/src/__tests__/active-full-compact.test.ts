@@ -59,15 +59,19 @@ describe('active full compact PR1 foundation', () => {
 
   test('source index recognizes active prune placeholders', () => {
     const placeholder = activePlaceholder();
-    const messages: ModelMessage[] = [{
-      role: 'tool',
-      content: [{
-        type: 'tool-result',
-        toolCallId: 'call-archived',
-        toolName: 'Bash',
-        output: { type: 'text', value: JSON.stringify(placeholder) },
-      }],
-    } as unknown as ModelMessage];
+    const messages: ModelMessage[] = [
+      {
+        role: 'tool',
+        content: [
+          {
+            type: 'tool-result',
+            toolCallId: 'call-archived',
+            toolName: 'Bash',
+            output: { type: 'text', value: JSON.stringify(placeholder) },
+          },
+        ],
+      } as unknown as ModelMessage,
+    ];
 
     const index = buildActiveFullCompactSourceIndex({
       sessionId: 'session-1',
@@ -97,7 +101,11 @@ describe('active full compact PR1 foundation', () => {
     const coverage = activeFullCompactCoverageFromEntries([...index.entries].reverse());
 
     assert.deepEqual(coverage.runtimeEventIds, ['event-call', 'event-response', 'event-user']);
-    assert.deepEqual(coverage.providerMessageSourceIds, ['provider:0', 'provider:1:0', 'provider:2:0']);
+    assert.deepEqual(coverage.providerMessageSourceIds, [
+      'provider:0',
+      'provider:1:0',
+      'provider:2:0',
+    ]);
     assert.deepEqual(coverage.toolCallIds, ['call-1']);
     assert.deepEqual(coverage.contentKinds, ['function_call', 'function_response', 'text']);
     assert.equal(coverage.bodySha256.length, 3);
@@ -225,14 +233,28 @@ describe('active full compact PR1 foundation', () => {
       summary: fixtureSummary(index.entries.map((entry) => entry.sourceId)),
       now: 100,
     });
-    const malformedBlocks: Array<{ name: string; value: unknown; extraReason?: ActiveFullCompactFailOpenReason }> = [
+    const malformedBlocks: Array<{
+      name: string;
+      value: unknown;
+      extraReason?: ActiveFullCompactFailOpenReason;
+    }> = [
       { name: 'missing coverage', value: { ...block, coverage: undefined } },
-      { name: 'missing summary', value: { ...block, summary: undefined }, extraReason: 'summary_missing' },
+      {
+        name: 'missing summary',
+        value: { ...block, summary: undefined },
+        extraReason: 'summary_missing',
+      },
       {
         name: 'invalid coverage arrays',
-        value: { ...block, coverage: { ...block.coverage, providerMessageSourceIds: 'provider:0' } },
+        value: {
+          ...block,
+          coverage: { ...block.coverage, providerMessageSourceIds: 'provider:0' },
+        },
       },
-      { name: 'malformed archive refs', value: { ...block, archiveRefs: [{ kind: 'toolResult' }] } },
+      {
+        name: 'malformed archive refs',
+        value: { ...block, archiveRefs: [{ kind: 'toolResult' }] },
+      },
     ];
 
     for (const { name, value, extraReason } of malformedBlocks) {
@@ -319,15 +341,19 @@ describe('active full compact PR1 foundation', () => {
 
   test('active archive refs and diagnostics coexist with active prune fields', () => {
     const placeholder = activePlaceholder();
-    const messages: ModelMessage[] = [{
-      role: 'tool',
-      content: [{
-        type: 'tool-result',
-        toolCallId: 'call-archived',
-        toolName: 'Bash',
-        result: placeholder,
-      }],
-    } as unknown as ModelMessage];
+    const messages: ModelMessage[] = [
+      {
+        role: 'tool',
+        content: [
+          {
+            type: 'tool-result',
+            toolCallId: 'call-archived',
+            toolName: 'Bash',
+            result: placeholder,
+          },
+        ],
+      } as unknown as ModelMessage,
+    ];
     const index = buildActiveFullCompactSourceIndex({
       sessionId: 'session-1',
       turnId: 'turn-1',
@@ -353,19 +379,25 @@ describe('active full compact PR1 foundation', () => {
   });
 
   test('provider-visible archive refs are capped while durable audit refs remain complete', () => {
-    const messages: ModelMessage[] = Array.from({ length: 20 }, (_, index) => ({
-      role: 'tool',
-      content: [{
-        type: 'tool-result',
-        toolCallId: `call-archived-${index}`,
-        toolName: 'Bash',
-        result: activePlaceholder({
-          artifactId: `artifact-call-archived-${String(index).padStart(2, '0')}`,
-          toolCallId: `call-archived-${index}`,
-          bodySha256: String(index % 10).repeat(64),
-        }),
-      }],
-    } as unknown as ModelMessage));
+    const messages: ModelMessage[] = Array.from(
+      { length: 20 },
+      (_, index) =>
+        ({
+          role: 'tool',
+          content: [
+            {
+              type: 'tool-result',
+              toolCallId: `call-archived-${index}`,
+              toolName: 'Bash',
+              result: activePlaceholder({
+                artifactId: `artifact-call-archived-${String(index).padStart(2, '0')}`,
+                toolCallId: `call-archived-${index}`,
+                bodySha256: String(index % 10).repeat(64),
+              }),
+            },
+          ],
+        }) as unknown as ModelMessage,
+    );
     const index = buildActiveFullCompactSourceIndex({
       sessionId: 'session-1',
       turnId: 'turn-1',
@@ -528,7 +560,10 @@ describe('active full compact PR1 foundation', () => {
     assert.equal(failed.decision, 'failedOpen');
     assert.equal(failed.messages.length, messages.length);
     assert.equal(failed.diagnosticPatch.compactionDecisions?.[0]?.decision, 'failedOpen');
-    assert.equal(failed.diagnosticPatch.compactionDecisions?.[0]?.failOpenReason, 'provider_message_only_when_runtime_required');
+    assert.equal(
+      failed.diagnosticPatch.compactionDecisions?.[0]?.failOpenReason,
+      'provider_message_only_when_runtime_required',
+    );
   });
 
   test('rewrite helper preserves active prune archive refs in the compact block', () => {
@@ -536,21 +571,25 @@ describe('active full compact PR1 foundation', () => {
     const messages: ModelMessage[] = [
       {
         role: 'assistant',
-        content: [{
-          type: 'tool-call',
-          toolCallId: 'call-archived',
-          toolName: 'Bash',
-          input: { command: 'npm test' },
-        }],
+        content: [
+          {
+            type: 'tool-call',
+            toolCallId: 'call-archived',
+            toolName: 'Bash',
+            input: { command: 'npm test' },
+          },
+        ],
       } as unknown as ModelMessage,
       {
         role: 'tool',
-        content: [{
-          type: 'tool-result',
-          toolCallId: 'call-archived',
-          toolName: 'Bash',
-          result: placeholder,
-        }],
+        content: [
+          {
+            type: 'tool-result',
+            toolCallId: 'call-archived',
+            toolName: 'Bash',
+            result: placeholder,
+          },
+        ],
       } as unknown as ModelMessage,
       { role: 'user', content: 'recent anchor' },
     ];
@@ -572,7 +611,10 @@ describe('active full compact PR1 foundation', () => {
 
     assert.equal(rewritten.decision, 'replaced');
     assert.equal(rewritten.block?.archiveRefs?.[0]?.artifactId, 'artifact-call-archived');
-    assert.match(String((rewritten.messages[0] as { content?: unknown }).content), /artifact-call-archived/);
+    assert.match(
+      String((rewritten.messages[0] as { content?: unknown }).content),
+      /artifact-call-archived/,
+    );
   });
 
   test('QEMU-style long process compact preserves state and archive refs without raw output', () => {
@@ -632,7 +674,10 @@ describe('active full compact PR1 foundation', () => {
     assert.match(replacementJson, /\/tmp\/qemu-run\.sh/);
     assert.match(replacementJson, /\/workspace\/solution\.sh/);
     assert.match(replacementJson, /VERIFIER FAILURE: expected ssh service reachable/);
-    assert.match(replacementJson, /Failed hypothesis: networking is broken because hostfwd was missing/);
+    assert.match(
+      replacementJson,
+      /Failed hypothesis: networking is broken because hostfwd was missing/,
+    );
     assert.match(replacementJson, /Current hypothesis: sshd is not started inside the guest/);
     assert.match(replacementJson, /Next action: retry SSH after boot and rerun verifier/);
     assert.match(replacementJson, /artifact-qemu-boot/);
@@ -641,13 +686,15 @@ describe('active full compact PR1 foundation', () => {
     assert.doesNotMatch(replacementJson, /bodySha256=/);
     assert.doesNotMatch(replacementJson, /source\(kind=/);
     assert.equal(rewritten.messages[1], messages[messages.length - 1]);
-    assert.deepEqual(
-      rewritten.block.archiveRefs?.map((ref) => ref.artifactId).sort(),
-      ['artifact-qemu-boot', 'artifact-qemu-verify'],
+    assert.deepEqual(rewritten.block.archiveRefs?.map((ref) => ref.artifactId).sort(), [
+      'artifact-qemu-boot',
+      'artifact-qemu-verify',
+    ]);
+    assert.ok(
+      rewritten.block.summary.commandsTried?.some(
+        (command) => command.command.includes('qemu-system-x86_64') && command.sourceIds?.length,
+      ),
     );
-    assert.ok(rewritten.block.summary.commandsTried?.some((command) =>
-      command.command.includes('qemu-system-x86_64') && command.sourceIds?.length
-    ));
   });
 
   test('QEMU summary drops task-run metadata while keeping operational facts', () => {
@@ -687,10 +734,14 @@ describe('active full compact PR1 foundation', () => {
 
   test('QEMU/source-ref cliff validates visible replacement while retaining audit metadata', () => {
     const messages = [
-      ...Array.from({ length: 96 }, (_, index) => ({
-        role: index % 2 === 0 ? 'user' : 'assistant',
-        content: `QEMU/source-ref covered message ${index} ` + 'raw output chunk '.repeat(6),
-      } as ModelMessage)),
+      ...Array.from(
+        { length: 96 },
+        (_, index) =>
+          ({
+            role: index % 2 === 0 ? 'user' : 'assistant',
+            content: `QEMU/source-ref covered message ${index} ` + 'raw output chunk '.repeat(6),
+          }) as ModelMessage,
+      ),
       { role: 'user', content: 'recent tail remains visible' } as ModelMessage,
     ];
 
@@ -778,7 +829,10 @@ describe('active full compact PR1 foundation', () => {
     if (selection.decision !== 'selected') assert.fail('expected selected');
     assert.equal(index.activeCompactMessageIndexes?.[0], 0);
     assert.equal(selection.startMessageIndex > 0, true);
-    assert.equal(selection.entries.some((entry) => entry.messageIndex === 0), false);
+    assert.equal(
+      selection.entries.some((entry) => entry.messageIndex === 0),
+      false,
+    );
   });
 
   test('emergency compaction fails explicitly instead of rewriting an oversized user anchor', () => {
@@ -801,16 +855,25 @@ describe('active full compact PR1 foundation', () => {
 
     assert.equal(result.decision, 'failedOpen');
     assert.deepEqual(result.messages, messages);
-    assert.equal(result.diagnosticPatch.compactionDecisions?.[0]?.reason, 'head_anchor_exceeds_capacity');
-    assert.equal(result.diagnosticPatch.compactionDecisions?.[0]?.failOpenReason, 'head_anchor_exceeds_capacity');
+    assert.equal(
+      result.diagnosticPatch.compactionDecisions?.[0]?.reason,
+      'head_anchor_exceeds_capacity',
+    );
+    assert.equal(
+      result.diagnosticPatch.compactionDecisions?.[0]?.failOpenReason,
+      'head_anchor_exceeds_capacity',
+    );
   });
 });
 
 function textMessages(values: string[]): ModelMessage[] {
-  return values.map((value, index) => ({
-    role: index % 2 === 0 ? 'user' : 'assistant',
-    content: value,
-  } as ModelMessage));
+  return values.map(
+    (value, index) =>
+      ({
+        role: index % 2 === 0 ? 'user' : 'assistant',
+        content: value,
+      }) as ModelMessage,
+  );
 }
 
 function fixtureMessages(): ModelMessage[] {
@@ -818,21 +881,25 @@ function fixtureMessages(): ModelMessage[] {
     { role: 'user', content: 'hello world' },
     {
       role: 'assistant',
-      content: [{
-        type: 'tool-call',
-        toolCallId: 'call-1',
-        toolName: 'Read',
-        input: { path: 'README.md' },
-      }],
+      content: [
+        {
+          type: 'tool-call',
+          toolCallId: 'call-1',
+          toolName: 'Read',
+          input: { path: 'README.md' },
+        },
+      ],
     } as ModelMessage,
     {
       role: 'tool',
-      content: [{
-        type: 'tool-result',
-        toolCallId: 'call-1',
-        toolName: 'Read',
-        output: { type: 'json', value: { ok: true, body: 'short result' } },
-      }],
+      content: [
+        {
+          type: 'tool-result',
+          toolCallId: 'call-1',
+          toolName: 'Read',
+          output: { type: 'json', value: { ok: true, body: 'short result' } },
+        },
+      ],
     } as ModelMessage,
   ];
 }
@@ -872,13 +939,16 @@ function runtimeEvent(
     role,
     author,
     content,
-    refs: content.kind === 'function_call' || content.kind === 'function_response'
-      ? { toolCallId: content.id }
-      : undefined,
+    refs:
+      content.kind === 'function_call' || content.kind === 'function_response'
+        ? { toolCallId: content.id }
+        : undefined,
   };
 }
 
-function activePlaceholder(input: Partial<ActiveArchivedToolResultPlaceholder> = {}): ActiveArchivedToolResultPlaceholder {
+function activePlaceholder(
+  input: Partial<ActiveArchivedToolResultPlaceholder> = {},
+): ActiveArchivedToolResultPlaceholder {
   return {
     kind: ACTIVE_ARCHIVED_TOOL_RESULT_PLACEHOLDER_KIND,
     rewriteVersion: ARCHIVED_TOOL_RESULT_REWRITE_VERSION,
@@ -897,77 +967,98 @@ function qemuStyleMessages(): ModelMessage[] {
   return [
     {
       role: 'user',
-      content: 'Task constraints: boot a tiny VM-like process, expose SSH-like port 2222, modify only visible files, and run the public verifier without hidden benchmark shortcuts.',
+      content:
+        'Task constraints: boot a tiny VM-like process, expose SSH-like port 2222, modify only visible files, and run the public verifier without hidden benchmark shortcuts.',
     },
     {
       role: 'assistant',
-      content: [{
-        type: 'tool-call',
-        toolCallId: 'call-qemu-boot',
-        toolName: 'Bash',
-        input: { command: 'qemu-system-x86_64 -net user,hostfwd=tcp::2222-:22 -daemonize -pidfile /tmp/qemu.pid', cwd: '/workspace' },
-      }],
-    } as unknown as ModelMessage,
-    {
-      role: 'tool',
-      content: [{
-        type: 'tool-result',
-        toolCallId: 'call-qemu-boot',
-        toolName: 'Bash',
-        result: activePlaceholder({
-          artifactId: 'artifact-qemu-boot',
+      content: [
+        {
+          type: 'tool-call',
           toolCallId: 'call-qemu-boot',
-          bodySha256: 'b'.repeat(64),
-          originalEstimatedTokens: 6000,
-          originalBytes: 24000,
-        }),
-      }],
+          toolName: 'Bash',
+          input: {
+            command:
+              'qemu-system-x86_64 -net user,hostfwd=tcp::2222-:22 -daemonize -pidfile /tmp/qemu.pid',
+            cwd: '/workspace',
+          },
+        },
+      ],
+    } as unknown as ModelMessage,
+    {
+      role: 'tool',
+      content: [
+        {
+          type: 'tool-result',
+          toolCallId: 'call-qemu-boot',
+          toolName: 'Bash',
+          result: activePlaceholder({
+            artifactId: 'artifact-qemu-boot',
+            toolCallId: 'call-qemu-boot',
+            bodySha256: 'b'.repeat(64),
+            originalEstimatedTokens: 6000,
+            originalBytes: 24000,
+          }),
+        },
+      ],
     } as unknown as ModelMessage,
     {
       role: 'assistant',
-      content: 'Failed hypothesis: networking is broken because hostfwd was missing. Current hypothesis: sshd is not started inside the guest.',
+      content:
+        'Failed hypothesis: networking is broken because hostfwd was missing. Current hypothesis: sshd is not started inside the guest.',
     },
     {
       role: 'assistant',
-      content: [{
-        type: 'tool-call',
-        toolCallId: 'call-write-artifacts',
-        toolName: 'Write',
-        input: { path: '/workspace/solution.sh', content: 'service ssh start\n' },
-      }],
+      content: [
+        {
+          type: 'tool-call',
+          toolCallId: 'call-write-artifacts',
+          toolName: 'Write',
+          input: { path: '/workspace/solution.sh', content: 'service ssh start\n' },
+        },
+      ],
     } as unknown as ModelMessage,
     {
       role: 'tool',
-      content: [{
-        type: 'tool-result',
-        toolCallId: 'call-write-artifacts',
-        toolName: 'Write',
-        output: { type: 'text', value: 'wrote /workspace/solution.sh and updated /etc/network/interfaces' },
-      }],
+      content: [
+        {
+          type: 'tool-result',
+          toolCallId: 'call-write-artifacts',
+          toolName: 'Write',
+          output: {
+            type: 'text',
+            value: 'wrote /workspace/solution.sh and updated /etc/network/interfaces',
+          },
+        },
+      ],
     } as unknown as ModelMessage,
     {
       role: 'assistant',
-      content: [{
-        type: 'tool-call',
-        toolCallId: 'call-qemu-verify',
-        toolName: 'Bash',
-        input: { command: '/workspace/solution.sh && ./public-verifier.sh', cwd: '/workspace' },
-      }],
+      content: [
+        {
+          type: 'tool-call',
+          toolCallId: 'call-qemu-verify',
+          toolName: 'Bash',
+          input: { command: '/workspace/solution.sh && ./public-verifier.sh', cwd: '/workspace' },
+        },
+      ],
     } as unknown as ModelMessage,
     {
       role: 'tool',
-      content: [{
-        type: 'tool-result',
-        toolCallId: 'call-qemu-verify',
-        toolName: 'Bash',
-        result: activePlaceholder({
-          artifactId: 'artifact-qemu-verify',
+      content: [
+        {
+          type: 'tool-result',
           toolCallId: 'call-qemu-verify',
-          bodySha256: 'c'.repeat(64),
-          originalEstimatedTokens: 7000,
-          originalBytes: 28000,
-        }),
-      }],
+          toolName: 'Bash',
+          result: activePlaceholder({
+            artifactId: 'artifact-qemu-verify',
+            toolCallId: 'call-qemu-verify',
+            bodySha256: 'c'.repeat(64),
+            originalEstimatedTokens: 7000,
+            originalBytes: 28000,
+          }),
+        },
+      ],
     } as unknown as ModelMessage,
     {
       role: 'assistant',
@@ -986,7 +1077,11 @@ function qemuStyleRuntimeEvents(): RuntimeEvent[] {
       kind: 'function_call',
       id: 'call-qemu-boot',
       name: 'Bash',
-      args: { command: 'qemu-system-x86_64 -net user,hostfwd=tcp::2222-:22 -daemonize -pidfile /tmp/qemu.pid', cwd: '/workspace' },
+      args: {
+        command:
+          'qemu-system-x86_64 -net user,hostfwd=tcp::2222-:22 -daemonize -pidfile /tmp/qemu.pid',
+        cwd: '/workspace',
+      },
     }),
     runtimeEvent('event-qemu-boot-result', 'tool', 'tool', {
       kind: 'function_response',
@@ -1033,7 +1128,8 @@ function qemuStyleRuntimeEvents(): RuntimeEvent[] {
 
 function qemuStyleRuntimeEventsWithTaskRunMetadata(): RuntimeEvent[] {
   return qemuStyleRuntimeEvents().map((event) => {
-    if (event.id !== 'event-qemu-boot-result' || event.content?.kind !== 'function_response') return event;
+    if (event.id !== 'event-qemu-boot-result' || event.content?.kind !== 'function_response')
+      return event;
     return {
       ...event,
       content: {
@@ -1057,7 +1153,13 @@ function fixtureSummary(sourceIds: string[]): ActiveFullCompactSummary {
     processState: ['no long-running process observed'],
     vmState: ['guest state unchanged'],
     artifactPaths: ['README.md'],
-    commandsTried: [{ command: 'npm test', outcome: 'failed before archived raw output was inspected', sourceIds }],
+    commandsTried: [
+      {
+        command: 'npm test',
+        outcome: 'failed before archived raw output was inspected',
+        sourceIds,
+      },
+    ],
     latestVerifierFailure: 'unit verifier still red',
     constraints: ['do not alter provider request shape in PR1'],
     failedHypotheses: ['raw output alone is enough context'],

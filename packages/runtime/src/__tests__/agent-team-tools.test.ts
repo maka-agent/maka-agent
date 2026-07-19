@@ -12,10 +12,7 @@ import type {
   TaskLedgerStore,
   TaskOwner,
 } from '@maka/core';
-import {
-  buildAgentTeamChildTools,
-  buildAgentTeamLeadTools,
-} from '../agent-team-tools.js';
+import { buildAgentTeamChildTools, buildAgentTeamLeadTools } from '../agent-team-tools.js';
 import {
   TEAM_INBOX_TOOL_NAME,
   TEAM_MESSAGE_TOOL_NAME,
@@ -59,14 +56,24 @@ class MemoryTaskLedger implements TaskLedgerStore {
   }> = [];
 
   async list(_sessionId: string, options?: TaskLedgerListOptions): Promise<Task[]> {
-    return this.tasks.filter((task) => options?.includeTerminal !== false || !['completed', 'failed', 'cancelled'].includes(task.status));
+    return this.tasks.filter(
+      (task) =>
+        options?.includeTerminal !== false ||
+        !['completed', 'failed', 'cancelled'].includes(task.status),
+    );
   }
   async get(_sessionId: string, id: string): Promise<Task | undefined> {
     return this.tasks.find((task) => task.id === id || task.key === id);
   }
-  async create(): Promise<{ created: Task[]; total: number }> { return { created: [], total: this.tasks.length }; }
-  async update(): Promise<{ updated: Task; total: number }> { throw new Error('not used'); }
-  async claim(): Promise<{ updated: Task; total: number }> { throw new Error('not used'); }
+  async create(): Promise<{ created: Task[]; total: number }> {
+    return { created: [], total: this.tasks.length };
+  }
+  async update(): Promise<{ updated: Task; total: number }> {
+    throw new Error('not used');
+  }
+  async claim(): Promise<{ updated: Task; total: number }> {
+    throw new Error('not used');
+  }
   async claimAvailable(
     sessionId: string,
     id: string,
@@ -81,10 +88,16 @@ class MemoryTaskLedger implements TaskLedgerStore {
     task.owner = owner;
     return { updated: task, total: this.tasks.length };
   }
-  async settleAgentOutcome(_sessionId: string, _id: string, _outcome: TaskAgentOutcome): Promise<{ updated: Task; total: number }> {
+  async settleAgentOutcome(
+    _sessionId: string,
+    _id: string,
+    _outcome: TaskAgentOutcome,
+  ): Promise<{ updated: Task; total: number }> {
     throw new Error('not used');
   }
-  subscribe(): () => void { return () => {}; }
+  subscribe(): () => void {
+    return () => {};
+  }
 }
 
 function task(id: string, key: string, status: Task['status'], owner?: TaskOwner): Task {
@@ -128,21 +141,32 @@ function findTool(tools: MakaTool[], name: string): MakaTool {
 describe('agent team collaboration tools', () => {
   test('exposes the narrow lead and child surfaces', () => {
     const deps = { mailbox: new MemoryMailbox(), taskLedger: new MemoryTaskLedger() };
-    assert.deepEqual(buildAgentTeamLeadTools(deps).map((tool) => tool.name), [TEAM_MESSAGE_TOOL_NAME, TEAM_INBOX_TOOL_NAME]);
-    assert.deepEqual(buildAgentTeamChildTools(deps).map((tool) => tool.name), [
-      TEAM_MESSAGE_TOOL_NAME,
-      TEAM_INBOX_TOOL_NAME,
-      TEAM_TASK_LIST_TOOL_NAME,
-      TEAM_TASK_CLAIM_TOOL_NAME,
-    ]);
+    assert.deepEqual(
+      buildAgentTeamLeadTools(deps).map((tool) => tool.name),
+      [TEAM_MESSAGE_TOOL_NAME, TEAM_INBOX_TOOL_NAME],
+    );
+    assert.deepEqual(
+      buildAgentTeamChildTools(deps).map((tool) => tool.name),
+      [
+        TEAM_MESSAGE_TOOL_NAME,
+        TEAM_INBOX_TOOL_NAME,
+        TEAM_TASK_LIST_TOOL_NAME,
+        TEAM_TASK_CLAIM_TOOL_NAME,
+      ],
+    );
   });
 
   test('derives sender and recipient identities from trusted team context', async () => {
     const mailbox = new MemoryMailbox();
     const tools = buildAgentTeamChildTools({ mailbox, taskLedger: new MemoryTaskLedger() });
-    await findTool(tools, TEAM_MESSAGE_TOOL_NAME).impl({
-      type: 'message', recipient: 'test-coverage-reviewer', content: 'Please cover the ownership race.',
-    }, memberContext());
+    await findTool(tools, TEAM_MESSAGE_TOOL_NAME).impl(
+      {
+        type: 'message',
+        recipient: 'test-coverage-reviewer',
+        content: 'Please cover the ownership race.',
+      },
+      memberContext(),
+    );
     assert.deepEqual(mailbox.sends[0], {
       sessionId: 'session-1',
       input: {
@@ -179,28 +203,37 @@ describe('agent team collaboration tools', () => {
     const tools = buildAgentTeamChildTools({ mailbox, taskLedger: new MemoryTaskLedger() });
     const inbox = findTool(tools, TEAM_INBOX_TOOL_NAME);
 
-    await inbox.impl({ after_seq: 7 }, memberContext({
-      runId: 'child-run-a',
-      turnId: 'child-turn-a',
-    }));
-    await inbox.impl({}, memberContext({
-      runId: 'child-run-b',
-      turnId: 'child-turn-b',
-    }));
+    await inbox.impl(
+      { after_seq: 7 },
+      memberContext({
+        runId: 'child-run-a',
+        turnId: 'child-turn-a',
+      }),
+    );
+    await inbox.impl(
+      {},
+      memberContext({
+        runId: 'child-run-b',
+        turnId: 'child-turn-b',
+      }),
+    );
 
-    assert.deepEqual(mailbox.lists.map(({ options }) => options), [
-      {
-        teamId: 'code-review',
-        parentRunId: 'lead-run',
-        recipientAgentId: 'expert:code-review:correctness-reviewer',
-        afterSeq: 7,
-      },
-      {
-        teamId: 'code-review',
-        parentRunId: 'lead-run',
-        recipientAgentId: 'expert:code-review:correctness-reviewer',
-      },
-    ]);
+    assert.deepEqual(
+      mailbox.lists.map(({ options }) => options),
+      [
+        {
+          teamId: 'code-review',
+          parentRunId: 'lead-run',
+          recipientAgentId: 'expert:code-review:correctness-reviewer',
+          afterSeq: 7,
+        },
+        {
+          teamId: 'code-review',
+          parentRunId: 'lead-run',
+          recipientAgentId: 'expert:code-review:correctness-reviewer',
+        },
+      ],
+    );
   });
 
   test('lists only available shared tasks and claims with durable child refs', async () => {
@@ -209,13 +242,22 @@ describe('agent team collaboration tools', () => {
       task('task-1', 'T1', 'pending', { actor: 'main_agent', runId: 'lead-run' }),
       task('task-2', 'T2', 'blocked', { actor: 'main_agent', runId: 'lead-run' }),
       task('task-3', 'T3', 'in_progress', { actor: 'main_agent', runId: 'lead-run' }),
-      task('task-4', 'T4', 'blocked', { actor: 'child_agent', agentId: 'other', turnId: 'other-turn' }),
+      task('task-4', 'T4', 'blocked', {
+        actor: 'child_agent',
+        agentId: 'other',
+        turnId: 'other-turn',
+      }),
       task('task-5', 'T5', 'completed'),
       task('task-6', 'T6', 'pending', { actor: 'main_agent', runId: 'older-lead-run' }),
     ];
     const tools = buildAgentTeamChildTools({ mailbox: new MemoryMailbox(), taskLedger });
-    const listed = await findTool(tools, TEAM_TASK_LIST_TOOL_NAME).impl({}, memberContext()) as { tasks: Task[] };
-    assert.deepEqual(listed.tasks.map((candidate) => candidate.key), ['T1', 'T2']);
+    const listed = (await findTool(tools, TEAM_TASK_LIST_TOOL_NAME).impl({}, memberContext())) as {
+      tasks: Task[];
+    };
+    assert.deepEqual(
+      listed.tasks.map((candidate) => candidate.key),
+      ['T1', 'T2'],
+    );
 
     await findTool(tools, TEAM_TASK_CLAIM_TOOL_NAME).impl({ task_id: 'T1' }, memberContext());
     assert.deepEqual(taskLedger.claims[0], {
@@ -240,13 +282,21 @@ describe('agent team collaboration tools', () => {
   });
 
   test('fails closed without trusted team/run identity and denies lead self-claim', async () => {
-    const tools = buildAgentTeamChildTools({ mailbox: new MemoryMailbox(), taskLedger: new MemoryTaskLedger() });
+    const tools = buildAgentTeamChildTools({
+      mailbox: new MemoryMailbox(),
+      taskLedger: new MemoryTaskLedger(),
+    });
     await assert.rejects(
-      async () => await findTool(tools, TEAM_MESSAGE_TOOL_NAME).impl({ type: 'broadcast', content: 'x' }, memberContext({ agentTeam: undefined })),
+      async () =>
+        await findTool(tools, TEAM_MESSAGE_TOOL_NAME).impl(
+          { type: 'broadcast', content: 'x' },
+          memberContext({ agentTeam: undefined }),
+        ),
       /unavailable outside an expert-team run/,
     );
     await assert.rejects(
-      async () => await findTool(tools, TEAM_TASK_CLAIM_TOOL_NAME).impl({ task_id: 'T1' }, leadContext()),
+      async () =>
+        await findTool(tools, TEAM_TASK_CLAIM_TOOL_NAME).impl({ task_id: 'T1' }, leadContext()),
       /only to expert-team members/,
     );
   });

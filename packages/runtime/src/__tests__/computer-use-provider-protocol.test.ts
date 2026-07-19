@@ -1,11 +1,7 @@
 import assert from 'node:assert/strict';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { after, describe, test } from 'node:test';
-import type {
-  LlmConnection,
-  SessionEvent,
-  SessionHeader,
-} from '@maka/core';
+import type { LlmConnection, SessionEvent, SessionHeader } from '@maka/core';
 
 import { AiSdkBackend } from '../ai-sdk-backend.js';
 import {
@@ -79,24 +75,20 @@ describe('Anthropic-compatible Computer Use product loops', () => {
         assert.equal(body.model, provider.modelId);
         requestBodies.push(body);
         const step = requestBodies.length;
-        const toolInput = step === 1
-          ? { action: 'list_apps' }
-          : step === 2
-            ? {
-                action: 'observe',
-                app: 'pid:42',
-                window_id: 7,
-                include_screenshot: false,
-              }
-            : step === 3
-              ? semanticInputFromMessages(body.messages)
-              : undefined;
-        respondAnthropicStream(
-          response,
-          provider.modelId,
-          step,
-          toolInput,
-        );
+        const toolInput =
+          step === 1
+            ? { action: 'list_apps' }
+            : step === 2
+              ? {
+                  action: 'observe',
+                  app: 'pid:42',
+                  window_id: 7,
+                  include_screenshot: false,
+                }
+              : step === 3
+                ? semanticInputFromMessages(body.messages)
+                : undefined;
+        respondAnthropicStream(response, provider.modelId, step, toolInput);
       });
       const value = { current: '' };
       const [computerTool] = buildComputerUseTools({
@@ -152,11 +144,7 @@ describe('Anthropic-compatible Computer Use product loops', () => {
       );
       assert.equal(events.at(-1)?.type, 'complete');
       assert.equal(requestBodies.length, 4);
-      assert.deepEqual(toolResults, [
-        { isError: false },
-        { isError: false },
-        { isError: false },
-      ]);
+      assert.deepEqual(toolResults, [{ isError: false }, { isError: false }, { isError: false }]);
       assert.deepEqual(
         (requestBodies[0].tools as Array<{ name: string }>).map((tool) => tool.name),
         ['maka_computer'],
@@ -184,10 +172,13 @@ describe('Anthropic-compatible Computer Use product loops', () => {
       );
       const finalObservations = collectJsonObjects(requestBodies[3]?.messages);
       assert.ok(
-        finalObservations.some((entry) =>
-          Array.isArray(entry.elements)
-          && entry.elements.some((element) =>
-            (element as Record<string, unknown>).value === 'provider-loop')),
+        finalObservations.some(
+          (entry) =>
+            Array.isArray(entry.elements) &&
+            entry.elements.some(
+              (element) => (element as Record<string, unknown>).value === 'provider-loop',
+            ),
+        ),
         'final provider request must contain the post-action observation',
       );
     });
@@ -202,22 +193,18 @@ describe('Anthropic-compatible Computer Use product loops', () => {
         assert.equal(body.model, provider.modelId);
         requestBodies.push(body);
         const step = requestBodies.length;
-        const toolInput = step === 1
-          ? {
-              action: 'observe',
-              app: 'pid:42',
-              window_id: 7,
-              include_screenshot: false,
-            }
-          : step === 2
-            ? semanticInputFromMessages(body.messages)
-            : undefined;
-        respondAnthropicStream(
-          response,
-          provider.modelId,
-          step,
-          toolInput,
-        );
+        const toolInput =
+          step === 1
+            ? {
+                action: 'observe',
+                app: 'pid:42',
+                window_id: 7,
+                include_screenshot: false,
+              }
+            : step === 2
+              ? semanticInputFromMessages(body.messages)
+              : undefined;
+        respondAnthropicStream(response, provider.modelId, step, toolInput);
       });
       const value = { current: 'unchanged' };
       const [computerTool] = buildComputerUseTools({
@@ -262,7 +249,10 @@ describe('Anthropic-compatible Computer Use product loops', () => {
       );
       assert.equal(requestBodies.length, 3);
       assert.equal(events.at(-1)?.type, 'complete');
-      assert.equal(events.some((event) => event.type === 'error'), false);
+      assert.equal(
+        events.some((event) => event.type === 'error'),
+        false,
+      );
       assert.equal(value.current, 'unchanged');
       assert.deepEqual(
         toolResults.map((event) => ({ toolUseId: event.toolUseId, isError: event.isError })),
@@ -291,30 +281,34 @@ function fakeSemanticBackend(value: { current: string }): CuDispatchBackend {
     pid: 42,
     windowId: 7,
     contentFingerprint: 'fixture',
-    elements: [{
-      elementId: 'field-1',
-      role: 'AXTextField',
-      label: 'CUA Lab Set Value Field',
-      value: value.current,
-      identity: {
+    elements: [
+      {
+        elementId: 'field-1',
         role: 'AXTextField',
         label: 'CUA Lab Set Value Field',
         value: value.current,
+        identity: {
+          role: 'AXTextField',
+          label: 'CUA Lab Set Value Field',
+          value: value.current,
+        },
       },
-    }],
+    ],
   });
   return {
     async preflight() {
       return { accessibility: true, screenRecording: true };
     },
     async listApps() {
-      return [{
-        appId: 'pid:42',
-        pid: 42,
-        name: 'Codex CUA Lab',
-        windowCount: 1,
-        windows: [{ windowId: 7, title: 'Codex CUA Lab' }],
-      }];
+      return [
+        {
+          appId: 'pid:42',
+          pid: 42,
+          name: 'Codex CUA Lab',
+          windowCount: 1,
+          windows: [{ windowId: 7, title: 'Codex CUA Lab' }],
+        },
+      ];
     },
     async observeApp() {
       return observation();
@@ -363,9 +357,9 @@ function failingSemanticBackend(value: { current: string }): CuDispatchBackend {
 
 function semanticInputFromMessages(messages: unknown) {
   const values = collectJsonObjects(messages);
-  const observation = values.find((value) =>
-    typeof value.observation_id === 'string'
-    && Array.isArray(value.elements));
+  const observation = values.find(
+    (value) => typeof value.observation_id === 'string' && Array.isArray(value.elements),
+  );
   assert.ok(observation, 'provider request must include the observation tool result');
   const field = (observation.elements as Array<Record<string, unknown>>).find(
     (element) => element.label === 'CUA Lab Set Value Field',
@@ -404,10 +398,7 @@ function containsToolResult(value: unknown, toolUseId: string): boolean {
   return Boolean(findToolResult(value, toolUseId));
 }
 
-function findToolResult(
-  value: unknown,
-  toolUseId: string,
-): Record<string, unknown> | undefined {
+function findToolResult(value: unknown, toolUseId: string): Record<string, unknown> | undefined {
   if (Array.isArray(value)) {
     for (const entry of value) {
       const result = findToolResult(entry, toolUseId);
@@ -418,8 +409,8 @@ function findToolResult(
   if (!value || typeof value !== 'object') return undefined;
   const record = value as Record<string, unknown>;
   if (
-    record.type === 'tool_result'
-    && (record.tool_use_id === toolUseId || record.toolUseId === toolUseId)
+    record.type === 'tool_result' &&
+    (record.tool_use_id === toolUseId || record.toolUseId === toolUseId)
   ) {
     return record;
   }
@@ -490,10 +481,7 @@ function respondAnthropicStream(
   response.end();
 }
 
-function header(
-  providerType: LlmConnection['providerType'],
-  model: string,
-): SessionHeader {
+function header(providerType: LlmConnection['providerType'], model: string): SessionHeader {
   return {
     id: `session-${providerType}`,
     workspaceRoot: '/tmp/maka',
@@ -560,9 +548,10 @@ async function startJsonServer(
   assert.ok(address && typeof address === 'object');
   const control = {
     url: `http://127.0.0.1:${address.port}`,
-    close: () => new Promise<void>((resolve, reject) => {
-      server.close((error) => error ? reject(error) : resolve());
-    }),
+    close: () =>
+      new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      }),
   };
   servers.push(control);
   return control;
@@ -572,7 +561,9 @@ function readBody(request: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     let body = '';
     request.setEncoding('utf8');
-    request.on('data', (chunk) => { body += chunk; });
+    request.on('data', (chunk) => {
+      body += chunk;
+    });
     request.on('end', () => resolve(body));
     request.on('error', reject);
   });

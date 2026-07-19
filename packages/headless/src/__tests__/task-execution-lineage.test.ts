@@ -64,15 +64,16 @@ describe('taskAttemptExecutionEvidence', () => {
 
   test('refuses to claim coverage over events from another Runtime stream', () => {
     assert.throws(
-      () => taskAttemptExecutionEvidence({
-        taskRunId: 'task-run-1',
-        attemptId: 'attempt-1',
-        sessionId: 'session-1',
-        invocationId: 'invocation-1',
-        agentRunId: 'run-1',
-        turnId: 'turn-1',
-        runtimeEvents: [runtimeEvent('event-1', { runId: 'run-2' })],
-      }),
+      () =>
+        taskAttemptExecutionEvidence({
+          taskRunId: 'task-run-1',
+          attemptId: 'attempt-1',
+          sessionId: 'session-1',
+          invocationId: 'invocation-1',
+          agentRunId: 'run-1',
+          turnId: 'turn-1',
+          runtimeEvents: [runtimeEvent('event-1', { runId: 'run-2' })],
+        }),
       /runId does not match lineage agentRunId/,
     );
   });

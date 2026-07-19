@@ -25,13 +25,15 @@ describe('runOpenAIComputerLoop', () => {
     const responses = [
       {
         id: 'resp_1',
-        output: [call({
-          actions: [
-            { type: 'move', x: 1, y: 2 },
-            { type: 'click', button: 'left', x: 1, y: 2 },
-            { type: 'type', text: 'ok' },
-          ],
-        })],
+        output: [
+          call({
+            actions: [
+              { type: 'move', x: 1, y: 2 },
+              { type: 'click', button: 'left', x: 1, y: 2 },
+              { type: 'type', text: 'ok' },
+            ],
+          }),
+        ],
       },
       { id: 'resp_2', output: [{ type: 'message', content: [] }] },
     ];
@@ -45,13 +47,25 @@ describe('runOpenAIComputerLoop', () => {
           return responses.shift();
         },
       },
-      executor: { async execute(action) { executed.push(action); return success(); } },
-      screenshot: { async capture() { return { base64: 'AA==', mimeType: 'image/png' }; } },
+      executor: {
+        async execute(action) {
+          executed.push(action);
+          return success();
+        },
+      },
+      screenshot: {
+        async capture() {
+          return { base64: 'AA==', mimeType: 'image/png' };
+        },
+      },
       allowAction: async () => true,
     });
 
     assert.equal(result.status, 'completed');
-    assert.deepEqual(executed.map((action) => action.type), ['mouse_move', 'left_click', 'type']);
+    assert.deepEqual(
+      executed.map((action) => action.type),
+      ['mouse_move', 'left_click', 'type'],
+    );
     assert.equal(requests[1].previous_response_id, 'resp_1');
     assert.equal((requests[1].input as Array<{ call_id: string }>)[0].call_id, 'call_1');
   });
@@ -66,15 +80,26 @@ describe('runOpenAIComputerLoop', () => {
         async create() {
           return {
             id: 'resp_1',
-            output: [call({
-              pending_safety_checks: [{ id: 'safe_1', code: 'confirm', message: 'Confirm' }],
-              actions: [{ type: 'click', button: 'left', x: 1, y: 2 }],
-            })],
+            output: [
+              call({
+                pending_safety_checks: [{ id: 'safe_1', code: 'confirm', message: 'Confirm' }],
+                actions: [{ type: 'click', button: 'left', x: 1, y: 2 }],
+              }),
+            ],
           };
         },
       },
-      executor: { async execute() { executions += 1; return success(); } },
-      screenshot: { async capture() { throw new Error('must not capture'); } },
+      executor: {
+        async execute() {
+          executions += 1;
+          return success();
+        },
+      },
+      screenshot: {
+        async capture() {
+          throw new Error('must not capture');
+        },
+      },
     });
     assert.equal(result.status, 'safety_blocked');
     assert.equal(executions, 0);
@@ -90,17 +115,28 @@ describe('runOpenAIComputerLoop', () => {
         async create() {
           return {
             id: 'resp_1',
-            output: [call({
-              actions: [
-                { type: 'click', button: 'left', x: 1, y: 2 },
-                { type: 'scroll', x: 1, y: 2, scroll_x: 0, scroll_y: 100 },
-              ],
-            })],
+            output: [
+              call({
+                actions: [
+                  { type: 'click', button: 'left', x: 1, y: 2 },
+                  { type: 'scroll', x: 1, y: 2, scroll_x: 0, scroll_y: 100 },
+                ],
+              }),
+            ],
           };
         },
       },
-      executor: { async execute() { executions += 1; return success(); } },
-      screenshot: { async capture() { throw new Error('must not capture'); } },
+      executor: {
+        async execute() {
+          executions += 1;
+          return success();
+        },
+      },
+      screenshot: {
+        async capture() {
+          throw new Error('must not capture');
+        },
+      },
       allowAction: async () => true,
     });
     assert.equal(result.status, 'unsupported_action');
@@ -121,17 +157,25 @@ describe('runOpenAIComputerLoop', () => {
         async create() {
           return {
             id: 'resp_1',
-            output: [call({
-              actions: [
-                { type: 'screenshot' },
-                { type: 'click', button: 'left', x: 1, y: 2 },
-              ],
-            })],
+            output: [
+              call({
+                actions: [{ type: 'screenshot' }, { type: 'click', button: 'left', x: 1, y: 2 }],
+              }),
+            ],
           };
         },
       },
-      executor: { async execute() { executions += 1; return success(); } },
-      screenshot: { async capture() { throw new Error('must not capture'); } },
+      executor: {
+        async execute() {
+          executions += 1;
+          return success();
+        },
+      },
+      screenshot: {
+        async capture() {
+          throw new Error('must not capture');
+        },
+      },
     });
     assert.equal(result.status, 'unsupported_action');
     if (result.status === 'unsupported_action') {
@@ -146,9 +190,11 @@ describe('runOpenAIComputerLoop', () => {
     const responses = [
       {
         id: 'resp_1',
-        output: [call({
-          actions: [{ type: 'click', button: 'left', x: 1, y: 2 }],
-        })],
+        output: [
+          call({
+            actions: [{ type: 'click', button: 'left', x: 1, y: 2 }],
+          }),
+        ],
       },
       { id: 'resp_2', output: [] },
     ];
@@ -156,16 +202,31 @@ describe('runOpenAIComputerLoop', () => {
       dialect: 'ga',
       model: 'gpt',
       prompt: 'go',
-      transport: { async create() { return responses.shift(); } },
-      executor: { async execute(action) { executed.push(action); return success(); } },
-      screenshot: { async capture() { return { base64: 'AA==', mimeType: 'image/png' }; } },
+      transport: {
+        async create() {
+          return responses.shift();
+        },
+      },
+      executor: {
+        async execute(action) {
+          executed.push(action);
+          return success();
+        },
+      },
+      screenshot: {
+        async capture() {
+          return { base64: 'AA==', mimeType: 'image/png' };
+        },
+      },
       allowAction: async () => true,
     });
     assert.equal(result.status, 'completed');
-    assert.deepEqual(executed, [{
-      type: 'left_click',
-      coordinate: { x: 1, y: 2 },
-    }]);
+    assert.deepEqual(executed, [
+      {
+        type: 'left_click',
+        coordinate: { x: 1, y: 2 },
+      },
+    ]);
   });
 
   test('does not treat failed or incomplete responses as completion', async () => {
@@ -178,14 +239,30 @@ describe('runOpenAIComputerLoop', () => {
       },
       { id: 'incomplete', status: 'incomplete', error: null, output: [] },
     ]) {
-      await assert.rejects(() => runOpenAIComputerLoop({
-        dialect: 'ga',
-        model: 'gpt',
-        prompt: 'go',
-        transport: { async create() { return response; } },
-        executor: { async execute() { return success(); } },
-        screenshot: { async capture() { return { base64: 'AA==', mimeType: 'image/png' }; } },
-      }), /openai_computer_response_(failed|not_completed)/);
+      await assert.rejects(
+        () =>
+          runOpenAIComputerLoop({
+            dialect: 'ga',
+            model: 'gpt',
+            prompt: 'go',
+            transport: {
+              async create() {
+                return response;
+              },
+            },
+            executor: {
+              async execute() {
+                return success();
+              },
+            },
+            screenshot: {
+              async capture() {
+                return { base64: 'AA==', mimeType: 'image/png' };
+              },
+            },
+          }),
+        /openai_computer_response_(failed|not_completed)/,
+      );
     }
   });
 
@@ -194,10 +271,12 @@ describe('runOpenAIComputerLoop', () => {
     const responses = [
       {
         id: 'resp_1',
-        output: [call({
-          pending_safety_checks: [{ id: 'safe_1', code: 'confirm', message: 'Confirm' }],
-          actions: [{ type: 'screenshot' }],
-        })],
+        output: [
+          call({
+            pending_safety_checks: [{ id: 'safe_1', code: 'confirm', message: 'Confirm' }],
+            actions: [{ type: 'screenshot' }],
+          }),
+        ],
       },
       { id: 'resp_2', output: [] },
     ];
@@ -211,15 +290,27 @@ describe('runOpenAIComputerLoop', () => {
           return responses.shift();
         },
       },
-      executor: { async execute() { return success(); } },
-      screenshot: { async capture() { return { base64: 'AA==', mimeType: 'image/png' }; } },
+      executor: {
+        async execute() {
+          return success();
+        },
+      },
+      screenshot: {
+        async capture() {
+          return { base64: 'AA==', mimeType: 'image/png' };
+        },
+      },
       acknowledgeSafetyChecks: async () => true,
     });
     assert.equal(result.status, 'completed');
     const item = (requests[1].input as Array<{ acknowledged_safety_checks?: unknown }>)[0];
-    assert.deepEqual(item.acknowledged_safety_checks, [{
-      id: 'safe_1', code: 'confirm', message: 'Confirm',
-    }]);
+    assert.deepEqual(item.acknowledged_safety_checks, [
+      {
+        id: 'safe_1',
+        code: 'confirm',
+        message: 'Confirm',
+      },
+    ]);
   });
 
   test('keeps the preview request contract across the loop', async () => {
@@ -227,14 +318,16 @@ describe('runOpenAIComputerLoop', () => {
     const responses = [
       {
         id: 'resp_1',
-        output: [{
-          type: 'computer_call',
-          id: 'item_1',
-          call_id: 'call_1',
-          status: 'completed',
-          pending_safety_checks: [],
-          action: { type: 'wait' },
-        }],
+        output: [
+          {
+            type: 'computer_call',
+            id: 'item_1',
+            call_id: 'call_1',
+            status: 'completed',
+            pending_safety_checks: [],
+            action: { type: 'wait' },
+          },
+        ],
       },
       { id: 'resp_2', output: [] },
     ];
@@ -249,17 +342,27 @@ describe('runOpenAIComputerLoop', () => {
           return responses.shift();
         },
       },
-      executor: { async execute() { return success(); } },
-      screenshot: { async capture() { return { base64: 'AA==', mimeType: 'image/png' }; } },
+      executor: {
+        async execute() {
+          return success();
+        },
+      },
+      screenshot: {
+        async capture() {
+          return { base64: 'AA==', mimeType: 'image/png' };
+        },
+      },
     });
     assert.equal(result.status, 'completed');
     assert.equal(requests[0].truncation, 'auto');
-    assert.deepEqual(requests[1].tools, [{
-      type: 'computer_use_preview',
-      display_width: 1024,
-      display_height: 768,
-      environment: 'browser',
-    }]);
+    assert.deepEqual(requests[1].tools, [
+      {
+        type: 'computer_use_preview',
+        display_width: 1024,
+        display_height: 768,
+        environment: 'browser',
+      },
+    ]);
     assert.equal(requests[1].truncation, 'auto');
   });
 });

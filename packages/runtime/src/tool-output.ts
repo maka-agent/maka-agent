@@ -54,9 +54,9 @@ const DEFAULT_MAX_BYTES = 50 * 1024;
 // side-effecting command. Keep both "safe to re-run" and "side effects" phrasing
 // — markers and their tests rely on it.
 export const OUTPUT_RECOVERY_HINT =
-  'If the command is safe to re-run, redirect its output to a file '
-  + '(e.g. `cmd > out.txt 2>&1`) then Read or Grep that file for the omitted portion. '
-  + 'If re-running could repeat side effects, do not.';
+  'If the command is safe to re-run, redirect its output to a file ' +
+  '(e.g. `cmd > out.txt 2>&1`) then Read or Grep that file for the omitted portion. ' +
+  'If re-running could repeat side effects, do not.';
 
 function utf8Len(text: string): number {
   return Buffer.byteLength(text, 'utf8');
@@ -146,12 +146,10 @@ export function truncateToolOutput(
   }
   const unit: 'lines' | 'bytes' = hitBytes ? 'bytes' : 'lines';
   const marker =
-    `...${removed} ${unit} truncated. ${OUTPUT_RECOVERY_HINT} `
-    + 'Otherwise work from the kept output above.';
+    `...${removed} ${unit} truncated. ${OUTPUT_RECOVERY_HINT} ` +
+    'Otherwise work from the kept output above.';
 
-  const content = direction === 'head'
-    ? `${preview}\n\n${marker}`
-    : `${marker}\n\n${preview}`;
+  const content = direction === 'head' ? `${preview}\n\n${marker}` : `${marker}\n\n${preview}`;
 
   return { content, truncated: true, removed, unit };
 }

@@ -126,7 +126,16 @@ const AGENT_SWARM_SHAPE = defineObjectShape<AgentSwarmResult>()(
 type AgentSwarmItem = AgentSwarmResult['items'][number];
 const AGENT_SWARM_ITEM_SHAPE = defineObjectShape<AgentSwarmItem>()(
   ['itemId', 'index', 'profile', 'started', 'status', 'summary', 'artifactIds'],
-  ['agentId', 'agentName', 'turnId', 'runId', 'startedAt', 'completedAt', 'durationMs', 'failureClass'],
+  [
+    'agentId',
+    'agentName',
+    'turnId',
+    'runId',
+    'startedAt',
+    'completedAt',
+    'durationMs',
+    'failureClass',
+  ],
 );
 const RIVE_SHAPE = defineObjectShape<RiveResult>()(
   ['kind', 'ok', 'action', 'command', 'ids', 'summary'],

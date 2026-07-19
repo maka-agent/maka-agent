@@ -94,9 +94,11 @@ export class McpClientManager {
 
   private async syncNow(config: McpConfigFile): Promise<void> {
     const desired = new Set(Object.keys(config.mcpServers));
-    await Promise.all([...this.connections.keys()]
-      .filter((serverId) => !desired.has(serverId))
-      .map((serverId) => this.disconnect(serverId, true)));
+    await Promise.all(
+      [...this.connections.keys()]
+        .filter((serverId) => !desired.has(serverId))
+        .map((serverId) => this.disconnect(serverId, true)),
+    );
     const connectIds: string[] = [];
     for (const [serverId, serverConfig] of Object.entries(config.mcpServers)) {
       const fingerprint = stableConfigFingerprint(serverConfig);
@@ -107,7 +109,10 @@ export class McpClientManager {
           config: serverConfig,
           fingerprint,
           closing: false,
-          status: this.makeStatus(serverId, serverConfig.enabled === false ? 'disabled' : 'disconnected'),
+          status: this.makeStatus(
+            serverId,
+            serverConfig.enabled === false ? 'disabled' : 'disconnected',
+          ),
         });
       }
       if (serverConfig.enabled !== false) connectIds.push(serverId);
@@ -125,7 +130,9 @@ export class McpClientManager {
   }
 
   tools(): McpToolDescriptor[] {
-    return this.statuses().filter((status) => status.state === 'connected').flatMap((status) => status.tools);
+    return this.statuses()
+      .filter((status) => status.state === 'connected')
+      .flatMap((status) => status.tools);
   }
 
   async connect(serverId: string): Promise<McpServerStatus> {
@@ -179,7 +186,9 @@ export class McpClientManager {
   async close(): Promise<void> {
     this.closed = true;
     await this.syncQueue.catch(() => {});
-    await Promise.all([...this.connections.keys()].map((serverId) => this.disconnect(serverId, true)));
+    await Promise.all(
+      [...this.connections.keys()].map((serverId) => this.disconnect(serverId, true)),
+    );
   }
 
   async refreshTools(serverId: string): Promise<McpToolDescriptor[]> {
@@ -187,7 +196,13 @@ export class McpClientManager {
     if (!entry.client || entry.status.state !== 'connected') await this.connect(serverId);
     if (!entry.client) throw new Error(`MCP server "${serverId}" is not connected`);
     const tools = await listAllTools(entry.client, serverId, this.timeouts.listToolsMs);
-    this.update(entry, { ...entry.status, tools, toolCount: tools.length, error: undefined, updatedAt: this.now() });
+    this.update(entry, {
+      ...entry.status,
+      tools,
+      toolCount: tools.length,
+      error: undefined,
+      updatedAt: this.now(),
+    });
     return tools.map(cloneTool);
   }
 
@@ -200,13 +215,16 @@ export class McpClientManager {
     const entry = this.requireConnection(serverId);
     if (!entry.client || entry.status.state !== 'connected') await this.connect(serverId);
     if (!entry.client) throw new Error(`MCP server "${serverId}" is not connected`);
-    const result = await entry.client.callTool(
-      { name: toolName, arguments: args },
-      undefined,
-      { signal: options.signal, timeout: options.timeoutMs ?? this.timeouts.callToolMs },
-    );
+    const result = await entry.client.callTool({ name: toolName, arguments: args }, undefined, {
+      signal: options.signal,
+      timeout: options.timeoutMs ?? this.timeouts.callToolMs,
+    });
     if (!('content' in result)) {
-      throw new McpToolCallError(serverId, toolName, 'server returned a task result unsupported by V1');
+      throw new McpToolCallError(
+        serverId,
+        toolName,
+        'server returned a task result unsupported by V1',
+      );
     }
     if (!Array.isArray(result.content)) {
       throw new McpToolCallError(serverId, toolName, 'server returned invalid content');
@@ -242,9 +260,18 @@ export class McpClientManager {
     }
   }
 
-  private async connectEntry(serverId: string, entry: Connection, signal: AbortSignal): Promise<McpServerStatus> {
+  private async connectEntry(
+    serverId: string,
+    entry: Connection,
+    signal: AbortSignal,
+  ): Promise<McpServerStatus> {
     entry.closing = false;
-    this.update(entry, { ...entry.status, state: 'connecting', error: undefined, updatedAt: this.now() });
+    this.update(entry, {
+      ...entry.status,
+      state: 'connecting',
+      error: undefined,
+      updatedAt: this.now(),
+    });
     try {
       const connected = await this.openClient(serverId, entry, signal);
       entry.client = connected.client;
@@ -285,8 +312,14 @@ export class McpClientManager {
     }
   }
 
-  private async openClient(serverId: string, entry: Connection, signal: AbortSignal): Promise<{
-    client: Client; transport: Transport; stdioTransport?: StdioClientTransport;
+  private async openClient(
+    serverId: string,
+    entry: Connection,
+    signal: AbortSignal,
+  ): Promise<{
+    client: Client;
+    transport: Transport;
+    stdioTransport?: StdioClientTransport;
     kind: 'stdio' | 'streamable-http' | 'sse';
   }> {
     if (isMcpStdioConfig(entry.config)) {
@@ -341,9 +374,12 @@ export class McpClientManager {
   }
 
   private createClient(): Client {
-    return new Client({ name: this.clientName, version: this.clientVersion }, {
-      capabilities: {},
-    });
+    return new Client(
+      { name: this.clientName, version: this.clientVersion },
+      {
+        capabilities: {},
+      },
+    );
   }
 
   private handleTransportClose(entry: Connection): void {
@@ -383,7 +419,11 @@ export class McpClientManager {
   }
 }
 
-async function listAllTools(client: Client, serverId: string, timeout: number): Promise<McpToolDescriptor[]> {
+async function listAllTools(
+  client: Client,
+  serverId: string,
+  timeout: number,
+): Promise<McpToolDescriptor[]> {
   const result: McpToolDescriptor[] = [];
   const seenCursors = new Set<string>();
   const seenNames = new Set<string>();
@@ -394,7 +434,8 @@ async function listAllTools(client: Client, serverId: string, timeout: number): 
       if (result.length >= MAX_TOOLS_PER_SERVER) {
         throw new Error(`MCP server "${serverId}" exceeded ${MAX_TOOLS_PER_SERVER} tools`);
       }
-      if (seenNames.has(tool.name)) throw new Error(`MCP server "${serverId}" returned duplicate tool "${tool.name}"`);
+      if (seenNames.has(tool.name))
+        throw new Error(`MCP server "${serverId}" returned duplicate tool "${tool.name}"`);
       seenNames.add(tool.name);
       result.push({
         serverId,
@@ -405,7 +446,8 @@ async function listAllTools(client: Client, serverId: string, timeout: number): 
       });
     }
     if (!response.nextCursor) return result;
-    if (seenCursors.has(response.nextCursor)) throw new Error(`MCP server "${serverId}" repeated a tools cursor`);
+    if (seenCursors.has(response.nextCursor))
+      throw new Error(`MCP server "${serverId}" repeated a tools cursor`);
     seenCursors.add(response.nextCursor);
     cursor = response.nextCursor;
   }
@@ -414,23 +456,42 @@ async function listAllTools(client: Client, serverId: string, timeout: number): 
 
 function normalizeContent(value: unknown): McpContentBlock {
   if (!isRecord(value) || typeof value.type !== 'string') return { type: 'unknown', value };
-  if (value.type === 'text' && typeof value.text === 'string') return { type: 'text', text: value.text };
-  if (value.type === 'image' && typeof value.data === 'string' && typeof value.mimeType === 'string') {
+  if (value.type === 'text' && typeof value.text === 'string')
+    return { type: 'text', text: value.text };
+  if (
+    value.type === 'image' &&
+    typeof value.data === 'string' &&
+    typeof value.mimeType === 'string'
+  ) {
     return { type: 'image', data: value.data, mimeType: value.mimeType };
   }
-  if (value.type === 'audio' && typeof value.data === 'string' && typeof value.mimeType === 'string') {
+  if (
+    value.type === 'audio' &&
+    typeof value.data === 'string' &&
+    typeof value.mimeType === 'string'
+  ) {
     return { type: 'audio', data: value.data, mimeType: value.mimeType };
   }
-  if (value.type === 'resource' && isRecord(value.resource) && typeof value.resource.uri === 'string') {
+  if (
+    value.type === 'resource' &&
+    isRecord(value.resource) &&
+    typeof value.resource.uri === 'string'
+  ) {
     return {
-      type: 'resource', uri: value.resource.uri,
-      mimeType: stringValue(value.resource.mimeType), text: stringValue(value.resource.text), blob: stringValue(value.resource.blob),
+      type: 'resource',
+      uri: value.resource.uri,
+      mimeType: stringValue(value.resource.mimeType),
+      text: stringValue(value.resource.text),
+      blob: stringValue(value.resource.blob),
     };
   }
   if (value.type === 'resource_link' && typeof value.uri === 'string') {
     return {
-      type: 'resource_link', uri: value.uri, name: stringValue(value.name),
-      description: stringValue(value.description), mimeType: stringValue(value.mimeType),
+      type: 'resource_link',
+      uri: value.uri,
+      name: stringValue(value.name),
+      description: stringValue(value.description),
+      mimeType: stringValue(value.mimeType),
     };
   }
   return { type: 'unknown', value };
@@ -438,19 +499,40 @@ function normalizeContent(value: unknown): McpContentBlock {
 
 function summarizeErrorContent(content: unknown[]): string {
   const text = content
-    .map((block) => isRecord(block) && block.type === 'text' && typeof block.text === 'string' ? block.text : '')
-    .filter(Boolean).join('\n').trim();
+    .map((block) =>
+      isRecord(block) && block.type === 'text' && typeof block.text === 'string' ? block.text : '',
+    )
+    .filter(Boolean)
+    .join('\n')
+    .trim();
   return text || 'server reported an error';
 }
 
-export function buildStdioEnvironment(explicit: Record<string, string> = {}, source = process.env): Record<string, string> {
+export function buildStdioEnvironment(
+  explicit: Record<string, string> = {},
+  source = process.env,
+): Record<string, string> {
   const result: Record<string, string> = {};
   const exact = new Set([
-    'PATH', 'HOME', 'USER', 'LOGNAME', 'SHELL', 'LANG', 'TMPDIR',
-    'SystemRoot', 'COMSPEC', 'PATHEXT', 'WINDIR', 'LOCALAPPDATA', 'APPDATA', 'TEMP', 'TMP',
+    'PATH',
+    'HOME',
+    'USER',
+    'LOGNAME',
+    'SHELL',
+    'LANG',
+    'TMPDIR',
+    'SystemRoot',
+    'COMSPEC',
+    'PATHEXT',
+    'WINDIR',
+    'LOCALAPPDATA',
+    'APPDATA',
+    'TEMP',
+    'TMP',
   ]);
   for (const [key, value] of Object.entries(source)) {
-    if (value !== undefined && (exact.has(key) || key.startsWith('LC_') || key.startsWith('XDG_'))) result[key] = value;
+    if (value !== undefined && (exact.has(key) || key.startsWith('LC_') || key.startsWith('XDG_')))
+      result[key] = value;
   }
   return { ...result, ...explicit };
 }
@@ -463,7 +545,8 @@ function attachStderrTail(
   let pending = '';
   const append = (lines: string[]) => {
     const next = [...(entry.status.stderrTail ?? []), ...lines.map(sanitizeDiagnosticLine)]
-      .filter(Boolean).slice(-STDERR_LINES);
+      .filter(Boolean)
+      .slice(-STDERR_LINES);
     entry.status = { ...entry.status, stderrTail: next, updatedAt: Date.now() };
     onUpdate();
   };
@@ -510,7 +593,11 @@ function stableConfigFingerprint(config: McpServerConfig): string {
 function sortValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(sortValue);
   if (!isRecord(value)) return value;
-  return Object.fromEntries(Object.keys(value).sort().map((key) => [key, sortValue(value[key])]));
+  return Object.fromEntries(
+    Object.keys(value)
+      .sort()
+      .map((key) => [key, sortValue(value[key])]),
+  );
 }
 
 function cloneStatus(status: McpServerStatus): McpServerStatus {
@@ -518,7 +605,11 @@ function cloneStatus(status: McpServerStatus): McpServerStatus {
 }
 
 function cloneTool(tool: McpToolDescriptor): McpToolDescriptor {
-  return { ...tool, inputSchema: structuredClone(tool.inputSchema), annotations: tool.annotations ? { ...tool.annotations } : undefined };
+  return {
+    ...tool,
+    inputSchema: structuredClone(tool.inputSchema),
+    annotations: tool.annotations ? { ...tool.annotations } : undefined,
+  };
 }
 
 function errorMessage(error: unknown): string {

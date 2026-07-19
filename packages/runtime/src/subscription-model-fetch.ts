@@ -17,7 +17,9 @@ export interface SubscriptionModelFetchInput {
   };
 }
 
-export function buildSubscriptionModelFetch(input: SubscriptionModelFetchInput): typeof fetch | undefined {
+export function buildSubscriptionModelFetch(
+  input: SubscriptionModelFetchInput,
+): typeof fetch | undefined {
   if (input.connection.providerType === 'claude-subscription') {
     if (input.claude?.cloakEnabled === false) return undefined;
     return buildClaudeSubscriptionCloakedFetch(input, requireClaudeCloakMetadata(input.claude));
@@ -55,9 +57,7 @@ function githubCopilotInitiator(body: BodyInit | null | undefined): 'user' | 'ag
         ? parsed.input
         : [];
     const last = items.at(-1);
-    return isUserInitiatedGitHubCopilotItem(last)
-      ? 'user'
-      : 'agent';
+    return isUserInitiatedGitHubCopilotItem(last) ? 'user' : 'agent';
   } catch {
     return 'user';
   }
@@ -68,11 +68,12 @@ function isUserInitiatedGitHubCopilotItem(value: unknown): boolean {
   const item = value as { role?: unknown; content?: unknown };
   if (item.role !== 'user') return false;
   if (!Array.isArray(item.content)) return true;
-  return item.content.some((part) => (
-    part !== null
-    && typeof part === 'object'
-    && (part as { type?: unknown }).type !== 'tool_result'
-  ));
+  return item.content.some(
+    (part) =>
+      part !== null &&
+      typeof part === 'object' &&
+      (part as { type?: unknown }).type !== 'tool_result',
+  );
 }
 
 function githubCopilotBodyHasVision(body: BodyInit | null | undefined): boolean {
@@ -88,18 +89,15 @@ function containsGitHubCopilotImage(value: unknown): boolean {
   if (Array.isArray(value)) return value.some(containsGitHubCopilotImage);
   if (!value || typeof value !== 'object') return false;
   const record = value as Record<string, unknown>;
-  if (record.type === 'image' || record.type === 'image_url' || record.type === 'input_image') return true;
+  if (record.type === 'image' || record.type === 'image_url' || record.type === 'input_image')
+    return true;
   return Object.values(record).some(containsGitHubCopilotImage);
 }
 
 function requireClaudeCloakMetadata(
   claude: SubscriptionModelFetchInput['claude'],
 ): NonNullable<SubscriptionModelFetchInput['claude']> {
-  if (
-    !claude
-    || !isNonEmptyString(claude.deviceId)
-    || !isNonEmptyString(claude.accountUuid)
-  ) {
+  if (!claude || !isNonEmptyString(claude.deviceId) || !isNonEmptyString(claude.accountUuid)) {
     throw new Error('Claude subscription cloaking requires deviceId and accountUuid metadata.');
   }
   return claude;
@@ -144,15 +142,14 @@ function buildOpenAiCodexFetch(sessionId: string, fetchFn: typeof fetch): typeof
         parallel_tool_calls: parsedBody.parallel_tool_calls ?? true,
         text: {
           ...(parsedBody.text !== null && typeof parsedBody.text === 'object'
-            ? parsedBody.text as Record<string, unknown>
+            ? (parsedBody.text as Record<string, unknown>)
             : {}),
-          verbosity: (
-            parsedBody.text !== null
-            && typeof parsedBody.text === 'object'
-            && typeof (parsedBody.text as { verbosity?: unknown }).verbosity === 'string'
-          )
-            ? (parsedBody.text as { verbosity: string }).verbosity
-            : 'medium',
+          verbosity:
+            parsedBody.text !== null &&
+            typeof parsedBody.text === 'object' &&
+            typeof (parsedBody.text as { verbosity?: unknown }).verbosity === 'string'
+              ? (parsedBody.text as { verbosity: string }).verbosity
+              : 'medium',
         },
       }),
     });
@@ -166,7 +163,10 @@ async function checkedOpenAiCodexFetch(
 ): Promise<Response> {
   const response = await fetchFn(url, init);
   if (!response.ok) {
-    const detail = await response.clone().text().catch(() => '');
+    const detail = await response
+      .clone()
+      .text()
+      .catch(() => '');
     throw new Error(formatOpenAiCodexHttpError(response.status, detail));
   }
   return response;

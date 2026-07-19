@@ -26,8 +26,8 @@ interface GoalTaskGateAdmissionPlan {
 }
 
 const TASK_GATE_REMINDER =
-  '[Task reminder] Actionable session tasks remain. Reconcile them before stopping: finish them with real evidence, '
-  + 'or update their status truthfully. A task is advisory and never overrides files, tests, artifacts, or verifier evidence.';
+  '[Task reminder] Actionable session tasks remain. Reconcile them before stopping: finish them with real evidence, ' +
+  'or update their status truthfully. A task is advisory and never overrides files, tests, artifacts, or verifier evidence.';
 
 /** Owns the advisory task reminder budget and best-effort decision tracing. */
 export class GoalTaskGatePolicy {

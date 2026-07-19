@@ -42,7 +42,9 @@ export async function resolveProjectRoot(candidates: readonly string[]): Promise
   return firstUsable ?? resolve(process.cwd());
 }
 
-async function normalizeProjectCandidate(candidate: string | undefined): Promise<string | undefined> {
+async function normalizeProjectCandidate(
+  candidate: string | undefined,
+): Promise<string | undefined> {
   if (!candidate) return undefined;
   const resolved = resolve(candidate);
   const candidateStat = await stat(resolved).catch(() => null);

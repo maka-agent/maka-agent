@@ -55,8 +55,9 @@ class FileAgentMailboxStore implements AgentMailboxStore {
     let total = 0;
     await chainWrite(this.writeQueues, sessionId, async () => {
       const messages = await this.readAll(sessionId);
-      const scope = messages.filter((candidate) =>
-        candidate.teamId === input.teamId && candidate.parentRunId === input.parentRunId
+      const scope = messages.filter(
+        (candidate) =>
+          candidate.teamId === input.teamId && candidate.parentRunId === input.parentRunId,
       );
       if (scope.length >= AGENT_MAILBOX_MAX_MESSAGES_PER_TEAM_RUN) {
         throw new Error(
@@ -81,7 +82,8 @@ class FileAgentMailboxStore implements AgentMailboxStore {
         content: normalized.value,
         createdAt: this.now(),
       };
-      if (!isAgentMailboxMessage(message)) throw new Error('Generated agent mailbox message is invalid');
+      if (!isAgentMailboxMessage(message))
+        throw new Error('Generated agent mailbox message is invalid');
       const path = this.filePath(sessionId);
       await mkdir(dirname(path), { recursive: true });
       await appendFile(path, `${JSON.stringify(message)}\n`, 'utf8');
@@ -99,13 +101,12 @@ class FileAgentMailboxStore implements AgentMailboxStore {
     validateListOptions(options);
     const afterSeq = options.afterSeq ?? 0;
     const limit = options.limit ?? AGENT_MAILBOX_LIST_MAX;
-    const addressed = (await this.readAll(sessionId)).filter((message) =>
-      message.teamId === options.teamId
-      && message.parentRunId === options.parentRunId
-      && (
-        (message.kind === 'message' && message.to?.agentId === options.recipientAgentId)
-        || (message.kind === 'broadcast' && message.from.agentId !== options.recipientAgentId)
-      )
+    const addressed = (await this.readAll(sessionId)).filter(
+      (message) =>
+        message.teamId === options.teamId &&
+        message.parentRunId === options.parentRunId &&
+        ((message.kind === 'message' && message.to?.agentId === options.recipientAgentId) ||
+          (message.kind === 'broadcast' && message.from.agentId !== options.recipientAgentId)),
     );
     const messages = addressed.filter((message) => message.seq > afterSeq).slice(0, limit);
     return {
@@ -165,26 +166,38 @@ function validateSendInput(input: AgentMailboxSendInput): void {
     throw new Error('Lead mailbox messages must be scoped to the lead AgentRun');
   }
   if (input.kind === 'broadcast') {
-    if (input.to !== undefined) throw new Error('Broadcast messages cannot have a direct recipient');
+    if (input.to !== undefined)
+      throw new Error('Broadcast messages cannot have a direct recipient');
     return;
   }
   if (
-    input.kind !== 'message'
-    || !input.to
-    || (input.to.role !== 'lead' && input.to.role !== 'member')
-    || !isSafeAgentMailboxToken(input.to.agentId)
-  ) throw new Error('Direct agent mailbox messages require a valid recipient');
-  if (input.to.agentId === input.from.agentId) throw new Error('Agent mailbox messages cannot target the sender');
+    input.kind !== 'message' ||
+    !input.to ||
+    (input.to.role !== 'lead' && input.to.role !== 'member') ||
+    !isSafeAgentMailboxToken(input.to.agentId)
+  )
+    throw new Error('Direct agent mailbox messages require a valid recipient');
+  if (input.to.agentId === input.from.agentId)
+    throw new Error('Agent mailbox messages cannot target the sender');
 }
 
 function validateListOptions(options: AgentMailboxListOptions): void {
   if (!isAgentTeamId(options.teamId)) throw new Error('Invalid agent team id');
   if (!isSafeAgentMailboxToken(options.parentRunId)) throw new Error('Invalid parent AgentRun id');
-  if (!isSafeAgentMailboxToken(options.recipientAgentId)) throw new Error('Invalid recipient agent id');
-  if (options.afterSeq !== undefined && (!Number.isSafeInteger(options.afterSeq) || options.afterSeq < 0)) {
+  if (!isSafeAgentMailboxToken(options.recipientAgentId))
+    throw new Error('Invalid recipient agent id');
+  if (
+    options.afterSeq !== undefined &&
+    (!Number.isSafeInteger(options.afterSeq) || options.afterSeq < 0)
+  ) {
     throw new Error('afterSeq must be a non-negative safe integer');
   }
-  if (options.limit !== undefined && (!Number.isSafeInteger(options.limit) || options.limit < 1 || options.limit > AGENT_MAILBOX_LIST_MAX)) {
+  if (
+    options.limit !== undefined &&
+    (!Number.isSafeInteger(options.limit) ||
+      options.limit < 1 ||
+      options.limit > AGENT_MAILBOX_LIST_MAX)
+  ) {
     throw new Error(`Agent mailbox list limit must be between 1 and ${AGENT_MAILBOX_LIST_MAX}`);
   }
 }

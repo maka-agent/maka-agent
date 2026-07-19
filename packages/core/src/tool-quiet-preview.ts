@@ -227,7 +227,8 @@ export function formatToolInvocationLine(
   if (name === 'WriteStdin') {
     const parts: string[] = [s.backgroundTerminal];
     const input = readWriteStdinInputPreview(args);
-    if (input) parts.push(input.truncated ? `${input.text}… · ${s.bytes(input.bytes)}` : input.text);
+    if (input)
+      parts.push(input.truncated ? `${input.text}… · ${s.bytes(input.bytes)}` : input.text);
     const size = asRecord(args.size);
     const cols = size ? numberField(size, 'cols') : undefined;
     const rows = size ? numberField(size, 'rows') : undefined;
@@ -333,8 +334,22 @@ export function formatQuietJsonValue(value: unknown, locale: UiLocale = 'zh'): Q
 
   // Write / Edit style { ok, path, bytes, … }.
   const path = stringField(record, 'path');
-  if (path && (record.ok === true || record.ok === false || numberField(record, 'bytes') !== undefined || numberField(record, 'replacements') !== undefined)) {
-    const consumed = new Set<string>(['path', 'ok', 'bytes', 'replacements', 'startLine', 'endLine', 'matchedVia']);
+  if (
+    path &&
+    (record.ok === true ||
+      record.ok === false ||
+      numberField(record, 'bytes') !== undefined ||
+      numberField(record, 'replacements') !== undefined)
+  ) {
+    const consumed = new Set<string>([
+      'path',
+      'ok',
+      'bytes',
+      'replacements',
+      'startLine',
+      'endLine',
+      'matchedVia',
+    ]);
     const bytes = numberField(record, 'bytes');
     const replacements = numberField(record, 'replacements');
     const startLine = numberField(record, 'startLine');
@@ -370,10 +385,7 @@ function pickHeadline(
   return undefined;
 }
 
-function headlineSourceKey(
-  record: Record<string, unknown>,
-  headline: string,
-): string | undefined {
+function headlineSourceKey(record: Record<string, unknown>, headline: string): string | undefined {
   for (const key of HEADLINE_KEYS) {
     const value = stringField(record, key);
     if (value && redactSecrets(value) === headline) return key;
@@ -428,7 +440,11 @@ function formatArrayAsBody(values: unknown[], locale: UiLocale): string {
  * Keys and whole lines pass through `redactSecrets`; sensitive key names force
  * value masking even when the value itself is a short non-token secret.
  */
-export function formatAsKeyValueLines(record: Record<string, unknown>, depth = 0, locale: UiLocale = 'zh'): string {
+export function formatAsKeyValueLines(
+  record: Record<string, unknown>,
+  depth = 0,
+  locale: UiLocale = 'zh',
+): string {
   const s = strings(locale);
   if (depth > 3) return redactSecrets(String(record));
   const indent = '  '.repeat(depth);
@@ -462,7 +478,12 @@ export function formatAsKeyValueLines(record: Record<string, unknown>, depth = 0
     if (Array.isArray(value)) {
       if (value.length === 0) {
         push(`${indent}${safeKey}: ${s.empty}`);
-      } else if (value.every((item) => typeof item === 'string' || typeof item === 'number' || typeof item === 'boolean')) {
+      } else if (
+        value.every(
+          (item) =>
+            typeof item === 'string' || typeof item === 'number' || typeof item === 'boolean',
+        )
+      ) {
         push(`${indent}${safeKey}:`);
         for (const item of value) {
           push(`${indent}  - ${typeof item === 'string' ? redactSecrets(item) : String(item)}`);

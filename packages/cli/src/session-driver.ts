@@ -7,7 +7,11 @@ import { resolve } from 'node:path';
 import type { QueueEnqueueOutcome, SessionEvent } from '@maka/core/events';
 import type { PermissionMode, PermissionResponse } from '@maka/core/permission';
 import type { UserQuestionResponse } from '@maka/core/user-question';
-import type { BranchFromTurnInput, CreateSessionInput, UserMessageInput } from '@maka/core/runtime-inputs';
+import type {
+  BranchFromTurnInput,
+  CreateSessionInput,
+  UserMessageInput,
+} from '@maka/core/runtime-inputs';
 import type { SessionSummary, StoredMessage } from '@maka/core/session';
 import { userFacingText } from '@maka/core/session';
 import type { ThinkingLevel } from '@maka/core/model-thinking';
@@ -38,7 +42,17 @@ export interface MakaSessionRuntime {
   respondToPermission(sessionId: string, response: PermissionResponse): Promise<void>;
   respondToUserQuestion?(sessionId: string, response: UserQuestionResponse): Promise<void>;
   setPermissionMode(sessionId: string, mode: PermissionMode): Promise<SessionSummary>;
-  updateSession(sessionId: string, patch: { cwd?: string; pendingCwdReminder?: SessionSummary['pendingCwdReminder']; model?: string; llmConnectionSlug?: string; thinkingLevel?: ThinkingLevel | undefined; name?: string }): Promise<SessionSummary>;
+  updateSession(
+    sessionId: string,
+    patch: {
+      cwd?: string;
+      pendingCwdReminder?: SessionSummary['pendingCwdReminder'];
+      model?: string;
+      llmConnectionSlug?: string;
+      thinkingLevel?: ThinkingLevel | undefined;
+      name?: string;
+    },
+  ): Promise<SessionSummary>;
   // Rewind reuses the runtime's branch primitives: a non-destructive copy of the
   // transcript + RuntimeEvent ledger at a turn boundary, so resume correctness is
   // inherited and the original session's log is left intact. `branchBeforeTurn`
@@ -97,7 +111,10 @@ export interface MakaSessionDriver {
    * Prepare a turn without consuming its event stream. `prompt` remains the
    * human-facing text; a distinct `modelText` is persisted with `displayText`.
    */
-  preparePrompt(prompt: string, options?: MakaPreparePromptOptions): Promise<MakaPreparedSessionTurn>;
+  preparePrompt(
+    prompt: string,
+    options?: MakaPreparePromptOptions,
+  ): Promise<MakaPreparedSessionTurn>;
   compactSession(): AsyncIterable<SessionEvent>;
   /**
    * Queue the text for mid-turn injection at the next step boundary. Returns
@@ -139,9 +156,7 @@ export interface MakaSessionDriver {
   getSessionId(): string | null;
 }
 
-export type SessionResumeAvailability =
-  | { available: true }
-  | { available: false; reason: string };
+export type SessionResumeAvailability = { available: true } | { available: false; reason: string };
 
 const MISSING_SESSION_CWD_REASON = 'Missing working directory';
 const DELETED_SESSION_CWD_REASON = 'Working directory no longer exists';
@@ -220,8 +235,8 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
     const first = await iterator.next();
     if (first.done) return;
     if (
-      this.pendingCwdReminder?.from === reminder.from
-      && this.pendingCwdReminder.to === reminder.to
+      this.pendingCwdReminder?.from === reminder.from &&
+      this.pendingCwdReminder.to === reminder.to
     ) {
       try {
         await this.input.runtime.updateSession(sessionId, { pendingCwdReminder: undefined });
@@ -289,15 +304,18 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
   }
 
   async respondToUserQuestion(response: UserQuestionResponse): Promise<void> {
-    if (!this.sessionId) throw new Error('Cannot respond to a user question before a session starts.');
-    if (!this.input.runtime.respondToUserQuestion) throw new Error('User questions are unavailable on this runtime.');
+    if (!this.sessionId)
+      throw new Error('Cannot respond to a user question before a session starts.');
+    if (!this.input.runtime.respondToUserQuestion)
+      throw new Error('User questions are unavailable on this runtime.');
     await this.input.runtime.respondToUserQuestion(this.sessionId, response);
   }
 
   async setModel(model: string, connectionSlug?: string): Promise<void> {
     // Only rebind the connection when a different one is asked for; a same-slug
     // /model is a plain model change and must not churn the backend needlessly.
-    const nextConnection = connectionSlug && connectionSlug !== this.llmConnectionSlug ? connectionSlug : undefined;
+    const nextConnection =
+      connectionSlug && connectionSlug !== this.llmConnectionSlug ? connectionSlug : undefined;
     if (this.sessionId) {
       // Switching model (or connection) clears the per-model thinking variant.
       const summary = await this.input.runtime.updateSession(this.sessionId, {
@@ -317,7 +335,9 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
 
   async setThinkingLevel(level: ThinkingLevel | undefined): Promise<void> {
     if (this.sessionId) {
-      const summary = await this.input.runtime.updateSession(this.sessionId, { thinkingLevel: level });
+      const summary = await this.input.runtime.updateSession(this.sessionId, {
+        thinkingLevel: level,
+      });
       this.thinkingLevel = summary.thinkingLevel;
       return;
     }
@@ -348,9 +368,8 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
     const inspectCwdChanges = this.input.inspectCwdChanges ?? inspectGitCwdChanges;
     const oldCwdDirty = await inspectCwdChanges(previousCwd).catch(() => undefined);
     const reminderFrom = this.pendingCwdReminder?.from ?? previousCwd;
-    const pendingCwdReminder = reminderFrom === nextCwd
-      ? undefined
-      : { from: reminderFrom, to: nextCwd };
+    const pendingCwdReminder =
+      reminderFrom === nextCwd ? undefined : { from: reminderFrom, to: nextCwd };
     const summary = await this.input.runtime.updateSession(this.sessionId, {
       cwd: nextCwd,
       pendingCwdReminder,
@@ -410,14 +429,17 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
       (message): message is Extract<StoredMessage, { type: 'user' }> =>
         message.type === 'user' && message.turnId === turnId,
     );
-    if (userMessage === undefined) throw new Error(`Cannot rewind to turn ${turnId}: no user prompt.`);
+    if (userMessage === undefined)
+      throw new Error(`Cannot rewind to turn ${turnId}: no user prompt.`);
     const prompt = userFacingText(userMessage);
     // Branch to the state just before the turn (copies transcript + ledger up to,
     // but not including, it), then switch onto the branch. switchSession
     // re-validates folder/connection and loads the branched messages, so the
     // branch inherits the same resume guarantees as any resumed session and the
     // original session — including the discarded turn — is left untouched.
-    const branch = await this.input.runtime.branchBeforeTurn(this.sessionId, { sourceTurnId: turnId });
+    const branch = await this.input.runtime.branchBeforeTurn(this.sessionId, {
+      sourceTurnId: turnId,
+    });
     return { ...(await this.switchSession(branch.id)), prompt };
   }
 
@@ -452,15 +474,18 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
 async function resolveMoveCwd(rawCwd: string, currentCwd: string): Promise<string> {
   const input = rawCwd.trim();
   if (!input) throw new Error('Working directory cannot be empty.');
-  const unquoted = input.length >= 2
-    && ((input.startsWith('"') && input.endsWith('"')) || (input.startsWith("'") && input.endsWith("'")))
-    ? input.slice(1, -1)
-    : input;
-  const expanded = unquoted === '~'
-    ? homedir()
-    : unquoted.startsWith('~/')
-      ? resolve(homedir(), unquoted.slice(2))
-      : unquoted;
+  const unquoted =
+    input.length >= 2 &&
+    ((input.startsWith('"') && input.endsWith('"')) ||
+      (input.startsWith("'") && input.endsWith("'")))
+      ? input.slice(1, -1)
+      : input;
+  const expanded =
+    unquoted === '~'
+      ? homedir()
+      : unquoted.startsWith('~/')
+        ? resolve(homedir(), unquoted.slice(2))
+        : unquoted;
   const candidate = resolve(currentCwd, expanded);
   let canonical: string;
   try {
@@ -503,7 +528,12 @@ function cwdChangeReminder(from: string, to: string): string {
 }
 
 function escapeReminderPath(value: string): string {
-  return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&apos;');
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&apos;');
 }
 
 function cwdRank(session: SessionSummary, cwd: string): number {
@@ -512,6 +542,9 @@ function cwdRank(session: SessionSummary, cwd: string): number {
 
 /** First non-empty line of a prompt, for a compact rewind-target label. */
 function firstLine(text: string): string {
-  const line = text.split('\n').map((part) => part.trim()).find((part) => part.length > 0);
+  const line = text
+    .split('\n')
+    .map((part) => part.trim())
+    .find((part) => part.length > 0);
   return line ?? '(empty prompt)';
 }

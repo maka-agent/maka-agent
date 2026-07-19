@@ -7,13 +7,8 @@ import {
   type ProviderType,
 } from './llm-connections.js';
 
-export const PROVIDER_AUTH_SETUP_MODES = [
-  'api_key',
-  'oauth',
-  'oauth_preview',
-  'none',
-] as const;
-export type ProviderAuthSetupMode = typeof PROVIDER_AUTH_SETUP_MODES[number];
+export const PROVIDER_AUTH_SETUP_MODES = ['api_key', 'oauth', 'oauth_preview', 'none'] as const;
+export type ProviderAuthSetupMode = (typeof PROVIDER_AUTH_SETUP_MODES)[number];
 
 export const PROVIDER_AUTH_STATES = [
   'disabled',
@@ -24,7 +19,7 @@ export const PROVIDER_AUTH_STATES = [
   'error',
   'preview_only',
 ] as const;
-export type ProviderAuthState = typeof PROVIDER_AUTH_STATES[number];
+export type ProviderAuthState = (typeof PROVIDER_AUTH_STATES)[number];
 
 export const PROVIDER_AUTH_ACTIONS = [
   'save_secret',
@@ -34,7 +29,7 @@ export const PROVIDER_AUTH_ACTIONS = [
   'refresh_oauth',
   'revoke_auth',
 ] as const;
-export type ProviderAuthAction = typeof PROVIDER_AUTH_ACTIONS[number];
+export type ProviderAuthAction = (typeof PROVIDER_AUTH_ACTIONS)[number];
 
 export type ProviderAuthActionAvailability = 'available' | 'preview_only' | 'hidden';
 
@@ -89,7 +84,8 @@ export function deriveProviderAuthContract(input: ProviderAuthContractInput): Pr
       actionAvailability: hiddenActions(),
       copy: {
         label: `${input.providerType} 未知或已迁移`,
-        detail: '该连接使用的 provider 在当前版本未注册；配置会保留，切回支持它的版本即可继续使用。',
+        detail:
+          '该连接使用的 provider 在当前版本未注册；配置会保留，切回支持它的版本即可继续使用。',
       },
     };
   }
@@ -101,7 +97,9 @@ export function deriveProviderAuthContract(input: ProviderAuthContractInput): Pr
       providerType: input.providerType,
       setupMode: setupModeForProvider(input.providerType),
       state: 'disabled',
-      validationStatus: input.lastTestStatus ?? (providerAuthRequiresSecret(input.providerType) ? 'not_run' : 'not_required'),
+      validationStatus:
+        input.lastTestStatus ??
+        (providerAuthRequiresSecret(input.providerType) ? 'not_run' : 'not_required'),
       requiresSecret: providerAuthRequiresSecret(input.providerType),
       sendMayUseWithoutSecret: !providerAuthRequiresSecret(input.providerType),
       actionAvailability,
@@ -309,7 +307,8 @@ function copyForOptionalApiKey(
     case 'validated':
       return {
         label: `${label} 连接验证通过`,
-        detail: '这只代表实例端点和鉴权配置验证通过，不代表消息发送、流式响应或中断恢复已经运行可用。',
+        detail:
+          '这只代表实例端点和鉴权配置验证通过，不代表消息发送、流式响应或中断恢复已经运行可用。',
       };
     case 'needs_reauth':
       return {

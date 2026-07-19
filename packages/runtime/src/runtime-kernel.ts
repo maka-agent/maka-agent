@@ -29,9 +29,18 @@ import {
 import { AiSdkFlow, mapSessionEventToRuntimeEvent } from './ai-sdk-flow.js';
 import type { AgentBackend, SteeringLease } from '@maka/core/backend-types';
 import type { AgentTeamExecutionContext, MakaTool } from './tool-runtime.js';
-import type { InvocationContext, InvocationResult, InvocationSource } from './invocation-context.js';
+import type {
+  InvocationContext,
+  InvocationResult,
+  InvocationSource,
+} from './invocation-context.js';
 import { RuntimeRunner } from './runtime-runner.js';
-import type { BackendRegistry, CompactSessionInput, SessionStore, StopSessionInput } from './session-manager.js';
+import type {
+  BackendRegistry,
+  CompactSessionInput,
+  SessionStore,
+  StopSessionInput,
+} from './session-manager.js';
 import type { ShellRunProcessManager } from './shell-run-manager.js';
 import {
   buildStatusPatch,
@@ -39,10 +48,7 @@ import {
   normalizeStopSessionSource,
   turnHasRetainedOutput as messagesHaveRetainedOutput,
 } from './session-projection-helpers.js';
-import {
-  assertAgentDefinitionRunnable,
-  buildToolsForAgentDefinition,
-} from './agent-catalog.js';
+import { assertAgentDefinitionRunnable, buildToolsForAgentDefinition } from './agent-catalog.js';
 import { parseExpertAgentId, requireResolvedAgentDefinition } from './expert-catalog.js';
 import { loadLatestHistoryCompactCheckpointFromRunLedger } from './history-compact-ledger.js';
 import {
@@ -52,7 +58,11 @@ import {
 import { shouldAppendContextCompactionFailedOpenNote } from './context-budget.js';
 
 export interface RuntimeKernelLike {
-  startTurn(sessionId: string, input: UserMessageInput, options?: TurnStartOptions): AsyncIterable<SessionEvent>;
+  startTurn(
+    sessionId: string,
+    input: UserMessageInput,
+    options?: TurnStartOptions,
+  ): AsyncIterable<SessionEvent>;
   compactSession(sessionId: string, input?: CompactSessionInput): AsyncIterable<SessionEvent>;
   startChildTurn(sessionId: string, input: ChildAgentTurnInput): AsyncIterable<SessionEvent>;
   stopSession(sessionId: string, input?: StopSessionInput): Promise<void>;
@@ -182,8 +192,14 @@ export class RuntimeKernel implements RuntimeKernelLike {
   private readonly stopAttempts = new Map<string, Promise<void>>();
   private readonly pendingTurnStarts = new Map<string, number>();
   private readonly pendingStops = new Map<string, PendingStopAttempt>();
-  private readonly historyCompactCheckpoints = new Map<string, HistoryCompactCheckpoint | undefined>();
-  private readonly historyCompactCheckpointLoads = new Map<string, Promise<HistoryCompactCheckpoint | undefined>>();
+  private readonly historyCompactCheckpoints = new Map<
+    string,
+    HistoryCompactCheckpoint | undefined
+  >();
+  private readonly historyCompactCheckpointLoads = new Map<
+    string,
+    Promise<HistoryCompactCheckpoint | undefined>
+  >();
   private readonly historyCompactCheckpointWrites = new Map<string, Promise<void>>();
   private readonly historyCompactCleanupWrites = new Map<string, Promise<void>>();
   private readonly steeringBySession = new Map<string, SessionSteeringState>();
@@ -218,7 +234,8 @@ export class RuntimeKernel implements RuntimeKernelLike {
         newId: this.deps.newId,
         now: this.deps.now,
         hooks: {
-          ensureActive: (targetSessionId, nextHeader) => this.ensureActive(targetSessionId, nextHeader),
+          ensureActive: (targetSessionId, nextHeader) =>
+            this.ensureActive(targetSessionId, nextHeader),
           registerRun: (active, activeRun) => {
             this.registerRun(active, activeRun);
             if (pending) {
@@ -264,7 +281,8 @@ export class RuntimeKernel implements RuntimeKernelLike {
       newId: this.deps.newId,
       now: this.deps.now,
       hooks: {
-        ensureActive: (targetSessionId, nextHeader) => this.ensureActive(targetSessionId, nextHeader),
+        ensureActive: (targetSessionId, nextHeader) =>
+          this.ensureActive(targetSessionId, nextHeader),
         registerRun: (active, activeRun) => this.registerRun(active, activeRun),
         unregisterRun: (active, activeRun) => this.unregisterParentRun(active, activeRun),
         updateHeader: (targetSessionId, patch) => this.updateHeader(targetSessionId, patch),
@@ -286,8 +304,12 @@ export class RuntimeKernel implements RuntimeKernelLike {
 
     try {
       if (run.isStopped()) return;
-      if (!begin.backend.compactHistory) throw new Error(`Backend ${header.backend} does not support runtime compaction`);
-      const result = await begin.backend.compactHistory({ turnId: run.turnId, runtimeContext: begin.runtimeContext });
+      if (!begin.backend.compactHistory)
+        throw new Error(`Backend ${header.backend} does not support runtime compaction`);
+      const result = await begin.backend.compactHistory({
+        turnId: run.turnId,
+        runtimeContext: begin.runtimeContext,
+      });
       if (run.isStopped()) return;
       const tokenUsageEvent: TokenUsageEvent = {
         type: 'token_usage',
@@ -446,7 +468,9 @@ export class RuntimeKernel implements RuntimeKernelLike {
     let nackSteering: ((leaseIds: readonly string[]) => void) | undefined;
     if (steering) {
       const state = this.ensureSteering(sessionId);
-      state.sink = (event) => { void sessionEvents.push(event).catch(() => {}); };
+      state.sink = (event) => {
+        void sessionEvents.push(event).catch(() => {});
+      };
       state.activeTurnId = run.turnId;
       // Lease, don't consume: pulled messages move to in-flight and only an
       // ack (durable + injected) removes them; a nack or a retract/clear/
@@ -456,7 +480,9 @@ export class RuntimeKernel implements RuntimeKernelLike {
         if (!current || current.activeTurnId !== run.turnId) return [];
         if (current.steering.length === 0) return [];
         const leased = current.steering.splice(0);
-        current.inFlight.push(...leased.map((message) => ({ ...message, issuingTurnId: run.turnId })));
+        current.inFlight.push(
+          ...leased.map((message) => ({ ...message, issuingTurnId: run.turnId })),
+        );
         return leased.map((message) => ({ ...message }));
       };
       // Settlement is keyed by lease id + issuing turn, NOT by current
@@ -488,7 +514,10 @@ export class RuntimeKernel implements RuntimeKernelLike {
         if (current.activeTurnId === run.turnId) {
           // Back to the FRONT of the queue: a re-pull at the next step
           // boundary preserves the user's original ordering.
-          current.steering = [...returned.map(({ id, text }) => ({ id, text })), ...current.steering];
+          current.steering = [
+            ...returned.map(({ id, text }) => ({ id, text })),
+            ...current.steering,
+          ];
         } else {
           // The issuer no longer owns the queue (an overlapping turn took
           // over and possibly released): it will never pull again, so the
@@ -539,34 +568,41 @@ export class RuntimeKernel implements RuntimeKernelLike {
       stopOnTerminal: false,
     });
     if (run.isStopped()) abortController.abort();
-    const runnerResult = runner.run({
-      sessionId,
-      invocationId: begin.initialRuntimeEvent.invocationId,
-      runId: run.runId,
-      turnId: run.turnId,
-      text: input.text,
-      ...(begin.backendInput.attachments ? { attachments: begin.backendInput.attachments } : {}),
-      context: begin.backendInput.context,
-      ...(begin.backendInput.runtimeContext !== undefined ? { runtimeContext: begin.backendInput.runtimeContext } : {}),
-      initialRuntimeEvent: begin.initialRuntimeEvent,
-      source: this.deps.runtimeSource ?? 'desktop',
-      lineage: run.lineage,
-      ...(pullSteering ? { pullSteering } : {}),
-      ...(ackSteering ? { ackSteering } : {}),
-      ...(nackSteering ? { nackSteering } : {}),
-      abortSignal: abortController.signal,
-    }).then(async (result) => {
-      if (!flowDone) {
-        flowDone = true;
-        await run.finalize();
-        sessionEvents.close();
-      }
-      await this.deps.runtimeInvocationObserver?.(result);
-      return result;
-    }, (error) => {
-      sessionEvents.fail(error);
-      throw error;
-    });
+    const runnerResult = runner
+      .run({
+        sessionId,
+        invocationId: begin.initialRuntimeEvent.invocationId,
+        runId: run.runId,
+        turnId: run.turnId,
+        text: input.text,
+        ...(begin.backendInput.attachments ? { attachments: begin.backendInput.attachments } : {}),
+        context: begin.backendInput.context,
+        ...(begin.backendInput.runtimeContext !== undefined
+          ? { runtimeContext: begin.backendInput.runtimeContext }
+          : {}),
+        initialRuntimeEvent: begin.initialRuntimeEvent,
+        source: this.deps.runtimeSource ?? 'desktop',
+        lineage: run.lineage,
+        ...(pullSteering ? { pullSteering } : {}),
+        ...(ackSteering ? { ackSteering } : {}),
+        ...(nackSteering ? { nackSteering } : {}),
+        abortSignal: abortController.signal,
+      })
+      .then(
+        async (result) => {
+          if (!flowDone) {
+            flowDone = true;
+            await run.finalize();
+            sessionEvents.close();
+          }
+          await this.deps.runtimeInvocationObserver?.(result);
+          return result;
+        },
+        (error) => {
+          sessionEvents.fail(error);
+          throw error;
+        },
+      );
 
     try {
       for await (const event of sessionEvents) {
@@ -670,7 +706,9 @@ export class RuntimeKernel implements RuntimeKernelLike {
     this.stopOperations.set(sessionId, operation);
 
     const undelivered = [...operation.targets.values()].filter((target) => !target.delivered);
-    const results = await Promise.allSettled(undelivered.map((target) => target.active.backend.stop('user_stop', input.mode)));
+    const results = await Promise.allSettled(
+      undelivered.map((target) => target.active.backend.stop('user_stop', input.mode)),
+    );
     let stopError: unknown;
     results.forEach((result, index) => {
       if (result.status === 'fulfilled') undelivered[index]!.delivered = true;
@@ -678,7 +716,9 @@ export class RuntimeKernel implements RuntimeKernelLike {
     });
     if (stopError !== undefined) throw stopError;
 
-    const stoppedRuns = [...new Set([...operation.targets.values()].flatMap((target) => [...target.runs]))];
+    const stoppedRuns = [
+      ...new Set([...operation.targets.values()].flatMap((target) => [...target.runs])),
+    ];
     if (!operation.statusProjected) {
       await this.updateStatus(sessionId, 'aborted', undefined, operation.ts);
       operation.statusProjected = true;
@@ -731,7 +771,9 @@ export class RuntimeKernel implements RuntimeKernelLike {
     const pendingStop = this.pendingStops.get(sessionId);
     if (!pendingStop) return;
     if (registered) {
-      pendingStop.delivery = pendingStop.delivery.then(() => this.stopSessionAttempt(sessionId, pendingStop.input));
+      pendingStop.delivery = pendingStop.delivery.then(() =>
+        this.stopSessionAttempt(sessionId, pendingStop.input),
+      );
     }
     if (remaining > 0) return;
     this.pendingStops.delete(sessionId);
@@ -739,7 +781,9 @@ export class RuntimeKernel implements RuntimeKernelLike {
   }
 
   private async appendStopProjection(sessionId: string, message: StoredMessage): Promise<void> {
-    const existing = (await this.deps.store.readMessages(sessionId)).find((candidate) => candidate.id === message.id);
+    const existing = (await this.deps.store.readMessages(sessionId)).find(
+      (candidate) => candidate.id === message.id,
+    );
     if (existing) {
       if (!isDeepStrictEqual(existing, message)) {
         throw new Error(`stop projection ${message.id} conflicts with an existing message`);
@@ -756,7 +800,9 @@ export class RuntimeKernel implements RuntimeKernelLike {
 
   async respondToUserQuestion(sessionId: string, response: UserQuestionResponse): Promise<void> {
     const activeSessions = this.activeSessionsFor(sessionId);
-    await Promise.all(activeSessions.map((active) => active.backend.respondToUserQuestion?.(response)));
+    await Promise.all(
+      activeSessions.map((active) => active.backend.respondToUserQuestion?.(response)),
+    );
   }
 
   // --------------------------------------------------------------------------
@@ -806,10 +852,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
     // handing its text back to the user here would refill AND execute the
     // same directive. An in-flight lease settles only by the persistence
     // fact (ack when the ledger owns it, nack back to a queue otherwise).
-    const all = [
-      ...state.steering.map((message) => message.text),
-      ...state.followup,
-    ];
+    const all = [...state.steering.map((message) => message.text), ...state.followup];
     state.steering = [];
     state.followup = [];
     this.emitQueueUpdate(sessionId, state);
@@ -841,7 +884,10 @@ export class RuntimeKernel implements RuntimeKernelLike {
       id: this.deps.newId(),
       turnId: state.activeTurnId ?? '',
       ts: this.deps.now(),
-      steering: [...state.inFlight.map((message) => message.text), ...state.steering.map((message) => message.text)],
+      steering: [
+        ...state.inFlight.map((message) => message.text),
+        ...state.steering.map((message) => message.text),
+      ],
       followup: [...state.followup],
     });
   }
@@ -937,7 +983,9 @@ export class RuntimeKernel implements RuntimeKernelLike {
     return sessions;
   }
 
-  private loadHistoryCompactCheckpoint(sessionId: string): Promise<HistoryCompactCheckpoint | undefined> {
+  private loadHistoryCompactCheckpoint(
+    sessionId: string,
+  ): Promise<HistoryCompactCheckpoint | undefined> {
     if (this.historyCompactCheckpoints.has(sessionId)) {
       return Promise.resolve(this.historyCompactCheckpoints.get(sessionId));
     }
@@ -950,8 +998,8 @@ export class RuntimeKernel implements RuntimeKernelLike {
       .then((checkpoint) => {
         if (checkpoint) this.scheduleHistoryCompactCleanup(sessionId, checkpoint);
         if (
-          this.historyCompactCheckpointLoads.get(sessionId) === guardedLoad
-          && !this.historyCompactCheckpoints.has(sessionId)
+          this.historyCompactCheckpointLoads.get(sessionId) === guardedLoad &&
+          !this.historyCompactCheckpoints.has(sessionId)
         ) {
           this.historyCompactCheckpoints.set(sessionId, checkpoint);
         }
@@ -1001,20 +1049,24 @@ export class RuntimeKernel implements RuntimeKernelLike {
     checkpoint: HistoryCompactCheckpoint,
   ): void {
     if (
-      !this.deps.cleanupHistoryCompactArtifacts
-      || !this.deps.runStore
-      || !this.deps.runtimeEventStore
-    ) return;
+      !this.deps.cleanupHistoryCompactArtifacts ||
+      !this.deps.runStore ||
+      !this.deps.runtimeEventStore
+    )
+      return;
     const previous = this.historyCompactCleanupWrites.get(sessionId) ?? Promise.resolve();
     let tracked: Promise<void>;
     tracked = previous
       .catch(() => {})
       .then(async () => {
-        const runs = (await this.deps.runStore!.listSessionRuns(sessionId))
-          .filter((run) => !run.parentRunId);
+        const runs = (await this.deps.runStore!.listSessionRuns(sessionId)).filter(
+          (run) => !run.parentRunId,
+        );
         const runtimeEvents: RuntimeEvent[] = [];
         for (const run of runs) {
-          runtimeEvents.push(...await this.deps.runtimeEventStore!.readRuntimeEvents(sessionId, run.runId));
+          runtimeEvents.push(
+            ...(await this.deps.runtimeEventStore!.readRuntimeEvents(sessionId, run.runId)),
+          );
         }
         await this.deps.cleanupHistoryCompactArtifacts!({
           sessionId,
@@ -1033,10 +1085,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
     this.historyCompactCleanupWrites.set(sessionId, tracked);
   }
 
-  private async ensureActive(
-    sessionId: string,
-    header: SessionHeader,
-  ): Promise<ActiveSession> {
+  private async ensureActive(sessionId: string, header: SessionHeader): Promise<ActiveSession> {
     const existing = this.active.get(sessionId);
     if (existing) {
       existing.cachedHeader = header;
@@ -1053,22 +1102,28 @@ export class RuntimeKernel implements RuntimeKernelLike {
         const run = runId ? active?.activeRuns.get(runId) : undefined;
         run?.recordRunTrace(event);
       },
-      ...(this.deps.runStore ? {
-        loadHistoryCompactCheckpoint: () => this.loadHistoryCompactCheckpoint(sessionId),
-        recordHistoryCompactCheckpoint: (checkpoint: HistoryCompactCheckpoint, turnId: string) => {
-          const active = this.active.get(sessionId);
-          const runId = active?.turnToRunId.get(turnId);
-          const run = runId ? active?.activeRuns.get(runId) : undefined;
-          return this.recordHistoryCompactCheckpoint(sessionId, checkpoint, run);
-        },
-        loadTurnRuntimeEvents: (turnId: string) => {
-          const active = this.active.get(sessionId);
-          const runId = active?.turnToRunId.get(turnId);
-          const run = runId ? active?.activeRuns.get(runId) : undefined;
-          if (!run) return Promise.reject(new Error('No active AgentRun for turn runtime events'));
-          return run.loadTurnRuntimeEvents();
-        },
-      } : {}),
+      ...(this.deps.runStore
+        ? {
+            loadHistoryCompactCheckpoint: () => this.loadHistoryCompactCheckpoint(sessionId),
+            recordHistoryCompactCheckpoint: (
+              checkpoint: HistoryCompactCheckpoint,
+              turnId: string,
+            ) => {
+              const active = this.active.get(sessionId);
+              const runId = active?.turnToRunId.get(turnId);
+              const run = runId ? active?.activeRuns.get(runId) : undefined;
+              return this.recordHistoryCompactCheckpoint(sessionId, checkpoint, run);
+            },
+            loadTurnRuntimeEvents: (turnId: string) => {
+              const active = this.active.get(sessionId);
+              const runId = active?.turnToRunId.get(turnId);
+              const run = runId ? active?.activeRuns.get(runId) : undefined;
+              if (!run)
+                return Promise.reject(new Error('No active AgentRun for turn runtime events'));
+              return run.loadTurnRuntimeEvents();
+            },
+          }
+        : {}),
       recordActiveFullCompactBlock: (block) => {
         const active = this.active.get(sessionId);
         const runId = active?.turnToRunId.get(block.turnId);
@@ -1081,7 +1136,8 @@ export class RuntimeKernel implements RuntimeKernelLike {
         const run = runId ? active?.activeRuns.get(runId) : undefined;
         run?.recordSemanticCompactBlock(block);
       },
-      shellRunContextSummary: () => this.deps.shellRuns?.buildContextSummary(sessionId) ?? Promise.resolve(undefined),
+      shellRunContextSummary: () =>
+        this.deps.shellRuns?.buildContextSummary(sessionId) ?? Promise.resolve(undefined),
     });
     const entry: ActiveSession = {
       sessionId,
@@ -1122,22 +1178,27 @@ export class RuntimeKernel implements RuntimeKernelLike {
         const run = runId ? active?.activeRuns.get(runId) : undefined;
         run?.recordRunTrace(event);
       },
-      ...(this.deps.runStore ? {
-        loadHistoryCompactCheckpoint: () => this.loadHistoryCompactCheckpoint(sessionId),
-        recordHistoryCompactCheckpoint: (checkpoint: HistoryCompactCheckpoint, turnId: string) => {
-          const active = this.childActive.get(activeKey);
-          const runId = active?.turnToRunId.get(turnId);
-          const run = runId ? active?.activeRuns.get(runId) : undefined;
-          return this.recordHistoryCompactCheckpoint(sessionId, checkpoint, run);
-        },
-        // loadTurnRuntimeEvents is deliberately NOT injected for child
-        // sessions: a child run has no top-level prior context, so a mid-turn
-        // checkpoint built from its child-only ledger would claim to cover a
-        // session-scoped projection prefix and poison the session-global
-        // checkpoint cache/CAS for the parent projection. Child mid-turn
-        // compaction stays disabled (the backend requires this seam) until
-        // checkpoint streams are partitioned by lineage.
-      } : {}),
+      ...(this.deps.runStore
+        ? {
+            loadHistoryCompactCheckpoint: () => this.loadHistoryCompactCheckpoint(sessionId),
+            recordHistoryCompactCheckpoint: (
+              checkpoint: HistoryCompactCheckpoint,
+              turnId: string,
+            ) => {
+              const active = this.childActive.get(activeKey);
+              const runId = active?.turnToRunId.get(turnId);
+              const run = runId ? active?.activeRuns.get(runId) : undefined;
+              return this.recordHistoryCompactCheckpoint(sessionId, checkpoint, run);
+            },
+            // loadTurnRuntimeEvents is deliberately NOT injected for child
+            // sessions: a child run has no top-level prior context, so a mid-turn
+            // checkpoint built from its child-only ledger would claim to cover a
+            // session-scoped projection prefix and poison the session-global
+            // checkpoint cache/CAS for the parent projection. Child mid-turn
+            // compaction stays disabled (the backend requires this seam) until
+            // checkpoint streams are partitioned by lineage.
+          }
+        : {}),
       recordActiveFullCompactBlock: (block) => {
         const active = this.childActive.get(activeKey);
         const runId = active?.turnToRunId.get(block.turnId);
@@ -1226,16 +1287,19 @@ export class RuntimeKernel implements RuntimeKernelLike {
     options: { id?: string; ts?: number; errorClass?: string; abortSource?: string } = {},
   ): Promise<void> {
     const ts = options.ts ?? this.deps.now();
-    await this.deps.store.appendMessage(sessionId, buildTurnStateMessage({
-      id: options.id ?? this.deps.newId(),
-      turnId,
-      ts,
-      status,
-      lineage,
-      ...(options.abortSource ? { abortSource: options.abortSource } : {}),
-      ...(options.errorClass !== undefined ? { errorClass: options.errorClass } : {}),
-      partialOutputRetained: await this.turnHasRetainedOutput(sessionId, turnId),
-    }));
+    await this.deps.store.appendMessage(
+      sessionId,
+      buildTurnStateMessage({
+        id: options.id ?? this.deps.newId(),
+        turnId,
+        ts,
+        status,
+        lineage,
+        ...(options.abortSource ? { abortSource: options.abortSource } : {}),
+        ...(options.errorClass !== undefined ? { errorClass: options.errorClass } : {}),
+        partialOutputRetained: await this.turnHasRetainedOutput(sessionId, turnId),
+      }),
+    );
   }
 
   private async turnHasRetainedOutput(sessionId: string, turnId: string): Promise<boolean> {

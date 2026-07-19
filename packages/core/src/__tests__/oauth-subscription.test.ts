@@ -99,10 +99,7 @@ describe('buildClaudeAuthorizationUrl', () => {
     assert.equal(url.searchParams.get('response_type'), 'code');
     assert.equal(url.searchParams.get('code_challenge_method'), 'S256');
     assert.equal(url.searchParams.get('state'), state);
-    assert.equal(
-      url.searchParams.get('code_challenge'),
-      pkceCodeChallenge(verifier, nodeSha256),
-    );
+    assert.equal(url.searchParams.get('code_challenge'), pkceCodeChallenge(verifier, nodeSha256));
     assert.equal(url.searchParams.get('code'), 'true');
   });
 
@@ -114,17 +111,11 @@ describe('buildClaudeAuthorizationUrl', () => {
   });
 
   it('throws when verifier is empty', () => {
-    assert.throws(
-      () => buildClaudeAuthorizationUrl(config, '', 's', nodeSha256),
-      /verifier/,
-    );
+    assert.throws(() => buildClaudeAuthorizationUrl(config, '', 's', nodeSha256), /verifier/);
   });
 
   it('throws when state is empty', () => {
-    assert.throws(
-      () => buildClaudeAuthorizationUrl(config, 'v', '', nodeSha256),
-      /state/,
-    );
+    assert.throws(() => buildClaudeAuthorizationUrl(config, 'v', '', nodeSha256), /state/);
   });
 });
 
@@ -231,11 +222,15 @@ describe('public types do NOT expose token-shaped fields (xuan G-X3 spirit)', ()
     // side static-analysis test (claude-subscription-ipc-boundary).
     const here = dirname(fileURLToPath(import.meta.url));
     // dist/__tests__/oauth-subscription.test.js → ../../src/oauth-subscription.ts
-    const src = readFileSync(
-      resolve(here, '..', '..', 'src', 'oauth-subscription.ts'),
-      'utf8',
-    );
-    const forbidden = ['accessToken', 'refreshToken', 'idToken', 'access_token', 'refresh_token', 'id_token'];
+    const src = readFileSync(resolve(here, '..', '..', 'src', 'oauth-subscription.ts'), 'utf8');
+    const forbidden = [
+      'accessToken',
+      'refreshToken',
+      'idToken',
+      'access_token',
+      'refresh_token',
+      'id_token',
+    ];
     for (const needle of forbidden) {
       // Allow the string only inside the file's docstring justification.
       // Pragmatic check: count occurrences; if any is OUTSIDE a comment,

@@ -16,17 +16,22 @@ import {
 
 describe('GitHub Copilot subscription credentials', () => {
   test('preserves the account-scoped API endpoint in the existing OAuth token record', () => {
-    assert.deepEqual(parseOAuthSubscriptionTokens(JSON.stringify({
-      access_token: 'copilot-token',
-      refresh_token: 'github-account-token',
-      expires_at: 123_000,
-      base_url: 'https://api.business.githubcopilot.com',
-    })), {
-      access_token: 'copilot-token',
-      refresh_token: 'github-account-token',
-      expires_at: 123_000,
-      base_url: 'https://api.business.githubcopilot.com',
-    });
+    assert.deepEqual(
+      parseOAuthSubscriptionTokens(
+        JSON.stringify({
+          access_token: 'copilot-token',
+          refresh_token: 'github-account-token',
+          expires_at: 123_000,
+          base_url: 'https://api.business.githubcopilot.com',
+        }),
+      ),
+      {
+        access_token: 'copilot-token',
+        refresh_token: 'github-account-token',
+        expires_at: 123_000,
+        base_url: 'https://api.business.githubcopilot.com',
+      },
+    );
   });
 
   test('stores one direct Copilot-capable GitHub token in the shared OAuth record', () => {
@@ -53,7 +58,8 @@ describe('GitHub Copilot subscription credentials', () => {
       slug: 'github-copilot',
       credentialStore: {
         getSecret: async () => stored,
-        setSecret: async () => assert.fail('durable GitHub tokens do not refresh through a token exchange'),
+        setSecret: async () =>
+          assert.fail('durable GitHub tokens do not refresh through a token exchange'),
       },
       now: () => 10_000,
       fetchFn: async () => assert.fail('the retired token exchange must not be called'),
@@ -98,7 +104,11 @@ describe('OAuth refresh response validation', () => {
       });
 
       assert.equal(tokens, null, 'an invalid refresh payload must surface as a refresh failure');
-      assert.deepEqual(writes, [], 'the still-working stored record must not be overwritten with garbage');
+      assert.deepEqual(
+        writes,
+        [],
+        'the still-working stored record must not be overwritten with garbage',
+      );
     });
   }
 
@@ -114,7 +124,8 @@ describe('OAuth refresh response validation', () => {
         },
       },
       now: () => 10_000_000,
-      fetchFn: async () => okResponse({ access_token: 'new-access', refresh_token: '', expires_in: 3600 }),
+      fetchFn: async () =>
+        okResponse({ access_token: 'new-access', refresh_token: '', expires_in: 3600 }),
     });
 
     assert.equal(tokens?.access_token, 'new-access');
@@ -168,11 +179,16 @@ describe('OAuth refresh persistence transaction', () => {
         },
       },
       now: () => 10_000_000,
-      fetchFn: async () => ({
-        ok: true,
-        status: 200,
-        json: async () => ({ access_token: 'new-access', refresh_token: 'new-refresh', expires_in: 3600 }),
-      } as unknown as Response),
+      fetchFn: async () =>
+        ({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            access_token: 'new-access',
+            refresh_token: 'new-refresh',
+            expires_in: 3600,
+          }),
+        }) as unknown as Response,
     });
 
     assert.equal(tokens?.access_token, 'new-access');
@@ -215,13 +231,21 @@ describe('OAuth refresh persistence transaction', () => {
         return {
           ok: true,
           status: 200,
-          json: async () => ({ access_token: 'redundant-access', refresh_token: 'redundant-refresh', expires_in: 3600 }),
+          json: async () => ({
+            access_token: 'redundant-access',
+            refresh_token: 'redundant-refresh',
+            expires_in: 3600,
+          }),
         } as unknown as Response;
       },
     });
 
     assert.equal(tokens?.access_token, 'winner-access');
-    assert.equal(commits, 0, 'a resolve triggered by the old basis must not commit over the winner');
+    assert.equal(
+      commits,
+      0,
+      'a resolve triggered by the old basis must not commit over the winner',
+    );
     assert.equal(current, winner);
   });
 
@@ -263,7 +287,10 @@ describe('OAuth refresh persistence transaction', () => {
     });
 
     assert.equal(result.outcome, 'superseded');
-    assert.equal(result.outcome === 'superseded' ? result.tokens.access_token : null, 'winner-access');
+    assert.equal(
+      result.outcome === 'superseded' ? result.tokens.access_token : null,
+      'winner-access',
+    );
     assert.equal(commits, 0, 'the old expiry-decision basis must not commit over the winner');
     assert.equal(current, winner);
   });
@@ -304,7 +331,11 @@ describe('OAuth refresh persistence transaction', () => {
       releaseRefresh({
         ok: true,
         status: 200,
-        json: async () => ({ access_token: 'new-access', refresh_token: 'new-refresh', expires_in: 3600 }),
+        json: async () => ({
+          access_token: 'new-access',
+          refresh_token: 'new-refresh',
+          expires_in: 3600,
+        }),
       } as unknown as Response);
 
       assert.equal(await resolving, null);
@@ -335,20 +366,21 @@ describe('OAuth refresh persistence transaction', () => {
       const released = new Promise<void>((resolve) => {
         releaseBoth = resolve;
       });
-      const run = (store: typeof storeA, suffix: string) => refreshAndPersistOAuthSubscriptionTokens({
-        slug: 'claude-subscription',
-        credentialStore: store,
-        refreshTokens: async () => {
-          started += 1;
-          if (started === 2) markBothStarted();
-          await released;
-          return {
-            access_token: `access-${suffix}`,
-            refresh_token: `refresh-${suffix}`,
-            expires_at: 20_000_000,
-          };
-        },
-      });
+      const run = (store: typeof storeA, suffix: string) =>
+        refreshAndPersistOAuthSubscriptionTokens({
+          slug: 'claude-subscription',
+          credentialStore: store,
+          refreshTokens: async () => {
+            started += 1;
+            if (started === 2) markBothStarted();
+            await released;
+            return {
+              access_token: `access-${suffix}`,
+              refresh_token: `refresh-${suffix}`,
+              expires_at: 20_000_000,
+            };
+          },
+        });
 
       const pendingA = run(storeA, 'A');
       const pendingB = run(storeB, 'B');
@@ -363,7 +395,9 @@ describe('OAuth refresh persistence transaction', () => {
       assert.ok(loser?.outcome === 'superseded');
       assert.deepEqual(loser.tokens, winner.tokens);
       assert.deepEqual(
-        parseOAuthSubscriptionTokens((await storeA.getSecret('claude-subscription', 'oauth_token')) ?? ''),
+        parseOAuthSubscriptionTokens(
+          (await storeA.getSecret('claude-subscription', 'oauth_token')) ?? '',
+        ),
         winner.tokens,
       );
     } finally {

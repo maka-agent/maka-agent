@@ -48,7 +48,9 @@ export interface HarborCellContextBudgetSummary {
   semanticCompactCallTotalTokens: number;
 }
 
-export type HarborCellContextBudgetPolicySnapshot = ({ enabled: false } | ({ enabled: true } & ContextBudgetPolicy));
+export type HarborCellContextBudgetPolicySnapshot =
+  | { enabled: false }
+  | ({ enabled: true } & ContextBudgetPolicy);
 
 export interface HarborCellRuntimeRefs {
   invocationId: string;
@@ -160,9 +162,16 @@ export function buildHarborCellOutput(input: {
 }
 
 export function countRuntimeSteps(events: readonly RuntimeEvent[]): number {
-  const turns = new Map<string, { reported: number; stepIds: Set<string>; legacyTextSteps: number }>();
+  const turns = new Map<
+    string,
+    { reported: number; stepIds: Set<string>; legacyTextSteps: number }
+  >();
   for (const event of events) {
-    const turn = turns.get(event.turnId) ?? { reported: 0, stepIds: new Set<string>(), legacyTextSteps: 0 };
+    const turn = turns.get(event.turnId) ?? {
+      reported: 0,
+      stepIds: new Set<string>(),
+      legacyTextSteps: 0,
+    };
     turn.reported += event.actions?.tokenUsage?.runtimeSteps ?? 0;
     turns.set(event.turnId, turn);
     if (event.role !== 'model' || event.partial === true) continue;
@@ -174,7 +183,8 @@ export function countRuntimeSteps(events: readonly RuntimeEvent[]): number {
     }
   }
   return [...turns.values()].reduce(
-    (sum, turn) => sum + (turn.reported > 0 ? turn.reported : turn.stepIds.size + turn.legacyTextSteps),
+    (sum, turn) =>
+      sum + (turn.reported > 0 ? turn.reported : turn.stepIds.size + turn.legacyTextSteps),
     0,
   );
 }
@@ -192,31 +202,36 @@ export function validateHarborCellOutput(value: unknown): HarborCellOutput {
     throw new Error(`unsupported Harbor cell output schemaVersion: ${value.schemaVersion}`);
   }
   const status = requireStringUnion(value.status, 'status', ['completed', 'failed'] as const);
-  const errorClass = 'errorClass' in value ? requireOptionalString(value.errorClass, 'errorClass') : undefined;
+  const errorClass =
+    'errorClass' in value ? requireOptionalString(value.errorClass, 'errorClass') : undefined;
   const runtimeEventsPath = requireString(value.runtimeEventsPath, 'runtimeEventsPath');
-  const promptHash = 'promptHash' in value ? requireOptionalString(value.promptHash, 'promptHash') : undefined;
-  const executionIdentity = 'executionIdentity' in value
-    ? validateHarborCellExecutionIdentity(value.executionIdentity)
-    : undefined;
-  const deadlineSettlement = 'deadlineSettlement' in value
-    ? validateHarborCellDeadlineSettlement(value.deadlineSettlement)
-    : undefined;
-  const tokenSummary = 'tokenSummary' in value
-    ? validateHarborCellTokenSummary(value.tokenSummary)
-    : undefined;
-  const contextBudgetPolicy = 'contextBudgetPolicy' in value
-    ? validateContextBudgetPolicySnapshot(value.contextBudgetPolicy)
-    : undefined;
-  const contextBudgetSummary = 'contextBudgetSummary' in value
-    ? validateContextBudgetSummary(value.contextBudgetSummary)
-    : undefined;
-  const continuationSummary = 'continuationSummary' in value
-    ? validateContinuationSummary(value.continuationSummary)
-    : undefined;
+  const promptHash =
+    'promptHash' in value ? requireOptionalString(value.promptHash, 'promptHash') : undefined;
+  const executionIdentity =
+    'executionIdentity' in value
+      ? validateHarborCellExecutionIdentity(value.executionIdentity)
+      : undefined;
+  const deadlineSettlement =
+    'deadlineSettlement' in value
+      ? validateHarborCellDeadlineSettlement(value.deadlineSettlement)
+      : undefined;
+  const tokenSummary =
+    'tokenSummary' in value ? validateHarborCellTokenSummary(value.tokenSummary) : undefined;
+  const contextBudgetPolicy =
+    'contextBudgetPolicy' in value
+      ? validateContextBudgetPolicySnapshot(value.contextBudgetPolicy)
+      : undefined;
+  const contextBudgetSummary =
+    'contextBudgetSummary' in value
+      ? validateContextBudgetSummary(value.contextBudgetSummary)
+      : undefined;
+  const continuationSummary =
+    'continuationSummary' in value
+      ? validateContinuationSummary(value.continuationSummary)
+      : undefined;
   const toolSummary = validateToolSummary(value.toolSummary);
-  const taskToolSummary = 'taskToolSummary' in value
-    ? validateTaskToolSummary(value.taskToolSummary)
-    : undefined;
+  const taskToolSummary =
+    'taskToolSummary' in value ? validateTaskToolSummary(value.taskToolSummary) : undefined;
   const steps = requireNumber(value.steps, 'steps');
   const durationMs = requireNumber(value.durationMs, 'durationMs');
   const startedAt = requireNumber(value.startedAt, 'startedAt');
@@ -248,7 +263,9 @@ export function validateHarborCellOutput(value: unknown): HarborCellOutput {
 function validateHarborCellDeadlineSettlement(value: unknown): HarborCellDeadlineSettlement {
   if (!isRecord(value)) throw new Error('deadlineSettlement must be a JSON object');
   return {
-    source: requireStringUnion(value.source, 'deadlineSettlement.source', ['benchmark.deadline'] as const),
+    source: requireStringUnion(value.source, 'deadlineSettlement.source', [
+      'benchmark.deadline',
+    ] as const),
     mode: requireStringUnion(value.mode, 'deadlineSettlement.mode', ['immediate'] as const),
   };
 }
@@ -256,10 +273,18 @@ function validateHarborCellDeadlineSettlement(value: unknown): HarborCellDeadlin
 export function validateHarborCellExecutionIdentity(value: unknown): HarborCellExecutionIdentity {
   if (!isRecord(value)) throw new Error('executionIdentity must be a JSON object');
   return {
-    llmConnectionSlug: requireString(value.llmConnectionSlug, 'executionIdentity.llmConnectionSlug'),
+    llmConnectionSlug: requireString(
+      value.llmConnectionSlug,
+      'executionIdentity.llmConnectionSlug',
+    ),
     model: requireString(value.model, 'executionIdentity.model'),
     ...('reasoningEffort' in value
-      ? { reasoningEffort: requireThinkingLevel(value.reasoningEffort, 'executionIdentity.reasoningEffort') }
+      ? {
+          reasoningEffort: requireThinkingLevel(
+            value.reasoningEffort,
+            'executionIdentity.reasoningEffort',
+          ),
+        }
       : {}),
     systemPromptHash: requireString(value.systemPromptHash, 'executionIdentity.systemPromptHash'),
     pricingProfile: requireString(value.pricingProfile, 'executionIdentity.pricingProfile'),
@@ -291,12 +316,18 @@ function validateContinuationSummary(value: unknown): HarborCellContinuationSumm
   return {
     enabled: requireBoolean(value.enabled, 'continuationSummary.enabled'),
     maxTurns: requireNumber(value.maxTurns, 'continuationSummary.maxTurns'),
-    maxTotalRuntimeSteps: requireNumber(value.maxTotalRuntimeSteps, 'continuationSummary.maxTotalRuntimeSteps'),
+    maxTotalRuntimeSteps: requireNumber(
+      value.maxTotalRuntimeSteps,
+      'continuationSummary.maxTotalRuntimeSteps',
+    ),
     turnsUsed: requireNumber(value.turnsUsed, 'continuationSummary.turnsUsed'),
     continuedTurns: requireNumber(value.continuedTurns, 'continuationSummary.continuedTurns'),
     stepCapHits: requireNumber(value.stepCapHits, 'continuationSummary.stepCapHits'),
     capExhausted: requireBoolean(value.capExhausted, 'continuationSummary.capExhausted'),
-    totalRuntimeSteps: requireNumber(value.totalRuntimeSteps, 'continuationSummary.totalRuntimeSteps'),
+    totalRuntimeSteps: requireNumber(
+      value.totalRuntimeSteps,
+      'continuationSummary.totalRuntimeSteps',
+    ),
     turns: requireContinuationTurns(value.turns),
   };
 }
@@ -304,17 +335,26 @@ function validateContinuationSummary(value: unknown): HarborCellContinuationSumm
 function requireContinuationTurns(value: unknown): HarborCellContinuationTurnSummary[] {
   if (!Array.isArray(value)) throw new Error('continuationSummary.turns must be a JSON array');
   return value.map((turn, index) => {
-    if (!isRecord(turn)) throw new Error(`continuationSummary.turns[${index}] must be a JSON object`);
+    if (!isRecord(turn))
+      throw new Error(`continuationSummary.turns[${index}] must be a JSON object`);
     return {
       turnIndex: requireNumber(turn.turnIndex, `continuationSummary.turns[${index}].turnIndex`),
-      status: requireStringUnion(turn.status, `continuationSummary.turns[${index}].status`, ['completed', 'failed'] as const),
+      status: requireStringUnion(turn.status, `continuationSummary.turns[${index}].status`, [
+        'completed',
+        'failed',
+      ] as const),
       stepCapHit: requireBoolean(turn.stepCapHit, `continuationSummary.turns[${index}].stepCapHit`),
-      runtimeSteps: requireNumber(turn.runtimeSteps, `continuationSummary.turns[${index}].runtimeSteps`),
+      runtimeSteps: requireNumber(
+        turn.runtimeSteps,
+        `continuationSummary.turns[${index}].runtimeSteps`,
+      ),
     };
   });
 }
 
-export function summarizeCellTokens(events: readonly RuntimeEvent[]): HarborCellTokenSummary | undefined {
+export function summarizeCellTokens(
+  events: readonly RuntimeEvent[],
+): HarborCellTokenSummary | undefined {
   const summary: HarborCellTokenSummary = {
     input: 0,
     output: 0,
@@ -346,15 +386,16 @@ export function summarizeCellTokens(events: readonly RuntimeEvent[]): HarborCell
     if (usage.cacheMissInputSource === 'explicit' || usage.cacheMissInput !== undefined) {
       sawExplicitCacheMiss = true;
     } else if (
-      usage.input !== undefined
-      || usage.cacheHitInput !== undefined
-      || usage.cacheRead !== undefined
-      || cacheWriteInput > 0
+      usage.input !== undefined ||
+      usage.cacheHitInput !== undefined ||
+      usage.cacheRead !== undefined ||
+      cacheWriteInput > 0
     ) {
       sawDerivedCacheMiss = true;
     }
     summary.reasoning += usage.reasoning ?? 0;
-    summary.total += usage.total ?? (usage.input ?? 0) + (usage.output ?? 0) + (usage.reasoning ?? 0);
+    summary.total +=
+      usage.total ?? (usage.input ?? 0) + (usage.output ?? 0) + (usage.reasoning ?? 0);
     summary.costUsd += usage.costUsd ?? 0;
   }
   if (!sawUsage) return undefined;
@@ -440,20 +481,31 @@ export function summarizeCellContextBudget(
     summary.activeEstimatedTokensSaved += diagnostic.activeEstimatedTokensSaved ?? 0;
     summary.activeArchiveFailures += diagnostic.activeArchiveFailures ?? 0;
     summary.archivePlaceholders += diagnostic.archivePlaceholders ?? 0;
-    mergeCountRecord(summary.archivePlaceholderReasonCounts, diagnostic.archivePlaceholderReasonCounts);
+    mergeCountRecord(
+      summary.archivePlaceholderReasonCounts,
+      diagnostic.archivePlaceholderReasonCounts,
+    );
     summary.archiveWriteFailures += diagnostic.archiveWriteFailures ?? 0;
     summary.retrievedArchiveToolResults += diagnostic.retrievedArchiveToolResults ?? 0;
     summary.retrievedArchiveEstimatedTokens += diagnostic.retrievedArchiveEstimatedTokens ?? 0;
     summary.archiveRetrievalSkipped += diagnostic.archiveRetrievalSkipped ?? 0;
-    mergeCountRecord(summary.archiveRetrievalSkippedReasonCounts, diagnostic.archiveRetrievalSkippedReasonCounts);
+    mergeCountRecord(
+      summary.archiveRetrievalSkippedReasonCounts,
+      diagnostic.archiveRetrievalSkippedReasonCounts,
+    );
     summary.archiveRetrievalFailures += diagnostic.archiveRetrievalFailures ?? 0;
-    mergeCountRecord(summary.archiveRetrievalFailureReasonCounts, diagnostic.archiveRetrievalFailureReasonCounts);
+    mergeCountRecord(
+      summary.archiveRetrievalFailureReasonCounts,
+      diagnostic.archiveRetrievalFailureReasonCounts,
+    );
     for (const decision of diagnostic.compactionDecisions ?? []) {
       if (decision.boundaryKind !== 'semanticCompact') continue;
       summary.semanticCompactCallInputTokens += decision.compactCallInputTokens ?? 0;
       summary.semanticCompactCallOutputTokens += decision.compactCallOutputTokens ?? 0;
-      summary.semanticCompactCallCacheReadInputTokens += decision.compactCallCacheReadInputTokens ?? 0;
-      summary.semanticCompactCallCacheWriteInputTokens += decision.compactCallCacheWriteInputTokens ?? 0;
+      summary.semanticCompactCallCacheReadInputTokens +=
+        decision.compactCallCacheReadInputTokens ?? 0;
+      summary.semanticCompactCallCacheWriteInputTokens +=
+        decision.compactCallCacheWriteInputTokens ?? 0;
       summary.semanticCompactCallTotalTokens += decision.compactCallTotalTokens ?? 0;
     }
   }
@@ -491,9 +543,9 @@ export function validateHarborCellTokenSummary(value: unknown): HarborCellTokenS
     output: requireNumber(value.output, 'tokenSummary.output'),
     cachedInput: optionalNumber(value.cachedInput, 'tokenSummary.cachedInput') ?? 0,
     cacheHitInput:
-      optionalNumber(value.cacheHitInput, 'tokenSummary.cacheHitInput')
-      ?? optionalNumber(value.cachedInput, 'tokenSummary.cachedInput')
-      ?? 0,
+      optionalNumber(value.cacheHitInput, 'tokenSummary.cacheHitInput') ??
+      optionalNumber(value.cachedInput, 'tokenSummary.cachedInput') ??
+      0,
     cacheMissInput: optionalNumber(value.cacheMissInput, 'tokenSummary.cacheMissInput') ?? 0,
     cacheWriteInput: optionalNumber(value.cacheWriteInput, 'tokenSummary.cacheWriteInput') ?? 0,
     ...cacheMissInputSourceField(value.cacheMissInputSource),
@@ -501,8 +553,9 @@ export function validateHarborCellTokenSummary(value: unknown): HarborCellTokenS
     total: requireNumber(value.total, 'tokenSummary.total'),
     costUsd: requireNumber(value.costUsd, 'tokenSummary.costUsd'),
     pricingSource:
-      requireOptionalStringUnion(value.pricingSource, 'tokenSummary.pricingSource', ['runtime'] as const)
-      ?? 'runtime',
+      requireOptionalStringUnion(value.pricingSource, 'tokenSummary.pricingSource', [
+        'runtime',
+      ] as const) ?? 'runtime',
   };
 }
 
@@ -510,7 +563,10 @@ function validateToolSummary(value: unknown): HarborCellToolSummary {
   if (!isRecord(value)) throw new Error('toolSummary must be a JSON object');
   const actualToolCallCounts = validateToolCallCounts(value.actualToolCallCounts);
   return {
-    providerVisibleToolCount: requireNumber(value.providerVisibleToolCount, 'toolSummary.providerVisibleToolCount'),
+    providerVisibleToolCount: requireNumber(
+      value.providerVisibleToolCount,
+      'toolSummary.providerVisibleToolCount',
+    ),
     actualToolCalls: requireNumber(value.actualToolCalls, 'toolSummary.actualToolCalls'),
     actualToolNames: validateStringArray(value.actualToolNames, 'toolSummary.actualToolNames'),
     actualToolCallCounts,
@@ -527,33 +583,53 @@ function validateTaskToolSummary(value: unknown): HarborCellTaskToolSummary {
 function validateContextBudgetSummary(value: unknown): HarborCellContextBudgetSummary {
   if (!isRecord(value)) throw new Error('contextBudgetSummary must be a JSON object');
   return {
-    diagnosticEvents: requireNumber(value.diagnosticEvents, 'contextBudgetSummary.diagnosticEvents'),
+    diagnosticEvents: requireNumber(
+      value.diagnosticEvents,
+      'contextBudgetSummary.diagnosticEvents',
+    ),
     enabledEvents: requireNumber(value.enabledEvents, 'contextBudgetSummary.enabledEvents'),
-    estimatedTokensBefore: requireNumber(value.estimatedTokensBefore, 'contextBudgetSummary.estimatedTokensBefore'),
-    estimatedTokensAfter: requireNumber(value.estimatedTokensAfter, 'contextBudgetSummary.estimatedTokensAfter'),
+    estimatedTokensBefore: requireNumber(
+      value.estimatedTokensBefore,
+      'contextBudgetSummary.estimatedTokensBefore',
+    ),
+    estimatedTokensAfter: requireNumber(
+      value.estimatedTokensAfter,
+      'contextBudgetSummary.estimatedTokensAfter',
+    ),
     keptTurns: requireNumber(value.keptTurns, 'contextBudgetSummary.keptTurns'),
     droppedTurns: requireNumber(value.droppedTurns, 'contextBudgetSummary.droppedTurns'),
     keptEvents: requireNumber(value.keptEvents, 'contextBudgetSummary.keptEvents'),
     droppedEvents: requireNumber(value.droppedEvents, 'contextBudgetSummary.droppedEvents'),
-    prunedToolResults: requireNumber(value.prunedToolResults, 'contextBudgetSummary.prunedToolResults'),
-    activePrunedToolResults: optionalNumber(
-      value.activePrunedToolResults,
-      'contextBudgetSummary.activePrunedToolResults',
-    ) ?? 0,
-    activeEstimatedTokensSaved: optionalNumber(
-      value.activeEstimatedTokensSaved,
-      'contextBudgetSummary.activeEstimatedTokensSaved',
-    ) ?? 0,
-    activeArchiveFailures: optionalNumber(
-      value.activeArchiveFailures,
-      'contextBudgetSummary.activeArchiveFailures',
-    ) ?? 0,
-    archivePlaceholders: requireNumber(value.archivePlaceholders, 'contextBudgetSummary.archivePlaceholders'),
-    archivePlaceholderReasonCounts: optionalCountRecord(
-      value.archivePlaceholderReasonCounts,
-      'contextBudgetSummary.archivePlaceholderReasonCounts',
-    ) ?? {},
-    archiveWriteFailures: requireNumber(value.archiveWriteFailures, 'contextBudgetSummary.archiveWriteFailures'),
+    prunedToolResults: requireNumber(
+      value.prunedToolResults,
+      'contextBudgetSummary.prunedToolResults',
+    ),
+    activePrunedToolResults:
+      optionalNumber(
+        value.activePrunedToolResults,
+        'contextBudgetSummary.activePrunedToolResults',
+      ) ?? 0,
+    activeEstimatedTokensSaved:
+      optionalNumber(
+        value.activeEstimatedTokensSaved,
+        'contextBudgetSummary.activeEstimatedTokensSaved',
+      ) ?? 0,
+    activeArchiveFailures:
+      optionalNumber(value.activeArchiveFailures, 'contextBudgetSummary.activeArchiveFailures') ??
+      0,
+    archivePlaceholders: requireNumber(
+      value.archivePlaceholders,
+      'contextBudgetSummary.archivePlaceholders',
+    ),
+    archivePlaceholderReasonCounts:
+      optionalCountRecord(
+        value.archivePlaceholderReasonCounts,
+        'contextBudgetSummary.archivePlaceholderReasonCounts',
+      ) ?? {},
+    archiveWriteFailures: requireNumber(
+      value.archiveWriteFailures,
+      'contextBudgetSummary.archiveWriteFailures',
+    ),
     retrievedArchiveToolResults: requireNumber(
       value.retrievedArchiveToolResults,
       'contextBudgetSummary.retrievedArchiveToolResults',
@@ -566,42 +642,52 @@ function validateContextBudgetSummary(value: unknown): HarborCellContextBudgetSu
       value.archiveRetrievalSkipped,
       'contextBudgetSummary.archiveRetrievalSkipped',
     ),
-    archiveRetrievalSkippedReasonCounts: optionalCountRecord(
-      value.archiveRetrievalSkippedReasonCounts,
-      'contextBudgetSummary.archiveRetrievalSkippedReasonCounts',
-    ) ?? {},
+    archiveRetrievalSkippedReasonCounts:
+      optionalCountRecord(
+        value.archiveRetrievalSkippedReasonCounts,
+        'contextBudgetSummary.archiveRetrievalSkippedReasonCounts',
+      ) ?? {},
     archiveRetrievalFailures: requireNumber(
       value.archiveRetrievalFailures,
       'contextBudgetSummary.archiveRetrievalFailures',
     ),
-    archiveRetrievalFailureReasonCounts: optionalCountRecord(
-      value.archiveRetrievalFailureReasonCounts,
-      'contextBudgetSummary.archiveRetrievalFailureReasonCounts',
-    ) ?? {},
-    semanticCompactCallInputTokens: optionalNumber(
-      value.semanticCompactCallInputTokens,
-      'contextBudgetSummary.semanticCompactCallInputTokens',
-    ) ?? 0,
-    semanticCompactCallOutputTokens: optionalNumber(
-      value.semanticCompactCallOutputTokens,
-      'contextBudgetSummary.semanticCompactCallOutputTokens',
-    ) ?? 0,
-    semanticCompactCallCacheReadInputTokens: optionalNumber(
-      value.semanticCompactCallCacheReadInputTokens,
-      'contextBudgetSummary.semanticCompactCallCacheReadInputTokens',
-    ) ?? 0,
-    semanticCompactCallCacheWriteInputTokens: optionalNumber(
-      value.semanticCompactCallCacheWriteInputTokens,
-      'contextBudgetSummary.semanticCompactCallCacheWriteInputTokens',
-    ) ?? 0,
-    semanticCompactCallTotalTokens: optionalNumber(
-      value.semanticCompactCallTotalTokens,
-      'contextBudgetSummary.semanticCompactCallTotalTokens',
-    ) ?? 0,
+    archiveRetrievalFailureReasonCounts:
+      optionalCountRecord(
+        value.archiveRetrievalFailureReasonCounts,
+        'contextBudgetSummary.archiveRetrievalFailureReasonCounts',
+      ) ?? {},
+    semanticCompactCallInputTokens:
+      optionalNumber(
+        value.semanticCompactCallInputTokens,
+        'contextBudgetSummary.semanticCompactCallInputTokens',
+      ) ?? 0,
+    semanticCompactCallOutputTokens:
+      optionalNumber(
+        value.semanticCompactCallOutputTokens,
+        'contextBudgetSummary.semanticCompactCallOutputTokens',
+      ) ?? 0,
+    semanticCompactCallCacheReadInputTokens:
+      optionalNumber(
+        value.semanticCompactCallCacheReadInputTokens,
+        'contextBudgetSummary.semanticCompactCallCacheReadInputTokens',
+      ) ?? 0,
+    semanticCompactCallCacheWriteInputTokens:
+      optionalNumber(
+        value.semanticCompactCallCacheWriteInputTokens,
+        'contextBudgetSummary.semanticCompactCallCacheWriteInputTokens',
+      ) ?? 0,
+    semanticCompactCallTotalTokens:
+      optionalNumber(
+        value.semanticCompactCallTotalTokens,
+        'contextBudgetSummary.semanticCompactCallTotalTokens',
+      ) ?? 0,
   };
 }
 
-function mergeCountRecord(target: Record<string, number>, source: Record<string, number> | undefined): void {
+function mergeCountRecord(
+  target: Record<string, number>,
+  source: Record<string, number> | undefined,
+): void {
   if (!source) return;
   for (const [key, value] of Object.entries(source)) {
     target[key] = (target[key] ?? 0) + value;
@@ -618,7 +704,9 @@ function optionalCountRecord(value: unknown, path: string): Record<string, numbe
   return result;
 }
 
-function validateContextBudgetPolicySnapshot(value: unknown): HarborCellContextBudgetPolicySnapshot {
+function validateContextBudgetPolicySnapshot(
+  value: unknown,
+): HarborCellContextBudgetPolicySnapshot {
   if (!isRecord(value)) throw new Error('contextBudgetPolicy must be a JSON object');
   const enabled = requireBoolean(value.enabled, 'contextBudgetPolicy.enabled');
   if (!enabled) return { enabled: false };
@@ -626,16 +714,31 @@ function validateContextBudgetPolicySnapshot(value: unknown): HarborCellContextB
     enabled: true,
     name: requireString(value.name, 'contextBudgetPolicy.name'),
     ...(optionalNumber(value.maxHistoryTurns, 'contextBudgetPolicy.maxHistoryTurns') !== undefined
-      ? { maxHistoryTurns: optionalNumber(value.maxHistoryTurns, 'contextBudgetPolicy.maxHistoryTurns') }
+      ? {
+          maxHistoryTurns: optionalNumber(
+            value.maxHistoryTurns,
+            'contextBudgetPolicy.maxHistoryTurns',
+          ),
+        }
       : {}),
-    ...(optionalNumber(value.maxHistoryEstimatedTokens, 'contextBudgetPolicy.maxHistoryEstimatedTokens') !== undefined
-      ? { maxHistoryEstimatedTokens: optionalNumber(value.maxHistoryEstimatedTokens, 'contextBudgetPolicy.maxHistoryEstimatedTokens') }
+    ...(optionalNumber(
+      value.maxHistoryEstimatedTokens,
+      'contextBudgetPolicy.maxHistoryEstimatedTokens',
+    ) !== undefined
+      ? {
+          maxHistoryEstimatedTokens: optionalNumber(
+            value.maxHistoryEstimatedTokens,
+            'contextBudgetPolicy.maxHistoryEstimatedTokens',
+          ),
+        }
       : {}),
     ...(value.staleToolResultPrune !== undefined
       ? { staleToolResultPrune: validateStaleToolResultPruneSnapshot(value.staleToolResultPrune) }
       : {}),
     ...(value.activeToolResultPrune !== undefined
-      ? { activeToolResultPrune: validateActiveToolResultPruneSnapshot(value.activeToolResultPrune) }
+      ? {
+          activeToolResultPrune: validateActiveToolResultPruneSnapshot(value.activeToolResultPrune),
+        }
       : {}),
     ...(value.activeFullCompact !== undefined
       ? { activeFullCompact: validateActiveFullCompactSnapshot(value.activeFullCompact) }
@@ -650,154 +753,439 @@ function validateContextBudgetPolicySnapshot(value: unknown): HarborCellContextB
   };
 }
 
-function validateStaleToolResultPruneSnapshot(value: unknown): NonNullable<ContextBudgetPolicy['staleToolResultPrune']> {
-  if (!isRecord(value)) throw new Error('contextBudgetPolicy.staleToolResultPrune must be a JSON object');
+function validateStaleToolResultPruneSnapshot(
+  value: unknown,
+): NonNullable<ContextBudgetPolicy['staleToolResultPrune']> {
+  if (!isRecord(value))
+    throw new Error('contextBudgetPolicy.staleToolResultPrune must be a JSON object');
   return {
     enabled: requireBoolean(value.enabled, 'contextBudgetPolicy.staleToolResultPrune.enabled'),
-    maxResultEstimatedTokens: requireNumber(value.maxResultEstimatedTokens, 'contextBudgetPolicy.staleToolResultPrune.maxResultEstimatedTokens'),
-    minRecentTurnsFull: requireNumber(value.minRecentTurnsFull, 'contextBudgetPolicy.staleToolResultPrune.minRecentTurnsFull'),
+    maxResultEstimatedTokens: requireNumber(
+      value.maxResultEstimatedTokens,
+      'contextBudgetPolicy.staleToolResultPrune.maxResultEstimatedTokens',
+    ),
+    minRecentTurnsFull: requireNumber(
+      value.minRecentTurnsFull,
+      'contextBudgetPolicy.staleToolResultPrune.minRecentTurnsFull',
+    ),
   };
 }
 
-function validateActiveToolResultPruneSnapshot(value: unknown): NonNullable<ContextBudgetPolicy['activeToolResultPrune']> {
-  if (!isRecord(value)) throw new Error('contextBudgetPolicy.activeToolResultPrune must be a JSON object');
+function validateActiveToolResultPruneSnapshot(
+  value: unknown,
+): NonNullable<ContextBudgetPolicy['activeToolResultPrune']> {
+  if (!isRecord(value))
+    throw new Error('contextBudgetPolicy.activeToolResultPrune must be a JSON object');
   return {
     enabled: requireBoolean(value.enabled, 'contextBudgetPolicy.activeToolResultPrune.enabled'),
-    maxCurrentResultEstimatedTokens: requireNumber(value.maxCurrentResultEstimatedTokens, 'contextBudgetPolicy.activeToolResultPrune.maxCurrentResultEstimatedTokens'),
-    minStepNumber: requireNumber(value.minStepNumber, 'contextBudgetPolicy.activeToolResultPrune.minStepNumber'),
+    maxCurrentResultEstimatedTokens: requireNumber(
+      value.maxCurrentResultEstimatedTokens,
+      'contextBudgetPolicy.activeToolResultPrune.maxCurrentResultEstimatedTokens',
+    ),
+    minStepNumber: requireNumber(
+      value.minStepNumber,
+      'contextBudgetPolicy.activeToolResultPrune.minStepNumber',
+    ),
   };
 }
 
-function validateActiveFullCompactSnapshot(value: unknown): NonNullable<ContextBudgetPolicy['activeFullCompact']> {
-  if (!isRecord(value)) throw new Error('contextBudgetPolicy.activeFullCompact must be a JSON object');
+function validateActiveFullCompactSnapshot(
+  value: unknown,
+): NonNullable<ContextBudgetPolicy['activeFullCompact']> {
+  if (!isRecord(value))
+    throw new Error('contextBudgetPolicy.activeFullCompact must be a JSON object');
   return {
     enabled: requireBoolean(value.enabled, 'contextBudgetPolicy.activeFullCompact.enabled'),
     ...(value.mode !== undefined
-      ? { mode: requireStringUnion(value.mode, 'contextBudgetPolicy.activeFullCompact.mode', ['off', 'index_only', 'validate_only', 'prepare_step_dry_run'] as const) }
+      ? {
+          mode: requireStringUnion(value.mode, 'contextBudgetPolicy.activeFullCompact.mode', [
+            'off',
+            'index_only',
+            'validate_only',
+            'prepare_step_dry_run',
+          ] as const),
+        }
       : {}),
-    ...(optionalNumber(value.minStepNumber, 'contextBudgetPolicy.activeFullCompact.minStepNumber') !== undefined
-      ? { minStepNumber: optionalNumber(value.minStepNumber, 'contextBudgetPolicy.activeFullCompact.minStepNumber') }
+    ...(optionalNumber(
+      value.minStepNumber,
+      'contextBudgetPolicy.activeFullCompact.minStepNumber',
+    ) !== undefined
+      ? {
+          minStepNumber: optionalNumber(
+            value.minStepNumber,
+            'contextBudgetPolicy.activeFullCompact.minStepNumber',
+          ),
+        }
       : {}),
-    ...(optionalNumber(value.highWaterRatio, 'contextBudgetPolicy.activeFullCompact.highWaterRatio') !== undefined
-      ? { highWaterRatio: optionalNumber(value.highWaterRatio, 'contextBudgetPolicy.activeFullCompact.highWaterRatio') }
+    ...(optionalNumber(
+      value.highWaterRatio,
+      'contextBudgetPolicy.activeFullCompact.highWaterRatio',
+    ) !== undefined
+      ? {
+          highWaterRatio: optionalNumber(
+            value.highWaterRatio,
+            'contextBudgetPolicy.activeFullCompact.highWaterRatio',
+          ),
+        }
       : {}),
-    ...(optionalNumber(value.forceRatio, 'contextBudgetPolicy.activeFullCompact.forceRatio') !== undefined
-      ? { forceRatio: optionalNumber(value.forceRatio, 'contextBudgetPolicy.activeFullCompact.forceRatio') }
+    ...(optionalNumber(value.forceRatio, 'contextBudgetPolicy.activeFullCompact.forceRatio') !==
+    undefined
+      ? {
+          forceRatio: optionalNumber(
+            value.forceRatio,
+            'contextBudgetPolicy.activeFullCompact.forceRatio',
+          ),
+        }
       : {}),
-    ...(optionalNumber(value.targetRatio, 'contextBudgetPolicy.activeFullCompact.targetRatio') !== undefined
-      ? { targetRatio: optionalNumber(value.targetRatio, 'contextBudgetPolicy.activeFullCompact.targetRatio') }
+    ...(optionalNumber(value.targetRatio, 'contextBudgetPolicy.activeFullCompact.targetRatio') !==
+    undefined
+      ? {
+          targetRatio: optionalNumber(
+            value.targetRatio,
+            'contextBudgetPolicy.activeFullCompact.targetRatio',
+          ),
+        }
       : {}),
-    ...(optionalNumber(value.maxActiveEstimatedTokens, 'contextBudgetPolicy.activeFullCompact.maxActiveEstimatedTokens') !== undefined
-      ? { maxActiveEstimatedTokens: optionalNumber(value.maxActiveEstimatedTokens, 'contextBudgetPolicy.activeFullCompact.maxActiveEstimatedTokens') }
+    ...(optionalNumber(
+      value.maxActiveEstimatedTokens,
+      'contextBudgetPolicy.activeFullCompact.maxActiveEstimatedTokens',
+    ) !== undefined
+      ? {
+          maxActiveEstimatedTokens: optionalNumber(
+            value.maxActiveEstimatedTokens,
+            'contextBudgetPolicy.activeFullCompact.maxActiveEstimatedTokens',
+          ),
+        }
       : {}),
-    ...(optionalNumber(value.minRecentMessages, 'contextBudgetPolicy.activeFullCompact.minRecentMessages') !== undefined
-      ? { minRecentMessages: optionalNumber(value.minRecentMessages, 'contextBudgetPolicy.activeFullCompact.minRecentMessages') }
+    ...(optionalNumber(
+      value.minRecentMessages,
+      'contextBudgetPolicy.activeFullCompact.minRecentMessages',
+    ) !== undefined
+      ? {
+          minRecentMessages: optionalNumber(
+            value.minRecentMessages,
+            'contextBudgetPolicy.activeFullCompact.minRecentMessages',
+          ),
+        }
       : {}),
-    ...(optionalNumber(value.minRecentToolPairs, 'contextBudgetPolicy.activeFullCompact.minRecentToolPairs') !== undefined
-      ? { minRecentToolPairs: optionalNumber(value.minRecentToolPairs, 'contextBudgetPolicy.activeFullCompact.minRecentToolPairs') }
+    ...(optionalNumber(
+      value.minRecentToolPairs,
+      'contextBudgetPolicy.activeFullCompact.minRecentToolPairs',
+    ) !== undefined
+      ? {
+          minRecentToolPairs: optionalNumber(
+            value.minRecentToolPairs,
+            'contextBudgetPolicy.activeFullCompact.minRecentToolPairs',
+          ),
+        }
       : {}),
-    ...(optionalNumber(value.maxSummaryEstimatedTokens, 'contextBudgetPolicy.activeFullCompact.maxSummaryEstimatedTokens') !== undefined
-      ? { maxSummaryEstimatedTokens: optionalNumber(value.maxSummaryEstimatedTokens, 'contextBudgetPolicy.activeFullCompact.maxSummaryEstimatedTokens') }
+    ...(optionalNumber(
+      value.maxSummaryEstimatedTokens,
+      'contextBudgetPolicy.activeFullCompact.maxSummaryEstimatedTokens',
+    ) !== undefined
+      ? {
+          maxSummaryEstimatedTokens: optionalNumber(
+            value.maxSummaryEstimatedTokens,
+            'contextBudgetPolicy.activeFullCompact.maxSummaryEstimatedTokens',
+          ),
+        }
       : {}),
     ...(value.archiveRequired !== undefined
-      ? { archiveRequired: requireBoolean(value.archiveRequired, 'contextBudgetPolicy.activeFullCompact.archiveRequired') }
+      ? {
+          archiveRequired: requireBoolean(
+            value.archiveRequired,
+            'contextBudgetPolicy.activeFullCompact.archiveRequired',
+          ),
+        }
       : {}),
     ...(value.highWaterName !== undefined
-      ? { highWaterName: requireString(value.highWaterName, 'contextBudgetPolicy.activeFullCompact.highWaterName') }
+      ? {
+          highWaterName: requireString(
+            value.highWaterName,
+            'contextBudgetPolicy.activeFullCompact.highWaterName',
+          ),
+        }
       : {}),
   };
 }
 
-function validateSemanticCompactSnapshot(value: unknown): NonNullable<ContextBudgetPolicy['semanticCompact']> {
-  if (!isRecord(value)) throw new Error('contextBudgetPolicy.semanticCompact must be a JSON object');
+function validateSemanticCompactSnapshot(
+  value: unknown,
+): NonNullable<ContextBudgetPolicy['semanticCompact']> {
+  if (!isRecord(value))
+    throw new Error('contextBudgetPolicy.semanticCompact must be a JSON object');
   return {
     enabled: requireBoolean(value.enabled, 'contextBudgetPolicy.semanticCompact.enabled'),
     ...(value.mode !== undefined
-      ? { mode: requireStringUnion(value.mode, 'contextBudgetPolicy.semanticCompact.mode', ['off', 'validate_only', 'prepare_step_dry_run', 'replace'] as const) }
+      ? {
+          mode: requireStringUnion(value.mode, 'contextBudgetPolicy.semanticCompact.mode', [
+            'off',
+            'validate_only',
+            'prepare_step_dry_run',
+            'replace',
+          ] as const),
+        }
       : {}),
-    ...(optionalNumber(value.minStepNumber, 'contextBudgetPolicy.semanticCompact.minStepNumber') !== undefined
-      ? { minStepNumber: optionalNumber(value.minStepNumber, 'contextBudgetPolicy.semanticCompact.minStepNumber') }
+    ...(optionalNumber(value.minStepNumber, 'contextBudgetPolicy.semanticCompact.minStepNumber') !==
+    undefined
+      ? {
+          minStepNumber: optionalNumber(
+            value.minStepNumber,
+            'contextBudgetPolicy.semanticCompact.minStepNumber',
+          ),
+        }
       : {}),
-    ...(optionalNumber(value.highWaterRatio, 'contextBudgetPolicy.semanticCompact.highWaterRatio') !== undefined
-      ? { highWaterRatio: optionalNumber(value.highWaterRatio, 'contextBudgetPolicy.semanticCompact.highWaterRatio') }
+    ...(optionalNumber(
+      value.highWaterRatio,
+      'contextBudgetPolicy.semanticCompact.highWaterRatio',
+    ) !== undefined
+      ? {
+          highWaterRatio: optionalNumber(
+            value.highWaterRatio,
+            'contextBudgetPolicy.semanticCompact.highWaterRatio',
+          ),
+        }
       : {}),
-    ...(optionalNumber(value.forceRatio, 'contextBudgetPolicy.semanticCompact.forceRatio') !== undefined
-      ? { forceRatio: optionalNumber(value.forceRatio, 'contextBudgetPolicy.semanticCompact.forceRatio') }
+    ...(optionalNumber(value.forceRatio, 'contextBudgetPolicy.semanticCompact.forceRatio') !==
+    undefined
+      ? {
+          forceRatio: optionalNumber(
+            value.forceRatio,
+            'contextBudgetPolicy.semanticCompact.forceRatio',
+          ),
+        }
       : {}),
-    ...(optionalNumber(value.targetRatio, 'contextBudgetPolicy.semanticCompact.targetRatio') !== undefined
-      ? { targetRatio: optionalNumber(value.targetRatio, 'contextBudgetPolicy.semanticCompact.targetRatio') }
+    ...(optionalNumber(value.targetRatio, 'contextBudgetPolicy.semanticCompact.targetRatio') !==
+    undefined
+      ? {
+          targetRatio: optionalNumber(
+            value.targetRatio,
+            'contextBudgetPolicy.semanticCompact.targetRatio',
+          ),
+        }
       : {}),
-    ...(optionalNumber(value.maxActiveEstimatedTokens, 'contextBudgetPolicy.semanticCompact.maxActiveEstimatedTokens') !== undefined
-      ? { maxActiveEstimatedTokens: optionalNumber(value.maxActiveEstimatedTokens, 'contextBudgetPolicy.semanticCompact.maxActiveEstimatedTokens') }
+    ...(optionalNumber(
+      value.maxActiveEstimatedTokens,
+      'contextBudgetPolicy.semanticCompact.maxActiveEstimatedTokens',
+    ) !== undefined
+      ? {
+          maxActiveEstimatedTokens: optionalNumber(
+            value.maxActiveEstimatedTokens,
+            'contextBudgetPolicy.semanticCompact.maxActiveEstimatedTokens',
+          ),
+        }
       : {}),
-    ...(optionalNumber(value.minRecentMessages, 'contextBudgetPolicy.semanticCompact.minRecentMessages') !== undefined
-      ? { minRecentMessages: optionalNumber(value.minRecentMessages, 'contextBudgetPolicy.semanticCompact.minRecentMessages') }
+    ...(optionalNumber(
+      value.minRecentMessages,
+      'contextBudgetPolicy.semanticCompact.minRecentMessages',
+    ) !== undefined
+      ? {
+          minRecentMessages: optionalNumber(
+            value.minRecentMessages,
+            'contextBudgetPolicy.semanticCompact.minRecentMessages',
+          ),
+        }
       : {}),
-    ...(optionalNumber(value.minRecentToolPairs, 'contextBudgetPolicy.semanticCompact.minRecentToolPairs') !== undefined
-      ? { minRecentToolPairs: optionalNumber(value.minRecentToolPairs, 'contextBudgetPolicy.semanticCompact.minRecentToolPairs') }
+    ...(optionalNumber(
+      value.minRecentToolPairs,
+      'contextBudgetPolicy.semanticCompact.minRecentToolPairs',
+    ) !== undefined
+      ? {
+          minRecentToolPairs: optionalNumber(
+            value.minRecentToolPairs,
+            'contextBudgetPolicy.semanticCompact.minRecentToolPairs',
+          ),
+        }
       : {}),
-    ...(optionalNumber(value.minSafePrefixEstimatedTokens, 'contextBudgetPolicy.semanticCompact.minSafePrefixEstimatedTokens') !== undefined
-      ? { minSafePrefixEstimatedTokens: optionalNumber(value.minSafePrefixEstimatedTokens, 'contextBudgetPolicy.semanticCompact.minSafePrefixEstimatedTokens') }
+    ...(optionalNumber(
+      value.minSafePrefixEstimatedTokens,
+      'contextBudgetPolicy.semanticCompact.minSafePrefixEstimatedTokens',
+    ) !== undefined
+      ? {
+          minSafePrefixEstimatedTokens: optionalNumber(
+            value.minSafePrefixEstimatedTokens,
+            'contextBudgetPolicy.semanticCompact.minSafePrefixEstimatedTokens',
+          ),
+        }
       : {}),
-    ...(optionalNumber(value.minNewPrefixEstimatedTokens, 'contextBudgetPolicy.semanticCompact.minNewPrefixEstimatedTokens') !== undefined
-      ? { minNewPrefixEstimatedTokens: optionalNumber(value.minNewPrefixEstimatedTokens, 'contextBudgetPolicy.semanticCompact.minNewPrefixEstimatedTokens') }
+    ...(optionalNumber(
+      value.minNewPrefixEstimatedTokens,
+      'contextBudgetPolicy.semanticCompact.minNewPrefixEstimatedTokens',
+    ) !== undefined
+      ? {
+          minNewPrefixEstimatedTokens: optionalNumber(
+            value.minNewPrefixEstimatedTokens,
+            'contextBudgetPolicy.semanticCompact.minNewPrefixEstimatedTokens',
+          ),
+        }
       : {}),
-    ...(optionalNumber(value.maxAcceptedProjectionEstimatedTokens, 'contextBudgetPolicy.semanticCompact.maxAcceptedProjectionEstimatedTokens') !== undefined
-      ? { maxAcceptedProjectionEstimatedTokens: optionalNumber(value.maxAcceptedProjectionEstimatedTokens, 'contextBudgetPolicy.semanticCompact.maxAcceptedProjectionEstimatedTokens') }
+    ...(optionalNumber(
+      value.maxAcceptedProjectionEstimatedTokens,
+      'contextBudgetPolicy.semanticCompact.maxAcceptedProjectionEstimatedTokens',
+    ) !== undefined
+      ? {
+          maxAcceptedProjectionEstimatedTokens: optionalNumber(
+            value.maxAcceptedProjectionEstimatedTokens,
+            'contextBudgetPolicy.semanticCompact.maxAcceptedProjectionEstimatedTokens',
+          ),
+        }
       : {}),
-    ...(optionalNumber(value.maxSummaryEstimatedTokens, 'contextBudgetPolicy.semanticCompact.maxSummaryEstimatedTokens') !== undefined
-      ? { maxSummaryEstimatedTokens: optionalNumber(value.maxSummaryEstimatedTokens, 'contextBudgetPolicy.semanticCompact.maxSummaryEstimatedTokens') }
+    ...(optionalNumber(
+      value.maxSummaryEstimatedTokens,
+      'contextBudgetPolicy.semanticCompact.maxSummaryEstimatedTokens',
+    ) !== undefined
+      ? {
+          maxSummaryEstimatedTokens: optionalNumber(
+            value.maxSummaryEstimatedTokens,
+            'contextBudgetPolicy.semanticCompact.maxSummaryEstimatedTokens',
+          ),
+        }
       : {}),
-    ...(optionalNumber(value.minSavingsTokens, 'contextBudgetPolicy.semanticCompact.minSavingsTokens') !== undefined
-      ? { minSavingsTokens: optionalNumber(value.minSavingsTokens, 'contextBudgetPolicy.semanticCompact.minSavingsTokens') }
+    ...(optionalNumber(
+      value.minSavingsTokens,
+      'contextBudgetPolicy.semanticCompact.minSavingsTokens',
+    ) !== undefined
+      ? {
+          minSavingsTokens: optionalNumber(
+            value.minSavingsTokens,
+            'contextBudgetPolicy.semanticCompact.minSavingsTokens',
+          ),
+        }
       : {}),
-    ...(optionalNumber(value.minSavingsRatio, 'contextBudgetPolicy.semanticCompact.minSavingsRatio') !== undefined
-      ? { minSavingsRatio: optionalNumber(value.minSavingsRatio, 'contextBudgetPolicy.semanticCompact.minSavingsRatio') }
+    ...(optionalNumber(
+      value.minSavingsRatio,
+      'contextBudgetPolicy.semanticCompact.minSavingsRatio',
+    ) !== undefined
+      ? {
+          minSavingsRatio: optionalNumber(
+            value.minSavingsRatio,
+            'contextBudgetPolicy.semanticCompact.minSavingsRatio',
+          ),
+        }
       : {}),
-    ...(optionalNumber(value.minNetSavingsTokens, 'contextBudgetPolicy.semanticCompact.minNetSavingsTokens') !== undefined
-      ? { minNetSavingsTokens: optionalNumber(value.minNetSavingsTokens, 'contextBudgetPolicy.semanticCompact.minNetSavingsTokens') }
+    ...(optionalNumber(
+      value.minNetSavingsTokens,
+      'contextBudgetPolicy.semanticCompact.minNetSavingsTokens',
+    ) !== undefined
+      ? {
+          minNetSavingsTokens: optionalNumber(
+            value.minNetSavingsTokens,
+            'contextBudgetPolicy.semanticCompact.minNetSavingsTokens',
+          ),
+        }
       : {}),
-    ...(optionalNumber(value.compactCallTokenCostWeight, 'contextBudgetPolicy.semanticCompact.compactCallTokenCostWeight') !== undefined
-      ? { compactCallTokenCostWeight: optionalNumber(value.compactCallTokenCostWeight, 'contextBudgetPolicy.semanticCompact.compactCallTokenCostWeight') }
+    ...(optionalNumber(
+      value.compactCallTokenCostWeight,
+      'contextBudgetPolicy.semanticCompact.compactCallTokenCostWeight',
+    ) !== undefined
+      ? {
+          compactCallTokenCostWeight: optionalNumber(
+            value.compactCallTokenCostWeight,
+            'contextBudgetPolicy.semanticCompact.compactCallTokenCostWeight',
+          ),
+        }
       : {}),
-    ...(optionalNumber(value.maxCompactCallTokens, 'contextBudgetPolicy.semanticCompact.maxCompactCallTokens') !== undefined
-      ? { maxCompactCallTokens: optionalNumber(value.maxCompactCallTokens, 'contextBudgetPolicy.semanticCompact.maxCompactCallTokens') }
+    ...(optionalNumber(
+      value.maxCompactCallTokens,
+      'contextBudgetPolicy.semanticCompact.maxCompactCallTokens',
+    ) !== undefined
+      ? {
+          maxCompactCallTokens: optionalNumber(
+            value.maxCompactCallTokens,
+            'contextBudgetPolicy.semanticCompact.maxCompactCallTokens',
+          ),
+        }
       : {}),
-    ...(optionalNumber(value.maxConsecutiveInvalidSummaries, 'contextBudgetPolicy.semanticCompact.maxConsecutiveInvalidSummaries') !== undefined
-      ? { maxConsecutiveInvalidSummaries: optionalNumber(value.maxConsecutiveInvalidSummaries, 'contextBudgetPolicy.semanticCompact.maxConsecutiveInvalidSummaries') }
+    ...(optionalNumber(
+      value.maxConsecutiveInvalidSummaries,
+      'contextBudgetPolicy.semanticCompact.maxConsecutiveInvalidSummaries',
+    ) !== undefined
+      ? {
+          maxConsecutiveInvalidSummaries: optionalNumber(
+            value.maxConsecutiveInvalidSummaries,
+            'contextBudgetPolicy.semanticCompact.maxConsecutiveInvalidSummaries',
+          ),
+        }
       : {}),
-    ...(optionalNumber(value.invalidSummaryCooldownSteps, 'contextBudgetPolicy.semanticCompact.invalidSummaryCooldownSteps') !== undefined
-      ? { invalidSummaryCooldownSteps: optionalNumber(value.invalidSummaryCooldownSteps, 'contextBudgetPolicy.semanticCompact.invalidSummaryCooldownSteps') }
+    ...(optionalNumber(
+      value.invalidSummaryCooldownSteps,
+      'contextBudgetPolicy.semanticCompact.invalidSummaryCooldownSteps',
+    ) !== undefined
+      ? {
+          invalidSummaryCooldownSteps: optionalNumber(
+            value.invalidSummaryCooldownSteps,
+            'contextBudgetPolicy.semanticCompact.invalidSummaryCooldownSteps',
+          ),
+        }
       : {}),
-    ...(optionalNumber(value.timeoutMs, 'contextBudgetPolicy.semanticCompact.timeoutMs') !== undefined
-      ? { timeoutMs: optionalNumber(value.timeoutMs, 'contextBudgetPolicy.semanticCompact.timeoutMs') }
+    ...(optionalNumber(value.timeoutMs, 'contextBudgetPolicy.semanticCompact.timeoutMs') !==
+    undefined
+      ? {
+          timeoutMs: optionalNumber(
+            value.timeoutMs,
+            'contextBudgetPolicy.semanticCompact.timeoutMs',
+          ),
+        }
       : {}),
     ...(value.archiveRequired !== undefined
-      ? { archiveRequired: requireBoolean(value.archiveRequired, 'contextBudgetPolicy.semanticCompact.archiveRequired') }
+      ? {
+          archiveRequired: requireBoolean(
+            value.archiveRequired,
+            'contextBudgetPolicy.semanticCompact.archiveRequired',
+          ),
+        }
       : {}),
     ...(value.summarizerModel !== undefined
-      ? { summarizerModel: requireString(value.summarizerModel, 'contextBudgetPolicy.semanticCompact.summarizerModel') }
+      ? {
+          summarizerModel: requireString(
+            value.summarizerModel,
+            'contextBudgetPolicy.semanticCompact.summarizerModel',
+          ),
+        }
       : {}),
     ...(value.promptVersion !== undefined
-      ? { promptVersion: requireString(value.promptVersion, 'contextBudgetPolicy.semanticCompact.promptVersion') }
+      ? {
+          promptVersion: requireString(
+            value.promptVersion,
+            'contextBudgetPolicy.semanticCompact.promptVersion',
+          ),
+        }
       : {}),
     ...(value.highWaterName !== undefined
-      ? { highWaterName: requireString(value.highWaterName, 'contextBudgetPolicy.semanticCompact.highWaterName') }
+      ? {
+          highWaterName: requireString(
+            value.highWaterName,
+            'contextBudgetPolicy.semanticCompact.highWaterName',
+          ),
+        }
       : {}),
   };
 }
 
-function validateArchiveRetrievalSnapshot(value: unknown): NonNullable<ContextBudgetPolicy['archiveRetrieval']> {
-  if (!isRecord(value)) throw new Error('contextBudgetPolicy.archiveRetrieval must be a JSON object');
+function validateArchiveRetrievalSnapshot(
+  value: unknown,
+): NonNullable<ContextBudgetPolicy['archiveRetrieval']> {
+  if (!isRecord(value))
+    throw new Error('contextBudgetPolicy.archiveRetrieval must be a JSON object');
   return {
     enabled: requireBoolean(value.enabled, 'contextBudgetPolicy.archiveRetrieval.enabled'),
     ...(value.mode !== undefined
-      ? { mode: requireStringUnion(value.mode, 'contextBudgetPolicy.archiveRetrieval.mode', ['eager', 'history_search_gated'] as const) }
+      ? {
+          mode: requireStringUnion(value.mode, 'contextBudgetPolicy.archiveRetrieval.mode', [
+            'eager',
+            'history_search_gated',
+          ] as const),
+        }
       : {}),
     maxResults: requireNumber(value.maxResults, 'contextBudgetPolicy.archiveRetrieval.maxResults'),
-    maxEstimatedTokens: requireNumber(value.maxEstimatedTokens, 'contextBudgetPolicy.archiveRetrieval.maxEstimatedTokens'),
+    maxEstimatedTokens: requireNumber(
+      value.maxEstimatedTokens,
+      'contextBudgetPolicy.archiveRetrieval.maxEstimatedTokens',
+    ),
     maxBytes: requireNumber(value.maxBytes, 'contextBudgetPolicy.archiveRetrieval.maxBytes'),
-    order: requireStringUnion(value.order, 'contextBudgetPolicy.archiveRetrieval.order', ['newest_first'] as const),
+    order: requireStringUnion(value.order, 'contextBudgetPolicy.archiveRetrieval.order', [
+      'newest_first',
+    ] as const),
   };
 }
 
@@ -860,7 +1248,11 @@ function optionalNumber(value: unknown, field: string): number | undefined {
   return requireNumber(value, field);
 }
 
-function requireStringUnion<T extends readonly string[]>(value: unknown, field: string, allowed: T): T[number] {
+function requireStringUnion<T extends readonly string[]>(
+  value: unknown,
+  field: string,
+  allowed: T,
+): T[number] {
   if (typeof value !== 'string' || !allowed.includes(value)) {
     throw new Error(`${field} must be one of: ${allowed.join(', ')}`);
   }
@@ -876,7 +1268,9 @@ function requireOptionalStringUnion<T extends readonly string[]>(
   return requireStringUnion(value, field, allowed);
 }
 
-function cacheMissInputSourceField(value: unknown): Pick<HarborCellTokenSummary, 'cacheMissInputSource'> {
+function cacheMissInputSourceField(
+  value: unknown,
+): Pick<HarborCellTokenSummary, 'cacheMissInputSource'> {
   const cacheMissInputSource = requireOptionalStringUnion(
     value,
     'tokenSummary.cacheMissInputSource',

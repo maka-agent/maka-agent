@@ -35,7 +35,10 @@ export function withFileWriteLock<T>(key: string, fn: () => Promise<T>): Promise
   const run = prev.then(fn, fn);
   // The next waiter chains off `tail`, which tracks completion only (swallowing
   // result and error) so one task's rejection never propagates down the chain.
-  const tail = run.then(() => {}, () => {});
+  const tail = run.then(
+    () => {},
+    () => {},
+  );
   tails.set(key, tail);
   void tail.then(() => {
     // Drop the key once nobody chained after us, so the map stays bounded.

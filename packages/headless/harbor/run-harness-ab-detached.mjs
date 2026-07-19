@@ -20,7 +20,9 @@ function envPath(name) {
 
 function detachedRunPaths() {
   const outDir = envPath('MAKA_HARNESS_AB_OUT_DIR');
-  const competitorProfile = resolveHarnessCompetitorProfile(process.env.MAKA_HARNESS_AB_COMPETITOR || 'kimi-code');
+  const competitorProfile = resolveHarnessCompetitorProfile(
+    process.env.MAKA_HARNESS_AB_COMPETITOR || 'kimi-code',
+  );
   const runId = resolveHarnessAbRunId(
     competitorProfile,
     process.env.MAKA_HARNESS_AB_RUN_ID,
@@ -96,9 +98,11 @@ function waitForWorkerOwnership(child, journalPath, startedAt) {
         finish();
         return;
       }
-      finish(new Error(
-        `detached harness runner exited before acquiring the run lock (code ${code ?? 'null'}, signal ${signal ?? 'none'})`,
-      ));
+      finish(
+        new Error(
+          `detached harness runner exited before acquiring the run lock (code ${code ?? 'null'}, signal ${signal ?? 'none'})`,
+        ),
+      );
     };
     child.once('error', onError);
     child.once('exit', onExit);

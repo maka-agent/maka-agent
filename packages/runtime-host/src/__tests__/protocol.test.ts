@@ -18,8 +18,8 @@ describe('Runtime Host bootstrap protocol', () => {
   test('decodes split UTF-8 and multiple newline-delimited frames without an unbounded tail', () => {
     const decoder = new ProtocolFrameDecoder();
     const wire = Buffer.from(
-      `${JSON.stringify({ kind: 'hello', clientInstanceId: '客户端', surface: 'tui', protocolMin: 1, protocolMax: 1 })}\n`
-      + `${JSON.stringify({ requestId: 'status-1', operation: 'host.status', input: {} })}\n`,
+      `${JSON.stringify({ kind: 'hello', clientInstanceId: '客户端', surface: 'tui', protocolMin: 1, protocolMax: 1 })}\n` +
+        `${JSON.stringify({ requestId: 'status-1', operation: 'host.status', input: {} })}\n`,
     );
     const split = wire.indexOf(Buffer.from('端')) + 1;
     assert.deepEqual(decoder.push(wire.subarray(0, split)), []);
@@ -46,39 +46,42 @@ describe('Runtime Host bootstrap protocol', () => {
       isInvalidFrame,
     );
     assert.throws(
-      () => decodeClientFrame({
-        requestId: 'request-2',
-        operation: 'turn.query',
-        input: { sessionId: 'session-1', turnId: 'turn-1', path: '/tmp/private' },
-      }),
+      () =>
+        decodeClientFrame({
+          requestId: 'request-2',
+          operation: 'turn.query',
+          input: { sessionId: 'session-1', turnId: 'turn-1', path: '/tmp/private' },
+        }),
       isInvalidFrame,
     );
     assert.throws(
-      () => decodeHostFrame({
-        requestId: 'request-3',
-        operation: 'turn.query',
-        ok: false,
-        error: { code: 'session_busy', message: 'busy' },
-      }),
+      () =>
+        decodeHostFrame({
+          requestId: 'request-3',
+          operation: 'turn.query',
+          ok: false,
+          error: { code: 'session_busy', message: 'busy' },
+        }),
       isInvalidFrame,
     );
   });
 
   test('rejects terminal snapshots with fields from another terminal variant', () => {
     assert.throws(
-      () => decodeHostFrame({
-        requestId: 'request-4',
-        operation: 'turn.query',
-        ok: true,
-        result: {
-          sessionId: 'session-1',
-          turnId: 'turn-1',
-          runId: 'run-1',
-          status: 'completed',
-          terminalEventId: 'event-1',
-          abortSource: 'user',
-        },
-      }),
+      () =>
+        decodeHostFrame({
+          requestId: 'request-4',
+          operation: 'turn.query',
+          ok: true,
+          result: {
+            sessionId: 'session-1',
+            turnId: 'turn-1',
+            runId: 'run-1',
+            status: 'completed',
+            terminalEventId: 'event-1',
+            abortSource: 'user',
+          },
+        }),
       isInvalidFrame,
     );
   });
@@ -87,7 +90,8 @@ describe('Runtime Host bootstrap protocol', () => {
     const decoder = new ProtocolFrameDecoder();
     assert.throws(
       () => decoder.push(Buffer.alloc(RUNTIME_HOST_MAX_FRAME_BYTES + 1, 0x61)),
-      (error: unknown) => error instanceof RuntimeHostProtocolError && error.code === 'frame_too_large',
+      (error: unknown) =>
+        error instanceof RuntimeHostProtocolError && error.code === 'frame_too_large',
     );
   });
 });

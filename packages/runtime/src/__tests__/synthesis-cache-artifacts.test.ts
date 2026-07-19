@@ -1,10 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { describe, test } from 'node:test';
-import type {
-  ArtifactRecord,
-  ArtifactTextReadResult,
-} from '@maka/core';
+import type { ArtifactRecord, ArtifactTextReadResult } from '@maka/core';
 import type { RuntimeEvent } from '@maka/core/runtime-event';
 import {
   loadSynthesisCacheBlocksFromArtifacts,
@@ -24,7 +21,9 @@ class FakeArtifactStore {
   private readonly records: ArtifactRecord[] = [];
   private seq = 0;
 
-  async create(input: Parameters<SynthesisCacheArtifactStore['create']>[0]): Promise<ArtifactRecord> {
+  async create(
+    input: Parameters<SynthesisCacheArtifactStore['create']>[0],
+  ): Promise<ArtifactRecord> {
     const content = input.content;
     const record: ArtifactRecord = {
       id: input.id ?? `artifact-${++this.seq}`,
@@ -47,12 +46,20 @@ class FakeArtifactStore {
 
   private readonly contents = new Map<string, string>();
 
-  async list(sessionId: string, opts: { includeDeleted?: boolean } = {}): Promise<ArtifactRecord[]> {
-    return this.records.filter((record) =>
-      record.sessionId === sessionId && (opts.includeDeleted || record.status === 'live'));
+  async list(
+    sessionId: string,
+    opts: { includeDeleted?: boolean } = {},
+  ): Promise<ArtifactRecord[]> {
+    return this.records.filter(
+      (record) =>
+        record.sessionId === sessionId && (opts.includeDeleted || record.status === 'live'),
+    );
   }
 
-  async readText(artifactId: string, opts: { maxBytes?: number } = {}): Promise<ArtifactTextReadResult> {
+  async readText(
+    artifactId: string,
+    opts: { maxBytes?: number } = {},
+  ): Promise<ArtifactTextReadResult> {
     const text = this.contents.get(artifactId);
     if (text === undefined) return { ok: false, reason: 'not_found' };
     if (opts.maxBytes !== undefined && Buffer.byteLength(text, 'utf8') > opts.maxBytes) {
@@ -153,7 +160,9 @@ describe('synthesis cache artifact lifecycle', () => {
       turnId: 'turn-1',
       name: 'wrong-session.json',
       kind: 'file',
-      content: JSON.stringify(synthesisBlock({ blockId: 'wrong-session', sessionId: 'session-other' })),
+      content: JSON.stringify(
+        synthesisBlock({ blockId: 'wrong-session', sessionId: 'session-other' }),
+      ),
       mimeType: 'application/json',
       source: 'synthesis_cache_block',
       now: 120,
@@ -225,7 +234,10 @@ describe('synthesis cache artifact lifecycle', () => {
       maxBytes: 20_000,
     });
 
-    assert.deepEqual(loaded.blocks.map((block) => block.blockId), ['valid']);
+    assert.deepEqual(
+      loaded.blocks.map((block) => block.blockId),
+      ['valid'],
+    );
     assert.equal(loaded.skippedReasonCounts?.deleted, 1);
     assert.equal(loaded.skippedReasonCounts?.session_mismatch, 1);
     assert.equal(loaded.skippedReasonCounts?.invalid_json, 1);
@@ -273,9 +285,7 @@ function archiveSourceRef(
   };
 }
 
-function synthesisBlock(
-  overrides: Partial<SynthesisCacheBlock> = {},
-): SynthesisCacheBlock {
+function synthesisBlock(overrides: Partial<SynthesisCacheBlock> = {}): SynthesisCacheBlock {
   const sessionId = overrides.sessionId ?? 'session-1';
   const blockId = overrides.blockId ?? 'valid';
   return {

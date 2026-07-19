@@ -130,7 +130,9 @@ describe('AsyncEventQueue seq-ack counters', () => {
     const q = new AsyncEventQueue<number>();
     let wakes = 0;
     const arm = (): void => {
-      void q.waitForProgress().then(() => { wakes += 1; });
+      void q.waitForProgress().then(() => {
+        wakes += 1;
+      });
     };
 
     arm();

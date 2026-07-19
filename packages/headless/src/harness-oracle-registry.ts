@@ -156,15 +156,17 @@ export async function auditHarnessOracleRegistry(
       oracle = null;
       execution = { status: error.status };
     }
-    entries.push(withFingerprint({
-      schemaVersion: 1 as const,
-      taskId: task.id,
-      qualificationKey,
-      identity: { ...identity },
-      execution,
-      oracle,
-      executionProvenance: cloneExecutionProvenance(input.provenance),
-    }));
+    entries.push(
+      withFingerprint({
+        schemaVersion: 1 as const,
+        taskId: task.id,
+        qualificationKey,
+        identity: { ...identity },
+        execution,
+        oracle,
+        executionProvenance: cloneExecutionProvenance(input.provenance),
+      }),
+    );
   }
   const snapshot = buildHarnessOracleRegistrySnapshot({
     tasks: input.tasks.map(({ task, identity }) => ({ taskId: task.id, identity })),
@@ -181,15 +183,18 @@ export function buildHarnessOracleRegistrySnapshot(
   const taskIds = input.tasks.map(({ taskId }) => taskId);
   const entries = input.tasks.map(({ taskId }) => entriesByTaskId.get(taskId));
   if (
-    new Set(taskIds).size !== taskIds.length
-    || input.entries.length !== taskIds.length
-    || entriesByTaskId.size !== input.entries.length
-    || entries.some((entry, index) => (
-      !entry
-      || !registryEntryIsValid(entry, taskIds[index])
-      || entry.qualificationKey !== qualificationKeyFor(taskIds[index]!, input.tasks[index]!.identity)
-    ))
-  ) throw new Error('Oracle registry snapshot requires exactly one matching entry per task');
+    new Set(taskIds).size !== taskIds.length ||
+    input.entries.length !== taskIds.length ||
+    entriesByTaskId.size !== input.entries.length ||
+    entries.some(
+      (entry, index) =>
+        !entry ||
+        !registryEntryIsValid(entry, taskIds[index]) ||
+        entry.qualificationKey !==
+          qualificationKeyFor(taskIds[index]!, input.tasks[index]!.identity),
+    )
+  )
+    throw new Error('Oracle registry snapshot requires exactly one matching entry per task');
   return withFingerprint({
     schemaVersion: 1 as const,
     taskIds,
@@ -223,10 +228,11 @@ export function buildHarnessOracleEnvironmentFingerprint(
     .map((image) => ({ ...image }))
     .sort((left, right) => left.reference.localeCompare(right.reference));
   if (
-    input.platform.length === 0
-    || new Set(baseImages.map((image) => image.reference)).size !== baseImages.length
-    || baseImages.some((image) => image.reference.length === 0 || image.digest.length === 0)
-  ) throw new Error('Oracle environment identity is malformed');
+    input.platform.length === 0 ||
+    new Set(baseImages.map((image) => image.reference)).size !== baseImages.length ||
+    baseImages.some((image) => image.reference.length === 0 || image.digest.length === 0)
+  )
+    throw new Error('Oracle environment identity is malformed');
   return fingerprintValue({
     schemaVersion: 1,
     environment: input.environment,
@@ -238,30 +244,34 @@ export function buildHarnessOracleEnvironmentFingerprint(
 export async function buildHarnessOracleAuditTasks(
   input: BuildHarnessOracleAuditTasksInput,
 ): Promise<HarnessOracleAuditTask[]> {
-  return Promise.all(input.tasks.map(async (task) => {
-    const taskFingerprint = await fingerprintFixedPromptTask(task);
-    const references = await discoverHarnessOracleBaseImages(task);
-    const baseImages = await Promise.all(references.map(async (reference) => ({
-      reference,
-      digest: await input.resolveBaseImageDigest(reference, input.platform),
-    })));
-    return {
-      task,
-      resolvedEnvironment: {
-        platform: input.platform,
-        baseImages,
-      },
-      identity: {
-        taskFingerprint,
-        executionPolicyFingerprint: input.executionPolicyFingerprint,
-        environmentFingerprint: buildHarnessOracleEnvironmentFingerprint({
-          environment: input.environment,
+  return Promise.all(
+    input.tasks.map(async (task) => {
+      const taskFingerprint = await fingerprintFixedPromptTask(task);
+      const references = await discoverHarnessOracleBaseImages(task);
+      const baseImages = await Promise.all(
+        references.map(async (reference) => ({
+          reference,
+          digest: await input.resolveBaseImageDigest(reference, input.platform),
+        })),
+      );
+      return {
+        task,
+        resolvedEnvironment: {
           platform: input.platform,
           baseImages,
-        }),
-      },
-    };
-  }));
+        },
+        identity: {
+          taskFingerprint,
+          executionPolicyFingerprint: input.executionPolicyFingerprint,
+          environmentFingerprint: buildHarnessOracleEnvironmentFingerprint({
+            environment: input.environment,
+            platform: input.platform,
+            baseImages,
+          }),
+        },
+      };
+    }),
+  );
 }
 
 export async function pinHarnessOracleTaskEnvironment(
@@ -298,7 +308,9 @@ export async function discoverHarnessOracleBaseImages(task: FixedPromptTask): Pr
     const reference = line.match(/^\s*FROM\s+(?:--platform=\S+\s+)?(\S+)/i)?.[1];
     if (!reference) continue;
     if (reference.includes('$')) {
-      throw new Error(`Oracle environment identity cannot resolve variable base image for task ${task.id}`);
+      throw new Error(
+        `Oracle environment identity cannot resolve variable base image for task ${task.id}`,
+      );
     }
     if (reference !== 'scratch') references.add(reference);
   }
@@ -316,7 +328,12 @@ export function resolveHarnessOracleAnnotations(
     const entry = entriesByTaskId.get(task.id);
     if (!entry) return { taskId: task.id, state: 'missing', qualificationKey };
     if (entry.qualificationKey !== qualificationKey) {
-      return { taskId: task.id, state: 'stale', qualificationKey, evidenceFingerprint: entry.fingerprint };
+      return {
+        taskId: task.id,
+        state: 'stale',
+        qualificationKey,
+        evidenceFingerprint: entry.fingerprint,
+      };
     }
     return {
       taskId: task.id,
@@ -372,10 +389,10 @@ function assertSnapshotFingerprint(snapshot: HarnessOracleRegistrySnapshot): voi
     throw new Error('Oracle registry snapshot fingerprint is invalid');
   }
   if (
-    snapshot.schemaVersion !== 1
-    || new Set(snapshot.taskIds).size !== snapshot.taskIds.length
-    || snapshot.entries.length !== snapshot.taskIds.length
-    || snapshot.entries.some((entry, index) => !registryEntryIsValid(entry, snapshot.taskIds[index]))
+    snapshot.schemaVersion !== 1 ||
+    new Set(snapshot.taskIds).size !== snapshot.taskIds.length ||
+    snapshot.entries.length !== snapshot.taskIds.length ||
+    snapshot.entries.some((entry, index) => !registryEntryIsValid(entry, snapshot.taskIds[index]))
   ) {
     throw new Error('Oracle registry entry is malformed');
   }
@@ -383,61 +400,71 @@ function assertSnapshotFingerprint(snapshot: HarnessOracleRegistrySnapshot): voi
 
 function registrySnapshotShapeIsValid(value: unknown): boolean {
   if (
-    !isRecord(value)
-    || value.schemaVersion !== 1
-    || typeof value.fingerprint !== 'string'
-    || !Array.isArray(value.taskIds)
-    || value.taskIds.some((taskId) => typeof taskId !== 'string')
-    || !Array.isArray(value.entries)
-    || !isRecord(value.provenance)
-    || !workflowProvenanceIsValid(value.provenance)
-  ) return false;
-  return value.entries.every((entry) => (
-    isRecord(entry)
-    && entry.schemaVersion === 1
-    && typeof entry.taskId === 'string'
-    && typeof entry.qualificationKey === 'string'
-    && typeof entry.fingerprint === 'string'
-    && isRecord(entry.identity)
-    && typeof entry.identity.taskFingerprint === 'string'
-    && typeof entry.identity.executionPolicyFingerprint === 'string'
-    && typeof entry.identity.environmentFingerprint === 'string'
-    && isRecord(entry.execution)
-    && typeof entry.execution.status === 'string'
-    && isRecord(entry.executionProvenance)
-    && executionProvenanceIsValid(entry.executionProvenance)
-    && (entry.oracle === null || (
-      isRecord(entry.oracle)
-      && typeof entry.oracle.outcome === 'string'
-      && typeof entry.oracle.reward === 'number'
-      && typeof entry.oracle.attempts === 'number'
-    ))
-  ));
+    !isRecord(value) ||
+    value.schemaVersion !== 1 ||
+    typeof value.fingerprint !== 'string' ||
+    !Array.isArray(value.taskIds) ||
+    value.taskIds.some((taskId) => typeof taskId !== 'string') ||
+    !Array.isArray(value.entries) ||
+    !isRecord(value.provenance) ||
+    !workflowProvenanceIsValid(value.provenance)
+  )
+    return false;
+  return value.entries.every(
+    (entry) =>
+      isRecord(entry) &&
+      entry.schemaVersion === 1 &&
+      typeof entry.taskId === 'string' &&
+      typeof entry.qualificationKey === 'string' &&
+      typeof entry.fingerprint === 'string' &&
+      isRecord(entry.identity) &&
+      typeof entry.identity.taskFingerprint === 'string' &&
+      typeof entry.identity.executionPolicyFingerprint === 'string' &&
+      typeof entry.identity.environmentFingerprint === 'string' &&
+      isRecord(entry.execution) &&
+      typeof entry.execution.status === 'string' &&
+      isRecord(entry.executionProvenance) &&
+      executionProvenanceIsValid(entry.executionProvenance) &&
+      (entry.oracle === null ||
+        (isRecord(entry.oracle) &&
+          typeof entry.oracle.outcome === 'string' &&
+          typeof entry.oracle.reward === 'number' &&
+          typeof entry.oracle.attempts === 'number')),
+  );
 }
 
-function registryEntryIsValid(entry: HarnessOracleRegistryEntry, expectedTaskId: string | undefined): boolean {
+function registryEntryIsValid(
+  entry: HarnessOracleRegistryEntry,
+  expectedTaskId: string | undefined,
+): boolean {
   if (
-    entry.schemaVersion !== 1
-    || entry.taskId !== expectedTaskId
-    || entry.fingerprint !== fingerprintValue(withoutFingerprint(entry))
-    || entry.qualificationKey !== qualificationKeyFor(entry.taskId, entry.identity)
-    || !qualificationIdentityIsValid(entry.identity)
-    || !executionProvenanceIsValid(entry.executionProvenance)
-  ) return false;
+    entry.schemaVersion !== 1 ||
+    entry.taskId !== expectedTaskId ||
+    entry.fingerprint !== fingerprintValue(withoutFingerprint(entry)) ||
+    entry.qualificationKey !== qualificationKeyFor(entry.taskId, entry.identity) ||
+    !qualificationIdentityIsValid(entry.identity) ||
+    !executionProvenanceIsValid(entry.executionProvenance)
+  )
+    return false;
   if (entry.execution.status !== 'completed') {
-    return (entry.execution.status === 'timed_out' || entry.execution.status === 'infra_failed')
-      && entry.oracle === null;
+    return (
+      (entry.execution.status === 'timed_out' || entry.execution.status === 'infra_failed') &&
+      entry.oracle === null
+    );
   }
   const oracle = entry.oracle;
   if (
-    oracle === null
-    || !Number.isSafeInteger(oracle.attempts)
-    || oracle.attempts < 1
-    || oracle.attempts > HARBOR_ORACLE_MAX_ATTEMPTS
-    || !Number.isFinite(oracle.reward)
-  ) return false;
+    oracle === null ||
+    !Number.isSafeInteger(oracle.attempts) ||
+    oracle.attempts < 1 ||
+    oracle.attempts > HARBOR_ORACLE_MAX_ATTEMPTS ||
+    !Number.isFinite(oracle.reward)
+  )
+    return false;
   if (oracle.outcome === 'passed') return oracle.reward > 0;
-  return (oracle.outcome === 'failed' || oracle.outcome === 'candidate_timeout') && oracle.reward === 0;
+  return (
+    (oracle.outcome === 'failed' || oracle.outcome === 'candidate_timeout') && oracle.reward === 0
+  );
 }
 
 function qualificationIdentityIsValid(identity: HarnessOracleQualificationIdentity): boolean {
@@ -449,20 +476,27 @@ function qualificationIdentityIsValid(identity: HarnessOracleQualificationIdenti
 }
 
 function workflowProvenanceIsValid(value: Record<string, unknown>): boolean {
-  return value.issuer === 'github-actions'
-    && typeof value.repository === 'string'
-    && typeof value.workflow === 'string'
-    && typeof value.commitSha === 'string'
-    && typeof value.runId === 'string'
-    && typeof value.runAttempt === 'string';
+  return (
+    value.issuer === 'github-actions' &&
+    typeof value.repository === 'string' &&
+    typeof value.workflow === 'string' &&
+    typeof value.commitSha === 'string' &&
+    typeof value.runId === 'string' &&
+    typeof value.runAttempt === 'string'
+  );
 }
 
-function executionProvenanceIsValid(value: HarnessOracleExecutionProvenance | Record<string, unknown>): boolean {
-  if (!workflowProvenanceIsValid(value as Record<string, unknown>) || !isRecord(value.runtime)) return false;
-  return typeof value.runtime.nodeVersion === 'string'
-    && typeof value.runtime.harborVersion === 'string'
-    && typeof value.runtime.dockerVersion === 'string'
-    && typeof value.runtime.dockerBuildxVersion === 'string';
+function executionProvenanceIsValid(
+  value: HarnessOracleExecutionProvenance | Record<string, unknown>,
+): boolean {
+  if (!workflowProvenanceIsValid(value as Record<string, unknown>) || !isRecord(value.runtime))
+    return false;
+  return (
+    typeof value.runtime.nodeVersion === 'string' &&
+    typeof value.runtime.harborVersion === 'string' &&
+    typeof value.runtime.dockerVersion === 'string' &&
+    typeof value.runtime.dockerBuildxVersion === 'string'
+  );
 }
 
 function cloneWorkflowProvenance(
@@ -500,7 +534,10 @@ function fingerprintValue(value: unknown): string {
 function canonicalJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
   if (isRecord(value)) {
-    return `{${Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`).join(',')}}`;
+    return `{${Object.entries(value)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`)
+      .join(',')}}`;
   }
   return JSON.stringify(value);
 }

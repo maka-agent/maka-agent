@@ -38,7 +38,9 @@ export function formatToolResultContent(content: ToolResultContent): string {
         `status: ${content.status}`,
         content.exitCode !== undefined ? `exit: ${content.exitCode}` : '',
         formatShellOutput(content.output),
-      ].filter(Boolean).join('\n\n');
+      ]
+        .filter(Boolean)
+        .join('\n\n');
     case 'shell_run':
       return [
         `$ ${content.cmd}`,
@@ -47,7 +49,9 @@ export function formatToolResultContent(content: ToolResultContent): string {
         `status: ${content.status}`,
         content.exitCode !== undefined ? `exit: ${content.exitCode}` : '',
         content.output ? formatShellOutput(content.output) : '',
-      ].filter(Boolean).join('\n\n');
+      ]
+        .filter(Boolean)
+        .join('\n\n');
     case 'file_diff':
       return content.diff;
     case 'file_write':
@@ -64,36 +68,51 @@ export function formatToolResultContent(content: ToolResultContent): string {
     case 'web_search_error':
       return content.message;
     case 'office_document':
-      return content.message ?? [content.operation, content.path, content.stdout, content.stderr].filter(Boolean).join('\n');
+      return (
+        content.message ??
+        [content.operation, content.path, content.stdout, content.stderr].filter(Boolean).join('\n')
+      );
     case 'explore_agent':
-      return content.report ?? content.summary ?? content.message ?? `Inspected ${content.filesInspected} files`;
+      return (
+        content.report ??
+        content.summary ??
+        content.message ??
+        `Inspected ${content.filesInspected} files`
+      );
     case 'subagent':
       return content.summary;
     case 'agent_swarm': {
       const projection = projectAgentSwarmResult(content);
-      return limitText([
+      return limitText(
         [
-          `Agent swarm: ${projection.status}`,
-          `${projection.itemCount} items`,
-          `${projection.completedItemCount} completed`,
-          `${projection.failedItemCount} failed`,
-          `${projection.cancelledItemCount} cancelled`,
-          `${projection.artifactCount} artifacts`,
-          `${projection.durationMs}ms`,
-        ].join(' · '),
-        ...content.items.map((item) => [
           [
-            `${item.itemId}: ${item.status}`,
-            item.profile,
-            item.durationMs !== undefined ? `${item.durationMs}ms` : '',
-            `${item.artifactIds.length} artifacts`,
-            item.runId ? `run ${item.runId}` : '',
-            item.turnId ? `turn ${item.turnId}` : '',
-            item.failureClass ?? '',
-          ].filter(Boolean).join(' · '),
-          limitText(item.summary, 1_000),
-        ].join('\n')),
-      ].join('\n\n'), 16_000);
+            `Agent swarm: ${projection.status}`,
+            `${projection.itemCount} items`,
+            `${projection.completedItemCount} completed`,
+            `${projection.failedItemCount} failed`,
+            `${projection.cancelledItemCount} cancelled`,
+            `${projection.artifactCount} artifacts`,
+            `${projection.durationMs}ms`,
+          ].join(' · '),
+          ...content.items.map((item) =>
+            [
+              [
+                `${item.itemId}: ${item.status}`,
+                item.profile,
+                item.durationMs !== undefined ? `${item.durationMs}ms` : '',
+                `${item.artifactIds.length} artifacts`,
+                item.runId ? `run ${item.runId}` : '',
+                item.turnId ? `turn ${item.turnId}` : '',
+                item.failureClass ?? '',
+              ]
+                .filter(Boolean)
+                .join(' · '),
+              limitText(item.summary, 1_000),
+            ].join('\n'),
+          ),
+        ].join('\n\n'),
+        16_000,
+      );
     }
     case 'rive_workflow':
       return content.summary;
@@ -110,7 +129,9 @@ function formatShellOutput(output: ShellOutput): string {
   return [
     output.stdout ? `stdout:\n${output.stdout}` : '',
     output.stderr ? `stderr:\n${output.stderr}` : '',
-  ].filter(Boolean).join('\n\n');
+  ]
+    .filter(Boolean)
+    .join('\n\n');
 }
 
 export function formatUnknown(value: unknown): string {

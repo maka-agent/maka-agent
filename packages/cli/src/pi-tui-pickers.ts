@@ -65,9 +65,10 @@ export class MakaAutocompleteProvider implements AutocompleteProvider {
       const skills = await this.listSkills();
       if (options.signal.aborted) return null;
       const items = skills
-        .filter((skill) =>
-          skill.id.toLowerCase().startsWith(query)
-          || skill.name.toLowerCase().includes(query))
+        .filter(
+          (skill) =>
+            skill.id.toLowerCase().startsWith(query) || skill.name.toLowerCase().includes(query),
+        )
         .map((skill) => ({
           value: skill.id,
           label: `/skill:${skill.id}`,
@@ -81,7 +82,9 @@ export class MakaAutocompleteProvider implements AutocompleteProvider {
         this.lastSlashKind = 'skill';
         const currentLine = lines[cursorLine] || '';
         const textBeforeCursor = currentLine.slice(0, cursorCol);
-        const atLineStart = textBeforeCursor.slice(0, textBeforeCursor.length - skillPrefix.prefix.length).trim() === '';
+        const atLineStart =
+          textBeforeCursor.slice(0, textBeforeCursor.length - skillPrefix.prefix.length).trim() ===
+          '';
         return { items, prefix: atLineStart ? skillPrefix.prefix : skillPrefix.query };
       }
       return null;
@@ -115,9 +118,10 @@ export class MakaAutocompleteProvider implements AutocompleteProvider {
       const skills = await this.listSkills();
       if (options.signal.aborted) return null;
       const items = skills
-        .filter((skill) =>
-          skill.id.toLowerCase().startsWith(query)
-          || skill.name.toLowerCase().includes(query))
+        .filter(
+          (skill) =>
+            skill.id.toLowerCase().startsWith(query) || skill.name.toLowerCase().includes(query),
+        )
         .map((skill) => ({
           value: `skill:${skill.id}`,
           label: `/skill:${skill.id}`,
@@ -256,14 +260,20 @@ export interface MakaSlashCommand extends MakaSlashCommandMetadata {
 function slashCommandPrefix(lines: string[], cursorLine: number, cursorCol: number): string | null {
   const currentLine = lines[cursorLine] || '';
   const textBeforeCursor = currentLine.slice(0, cursorCol);
-  return textBeforeCursor.startsWith('/') && !textBeforeCursor.includes(' ') ? textBeforeCursor : null;
+  return textBeforeCursor.startsWith('/') && !textBeforeCursor.includes(' ')
+    ? textBeforeCursor
+    : null;
 }
 
 // A `/`-token that begins mid-message (after whitespace) on the first line,
 // excluding the `/skill:` form (handled by skillInvocationPrefixAt above) and
 // line-start (handled by slashCommandPrefix). Used to offer `/skill:xxx`
 // completions from a bare `/` so typing `/` surfaces skills immediately.
-function midMessageSlashToken(lines: string[], cursorLine: number, cursorCol: number): string | null {
+function midMessageSlashToken(
+  lines: string[],
+  cursorLine: number,
+  cursorCol: number,
+): string | null {
   if (cursorLine !== 0) return null;
   const currentLine = lines[cursorLine] || '';
   const textBeforeCursor = currentLine.slice(0, cursorCol);
@@ -349,7 +359,9 @@ export class DirectoryPickerOverlay implements Component {
       padLine(ansi.dim(`Current: ${this.input.currentCwd}`), safeWidth),
       padLine('', safeWidth),
       ...(editorLines.length > 0
-        ? editorLines.map((line, index) => padLine(`${index === 0 ? label : ' '.repeat(labelWidth)}${line}`, safeWidth))
+        ? editorLines.map((line, index) =>
+            padLine(`${index === 0 ? label : ' '.repeat(labelWidth)}${line}`, safeWidth),
+          )
         : [padLine(label, safeWidth)]),
       padLine(ansi.accent('-'.repeat(safeWidth)), safeWidth),
     ];
@@ -493,13 +505,16 @@ export class UserQuestionOverlay implements Component {
     if (editorLines.length === 0) {
       return [padLine(`${prefix}${ansi.dim(this.input.placeholder)}`, width)];
     }
-    return editorLines.map((line, index) => (
-      padLine(`${index === 0 ? prefix : '  '}${line}`, width)
-    ));
+    return editorLines.map((line, index) =>
+      padLine(`${index === 0 ? prefix : '  '}${line}`, width),
+    );
   }
 }
 
-export function modelPickerItems(currentModel: string, models: readonly string[] | undefined): SelectItem[] {
+export function modelPickerItems(
+  currentModel: string,
+  models: readonly string[] | undefined,
+): SelectItem[] {
   const ids: string[] = [];
   const seen = new Set<string>();
   for (const candidate of [currentModel, ...(models ?? [])]) {
@@ -526,7 +541,8 @@ export function modelChoicePickerItems(
   current: { model: string; connectionSlug: string },
 ): SelectItem[] {
   return choices.map((choice, index) => {
-    const isCurrent = choice.model === current.model && choice.connectionSlug === current.connectionSlug;
+    const isCurrent =
+      choice.model === current.model && choice.connectionSlug === current.connectionSlug;
     const tags = [choice.connectionName || choice.connectionSlug];
     if (isCurrent) tags.push('current');
     else if (choice.isDefaultConnection) tags.push('default');
@@ -580,7 +596,11 @@ export function thinkingLevelPickerItems(
   current: ThinkingLevel | undefined,
 ): SelectItem[] {
   return [
-    { value: 'default', label: '默认', ...(current === undefined ? { description: 'current' } : {}) },
+    {
+      value: 'default',
+      label: '默认',
+      ...(current === undefined ? { description: 'current' } : {}),
+    },
     ...levels.map((level) => ({
       value: level,
       label: THINKING_LEVEL_LABELS[level],
@@ -675,8 +695,10 @@ export class OnboardingWizard implements Component {
   private applyQuery(text: string): void {
     const query = text.trim().toLowerCase();
     const next = query
-      ? this.input.providers.filter((p) =>
-        p.label.toLowerCase().includes(query) || p.providerType.toLowerCase().includes(query))
+      ? this.input.providers.filter(
+          (p) =>
+            p.label.toLowerCase().includes(query) || p.providerType.toLowerCase().includes(query),
+        )
       : this.input.providers;
     if (next === this.filtered) return;
     this.filtered = next;
@@ -762,7 +784,10 @@ export class OnboardingWizard implements Component {
     this.searchEditor.focused = true;
     this.keyEditor.focused = false;
     return [
-      padLine(`Set Up Provider ${ansi.dim('· 1/2')} ${ansi.accent(String(this.filtered.length))}`, width),
+      padLine(
+        `Set Up Provider ${ansi.dim('· 1/2')} ${ansi.accent(String(this.filtered.length))}`,
+        width,
+      ),
       padLine(ansi.dim('搜索服务商，↑↓ 选择 · Enter 确认 · Esc 取消'), width),
       padLine('', width),
       ...this.renderFieldRow(this.searchEditor, '搜索', width),
@@ -793,9 +818,12 @@ export class OnboardingWizard implements Component {
 
   private renderStatusLine(): string {
     switch (this.status.kind) {
-      case 'prompt': return ansi.dim('Enter 提交');
-      case 'verifying': return `${ansi.yellow('⠋')} 正在验证 key…`;
-      case 'error': return ansi.red(`✗ ${this.status.text}`);
+      case 'prompt':
+        return ansi.dim('Enter 提交');
+      case 'verifying':
+        return `${ansi.yellow('⠋')} 正在验证 key…`;
+      case 'error':
+        return ansi.red(`✗ ${this.status.text}`);
     }
   }
 
@@ -807,8 +835,8 @@ export class OnboardingWizard implements Component {
     if (editorLines.length === 0) {
       return [padLine(prefix, width)];
     }
-    return editorLines.map((line, index) => (
-      padLine(`${index === 0 ? prefix : ' '.repeat(prefixWidth)}${line}`, width)
-    ));
+    return editorLines.map((line, index) =>
+      padLine(`${index === 0 ? prefix : ' '.repeat(prefixWidth)}${line}`, width),
+    );
   }
 }

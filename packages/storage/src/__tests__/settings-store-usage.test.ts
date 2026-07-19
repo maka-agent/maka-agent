@@ -30,7 +30,11 @@ function makeHeader(overrides: Partial<SessionHeader> = {}): SessionHeader {
   };
 }
 
-async function seedSession(workspaceRoot: string, header: SessionHeader, messages: StoredMessage[]) {
+async function seedSession(
+  workspaceRoot: string,
+  header: SessionHeader,
+  messages: StoredMessage[],
+) {
   const sessionDir = join(workspaceRoot, 'sessions', header.id);
   await mkdir(sessionDir, { recursive: true });
   await writeFile(

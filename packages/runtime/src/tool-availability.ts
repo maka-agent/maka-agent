@@ -202,7 +202,12 @@ export class ToolAvailabilityRuntime {
     const out = new Set<string>();
     for (const event of events ?? []) {
       const content = event?.content;
-      if (!content || content.kind !== 'function_call' || !SEED_CONNECTOR_NAMES.has(content.name ?? '')) continue;
+      if (
+        !content ||
+        content.kind !== 'function_call' ||
+        !SEED_CONNECTOR_NAMES.has(content.name ?? '')
+      )
+        continue;
       // Ledger seeding reads the group id from any historical arg key.
       const id = extractGroupId(content.args);
       if (id && this.groupIds.has(id)) out.add(id);
@@ -254,7 +259,10 @@ export class ToolAvailabilityRuntime {
     const activeSet = new Set(active);
     const isLoaded = (group: CatalogGroup): boolean =>
       group.toolNames.every((name) => activeSet.has(name));
-    const enabledSourceIds = this.groups.filter(isLoaded).map((group) => group.id).sort((a, b) => a.localeCompare(b));
+    const enabledSourceIds = this.groups
+      .filter(isLoaded)
+      .map((group) => group.id)
+      .sort((a, b) => a.localeCompare(b));
     const availableSourceIds = this.groups
       .filter((group) => !isLoaded(group))
       .map((group) => group.id)

@@ -8,9 +8,5 @@
     "composite": true
   },
   "include": ["src"],
-  "references": [
-    { "path": "../core" },
-    { "path": "../storage" },
-    { "path": "../runtime" }
-  ]
+  "references": [{ "path": "../core" }, { "path": "../storage" }, { "path": "../runtime" }]
 }

@@ -13,7 +13,13 @@ export interface LocalMemorySettings {
 }
 
 export type LocalMemoryOrigin = 'manual' | 'extracted' | 'imported' | 'unknown';
-export type LocalMemoryEntryStatus = 'draft' | 'review_required' | 'active' | 'archived' | 'rejected' | 'unknown';
+export type LocalMemoryEntryStatus =
+  | 'draft'
+  | 'review_required'
+  | 'active'
+  | 'archived'
+  | 'rejected'
+  | 'unknown';
 export type LocalMemoryScope = 'workspace' | 'session';
 export type LocalMemorySource = 'user_authored' | 'chat_extracted' | 'unknown';
 
@@ -116,7 +122,10 @@ export interface AppendApprovedLocalMemoryEntryInput {
 
 export type AppendApprovedLocalMemoryEntryResult =
   | { readonly ok: true; readonly draft: string }
-  | { readonly ok: false; readonly reason: 'invalid_id' | 'empty_title' | 'empty_content' | 'oversize' };
+  | {
+      readonly ok: false;
+      readonly reason: 'invalid_id' | 'empty_title' | 'empty_content' | 'oversize';
+    };
 
 export interface AppendLocalMemoryProposalInput {
   readonly proposalId: string;
@@ -130,7 +139,10 @@ export interface AppendLocalMemoryProposalInput {
 
 export type AppendLocalMemoryProposalResult =
   | { readonly ok: true; readonly draft: string }
-  | { readonly ok: false; readonly reason: 'invalid_id' | 'empty_title' | 'empty_content' | 'oversize' };
+  | {
+      readonly ok: false;
+      readonly reason: 'invalid_id' | 'empty_title' | 'empty_content' | 'oversize';
+    };
 
 export interface ApproveLocalMemoryProposalInput {
   readonly proposalId: string;
@@ -140,8 +152,16 @@ export interface ApproveLocalMemoryProposalInput {
 }
 
 export type ApproveLocalMemoryProposalResult =
-  | { readonly ok: true; readonly memoryDraft: string; readonly pendingDraft: string; readonly entry: LocalMemoryEntryPreview }
-  | { readonly ok: false; readonly reason: 'invalid_id' | 'not_found' | 'not_pending' | 'empty_content' | 'oversize' };
+  | {
+      readonly ok: true;
+      readonly memoryDraft: string;
+      readonly pendingDraft: string;
+      readonly entry: LocalMemoryEntryPreview;
+    }
+  | {
+      readonly ok: false;
+      readonly reason: 'invalid_id' | 'not_found' | 'not_pending' | 'empty_content' | 'oversize';
+    };
 
 export interface RejectLocalMemoryProposalInput {
   readonly proposalId: string;
@@ -150,7 +170,10 @@ export interface RejectLocalMemoryProposalInput {
 
 export type RejectLocalMemoryProposalResult =
   | { readonly ok: true; readonly draft: string }
-  | { readonly ok: false; readonly reason: 'invalid_id' | 'not_found' | 'not_pending' | 'oversize' };
+  | {
+      readonly ok: false;
+      readonly reason: 'invalid_id' | 'not_found' | 'not_pending' | 'oversize';
+    };
 
 export interface SetLocalMemoryEntryStatusInput {
   readonly id: string;
@@ -207,7 +230,8 @@ export function normalizeLocalMemorySettings(input: unknown): LocalMemorySetting
 }
 
 export function defaultLocalMemoryMarkdown(now = Date.now()): string {
-  const exampleContent = '这里写你希望 Maka 记住的长期偏好。默认不会注入给 agent；需要在设置里单独开启“agent 可读取本地记忆”。';
+  const exampleContent =
+    '这里写你希望 Maka 记住的长期偏好。默认不会注入给 agent；需要在设置里单独开启“agent 可读取本地记忆”。';
   const exampleId = stableLocalMemoryEntryId(exampleContent, now);
   return [
     '# Maka Memory',
@@ -251,7 +275,10 @@ export function appendManualLocalMemoryEntryDraft(
   const content = input.content.trim();
   if (!content) return { ok: false, reason: 'empty_content' };
 
-  const now = Number.isFinite(input.now) && input.now !== undefined ? Math.max(0, Math.floor(input.now)) : Date.now();
+  const now =
+    Number.isFinite(input.now) && input.now !== undefined
+      ? Math.max(0, Math.floor(input.now))
+      : Date.now();
   const tags = normalizeManualEntryTags(input.tags ?? []);
   const id = stableLocalMemoryEntryId(content, now);
   const meta = [
@@ -261,12 +288,9 @@ export function appendManualLocalMemoryEntryDraft(
     'status=active',
     ...(tags.length > 0 ? [`tags=${tags.join(',')}`] : []),
   ].join(' ');
-  const entry = [
-    `## ${title}`,
-    `<!-- maka-memory: ${meta} -->`,
-    content,
-  ].join('\n');
-  const draft = currentDraft.trim().length > 0 ? `${currentDraft.trimEnd()}\n\n${entry}\n` : `${entry}\n`;
+  const entry = [`## ${title}`, `<!-- maka-memory: ${meta} -->`, content].join('\n');
+  const draft =
+    currentDraft.trim().length > 0 ? `${currentDraft.trimEnd()}\n\n${entry}\n` : `${entry}\n`;
   if (new TextEncoder().encode(draft).byteLength > LOCAL_MEMORY_MAX_BYTES) {
     return { ok: false, reason: 'oversize' };
   }
@@ -343,7 +367,9 @@ export function stableLocalMemoryEntryId(content: string, createdAt: number): st
 }
 
 export function stableLocalMemoryProposalId(content: string, proposedAt: number): string {
-  const normalizedProposedAt = Number.isFinite(proposedAt) ? Math.max(0, Math.floor(proposedAt)) : 0;
+  const normalizedProposedAt = Number.isFinite(proposedAt)
+    ? Math.max(0, Math.floor(proposedAt))
+    : 0;
   return `proposal-${sha256Hex(`${content.trim()}\n${normalizedProposedAt}`).slice(0, 16)}`;
 }
 
@@ -359,15 +385,22 @@ export function setLocalMemoryEntryStatusDraft(
   const section = findLocalMemoryEntrySection(currentDraft, id);
   if (!section) return { ok: false, reason: 'not_found' };
 
-  const now = Number.isFinite(input.now) && input.now !== undefined ? Math.max(0, Math.floor(input.now)) : Date.now();
+  const now =
+    Number.isFinite(input.now) && input.now !== undefined
+      ? Math.max(0, Math.floor(input.now))
+      : Date.now();
   const lines = currentDraft.split(/\r?\n/);
   const meta = {
     ...(section.meta ?? {}),
     id: section.id,
     status: input.status,
     updatedAt: String(now),
-    ...(input.status === 'archived' && input.recordLifecycleMetadata ? { archivedAt: String(now) } : {}),
-    ...(input.status === 'archived' && input.recordLifecycleMetadata && input.archiveReason ? { archiveReason: normalizeMetaValue(input.archiveReason) } : {}),
+    ...(input.status === 'archived' && input.recordLifecycleMetadata
+      ? { archivedAt: String(now) }
+      : {}),
+    ...(input.status === 'archived' && input.recordLifecycleMetadata && input.archiveReason
+      ? { archiveReason: normalizeMetaValue(input.archiveReason) }
+      : {}),
   };
   const metaLine = `<!-- maka-memory: ${serializeMetaComment(meta)} -->`;
 
@@ -396,7 +429,8 @@ export function approveLocalMemoryProposalDraft(
   const proposal = findLocalMemoryEntryFullSection(pendingDraft, proposalId);
   if (!proposal) return { ok: false, reason: 'not_found' };
   const status = normalizeEntryStatus(proposal.meta?.status, true);
-  if (status !== 'draft' && status !== 'review_required') return { ok: false, reason: 'not_pending' };
+  if (status !== 'draft' && status !== 'review_required')
+    return { ok: false, reason: 'not_pending' };
   if (!proposal.content.trim()) return { ok: false, reason: 'empty_content' };
 
   const approved = appendApprovedLocalMemoryEntryDraft(memoryDraft, {
@@ -412,7 +446,9 @@ export function approveLocalMemoryProposalDraft(
     tags: parseTags(proposal.meta?.tags),
   });
   if (!approved.ok) {
-    return approved.reason === 'oversize' ? { ok: false, reason: 'oversize' } : { ok: false, reason: 'empty_content' };
+    return approved.reason === 'oversize'
+      ? { ok: false, reason: 'oversize' }
+      : { ok: false, reason: 'empty_content' };
   }
 
   const pendingWithoutProposal = removeLocalMemoryEntrySection(pendingDraft, proposal.range);
@@ -434,7 +470,8 @@ export function rejectLocalMemoryProposalDraft(
   const section = findLocalMemoryEntrySection(currentDraft, proposalId);
   if (!section) return { ok: false, reason: 'not_found' };
   const status = normalizeEntryStatus(section.meta?.status, true);
-  if (status !== 'draft' && status !== 'review_required') return { ok: false, reason: 'not_pending' };
+  if (status !== 'draft' && status !== 'review_required')
+    return { ok: false, reason: 'not_pending' };
 
   const rejectedAt = normalizeTimestamp(input.rejectedAt);
   const lines = currentDraft.split(/\r?\n/);
@@ -459,7 +496,10 @@ export function rejectLocalMemoryProposalDraft(
   return { ok: true, draft };
 }
 
-export function findLocalMemoryEntryDraftRange(input: string, entryId: string): LocalMemoryEntryDraftRange | null {
+export function findLocalMemoryEntryDraftRange(
+  input: string,
+  entryId: string,
+): LocalMemoryEntryDraftRange | null {
   const id = entryId.trim();
   if (!id) return null;
 
@@ -475,7 +515,8 @@ export function findLocalMemoryEntryDraftRange(input: string, entryId: string): 
   }
   lineStarts[lines.length] = input.length;
 
-  let current: { title: string; headingLineIndex: number; meta?: Record<string, string> } | null = null;
+  let current: { title: string; headingLineIndex: number; meta?: Record<string, string> } | null =
+    null;
 
   const matchCurrent = (endLineIndex: number): LocalMemoryEntryDraftRange | null => {
     if (!current) return null;
@@ -503,7 +544,10 @@ export function findLocalMemoryEntryDraftRange(input: string, entryId: string): 
   return matchCurrent(lines.length);
 }
 
-export function findLocalMemoryEntryDraft(input: string, entryId: string): LocalMemoryEntryDraft | null {
+export function findLocalMemoryEntryDraft(
+  input: string,
+  entryId: string,
+): LocalMemoryEntryDraft | null {
   const section = findLocalMemoryEntryFullSection(input, entryId);
   if (!section) return null;
   const id = section.meta?.id ?? slugId(section.title);
@@ -521,10 +565,22 @@ export function findLocalMemoryEntryDraft(input: string, entryId: string): Local
 function parseLocalMemoryMarkdownRaw(input: string): LocalMemoryRawParseResult {
   const size = new TextEncoder().encode(input).byteLength;
   if (size > LOCAL_MEMORY_MAX_BYTES) {
-    return { entries: [], activeEntries: [], archivedEntries: [], safeMode: true, reason: 'oversize' };
+    return {
+      entries: [],
+      activeEntries: [],
+      archivedEntries: [],
+      safeMode: true,
+      reason: 'oversize',
+    };
   }
   if (input.trim().length === 0) {
-    return { entries: [], activeEntries: [], archivedEntries: [], safeMode: false, reason: 'empty' };
+    return {
+      entries: [],
+      activeEntries: [],
+      archivedEntries: [],
+      safeMode: false,
+      reason: 'empty',
+    };
   }
 
   const entries: LocalMemoryRawEntry[] = [];
@@ -631,9 +687,19 @@ function parseMetaComment(line: string): Record<string, string> | null {
 function findLocalMemoryEntrySection(
   input: string,
   entryId: string,
-): { id: string; headingLineIndex: number; metaLineIndex?: number; meta?: Record<string, string> } | null {
+): {
+  id: string;
+  headingLineIndex: number;
+  metaLineIndex?: number;
+  meta?: Record<string, string>;
+} | null {
   const lines = input.split(/\r?\n/);
-  let current: { title: string; headingLineIndex: number; metaLineIndex?: number; meta?: Record<string, string> } | null = null;
+  let current: {
+    title: string;
+    headingLineIndex: number;
+    metaLineIndex?: number;
+    meta?: Record<string, string>;
+  } | null = null;
 
   const matchCurrent = () => {
     if (!current) return null;
@@ -664,7 +730,12 @@ function findLocalMemoryEntrySection(
 function findLocalMemoryEntryFullSection(
   input: string,
   entryId: string,
-): { title: string; meta?: Record<string, string>; content: string; range: LocalMemoryEntryDraftRange } | null {
+): {
+  title: string;
+  meta?: Record<string, string>;
+  content: string;
+  range: LocalMemoryEntryDraftRange;
+} | null {
   const id = entryId.trim();
   if (!id) return null;
 
@@ -674,7 +745,8 @@ function findLocalMemoryEntryFullSection(
   for (let index = 0; index < lines.length; index += 1) {
     lineStarts[index] = offset;
     offset += (lines[index] ?? '').length;
-    if (index < lines.length - 1) offset += input[offset] === '\r' && input[offset + 1] === '\n' ? 2 : 1;
+    if (index < lines.length - 1)
+      offset += input[offset] === '\r' && input[offset + 1] === '\n' ? 2 : 1;
   }
   lineStarts[lines.length] = input.length;
 
@@ -755,7 +827,10 @@ function serializeMetaComment(meta: Record<string, string>): string {
     if (seen.has(key)) return;
     const value = meta[key];
     if (value === undefined) return;
-    const safeValue = value.replace(/[\s<>]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 128);
+    const safeValue = value
+      .replace(/[\s<>]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 128);
     if (!safeValue) return;
     seen.add(key);
     parts.push(`${key}=${safeValue}`);
@@ -773,13 +848,12 @@ function appendEntrySection(
   title: string,
   meta: string,
   content: string,
-): { readonly ok: true; readonly draft: string } | { readonly ok: false; readonly reason: 'oversize' } {
-  const entry = [
-    `## ${title}`,
-    `<!-- maka-memory: ${meta} -->`,
-    content,
-  ].join('\n');
-  const draft = currentDraft.trim().length > 0 ? `${currentDraft.trimEnd()}\n\n${entry}\n` : `${entry}\n`;
+):
+  | { readonly ok: true; readonly draft: string }
+  | { readonly ok: false; readonly reason: 'oversize' } {
+  const entry = [`## ${title}`, `<!-- maka-memory: ${meta} -->`, content].join('\n');
+  const draft =
+    currentDraft.trim().length > 0 ? `${currentDraft.trimEnd()}\n\n${entry}\n` : `${entry}\n`;
   if (new TextEncoder().encode(draft).byteLength > LOCAL_MEMORY_MAX_BYTES) {
     return { ok: false, reason: 'oversize' };
   }
@@ -823,7 +897,10 @@ function normalizeTimestamp(input: number): number {
 }
 
 function normalizeMetaValue(input: string): string {
-  return input.replace(/[\s<>]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 128);
+  return input
+    .replace(/[\s<>]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 128);
 }
 
 function normalizeOrigin(input: string | undefined): LocalMemoryOrigin {
@@ -849,7 +926,10 @@ function normalizeSource(input: string | undefined, origin: LocalMemoryOrigin): 
   }
 }
 
-function normalizeEntryStatus(input: string | undefined, missingIsPending: boolean): LocalMemoryEntryStatus {
+function normalizeEntryStatus(
+  input: string | undefined,
+  missingIsPending: boolean,
+): LocalMemoryEntryStatus {
   switch (input) {
     case undefined:
       return missingIsPending ? 'review_required' : 'active';
@@ -868,7 +948,9 @@ function normalizeScope(input: string | undefined): LocalMemoryScope {
   return input === 'session' ? 'session' : 'workspace';
 }
 
-function normalizeApprovalSurface(input: string | undefined): LocalMemoryEntryPreview['approvalSurface'] | undefined {
+function normalizeApprovalSurface(
+  input: string | undefined,
+): LocalMemoryEntryPreview['approvalSurface'] | undefined {
   switch (input) {
     case 'settings_review_queue':
     case 'inline_approval':
@@ -890,7 +972,12 @@ function parseTags(input: string | undefined): string[] {
   const seen = new Set<string>();
   const tags: string[] = [];
   for (const raw of input.split(',')) {
-    const tag = raw.trim().toLowerCase().replace(/[^a-z0-9\u4e00-\u9fa5_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 32);
+    const tag = raw
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9\u4e00-\u9fa5_-]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 32);
     if (!tag || seen.has(tag)) continue;
     seen.add(tag);
     tags.push(tag);

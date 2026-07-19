@@ -9,7 +9,9 @@ import { describe, it } from 'node:test';
 // timezone. We lock that path by spawning a child with a fixed TZ and asserting
 // the output, instead of passing a timeZone option that production never uses.
 const here = dirname(fileURLToPath(import.meta.url));
-const fragmentUrl = pathToFileURL(join(here, '..', 'system-prompt', 'session-environment-prompt.js')).href;
+const fragmentUrl = pathToFileURL(
+  join(here, '..', 'system-prompt', 'session-environment-prompt.js'),
+).href;
 
 function runWithTimezone(timeZone: string, nowIso: string): string {
   const result = spawnSync(
@@ -48,7 +50,9 @@ describe('session environment prompt date', () => {
 });
 describe('session environment prompt shell line', () => {
   it('declares the executing shell inside the env block', async () => {
-    const { buildSessionEnvironmentPromptFragment } = await import('../system-prompt/session-environment-prompt.js');
+    const { buildSessionEnvironmentPromptFragment } = await import(
+      '../system-prompt/session-environment-prompt.js'
+    );
     const prompt = buildSessionEnvironmentPromptFragment({
       cwd: '/repo',
       projectGit: { isGitRepo: true, branch: 'main' },
@@ -59,7 +63,9 @@ describe('session environment prompt shell line', () => {
   });
 
   it('defaults the shell line to the detected process shell', async () => {
-    const { buildSessionEnvironmentPromptFragment } = await import('../system-prompt/session-environment-prompt.js');
+    const { buildSessionEnvironmentPromptFragment } = await import(
+      '../system-prompt/session-environment-prompt.js'
+    );
     const { defaultShellPlan } = await import('../shell-detect.js');
     const prompt = buildSessionEnvironmentPromptFragment({
       cwd: '/repo',

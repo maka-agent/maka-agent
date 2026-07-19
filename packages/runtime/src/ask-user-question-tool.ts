@@ -19,13 +19,15 @@ export function buildAskUserQuestionTool(): MakaTool<
 > {
   return {
     name: 'AskUserQuestion',
-    description: 'Ask 1–3 bounded multiple-choice questions whose answers are required to continue the current turn. Use ordinary assistant text for open-ended follow-up.',
+    description:
+      'Ask 1–3 bounded multiple-choice questions whose answers are required to continue the current turn. Use ordinary assistant text for open-ended follow-up.',
     parameters: z.object({
       questions: z.array(questionSchema).min(1).max(3),
     }),
     permissionRequired: false,
     impl: ({ questions }, context) => {
-      if (!context.askUserQuestion) throw new Error('AskUserQuestion is unavailable on this surface');
+      if (!context.askUserQuestion)
+        throw new Error('AskUserQuestion is unavailable on this surface');
       return context.askUserQuestion(questions);
     },
   };

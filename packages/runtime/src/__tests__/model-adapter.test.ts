@@ -3,11 +3,7 @@ import { describe, test } from 'node:test';
 import type { SessionEvent } from '@maka/core/events';
 
 import { AsyncEventQueue } from '../async-queue.js';
-import {
-  ModelAdapter,
-  normalizeAiSdkUsage,
-  type AiSdkStreamChunk,
-} from '../model-adapter.js';
+import { ModelAdapter, normalizeAiSdkUsage, type AiSdkStreamChunk } from '../model-adapter.js';
 
 describe('ModelAdapter stream and error normalization', () => {
   test('resolves optional-key LocalAI without fabricating a credential', () => {
@@ -87,18 +83,16 @@ describe('ModelAdapter stream and error normalization', () => {
       ['text_delta', 'text_delta', 'thinking_delta', 'thinking_delta', 'error'],
     );
     assert.deepEqual(
-      events
-        .filter((event) => event.type === 'text_delta')
-        .map((event) => event.text),
+      events.filter((event) => event.type === 'text_delta').map((event) => event.text),
       ['hello ', 'world'],
     );
     assert.deepEqual(
-      events
-        .filter((event) => event.type === 'thinking_delta')
-        .map((event) => event.text),
+      events.filter((event) => event.type === 'thinking_delta').map((event) => event.text),
       ['think ', 'more'],
     );
-    const error = events.find((event) => event.type === 'error') as Extract<SessionEvent, { type: 'error' }> | undefined;
+    const error = events.find((event) => event.type === 'error') as
+      | Extract<SessionEvent, { type: 'error' }>
+      | undefined;
     assert.equal(error?.reason, 'rate_limit');
     assert.equal(error?.code, '429');
     assert.equal(error?.message, 'Rate limit exceeded');
@@ -112,10 +106,16 @@ describe('ModelAdapter stream and error normalization', () => {
       textCalls: 0,
       thinkingCalls: 0,
       signatureCalls: 0,
-      onText() { this.textCalls += 1; },
+      onText() {
+        this.textCalls += 1;
+      },
       onTextComplete() {},
-      onThinking() { this.thinkingCalls += 1; },
-      onThinkingSignature() { this.signatureCalls += 1; },
+      onThinking() {
+        this.thinkingCalls += 1;
+      },
+      onThinkingSignature() {
+        this.signatureCalls += 1;
+      },
     };
     const push = queue.push.bind(queue);
     queue.push = (event: SessionEvent) => {
@@ -129,7 +129,10 @@ describe('ModelAdapter stream and error normalization', () => {
     const chunks: AiSdkStreamChunk[] = [
       { type: 'start-step' } as AiSdkStreamChunk,
       { type: 'text-delta', text: 'one' },
-      { type: 'finish-step', finishReason: { unified: 'tool-calls', raw: 'tool_calls' } } as AiSdkStreamChunk,
+      {
+        type: 'finish-step',
+        finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+      } as AiSdkStreamChunk,
       { type: 'start-step' } as AiSdkStreamChunk,
       { type: 'text-delta', text: 'two' },
       { type: 'finish-step', finishReason: { unified: 'stop', raw: 'stop' } } as AiSdkStreamChunk,
@@ -139,7 +142,10 @@ describe('ModelAdapter stream and error normalization', () => {
     }
 
     // Only the two text deltas produce events / callbacks; boundaries are inert.
-    assert.deepEqual(events.map((event) => event.type), ['text_delta', 'text_delta']);
+    assert.deepEqual(
+      events.map((event) => event.type),
+      ['text_delta', 'text_delta'],
+    );
     assert.equal(callbacks.textCalls, 2);
     assert.equal(callbacks.thinkingCalls, 0);
     assert.equal(callbacks.signatureCalls, 0);
@@ -173,7 +179,11 @@ describe('ModelAdapter stream and error normalization', () => {
       { type: 'reasoning-start' } as AiSdkStreamChunk,
       { type: 'reasoning-delta', delta: 'weigh ' },
       { type: 'reasoning-delta', delta: 'options' },
-      { type: 'reasoning-delta', delta: '', providerMetadata: { anthropic: { signature: 'sig-xyz' } } },
+      {
+        type: 'reasoning-delta',
+        delta: '',
+        providerMetadata: { anthropic: { signature: 'sig-xyz' } },
+      },
       { type: 'reasoning-end' } as AiSdkStreamChunk,
     ];
     for (const chunk of chunks) {
@@ -188,9 +198,7 @@ describe('ModelAdapter stream and error normalization', () => {
       ['thinking_delta', 'thinking_delta'],
     );
     assert.deepEqual(
-      events
-        .filter((event) => event.type === 'thinking_delta')
-        .map((event) => event.text),
+      events.filter((event) => event.type === 'thinking_delta').map((event) => event.text),
       ['weigh ', 'options'],
     );
   });
@@ -198,12 +206,19 @@ describe('ModelAdapter stream and error normalization', () => {
   test('classifies provider errors and maps finish reasons through adapter-owned helpers', () => {
     const adapter = newAdapter();
 
-    assert.equal(adapter.classifyError(Object.assign(new Error('401 Authorization'), { code: 401 })), 'Auth');
+    assert.equal(
+      adapter.classifyError(Object.assign(new Error('401 Authorization'), { code: 401 })),
+      'Auth',
+    );
     assert.equal(adapter.classifyError(new TypeError('terminated')), 'Network');
     const billingError = Object.assign(new Error('provider request failed'), { statusCode: 402 });
     assert.equal(adapter.classifyError(billingError), 'ProviderBilling');
     assert.equal(adapter.makeErrorEvent('turn-1', billingError).reason, 'provider_billing');
-    assert.equal(adapter.makeErrorEvent('turn-1', new Error('Model stream idle timeout after 120000ms')).reason, 'timeout');
+    assert.equal(
+      adapter.makeErrorEvent('turn-1', new Error('Model stream idle timeout after 120000ms'))
+        .reason,
+      'timeout',
+    );
     assert.equal(adapter.mapFinishReason('stop'), 'end_turn');
     assert.equal(adapter.mapFinishReason('length'), 'max_tokens');
     assert.equal(adapter.mapFinishReason('content-filter'), 'error');
@@ -274,11 +289,14 @@ describe('ModelAdapter stream and error normalization', () => {
   });
 
   test('treats provider usage without token values as unavailable', () => {
-    assert.equal(normalizeAiSdkUsage({
-      inputTokens: undefined,
-      outputTokens: undefined,
-      totalTokens: undefined,
-    }), undefined);
+    assert.equal(
+      normalizeAiSdkUsage({
+        inputTokens: undefined,
+        outputTokens: undefined,
+        totalTokens: undefined,
+      }),
+      undefined,
+    );
   });
 
   test('treats incomplete provider usage as unavailable unless total can supply the missing side', () => {

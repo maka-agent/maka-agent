@@ -1,60 +1,80 @@
 import { z } from 'zod';
 import type { CuAction, CuPoint } from '@maka/core';
 
-const pointSchema = z.object({
-  x: z.number().int(),
-  y: z.number().int(),
-}).strict();
+const pointSchema = z
+  .object({
+    x: z.number().int(),
+    y: z.number().int(),
+  })
+  .strict();
 
 const keysSchema = z.array(z.string().min(1)).nullable().optional();
 
 export const openAIComputerActionSchema = z.discriminatedUnion('type', [
-  z.object({
-    type: z.literal('click'),
-    button: z.enum(['left', 'right', 'wheel', 'back', 'forward']),
-    x: z.number().int(),
-    y: z.number().int(),
-    keys: keysSchema,
-  }).strict(),
-  z.object({
-    type: z.literal('double_click'),
-    x: z.number().int(),
-    y: z.number().int(),
-    keys: keysSchema,
-  }).strict(),
-  z.object({
-    type: z.literal('drag'),
-    path: z.array(pointSchema).min(2),
-    keys: keysSchema,
-  }).strict(),
-  z.object({
-    type: z.literal('keypress'),
-    keys: z.array(z.string().min(1)).min(1),
-  }).strict(),
-  z.object({
-    type: z.literal('move'),
-    x: z.number().int(),
-    y: z.number().int(),
-    keys: keysSchema,
-  }).strict(),
-  z.object({
-    type: z.literal('screenshot'),
-  }).strict(),
-  z.object({
-    type: z.literal('scroll'),
-    x: z.number().int(),
-    y: z.number().int(),
-    scroll_x: z.number().int(),
-    scroll_y: z.number().int(),
-    keys: keysSchema,
-  }).strict(),
-  z.object({
-    type: z.literal('type'),
-    text: z.string(),
-  }).strict(),
-  z.object({
-    type: z.literal('wait'),
-  }).strict(),
+  z
+    .object({
+      type: z.literal('click'),
+      button: z.enum(['left', 'right', 'wheel', 'back', 'forward']),
+      x: z.number().int(),
+      y: z.number().int(),
+      keys: keysSchema,
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('double_click'),
+      x: z.number().int(),
+      y: z.number().int(),
+      keys: keysSchema,
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('drag'),
+      path: z.array(pointSchema).min(2),
+      keys: keysSchema,
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('keypress'),
+      keys: z.array(z.string().min(1)).min(1),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('move'),
+      x: z.number().int(),
+      y: z.number().int(),
+      keys: keysSchema,
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('screenshot'),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('scroll'),
+      x: z.number().int(),
+      y: z.number().int(),
+      scroll_x: z.number().int(),
+      scroll_y: z.number().int(),
+      keys: keysSchema,
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('type'),
+      text: z.string(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('wait'),
+    })
+    .strict(),
 ]);
 
 export type OpenAIComputerAction = z.infer<typeof openAIComputerActionSchema>;
@@ -75,14 +95,13 @@ export type OpenAIComputerActionConversion =
 
 const point = (x: number, y: number): CuPoint => ({ x, y });
 
-export function isOpenAIComputerActionSafeByDefault(
-  action: OpenAIComputerAction,
-): boolean {
-  return action.type === 'screenshot'
-    || action.type === 'wait';
+export function isOpenAIComputerActionSafeByDefault(action: OpenAIComputerAction): boolean {
+  return action.type === 'screenshot' || action.type === 'wait';
 }
 
-function unsupportedModifiers(action: OpenAIComputerAction): OpenAIComputerActionConversion | undefined {
+function unsupportedModifiers(
+  action: OpenAIComputerAction,
+): OpenAIComputerActionConversion | undefined {
   if (action.type !== 'keypress' && 'keys' in action && action.keys && action.keys.length > 0) {
     return {
       ok: false,
@@ -112,9 +131,12 @@ export function convertOpenAIComputerAction(
       return { ok: true, actions: [{ type: 'mouse_move', coordinate: point(action.x, action.y) }] };
     case 'click': {
       const coordinate = point(action.x, action.y);
-      if (action.button === 'left') return { ok: true, actions: [{ type: 'left_click', coordinate }] };
-      if (action.button === 'right') return { ok: true, actions: [{ type: 'right_click', coordinate }] };
-      if (action.button === 'wheel') return { ok: true, actions: [{ type: 'middle_click', coordinate }] };
+      if (action.button === 'left')
+        return { ok: true, actions: [{ type: 'left_click', coordinate }] };
+      if (action.button === 'right')
+        return { ok: true, actions: [{ type: 'right_click', coordinate }] };
+      if (action.button === 'wheel')
+        return { ok: true, actions: [{ type: 'middle_click', coordinate }] };
       return {
         ok: false,
         code: 'unsupported_button',
@@ -136,11 +158,13 @@ export function convertOpenAIComputerAction(
       }
       return {
         ok: true,
-        actions: [{
-          type: 'left_click_drag',
-          startCoordinate: action.path[0],
-          coordinate: action.path[1],
-        }],
+        actions: [
+          {
+            type: 'left_click_drag',
+            startCoordinate: action.path[0],
+            coordinate: action.path[1],
+          },
+        ],
       };
     case 'scroll':
       return {

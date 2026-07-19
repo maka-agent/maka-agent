@@ -20,7 +20,10 @@ describe('agent mailbox contract', () => {
 
   test('rejects empty and overlong mailbox content', () => {
     assert.equal(normalizeAgentMailboxContent('  ').ok, false);
-    assert.equal(normalizeAgentMailboxContent('x'.repeat(AGENT_MAILBOX_CONTENT_MAX_CHARS + 1)).ok, false);
+    assert.equal(
+      normalizeAgentMailboxContent('x'.repeat(AGENT_MAILBOX_CONTENT_MAX_CHARS + 1)).ok,
+      false,
+    );
   });
 
   test('uses redaction-stable bounded tokens for durable identities', () => {
@@ -37,20 +40,44 @@ describe('agent mailbox contract', () => {
       teamId: 'code-review',
       parentRunId: 'parent-run',
       seq: 1,
-      from: { role: 'member', agentId: 'expert:code-review:correctness-reviewer', runId: 'run-1', turnId: 'turn-1' },
+      from: {
+        role: 'member',
+        agentId: 'expert:code-review:correctness-reviewer',
+        runId: 'run-1',
+        turnId: 'turn-1',
+      },
       content: 'Found an invariant violation.',
       createdAt: 123,
     } as const;
-    assert.equal(isAgentMailboxMessage({ ...base, kind: 'message', to: { role: 'lead', agentId: 'lead' } }), true);
+    assert.equal(
+      isAgentMailboxMessage({ ...base, kind: 'message', to: { role: 'lead', agentId: 'lead' } }),
+      true,
+    );
     assert.equal(isAgentMailboxMessage({ ...base, kind: 'broadcast' }), true);
     assert.equal(isAgentMailboxMessage({ ...base, kind: 'message' }), false);
-    assert.equal(isAgentMailboxMessage({ ...base, kind: 'broadcast', to: { role: 'lead', agentId: 'lead' } }), false);
-    assert.equal(isAgentMailboxMessage({ ...base, kind: 'message', to: { role: 'member', agentId: base.from.agentId } }), false);
-    assert.equal(isAgentMailboxMessage({ ...base, kind: 'message', to: { role: 'member', agentId: 'lead' } }), false);
-    assert.equal(isAgentMailboxMessage({
-      ...base,
-      kind: 'broadcast',
-      from: { role: 'lead', agentId: 'lead', runId: 'another-parent-run', turnId: 'lead-turn' },
-    }), false);
+    assert.equal(
+      isAgentMailboxMessage({ ...base, kind: 'broadcast', to: { role: 'lead', agentId: 'lead' } }),
+      false,
+    );
+    assert.equal(
+      isAgentMailboxMessage({
+        ...base,
+        kind: 'message',
+        to: { role: 'member', agentId: base.from.agentId },
+      }),
+      false,
+    );
+    assert.equal(
+      isAgentMailboxMessage({ ...base, kind: 'message', to: { role: 'member', agentId: 'lead' } }),
+      false,
+    );
+    assert.equal(
+      isAgentMailboxMessage({
+        ...base,
+        kind: 'broadcast',
+        from: { role: 'lead', agentId: 'lead', runId: 'another-parent-run', turnId: 'lead-turn' },
+      }),
+      false,
+    );
   });
 });

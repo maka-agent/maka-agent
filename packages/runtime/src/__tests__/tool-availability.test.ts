@@ -14,11 +14,20 @@ function tool(name: string): MakaTool {
   return { name, description: name, parameters: z.object({}), impl: () => ({ ok: true }) };
 }
 
-const invalid: MakaTool = { name: 'invalid', description: 'invalid', parameters: z.object({}), impl: () => ({}) };
+const invalid: MakaTool = {
+  name: 'invalid',
+  description: 'invalid',
+  parameters: z.object({}),
+  impl: () => ({}),
+};
 
 const ctx = {
-  sessionId: 's', turnId: 't', cwd: '/tmp', toolCallId: 'tc',
-  abortSignal: new AbortController().signal, emitOutput: () => {},
+  sessionId: 's',
+  turnId: 't',
+  cwd: '/tmp',
+  toolCallId: 'tc',
+  abortSignal: new AbortController().signal,
+  emitOutput: () => {},
 };
 
 // rive/office grouped; Read/Write ungrouped (always visible).
@@ -43,7 +52,10 @@ function loadStep(group: string): StepLike {
 describe('ToolAvailabilityRuntime — full mode', () => {
   test('economy off advertises every tool, no connector / gating / diagnostics', () => {
     const plan = runtime(false).prepare([]);
-    assert.ok(plan.activeTools.includes('rive_run'), 'grouped tools are active when economy is off');
+    assert.ok(
+      plan.activeTools.includes('rive_run'),
+      'grouped tools are active when economy is off',
+    );
     assert.ok(plan.activeTools.includes('office_edit'));
     assert.ok(!plan.activeTools.includes(LOAD_TOOLS_NAME), 'no connector in full mode');
     assert.equal(plan.prepareStep, undefined);
@@ -70,8 +82,18 @@ describe('ToolAvailabilityRuntime — economy mode', () => {
   });
 
   test('providerTools keeps every tool dispatchable, including hidden groups + invalid', () => {
-    const names = runtime(true).prepare([]).providerTools.map((t) => t.name);
-    for (const n of ['Read', 'Write', 'rive_run', 'office_edit', 'office_read', LOAD_TOOLS_NAME, 'invalid']) {
+    const names = runtime(true)
+      .prepare([])
+      .providerTools.map((t) => t.name);
+    for (const n of [
+      'Read',
+      'Write',
+      'rive_run',
+      'office_edit',
+      'office_read',
+      LOAD_TOOLS_NAME,
+      'invalid',
+    ]) {
       assert.ok(names.includes(n), `${n} present in providerTools`);
     }
   });
@@ -80,7 +102,10 @@ describe('ToolAvailabilityRuntime — economy mode', () => {
     const plan = runtime(true).prepare([]);
     assert.ok(plan.prepareStep);
     const next = plan.prepareStep!({ steps: [loadStep('office')] });
-    assert.ok(next.activeTools.includes('office_edit'), 'office group active after load_tools(office)');
+    assert.ok(
+      next.activeTools.includes('office_edit'),
+      'office group active after load_tools(office)',
+    );
     assert.ok(next.activeTools.includes('office_read'));
     assert.ok(!next.activeTools.includes('rive_run'), 'an unloaded group stays hidden');
   });
@@ -88,16 +113,24 @@ describe('ToolAvailabilityRuntime — economy mode', () => {
   test('gating exposes group members and tracks the current step snapshot', () => {
     const plan = runtime(true).prepare([]);
     assert.ok(plan.gating);
-    assert.deepEqual([...plan.gating!.gatedNames].sort(), ['office_edit', 'office_read', 'rive_run']);
+    assert.deepEqual([...plan.gating!.gatedNames].sort(), [
+      'office_edit',
+      'office_read',
+      'rive_run',
+    ]);
     assert.ok(!plan.gating!.activeNames().has('rive_run'), 'rive hidden at step 0');
     plan.prepareStep!({ steps: [loadStep('rive')] });
     assert.ok(plan.gating!.activeNames().has('rive_run'), 'snapshot updated after rive load');
   });
 
   test('connector impl returns the group tool names; unknown group throws', async () => {
-    const connector = runtime(true).prepare([]).providerTools.find((t) => t.name === LOAD_TOOLS_NAME);
+    const connector = runtime(true)
+      .prepare([])
+      .providerTools.find((t) => t.name === LOAD_TOOLS_NAME);
     assert.ok(connector);
-    assert.deepEqual(await connector!.impl({ group: 'office' }, ctx), { loaded: ['office_edit', 'office_read'] });
+    assert.deepEqual(await connector!.impl({ group: 'office' }, ctx), {
+      loaded: ['office_edit', 'office_read'],
+    });
     await assert.rejects(async () => connector!.impl({ group: 'nope' }, ctx), /Unknown tool group/);
   });
 });
@@ -115,10 +148,16 @@ describe('ToolAvailabilityRuntime — durable ledger seed', () => {
 
   test('historical load_tool (PR#30) and connect_tool_source (PR#34) calls also seed', () => {
     const fromDeferred = runtime(true).prepare([event('load_tool', { namespace: 'office' })]);
-    assert.ok(fromDeferred.activeTools.includes('office_edit'), 'load_tool namespace seeds the group');
+    assert.ok(
+      fromDeferred.activeTools.includes('office_edit'),
+      'load_tool namespace seeds the group',
+    );
 
     const fromEconomy = runtime(true).prepare([event('connect_tool_source', { source: 'rive' })]);
-    assert.ok(fromEconomy.activeTools.includes('rive_run'), 'connect_tool_source source seeds the group');
+    assert.ok(
+      fromEconomy.activeTools.includes('rive_run'),
+      'connect_tool_source source seeds the group',
+    );
   });
 
   test('an unknown seeded group id is ignored (forward compatible)', () => {
@@ -137,8 +176,14 @@ describe('ToolAvailabilityRuntime — diagnostics', () => {
     assert.equal(d!.connectorToolName, LOAD_TOOLS_NAME);
     assert.deepEqual(d!.enabledSourceIds, [], 'no group loaded at step 0');
     assert.deepEqual(d!.availableSourceIds, ['office', 'rive']);
-    assert.deepEqual(d!.visibleToolNamesBySource, { office: ['office_edit', 'office_read'], rive: ['rive_run'] });
-    assert.ok((d!.fullToolSchemaChars ?? 0) > (d!.visibleToolSchemaChars ?? 0), 'hidden schemas reduce the visible chars');
+    assert.deepEqual(d!.visibleToolNamesBySource, {
+      office: ['office_edit', 'office_read'],
+      rive: ['rive_run'],
+    });
+    assert.ok(
+      (d!.fullToolSchemaChars ?? 0) > (d!.visibleToolSchemaChars ?? 0),
+      'hidden schemas reduce the visible chars',
+    );
     assert.ok((d!.toolSchemaCharReduction ?? 0) > 0);
     // full = visible + hidden must hold (the connector is counted on both
     // sides, so it cancels — guards against the hiddenToolCount off-by-one).
@@ -157,7 +202,9 @@ describe('ToolAvailabilityRuntime — diagnostics', () => {
 
 describe('ToolAvailabilityRuntime — connector shape', () => {
   function connector() {
-    const found = runtime(true).prepare([]).providerTools.find((t) => t.name === LOAD_TOOLS_NAME);
+    const found = runtime(true)
+      .prepare([])
+      .providerTools.find((t) => t.name === LOAD_TOOLS_NAME);
     assert.ok(found);
     return found!;
   }
@@ -166,8 +213,8 @@ describe('ToolAvailabilityRuntime — connector shape', () => {
     const c = connector();
     assert.match(c.description, /rive/);
     assert.match(c.description, /office/);
-    assert.match(c.description, /Rive/);        // rive group's label
-    assert.match(c.description, /Office docs/);  // office group's description
+    assert.match(c.description, /Rive/); // rive group's label
+    assert.match(c.description, /Office docs/); // office group's description
     assert.equal(c.permissionRequired, false);
   });
 
@@ -175,7 +222,9 @@ describe('ToolAvailabilityRuntime — connector shape', () => {
     const result = await connector().impl({ group: 'office' }, ctx);
     assert.deepEqual(result, { loaded: ['office_edit', 'office_read'] });
     const keys = Object.keys(result as object);
-    assert.ok(!keys.includes('schema') && !keys.includes('parameters') && !keys.includes('inputSchema'));
+    assert.ok(
+      !keys.includes('schema') && !keys.includes('parameters') && !keys.includes('inputSchema'),
+    );
   });
 });
 
@@ -183,7 +232,9 @@ describe('ToolAvailabilityRuntime — activation robustness', () => {
   test('parses a stringified connector input, ignores malformed input', () => {
     const plan = runtime(true).prepare([]);
     const ok = plan.prepareStep!({
-      steps: [{ toolCalls: [{ toolName: LOAD_TOOLS_NAME, input: JSON.stringify({ group: 'rive' }) }] }],
+      steps: [
+        { toolCalls: [{ toolName: LOAD_TOOLS_NAME, input: JSON.stringify({ group: 'rive' }) }] },
+      ],
     });
     assert.ok(ok.activeTools.includes('rive_run'), 'stringified { group } is parsed');
 
@@ -196,10 +247,10 @@ describe('ToolAvailabilityRuntime — activation robustness', () => {
 
   test('same-turn activation honors only load_tools({group}) — historical names and other keys are inert', () => {
     const cases: Array<{ toolName: string; input: unknown }> = [
-      { toolName: 'load_tool', input: { namespace: 'rive' } },        // PR#30 name — ledger-only
+      { toolName: 'load_tool', input: { namespace: 'rive' } }, // PR#30 name — ledger-only
       { toolName: 'connect_tool_source', input: { source: 'rive' } }, // PR#34 name — ledger-only
-      { toolName: LOAD_TOOLS_NAME, input: { namespace: 'rive' } },    // right name, wrong key
-      { toolName: LOAD_TOOLS_NAME, input: { source: 'rive' } },       // right name, wrong key
+      { toolName: LOAD_TOOLS_NAME, input: { namespace: 'rive' } }, // right name, wrong key
+      { toolName: LOAD_TOOLS_NAME, input: { source: 'rive' } }, // right name, wrong key
     ];
     for (const c of cases) {
       const plan = runtime(true).prepare([]);

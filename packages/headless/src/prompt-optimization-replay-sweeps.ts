@@ -15,11 +15,13 @@ export function replayControllerSweep(input: {
   resultsTsvPath: string;
 }): FixedPromptControllerResult | undefined {
   const requested = new Set(input.taskIds);
-  const matched = input.events.filter((event): event is FixedPromptTaskWalEvent =>
-    isTaskEvent(event)
-    && event.runId === input.runId
-    && event.roundId === input.roundId
-    && requested.has(event.taskId));
+  const matched = input.events.filter(
+    (event): event is FixedPromptTaskWalEvent =>
+      isTaskEvent(event) &&
+      event.runId === input.runId &&
+      event.roundId === input.roundId &&
+      requested.has(event.taskId),
+  );
   if (matched.length === 0) return undefined;
   if (input.resumeFingerprint === undefined) {
     throw new Error(`RSI WAL replay requires a resume fingerprint for ${input.roundId}`);
@@ -41,8 +43,16 @@ export function replayControllerSweep(input: {
   return {
     taskIds: [...input.taskIds],
     events: orderedEvents,
-    totalTokens: sum(orderedEvents.map((event) => 'tokenSummary' in event ? event.tokenSummary?.total ?? 0 : 0)),
-    totalCostUsd: sum(orderedEvents.map((event) => 'tokenSummary' in event ? event.tokenSummary?.costUsd ?? 0 : 0)),
+    totalTokens: sum(
+      orderedEvents.map((event) =>
+        'tokenSummary' in event ? (event.tokenSummary?.total ?? 0) : 0,
+      ),
+    ),
+    totalCostUsd: sum(
+      orderedEvents.map((event) =>
+        'tokenSummary' in event ? (event.tokenSummary?.costUsd ?? 0) : 0,
+      ),
+    ),
     resultsTsvPath: input.resultsTsvPath,
   };
 }
@@ -55,10 +65,12 @@ export function replayRequiredControllerSweep(
   return result;
 }
 
-export function replayPromptBaselinePartition(input: Parameters<typeof replayControllerSweep>[0] & {
-  partition: 'held-in' | 'held-out';
-  required: boolean;
-}): FixedPromptControllerResult | undefined {
+export function replayPromptBaselinePartition(
+  input: Parameters<typeof replayControllerSweep>[0] & {
+    partition: 'held-in' | 'held-out';
+    required: boolean;
+  },
+): FixedPromptControllerResult | undefined {
   if (!input.required) return replayControllerSweep(input);
   return replayRequiredControllerSweep({
     ...input,

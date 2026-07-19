@@ -60,10 +60,7 @@ export interface TaskVerification {
   protectedPaths: string[];
 }
 
-export type VerifierSpec =
-  | CommandVerifierSpec
-  | TerminalBenchVerifierSpec
-  | SweBenchVerifierSpec;
+export type VerifierSpec = CommandVerifierSpec | TerminalBenchVerifierSpec | SweBenchVerifierSpec;
 
 export interface CommandVerifierSpec {
   kind: 'command';

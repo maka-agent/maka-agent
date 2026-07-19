@@ -81,7 +81,9 @@ async function evalCommand(args: string[]): Promise<number> {
   // spec is portable alongside its fixtures.
   const tasks = spec.tasks.map((task) => ({
     ...task,
-    workspaceDir: isAbsolute(task.workspaceDir) ? task.workspaceDir : resolve(specDir, task.workspaceDir),
+    workspaceDir: isAbsolute(task.workspaceDir)
+      ? task.workspaceDir
+      : resolve(specDir, task.workspaceDir),
   }));
   const outDir = resolve(flags.out ?? 'maka-headless-out');
 
@@ -93,7 +95,10 @@ async function evalCommand(args: string[]): Promise<number> {
       // registerBackends omitted → runExperiment defaults to the inert
       // FakeBackend, the only backend this build runs.
     },
-    (r) => console.log(`  ${mark(r.passed, r.error)} ${r.taskId} × ${r.configId}${r.error ? ` — ${r.error}` : ''}`),
+    (r) =>
+      console.log(
+        `  ${mark(r.passed, r.error)} ${r.taskId} × ${r.configId}${r.error ? ` — ${r.error}` : ''}`,
+      ),
   );
 
   const resultsPath = join(outDir, 'results.jsonl');
@@ -133,14 +138,22 @@ async function taskCommand(args: string[]): Promise<number> {
 async function taskRunCommand(args: string[]): Promise<number> {
   let parsed: ParsedArgs;
   try {
-    parsed = parseArgs(args, ['task', 'config', 'out', 'task-run-id', 'max-attempts'], ['autonomous', 'include-events']);
+    parsed = parseArgs(
+      args,
+      ['task', 'config', 'out', 'task-run-id', 'max-attempts'],
+      ['autonomous', 'include-events'],
+    );
   } catch (error) {
-    console.error(`${(error as Error).message}\nusage: maka eval task-run run <spec.json> --task <id> --config <id> [--out <dir>] [--task-run-id <id>] [--autonomous] [--max-attempts N]`);
+    console.error(
+      `${(error as Error).message}\nusage: maka eval task-run run <spec.json> --task <id> --config <id> [--out <dir>] [--task-run-id <id>] [--autonomous] [--max-attempts N]`,
+    );
     return 1;
   }
   const specPath = parsed.positional[0];
   if (!specPath || !parsed.flags.task || !parsed.flags.config) {
-    console.error('usage: maka eval task-run run <spec.json> --task <id> --config <id> [--out <dir>] [--task-run-id <id>] [--autonomous] [--max-attempts N]');
+    console.error(
+      'usage: maka eval task-run run <spec.json> --task <id> --config <id> [--out <dir>] [--task-run-id <id>] [--autonomous] [--max-attempts N]',
+    );
     return 1;
   }
 
@@ -159,13 +172,19 @@ async function taskRunCommand(args: string[]): Promise<number> {
     const run = parsed.bools.autonomous
       ? await runAutonomousTask(config, task, {
           ...common,
-          budget: { maxAttempts: positiveInt(parsed.flags['max-attempts'] ?? '1', '--max-attempts') },
+          budget: {
+            maxAttempts: positiveInt(parsed.flags['max-attempts'] ?? '1', '--max-attempts'),
+          },
         })
       : await runTaskOnce(config, task, common);
     await appendResultRecord(outDir, run.resultRecord);
     const exportDir = join(outDir, 'exports', run.taskRunId);
-    await writeTaskRunExport(exportDir, run.projection, { includeEvents: parsed.bools['include-events'] });
-    console.log(`taskRunId: ${run.taskRunId}\nstatus: ${run.projection.status}\nexport: ${exportDir}`);
+    await writeTaskRunExport(exportDir, run.projection, {
+      includeEvents: parsed.bools['include-events'],
+    });
+    console.log(
+      `taskRunId: ${run.taskRunId}\nstatus: ${run.projection.status}\nexport: ${exportDir}`,
+    );
     return run.resultRecord.error ? 1 : 0;
   } catch (error) {
     console.error(`maka eval task-run run: ${(error as Error).message}`);
@@ -178,7 +197,9 @@ async function taskInspectCommand(args: string[]): Promise<number> {
   try {
     parsed = parseArgs(args, ['store'], ['json']);
   } catch (error) {
-    console.error(`${(error as Error).message}\nusage: maka eval task-run inspect <taskRunId> --store <out>/runs [--json]`);
+    console.error(
+      `${(error as Error).message}\nusage: maka eval task-run inspect <taskRunId> --store <out>/runs [--json]`,
+    );
     return 1;
   }
   const taskRunId = parsed.positional[0];
@@ -187,11 +208,14 @@ async function taskInspectCommand(args: string[]): Promise<number> {
     return 1;
   }
   const storageRoot = resolve(parsed.flags.store);
-  const document = await inspectTaskRun({
-    taskRunStore: createTaskRunStore(storageRoot),
-    agentRunStore: createAgentRunStore(storageRoot),
-    runtimeEventStore: createRuntimeEventStore(storageRoot),
-  }, taskRunId);
+  const document = await inspectTaskRun(
+    {
+      taskRunStore: createTaskRunStore(storageRoot),
+      agentRunStore: createAgentRunStore(storageRoot),
+      runtimeEventStore: createRuntimeEventStore(storageRoot),
+    },
+    taskRunId,
+  );
   if (parsed.bools.json) {
     process.stdout.write(`${JSON.stringify(document, null, 2)}\n`);
   } else {
@@ -205,12 +229,16 @@ async function taskExportCommand(args: string[]): Promise<number> {
   try {
     parsed = parseArgs(args, ['store', 'out'], ['include-events']);
   } catch (error) {
-    console.error(`${(error as Error).message}\nusage: maka eval task-run export <taskRunId> --store <out>/runs --out <dir> [--include-events]`);
+    console.error(
+      `${(error as Error).message}\nusage: maka eval task-run export <taskRunId> --store <out>/runs --out <dir> [--include-events]`,
+    );
     return 1;
   }
   const taskRunId = parsed.positional[0];
   if (!taskRunId || !parsed.flags.store || !parsed.flags.out) {
-    console.error('usage: maka eval task-run export <taskRunId> --store <out>/runs --out <dir> [--include-events]');
+    console.error(
+      'usage: maka eval task-run export <taskRunId> --store <out>/runs --out <dir> [--include-events]',
+    );
     return 1;
   }
   const projection = await createTaskRunStore(resolve(parsed.flags.store)).project(taskRunId);
@@ -225,29 +253,48 @@ async function aheCommand(args: string[]): Promise<number> {
   const [subcommand, ...rest] = args;
   if (subcommand === 'export') return aheExportCommand(rest);
   console.error('maka eval ahe commands:\n');
-  console.error('  maka eval ahe export <taskRunId...> --store <out>/runs --repo <repo-root> --out <dir> [--run-id <id>] [--source-label <label>] [--harbor-trial-dir <dir>] [--include-events]');
+  console.error(
+    '  maka eval ahe export <taskRunId...> --store <out>/runs --repo <repo-root> --out <dir> [--run-id <id>] [--source-label <label>] [--harbor-trial-dir <dir>] [--include-events]',
+  );
   return 1;
 }
 
 async function aheExportCommand(args: string[]): Promise<number> {
   let parsed: ParsedArgs;
   try {
-    parsed = parseArgs(args, ['store', 'repo', 'out', 'run-id', 'source-label', 'harbor-trial-dir'], ['include-events']);
+    parsed = parseArgs(
+      args,
+      ['store', 'repo', 'out', 'run-id', 'source-label', 'harbor-trial-dir'],
+      ['include-events'],
+    );
   } catch (error) {
-    console.error(`${(error as Error).message}\nusage: maka eval ahe export <taskRunId...> --store <out>/runs --repo <repo-root> --out <dir> [--run-id <id>] [--source-label <label>] [--harbor-trial-dir <dir>] [--include-events]`);
+    console.error(
+      `${(error as Error).message}\nusage: maka eval ahe export <taskRunId...> --store <out>/runs --repo <repo-root> --out <dir> [--run-id <id>] [--source-label <label>] [--harbor-trial-dir <dir>] [--include-events]`,
+    );
     return 1;
   }
-  if (parsed.positional.length === 0 || !parsed.flags.store || !parsed.flags.repo || !parsed.flags.out) {
-    console.error('usage: maka eval ahe export <taskRunId...> --store <out>/runs --repo <repo-root> --out <dir> [--run-id <id>] [--source-label <label>] [--harbor-trial-dir <dir>] [--include-events]');
+  if (
+    parsed.positional.length === 0 ||
+    !parsed.flags.store ||
+    !parsed.flags.repo ||
+    !parsed.flags.out
+  ) {
+    console.error(
+      'usage: maka eval ahe export <taskRunId...> --store <out>/runs --repo <repo-root> --out <dir> [--run-id <id>] [--source-label <label>] [--harbor-trial-dir <dir>] [--include-events]',
+    );
     return 1;
   }
   try {
     const storeRoot = resolve(parsed.flags.store);
     const store = createTaskRunStore(storeRoot);
-    const projections = await Promise.all(parsed.positional.map((taskRunId) => store.project(taskRunId)));
+    const projections = await Promise.all(
+      parsed.positional.map((taskRunId) => store.project(taskRunId)),
+    );
     const officialResults = await aheOfficialResultsForCli(projections, {
       storeRoot,
-      harborTrialDir: parsed.flags['harbor-trial-dir'] ? resolve(parsed.flags['harbor-trial-dir']) : undefined,
+      harborTrialDir: parsed.flags['harbor-trial-dir']
+        ? resolve(parsed.flags['harbor-trial-dir'])
+        : undefined,
     });
     const sessionMessages = await aheSessionMessagesForCli(projections, storeRoot);
     const agentRunEvidence = await aheAgentRunEvidenceForCli(
@@ -288,7 +335,10 @@ async function aheOfficialResultsForCli(
   const overlays: Record<string, MakaAheOfficialResultOverlay> = {};
   if (options.harborTrialDir) {
     const projection = projections[0]!;
-    overlays[projection.taskRunId] = await readMakaAheHarborOfficialResult(options.harborTrialDir, projection);
+    overlays[projection.taskRunId] = await readMakaAheHarborOfficialResult(
+      options.harborTrialDir,
+      projection,
+    );
     return overlays;
   }
 
@@ -320,7 +370,9 @@ async function aheSessionMessagesForCli(
   const messagesByTaskRun: Record<string, readonly unknown[]> = {};
   for (const projection of projections) {
     if (!projection.sessionId) continue;
-    const messages = await readSessionMessages(join(storeRoot, 'sessions', projection.sessionId, 'session.jsonl'));
+    const messages = await readSessionMessages(
+      join(storeRoot, 'sessions', projection.sessionId, 'session.jsonl'),
+    );
     if (messages.length > 0) {
       messagesByTaskRun[projection.taskRunId] = messages;
     }
@@ -360,7 +412,8 @@ async function aheAgentRunEvidenceForCli(
       if (includeRuntimeEvents) {
         try {
           if (!runtimeEventStore.readImmutableRuntimeEvents) {
-            source.runtimeEventsError = 'RuntimeEventStore does not expose immutable Runtime Event reads';
+            source.runtimeEventsError =
+              'RuntimeEventStore does not expose immutable Runtime Event reads';
           } else {
             source.runtimeEvents = await runtimeEventStore.readImmutableRuntimeEvents(
               identity.sessionId,
@@ -397,12 +450,16 @@ async function taskResumeCommand(args: string[]): Promise<number> {
   try {
     parsed = parseArgs(args, ['spec', 'out', 'grant-file']);
   } catch (error) {
-    console.error(`${(error as Error).message}\nusage: maka eval task-run resume <taskRunId> --spec <spec.json> --out <dir> [--grant-file <json>]`);
+    console.error(
+      `${(error as Error).message}\nusage: maka eval task-run resume <taskRunId> --spec <spec.json> --out <dir> [--grant-file <json>]`,
+    );
     return 1;
   }
   const taskRunId = parsed.positional[0];
   if (!taskRunId || !parsed.flags.spec || !parsed.flags.out) {
-    console.error('usage: maka eval task-run resume <taskRunId> --spec <spec.json> --out <dir> [--grant-file <json>]');
+    console.error(
+      'usage: maka eval task-run resume <taskRunId> --spec <spec.json> --out <dir> [--grant-file <json>]',
+    );
     return 1;
   }
   try {
@@ -410,11 +467,15 @@ async function taskResumeCommand(args: string[]): Promise<number> {
     const store = createTaskRunStore(join(outDir, 'runs'));
     const projection = await store.project(taskRunId);
     if (isTerminalTaskRunStatus(projection.status)) {
-      console.error(`task run ${taskRunId} is terminal (${projection.status}); resume is unsupported`);
+      console.error(
+        `task run ${taskRunId} is terminal (${projection.status}); resume is unsupported`,
+      );
       return 1;
     }
     if (projection.status !== 'needs_approval') {
-      console.error(`task run ${taskRunId} is ${projection.status}; PR50 resume only supports parked needs_approval runs`);
+      console.error(
+        `task run ${taskRunId} is ${projection.status}; PR50 resume only supports parked needs_approval runs`,
+      );
       return 1;
     }
     const spec = await loadSpec(parsed.flags.spec);
@@ -422,7 +483,9 @@ async function taskResumeCommand(args: string[]): Promise<number> {
     const config = requireConfig(spec.configs, projection.configId);
     validateRunnableCell(config, task);
     const grants = parsed.flags['grant-file']
-      ? JSON.parse(await readFile(resolve(parsed.flags['grant-file']), 'utf8')) as TaskPermissionGrant[]
+      ? (JSON.parse(
+          await readFile(resolve(parsed.flags['grant-file']), 'utf8'),
+        ) as TaskPermissionGrant[])
       : [];
     if (projection.parked) {
       const resolvedAt = Date.now();
@@ -465,12 +528,16 @@ async function taskRetryFailedCommand(args: string[]): Promise<number> {
   try {
     parsed = parseArgs(args, ['spec', 'out', 'only-taxonomy']);
   } catch (error) {
-    console.error(`${(error as Error).message}\nusage: maka eval task-run retry-failed <results.jsonl|out-dir> --spec <spec.json> --out <dir> [--only-taxonomy name[,name]]`);
+    console.error(
+      `${(error as Error).message}\nusage: maka eval task-run retry-failed <results.jsonl|out-dir> --spec <spec.json> --out <dir> [--only-taxonomy name[,name]]`,
+    );
     return 1;
   }
   const priorPath = parsed.positional[0];
   if (!priorPath || !parsed.flags.spec || !parsed.flags.out) {
-    console.error('usage: maka eval task-run retry-failed <results.jsonl|out-dir> --spec <spec.json> --out <dir> [--only-taxonomy name[,name]]');
+    console.error(
+      'usage: maka eval task-run retry-failed <results.jsonl|out-dir> --spec <spec.json> --out <dir> [--only-taxonomy name[,name]]',
+    );
     return 1;
   }
 
@@ -478,8 +545,14 @@ async function taskRetryFailedCommand(args: string[]): Promise<number> {
     const spec = await loadSpec(parsed.flags.spec);
     const prior = await readMatrixPriorRecords(resolve(priorPath));
     const outDir = resolve(parsed.flags.out);
-    const onlyTaxonomy = parsed.flags['only-taxonomy']?.split(',').map((value) => value.trim()).filter(Boolean);
-    const plan = planMatrixRetry(spec.tasks, spec.configs, prior, { retryFailed: true, onlyTaxonomy });
+    const onlyTaxonomy = parsed.flags['only-taxonomy']
+      ?.split(',')
+      .map((value) => value.trim())
+      .filter(Boolean);
+    const plan = planMatrixRetry(spec.tasks, spec.configs, prior, {
+      retryFailed: true,
+      onlyTaxonomy,
+    });
     const records: ResultRecord[] = [...prior];
     for (const decision of plan) {
       if (decision.action !== 'retry') {
@@ -545,29 +618,53 @@ function parseArgs(args: string[], knownFlags: string[], boolFlags: string[] = [
 
 function printLegacyUsage(): void {
   console.error('maka-headless — headless agent runner\n');
-  console.error('  maka-headless eval <spec.json> [--out <dir>]   run configs × tasks, write results + table');
+  console.error(
+    '  maka-headless eval <spec.json> [--out <dir>]   run configs × tasks, write results + table',
+  );
   console.error('  maka-headless compare <results.jsonl>          print the comparison table');
-  console.error('  maka-headless task <command> ...               run, inspect, resume, retry, export task runs');
-  console.error('  maka-headless ahe <command> ...                export AHE target snapshots and evidence');
-  console.error('  maka-headless harbor <command> ...             run Harbor real-backend task/cell flows');
+  console.error(
+    '  maka-headless task <command> ...               run, inspect, resume, retry, export task runs',
+  );
+  console.error(
+    '  maka-headless ahe <command> ...                export AHE target snapshots and evidence',
+  );
+  console.error(
+    '  maka-headless harbor <command> ...             run Harbor real-backend task/cell flows',
+  );
 }
 
 function printUnifiedUsage(): void {
   console.error('maka eval — evaluation and autonomous task commands\n');
-  console.error('  maka eval run <spec.json> [--out <dir>]        run configs × tasks, write results + table');
+  console.error(
+    '  maka eval run <spec.json> [--out <dir>]        run configs × tasks, write results + table',
+  );
   console.error('  maka eval compare <results.jsonl>               print the comparison table');
-  console.error('  maka eval task-run <command> ...                run, inspect, resume, retry, export task runs');
-  console.error('  maka eval ahe <command> ...                     export AHE target snapshots and evidence');
-  console.error('  maka eval harbor <command> ...                  run Harbor real-backend task/cell flows');
+  console.error(
+    '  maka eval task-run <command> ...                run, inspect, resume, retry, export task runs',
+  );
+  console.error(
+    '  maka eval ahe <command> ...                     export AHE target snapshots and evidence',
+  );
+  console.error(
+    '  maka eval harbor <command> ...                  run Harbor real-backend task/cell flows',
+  );
 }
 
 function printTaskUsage(): void {
   console.error('maka eval task-run commands:\n');
-  console.error('  maka eval task-run run <spec.json> --task <id> --config <id> [--out <dir>] [--task-run-id <id>] [--autonomous] [--max-attempts N]');
+  console.error(
+    '  maka eval task-run run <spec.json> --task <id> --config <id> [--out <dir>] [--task-run-id <id>] [--autonomous] [--max-attempts N]',
+  );
   console.error('  maka eval task-run inspect <taskRunId> --store <out>/runs [--json]');
-  console.error('  maka eval task-run resume <taskRunId> --spec <spec.json> --out <dir> [--grant-file <json>]');
-  console.error('  maka eval task-run retry-failed <results.jsonl|out-dir> --spec <spec.json> --out <dir> [--only-taxonomy name[,name]]');
-  console.error('  maka eval task-run export <taskRunId> --store <out>/runs --out <dir> [--include-events]');
+  console.error(
+    '  maka eval task-run resume <taskRunId> --spec <spec.json> --out <dir> [--grant-file <json>]',
+  );
+  console.error(
+    '  maka eval task-run retry-failed <results.jsonl|out-dir> --spec <spec.json> --out <dir> [--only-taxonomy name[,name]]',
+  );
+  console.error(
+    '  maka eval task-run export <taskRunId> --store <out>/runs --out <dir> [--include-events]',
+  );
 }
 
 /** Canonical router shared by `maka eval` and the legacy compatibility bin. */
@@ -612,7 +709,9 @@ async function loadSpec(specPath: string): Promise<ExperimentSpec> {
     configs: spec.configs,
     tasks: spec.tasks.map((task) => ({
       ...task,
-      workspaceDir: isAbsolute(task.workspaceDir) ? task.workspaceDir : resolve(specDir, task.workspaceDir),
+      workspaceDir: isAbsolute(task.workspaceDir)
+        ? task.workspaceDir
+        : resolve(specDir, task.workspaceDir),
     })),
   };
 }
@@ -641,7 +740,12 @@ function validateRunnableCell(config: Config, task: Task): void {
 async function appendResultRecord(outDir: string, record: ResultRecord): Promise<void> {
   const path = join(outDir, 'results.jsonl');
   const records = await readResults(path).catch((error): ResultRecord[] => {
-    if (typeof error === 'object' && error !== null && (error as { code?: string }).code === 'ENOENT') return [];
+    if (
+      typeof error === 'object' &&
+      error !== null &&
+      (error as { code?: string }).code === 'ENOENT'
+    )
+      return [];
     throw error;
   });
   records.push(record);
@@ -651,7 +755,8 @@ async function appendResultRecord(outDir: string, record: ResultRecord): Promise
 
 function positiveInt(raw: string, flagName: string): number {
   const value = Number(raw);
-  if (!Number.isInteger(value) || value < 1) throw new Error(`${flagName} must be a positive integer`);
+  if (!Number.isInteger(value) || value < 1)
+    throw new Error(`${flagName} must be a positive integer`);
   return value;
 }
 

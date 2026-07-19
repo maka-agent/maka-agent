@@ -104,7 +104,10 @@ const RULES = [
         //   (b) Any string literal inside `{...}` expressions (e.g.
         //       `{busy ? '保存中…' : '保存'}`) — common pattern for
         //       conditional text labels.
-        const textOnly = body.replace(/<[^>]+>/g, '').replace(/\{[^}]*\}/g, '').trim();
+        const textOnly = body
+          .replace(/<[^>]+>/g, '')
+          .replace(/\{[^}]*\}/g, '')
+          .trim();
         if (textOnly.length > 0 && /[a-zA-Z一-鿿]/.test(textOnly)) continue;
         if (/['"`][^'"`]*[a-zA-Z一-鿿][^'"`]*['"`]/.test(body)) continue;
         // Has a {label} expression child like {label} {someText}? Accept —
@@ -240,10 +243,18 @@ const RULES = [
         const fullDecl = stripped.slice(Math.max(0, match.index - 200), close);
         if (/\/\/\s*a11y-allow:/.test(fullDecl)) continue;
         if (/\baria-label(?:ledby)?\s*=/.test(attrs)) continue;
-        const textOnly = body.replace(/<[^>]+>/g, '').replace(/\{[^}]*\}/g, '').trim();
+        const textOnly = body
+          .replace(/<[^>]+>/g, '')
+          .replace(/\{[^}]*\}/g, '')
+          .trim();
         if (textOnly.length > 0 && /[a-zA-Z一-鿿]/.test(textOnly)) continue;
         if (/['"`][^'"`]*[a-zA-Z一-鿿][^'"`]*['"`]/.test(body)) continue;
-        if (/\{[^{}]*(label|name|text|title|alt|description|url|href|children|content|message)/i.test(body)) continue;
+        if (
+          /\{[^{}]*(label|name|text|title|alt|description|url|href|children|content|message)/i.test(
+            body,
+          )
+        )
+          continue;
         const lineIndex = text.slice(0, match.index).split('\n').length;
         offenders.push({ line: lineIndex, snippet: match[0].trim() });
       }
@@ -298,7 +309,10 @@ const RULES = [
         const line = text.slice(lineStart, lineEnd < 0 ? text.length : lineEnd);
         if (/\/\/\s*a11y-allow:/.test(line) || /\/\/\s*i18n-allow:/.test(line)) continue;
         const lineIndex = text.slice(0, match.index).split('\n').length;
-        offenders.push({ line: lineIndex, snippet: `${attrName}="${value.slice(0, 60)}${value.length > 60 ? '…' : ''}"` });
+        offenders.push({
+          line: lineIndex,
+          snippet: `${attrName}="${value.slice(0, 60)}${value.length > 60 ? '…' : ''}"`,
+        });
       }
       return offenders;
     },
@@ -410,9 +424,13 @@ async function main() {
   console.error('Fix options:');
   console.error('  - icon-only-button     → add `aria-label="<chinese label>"`');
   console.error('  - icon-only-link       → add `aria-label="<chinese label>"`');
-  console.error('  - positive-tabindex    → use natural DOM order; `tabIndex={0}` or `tabIndex={-1}` only');
+  console.error(
+    '  - positive-tabindex    → use natural DOM order; `tabIndex={0}` or `tabIndex={-1}` only',
+  );
   console.error('  - dialog-missing-label → add `aria-label` or `aria-labelledby` to the dialog');
-  console.error('  - input-missing-label  → wrap with `<label>`, or add `aria-label` / `placeholder`');
+  console.error(
+    '  - input-missing-label  → wrap with `<label>`, or add `aria-label` / `placeholder`',
+  );
   console.error('  - english-aria-label   → translate to Chinese, or `// i18n-allow: <reason>`');
   console.error('');
   console.error('Genuine exceptions: add `// a11y-allow: <reason>` on the same line.');

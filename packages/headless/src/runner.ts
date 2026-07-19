@@ -6,16 +6,17 @@ import {
   buildChildAgentTools,
   type InvocationResult,
 } from '@maka/runtime';
-import {
-  createAgentRunStore,
-  createRuntimeEventStore,
-  createSessionStore,
-} from '@maka/storage';
+import { createAgentRunStore, createRuntimeEventStore, createSessionStore } from '@maka/storage';
 import type { Config, ResultRecord, Task } from './contracts.js';
 import { registerFakeBackend } from './backends.js';
 import type { HeadlessBackendContext, RealBackendIsolation } from './isolation.js';
 import { validateRealBackendIsolation } from './isolation.js';
-import { freezeSubmittedWorkspace, prepareScoringWorkspace, prepareWorkspace, restoreProtectedPaths } from './sandbox.js';
+import {
+  freezeSubmittedWorkspace,
+  prepareScoringWorkspace,
+  prepareWorkspace,
+  restoreProtectedPaths,
+} from './sandbox.js';
 import { defaultFinalScorer } from './scorer.js';
 import { buildIsolatedHeadlessTools } from './tools.js';
 import { normalizeVerifier, runVerifier, verifierProtectedPaths } from './verifier.js';
@@ -34,7 +35,10 @@ export interface RunExperimentDeps {
    * FakeBackend, the only backend this build runs; real backends rejoin with
    * the isolated executor. Minimal usage is just `{ storageRoot }`.
    */
-  registerBackends?: (registry: BackendRegistry, context: HeadlessBackendContext) => void | Promise<void>;
+  registerBackends?: (
+    registry: BackendRegistry,
+    context: HeadlessBackendContext,
+  ) => void | Promise<void>;
   /**
    * Required for every model-backed backend. This is deliberately explicit:
    * a throwaway workspace is not a security boundary, so a real backend may run
@@ -109,7 +113,10 @@ export async function runExperiment(
       workspaceDir: agentWorkspaceDir,
       ...sessionCapabilities.capabilities,
       ...(backendNeedsIsolation(config.backend)
-        ? { realBackendIsolation: deps.realBackendIsolation, toolExecutor: deps.realBackendIsolation?.toolExecutor }
+        ? {
+            realBackendIsolation: deps.realBackendIsolation,
+            toolExecutor: deps.realBackendIsolation?.toolExecutor,
+          }
         : {}),
     });
 
@@ -120,7 +127,11 @@ export async function runExperiment(
       runtimeEventStore: createRuntimeEventStore(deps.storageRoot),
       backends,
       ...(deps.realBackendIsolation?.toolExecutor
-        ? { childTools: buildChildAgentTools(buildIsolatedHeadlessTools(deps.realBackendIsolation.toolExecutor)) }
+        ? {
+            childTools: buildChildAgentTools(
+              buildIsolatedHeadlessTools(deps.realBackendIsolation.toolExecutor),
+            ),
+          }
         : {}),
       newId,
       now,
@@ -149,7 +160,11 @@ export async function runExperiment(
     for await (const event of manager.sendMessage(session.id, { turnId, text: task.instruction })) {
       if ((event as { type?: string }).type === 'permission_request') {
         const { requestId } = event as { requestId: string };
-        await manager.respondToPermission(session.id, { requestId, decision: 'deny', rememberForTurn: true });
+        await manager.respondToPermission(session.id, {
+          requestId,
+          decision: 'deny',
+          rememberForTurn: true,
+        });
       }
     }
 
@@ -158,7 +173,11 @@ export async function runExperiment(
     const frozen = await freezeSubmittedWorkspace({ workspaceDir: workspace.dir, now, newId });
     const scoringWorkspace = await prepareScoringWorkspace(frozen.submittedSnapshot);
     try {
-      await restoreProtectedPaths(task.workspaceDir, scoringWorkspace.dir, verifierProtectedPaths(verifier));
+      await restoreProtectedPaths(
+        task.workspaceDir,
+        scoringWorkspace.dir,
+        verifierProtectedPaths(verifier),
+      );
       const verifierStartedAt = now();
       const verifierResult = await runVerifier({
         verifier,
@@ -202,9 +221,17 @@ export async function runExperiment(
         startedAt,
         finishedAt,
         ...(!finalScore.scored && finalScore.errorClass
-          ? { error: finalScore.excludedReason ?? invocation?.failure?.message ?? finalScore.errorClass }
+          ? {
+              error:
+                finalScore.excludedReason ?? invocation?.failure?.message ?? finalScore.errorClass,
+            }
           : status === 'failed'
-            ? { error: invocation?.failure?.message ?? invocation?.failure?.class ?? 'run did not complete' }
+            ? {
+                error:
+                  invocation?.failure?.message ??
+                  invocation?.failure?.class ??
+                  'run did not complete',
+              }
             : {}),
         ...(finalScore.errorClass
           ? { errorClass: finalScore.errorClass }

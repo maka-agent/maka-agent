@@ -14,9 +14,15 @@ import {
   type RuntimeEventReadModelDiagnostic,
   type RuntimeEventTerminalFact,
 } from './runtime-event-read-model.js';
-import { buildRuntimeEventModelReplayPlan, type RuntimeEventModelReplayPlan } from './model-history.js';
+import {
+  buildRuntimeEventModelReplayPlan,
+  type RuntimeEventModelReplayPlan,
+} from './model-history.js';
 import { backfillRuntimeEventsFromStoredMessages } from './runtime-event-backfill.js';
-import { effectiveRunHeaderFromTerminalFact, terminalRunHeaderMatchesFact } from './terminal-run-commit.js';
+import {
+  effectiveRunHeaderFromTerminalFact,
+  terminalRunHeaderMatchesFact,
+} from './terminal-run-commit.js';
 
 export interface RuntimeReadModelProjectionCache {
   readMessages(sessionId: string): Promise<StoredMessage[]>;
@@ -90,26 +96,38 @@ export class RuntimeReadModel {
           topLevelRuns[runIndex] = terminalFactContext.run;
           terminalFacts.push(terminalFactContext.fact);
           diagnostics.push(...terminalFactContext.fact.diagnostics);
-          for (let eventIndex = 0; eventIndex < terminalFactContext.events.length; eventIndex += 1) {
+          for (
+            let eventIndex = 0;
+            eventIndex < terminalFactContext.events.length;
+            eventIndex += 1
+          ) {
             ordered.push({ event: terminalFactContext.events[eventIndex]!, runIndex, eventIndex });
           }
           continue;
         }
 
-        const diagnostic = readModelDiagnostic('incomplete_event', 'active run is using the in-flight projection cache', {
-          runId: run.runId,
-          turnId: run.turnId,
-          status: run.status,
-        });
+        const diagnostic = readModelDiagnostic(
+          'incomplete_event',
+          'active run is using the in-flight projection cache',
+          {
+            runId: run.runId,
+            turnId: run.turnId,
+            status: run.status,
+          },
+        );
         diagnostics.push(diagnostic);
         inFlightTurnIds.add(run.turnId);
         if (!this.deps.projectionCache) {
           throw new RuntimeReadModelError('RuntimeEvent ledger is incomplete for an active run', [
-            readModelDiagnostic('incomplete_event', 'active run has no stable RuntimeEvent read projection', {
-              runId: run.runId,
-              turnId: run.turnId,
-              status: run.status,
-            }),
+            readModelDiagnostic(
+              'incomplete_event',
+              'active run has no stable RuntimeEvent read projection',
+              {
+                runId: run.runId,
+                turnId: run.turnId,
+                status: run.status,
+              },
+            ),
           ]);
         }
         continue;
@@ -131,43 +149,65 @@ export class RuntimeReadModel {
         const recovered = await this.backfillMissingRuntimeEvents(sessionId, run);
         if (recovered.length === 0 || !recovered.some(isTerminalRuntimeEvent)) {
           throw new RuntimeReadModelError('RuntimeEvent ledger is missing for a terminal run', [
-            readModelDiagnostic('incomplete_event', 'terminal run has no readable RuntimeEvent ledger', {
-              runId: run.runId,
-              turnId: run.turnId,
-            }),
+            readModelDiagnostic(
+              'incomplete_event',
+              'terminal run has no readable RuntimeEvent ledger',
+              {
+                runId: run.runId,
+                turnId: run.turnId,
+              },
+            ),
           ]);
         }
-        diagnostics.push(readModelDiagnostic('incomplete_event', 'terminal run recovered from legacy projection cache', {
-          runId: run.runId,
-          turnId: run.turnId,
-        }));
+        diagnostics.push(
+          readModelDiagnostic(
+            'incomplete_event',
+            'terminal run recovered from legacy projection cache',
+            {
+              runId: run.runId,
+              turnId: run.turnId,
+            },
+          ),
+        );
         runEvents = recovered;
       }
       if (!runEvents.some(isTerminalRuntimeEvent)) {
-        throw new RuntimeReadModelError('RuntimeEvent ledger has no terminal fact for a terminal run', [
-          readModelDiagnostic('incomplete_event', 'terminal run has no terminal RuntimeEvent', {
-            runId: run.runId,
-            turnId: run.turnId,
-          }),
-        ]);
+        throw new RuntimeReadModelError(
+          'RuntimeEvent ledger has no terminal fact for a terminal run',
+          [
+            readModelDiagnostic('incomplete_event', 'terminal run has no terminal RuntimeEvent', {
+              runId: run.runId,
+              turnId: run.turnId,
+            }),
+          ],
+        );
       }
 
       const terminalFact = classifyRuntimeEventTerminalFact(run, runEvents);
       diagnostics.push(...terminalFact.diagnostics);
       if (!terminalFact.fact) {
-        throw new RuntimeReadModelError('RuntimeEvent ledger has no valid terminal fact for a terminal run', diagnostics);
+        throw new RuntimeReadModelError(
+          'RuntimeEvent ledger has no valid terminal fact for a terminal run',
+          diagnostics,
+        );
       }
       if (!terminalRunHeaderMatchesFact(run, terminalFact.fact)) {
-        diagnostics.push(readModelDiagnostic('incomplete_event', 'terminal run header does not match RuntimeEvent terminal fact', {
-          runId: run.runId,
-          turnId: run.turnId,
-          headerStatus: run.status,
-          factStatus: terminalFact.fact.runStatus,
-          headerFailureClass: run.failureClass,
-          factFailureClass: terminalFact.fact.failureClass,
-          headerAbortSource: run.abortSource,
-          factAbortSource: terminalFact.fact.abortSource,
-        }));
+        diagnostics.push(
+          readModelDiagnostic(
+            'incomplete_event',
+            'terminal run header does not match RuntimeEvent terminal fact',
+            {
+              runId: run.runId,
+              turnId: run.turnId,
+              headerStatus: run.status,
+              factStatus: terminalFact.fact.runStatus,
+              headerFailureClass: run.failureClass,
+              factFailureClass: terminalFact.fact.failureClass,
+              headerAbortSource: run.abortSource,
+              factAbortSource: terminalFact.fact.abortSource,
+            },
+          ),
+        );
       }
       topLevelRuns[runIndex] = effectiveRunHeaderFromTerminalFact(run, terminalFact.fact);
       terminalFacts.push(terminalFact.fact);
@@ -177,11 +217,12 @@ export class RuntimeReadModel {
       }
     }
 
-    ordered.sort((a, b) =>
-      a.event.ts - b.event.ts ||
-      a.runIndex - b.runIndex ||
-      a.eventIndex - b.eventIndex ||
-      a.event.id.localeCompare(b.event.id)
+    ordered.sort(
+      (a, b) =>
+        a.event.ts - b.event.ts ||
+        a.runIndex - b.runIndex ||
+        a.eventIndex - b.eventIndex ||
+        a.event.id.localeCompare(b.event.id),
     );
 
     return this.buildView({
@@ -196,7 +237,9 @@ export class RuntimeReadModel {
   private async readNonTerminalRunWithTerminalFact(
     sessionId: string,
     run: AgentRunHeader,
-  ): Promise<{ events: RuntimeEvent[]; fact: RuntimeEventTerminalFact; run: AgentRunHeader } | undefined> {
+  ): Promise<
+    { events: RuntimeEvent[]; fact: RuntimeEventTerminalFact; run: AgentRunHeader } | undefined
+  > {
     let runEvents: RuntimeEvent[];
     try {
       runEvents = await this.deps.runtimeEventStore.readRuntimeEvents(sessionId, run.runId);
@@ -233,7 +276,9 @@ export class RuntimeReadModel {
     terminalFacts?: RuntimeEventTerminalFact[];
     inFlightTurnIds?: ReadonlySet<string>;
   }): Promise<RuntimeReadModelSessionView> {
-    const projected = projectRuntimeEventsToStoredMessages(input.events, { runHeaders: input.runs });
+    const projected = projectRuntimeEventsToStoredMessages(input.events, {
+      runHeaders: input.runs,
+    });
     const diagnostics = [...input.diagnostics, ...projected.diagnostics];
     if (hasHardProjectionDiagnostic(projected.diagnostics)) {
       throw new RuntimeReadModelError('RuntimeEvent read projection is incomplete', diagnostics);
@@ -245,19 +290,31 @@ export class RuntimeReadModel {
       try {
         cachedMessages = await this.deps.projectionCache.readMessages(sessionId);
       } catch (error) {
-        const diagnostic = readModelDiagnostic('unsupported_event', 'SessionProjectionCache.readMessages failed', {
-          error: errorMessage(error),
-        });
+        const diagnostic = readModelDiagnostic(
+          'unsupported_event',
+          'SessionProjectionCache.readMessages failed',
+          {
+            error: errorMessage(error),
+          },
+        );
         diagnostics.push(diagnostic);
         if (input.inFlightTurnIds && input.inFlightTurnIds.size > 0) {
-          throw new RuntimeReadModelError('RuntimeEvent active projection cache read failed', diagnostics);
+          throw new RuntimeReadModelError(
+            'RuntimeEvent active projection cache read failed',
+            diagnostics,
+          );
         }
       }
     }
 
-    const messages = input.inFlightTurnIds && input.inFlightTurnIds.size > 0
-      ? mergeInFlightProjectionCache(projected.messages, cachedMessages ?? [], input.inFlightTurnIds)
-      : projected.messages;
+    const messages =
+      input.inFlightTurnIds && input.inFlightTurnIds.size > 0
+        ? mergeInFlightProjectionCache(
+            projected.messages,
+            cachedMessages ?? [],
+            input.inFlightTurnIds,
+          )
+        : projected.messages;
 
     diagnostics.push(...this.compareProjectionCache(messages, cachedMessages));
 
@@ -304,11 +361,14 @@ function messageTurnId(message: StoredMessage): string | undefined {
   return 'turnId' in message && typeof message.turnId === 'string' ? message.turnId : undefined;
 }
 
-function hasHardProjectionDiagnostic(diagnostics: readonly RuntimeEventReadModelDiagnostic[]): boolean {
-  return diagnostics.some((diagnostic) =>
-    diagnostic.code === 'incomplete_event' ||
-    diagnostic.code === 'unsupported_event' ||
-    diagnostic.code === 'tool_use_id_mismatch'
+function hasHardProjectionDiagnostic(
+  diagnostics: readonly RuntimeEventReadModelDiagnostic[],
+): boolean {
+  return diagnostics.some(
+    (diagnostic) =>
+      diagnostic.code === 'incomplete_event' ||
+      diagnostic.code === 'unsupported_event' ||
+      diagnostic.code === 'tool_use_id_mismatch',
   );
 }
 

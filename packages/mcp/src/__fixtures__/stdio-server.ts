@@ -1,9 +1,6 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import {
-  CallToolRequestSchema,
-  ListToolsRequestSchema,
-} from '@modelcontextprotocol/sdk/types.js';
+import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
 if (process.argv.includes('--crash')) {
   process.stderr.write('fixture startup failed: deliberate diagnostic\n');
@@ -30,7 +27,9 @@ server.setRequestHandler(ListToolsRequestSchema, async ({ params }) => {
     };
   }
   if (params.cursor === 'page-2') {
-    return { tools: [tool('fail', 'Return MCP isError', false), tool('slow', 'Wait until aborted', false)] };
+    return {
+      tools: [tool('fail', 'Return MCP isError', false), tool('slow', 'Wait until aborted', false)],
+    };
   }
   throw new Error('unexpected cursor');
 });
@@ -48,8 +47,16 @@ server.setRequestHandler(CallToolRequestSchema, async ({ params }) => {
         { type: 'text', text: 'hello' },
         { type: 'image', data: 'aW1hZ2U=', mimeType: 'image/png' },
         { type: 'audio', data: 'YXVkaW8=', mimeType: 'audio/wav' },
-        { type: 'resource', resource: { uri: 'file:///fixture.txt', text: 'resource text', mimeType: 'text/plain' } },
-        { type: 'resource_link', uri: 'https://example.com/item', name: 'item', mimeType: 'text/html' },
+        {
+          type: 'resource',
+          resource: { uri: 'file:///fixture.txt', text: 'resource text', mimeType: 'text/plain' },
+        },
+        {
+          type: 'resource_link',
+          uri: 'https://example.com/item',
+          name: 'item',
+          mimeType: 'text/html',
+        },
       ],
     };
   }

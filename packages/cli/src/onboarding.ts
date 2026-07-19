@@ -1,4 +1,11 @@
-import { CATALOG_PROVIDER_TYPES, PROVIDER_DEFAULTS, providerAuthSupportsApiKey, type LlmConnection, type ModelInfo, type ProviderType } from '@maka/core/llm-connections';
+import {
+  CATALOG_PROVIDER_TYPES,
+  PROVIDER_DEFAULTS,
+  providerAuthSupportsApiKey,
+  type LlmConnection,
+  type ModelInfo,
+  type ProviderType,
+} from '@maka/core/llm-connections';
 import type { ConnectionStore, CredentialStore } from '@maka/storage';
 
 export interface SetupApiKeyConnectionInput {
@@ -66,7 +73,11 @@ export async function setupApiKeyConnection(
     await input.connectionStore.setDefault(input.slug);
     return { connection, models };
   } catch (error) {
-    return { connection, models: [], testError: error instanceof Error ? error.message : String(error) };
+    return {
+      connection,
+      models: [],
+      testError: error instanceof Error ? error.message : String(error),
+    };
   }
 }
 
@@ -86,7 +97,11 @@ export interface OnboardableProvider {
  *  when the connection was saved but the model probe failed, so the wizard can
  *  re-arm the key prompt instead of claiming success. */
 export interface MakaOnboardingSurface {
-  setup: (input: { providerType: ProviderType; apiKey: string; baseUrl?: string }) => Promise<{ testError?: string }>;
+  setup: (input: {
+    providerType: ProviderType;
+    apiKey: string;
+    baseUrl?: string;
+  }) => Promise<{ testError?: string }>;
 }
 
 /** Build the onboarding surface the TUI wizard calls, owning the connection and
@@ -117,20 +132,21 @@ export function createApiKeyOnboardingSurface(deps: {
 /** Catalog providers that can be onboarded with an API key, in catalog order.
  *  The TUI wizard's first step picks from this list. */
 export function listApiKeyOnboardableProviders(): OnboardableProvider[] {
-  return CATALOG_PROVIDER_TYPES
-    .filter((providerType) => providerAuthSupportsApiKey(providerType))
-    .map((providerType) => {
-      const def = PROVIDER_DEFAULTS[providerType];
-      return {
-        providerType,
-        label: def.label,
-        authKind: def.authKind as 'api_key' | 'optional_api_key',
-        requiresBaseUrl: !def.baseUrl,
-        fallbackModels: def.fallbackModels,
-      };
-    })
-    // Phase 1 collects only an API key; providers without a default baseUrl
-    // cannot be completed by this wizard and would wedge a fresh install, so
-    // exclude them until the base-URL prompt lands (phase 2).
-    .filter((provider) => !provider.requiresBaseUrl);
+  return (
+    CATALOG_PROVIDER_TYPES.filter((providerType) => providerAuthSupportsApiKey(providerType))
+      .map((providerType) => {
+        const def = PROVIDER_DEFAULTS[providerType];
+        return {
+          providerType,
+          label: def.label,
+          authKind: def.authKind as 'api_key' | 'optional_api_key',
+          requiresBaseUrl: !def.baseUrl,
+          fallbackModels: def.fallbackModels,
+        };
+      })
+      // Phase 1 collects only an API key; providers without a default baseUrl
+      // cannot be completed by this wizard and would wedge a fresh install, so
+      // exclude them until the base-URL prompt lands (phase 2).
+      .filter((provider) => !provider.requiresBaseUrl)
+  );
 }

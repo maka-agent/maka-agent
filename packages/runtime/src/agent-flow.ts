@@ -136,8 +136,12 @@ export type RunnableAgentFlow = Pick<AgentFlow, 'run'>;
  */
 export interface AgentFlowControl {
   stop(reason: 'user_stop' | 'redirect'): Promise<void>;
-  respondToPermission(decision: import('@maka/core/backend-types').PermissionDecision): Promise<void>;
-  respondToUserQuestion(response: import('@maka/core/user-question').UserQuestionResponse): Promise<void>;
+  respondToPermission(
+    decision: import('@maka/core/backend-types').PermissionDecision,
+  ): Promise<void>;
+  respondToUserQuestion(
+    response: import('@maka/core/user-question').UserQuestionResponse,
+  ): Promise<void>;
   dispose(): Promise<void>;
 }
 

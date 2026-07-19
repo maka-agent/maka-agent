@@ -43,7 +43,7 @@ export const TOOL_ACTIVITY_KINDS = [
   'browser',
   'tool',
 ] as const;
-export type ToolActivityKind = typeof TOOL_ACTIVITY_KINDS[number];
+export type ToolActivityKind = (typeof TOOL_ACTIVITY_KINDS)[number];
 type TerminalToolResultStatus = Exclude<ShellRunTerminalStatus, 'orphaned'>;
 
 // ============================================================================
@@ -141,7 +141,7 @@ export interface ToolStartEvent extends BaseEvent {
   stepId?: string;
 }
 
-export type ToolOutputStream = typeof TOOL_OUTPUT_STREAMS[number];
+export type ToolOutputStream = (typeof TOOL_OUTPUT_STREAMS)[number];
 
 /**
  * Live output side-channel for long-running tools.
@@ -200,15 +200,11 @@ export interface SandboxDenialRecovery {
   recovery: 'require_escalated';
 }
 
-export type ShellRunCompactResult = ShellRunResultMetadata & (
-  | { mode: 'pipes'; output?: never }
-  | { mode: 'pty'; output?: never }
-);
+export type ShellRunCompactResult = ShellRunResultMetadata &
+  ({ mode: 'pipes'; output?: never } | { mode: 'pty'; output?: never });
 
-export type ShellRunSnapshotResult = ShellRunResultMetadata & (
-  | { mode: 'pipes'; output: PipeShellOutput }
-  | { mode: 'pty'; output: PtyShellOutput }
-);
+export type ShellRunSnapshotResult = ShellRunResultMetadata &
+  ({ mode: 'pipes'; output: PipeShellOutput } | { mode: 'pty'; output: PtyShellOutput });
 
 export type ShellRunStateResult = ShellRunCompactResult | ShellRunSnapshotResult;
 
@@ -216,11 +212,12 @@ type ShellRunStopOperation = Extract<ShellRunOperation, { kind: 'stop' }>;
 type ShellRunPtyControlOperation = Extract<ShellRunOperation, { kind: 'pty_control' }>;
 type ShellRunToolResultContent =
   | (ShellRunCompactResult & { operation?: never })
-  | (ShellRunSnapshotResult & (
-      | { operation?: never }
-      | { operation: ShellRunStopOperation }
-      | { mode: 'pty'; output: PtyShellOutput; operation: ShellRunPtyControlOperation }
-    ));
+  | (ShellRunSnapshotResult &
+      (
+        | { operation?: never }
+        | { operation: ShellRunStopOperation }
+        | { mode: 'pty'; output: PtyShellOutput; operation: ShellRunPtyControlOperation }
+      ));
 
 export type ToolResultContent =
   | { kind: 'text'; text: string }
@@ -306,7 +303,9 @@ export type ToolResultContent =
       queries: string[];
       ignoredPaths?: string[];
       stoppingCondition?: string;
-      limitReasons?: ReadonlyArray<'candidate_budget' | 'file_budget' | 'match_budget' | 'byte_budget'>;
+      limitReasons?: ReadonlyArray<
+        'candidate_budget' | 'file_budget' | 'match_budget' | 'byte_budget'
+      >;
       filesDiscovered?: number;
       filesInspected: number;
       filesSkipped: number;
@@ -434,16 +433,14 @@ export interface PermissionRequestEvent extends BaseEvent, PermissionRequest {
   type: 'permission_request';
 }
 
-export interface AdditionalPermissionRequestEvent
-  extends BaseEvent, AdditionalPermissionRequest {
+export interface AdditionalPermissionRequestEvent extends BaseEvent, AdditionalPermissionRequest {
   type: 'permission_request';
   /** Additional-permission prompts deliberately do not expose raw tool arguments. */
   args: undefined;
   rememberForTurnAllowed?: false;
 }
 
-export interface SandboxEscalationRequestEvent
-  extends BaseEvent, SandboxEscalationRequest {
+export interface SandboxEscalationRequestEvent extends BaseEvent, SandboxEscalationRequest {
   type: 'permission_request';
   /** Escalation prompts expose only bounded command and justification fields. */
   args: undefined;
@@ -537,9 +534,7 @@ export interface SteeringMessageEvent extends BaseEvent {
  * fresh turn with the text instead, so a message is never silently dropped.
  * Queue contents travel on ONE path only: the `queue_update` event.
  */
-export type QueueEnqueueOutcome =
-  | { kind: 'queued' }
-  | { kind: 'fallback' };
+export type QueueEnqueueOutcome = { kind: 'queued' } | { kind: 'fallback' };
 
 /**
  * Authoritative queue snapshot pushed into the active turn's event stream

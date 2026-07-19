@@ -67,7 +67,9 @@ export function classifyExternalHarborBenchmarkFailure(
 
   const errorClass = normalized(input.errorClass);
   const taxonomy = normalized(input.taxonomy);
-  const failureText = [status, errorClass, taxonomy, normalized(input.error)].filter(Boolean).join(' ');
+  const failureText = [status, errorClass, taxonomy, normalized(input.error)]
+    .filter(Boolean)
+    .join(' ');
   const base = errorClass ? { errorClass } : {};
 
   if (INFRA_FAILURE_CLASSES.has(errorClass) || INFRA_FAILURE_CLASSES.has(taxonomy)) {
@@ -77,9 +79,9 @@ export function classifyExternalHarborBenchmarkFailure(
     return { kind: 'budget_exhausted', shouldThrow: false, ...base };
   }
   if (
-    AGENT_INCOMPLETE_CLASSES.has(errorClass)
-    || AGENT_INCOMPLETE_CLASSES.has(taxonomy)
-    || includesAny(failureText, INCOMPLETE_FAILURE_PATTERNS)
+    AGENT_INCOMPLETE_CLASSES.has(errorClass) ||
+    AGENT_INCOMPLETE_CLASSES.has(taxonomy) ||
+    includesAny(failureText, INCOMPLETE_FAILURE_PATTERNS)
   ) {
     return { kind: 'agent_incomplete', shouldThrow: false, ...base };
   }

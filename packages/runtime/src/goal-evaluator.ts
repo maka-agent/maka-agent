@@ -80,7 +80,11 @@ export function parseGoalEvaluation(raw: string): GoalEvaluation {
   // failure (like a timeout), NOT as real "no progress", so a garbled cheap-model
   // response cannot skew stall detection into a false 'stalled' termination.
   const fallback: GoalEvaluation = {
-    met: false, impossible: false, progress: false, waiting: false, evaluatorFailed: true,
+    met: false,
+    impossible: false,
+    progress: false,
+    waiting: false,
+    evaluatorFailed: true,
     reason: 'Evaluator produced unparseable output',
   };
   // Prefer the object that mentions "met"; fall back to the first object.
@@ -94,9 +98,10 @@ export function parseGoalEvaluation(raw: string): GoalEvaluation {
       progress: Boolean(parsed.progress),
       waiting: Boolean(parsed.waiting),
       evaluatorFailed: false,
-      reason: typeof parsed.reason === 'string' && parsed.reason.trim()
-        ? parsed.reason.slice(0, 200)
-        : 'No reason provided',
+      reason:
+        typeof parsed.reason === 'string' && parsed.reason.trim()
+          ? parsed.reason.slice(0, 200)
+          : 'No reason provided',
     };
   } catch {
     return { ...fallback, reason: 'Evaluator JSON parse failed' };
@@ -127,11 +132,25 @@ export async function evaluateGoal(
   try {
     const result = await Promise.race([deps.evaluate(prompt, sessionId), timeout]);
     if (result === '__timeout__') {
-      return { met: false, impossible: false, progress: false, waiting: false, evaluatorFailed: true, reason: 'Evaluator timed out (continuing)' };
+      return {
+        met: false,
+        impossible: false,
+        progress: false,
+        waiting: false,
+        evaluatorFailed: true,
+        reason: 'Evaluator timed out (continuing)',
+      };
     }
     return parseGoalEvaluation(result);
   } catch {
-    return { met: false, impossible: false, progress: false, waiting: false, evaluatorFailed: true, reason: 'Evaluator call failed (continuing)' };
+    return {
+      met: false,
+      impossible: false,
+      progress: false,
+      waiting: false,
+      evaluatorFailed: true,
+      reason: 'Evaluator call failed (continuing)',
+    };
   } finally {
     clearT(timer);
   }

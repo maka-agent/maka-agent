@@ -76,8 +76,14 @@ async function main() {
   const bottom = Math.round((EXPECTED_LOGICAL_HEIGHT - surfaceMargin) * scale) - 1;
   const radius = Math.round(surfaceRadius * scale);
 
-  const midY = Math.round(EXPECTED_LOGICAL_HEIGHT * 0.50 * scale);
-  const shellGutter = sampleAverage(image, Math.round((sidebarWidth + surfaceMargin * 0.50) * scale), midY, 2, 28);
+  const midY = Math.round(EXPECTED_LOGICAL_HEIGHT * 0.5 * scale);
+  const shellGutter = sampleAverage(
+    image,
+    Math.round((sidebarWidth + surfaceMargin * 0.5) * scale),
+    midY,
+    2,
+    28,
+  );
   const cardInterior = sampleAverage(image, left + radius + Math.round(32 * scale), midY, 8, 28);
   const shellToCard = colorDistance(shellGutter.rgb, cardInterior.rgb);
 
@@ -94,10 +100,34 @@ async function main() {
     `sidebar/content boundary must not contain a dark one-pixel seam (luminance ${seam.luminance.toFixed(2)})`,
   );
 
-  const bottomCard = sampleAverage(image, left + radius + Math.round(36 * scale), bottom - radius - Math.round(12 * scale), 8, 8);
-  const bottomLeftCorner = sampleAverage(image, left + Math.round(3 * scale), bottom - Math.round(3 * scale), 2, 2);
-  const bottomRightCorner = sampleAverage(image, right - Math.round(3 * scale), bottom - Math.round(3 * scale), 2, 2);
-  const bottomGutter = sampleAverage(image, left + radius + Math.round(48 * scale), Math.round((EXPECTED_LOGICAL_HEIGHT - surfaceMargin * 0.45) * scale), 8, 2);
+  const bottomCard = sampleAverage(
+    image,
+    left + radius + Math.round(36 * scale),
+    bottom - radius - Math.round(12 * scale),
+    8,
+    8,
+  );
+  const bottomLeftCorner = sampleAverage(
+    image,
+    left + Math.round(3 * scale),
+    bottom - Math.round(3 * scale),
+    2,
+    2,
+  );
+  const bottomRightCorner = sampleAverage(
+    image,
+    right - Math.round(3 * scale),
+    bottom - Math.round(3 * scale),
+    2,
+    2,
+  );
+  const bottomGutter = sampleAverage(
+    image,
+    left + radius + Math.round(48 * scale),
+    Math.round((EXPECTED_LOGICAL_HEIGHT - surfaceMargin * 0.45) * scale),
+    8,
+    2,
+  );
 
   assertAtLeast(
     colorDistance(bottomLeftCorner.rgb, bottomCard.rgb),
@@ -135,15 +165,17 @@ function rel(path) {
 }
 
 function readTsNumberConst(source, name) {
-  const match = source.match(new RegExp(`const\\s+${escapeRegExp(name)}\\s*=\\s*([0-9]+(?:\\.[0-9]+)?)\\s*;`));
+  const match = source.match(
+    new RegExp(`const\\s+${escapeRegExp(name)}\\s*=\\s*([0-9]+(?:\\.[0-9]+)?)\\s*;`),
+  );
   if (!match) fail(`missing renderer numeric constant ${name}`);
   return Number(match[1]);
 }
 
 function readCssPxProperty(ruleBody, name) {
-  const match = ruleBody.replace(/\/\*[\s\S]*?\*\//g, '').match(
-    new RegExp(`${escapeRegExp(name)}:\\s*([0-9]+(?:\\.[0-9]+)?)px\\s*;`),
-  );
+  const match = ruleBody
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .match(new RegExp(`${escapeRegExp(name)}:\\s*([0-9]+(?:\\.[0-9]+)?)px\\s*;`));
   if (!match) fail(`missing CSS property ${name}`);
   return Number(match[1]);
 }

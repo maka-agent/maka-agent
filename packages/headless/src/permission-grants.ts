@@ -47,19 +47,23 @@ export function matchPermissionGrant(
   grants: readonly TaskPermissionGrant[],
   now: number,
 ): TaskPermissionGrant | undefined {
-  return grants.find((grant) =>
-    grant.decision === 'allow' &&
-    grant.taskRunId === request.taskRunId &&
-    (grant.attemptId === undefined || grant.attemptId === request.attemptId) &&
-    (grant.toolCallId === undefined || grant.toolCallId === request.toolCallId) &&
-    grant.toolName === request.toolName &&
-    grant.normalizedArgsHash === request.normalizedArgsHash &&
-    resourceScopeEquals(grant.resourceScope, request.resourceScope) &&
-    grant.expiresAt > now,
+  return grants.find(
+    (grant) =>
+      grant.decision === 'allow' &&
+      grant.taskRunId === request.taskRunId &&
+      (grant.attemptId === undefined || grant.attemptId === request.attemptId) &&
+      (grant.toolCallId === undefined || grant.toolCallId === request.toolCallId) &&
+      grant.toolName === request.toolName &&
+      grant.normalizedArgsHash === request.normalizedArgsHash &&
+      resourceScopeEquals(grant.resourceScope, request.resourceScope) &&
+      grant.expiresAt > now,
   );
 }
 
-export function resourceScopeEquals(a: PermissionResourceScope, b: PermissionResourceScope): boolean {
+export function resourceScopeEquals(
+  a: PermissionResourceScope,
+  b: PermissionResourceScope,
+): boolean {
   return a.kind === b.kind && a.value === b.value && a.mode === b.mode;
 }
 

@@ -28,16 +28,17 @@ export function taskDefinitionFromTask(task: Task): TaskDefinition {
     id: task.id,
     instruction: task.instruction,
     workspaceDir: task.workspaceDir,
-    verification: verifier.kind === 'command'
-      ? {
-          command: verifier.command,
-          ...(verifier.timeoutMs === undefined ? {} : { timeoutMs: verifier.timeoutMs }),
-          protectedPaths: [...verifier.protectedPaths],
-        }
-      : {
-          command: verifier.kind,
-          protectedPaths: verifier.protectedPaths ? [...verifier.protectedPaths] : [],
-        },
+    verification:
+      verifier.kind === 'command'
+        ? {
+            command: verifier.command,
+            ...(verifier.timeoutMs === undefined ? {} : { timeoutMs: verifier.timeoutMs }),
+            protectedPaths: [...verifier.protectedPaths],
+          }
+        : {
+            command: verifier.kind,
+            protectedPaths: verifier.protectedPaths ? [...verifier.protectedPaths] : [],
+          },
   };
 }
 
@@ -46,10 +47,13 @@ export function taskEventsFromResultRecord(
   options: TaskEventsFromResultRecordOptions = {},
 ): TaskEvent[] {
   const eventId = options.eventId ?? randomUUID;
-  const taskRunId = options.taskRunId ?? (record.runId || `${record.configId}-${record.taskId}-${record.startedAt}`);
+  const taskRunId =
+    options.taskRunId ??
+    (record.runId || `${record.configId}-${record.taskId}-${record.startedAt}`);
   const attemptId = options.attemptId ?? `${taskRunId}-attempt-1`;
   const taxonomy = taxonomyFromResultRecord(record);
-  const shouldRecordVerifier = record.status === 'completed' || record.exitCode !== null || taxonomy === 'verification_error';
+  const shouldRecordVerifier =
+    record.status === 'completed' || record.exitCode !== null || taxonomy === 'verification_error';
   const verifier = options.task ? normalizeVerifier(options.task) : undefined;
   const verifierResult: VerifierResult | undefined = shouldRecordVerifier
     ? {
@@ -129,9 +133,21 @@ export function taskEventsFromResultRecord(
   }
 
   if (verifierResult) {
-    events.push({ type: 'verifier_result_recorded', id: eventId(), taskRunId, ts: record.finishedAt, result: verifierResult });
+    events.push({
+      type: 'verifier_result_recorded',
+      id: eventId(),
+      taskRunId,
+      ts: record.finishedAt,
+      result: verifierResult,
+    });
   }
-  events.push({ type: 'score_result_recorded', id: eventId(), taskRunId, ts: record.finishedAt, result: scoreResult });
+  events.push({
+    type: 'score_result_recorded',
+    id: eventId(),
+    taskRunId,
+    ts: record.finishedAt,
+    result: scoreResult,
+  });
   events.push({
     type: 'task_attempt_completed',
     id: eventId(),
@@ -222,7 +238,11 @@ export function resultRecordFromTaskRunProjection(projection: TaskRunProjection)
   const base = projection.sourceResultRecord ?? baseResultRecord(projection);
   const latestScore = projection.latestScoreResult;
   const taxonomy = latestScore?.taxonomy ?? projection.result?.taxonomy;
-  const passed = latestScore?.passed ?? projection.result?.passed ?? projection.latestVerifierResult?.passed ?? false;
+  const passed =
+    latestScore?.passed ??
+    projection.result?.passed ??
+    projection.latestVerifierResult?.passed ??
+    false;
   const exitCode = projection.latestVerifierResult?.exitCode ?? base.exitCode;
 
   if (projection.status === 'completed') {
@@ -237,13 +257,19 @@ export function resultRecordFromTaskRunProjection(projection: TaskRunProjection)
 
   const failureClass = legacyFailureClass(projection.status, taxonomy);
   if (failureClass) {
-    const errorClass = projection.error?.class ?? base.errorClass ?? (projection.sourceResultRecord ? undefined : failureClass);
+    const errorClass =
+      projection.error?.class ??
+      base.errorClass ??
+      (projection.sourceResultRecord ? undefined : failureClass);
     return {
       ...base,
       status: 'failed',
       passed: false,
       exitCode,
-      error: projection.error?.message ?? base.error ?? errorMessageFromTaxonomy(taxonomy, projection.status),
+      error:
+        projection.error?.message ??
+        base.error ??
+        errorMessageFromTaxonomy(taxonomy, projection.status),
       ...(errorClass ? { errorClass } : {}),
     };
   }
@@ -304,7 +330,10 @@ function baseResultRecord(projection: TaskRunProjection): ResultRecord {
   };
 }
 
-function errorFromResultRecord(record: ResultRecord, taxonomy: AutonomousResultTaxonomy): TaskRunError {
+function errorFromResultRecord(
+  record: ResultRecord,
+  taxonomy: AutonomousResultTaxonomy,
+): TaskRunError {
   return {
     message: record.error ?? errorMessageFromTaxonomy(taxonomy),
     ...(record.errorClass ? { class: record.errorClass } : {}),

@@ -53,7 +53,11 @@ describe('cleanRecapText', () => {
 describe('shouldAutoRecap', () => {
   test('idle-time boundary: 179999ms does not trigger, 180000ms does', () => {
     assert.equal(
-      shouldAutoRecap({ idleMs: AUTO_RECAP_IDLE_MS - 1, mainTurnCount: 3, lastRecapMainTurnCount: 0 }),
+      shouldAutoRecap({
+        idleMs: AUTO_RECAP_IDLE_MS - 1,
+        mainTurnCount: 3,
+        lastRecapMainTurnCount: 0,
+      }),
       false,
     );
     assert.equal(
@@ -64,11 +68,19 @@ describe('shouldAutoRecap', () => {
 
   test('main-turn boundary: 2 turns does not trigger, 3 turns does', () => {
     assert.equal(
-      shouldAutoRecap({ idleMs: AUTO_RECAP_IDLE_MS, mainTurnCount: AUTO_RECAP_MIN_TURNS - 1, lastRecapMainTurnCount: 0 }),
+      shouldAutoRecap({
+        idleMs: AUTO_RECAP_IDLE_MS,
+        mainTurnCount: AUTO_RECAP_MIN_TURNS - 1,
+        lastRecapMainTurnCount: 0,
+      }),
       false,
     );
     assert.equal(
-      shouldAutoRecap({ idleMs: AUTO_RECAP_IDLE_MS, mainTurnCount: AUTO_RECAP_MIN_TURNS, lastRecapMainTurnCount: 0 }),
+      shouldAutoRecap({
+        idleMs: AUTO_RECAP_IDLE_MS,
+        mainTurnCount: AUTO_RECAP_MIN_TURNS,
+        lastRecapMainTurnCount: 0,
+      }),
       true,
     );
   });

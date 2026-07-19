@@ -18,9 +18,7 @@ export interface AgentSwarmResultProjection {
  * tool result. This is a projection only: child AgentRuns remain the authority
  * for child lifecycle and artifacts.
  */
-export function projectAgentSwarmResult(
-  result: AgentSwarmResult,
-): AgentSwarmResultProjection {
+export function projectAgentSwarmResult(result: AgentSwarmResult): AgentSwarmResultProjection {
   let startedItemCount = 0;
   let completedItemCount = 0;
   let failedItemCount = 0;

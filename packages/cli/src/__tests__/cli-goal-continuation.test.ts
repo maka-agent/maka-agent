@@ -11,7 +11,9 @@ import { CliGoalContinuation } from '../cli-goal-continuation.js';
 
 function deferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
-  const promise = new Promise<T>((res) => { resolve = res; });
+  const promise = new Promise<T>((res) => {
+    resolve = res;
+  });
   return { promise, resolve };
 }
 
@@ -92,8 +94,11 @@ describe('CLI Goal continuation host', () => {
             streamStarted.resolve();
             await releaseStream.promise;
             yield {
-              type: 'complete', id: 'heartbeat-complete', turnId: 'heartbeat-turn',
-              ts: now, stopReason: 'end_turn',
+              type: 'complete',
+              id: 'heartbeat-complete',
+              turnId: 'heartbeat-turn',
+              ts: now,
+              stopReason: 'end_turn',
             };
           },
         });
@@ -125,5 +130,4 @@ describe('CLI Goal continuation host', () => {
     lifecycle.dispose();
     goalManager.dispose();
   });
-
 });

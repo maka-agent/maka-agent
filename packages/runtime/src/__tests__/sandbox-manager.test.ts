@@ -158,10 +158,13 @@ describe('SandboxManager.selectInitial', () => {
       }),
     ]);
 
-    assert.equal(unsupportedArch.canEnforce({
-      profile: createWorkspaceWritePermissionProfile(),
-      platform: 'linux',
-    }), false);
+    assert.equal(
+      unsupportedArch.canEnforce({
+        profile: createWorkspaceWritePermissionProfile(),
+        platform: 'linux',
+      }),
+      false,
+    );
     assert.equal(available.canEnforce({ profile: denied, platform: 'linux' }), false);
   });
 
@@ -238,7 +241,13 @@ describe('SandboxManager.transform', () => {
     assert.equal(result.ok, true);
     assert.equal(backend.calls.length, 1);
     if (result.ok) {
-      assert.deepEqual(result.exec.argv, ['/usr/bin/sandbox-exec', '--', '/bin/zsh', '-lc', 'echo ok']);
+      assert.deepEqual(result.exec.argv, [
+        '/usr/bin/sandbox-exec',
+        '--',
+        '/bin/zsh',
+        '-lc',
+        'echo ok',
+      ]);
       assert.equal(result.exec.sandboxType, 'macos-seatbelt');
     }
   });

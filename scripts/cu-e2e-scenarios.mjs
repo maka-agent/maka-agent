@@ -258,19 +258,19 @@ export const CU_E2E_SCENARIOS = Object.freeze([
         },
       ],
     },
-    expectedState: [
-      { windowId: 'current', path: 'clicks', equals: 1 },
-    ],
+    expectedState: [{ windowId: 'current', path: 'clicks', equals: 1 }],
     forbiddenEffects: [
-      invariant('current', 'overClicks', 0, 'the replacement target must not receive a duplicate click'),
+      invariant(
+        'current',
+        'overClicks',
+        0,
+        'the replacement target must not receive a duplicate click',
+      ),
     ],
     allowedActions: ['observe', 'click_element', 'screenshot', 'left_click', 'wait'],
     minimumActionCounts: { observe: 1 },
     maxTotalActions: 8,
-    contractChecks: [
-      'identity-preserving-stale-resolution',
-      'unrelated-dynamic-content-tolerated',
-    ],
+    contractChecks: ['identity-preserving-stale-resolution', 'unrelated-dynamic-content-tolerated'],
     realRunEnabled: true,
     requiresExecutionCapabilities: ['window-frame-binding', 'stale-frame-rejection'],
   },
@@ -322,26 +322,27 @@ export const CU_E2E_SCENARIOS = Object.freeze([
       'Observe the fixture while the user continues normal pointer and focus activity. Do not mutate the fixture. Stop immediately if the safety sentinel reports an agent-caused focus or real-cursor change.',
     fixtureSetup: {
       layout: 'single',
-      windows: [{
-        id: 'sentinel',
-        title: 'Maka CUA L4 User Concurrency Sentinel',
-        kind: 'sentinel',
-      }],
+      windows: [
+        {
+          id: 'sentinel',
+          title: 'Maka CUA L4 User Concurrency Sentinel',
+          kind: 'sentinel',
+        },
+      ],
     },
-    expectedState: [
-      { windowId: 'sentinel', path: 'agentViolations', equals: 0 },
-    ],
+    expectedState: [{ windowId: 'sentinel', path: 'agentViolations', equals: 0 }],
     forbiddenEffects: [
-      invariant('sentinel', 'agentViolations', 0, 'agent actions must not change focus or the real cursor'),
+      invariant(
+        'sentinel',
+        'agentViolations',
+        0,
+        'agent actions must not change focus or the real cursor',
+      ),
     ],
     allowedActions: ['observe', 'screenshot', 'wait'],
     minimumActionCounts: { observe: 1 },
     maxTotalActions: 4,
-    contractChecks: [
-      'focus-cursor-safety',
-      'negative-origin-mapping',
-      'mixed-scale-mapping',
-    ],
+    contractChecks: ['focus-cursor-safety', 'negative-origin-mapping', 'mixed-scale-mapping'],
     realRunEnabled: true,
     requiresExecutionCapabilities: ['focus-cursor-sentinel'],
     runner: 'safety-sentinel',
@@ -353,17 +354,22 @@ export const CU_E2E_SCENARIOS = Object.freeze([
       'Aggregate the provider reports for the layered Computer Use scenarios without executing additional UI actions.',
     fixtureSetup: {
       layout: 'single',
-      windows: [{
-        id: 'matrix',
-        title: 'Maka CUA L5 Provider Matrix',
-        kind: 'provider-matrix',
-      }],
+      windows: [
+        {
+          id: 'matrix',
+          title: 'Maka CUA L5 Provider Matrix',
+          kind: 'provider-matrix',
+        },
+      ],
     },
-    expectedState: [
-      { windowId: 'matrix', path: 'invalidReports', equals: 0 },
-    ],
+    expectedState: [{ windowId: 'matrix', path: 'invalidReports', equals: 0 }],
     forbiddenEffects: [
-      invariant('matrix', 'executedUiActions', 0, 'provider aggregation must not execute UI actions'),
+      invariant(
+        'matrix',
+        'executedUiActions',
+        0,
+        'provider aggregation must not execute UI actions',
+      ),
     ],
     allowedActions: ['observe'],
     contractChecks: [],
@@ -386,7 +392,8 @@ function validateAssertion(assertion, scenarioId, field, windowIds) {
     throw new Error(`${scenarioId}.${field} requires a non-empty path`);
   }
   const matchers = [...MATCHERS].filter((matcher) =>
-    Object.prototype.hasOwnProperty.call(assertion, matcher));
+    Object.prototype.hasOwnProperty.call(assertion, matcher),
+  );
   if (matchers.length !== 1) {
     throw new Error(`${scenarioId}.${field} assertions require exactly one matcher`);
   }
@@ -418,13 +425,16 @@ function collectWindowIds(fixtureSetup, scenarioId) {
       throw new Error(`${scenarioId}.fixtureSetup.transitions supports only replace-window`);
     }
     if (!ids.has(transition.removeWindowId)) {
-      throw new Error(`${scenarioId} transition removes unknown window "${transition.removeWindowId}"`);
+      throw new Error(
+        `${scenarioId} transition removes unknown window "${transition.removeWindowId}"`,
+      );
     }
     ids.delete(transition.removeWindowId);
     validateWindow(transition.addWindow, 'fixtureSetup.transitions.addWindow');
   }
   for (const windowId of fixtureSetup.zOrder ?? []) {
-    if (!ids.has(windowId)) throw new Error(`${scenarioId}.fixtureSetup.zOrder references "${windowId}"`);
+    if (!ids.has(windowId))
+      throw new Error(`${scenarioId}.fixtureSetup.zOrder references "${windowId}"`);
   }
   return ids;
 }
@@ -446,7 +456,8 @@ export function validateCuE2eScenario(scenario) {
     throw new Error(`${scenario.id}.forbiddenEffects must be non-empty`);
   }
   scenario.expectedState.forEach((assertion) =>
-    validateAssertion(assertion, scenario.id, 'expectedState', windowIds));
+    validateAssertion(assertion, scenario.id, 'expectedState', windowIds),
+  );
   scenario.forbiddenEffects.forEach((assertion) => {
     validateAssertion(assertion, scenario.id, 'forbiddenEffects', windowIds);
     if (typeof assertion.description !== 'string' || !assertion.description.trim()) {
@@ -462,41 +473,43 @@ export function validateCuE2eScenario(scenario) {
   for (const action of scenario.allowedActions) {
     if (!ACTIONS.has(action)) throw new Error(`${scenario.id} allows unknown action "${action}"`);
   }
-  if (!scenario.allowedActions.includes('screenshot') && !scenario.allowedActions.includes('observe')) {
+  if (
+    !scenario.allowedActions.includes('screenshot') &&
+    !scenario.allowedActions.includes('observe')
+  ) {
     throw new Error(`${scenario.id} must allow screenshot or observe`);
   }
   if (
-    scenario.maxTotalActions !== undefined
-    && (!Number.isInteger(scenario.maxTotalActions) || scenario.maxTotalActions < 0)
+    scenario.maxTotalActions !== undefined &&
+    (!Number.isInteger(scenario.maxTotalActions) || scenario.maxTotalActions < 0)
   ) {
     throw new Error(`${scenario.id}.maxTotalActions must be a non-negative integer`);
   }
   if (
-    scenario.minimumActionCounts !== undefined
-    && (
-      !isRecord(scenario.minimumActionCounts)
-      || Object.entries(scenario.minimumActionCounts).some(([action, count]) =>
-        !ACTIONS.has(action) || !Number.isInteger(count) || count < 0)
-    )
+    scenario.minimumActionCounts !== undefined &&
+    (!isRecord(scenario.minimumActionCounts) ||
+      Object.entries(scenario.minimumActionCounts).some(
+        ([action, count]) => !ACTIONS.has(action) || !Number.isInteger(count) || count < 0,
+      ))
   ) {
-    throw new Error(`${scenario.id}.minimumActionCounts must map known actions to non-negative integers`);
+    throw new Error(
+      `${scenario.id}.minimumActionCounts must map known actions to non-negative integers`,
+    );
   }
   if (
-    scenario.maxActionCounts !== undefined
-    && (
-      !isRecord(scenario.maxActionCounts)
-      || Object.entries(scenario.maxActionCounts).some(([action, count]) =>
-        !ACTIONS.has(action) || !Number.isInteger(count) || count < 0)
-    )
+    scenario.maxActionCounts !== undefined &&
+    (!isRecord(scenario.maxActionCounts) ||
+      Object.entries(scenario.maxActionCounts).some(
+        ([action, count]) => !ACTIONS.has(action) || !Number.isInteger(count) || count < 0,
+      ))
   ) {
-    throw new Error(`${scenario.id}.maxActionCounts must map known actions to non-negative integers`);
+    throw new Error(
+      `${scenario.id}.maxActionCounts must map known actions to non-negative integers`,
+    );
   }
   const minimumCounts = scenario.minimumActionCounts ?? {};
   const maximumCounts = scenario.maxActionCounts ?? {};
-  for (const action of [
-    ...Object.keys(minimumCounts),
-    ...Object.keys(maximumCounts),
-  ]) {
+  for (const action of [...Object.keys(minimumCounts), ...Object.keys(maximumCounts)]) {
     if (!scenario.allowedActions.includes(action)) {
       throw new Error(`${scenario.id} count budget references disallowed action "${action}"`);
     }
@@ -508,54 +521,49 @@ export function validateCuE2eScenario(scenario) {
     }
   }
   if (
-    scenario.expectedActionSequence !== undefined
-    && (
-      !Array.isArray(scenario.expectedActionSequence)
-      || scenario.expectedActionSequence.length === 0
-      || scenario.expectedActionSequence.some((action) =>
-        typeof action !== 'string' || !scenario.allowedActions.includes(action))
-    )
+    scenario.expectedActionSequence !== undefined &&
+    (!Array.isArray(scenario.expectedActionSequence) ||
+      scenario.expectedActionSequence.length === 0 ||
+      scenario.expectedActionSequence.some(
+        (action) => typeof action !== 'string' || !scenario.allowedActions.includes(action),
+      ))
   ) {
     throw new Error(`${scenario.id}.expectedActionSequence must contain allowed actions`);
   }
   if (
-    Array.isArray(scenario.expectedActionSequence)
-    && scenario.maxTotalActions !== undefined
-    && scenario.expectedActionSequence.length > scenario.maxTotalActions
+    Array.isArray(scenario.expectedActionSequence) &&
+    scenario.maxTotalActions !== undefined &&
+    scenario.expectedActionSequence.length > scenario.maxTotalActions
   ) {
     throw new Error(`${scenario.id}.expectedActionSequence exceeds maxTotalActions`);
   }
   if (
-    scenario.expectedFailures !== undefined
-    && (
-      !Array.isArray(scenario.expectedFailures)
-      || scenario.expectedFailures.some((failure) =>
-        !isRecord(failure)
-        || typeof failure.action !== 'string'
-        || !scenario.allowedActions.includes(failure.action)
-        || typeof failure.error !== 'string'
-        || !/^[a-z][a-z0-9_]{1,63}$/.test(failure.error))
-    )
+    scenario.expectedFailures !== undefined &&
+    (!Array.isArray(scenario.expectedFailures) ||
+      scenario.expectedFailures.some(
+        (failure) =>
+          !isRecord(failure) ||
+          typeof failure.action !== 'string' ||
+          !scenario.allowedActions.includes(failure.action) ||
+          typeof failure.error !== 'string' ||
+          !/^[a-z][a-z0-9_]{1,63}$/.test(failure.error),
+      ))
   ) {
-    throw new Error(
-      `${scenario.id}.expectedFailures must contain allowed action and error pairs`,
-    );
+    throw new Error(`${scenario.id}.expectedFailures must contain allowed action and error pairs`);
   }
   if (
-    Array.isArray(scenario.expectedFailures)
-    && new Set(scenario.expectedFailures.map(({ action, error }) => `${action}\0${error}`)).size
-      !== scenario.expectedFailures.length
+    Array.isArray(scenario.expectedFailures) &&
+    new Set(scenario.expectedFailures.map(({ action, error }) => `${action}\0${error}`)).size !==
+      scenario.expectedFailures.length
   ) {
     throw new Error(`${scenario.id}.expectedFailures contains duplicates`);
   }
   if (scenario.maxTotalActions !== undefined) {
-    const minimumTotal = Object.values(minimumCounts)
-      .reduce((sum, count) => sum + count, 0);
+    const minimumTotal = Object.values(minimumCounts).reduce((sum, count) => sum + count, 0);
     if (minimumTotal > scenario.maxTotalActions) {
       throw new Error(`${scenario.id} minimum action counts exceed maxTotalActions`);
     }
-    if (Object.values(maximumCounts).some((count) =>
-      count > scenario.maxTotalActions)) {
+    if (Object.values(maximumCounts).some((count) => count > scenario.maxTotalActions)) {
       throw new Error(`${scenario.id} action maximum exceeds maxTotalActions`);
     }
   }
@@ -563,15 +571,16 @@ export function validateCuE2eScenario(scenario) {
     throw new Error(`${scenario.id}.realRunEnabled must be boolean`);
   }
   if (
-    !Array.isArray(scenario.requiresExecutionCapabilities)
-    || scenario.requiresExecutionCapabilities.some((capability) =>
-      typeof capability !== 'string' || !capability.trim())
+    !Array.isArray(scenario.requiresExecutionCapabilities) ||
+    scenario.requiresExecutionCapabilities.some(
+      (capability) => typeof capability !== 'string' || !capability.trim(),
+    )
   ) {
     throw new Error(`${scenario.id}.requiresExecutionCapabilities must be string[]`);
   }
   if (
-    !Array.isArray(scenario.contractChecks)
-    || scenario.contractChecks.some((check) => !CONTRACT_CHECKS.has(check))
+    !Array.isArray(scenario.contractChecks) ||
+    scenario.contractChecks.some((check) => !CONTRACT_CHECKS.has(check))
   ) {
     throw new Error(`${scenario.id}.contractChecks contains an unknown check`);
   }

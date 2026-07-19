@@ -4,7 +4,16 @@ import { join } from 'node:path';
 import { describe, test } from 'node:test';
 import { readFixedPromptWal } from '../fixed-prompt-controller.js';
 import { promptAcceptanceNoiseBand } from '../prompt-acceptance-policy.js';
-import { execFileAsync, evidenceRefsFor, fakeMetaAgent, makeTasks, runLoop, taskIndex, withHarness, type MetaAgentPromptInput } from './helpers/prompt-optimization-loop-harness.js';
+import {
+  execFileAsync,
+  evidenceRefsFor,
+  fakeMetaAgent,
+  makeTasks,
+  runLoop,
+  taskIndex,
+  withHarness,
+  type MetaAgentPromptInput,
+} from './helpers/prompt-optimization-loop-harness.js';
 
 describe('runPromptOptimizationLoop', () => {
   test('defaults the acceptance noise band to a 1.96 z-score', async () => {
@@ -61,7 +70,9 @@ describe('runPromptOptimizationLoop', () => {
       // The kept lineage is round-0's candidate; round-1 was rolled back so HEAD
       // and the prompt return to the kept state.
       assert.equal(result.lastKeptCommitSha, result.decisions[0]?.candidateCommitSha);
-      const head = (await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: harness.repoDir })).stdout.trim();
+      const head = (
+        await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: harness.repoDir })
+      ).stdout.trim();
       assert.equal(head, result.lastKeptCommitSha);
       assert.equal(await readFile(harness.systemPromptPath, 'utf8'), 'candidate prompt round-0\n');
 
@@ -129,12 +140,13 @@ describe('runPromptOptimizationLoop', () => {
       assert.equal(events.filter((event) => event.type === 'rsi_controller_attribution').length, 2);
       for (const decision of events.filter((event) => event.type === 'prompt_candidate_decided')) {
         const decisionIndex = events.indexOf(decision);
-        const attributionIndex = events.findIndex((event) => (
-          event.type === 'rsi_controller_attribution'
-          && event.runId === decision.runId
-          && event.roundId === decision.roundId
-          && event.candidateCommitSha === decision.candidateCommitSha
-        ));
+        const attributionIndex = events.findIndex(
+          (event) =>
+            event.type === 'rsi_controller_attribution' &&
+            event.runId === decision.runId &&
+            event.roundId === decision.roundId &&
+            event.candidateCommitSha === decision.candidateCommitSha,
+        );
         assert.ok(attributionIndex > decisionIndex);
       }
     });
@@ -149,12 +161,11 @@ describe('runPromptOptimizationLoop', () => {
       await runLoop(harness, {
         heldInTasks,
         heldOutTasks,
-        rewardFor: (_roundId, taskId) => taskId === 'hin-0' ? 0 : 1,
-        verifierFailureSummaryFor: (roundId, taskId) => (
+        rewardFor: (_roundId, taskId) => (taskId === 'hin-0' ? 0 : 1),
+        verifierFailureSummaryFor: (roundId, taskId) =>
           roundId === 'baseline-0' && taskId === 'hin-0'
             ? 'output_assertion_failed integer_output_off_by_one'
-            : undefined
-        ),
+            : undefined,
         rounds: 1,
         baselineRuns: 1,
         metaAgent: async (promptInput) => {
@@ -224,14 +235,20 @@ describe('runPromptOptimizationLoop', () => {
         },
       });
 
-      const promptTimeCoverageSignal = promptInputs[1]?.rsiAnalysis?.signals.find((signal) => signal.kind === 'coverage_regression');
+      const promptTimeCoverageSignal = promptInputs[1]?.rsiAnalysis?.signals.find(
+        (signal) => signal.kind === 'coverage_regression',
+      );
       assert.ok(promptTimeCoverageSignal);
       const events = await readFixedPromptWal(harness.resultsJsonlPath);
-      const secondAttribution = events.find((event) => event.type === 'rsi_controller_attribution' && event.roundId === 'round-1');
+      const secondAttribution = events.find(
+        (event) => event.type === 'rsi_controller_attribution' && event.roundId === 'round-1',
+      );
       assert.equal(secondAttribution?.type, 'rsi_controller_attribution');
       if (secondAttribution?.type === 'rsi_controller_attribution') {
         assert.deepEqual(secondAttribution.evidenceRefs, [promptTimeCoverageSignal.id]);
-        assert.deepEqual(secondAttribution.predictedFixes, [{ taskId: 'hin-0', outcome: 'unchanged' }]);
+        assert.deepEqual(secondAttribution.predictedFixes, [
+          { taskId: 'hin-0', outcome: 'unchanged' },
+        ]);
         assert.equal(secondAttribution.rootCauseSignalMatch, 'matched');
       }
     });
@@ -286,7 +303,9 @@ describe('runPromptOptimizationLoop', () => {
 
   test('discards every candidate when no change beats the noise band, leaving the original prompt', async () => {
     await withHarness(async (harness) => {
-      const originalHead = (await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: harness.repoDir })).stdout.trim();
+      const originalHead = (
+        await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: harness.repoDir })
+      ).stdout.trim();
       const heldInTasks = makeTasks('hin', 2);
       const heldOutTasks = makeTasks('hout', 1);
       // Flat pass rates every round: held-in stays at 0.5, well within the wide
@@ -305,9 +324,14 @@ describe('runPromptOptimizationLoop', () => {
       });
 
       assert.equal(result.keptCount, 0);
-      assert.deepEqual(result.decisions.map((decision) => decision.decision), ['discard', 'discard']);
+      assert.deepEqual(
+        result.decisions.map((decision) => decision.decision),
+        ['discard', 'discard'],
+      );
       assert.equal(result.lastKeptCommitSha, originalHead);
-      const head = (await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: harness.repoDir })).stdout.trim();
+      const head = (
+        await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: harness.repoDir })
+      ).stdout.trim();
       assert.equal(head, originalHead);
       assert.equal(await readFile(harness.systemPromptPath, 'utf8'), 'original prompt\n');
       // Zero keeps is a passing structural smoke for v1.
@@ -362,7 +386,10 @@ describe('runPromptOptimizationLoop', () => {
         zScore: 0.5,
       });
 
-      assert.deepEqual(result.decisions.map((decision) => decision.decision), ['keep', 'keep']);
+      assert.deepEqual(
+        result.decisions.map((decision) => decision.decision),
+        ['keep', 'keep'],
+      );
       assert.equal(
         result.decisions[1]?.previousHeldInReferencePassEligibleRate,
         result.decisions[0]?.heldInReferencePassEligibleRate,
@@ -393,21 +420,29 @@ describe('runPromptOptimizationLoop', () => {
         baselineRuns: 2,
       });
 
-      assert.deepEqual(result.decisions.map((decision) => decision.decision), ['discard', 'discard']);
+      assert.deepEqual(
+        result.decisions.map((decision) => decision.decision),
+        ['discard', 'discard'],
+      );
       assert.equal(result.decisions[0]?.reason, 'held_in_within_noise');
 
       // #64 two-stage gate: a candidate that cannot KEEP on held-in must never
       // spend the held-out sweep — no held-out task event under any candidate round.
       const events = (await readFile(harness.resultsJsonlPath, 'utf8'))
-        .split('\n').filter(Boolean).map((line) => JSON.parse(line));
-      const isHeldOut = (e: { taskId?: unknown }) => typeof e.taskId === 'string' && e.taskId.startsWith('hout-');
-      const candidateHeldOut = events.filter((e) =>
-        typeof e.roundId === 'string' && e.roundId.startsWith('round-') && isHeldOut(e));
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => JSON.parse(line));
+      const isHeldOut = (e: { taskId?: unknown }) =>
+        typeof e.taskId === 'string' && e.taskId.startsWith('hout-');
+      const candidateHeldOut = events.filter(
+        (e) => typeof e.roundId === 'string' && e.roundId.startsWith('round-') && isHeldOut(e),
+      );
       assert.equal(candidateHeldOut.length, 0);
       // Held-out baseline events still exist (calibration runs held-out), proving
       // the check above is about candidate rounds, not broken held-out wiring.
-      const baselineHeldOut = events.filter((e) =>
-        typeof e.roundId === 'string' && e.roundId.startsWith('baseline-') && isHeldOut(e));
+      const baselineHeldOut = events.filter(
+        (e) => typeof e.roundId === 'string' && e.roundId.startsWith('baseline-') && isHeldOut(e),
+      );
       assert.ok(baselineHeldOut.length > 0);
     });
   });
@@ -469,9 +504,7 @@ describe('runPromptOptimizationLoop', () => {
           'hin-0': ['EXPECTED_SECRET'],
         },
         runtimeEventCommandFor: (roundId, taskId) =>
-          roundId === 'round-0' && taskId === 'hin-0'
-            ? 'echo EXPECTED_SECRET'
-            : undefined,
+          roundId === 'round-0' && taskId === 'hin-0' ? 'echo EXPECTED_SECRET' : undefined,
         onTaskRun: (roundId, taskId) => taskRuns.push(`${roundId}:${taskId}`),
       });
 
@@ -488,7 +521,9 @@ describe('runPromptOptimizationLoop', () => {
 
   test('stops before the held-out sweep when the budget is hit after held-in', async () => {
     await withHarness(async (harness) => {
-      const originalHead = (await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: harness.repoDir })).stdout.trim();
+      const originalHead = (
+        await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: harness.repoDir })
+      ).stdout.trim();
       const heldInTasks = makeTasks('hin', 20);
       const heldOutTasks = makeTasks('hout', 8);
       // Held-in jumps 0.5 -> 1.0 in round-0, so it clears the gate and held-out
@@ -518,12 +553,20 @@ describe('runPromptOptimizationLoop', () => {
 
       // Held-out never ran for round-0, and the candidate commit was reverted.
       const events = (await readFile(harness.resultsJsonlPath, 'utf8'))
-        .split('\n').filter(Boolean).map((line) => JSON.parse(line));
-      const candidateHeldOut = events.filter((e) =>
-        typeof e.roundId === 'string' && e.roundId.startsWith('round-')
-        && typeof e.taskId === 'string' && e.taskId.startsWith('hout-'));
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => JSON.parse(line));
+      const candidateHeldOut = events.filter(
+        (e) =>
+          typeof e.roundId === 'string' &&
+          e.roundId.startsWith('round-') &&
+          typeof e.taskId === 'string' &&
+          e.taskId.startsWith('hout-'),
+      );
       assert.equal(candidateHeldOut.length, 0);
-      const head = (await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: harness.repoDir })).stdout.trim();
+      const head = (
+        await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: harness.repoDir })
+      ).stdout.trim();
       assert.equal(head, originalHead);
       assert.equal(await readFile(harness.systemPromptPath, 'utf8'), 'original prompt\n');
     });
@@ -578,11 +621,26 @@ describe('runPromptOptimizationLoop', () => {
       // rounds 0 is baseline-only (trivially passes the smoke); 1.5 would run two
       // rounds; a NaN ceiling/ratio never trips its guard; minStable 0 disables
       // the stable-task protection. All must fail loud, not silently degrade.
-      await assert.rejects(runLoop(harness, { ...base, rounds: 0 }), /rounds must be a positive integer/);
-      await assert.rejects(runLoop(harness, { ...base, rounds: 1.5 }), /rounds must be a positive integer/);
-      await assert.rejects(runLoop(harness, { ...base, costCeilingUsd: NaN }), /costCeilingUsd must be a finite positive number/);
-      await assert.rejects(runLoop(harness, { ...base, minStableHeldInTasks: 0 }), /minStableHeldInTasks must be a positive integer/);
-      await assert.rejects(runLoop(harness, { ...base, maxInfraFailureRate: 1.5 }), /maxInfraFailureRate must be a number in \(0, 1\]/);
+      await assert.rejects(
+        runLoop(harness, { ...base, rounds: 0 }),
+        /rounds must be a positive integer/,
+      );
+      await assert.rejects(
+        runLoop(harness, { ...base, rounds: 1.5 }),
+        /rounds must be a positive integer/,
+      );
+      await assert.rejects(
+        runLoop(harness, { ...base, costCeilingUsd: NaN }),
+        /costCeilingUsd must be a finite positive number/,
+      );
+      await assert.rejects(
+        runLoop(harness, { ...base, minStableHeldInTasks: 0 }),
+        /minStableHeldInTasks must be a positive integer/,
+      );
+      await assert.rejects(
+        runLoop(harness, { ...base, maxInfraFailureRate: 1.5 }),
+        /maxInfraFailureRate must be a number in \(0, 1\]/,
+      );
     });
   });
 
@@ -627,9 +685,8 @@ describe('runPromptOptimizationLoop', () => {
     await withHarness(async (harness) => {
       const heldInTasks = makeTasks('hin', 20);
       const heldOutTasks = makeTasks('hout', 8);
-      const rewardFor = (_roundId: string, taskId: string): number => (
-        taskIndex(taskId) < (taskId.startsWith('hout-') ? 4 : 10) ? 1 : 0
-      );
+      const rewardFor = (_roundId: string, taskId: string): number =>
+        taskIndex(taskId) < (taskId.startsWith('hout-') ? 4 : 10) ? 1 : 0;
       // baseline (2 sweeps) costs 2 * 28 * 0.02 = 1.12; round-0 adds 0.56 -> 1.68,
       // tripping a 1.5 ceiling before round-1 runs.
       const result = await runLoop(harness, {
@@ -705,9 +762,16 @@ describe('runPromptOptimizationLoop', () => {
       // The dropped task is never swept in the candidate round: only the two
       // stable held-in tasks appear under round-0.
       const wal = await readFile(harness.resultsJsonlPath, 'utf8');
-      const roundHeldInTaskIds = wal.trim().split('\n')
+      const roundHeldInTaskIds = wal
+        .trim()
+        .split('\n')
         .map((line) => JSON.parse(line) as { roundId?: string; type?: string; taskId?: string })
-        .filter((event) => event.roundId === 'round-0' && event.type === 'task_completed' && (event.taskId ?? '').startsWith('hin-'))
+        .filter(
+          (event) =>
+            event.roundId === 'round-0' &&
+            event.type === 'task_completed' &&
+            (event.taskId ?? '').startsWith('hin-'),
+        )
         .map((event) => event.taskId);
       assert.deepEqual([...new Set(roundHeldInTaskIds)].sort(), ['hin-0', 'hin-1']);
     });
@@ -755,22 +819,28 @@ describe('runPromptOptimizationLoop', () => {
       });
 
       assert.ok(proposalInput);
-      assert.deepEqual(proposalInput.heldInDigests.map((digest) => digest.taskId), ['hin-0', 'hin-1']);
+      assert.deepEqual(
+        proposalInput.heldInDigests.map((digest) => digest.taskId),
+        ['hin-0', 'hin-1'],
+      );
       assert.match(proposalInput.resultsTsv, /hin-0/);
       assert.match(proposalInput.resultsTsv, /hin-1/);
       assert.doesNotMatch(proposalInput.resultsTsv, /hin-2/);
       assert.deepEqual([...new Set(roundTaskIds)].sort(), ['hin-0', 'hin-1', 'hin-2']);
       assert.equal(result.baseline.heldIn.taskCount, 2);
       assert.equal(result.baseline.heldOut.taskCount, 2);
-      assert.deepEqual(result.addressability.heldIn.taskStats.map((stat) => ({
-        taskId: stat.taskId,
-        addressable: stat.addressable,
-        rejectionReason: stat.rejectionReason,
-      })), [
-        { taskId: 'hin-0', addressable: true, rejectionReason: undefined },
-        { taskId: 'hin-1', addressable: true, rejectionReason: undefined },
-        { taskId: 'hin-2', addressable: false, rejectionReason: 'flaky' },
-      ]);
+      assert.deepEqual(
+        result.addressability.heldIn.taskStats.map((stat) => ({
+          taskId: stat.taskId,
+          addressable: stat.addressable,
+          rejectionReason: stat.rejectionReason,
+        })),
+        [
+          { taskId: 'hin-0', addressable: true, rejectionReason: undefined },
+          { taskId: 'hin-1', addressable: true, rejectionReason: undefined },
+          { taskId: 'hin-2', addressable: false, rejectionReason: 'flaky' },
+        ],
+      );
       assert.deepEqual(result.addressability.heldOut.selectedTaskIds, ['hout-0', 'hout-1']);
       assert.deepEqual(result.droppedHeldInTaskIds, []);
     });
@@ -820,12 +890,13 @@ describe('runPromptOptimizationLoop', () => {
       );
       assert.equal(
         first.heldInReferencePassEligibleRate,
-        1 - promptAcceptanceNoiseBand({
-          sampleSize: 19,
-          passRate: 10 / 19,
-          baselineRunCount: 2,
-          zScore: 1.96,
-        }),
+        1 -
+          promptAcceptanceNoiseBand({
+            sampleSize: 19,
+            passRate: 10 / 19,
+            baselineRunCount: 2,
+            zScore: 1.96,
+          }),
       );
       proposalInputs.length = 0;
 
@@ -841,7 +912,10 @@ describe('runPromptOptimizationLoop', () => {
         },
       });
       assert.deepEqual(replayedFirst.addressability, first.addressability);
-      assert.equal(replayedFirst.heldInReferencePassEligibleRate, first.heldInReferencePassEligibleRate);
+      assert.equal(
+        replayedFirst.heldInReferencePassEligibleRate,
+        first.heldInReferencePassEligibleRate,
+      );
       assert.equal(proposalInputs.length, 0);
 
       const result = await runLoop(harness, {
@@ -873,9 +947,14 @@ describe('runPromptOptimizationLoop', () => {
       );
       assert.equal(proposalInputs.length, 1);
       assert.doesNotMatch(proposalInputs[0]!.resultsTsv, /hin-19/);
-      assert.equal(proposalInputs[0]!.heldInDigests.some((digest) => digest.taskId === 'hin-19'), false);
+      assert.equal(
+        proposalInputs[0]!.heldInDigests.some((digest) => digest.taskId === 'hin-19'),
+        false,
+      );
       assert.ok(roundOneTaskIds.includes('hin-19'));
-      const terminalStat = result.addressability.heldIn.taskStats.find((stat) => stat.taskId === 'hin-19');
+      const terminalStat = result.addressability.heldIn.taskStats.find(
+        (stat) => stat.taskId === 'hin-19',
+      );
       assert.equal(terminalStat?.observations, 3);
       assert.equal(terminalStat?.keptPrompts, 2);
       assert.equal(terminalStat?.passes, 0);
@@ -895,7 +974,10 @@ describe('runPromptOptimizationLoop', () => {
       });
       assert.equal(proposalInputs.length, 0);
       assert.deepEqual(replayed.decisions, result.decisions);
-      assert.equal(replayed.heldInReferencePassEligibleRate, result.heldInReferencePassEligibleRate);
+      assert.equal(
+        replayed.heldInReferencePassEligibleRate,
+        result.heldInReferencePassEligibleRate,
+      );
       assert.deepEqual(replayed.addressability, result.addressability);
     });
   });
@@ -923,9 +1005,8 @@ describe('runPromptOptimizationLoop', () => {
           ...Object.fromEntries(heldInTasks.map((task) => [task.id, ['ZZZ_NO_VERIFIER_MATCH']])),
           'hin-19': ['EXPECTED_SECRET'],
         },
-        runtimeEventCommandFor: (roundId, taskId) => (
-          roundId === 'round-1' && taskId === 'hin-19' ? 'echo EXPECTED_SECRET' : undefined
-        ),
+        runtimeEventCommandFor: (roundId, taskId) =>
+          roundId === 'round-1' && taskId === 'hin-19' ? 'echo EXPECTED_SECRET' : undefined,
         onTaskRun: (roundId, taskId) => {
           if (roundId === 'round-1' && taskId.startsWith('hin-')) roundOneTaskIds.push(taskId);
         },
@@ -970,13 +1051,34 @@ describe('runPromptOptimizationLoop', () => {
         },
       });
 
-      assert.deepEqual(result.decisions.map((decision) => decision.decision), ['keep', 'keep', 'discard']);
-      assert.deepEqual(proposalInputs.map((input) => input.heldInDigests.length), [20, 18, 19]);
-      assert.equal(proposalInputs[1]?.heldInDigests.some((digest) => digest.taskId === 'hin-18'), false);
-      assert.equal(proposalInputs[1]?.heldInDigests.some((digest) => digest.taskId === 'hin-19'), false);
-      assert.equal(proposalInputs[2]?.heldInDigests.some((digest) => digest.taskId === 'hin-18'), true);
-      assert.equal(proposalInputs[2]?.heldInDigests.some((digest) => digest.taskId === 'hin-19'), true);
-      assert.equal(proposalInputs[2]?.heldInDigests.some((digest) => digest.taskId === 'hin-0'), false);
+      assert.deepEqual(
+        result.decisions.map((decision) => decision.decision),
+        ['keep', 'keep', 'discard'],
+      );
+      assert.deepEqual(
+        proposalInputs.map((input) => input.heldInDigests.length),
+        [20, 18, 19],
+      );
+      assert.equal(
+        proposalInputs[1]?.heldInDigests.some((digest) => digest.taskId === 'hin-18'),
+        false,
+      );
+      assert.equal(
+        proposalInputs[1]?.heldInDigests.some((digest) => digest.taskId === 'hin-19'),
+        false,
+      );
+      assert.equal(
+        proposalInputs[2]?.heldInDigests.some((digest) => digest.taskId === 'hin-18'),
+        true,
+      );
+      assert.equal(
+        proposalInputs[2]?.heldInDigests.some((digest) => digest.taskId === 'hin-19'),
+        true,
+      );
+      assert.equal(
+        proposalInputs[2]?.heldInDigests.some((digest) => digest.taskId === 'hin-0'),
+        false,
+      );
       assert.equal(result.decisions[2]?.metrics.lastKept.heldIn.passEligibleRate, 1);
       assert.equal(
         result.decisions[2]?.previousHeldInReferencePassEligibleRate,
@@ -1026,8 +1128,10 @@ describe('runPromptOptimizationLoop', () => {
       const heldInTasks = makeTasks('hin', 3);
       const heldOutTasks = makeTasks('hout', 2);
       // hin-1 is pathologically slow in baseline; the cap drops it.
-      const durationMsFor = (_roundId: string, taskId: string): number => (taskId === 'hin-1' ? 9_000 : 10);
-      const rewardFor = (_roundId: string, taskId: string): number => (taskId.startsWith('hout-') ? 1 : taskIndex(taskId) === 0 ? 1 : 0);
+      const durationMsFor = (_roundId: string, taskId: string): number =>
+        taskId === 'hin-1' ? 9_000 : 10;
+      const rewardFor = (_roundId: string, taskId: string): number =>
+        taskId.startsWith('hout-') ? 1 : taskIndex(taskId) === 0 ? 1 : 0;
 
       const result = await runLoop(harness, {
         heldInTasks,

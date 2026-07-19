@@ -19,9 +19,12 @@ describe('session title helper', () => {
   });
 
   test('extracts the user message from a raw skill envelope', () => {
-    assert.equal(sessionTitleSource({
-      text: 'Skills loaded below.\n<invoked-skill id="research">\nSECRET INSTRUCTIONS\n</invoked-skill>\n<user-message>\nAnalyze this code\n</user-message>',
-    }), 'Analyze this code');
+    assert.equal(
+      sessionTitleSource({
+        text: 'Skills loaded below.\n<invoked-skill id="research">\nSECRET INSTRUCTIONS\n</invoked-skill>\n<user-message>\nAnalyze this code\n</user-message>',
+      }),
+      'Analyze this code',
+    );
   });
 
   test('builds fallback from the first non-empty line without splitting Unicode code points', () => {
@@ -53,22 +56,55 @@ describe('session title helper', () => {
 
   test('returns undefined for empty, truncated, invalid, or failed model output', async () => {
     const model = {} as never;
-    assert.equal(await generateSessionTitle({ model, sourceText: '', generateText: async () => ({ text: 'unused', finishReason: 'stop' }) }), undefined);
-    assert.equal(await generateSessionTitle({ model, sourceText: 'hello', generateText: async () => ({ text: 'Title', finishReason: 'length' }) }), undefined);
-    assert.equal(await generateSessionTitle({ model, sourceText: 'hello', generateText: async () => ({ text: '<think>x</think>', finishReason: 'stop' }) }), undefined);
-    assert.equal(await generateSessionTitle({ model, sourceText: 'hello', generateText: async () => { throw new Error('offline'); } }), undefined);
+    assert.equal(
+      await generateSessionTitle({
+        model,
+        sourceText: '',
+        generateText: async () => ({ text: 'unused', finishReason: 'stop' }),
+      }),
+      undefined,
+    );
+    assert.equal(
+      await generateSessionTitle({
+        model,
+        sourceText: 'hello',
+        generateText: async () => ({ text: 'Title', finishReason: 'length' }),
+      }),
+      undefined,
+    );
+    assert.equal(
+      await generateSessionTitle({
+        model,
+        sourceText: 'hello',
+        generateText: async () => ({ text: '<think>x</think>', finishReason: 'stop' }),
+      }),
+      undefined,
+    );
+    assert.equal(
+      await generateSessionTitle({
+        model,
+        sourceText: 'hello',
+        generateText: async () => {
+          throw new Error('offline');
+        },
+      }),
+      undefined,
+    );
   });
 
-  test('aborts title generation when the provider exceeds its deadline', { timeout: 100 }, async () => {
+  test('aborts title generation when the provider exceeds its deadline', {
+    timeout: 100,
+  }, async () => {
     let signal: AbortSignal | undefined;
     const input = {
       model: {} as never,
       sourceText: 'hello',
       timeoutMs: 10,
-      generateText: (options: Record<string, unknown>) => new Promise<never>((_resolve, reject) => {
-        signal = options.abortSignal as AbortSignal;
-        signal?.addEventListener('abort', () => reject(signal?.reason), { once: true });
-      }),
+      generateText: (options: Record<string, unknown>) =>
+        new Promise<never>((_resolve, reject) => {
+          signal = options.abortSignal as AbortSignal;
+          signal?.addEventListener('abort', () => reject(signal?.reason), { once: true });
+        }),
     };
 
     assert.equal(await generateSessionTitle(input), undefined);

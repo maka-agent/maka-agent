@@ -9,7 +9,10 @@ export interface PromptOptimizationProfile {
   costCeilingUsd: number;
 }
 
-const PROMPT_OPTIMIZATION_PROFILES: Record<PromptOptimizationProfileName, PromptOptimizationProfile> = {
+const PROMPT_OPTIMIZATION_PROFILES: Record<
+  PromptOptimizationProfileName,
+  PromptOptimizationProfile
+> = {
   smoke: {
     name: 'smoke',
     rounds: 1,
@@ -47,11 +50,14 @@ const PROMPT_OPTIMIZATION_PROFILES: Record<PromptOptimizationProfileName, Prompt
 export function resolvePromptOptimizationProfile(
   rawProfile: string | undefined,
 ): PromptOptimizationProfile {
-  const name = rawProfile === undefined || rawProfile.trim() === ''
-    ? 'pilot'
-    : rawProfile.trim().toLowerCase();
+  const name =
+    rawProfile === undefined || rawProfile.trim() === ''
+      ? 'pilot'
+      : rawProfile.trim().toLowerCase();
   if (name !== 'smoke' && name !== 'pilot-light' && name !== 'pilot' && name !== 'full') {
-    throw new Error(`MAKA_PROMPT_PROFILE must be one of smoke, pilot-light, pilot, full, got ${JSON.stringify(rawProfile)}`);
+    throw new Error(
+      `MAKA_PROMPT_PROFILE must be one of smoke, pilot-light, pilot, full, got ${JSON.stringify(rawProfile)}`,
+    );
   }
   return PROMPT_OPTIMIZATION_PROFILES[name];
 }

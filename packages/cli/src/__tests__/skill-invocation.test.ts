@@ -17,7 +17,9 @@ before(() => _setColorLevelForTesting(3));
 
 describe('skill invocation tokens', () => {
   test('parses tokens anywhere in text, deduped case-insensitively, in order', () => {
-    const tokens = parseSkillInvocationTokens('帮我 /skill:weekly-report 整理\n然后 /skill:Alpha 和 /skill:WEEKLY-REPORT 各来一遍');
+    const tokens = parseSkillInvocationTokens(
+      '帮我 /skill:weekly-report 整理\n然后 /skill:Alpha 和 /skill:WEEKLY-REPORT 各来一遍',
+    );
     assert.deepEqual(
       tokens.map((token) => token.name),
       ['weekly-report', 'Alpha'],
@@ -35,7 +37,10 @@ describe('skill invocation tokens', () => {
 
   test('token name stops at the id charset boundary', () => {
     const tokens = parseSkillInvocationTokens('/skill:alpha，整理一下');
-    assert.deepEqual(tokens.map((token) => token.name), ['alpha']);
+    assert.deepEqual(
+      tokens.map((token) => token.name),
+      ['alpha'],
+    );
   });
 
   test('strips named tokens and tidies only the touched lines', () => {
@@ -50,26 +55,20 @@ describe('skill invocation tokens', () => {
     const stripped = stripSkillInvocationTokens(text, new Set(['alpha', 'beta']));
     assert.equal(
       stripped,
-      [
-        '帮我 整理一下',
-        '```',
-        'code  with  double  spaces',
-        '```',
-        '收尾',
-      ].join('\n'),
+      ['帮我 整理一下', '```', 'code  with  double  spaces', '```', '收尾'].join('\n'),
     );
   });
 
   test('keeps unresolved tokens literal', () => {
     const text = '用 /skill:nope 和 /skill:alpha 处理';
-    assert.equal(
-      stripSkillInvocationTokens(text, new Set(['alpha'])),
-      '用 /skill:nope 和 处理',
-    );
+    assert.equal(stripSkillInvocationTokens(text, new Set(['alpha'])), '用 /skill:nope 和 处理');
   });
 
   test('preserves indented code after a token-only line (no global trim)', () => {
-    const stripped = stripSkillInvocationTokens('/skill:alpha\n    make target\n', new Set(['alpha']));
+    const stripped = stripSkillInvocationTokens(
+      '/skill:alpha\n    make target\n',
+      new Set(['alpha']),
+    );
     assert.equal(stripped, '    make target\n');
   });
 
@@ -81,7 +80,11 @@ describe('skill invocation tokens', () => {
     assert.deepEqual(skillInvocationPrefixAt(['/skill:'], 0, 7), { prefix: '/skill:', query: '' });
     assert.equal(skillInvocationPrefixAt(['/skill:we 整理'], 0, 10), null, 'cursor past the token');
     assert.equal(skillInvocationPrefixAt(['/skill we'], 0, 8), null, 'no colon, no token');
-    assert.equal(skillInvocationPrefixAt(['docs/skill:we'], 0, 13), null, 'path-like prefix rejected');
+    assert.equal(
+      skillInvocationPrefixAt(['docs/skill:we'], 0, 13),
+      null,
+      'path-like prefix rejected',
+    );
   });
 });
 
@@ -95,7 +98,9 @@ describe('skill autocomplete', () => {
 
   test('suggests by id prefix or name substring, suppressing file completion', async () => {
     const provider = new MakaAutocompleteProvider('/repo', [], listSkills);
-    const byId = await provider.getSuggestions(['/skill:we'], 0, 9, { signal: new AbortController().signal });
+    const byId = await provider.getSuggestions(['/skill:we'], 0, 9, {
+      signal: new AbortController().signal,
+    });
     assert.deepEqual(
       byId?.items.map((item) => item.value),
       ['weekly-report'],
@@ -105,13 +110,17 @@ describe('skill autocomplete', () => {
     assert.equal(byId?.items[0]?.description, '写周报 · 把进展整理成周报。');
 
     // 'alpha' matches id `alpha` directly and `data-crunch` via its display name.
-    const byName = await provider.getSuggestions(['帮我 /skill:alpha 整理'], 0, 15, { signal: new AbortController().signal });
+    const byName = await provider.getSuggestions(['帮我 /skill:alpha 整理'], 0, 15, {
+      signal: new AbortController().signal,
+    });
     assert.deepEqual(
       byName?.items.map((item) => item.value),
       ['alpha', 'data-crunch'],
     );
 
-    const noMatch = await provider.getSuggestions(['/skill:zzz'], 0, 10, { signal: new AbortController().signal });
+    const noMatch = await provider.getSuggestions(['/skill:zzz'], 0, 10, {
+      signal: new AbortController().signal,
+    });
     assert.equal(noMatch, null, 'no skill match closes the popup instead of offering paths');
   });
 
@@ -121,7 +130,9 @@ describe('skill autocomplete', () => {
       [{ name: 'skill', description: 'Invoke a skill' }],
       listSkills,
     );
-    const suggestions = await provider.getSuggestions(['/skill:dat'], 0, 10, { signal: new AbortController().signal });
+    const suggestions = await provider.getSuggestions(['/skill:dat'], 0, 10, {
+      signal: new AbortController().signal,
+    });
     assert.deepEqual(
       suggestions?.items.map((item) => item.value),
       ['data-crunch'],
@@ -160,6 +171,9 @@ describe('skill token highlight', () => {
       line.includes('\x1b[38;2;87;163;239m/skill:alpha\x1b[39m'),
       `valid token carries the brand accent: ${JSON.stringify(line)}`,
     );
-    assert.ok(!line.includes('\x1b[38;2;87;163;239m/skill:nope\x1b[39m'), 'invalid token stays plain');
+    assert.ok(
+      !line.includes('\x1b[38;2;87;163;239m/skill:nope\x1b[39m'),
+      'invalid token stays plain',
+    );
   });
 });

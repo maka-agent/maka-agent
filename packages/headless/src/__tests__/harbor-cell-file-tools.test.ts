@@ -36,23 +36,38 @@ describe('Harbor local executor file tools (real spawn)', () => {
     // a bounded tail would do the opposite.
     const N = 1000;
     const lines = Array.from({ length: N }, (_, i) =>
-      (i === 0 ? 'HEAD' : i === N - 1 ? 'TAIL' : `line${i + 1}`).padEnd(92, '.'));
+      (i === 0 ? 'HEAD' : i === N - 1 ? 'TAIL' : `line${i + 1}`).padEnd(92, '.'),
+    );
     await writeFile(join(cwd, 'big.txt'), lines.join('\n') + '\n', 'utf8');
     const tools = buildIsolatedHeadlessTools(createHarborCellLocalToolExecutor());
 
-    const result = (await tool(tools, 'Read').impl({ path: 'big.txt' }, toolCtx(cwd))) as { content: string };
+    const result = (await tool(tools, 'Read').impl({ path: 'big.txt' }, toolCtx(cwd))) as {
+      content: string;
+    };
 
     assert.ok(result.content.includes('HEAD'), 'head retained — Read is not tail-bounded');
     assert.ok(!result.content.includes('TAIL'), 'tail beyond the byte budget is not returned');
     // 512 lines x 100 bytes = 51200; the only extra is the one-line continuation hint.
-    assert.ok(result.content.length <= 51200 + 80, 'output stays within the 50KB budget plus the hint');
-    assert.ok(result.content.length >= 51200 - 100, 'the full budget is used (512 lines), not a smaller cap');
+    assert.ok(
+      result.content.length <= 51200 + 80,
+      'output stays within the 50KB budget plus the hint',
+    );
+    assert.ok(
+      result.content.length >= 51200 - 100,
+      'the full budget is used (512 lines), not a smaller cap',
+    );
     const hint = result.content.match(/pass offset=(\d+) to read more/);
     assert.equal(hint?.[1], '512', 'hint offset equals the last emitted line number');
 
     // Resume from the hint offset: the next page must start at the very next line.
-    const next = (await tool(tools, 'Read').impl({ path: 'big.txt', offset: 512 }, toolCtx(cwd))) as { content: string };
-    assert.ok(next.content.startsWith('   513\t'), 'resuming at offset=512 continues from line 513 — no gap or overlap');
+    const next = (await tool(tools, 'Read').impl(
+      { path: 'big.txt', offset: 512 },
+      toolCtx(cwd),
+    )) as { content: string };
+    assert.ok(
+      next.content.startsWith('   513\t'),
+      'resuming at offset=512 continues from line 513 — no gap or overlap',
+    );
     // (Glob/Grep share the same command-backed executor.exec with no boundedTail
     //  flag — see the "only Bash opts into bounded-tail" contract test — so this
     //  head-first guarantee covers them too without generating MBs of matches.)
@@ -79,23 +94,31 @@ describe('Harbor local executor file tools (real spawn)', () => {
     });
 
     await assert.rejects(
-      async () => await tool(tools, 'Edit').impl(
-        { path: 'data.txt', old_string: 'alpha', new_string: 'beta' },
-        toolCtx(cwd),
-      ),
+      async () =>
+        await tool(tools, 'Edit').impl(
+          { path: 'data.txt', old_string: 'alpha', new_string: 'beta' },
+          toolCtx(cwd),
+        ),
       /Edit read transport integrity check failed/,
     );
-    assert.deepEqual(await readFile(file), original, 'a contaminated read must not reach the write boundary');
+    assert.deepEqual(
+      await readFile(file),
+      original,
+      'a contaminated read must not reach the write boundary',
+    );
   });
 
   test('Edit preserves unrelated non-UTF-8 bytes across shorter and longer replacements', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'maka-harbor-edit-bytes-'));
     const file = join(cwd, 'data.bin');
-    await writeFile(file, Buffer.concat([
-      Buffer.from([0xff]),
-      Buffer.from('alpha marker tail', 'utf8'),
-      Buffer.from([0xfe]),
-    ]));
+    await writeFile(
+      file,
+      Buffer.concat([
+        Buffer.from([0xff]),
+        Buffer.from('alpha marker tail', 'utf8'),
+        Buffer.from([0xfe]),
+      ]),
+    );
     const tools = buildIsolatedHeadlessTools(createHarborCellLocalToolExecutor());
 
     await tool(tools, 'Edit').impl(
@@ -113,7 +136,11 @@ describe('Harbor local executor file tools (real spawn)', () => {
     );
     assert.deepEqual(
       await readFile(file),
-      Buffer.concat([Buffer.from([0xff]), Buffer.from('a much longer marker tail', 'utf8'), Buffer.from([0xfe])]),
+      Buffer.concat([
+        Buffer.from([0xff]),
+        Buffer.from('a much longer marker tail', 'utf8'),
+        Buffer.from([0xfe]),
+      ]),
     );
   });
 });

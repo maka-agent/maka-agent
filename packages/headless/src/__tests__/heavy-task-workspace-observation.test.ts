@@ -24,11 +24,13 @@ describe('heavy-task workspace observation', () => {
       planId: 'plan-1',
       taskRunId,
       ts: 2,
-      finalArtifacts: [{
-        path: '/app/polyglot/main.py.c',
-        purpose: 'final polyglot source file',
-        publicReason: 'accepted structured plan artifact',
-      }],
+      finalArtifacts: [
+        {
+          path: '/app/polyglot/main.py.c',
+          purpose: 'final polyglot source file',
+          publicReason: 'accepted structured plan artifact',
+        },
+      ],
       selfCheckScratch: {
         root: '/tmp/maka-self-check/run-observe',
         expectedGeneratedPaths: ['/tmp/maka-self-check/run-observe/cmain'],
@@ -49,10 +51,13 @@ describe('heavy-task workspace observation', () => {
       },
       source: { kind: 'model_tool', toolCallId: 'tool-plan' },
     };
-    const projection = projectTaskRun([
-      { type: 'task_run_created', id: 'e1', taskRunId, ts: 1, taskId: task.id, configId: 'cfg' },
-      { type: 'heavy_task_self_check_plan_recorded', id: 'e2', taskRunId, ts: 2, plan },
-    ] satisfies TaskEvent[], taskRunId);
+    const projection = projectTaskRun(
+      [
+        { type: 'task_run_created', id: 'e1', taskRunId, ts: 1, taskId: task.id, configId: 'cfg' },
+        { type: 'heavy_task_self_check_plan_recorded', id: 'e2', taskRunId, ts: 2, plan },
+      ] satisfies TaskEvent[],
+      taskRunId,
+    );
     const seenCommands: IsolatedCommandInput[] = [];
     const executor: IsolatedToolExecutor = {
       async exec(input) {
@@ -94,10 +99,11 @@ describe('heavy-task workspace observation', () => {
   });
 
   test('includes file content facts in a deterministic manifest revision', () => {
-    const entries = parseWorkspaceObservation([
-      'file\t/app/project/result.txt\t\t12\tabc123',
-      'directory\t/app/project/cache\t\t\t',
-    ].join('\n'));
+    const entries = parseWorkspaceObservation(
+      ['file\t/app/project/result.txt\t\t12\tabc123', 'directory\t/app/project/cache\t\t\t'].join(
+        '\n',
+      ),
+    );
     assert.deepEqual(entries, [
       { path: '/app/project/result.txt', kind: 'file', sizeBytes: 12, sha256: 'abc123' },
       { path: '/app/project/cache', kind: 'directory' },
@@ -108,7 +114,10 @@ describe('heavy-task workspace observation', () => {
     );
     assert.notEqual(
       workspaceManifestRevision(['/app/project'], entries).ref,
-      workspaceManifestRevision(['/app/project'], [{ ...entries[0]!, sha256: 'changed' }, entries[1]!]).ref,
+      workspaceManifestRevision(
+        ['/app/project'],
+        [{ ...entries[0]!, sha256: 'changed' }, entries[1]!],
+      ).ref,
     );
   });
 });

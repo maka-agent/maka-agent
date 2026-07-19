@@ -21,8 +21,12 @@ describe('unified inspect target resolution', () => {
       await stores.agentRunStore.createRun(runHeader(first.id, sharedId));
       await stores.agentRunStore.createRun(runHeader(second.id, sharedId));
       await stores.taskRunStore.appendEvent(sharedId, {
-        type: 'task_run_created', id: 'task-created', taskRunId: sharedId,
-        ts: 1, taskId: 'task-1', configId: 'config-1',
+        type: 'task_run_created',
+        id: 'task-created',
+        taskRunId: sharedId,
+        ts: 1,
+        taskId: 'task-1',
+        configId: 'config-1',
       });
 
       const resolution = await resolveInspectTarget(stores, { id: sharedId });
@@ -46,12 +50,15 @@ describe('unified inspect target resolution', () => {
       await stores.agentRunStore.createRun(runHeader(second.id, 'run-shared'));
 
       const ambiguous = await resolveInspectTarget(stores, {
-        id: 'run-shared', requestedKind: 'agent-run',
+        id: 'run-shared',
+        requestedKind: 'agent-run',
       });
       assert.equal(ambiguous.status, 'ambiguous');
 
       const resolved = await resolveInspectTarget(stores, {
-        id: 'run-shared', requestedKind: 'agent-run', sessionId: second.id,
+        id: 'run-shared',
+        requestedKind: 'agent-run',
+        sessionId: second.id,
       });
       assert.equal(resolved.status, 'resolved');
       if (resolved.status !== 'resolved') return;
@@ -79,16 +86,29 @@ describe('unified inspect target resolution', () => {
 
 async function createSession(stores: InspectCommandStores, name: string) {
   return stores.sessionStore.create({
-    cwd: '/tmp/workspace', name, backend: 'fake', llmConnectionSlug: 'fake',
-    model: 'fake-model', permissionMode: 'ask',
+    cwd: '/tmp/workspace',
+    name,
+    backend: 'fake',
+    llmConnectionSlug: 'fake',
+    model: 'fake-model',
+    permissionMode: 'ask',
   });
 }
 
 function runHeader(sessionId: string, runId: string): AgentRunHeader {
   return {
-    runId, sessionId, turnId: `turn-${sessionId}`, status: 'completed',
-    backendKind: 'fake', llmConnectionSlug: 'fake', modelId: 'fake-model',
-    cwd: '/tmp/workspace', permissionMode: 'ask', createdAt: 1, updatedAt: 2, completedAt: 2,
+    runId,
+    sessionId,
+    turnId: `turn-${sessionId}`,
+    status: 'completed',
+    backendKind: 'fake',
+    llmConnectionSlug: 'fake',
+    modelId: 'fake-model',
+    cwd: '/tmp/workspace',
+    permissionMode: 'ask',
+    createdAt: 1,
+    updatedAt: 2,
+    completedAt: 2,
   };
 }
 

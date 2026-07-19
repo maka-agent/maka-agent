@@ -120,9 +120,7 @@ function shellRunStateContent(record: ShellRunRecord): ShellRunCompactResult {
     ...(record.failureMessage !== undefined ? { failureMessage: record.failureMessage } : {}),
     revision: record.revision,
   } as const;
-  return record.output.mode === 'pipes'
-    ? { ...state, mode: 'pipes' }
-    : { ...state, mode: 'pty' };
+  return record.output.mode === 'pipes' ? { ...state, mode: 'pipes' } : { ...state, mode: 'pty' };
 }
 
 function shellRunSnapshotContent(record: ShellRunRecord): ShellRunSnapshotResult {
@@ -133,26 +131,33 @@ function shellRunSnapshotContent(record: ShellRunRecord): ShellRunSnapshotResult
         ...state,
         mode: 'pipes',
         output,
-        ...(sandboxDenialForRecord(record) ? { sandboxDenial: sandboxDenialForRecord(record) } : {}),
+        ...(sandboxDenialForRecord(record)
+          ? { sandboxDenial: sandboxDenialForRecord(record) }
+          : {}),
       }
     : {
         ...state,
         mode: 'pty',
         output,
-        ...(sandboxDenialForRecord(record) ? { sandboxDenial: sandboxDenialForRecord(record) } : {}),
+        ...(sandboxDenialForRecord(record)
+          ? { sandboxDenial: sandboxDenialForRecord(record) }
+          : {}),
       };
 }
 
-function sandboxDenialForRecord(record: ShellRunRecord): {
-  likely: true;
-  backend?: 'macos-seatbelt' | 'linux';
-  recovery: 'require_escalated';
-} | undefined {
+function sandboxDenialForRecord(record: ShellRunRecord):
+  | {
+      likely: true;
+      backend?: 'macos-seatbelt' | 'linux';
+      recovery: 'require_escalated';
+    }
+  | undefined {
   if (
-    record.status !== 'failed'
-    || record.sandboxExecution?.enforced !== true
-    || !isLikelySandboxDenialOutput(record.output)
-  ) return undefined;
+    record.status !== 'failed' ||
+    record.sandboxExecution?.enforced !== true ||
+    !isLikelySandboxDenialOutput(record.output)
+  )
+    return undefined;
   const backend = record.sandboxExecution.type;
   return {
     likely: true,
@@ -162,9 +167,10 @@ function sandboxDenialForRecord(record: ShellRunRecord): {
 }
 
 function isLikelySandboxDenialOutput(output: ShellOutput): boolean {
-  const text = output.mode === 'pipes'
-    ? `${output.stderr}\n${output.stdout}`
-    : `${output.scrollback}\n${output.screen}\n${output.lastAlternateScreen ?? ''}`;
+  const text =
+    output.mode === 'pipes'
+      ? `${output.stderr}\n${output.stdout}`
+      : `${output.scrollback}\n${output.screen}\n${output.lastAlternateScreen ?? ''}`;
   return /operation not permitted|sandbox-exec|sandbox(?:ed)?[^\n]*den(?:y|ied)/i.test(text);
 }
 
@@ -191,9 +197,10 @@ export function projectPtyOutputForModel(
   remaining = screen.truncated ? 0 : remaining - Buffer.byteLength(screen.text, 'utf8');
   truncated ||= screen.truncated;
 
-  const alternate = output.lastAlternateScreen === undefined
-    ? undefined
-    : takePrioritizedText(output.lastAlternateScreen, remaining);
+  const alternate =
+    output.lastAlternateScreen === undefined
+      ? undefined
+      : takePrioritizedText(output.lastAlternateScreen, remaining);
   if (alternate) {
     remaining = alternate.truncated ? 0 : remaining - Buffer.byteLength(alternate.text, 'utf8');
     truncated ||= alternate.truncated;
@@ -205,7 +212,9 @@ export function projectPtyOutputForModel(
     ...output,
     screen: screen.text,
     scrollback: scrollback.text,
-    ...(alternate?.text ? { lastAlternateScreen: alternate.text } : { lastAlternateScreen: undefined }),
+    ...(alternate?.text
+      ? { lastAlternateScreen: alternate.text }
+      : { lastAlternateScreen: undefined }),
     truncated,
   };
 }

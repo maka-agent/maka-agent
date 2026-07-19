@@ -89,7 +89,10 @@ export class AttentionController {
   // Spinner animation state for the busy marker.
   private readonly busySpinnerFrames: readonly string[];
   private readonly busySpinnerIntervalMs: number;
-  private readonly scheduleSpinnerInterval: (callback: () => void, intervalMs: number) => () => void;
+  private readonly scheduleSpinnerInterval: (
+    callback: () => void,
+    intervalMs: number,
+  ) => () => void;
   private spinnerFrame = 0;
   private cancelSpinner: (() => void) | null = null;
 
@@ -100,13 +103,16 @@ export class AttentionController {
     this.baseTitle = options.baseTitle;
     this.now = options.now ?? Date.now;
     this.longTurnThresholdMs = options.longTurnThresholdMs ?? DEFAULT_LONG_TURN_THRESHOLD_MS;
-    this.busySpinnerFrames = options.busySpinnerFrames && options.busySpinnerFrames.length > 0
-      ? options.busySpinnerFrames
-      : BUSY_SPINNER_FRAMES;
-    this.busySpinnerIntervalMs = options.busySpinnerIntervalMs && options.busySpinnerIntervalMs > 0
-      ? options.busySpinnerIntervalMs
-      : DEFAULT_BUSY_SPINNER_INTERVAL_MS;
-    this.scheduleSpinnerInterval = options.scheduleSpinnerInterval ?? defaultScheduleSpinnerInterval;
+    this.busySpinnerFrames =
+      options.busySpinnerFrames && options.busySpinnerFrames.length > 0
+        ? options.busySpinnerFrames
+        : BUSY_SPINNER_FRAMES;
+    this.busySpinnerIntervalMs =
+      options.busySpinnerIntervalMs && options.busySpinnerIntervalMs > 0
+        ? options.busySpinnerIntervalMs
+        : DEFAULT_BUSY_SPINNER_INTERVAL_MS;
+    this.scheduleSpinnerInterval =
+      options.scheduleSpinnerInterval ?? defaultScheduleSpinnerInterval;
     this.refreshTitle();
   }
 
@@ -227,7 +233,8 @@ export class AttentionController {
   // Start or stop the spinner interval to match whether the busy marker is
   // currently shown (busy, not overridden by attention, session still live).
   private syncSpinner(): void {
-    const shouldRun = this.busy && !this.attention && !this.stopped && this.busySpinnerFrames.length > 0;
+    const shouldRun =
+      this.busy && !this.attention && !this.stopped && this.busySpinnerFrames.length > 0;
     if (shouldRun && !this.cancelSpinner) {
       this.cancelSpinner = this.scheduleSpinnerInterval(() => {
         this.spinnerFrame = (this.spinnerFrame + 1) % this.busySpinnerFrames.length;

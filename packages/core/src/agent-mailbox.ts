@@ -66,19 +66,22 @@ export type AgentMailboxNormalizeResult<T> =
   | { ok: false; message: string };
 
 export function isSafeAgentMailboxToken(value: unknown): value is string {
-  return typeof value === 'string'
-    && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value)
-    && redactSecrets(value) === value;
+  return (
+    typeof value === 'string' &&
+    /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value) &&
+    redactSecrets(value) === value
+  );
 }
 
 export function isAgentTeamId(value: unknown): value is string {
-  return typeof value === 'string'
-    && value.length <= 64
-    && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value);
+  return (
+    typeof value === 'string' && value.length <= 64 && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value)
+  );
 }
 
 export function normalizeAgentMailboxContent(input: unknown): AgentMailboxNormalizeResult<string> {
-  if (typeof input !== 'string') return { ok: false, message: 'Agent mailbox content must be a string' };
+  if (typeof input !== 'string')
+    return { ok: false, message: 'Agent mailbox content must be a string' };
   const value = redactSecrets(input.normalize('NFC').replace(/\r\n?/g, '\n')).trim();
   if (value.length === 0) return { ok: false, message: 'Agent mailbox content cannot be empty' };
   if (Array.from(value).length > AGENT_MAILBOX_CONTENT_MAX_CHARS) {
@@ -92,40 +95,45 @@ export function normalizeAgentMailboxContent(input: unknown): AgentMailboxNormal
 
 export function isAgentMailboxParticipantRef(value: unknown): value is AgentMailboxParticipantRef {
   if (!isRecord(value)) return false;
-  return (value.role === 'lead' || value.role === 'member')
-    && isAgentMailboxAddress(value)
-    && isSafeAgentMailboxToken(value.runId)
-    && isSafeAgentMailboxToken(value.turnId);
+  return (
+    (value.role === 'lead' || value.role === 'member') &&
+    isAgentMailboxAddress(value) &&
+    isSafeAgentMailboxToken(value.runId) &&
+    isSafeAgentMailboxToken(value.turnId)
+  );
 }
 
 export function isAgentMailboxMessage(value: unknown): value is AgentMailboxMessage {
   if (!isRecord(value)) return false;
   if (
-    value.schemaVersion !== AGENT_MAILBOX_SCHEMA_VERSION
-    || !isSafeAgentMailboxToken(value.id)
-    || !isSafeAgentMailboxToken(value.sessionId)
-    || !isAgentTeamId(value.teamId)
-    || !isSafeAgentMailboxToken(value.parentRunId)
-    || !Number.isSafeInteger(value.seq)
-    || (value.seq as number) < 1
-    || (value.kind !== 'message' && value.kind !== 'broadcast')
-    || !isAgentMailboxParticipantRef(value.from)
-    || typeof value.createdAt !== 'number'
-    || !Number.isFinite(value.createdAt)
-  ) return false;
+    value.schemaVersion !== AGENT_MAILBOX_SCHEMA_VERSION ||
+    !isSafeAgentMailboxToken(value.id) ||
+    !isSafeAgentMailboxToken(value.sessionId) ||
+    !isAgentTeamId(value.teamId) ||
+    !isSafeAgentMailboxToken(value.parentRunId) ||
+    !Number.isSafeInteger(value.seq) ||
+    (value.seq as number) < 1 ||
+    (value.kind !== 'message' && value.kind !== 'broadcast') ||
+    !isAgentMailboxParticipantRef(value.from) ||
+    typeof value.createdAt !== 'number' ||
+    !Number.isFinite(value.createdAt)
+  )
+    return false;
   if (value.from.role === 'lead' && value.from.runId !== value.parentRunId) return false;
   const content = normalizeAgentMailboxContent(value.content);
   if (!content.ok || content.value !== value.content) return false;
   if (value.kind === 'broadcast') return value.to === undefined;
-  return isRecord(value.to)
-    && isAgentMailboxAddress(value.to)
-    && value.to.agentId !== value.from.agentId;
+  return (
+    isRecord(value.to) && isAgentMailboxAddress(value.to) && value.to.agentId !== value.from.agentId
+  );
 }
 
 function isAgentMailboxAddress(value: Record<string, unknown>): boolean {
-  return (value.role === 'lead' || value.role === 'member')
-    && isSafeAgentMailboxToken(value.agentId)
-    && (value.role === 'lead' ? value.agentId === 'lead' : value.agentId !== 'lead');
+  return (
+    (value.role === 'lead' || value.role === 'member') &&
+    isSafeAgentMailboxToken(value.agentId) &&
+    (value.role === 'lead' ? value.agentId === 'lead' : value.agentId !== 'lead')
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

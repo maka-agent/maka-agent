@@ -12,28 +12,26 @@ const tick = () => new Promise<void>((r) => setImmediate(r));
 describe('withFileWriteLock', () => {
   test('serializes tasks sharing a key, in submission order', async () => {
     const events: string[] = [];
-    const task = (id: string) => withFileWriteLock('serialize', async () => {
-      events.push(`${id}:start`);
-      await tick();
-      await tick();
-      events.push(`${id}:end`);
-    });
+    const task = (id: string) =>
+      withFileWriteLock('serialize', async () => {
+        events.push(`${id}:start`);
+        await tick();
+        await tick();
+        events.push(`${id}:end`);
+      });
     await Promise.all([task('a'), task('b'), task('c')]);
     // No interleaving: each task fully completes before the next starts.
-    assert.deepEqual(events, [
-      'a:start', 'a:end',
-      'b:start', 'b:end',
-      'c:start', 'c:end',
-    ]);
+    assert.deepEqual(events, ['a:start', 'a:end', 'b:start', 'b:end', 'c:start', 'c:end']);
   });
 
   test('different keys run concurrently', async () => {
     const events: string[] = [];
-    const task = (key: string, id: string) => withFileWriteLock(key, async () => {
-      events.push(`${id}:start`);
-      await tick();
-      events.push(`${id}:end`);
-    });
+    const task = (key: string, id: string) =>
+      withFileWriteLock(key, async () => {
+        events.push(`${id}:start`);
+        await tick();
+        events.push(`${id}:end`);
+      });
     await Promise.all([task('concurrent-x', 'a'), task('concurrent-y', 'b')]);
     // Both start before either ends — they did not serialize against each other.
     assert.equal(events[0], 'a:start');
@@ -45,11 +43,12 @@ describe('withFileWriteLock', () => {
     const cell = { value: 0 };
     // Each task reads, yields, then writes read+1. Unserialized, concurrent tasks
     // would all read the same value and the final count would be < N.
-    const bump = () => withFileWriteLock('cell', async () => {
-      const seen = cell.value;
-      await tick();
-      cell.value = seen + 1;
-    });
+    const bump = () =>
+      withFileWriteLock('cell', async () => {
+        const seen = cell.value;
+        await tick();
+        cell.value = seen + 1;
+      });
     await Promise.all(Array.from({ length: 20 }, bump));
     assert.equal(cell.value, 20);
   });
@@ -71,6 +70,11 @@ describe('withFileWriteLock', () => {
 
   test('returns the task result and propagates its rejection to the caller', async () => {
     assert.equal(await withFileWriteLock('result', async () => 42), 42);
-    await assert.rejects(withFileWriteLock('result', async () => { throw new Error('nope'); }), /nope/);
+    await assert.rejects(
+      withFileWriteLock('result', async () => {
+        throw new Error('nope');
+      }),
+      /nope/,
+    );
   });
 });

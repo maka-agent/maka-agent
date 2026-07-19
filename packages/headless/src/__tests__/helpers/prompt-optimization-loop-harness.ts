@@ -3,9 +3,20 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
-import { hashSystemPrompt, type HarborTaskRunInput, type HarborTaskRunOutput } from '../../fixed-prompt-controller.js';
-import { createCliPromptCandidateGit, type MetaAgent, type MetaAgentPromptInput } from '../../prompt-candidate-loop.js';
-import { runPromptOptimizationLoop, type PromptOptimizationLoopInput } from '../../prompt-optimization-loop.js';
+import {
+  hashSystemPrompt,
+  type HarborTaskRunInput,
+  type HarborTaskRunOutput,
+} from '../../fixed-prompt-controller.js';
+import {
+  createCliPromptCandidateGit,
+  type MetaAgent,
+  type MetaAgentPromptInput,
+} from '../../prompt-candidate-loop.js';
+import {
+  runPromptOptimizationLoop,
+  type PromptOptimizationLoopInput,
+} from '../../prompt-optimization-loop.js';
 import type { Config } from '../../contracts.js';
 import { tokenSummary } from './cell-output-fixtures.js';
 
@@ -87,14 +98,25 @@ export async function runLoop(harness: Harness, options: RunLoopOptions) {
       options.runtimeEventCommandFor,
     ),
     metaAgent: options.metaAgent ?? fakeMetaAgent(),
-    git: createCliPromptCandidateGit({ cwd: harness.repoDir, systemPromptPath: harness.systemPromptPath }),
-    rewardHackVerifierPatternsByTaskId: options.rewardHackVerifierPatternsByTaskId
-      ?? rewardHackVerifierPatternsByTaskId,
-    ...(options.resumeFingerprint !== null ? { resumeFingerprint: options.resumeFingerprint ?? 'fingerprint-test' } : {}),
+    git: createCliPromptCandidateGit({
+      cwd: harness.repoDir,
+      systemPromptPath: harness.systemPromptPath,
+    }),
+    rewardHackVerifierPatternsByTaskId:
+      options.rewardHackVerifierPatternsByTaskId ?? rewardHackVerifierPatternsByTaskId,
+    ...(options.resumeFingerprint !== null
+      ? { resumeFingerprint: options.resumeFingerprint ?? 'fingerprint-test' }
+      : {}),
     ...(options.costCeilingUsd !== undefined ? { costCeilingUsd: options.costCeilingUsd } : {}),
-    ...(options.maxInfraFailureRate !== undefined ? { maxInfraFailureRate: options.maxInfraFailureRate } : {}),
-    ...(options.minStableHeldInTasks !== undefined ? { minStableHeldInTasks: options.minStableHeldInTasks } : {}),
-    ...(options.maxStableTaskDurationMs !== undefined ? { maxStableTaskDurationMs: options.maxStableTaskDurationMs } : {}),
+    ...(options.maxInfraFailureRate !== undefined
+      ? { maxInfraFailureRate: options.maxInfraFailureRate }
+      : {}),
+    ...(options.minStableHeldInTasks !== undefined
+      ? { minStableHeldInTasks: options.minStableHeldInTasks }
+      : {}),
+    ...(options.maxStableTaskDurationMs !== undefined
+      ? { maxStableTaskDurationMs: options.maxStableTaskDurationMs }
+      : {}),
     now: () => (clock += 1),
     newId: nextId,
   };
@@ -122,8 +144,9 @@ export function fakeMetaAgent(): MetaAgent {
 }
 
 export function evidenceRefsFor(promptInput: MetaAgentPromptInput): string[] {
-  const signal = promptInput.rsiAnalysis?.signals.find((item) => item.kind === 'coverage_regression')
-    ?? promptInput.rsiAnalysis?.signals[0];
+  const signal =
+    promptInput.rsiAnalysis?.signals.find((item) => item.kind === 'coverage_regression') ??
+    promptInput.rsiAnalysis?.signals[0];
   return signal ? [signal.id] : [];
 }
 
@@ -165,7 +188,13 @@ function fakeHarborRunner(
         status: failed ? 'failed' : 'completed',
         runtimeEventsPath,
         promptHash: hashSystemPrompt(systemPrompt),
-        tokenSummary: tokenSummary({ input: 1, output: 2, reasoning: 0, total: 3, costUsd: COST_PER_TASK }),
+        tokenSummary: tokenSummary({
+          input: 1,
+          output: 2,
+          reasoning: 0,
+          total: 3,
+          costUsd: COST_PER_TASK,
+        }),
         toolSummary: {
           providerVisibleToolCount: 1,
           actualToolCalls: 1,
@@ -240,7 +269,9 @@ export async function withHarness(fn: (harness: Harness) => Promise<void>): Prom
     await execFileAsync('git', ['config', 'user.name', 'Test User'], { cwd: repoDir });
     await execFileAsync('git', ['add', 'program.md', 'system_prompt.md'], { cwd: repoDir });
     await execFileAsync('git', ['commit', '-m', 'initial'], { cwd: repoDir });
-    const originalCommitSha = (await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: repoDir })).stdout.trim();
+    const originalCommitSha = (
+      await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: repoDir })
+    ).stdout.trim();
 
     await fn({
       repoDir,

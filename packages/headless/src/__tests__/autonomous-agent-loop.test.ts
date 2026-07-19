@@ -3,7 +3,13 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
-import { BackendRegistry, FakeBackend, SessionManager, type SessionStore, type AgentBackend } from '@maka/runtime';
+import {
+  BackendRegistry,
+  FakeBackend,
+  SessionManager,
+  type SessionStore,
+  type AgentBackend,
+} from '@maka/runtime';
 import type { BackendKind, SessionEvent, SessionHeader } from '@maka/core';
 import type { BackendSendInput, PermissionDecision } from '@maka/core/backend-types';
 import type { Config, Task } from '../contracts.js';
@@ -18,8 +24,9 @@ const fakeConfig: Config = {
 };
 
 const registerFakeBackend = (registry: BackendRegistry): void => {
-  registry.register('fake', (ctx) =>
-    new FakeBackend({ sessionId: ctx.sessionId, header: ctx.header, store: ctx.store }),
+  registry.register(
+    'fake',
+    (ctx) => new FakeBackend({ sessionId: ctx.sessionId, header: ctx.header, store: ctx.store }),
   );
 };
 
@@ -47,7 +54,13 @@ class PermissionRequestBackend implements AgentBackend {
       args: { command: 'rm -rf /tmp/example' },
       rememberForTurnAllowed: true,
     };
-    yield { type: 'complete', id: 'permission-complete', turnId: input.turnId, ts, stopReason: 'permission_handoff' };
+    yield {
+      type: 'complete',
+      id: 'permission-complete',
+      turnId: input.turnId,
+      ts,
+      stopReason: 'permission_handoff',
+    };
   }
 
   async stop(): Promise<void> {}
@@ -73,7 +86,13 @@ class RuntimeContextCapturingBackend implements AgentBackend {
   async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
     this.runtimeContextCounts.push(input.runtimeContext?.length ?? 0);
     const ts = Date.now();
-    yield { type: 'complete', id: `context-complete-${this.runtimeContextCounts.length}`, turnId: input.turnId, ts, stopReason: 'end_turn' };
+    yield {
+      type: 'complete',
+      id: `context-complete-${this.runtimeContextCounts.length}`,
+      turnId: input.turnId,
+      ts,
+      stopReason: 'end_turn',
+    };
   }
 
   async stop(): Promise<void> {}
@@ -81,9 +100,14 @@ class RuntimeContextCapturingBackend implements AgentBackend {
   async dispose(): Promise<void> {}
 }
 
-const registerRuntimeContextCapturingBackend = (runtimeContextCounts: number[]) => (registry: BackendRegistry): void => {
-  registry.register('fake', (ctx) => new RuntimeContextCapturingBackend(ctx.sessionId, runtimeContextCounts));
-};
+const registerRuntimeContextCapturingBackend =
+  (runtimeContextCounts: number[]) =>
+  (registry: BackendRegistry): void => {
+    registry.register(
+      'fake',
+      (ctx) => new RuntimeContextCapturingBackend(ctx.sessionId, runtimeContextCounts),
+    );
+  };
 
 class PromptCapturingProgressBackend implements AgentBackend {
   readonly kind: BackendKind = 'fake';
@@ -109,21 +133,42 @@ class PromptCapturingProgressBackend implements AgentBackend {
         abortSignal: new AbortController().signal,
         emitOutput: () => {},
       };
-      await this.progress.recordInventory({
-        summary: 'Inspected public task files.',
-        items: [{ path: 'README.md', kind: 'file', status: 'observed' }],
-      }, toolCtx);
-      await this.progress.recordTodos({
-        items: [{ id: 'fix', content: 'Patch implementation', status: 'in_progress', priority: 'high' }],
-      }, toolCtx);
-      await this.evidence?.recordToolEvidence({
-        name: 'Bash',
-        input: { command: 'npm test', cwd: '/workspace', timeoutMs: 120_000 },
-        result: { exitCode: 1, stdout: `public failure summary\n${'x'.repeat(5_000)}`, stderr: 'short stderr\n' },
-      }, toolCtx);
+      await this.progress.recordInventory(
+        {
+          summary: 'Inspected public task files.',
+          items: [{ path: 'README.md', kind: 'file', status: 'observed' }],
+        },
+        toolCtx,
+      );
+      await this.progress.recordTodos(
+        {
+          items: [
+            { id: 'fix', content: 'Patch implementation', status: 'in_progress', priority: 'high' },
+          ],
+        },
+        toolCtx,
+      );
+      await this.evidence?.recordToolEvidence(
+        {
+          name: 'Bash',
+          input: { command: 'npm test', cwd: '/workspace', timeoutMs: 120_000 },
+          result: {
+            exitCode: 1,
+            stdout: `public failure summary\n${'x'.repeat(5_000)}`,
+            stderr: 'short stderr\n',
+          },
+        },
+        toolCtx,
+      );
     }
     const ts = Date.now();
-    yield { type: 'complete', id: `progress-complete-${this.prompts.length}`, turnId: input.turnId, ts, stopReason: 'end_turn' };
+    yield {
+      type: 'complete',
+      id: `progress-complete-${this.prompts.length}`,
+      turnId: input.turnId,
+      ts,
+      stopReason: 'end_turn',
+    };
   }
 
   async stop(): Promise<void> {}
@@ -131,11 +176,24 @@ class PromptCapturingProgressBackend implements AgentBackend {
   async dispose(): Promise<void> {}
 }
 
-const registerPromptCapturingProgressBackend = (prompts: string[]) => (registry: BackendRegistry, context: HeadlessBackendContext): void => {
-  registry.register('fake', (ctx) => new PromptCapturingProgressBackend(ctx.sessionId, context.heavyTaskProgress, context.heavyTaskEvidence, prompts));
-};
+const registerPromptCapturingProgressBackend =
+  (prompts: string[]) =>
+  (registry: BackendRegistry, context: HeadlessBackendContext): void => {
+    registry.register(
+      'fake',
+      (ctx) =>
+        new PromptCapturingProgressBackend(
+          ctx.sessionId,
+          context.heavyTaskProgress,
+          context.heavyTaskEvidence,
+          prompts,
+        ),
+    );
+  };
 
-async function withDirs<T>(fn: (fixtureDir: string, storageRoot: string) => Promise<T>): Promise<T> {
+async function withDirs<T>(
+  fn: (fixtureDir: string, storageRoot: string) => Promise<T>,
+): Promise<T> {
   const fixtureDir = await mkdtemp(join(tmpdir(), 'maka-autonomous-loop-fx-'));
   const storageRoot = await mkdtemp(join(tmpdir(), 'maka-autonomous-loop-store-'));
   try {
@@ -206,7 +264,10 @@ describe('runAutonomousTask', () => {
       assert.equal(result.projection.latestScoreResult?.taxonomy, 'passed');
       assert.equal(result.projection.decisions[0]?.decision, 'stop');
       assert.equal(result.projection.decisions[0]?.reason, 'authoritative verification passed');
-      assert.equal(result.projection.feedback.some((entry) => entry.source === 'verifier'), true);
+      assert.equal(
+        result.projection.feedback.some((entry) => entry.source === 'verifier'),
+        true,
+      );
       assert.deepEqual(
         result.projection.events
           .filter((event) => event.type.startsWith('task_run_'))
@@ -242,10 +303,14 @@ describe('runAutonomousTask', () => {
       assert.equal(result.resultRecord.passed, false);
       assert.equal(result.projection.status, 'budget_exhausted');
       assert.equal(result.projection.latestScoreResult?.taxonomy, 'verification_failed');
-      assert.deepEqual(result.projection.decisions.map((decision) => decision.decision), ['continue', 'stop']);
+      assert.deepEqual(
+        result.projection.decisions.map((decision) => decision.decision),
+        ['continue', 'stop'],
+      );
       assert.equal(result.projection.error?.class, 'budget_exhausted');
       assert.equal(
-        result.projection.events.filter((event) => event.type === 'task_run_budget_exhausted').length,
+        result.projection.events.filter((event) => event.type === 'task_run_budget_exhausted')
+          .length,
         1,
       );
     });
@@ -271,7 +336,10 @@ describe('runAutonomousTask', () => {
 
       assert.equal(result.attempts.length, 2);
       assert.equal(runtimeContextCounts[0], 0);
-      assert.ok((runtimeContextCounts[1] ?? 0) > 0, 'expected second attempt to receive prior runtime events');
+      assert.ok(
+        (runtimeContextCounts[1] ?? 0) > 0,
+        'expected second attempt to receive prior runtime events',
+      );
     });
   });
 
@@ -296,16 +364,25 @@ describe('runAutonomousTask', () => {
       assert.equal(result.attempts.length, 2);
       assert.equal(result.projection.latestHeavyTaskInventory?.items[0]?.path, 'README.md');
       assert.equal(result.projection.latestHeavyTaskTodos?.items[0]?.id, 'fix');
-      assert.match(prompts[1] ?? '', /Your previous completion is not accepted for heavy-task finalization yet/);
+      assert.match(
+        prompts[1] ?? '',
+        /Your previous completion is not accepted for heavy-task finalization yet/,
+      );
       assert.match(prompts[1] ?? '', /missing accepted public self-check evidence/);
 
       const continuationPrompt = prompts.find((prompt) =>
         prompt.includes('Heavy-task progress state from prior task-run events'),
       );
-      assert.ok(continuationPrompt, 'expected autonomous retry prompt to include replayed heavy-task progress');
+      assert.ok(
+        continuationPrompt,
+        'expected autonomous retry prompt to include replayed heavy-task progress',
+      );
       assert.match(continuationPrompt, /Inventory summary: Inspected public task files/);
       assert.match(continuationPrompt, /Active todo: fix/);
-      assert.match(continuationPrompt, /Heavy-task compact evidence from prior public tool\/check\/artifact observations/);
+      assert.match(
+        continuationPrompt,
+        /Heavy-task compact evidence from prior public tool\/check\/artifact observations/,
+      );
       assert.match(continuationPrompt, /tool:Bash exit=1/);
       assert.match(continuationPrompt, /truncated=true/);
       assert.doesNotMatch(continuationPrompt, new RegExp(`x{${3_000}}`));
@@ -328,7 +405,10 @@ describe('runAutonomousTask', () => {
         registerBackends: registerFakeBackend,
         budget: { maxAttempts: 1 },
         selfCheck: {
-          observe: () => ({ summary: 'self-check passed: looks solved', details: { passed: true } }),
+          observe: () => ({
+            summary: 'self-check passed: looks solved',
+            details: { passed: true },
+          }),
         },
         newId: idFactory(),
       });
@@ -386,7 +466,10 @@ describe('runAutonomousTask', () => {
       assert.equal(result.projection.status, 'needs_approval');
       assert.equal(result.projection.parked?.reason, 'budget_extension');
       assert.equal(result.projection.inboxItems[0]?.kind, 'budget_extension');
-      assert.equal(result.projection.events.some((event) => event.type === 'task_run_budget_exhausted'), false);
+      assert.equal(
+        result.projection.events.some((event) => event.type === 'task_run_budget_exhausted'),
+        false,
+      );
     });
   });
 

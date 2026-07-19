@@ -21,7 +21,11 @@ import { isAbsolute, relative, sep } from 'node:path';
  * the managed skill-source store, the filesystem worker, and the workspace
  * executor to keep resolved paths inside their approved root.
  */
-export function isPathInside(root: string, target: string, pathApi: PathInsideApi = { relative, isAbsolute, sep }): boolean {
+export function isPathInside(
+  root: string,
+  target: string,
+  pathApi: PathInsideApi = { relative, isAbsolute, sep },
+): boolean {
   const rel = pathApi.relative(root, target);
   // path.relative returns the target path unchanged (absolute) when root and
   // target are on different drives on Windows. An absolute result means the

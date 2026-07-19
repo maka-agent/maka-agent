@@ -17,9 +17,13 @@ describe('runHarnessAbComparison', () => {
       const promptPath = join(dir, 'empty-system-prompt.txt');
       await writeFile(promptPath, '', 'utf8');
       let release!: () => void;
-      const releasePromise = new Promise<void>((resolve) => { release = resolve; });
+      const releasePromise = new Promise<void>((resolve) => {
+        release = resolve;
+      });
       let fourStarted!: () => void;
-      const fourStartedPromise = new Promise<void>((resolve) => { fourStarted = resolve; });
+      const fourStartedPromise = new Promise<void>((resolve) => {
+        fourStarted = resolve;
+      });
       let active = 0;
       let maxActive = 0;
       const calls: string[] = [];
@@ -37,10 +41,7 @@ describe('runHarnessAbComparison', () => {
         systemPromptPath: promptPath,
         resumeFingerprint: 'sha256:manifest',
         evaluationTasks: ['a', 'b', 'c'].map((id) => ({ id, path: `/tasks/${id}` })),
-        arms: [
-          harnessArm('maka', calls, beforeRun),
-          harnessArm('opencode', calls, beforeRun),
-        ],
+        arms: [harnessArm('maka', calls, beforeRun), harnessArm('opencode', calls, beforeRun)],
       });
 
       // Bound is intentionally generous: the full headless suite runs many
@@ -68,10 +69,7 @@ describe('runHarnessAbComparison', () => {
       const resultsPath = join(dir, 'results.jsonl');
       await writeFile(promptPath, '', 'utf8');
       const calls: string[] = [];
-      const arms = [
-        harnessArm('maka', calls),
-        harnessArm('opencode', calls),
-      ] as const;
+      const arms = [harnessArm('maka', calls), harnessArm('opencode', calls)] as const;
       const tasks = ['a', 'b', 'c'].map((id) => ({ id, path: `/tasks/${id}` }));
       const common = {
         runId: 'glm-harness-ab',
@@ -96,7 +94,10 @@ describe('runHarnessAbComparison', () => {
         new Set(calls),
         new Set(['a:maka', 'a:opencode', 'b:maka', 'b:opencode', 'c:maka', 'c:opencode']),
       );
-      assert.deepEqual((await readdir(dir)).filter((name) => name.endsWith('.tsv')), []);
+      assert.deepEqual(
+        (await readdir(dir)).filter((name) => name.endsWith('.tsv')),
+        [],
+      );
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -109,8 +110,12 @@ describe('runHarnessAbComparison', () => {
       await writeFile(promptPath, '', 'utf8');
       let release!: () => void;
       let started!: () => void;
-      const startedPromise = new Promise<void>((resolve) => { started = resolve; });
-      const releasePromise = new Promise<void>((resolve) => { release = resolve; });
+      const startedPromise = new Promise<void>((resolve) => {
+        started = resolve;
+      });
+      const releasePromise = new Promise<void>((resolve) => {
+        release = resolve;
+      });
       const calls: string[] = [];
       const input = {
         runId: 'glm-harness-ab',
@@ -210,13 +215,30 @@ describe('runHarnessAbComparison', () => {
         new Set(calls),
         new Set(['a:maka', 'a:opencode', 'b:maka', 'b:opencode', 'c:maka', 'c:opencode']),
       );
-      const terminalEvents = (await readFile(resultsPath, 'utf8')).trim().split('\n').map((line) => JSON.parse(line) as {
-        taskId: string;
-        type: string;
-      });
-      assert.equal(terminalEvents.find((event) => event.taskId === 'b' && event.type === 'task_infra_failed')?.type, 'task_infra_failed');
-      assert.equal(terminalEvents.filter((event) => event.taskId === 'c' && event.type === 'task_completed').length, 2);
-      assert.equal((await readFile(`${resultsPath}.attempts.jsonl`, 'utf8')).trim().split('\n').length, 6);
+      const terminalEvents = (await readFile(resultsPath, 'utf8'))
+        .trim()
+        .split('\n')
+        .map(
+          (line) =>
+            JSON.parse(line) as {
+              taskId: string;
+              type: string;
+            },
+        );
+      assert.equal(
+        terminalEvents.find((event) => event.taskId === 'b' && event.type === 'task_infra_failed')
+          ?.type,
+        'task_infra_failed',
+      );
+      assert.equal(
+        terminalEvents.filter((event) => event.taskId === 'c' && event.type === 'task_completed')
+          .length,
+        2,
+      );
+      assert.equal(
+        (await readFile(`${resultsPath}.attempts.jsonl`, 'utf8')).trim().split('\n').length,
+        6,
+      );
 
       await runHarnessAbComparison(input);
       assert.equal(failingAttempts, 1);
@@ -287,15 +309,24 @@ describe('runHarnessAbComparison', () => {
         evaluationTasks: [{ id: 'a', path: '/tasks/a' }],
         arms: [maka, harnessArm('opencode', calls)],
       });
-      const events = (await readFile(resultsPath, 'utf8')).trim().split('\n').map((line) => JSON.parse(line) as {
-        type: string;
-        errorClass?: string;
-      });
+      const events = (await readFile(resultsPath, 'utf8'))
+        .trim()
+        .split('\n')
+        .map(
+          (line) =>
+            JSON.parse(line) as {
+              type: string;
+              errorClass?: string;
+            },
+        );
       const report = buildHarnessAbReport(summary);
 
-      assert.ok(events.some((event) => (
-        event.type === 'task_plumbing_failed' && event.errorClass === 'missing_token_usage'
-      )));
+      assert.ok(
+        events.some(
+          (event) =>
+            event.type === 'task_plumbing_failed' && event.errorClass === 'missing_token_usage',
+        ),
+      );
       assert.equal(report.runStatus, 'completed_with_gaps');
       assert.throws(() => assertHarnessAbReportCompleted(report), /completed with gaps/);
     } finally {
@@ -326,7 +357,13 @@ function harnessArm(id: 'maka' | 'opencode', calls: string[], beforeRun?: () => 
         systemPromptHash: promptHash,
         pricingProfile: 'glm-5.2-public-2026-07-13',
       },
-      tokenSummary: tokenSummary({ input: 100, output: 10, reasoning: 0, total: 110, costUsd: 0.000184 }),
+      tokenSummary: tokenSummary({
+        input: 100,
+        output: 10,
+        reasoning: 0,
+        total: 110,
+        costUsd: 0.000184,
+      }),
       toolSummary: {
         providerVisibleToolCount: 1,
         actualToolCalls: 1,

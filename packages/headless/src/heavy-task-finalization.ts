@@ -1,4 +1,7 @@
-import { heavyTaskSelfCheckStrongPassBlocker, isAcceptedHeavyTaskSelfCheck } from './heavy-task-self-check.js';
+import {
+  heavyTaskSelfCheckStrongPassBlocker,
+  isAcceptedHeavyTaskSelfCheck,
+} from './heavy-task-self-check.js';
 import type {
   AutonomousDecision,
   AutonomousResultTaxonomy,
@@ -15,7 +18,10 @@ import type {
 
 type HeavyTaskPhaseGateKind = 'runnable_artifact' | 'public_check';
 
-const REQUIRED_PHASE_GATE_KINDS: readonly HeavyTaskPhaseGateKind[] = ['runnable_artifact', 'public_check'];
+const REQUIRED_PHASE_GATE_KINDS: readonly HeavyTaskPhaseGateKind[] = [
+  'runnable_artifact',
+  'public_check',
+];
 
 export type HeavyTaskRuntimeCapKind =
   | 'none'
@@ -64,11 +70,15 @@ export interface HeavyTaskCompletionInput {
   heavyTaskMode?: HeavyTaskModeFacts;
   latestHeavyTaskTodos?: HeavyTaskTodoState;
   latestHeavyTaskSelfCheckPlan?: HeavyTaskSelfCheckPlanState;
-  latestHeavyTaskSelfCheck?: HeavyTaskSemanticSelfCheckState & { freshness?: HeavyTaskSelfCheckFreshness };
+  latestHeavyTaskSelfCheck?: HeavyTaskSemanticSelfCheckState & {
+    freshness?: HeavyTaskSelfCheckFreshness;
+  };
   decisions?: readonly AutonomousDecision[];
 }
 
-export function evaluateHeavyTaskCompletionStatus(input: HeavyTaskCompletionInput): HeavyTaskCompletionStatus {
+export function evaluateHeavyTaskCompletionStatus(
+  input: HeavyTaskCompletionInput,
+): HeavyTaskCompletionStatus {
   const runtime = runtimeStatusFromInput(input);
   const semantic = semanticStatusFromInput(input);
   const eligible = semantic.status === 'complete' && runtime.capLike;
@@ -86,7 +96,9 @@ export function evaluateHeavyTaskCompletionStatus(input: HeavyTaskCompletionInpu
   };
 }
 
-function runtimeStatusFromInput(input: HeavyTaskCompletionInput): HeavyTaskCompletionStatus['runtime'] {
+function runtimeStatusFromInput(
+  input: HeavyTaskCompletionInput,
+): HeavyTaskCompletionStatus['runtime'] {
   const failureClass = input.error?.class;
   const reason = runtimeReason(input);
   const capKind = classifyCapKind(input, reason);
@@ -100,7 +112,9 @@ function runtimeStatusFromInput(input: HeavyTaskCompletionInput): HeavyTaskCompl
   };
 }
 
-function semanticStatusFromInput(input: HeavyTaskCompletionInput): HeavyTaskCompletionStatus['semantic'] {
+function semanticStatusFromInput(
+  input: HeavyTaskCompletionInput,
+): HeavyTaskCompletionStatus['semantic'] {
   const selfCheck = input.latestHeavyTaskSelfCheck;
   const todos = input.latestHeavyTaskTodos;
   const unresolvedTodoIds = unresolvedTodoIdsFrom(todos);
@@ -120,15 +134,26 @@ function semanticStatusFromInput(input: HeavyTaskCompletionInput): HeavyTaskComp
     return { ...base, status: 'incomplete', reason: 'missing accepted public self-check evidence' };
   }
   if (!isAcceptedHeavyTaskSelfCheck(selfCheck)) {
-    return { ...base, status: 'incomplete', reason: 'latest self-check evidence was not accepted as public' };
+    return {
+      ...base,
+      status: 'incomplete',
+      reason: 'latest self-check evidence was not accepted as public',
+    };
   }
   if (selfCheck.freshness === 'stale') {
     return { ...base, status: 'incomplete', reason: 'latest self-check evidence is stale' };
   }
   if (selfCheck.status !== 'pass') {
-    return { ...base, status: 'incomplete', reason: `latest self-check status is ${selfCheck.status}` };
+    return {
+      ...base,
+      status: 'incomplete',
+      reason: `latest self-check status is ${selfCheck.status}`,
+    };
   }
-  const strongPassBlocker = heavyTaskSelfCheckStrongPassBlocker(selfCheck, input.latestHeavyTaskSelfCheckPlan);
+  const strongPassBlocker = heavyTaskSelfCheckStrongPassBlocker(
+    selfCheck,
+    input.latestHeavyTaskSelfCheckPlan,
+  );
   if (strongPassBlocker) {
     return { ...base, status: 'incomplete', reason: strongPassBlocker };
   }
@@ -139,7 +164,11 @@ function semanticStatusFromInput(input: HeavyTaskCompletionInput): HeavyTaskComp
     return { ...base, status: 'incomplete', reason: 'latest heavy-task todos are empty' };
   }
   if (unresolvedTodoIds.length > 0) {
-    return { ...base, status: 'incomplete', reason: 'latest heavy-task todos contain unresolved work' };
+    return {
+      ...base,
+      status: 'incomplete',
+      reason: 'latest heavy-task todos contain unresolved work',
+    };
   }
   const missingPhaseGateKinds = missingPhaseGateKindsFrom(todos);
   if (missingPhaseGateKinds.length > 0) {
@@ -152,7 +181,8 @@ function semanticStatusFromInput(input: HeavyTaskCompletionInput): HeavyTaskComp
   return {
     ...base,
     status: 'complete',
-    reason: 'accepted public self-check passed, todos are resolved/nonblocking, and early runnable/check phase gate is complete',
+    reason:
+      'accepted public self-check passed, todos are resolved/nonblocking, and early runnable/check phase gate is complete',
   };
 }
 
@@ -171,16 +201,23 @@ function isResolvedOrNonblockingTodo(item: HeavyTaskTodoItem): boolean {
 }
 
 function isNonblockingTodo(item: HeavyTaskTodoItem): boolean {
-  return item.status === 'cancelled' && typeof item.evidence === 'string' && item.evidence.trim().length > 0;
-}
-
-function missingPhaseGateKindsFrom(todos: HeavyTaskTodoState): HeavyTaskPhaseGateKind[] {
-  return REQUIRED_PHASE_GATE_KINDS.filter((kind) =>
-    !todos.items.some((item) => item.kind === kind && item.status === 'completed'),
+  return (
+    item.status === 'cancelled' &&
+    typeof item.evidence === 'string' &&
+    item.evidence.trim().length > 0
   );
 }
 
-function classifyCapKind(input: HeavyTaskCompletionInput, reason: string | undefined): HeavyTaskRuntimeCapKind {
+function missingPhaseGateKindsFrom(todos: HeavyTaskTodoState): HeavyTaskPhaseGateKind[] {
+  return REQUIRED_PHASE_GATE_KINDS.filter(
+    (kind) => !todos.items.some((item) => item.kind === kind && item.status === 'completed'),
+  );
+}
+
+function classifyCapKind(
+  input: HeavyTaskCompletionInput,
+  reason: string | undefined,
+): HeavyTaskRuntimeCapKind {
   const haystack = [
     input.status,
     input.taxonomy,
@@ -188,50 +225,83 @@ function classifyCapKind(input: HeavyTaskCompletionInput, reason: string | undef
     input.error?.message,
     reason,
     ...decisionReasons(input.decisions),
-  ].filter((value): value is string => typeof value === 'string' && value.length > 0).join(' ').toLowerCase();
+  ]
+    .filter((value): value is string => typeof value === 'string' && value.length > 0)
+    .join(' ')
+    .toLowerCase();
 
   if (
-    haystack.includes('incomplete_tool_calls')
-    || haystack.includes('tool_step_cap')
-    || haystack.includes('tool_call_step')
-    || haystack.includes('tool call step')
+    haystack.includes('incomplete_tool_calls') ||
+    haystack.includes('tool_step_cap') ||
+    haystack.includes('tool_call_step') ||
+    haystack.includes('tool call step')
   ) {
     return 'tool_call_step_cap';
   }
-  if (haystack.includes('max_tokens') || haystack.includes('max token') || haystack.includes('token cap') || haystack.includes('truncated')) {
+  if (
+    haystack.includes('max_tokens') ||
+    haystack.includes('max token') ||
+    haystack.includes('token cap') ||
+    haystack.includes('truncated')
+  ) {
     return 'token_cap';
   }
-  if (haystack.includes('runtime step cap') || haystack.includes('max_steps') || haystack.includes('max steps')) {
+  if (
+    haystack.includes('runtime step cap') ||
+    haystack.includes('max_steps') ||
+    haystack.includes('max steps')
+  ) {
     return 'runtime_step_cap';
   }
-  if (haystack.includes('wall time cap') || haystack.includes('wall-time cap') || haystack.includes('wall_time')) {
+  if (
+    haystack.includes('wall time cap') ||
+    haystack.includes('wall-time cap') ||
+    haystack.includes('wall_time')
+  ) {
     return 'wall_time_cap';
   }
   if (haystack.includes('max attempts') || haystack.includes('max_attempts')) {
     return 'max_attempts';
   }
-  if (haystack.includes('timeout') || haystack.includes('timed out') || haystack.includes('timed_out')) {
+  if (
+    haystack.includes('timeout') ||
+    haystack.includes('timed out') ||
+    haystack.includes('timed_out')
+  ) {
     return 'timeout';
   }
-  if (input.status === 'budget_exhausted' || input.taxonomy === 'budget_exhausted' || haystack.includes('budget exhausted')) {
+  if (
+    input.status === 'budget_exhausted' ||
+    input.taxonomy === 'budget_exhausted' ||
+    haystack.includes('budget exhausted')
+  ) {
     return 'budget_exhausted';
   }
   if (input.status === 'incomplete' || input.taxonomy === 'agent_incomplete') {
     return 'unknown_cap';
   }
-  if (haystack.includes('tool_calls') || haystack.includes('tool calls') || haystack.includes('budget') || haystack.includes('limit')) {
+  if (
+    haystack.includes('tool_calls') ||
+    haystack.includes('tool calls') ||
+    haystack.includes('budget') ||
+    haystack.includes('limit')
+  ) {
     return 'unknown_cap';
   }
   return 'none';
 }
 
 function runtimeReason(input: HeavyTaskCompletionInput): string | undefined {
-  const decisionReason = [...(input.decisions ?? [])].reverse().find((decision) => decision.reason)?.reason;
+  const decisionReason = [...(input.decisions ?? [])]
+    .reverse()
+    .find((decision) => decision.reason)?.reason;
   return input.error?.message ?? decisionReason;
 }
 
 function decisionReasons(decisions: readonly AutonomousDecision[] | undefined): string[] {
-  return (decisions ?? []).map((decision) => decision.reason).filter((reason): reason is string => typeof reason === 'string');
+  return (decisions ?? [])
+    .map((decision) => decision.reason)
+    .filter((reason): reason is string => typeof reason === 'string');
 }
 
 function finalizationIneligibleReason(

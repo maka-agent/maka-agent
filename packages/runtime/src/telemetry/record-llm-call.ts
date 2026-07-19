@@ -16,22 +16,26 @@ export function recordLlmCall(deps: LlmRecorderDeps, record: LlmCallRecord): voi
       const cacheWriteInputTokens = record.cacheWriteInputTokens ?? 0;
       const derivedCacheMissInputTokens = record.cacheMissInputTokens === undefined;
       const cacheMissInputTokens =
-        record.cacheMissInputTokens
-        ?? Math.max(0, record.inputTokens - cacheHitInputTokens - cacheWriteInputTokens);
-      const cacheMissInputSource = record.cacheMissInputSource ?? (derivedCacheMissInputTokens ? 'derived' : undefined);
+        record.cacheMissInputTokens ??
+        Math.max(0, record.inputTokens - cacheHitInputTokens - cacheWriteInputTokens);
+      const cacheMissInputSource =
+        record.cacheMissInputSource ?? (derivedCacheMissInputTokens ? 'derived' : undefined);
       const cachedInputTokens = cacheHitInputTokens;
       const reasoningTokens = record.reasoningTokens ?? 0;
-      const totalTokens = record.totalTokens ?? record.inputTokens + record.outputTokens + reasoningTokens;
-      const costUsd = record.costUsd ?? computeCost(
-        {
-          inputTokens: record.inputTokens,
-          outputTokens: record.outputTokens,
-          cacheHitInputTokens,
-          cacheMissInputTokens,
-          cacheWriteInputTokens,
-        },
-        deps.lookupPricing(`${record.providerId}:${record.modelId}`),
-      ).totalCost;
+      const totalTokens =
+        record.totalTokens ?? record.inputTokens + record.outputTokens + reasoningTokens;
+      const costUsd =
+        record.costUsd ??
+        computeCost(
+          {
+            inputTokens: record.inputTokens,
+            outputTokens: record.outputTokens,
+            cacheHitInputTokens,
+            cacheMissInputTokens,
+            cacheWriteInputTokens,
+          },
+          deps.lookupPricing(`${record.providerId}:${record.modelId}`),
+        ).totalCost;
       const ts = record.startedAt + record.latencyMs;
       const recordId = record.callId
         ? `usage_${record.callId}`

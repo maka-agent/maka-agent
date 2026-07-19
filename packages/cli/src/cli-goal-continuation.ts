@@ -28,10 +28,12 @@ export class CliGoalContinuation {
       admitTurn: (sessionId, text) => {
         const whenIdle = this.activities.whenIdle(sessionId);
         if (whenIdle) return { kind: 'busy', whenIdle };
-        return this.host?.admitTurn(sessionId, text) ?? {
-          kind: 'unavailable',
-          reason: 'TUI Goal host is not available.',
-        };
+        return (
+          this.host?.admitTurn(sessionId, text) ?? {
+            kind: 'unavailable',
+            reason: 'TUI Goal host is not available.',
+          }
+        );
       },
     });
   }
@@ -45,10 +47,7 @@ export class CliGoalContinuation {
     };
   }
 
-  beginExternalTurn(
-    sessionId: string,
-    turnId: string,
-  ): GoalExternalTurnStart {
+  beginExternalTurn(sessionId: string, turnId: string): GoalExternalTurnStart {
     return this.coordinator.beginExternalTurn(sessionId, turnId);
   }
 
@@ -60,11 +59,7 @@ export class CliGoalContinuation {
     return this.coordinator.activateGoal(sessionId, turnId, activate);
   }
 
-  mutateGoal(
-    sessionId: string,
-    turnId: string,
-    mutate: () => GoalState,
-  ): GoalState | undefined {
+  mutateGoal(sessionId: string, turnId: string, mutate: () => GoalState): GoalState | undefined {
     return this.coordinator.mutateGoal(sessionId, turnId, mutate);
   }
 
@@ -106,7 +101,9 @@ export class CliGoalContinuation {
       events,
       turnId: input.turnId,
       activity,
-      onSettled: (outcome) => { void settleExternalTurn(outcome); },
+      onSettled: (outcome) => {
+        void settleExternalTurn(outcome);
+      },
     });
   }
 

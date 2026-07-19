@@ -89,7 +89,10 @@ export type BackendStopMode = 'immediate' | 'after_step';
  * forwarded, not persisted). `send` stays typed as `SessionEvent` for
  * implementation ergonomics; the ingress drop enforces the vocabulary.
  */
-export type BackendSessionEvent = Exclude<SessionEvent, Extract<SessionEvent, { type: 'queue_update' }>>;
+export type BackendSessionEvent = Exclude<
+  SessionEvent,
+  Extract<SessionEvent, { type: 'queue_update' }>
+>;
 
 export interface AgentBackend {
   readonly kind: BackendKind;

@@ -52,7 +52,9 @@ describe('parseNoRealConnectionError', () => {
   it('parses the wrapped form NO_REAL_CONNECTION:<reason>: <message>', () => {
     assert.deepEqual(
       parseNoRealConnectionError(
-        new Error("Error invoking remote method 'send': Error: NO_REAL_CONNECTION:missing_api_key: no key"),
+        new Error(
+          "Error invoking remote method 'send': Error: NO_REAL_CONNECTION:missing_api_key: no key",
+        ),
       ),
       { matched: true, reason: 'missing_api_key' },
     );
@@ -92,10 +94,13 @@ describe('parseNoRealConnectionError', () => {
       matched: true,
       reason: undefined,
     });
-    assert.deepEqual(parseNoRealConnectionError(new Error('NO_REAL_CONNECTION:fake_backend-extra')), {
-      matched: true,
-      reason: undefined,
-    });
+    assert.deepEqual(
+      parseNoRealConnectionError(new Error('NO_REAL_CONNECTION:fake_backend-extra')),
+      {
+        matched: true,
+        reason: undefined,
+      },
+    );
   });
 
   it('accepts a non-Error value', () => {

@@ -45,9 +45,7 @@ export interface RunMakaPiTuiTurnInput {
  * External settlement always follows activity release; coordinator turns return
  * their outcome directly to the admission completion capability.
  */
-export async function runMakaPiTuiTurn(
-  input: RunMakaPiTuiTurnInput,
-): Promise<GoalTurnOutcome> {
+export async function runMakaPiTuiTurn(input: RunMakaPiTuiTurnInput): Promise<GoalTurnOutcome> {
   const { request } = input;
   let activity = request.kind === 'coordinator' ? request.activity : undefined;
   let preparedTurnId = request.kind === 'coordinator' ? request.turnId : undefined;
@@ -78,15 +76,12 @@ export async function runMakaPiTuiTurn(
       }
     }
 
-    const turn = await input.driver.preparePrompt(
-      request.prompt,
-      {
-        ...(request.kind === 'coordinator' ? { turnId: request.turnId } : {}),
-        ...(request.kind === 'external' && request.sendText !== undefined
-          ? { modelText: request.sendText }
-          : {}),
-      },
-    );
+    const turn = await input.driver.preparePrompt(request.prompt, {
+      ...(request.kind === 'coordinator' ? { turnId: request.turnId } : {}),
+      ...(request.kind === 'external' && request.sendText !== undefined
+        ? { modelText: request.sendText }
+        : {}),
+    });
     preparedTurnId = turn.turnId;
 
     if (!activity) activity = await input.lifecycle.activities.acquire(turn.sessionId);

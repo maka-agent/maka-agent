@@ -44,7 +44,13 @@ async function seedClaudeSession(
   const lines = [
     claudeLine({ type: 'mode', sessionId: options.id, mode: 'default' }),
     ...(options.leadingPadBytes
-      ? [claudeLine({ type: 'summary', sessionId: options.id, summary: 'x'.repeat(options.leadingPadBytes) })]
+      ? [
+          claudeLine({
+            type: 'summary',
+            sessionId: options.id,
+            summary: 'x'.repeat(options.leadingPadBytes),
+          }),
+        ]
       : []),
     claudeLine({
       type: 'user',
@@ -72,7 +78,9 @@ async function seedClaudeSession(
       },
     }),
     'not valid json\n',
-    ...(options.aiTitle ? [claudeLine({ type: 'ai-title', sessionId: options.id, aiTitle: options.aiTitle })] : []),
+    ...(options.aiTitle
+      ? [claudeLine({ type: 'ai-title', sessionId: options.id, aiTitle: options.aiTitle })]
+      : []),
   ];
   await writeFile(path, lines.join(''), 'utf8');
   return path;
@@ -92,7 +100,11 @@ function seedCodexSqlite(home: string, threads: CodexThreadSeed[]): Promise<void
   return seedCodexSqliteGen(home, 3, threads);
 }
 
-async function seedCodexSqliteGen(home: string, gen: number, threads: CodexThreadSeed[]): Promise<void> {
+async function seedCodexSqliteGen(
+  home: string,
+  gen: number,
+  threads: CodexThreadSeed[],
+): Promise<void> {
   const codexRoot = join(home, '.codex');
   await mkdir(join(codexRoot, 'sessions', '2026', '07', '18'), { recursive: true });
   const db = new DatabaseSync(join(codexRoot, `state_${gen}.sqlite`));
@@ -105,7 +117,10 @@ async function seedCodexSqliteGen(home: string, gen: number, threads: CodexThrea
     'INSERT INTO threads (id, rollout_path, cwd, title, updated_at_ms, archived, source) VALUES (?, ?, ?, ?, ?, ?, ?)',
   );
   for (const t of threads) {
-    const rollout = join(codexRoot, t.rolloutRelPath ?? `sessions/2026/07/18/rollout-1750000000000-${t.id}.jsonl`);
+    const rollout = join(
+      codexRoot,
+      t.rolloutRelPath ?? `sessions/2026/07/18/rollout-1750000000000-${t.id}.jsonl`,
+    );
     await writeFile(
       rollout,
       [
@@ -116,11 +131,19 @@ async function seedCodexSqliteGen(home: string, gen: number, threads: CodexThrea
         }),
         JSON.stringify({
           type: 'response_item',
-          payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'codex task' }] },
+          payload: {
+            type: 'message',
+            role: 'user',
+            content: [{ type: 'input_text', text: 'codex task' }],
+          },
         }),
         JSON.stringify({
           type: 'response_item',
-          payload: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'codex reply' }] },
+          payload: {
+            type: 'message',
+            role: 'assistant',
+            content: [{ type: 'output_text', text: 'codex reply' }],
+          },
         }),
         JSON.stringify({
           type: 'response_item',
@@ -129,7 +152,15 @@ async function seedCodexSqliteGen(home: string, gen: number, threads: CodexThrea
       ].join('\n') + '\n',
       'utf8',
     ).catch(() => {});
-    insert.run(t.id, rollout, t.cwd, t.title ?? null, t.updatedAtMs ?? NOW - 60_000, t.archived ?? 0, t.source ?? 'cli');
+    insert.run(
+      t.id,
+      rollout,
+      t.cwd,
+      t.title ?? null,
+      t.updatedAtMs ?? NOW - 60_000,
+      t.archived ?? 0,
+      t.source ?? 'cli',
+    );
   }
   db.close();
 }
@@ -147,7 +178,10 @@ describe('foreign session store — enable flags', () => {
     await mkdir(join(home, '.claude', 'projects'), { recursive: true });
     const store = createForeignSessionStore({ homeDir: home, env: {} });
     assert.deepEqual(await store.availableSources(), ['claude-code']);
-    const disabled = createForeignSessionStore({ homeDir: home, env: { MAKA_IMPORT_CLAUDE_CODE: '0' } });
+    const disabled = createForeignSessionStore({
+      homeDir: home,
+      env: { MAKA_IMPORT_CLAUDE_CODE: '0' },
+    });
     assert.deepEqual(await disabled.availableSources(), []);
   });
 });
@@ -200,10 +234,18 @@ describe('foreign session store — Claude scan', () => {
     const home = await tempHome();
     // 100KB of leading summary noise pushes the cwd-bearing user record far
     // past a fixed 4KB head — the adaptive read must still find it.
-    await seedClaudeSession(home, { id: 'big', cwd: '/repo', leadingPadBytes: 100_000, aiTitle: '大会话' });
+    await seedClaudeSession(home, {
+      id: 'big',
+      cwd: '/repo',
+      leadingPadBytes: 100_000,
+      aiTitle: '大会话',
+    });
     const store = createForeignSessionStore({ homeDir: home, env: {} });
     const all = await store.listSessions();
-    assert.deepEqual(all.map((s) => s.id), ['big']);
+    assert.deepEqual(
+      all.map((s) => s.id),
+      ['big'],
+    );
     assert.equal(all[0]!.cwd, '/repo');
   });
 
@@ -228,7 +270,10 @@ describe('foreign session store — Claude scan', () => {
     const [session] = await store.listSessions();
     assert.ok(session);
     assert.ok(!session.cwd.includes('\u202E'), 'bidi override must be stripped from summary cwd');
-    assert.ok(!session.gitBranch!.includes('AIzaSyA1234567890abcdefghijklmnop'), 'secret must be redacted from branch');
+    assert.ok(
+      !session.gitBranch!.includes('AIzaSyA1234567890abcdefghijklmnop'),
+      'secret must be redacted from branch',
+    );
   });
 
   it('drops a session whose transcript filename is not a safe id', async () => {
@@ -241,7 +286,10 @@ describe('foreign session store — Claude scan', () => {
       'utf8',
     );
     const store = createForeignSessionStore({ homeDir: home, env: {} });
-    assert.deepEqual((await store.listSessions()).map((s) => s.id), []);
+    assert.deepEqual(
+      (await store.listSessions()).map((s) => s.id),
+      [],
+    );
   });
 });
 
@@ -258,7 +306,10 @@ describe('foreign session store — Codex scan', () => {
     const all = await store.listSessions();
     assert.deepEqual(all.map((s) => s.id).sort(), ['t1', 't4']);
     const filtered = await store.listSessions({ cwd: '/repo' });
-    assert.deepEqual(filtered.map((s) => s.id), ['t1']);
+    assert.deepEqual(
+      filtered.map((s) => s.id),
+      ['t1'],
+    );
     assert.equal(filtered[0]!.title, 'Codex 任务');
   });
 
@@ -276,11 +327,18 @@ describe('foreign session store — Codex scan', () => {
   it('rejects rollout paths that escape ~/.codex', async () => {
     const home = await tempHome();
     const outside = join(home, 'outside.jsonl');
-    await writeFile(outside, JSON.stringify({ type: 'session_meta', payload: { id: 'x', cwd: '/repo' } }), 'utf8');
+    await writeFile(
+      outside,
+      JSON.stringify({ type: 'session_meta', payload: { id: 'x', cwd: '/repo' } }),
+      'utf8',
+    );
     await seedCodexSqlite(home, [{ id: 'esc', cwd: '/repo', rolloutRelPath: '../outside.jsonl' }]);
     const store = createForeignSessionStore({ homeDir: home, env: {} });
     const all = await store.listSessions();
-    assert.deepEqual(all.map((s) => s.id), []);
+    assert.deepEqual(
+      all.map((s) => s.id),
+      [],
+    );
   });
 
   it('applies the cwd filter in SQL so a LIMIT of newer other-project rows cannot hide it', async () => {
@@ -289,20 +347,30 @@ describe('foreign session store — Codex scan', () => {
     // 120 newer threads in /other, then one older thread in /target. If cwd
     // were filtered only after a LIMIT, the target row would be truncated away.
     for (let i = 0; i < 120; i++) {
-      threads.push({ id: `o${String(i).padStart(3, '0')}`, cwd: '/other', updatedAtMs: NOW - 1000 * i });
+      threads.push({
+        id: `o${String(i).padStart(3, '0')}`,
+        cwd: '/other',
+        updatedAtMs: NOW - 1000 * i,
+      });
     }
     threads.push({ id: 'target', cwd: '/target', title: 'the one', updatedAtMs: NOW - 10_000_000 });
     await seedCodexSqlite(home, threads);
     const store = createForeignSessionStore({ homeDir: home, env: {} });
     const found = await store.listSessions({ cwd: '/target' });
-    assert.deepEqual(found.map((s) => s.id), ['target']);
+    assert.deepEqual(
+      found.map((s) => s.id),
+      ['target'],
+    );
   });
 
   it('matches a stored trailing-slash cwd against a caller path without one', async () => {
     const home = await tempHome();
     await seedCodexSqlite(home, [{ id: 'ts', cwd: '/target/', title: 'trailing slash' }]);
     const store = createForeignSessionStore({ homeDir: home, env: {} });
-    assert.deepEqual((await store.listSessions({ cwd: '/target' })).map((s) => s.id), ['ts']);
+    assert.deepEqual(
+      (await store.listSessions({ cwd: '/target' })).map((s) => s.id),
+      ['ts'],
+    );
   });
 
   it('treats the first usable DB as authoritative: an all-archived newest gen does not resurface older rows', async () => {
@@ -312,7 +380,10 @@ describe('foreign session store — Codex scan', () => {
     await seedCodexSqliteGen(home, 5, [{ id: 'archived-now', cwd: '/repo', archived: 1 }]);
     await seedCodexSqliteGen(home, 2, [{ id: 'stale-active', cwd: '/repo', title: 'old' }]);
     const store = createForeignSessionStore({ homeDir: home, env: {} });
-    assert.deepEqual((await store.listSessions()).map((s) => s.id), []);
+    assert.deepEqual(
+      (await store.listSessions()).map((s) => s.id),
+      [],
+    );
   });
 
   it('descends to an older generation only when the newest DB lacks the threads schema', async () => {
@@ -324,17 +395,27 @@ describe('foreign session store — Codex scan', () => {
     badDb.exec('CREATE TABLE other (x TEXT)');
     badDb.close();
     const store = createForeignSessionStore({ homeDir: home, env: {} });
-    assert.deepEqual((await store.listSessions()).map((s) => s.id), ['real']);
+    assert.deepEqual(
+      (await store.listSessions()).map((s) => s.id),
+      ['real'],
+    );
   });
 
   it('drops a thread whose rollout filename uuid does not match the row id', async () => {
     const home = await tempHome();
     // rollout file names a different session than the thread row claims.
     await seedCodexSqlite(home, [
-      { id: 'realid', cwd: '/repo', rolloutRelPath: 'sessions/2026/07/18/rollout-1750000000000-otherid.jsonl' },
+      {
+        id: 'realid',
+        cwd: '/repo',
+        rolloutRelPath: 'sessions/2026/07/18/rollout-1750000000000-otherid.jsonl',
+      },
     ]);
     const store = createForeignSessionStore({ homeDir: home, env: {} });
-    assert.deepEqual((await store.listSessions()).map((s) => s.id), []);
+    assert.deepEqual(
+      (await store.listSessions()).map((s) => s.id),
+      [],
+    );
   });
 
   it('falls back to the rollout walk when no sqlite exists', async () => {
@@ -351,7 +432,11 @@ describe('foreign session store — Codex scan', () => {
         }),
         JSON.stringify({
           type: 'response_item',
-          payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: '走兜底路径' }] },
+          payload: {
+            type: 'message',
+            role: 'user',
+            content: [{ type: 'input_text', text: '走兜底路径' }],
+          },
         }),
       ].join('\n'),
       'utf8',
@@ -382,7 +467,10 @@ describe('foreign session store — digest', () => {
     assert.deepEqual(digest.assistantTexts, ['已修复并补了测试']);
     assert.deepEqual(digest.filesTouched, ['/repo/src/parser.ts']);
     // The seeded transcript contains one deliberately-broken line.
-    assert.ok(digest.warnings.some((w) => w.includes('malformed')), JSON.stringify(digest.warnings));
+    assert.ok(
+      digest.warnings.some((w) => w.includes('malformed')),
+      JSON.stringify(digest.warnings),
+    );
   });
 
   it('excludes interleaved sidechain records (both user and assistant) from the digest', async () => {
@@ -396,7 +484,12 @@ describe('foreign session store — digest', () => {
     await writeFile(
       join(dir, `${id}.jsonl`),
       [
-        claudeLine({ type: 'user', cwd: '/repo', isSidechain: false, message: { content: 'main request' } }),
+        claudeLine({
+          type: 'user',
+          cwd: '/repo',
+          isSidechain: false,
+          message: { content: 'main request' },
+        }),
         claudeLine({
           type: 'user',
           isSidechain: true,

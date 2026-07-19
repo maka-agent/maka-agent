@@ -119,9 +119,7 @@ export function sanitizeCuActionRecord(record) {
       ? { targetWindowId: record.targetWindowId }
       : {}),
     ...(typeof record?.success === 'boolean' ? { success: record.success } : {}),
-    ...(typeof record?.targetOwned === 'boolean'
-      ? { targetOwned: record.targetOwned }
-      : {}),
+    ...(typeof record?.targetOwned === 'boolean' ? { targetOwned: record.targetOwned } : {}),
     ...(record?.expectedFailure === true ? { expectedFailure: true } : {}),
     ...(Number.isFinite(record?.durationMs) ? { durationMs: record.durationMs } : {}),
     ...(Number.isFinite(record?.modelLatencyMs) ? { modelLatencyMs: record.modelLatencyMs } : {}),
@@ -166,11 +164,7 @@ export function sanitizeCuTrace(trace) {
       if (tool) sanitized.tool = tool;
       continue;
     }
-    if (
-      typeof value === 'string'
-      || typeof value === 'boolean'
-      || Number.isFinite(value)
-    ) {
+    if (typeof value === 'string' || typeof value === 'boolean' || Number.isFinite(value)) {
       sanitized[key] = value;
     }
   }
@@ -202,9 +196,7 @@ export function sanitizeCuReport(report) {
     ? report.expectedState.map(sanitizeAssertionResult).filter(Boolean)
     : [];
   const violations = Array.isArray(report?.forbiddenEffects?.violations)
-    ? report.forbiddenEffects.violations
-      .map(sanitizeAssertionResult)
-      .filter(Boolean)
+    ? report.forbiddenEffects.violations.map(sanitizeAssertionResult).filter(Boolean)
     : [];
   return {
     schemaVersion: report?.schemaVersion === 1 ? 1 : undefined,
@@ -230,48 +222,60 @@ export function sanitizeCuReport(report) {
     model: safeId(report?.model),
     endpointOrigin: safeUrlOrigin(report.baseUrl),
     status: safeToken(report?.status, new Set(['pass', 'fail', 'inconclusive'])),
-    terminal: terminal && typeof terminal === 'object'
-      ? {
-          type: safeToken(terminal.type, new Set(['complete', 'abort', 'error'])),
-          stopReason: safeToken(
-            terminal.stopReason,
-            new Set(['end_turn', 'max_tokens', 'step_limit', 'error', 'user_stop', 'permission_handoff']),
-          ),
-        }
-      : undefined,
+    terminal:
+      terminal && typeof terminal === 'object'
+        ? {
+            type: safeToken(terminal.type, new Set(['complete', 'abort', 'error'])),
+            stopReason: safeToken(
+              terminal.stopReason,
+              new Set([
+                'end_turn',
+                'max_tokens',
+                'step_limit',
+                'error',
+                'user_stop',
+                'permission_handoff',
+              ]),
+            ),
+          }
+        : undefined,
     fixtureIdentity: sanitizeFixtureIdentity(report?.fixtureIdentity),
     faultInjection: sanitizeFaultInjection(report?.faultInjection),
-    run: report?.run && typeof report.run === 'object'
-      ? {
-          status: safeToken(
-            report.run.status,
-            new Set(['created', 'running', 'waiting_permission', 'completed', 'failed', 'cancelled']),
-          ),
-          failureClass: safeId(report.run.failureClass),
-          ...(Number.isFinite(report.run.durationMs) ? { durationMs: report.run.durationMs } : {}),
-        }
-      : undefined,
+    run:
+      report?.run && typeof report.run === 'object'
+        ? {
+            status: safeToken(
+              report.run.status,
+              new Set([
+                'created',
+                'running',
+                'waiting_permission',
+                'completed',
+                'failed',
+                'cancelled',
+              ]),
+            ),
+            failureClass: safeId(report.run.failureClass),
+            ...(Number.isFinite(report.run.durationMs)
+              ? { durationMs: report.run.durationMs }
+              : {}),
+          }
+        : undefined,
     ...(Number.isFinite(report?.totalLatencyMs) ? { totalLatencyMs: report.totalLatencyMs } : {}),
-    actionAttempts: Number.isInteger(report?.actionAttempts)
-      ? report.actionAttempts
-      : undefined,
+    actionAttempts: Number.isInteger(report?.actionAttempts) ? report.actionAttempts : undefined,
     actionCount: Number.isInteger(report?.actionCount) ? report.actionCount : undefined,
     actionCounts: sanitizeCountMap(report?.actionCounts),
     minimumActionsPassed: report?.minimumActionsPassed === true,
     actionsWithinBudget: report?.actionsWithinBudget === true,
     dispatchPathPassed: report?.dispatchPathPassed === true,
-    actions: Array.isArray(report?.actions)
-      ? report.actions.map(sanitizeCuActionRecord)
-      : [],
+    actions: Array.isArray(report?.actions) ? report.actions.map(sanitizeCuActionRecord) : [],
     fixtureState: sanitizeFixtureState(fixtureState),
     expectedState,
     forbiddenEffects: {
       status: safeToken(report?.forbiddenEffects?.status, new Set(['pass', 'fail'])),
       violations,
     },
-    traces: Array.isArray(report?.traces)
-      ? report.traces.map(sanitizeCuTrace).filter(Boolean)
-      : [],
+    traces: Array.isArray(report?.traces) ? report.traces.map(sanitizeCuTrace).filter(Boolean) : [],
     driverTraces: Array.isArray(report?.driverTraces)
       ? report.driverTraces.map(sanitizeCuTrace).filter(Boolean)
       : [],
@@ -288,16 +292,13 @@ function sanitizeContentLineage(value) {
 }
 
 function safeScriptPath(value) {
-  return typeof value === 'string'
-    && /^scripts\/[A-Za-z0-9._/-]{1,192}$/.test(value)
+  return typeof value === 'string' && /^scripts\/[A-Za-z0-9._/-]{1,192}$/.test(value)
     ? value
     : undefined;
 }
 
 function safeGitRevision(value) {
-  return typeof value === 'string' && /^[a-f0-9]{40}$/.test(value)
-    ? value
-    : undefined;
+  return typeof value === 'string' && /^[a-f0-9]{40}$/.test(value) ? value : undefined;
 }
 
 function safeTimestamp(value) {
@@ -313,22 +314,22 @@ function sanitizeFixtureIdentity(value) {
   const candidates = Array.isArray(value.instances) ? value.instances : [value];
   const instances = candidates.flatMap((candidate) => {
     if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return [];
-    const pid = Number.isInteger(candidate.pid) && candidate.pid > 0
-      ? candidate.pid
-      : undefined;
+    const pid = Number.isInteger(candidate.pid) && candidate.pid > 0 ? candidate.pid : undefined;
     const windowIds = Array.isArray(candidate.windowIds)
-      ? [...new Set(candidate.windowIds.filter(
-          (entry) => Number.isInteger(entry) && entry > 0,
-        ))]
+      ? [...new Set(candidate.windowIds.filter((entry) => Number.isInteger(entry) && entry > 0))]
       : [];
     return pid && windowIds.length > 0 ? [{ pid, windowIds }] : [];
   });
   if (instances.length === 0) return undefined;
   return {
-    instances: instances.filter((candidate, index) =>
-      instances.findIndex((entry) =>
-        entry.pid === candidate.pid
-        && JSON.stringify(entry.windowIds) === JSON.stringify(candidate.windowIds)) === index),
+    instances: instances.filter(
+      (candidate, index) =>
+        instances.findIndex(
+          (entry) =>
+            entry.pid === candidate.pid &&
+            JSON.stringify(entry.windowIds) === JSON.stringify(candidate.windowIds),
+        ) === index,
+    ),
   };
 }
 
@@ -340,35 +341,38 @@ function sanitizeFaultInjection(value) {
 }
 
 function safeId(value) {
-  return typeof value === 'string' && /^[A-Za-z0-9._-]{1,128}$/.test(value)
-    ? value
-    : undefined;
+  return typeof value === 'string' && /^[A-Za-z0-9._-]{1,128}$/.test(value) ? value : undefined;
 }
 
 function sanitizeCountMap(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
-  return Object.fromEntries(Object.entries(value).flatMap(([key, count]) =>
-    SAFE_ACTION_TYPES.has(key) && Number.isInteger(count) && count >= 0
-      ? [[key, count]]
-      : []));
+  return Object.fromEntries(
+    Object.entries(value).flatMap(([key, count]) =>
+      SAFE_ACTION_TYPES.has(key) && Number.isInteger(count) && count >= 0 ? [[key, count]] : [],
+    ),
+  );
 }
 
 function sanitizeFixtureState(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
-  return Object.fromEntries(Object.entries(value).flatMap(([windowId, state]) => {
-    if (!safeId(windowId) || !state || typeof state !== 'object' || Array.isArray(state)) {
-      return [];
-    }
-    const safeState = Object.fromEntries(Object.entries(state).flatMap(([key, field]) =>
-      safeId(key) && (
-        typeof field === 'boolean'
-        || typeof field === 'number'
-        || (typeof field === 'string' && /^[A-Za-z0-9 .:_-]{0,128}$/.test(field))
-      )
-        ? [[key, field]]
-        : []));
-    return [[windowId, safeState]];
-  }));
+  return Object.fromEntries(
+    Object.entries(value).flatMap(([windowId, state]) => {
+      if (!safeId(windowId) || !state || typeof state !== 'object' || Array.isArray(state)) {
+        return [];
+      }
+      const safeState = Object.fromEntries(
+        Object.entries(state).flatMap(([key, field]) =>
+          safeId(key) &&
+          (typeof field === 'boolean' ||
+            typeof field === 'number' ||
+            (typeof field === 'string' && /^[A-Za-z0-9 .:_-]{0,128}$/.test(field)))
+            ? [[key, field]]
+            : [],
+        ),
+      );
+      return [[windowId, safeState]];
+    }),
+  );
 }
 
 function sanitizeAssertionResult(value) {
@@ -380,9 +384,9 @@ function sanitizeAssertionResult(value) {
     windowId,
     path,
     pass: value.pass,
-    ...(typeof value.actual === 'boolean'
-      || typeof value.actual === 'number'
-      || typeof value.actual === 'string'
+    ...(typeof value.actual === 'boolean' ||
+    typeof value.actual === 'number' ||
+    typeof value.actual === 'string'
       ? { actual: value.actual }
       : {}),
   };

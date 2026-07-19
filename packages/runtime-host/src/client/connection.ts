@@ -55,10 +55,12 @@ export type ConnectRuntimeHostResult =
   | { kind: 'draining'; registration: HostRegistration }
   | { kind: 'unavailable'; reason: RuntimeHostUnavailableReason; registration?: HostRegistration };
 
-type ConnectResolvedRuntimeHostResult = ConnectRuntimeHostResult | {
-  kind: 'election_deadline_elapsed';
-  endpointConnected: boolean;
-};
+type ConnectResolvedRuntimeHostResult =
+  | ConnectRuntimeHostResult
+  | {
+      kind: 'election_deadline_elapsed';
+      endpointConnected: boolean;
+    };
 
 class ElectionDeadlineElapsedError extends Error {
   constructor() {
@@ -67,7 +69,8 @@ class ElectionDeadlineElapsedError extends Error {
   }
 }
 
-interface ConnectResolvedRuntimeHostInput extends Omit<ConnectRuntimeHostInput, 'rootPath' | 'clientInstanceId'> {
+interface ConnectResolvedRuntimeHostInput
+  extends Omit<ConnectRuntimeHostInput, 'rootPath' | 'clientInstanceId'> {
   capability: StorageRootCapability<'interactive'>;
   clientInstanceId: string;
   controlDirectory: string;
@@ -144,10 +147,12 @@ class RuntimeHostConnectionImpl implements RuntimeHostConnection {
     const requestId = randomUUID();
     const result = new Promise<OperationOutput<K>>((resolve, reject) => {
       const timer = setTimeout(() => {
-        this.#fail(new RuntimeHostTransportError(
-          'read_timeout',
-          `Timed out waiting for Runtime Host ${operation} response`,
-        ));
+        this.#fail(
+          new RuntimeHostTransportError(
+            'read_timeout',
+            `Timed out waiting for Runtime Host ${operation} response`,
+          ),
+        );
       }, boundedTimeoutMs);
       this.#pendingRequests.set(requestId, {
         operation,
@@ -192,7 +197,8 @@ class RuntimeHostConnectionImpl implements RuntimeHostConnection {
     try {
       while (true) {
         const frame = decodeHostFrame(await this.#transport.read(0));
-        if ('kind' in frame) throw new Error('Runtime Host returned a handshake frame after acceptance');
+        if ('kind' in frame)
+          throw new Error('Runtime Host returned a handshake frame after acceptance');
         this.#acceptResponse(frame);
       }
     } catch (error) {
@@ -212,11 +218,9 @@ class RuntimeHostConnectionImpl implements RuntimeHostConnection {
       pending.resolve(frame.result);
       return;
     }
-    pending.reject(new RuntimeHostOperationError(
-      frame.operation,
-      frame.error.code,
-      frame.error.message,
-    ));
+    pending.reject(
+      new RuntimeHostOperationError(frame.operation, frame.error.code, frame.error.message),
+    );
   }
 
   #fail(error: Error): void {
@@ -235,7 +239,10 @@ export async function connectRuntimeHost(
   input: ConnectRuntimeHostInput,
 ): Promise<ConnectRuntimeHostResult> {
   validateProtocolRange(input.protocol);
-  const connectTimeoutMs = requireTimeout(input.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS, 'connectTimeoutMs');
+  const connectTimeoutMs = requireTimeout(
+    input.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS,
+    'connectTimeoutMs',
+  );
   const handshakeTimeoutMs = requireTimeout(
     input.handshakeTimeoutMs ?? DEFAULT_HANDSHAKE_TIMEOUT_MS,
     'handshakeTimeoutMs',
@@ -265,7 +272,10 @@ export async function connectResolvedRuntimeHost(
 ): Promise<ConnectResolvedRuntimeHostResult> {
   validateProtocolRange(input.protocol);
   requireClientInstanceId(input.clientInstanceId);
-  const connectTimeoutMs = requireTimeout(input.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS, 'connectTimeoutMs');
+  const connectTimeoutMs = requireTimeout(
+    input.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS,
+    'connectTimeoutMs',
+  );
   const handshakeTimeoutMs = requireTimeout(
     input.handshakeTimeoutMs ?? DEFAULT_HANDSHAKE_TIMEOUT_MS,
     'handshakeTimeoutMs',
@@ -341,20 +351,19 @@ export async function connectResolvedRuntimeHost(
         : new Error('Runtime Host handshake deadline elapsed');
     }
     // The phase timer owns the full hello write/read deadline and its timeout classification.
-    const handshake = decodeHostFrame(
-      await transport.read(0),
-    );
-    if (!('kind' in handshake)) throw new Error('Runtime Host returned an operation response before handshake');
+    const handshake = decodeHostFrame(await transport.read(0));
+    if (!('kind' in handshake))
+      throw new Error('Runtime Host returned an operation response before handshake');
     if (handshake.hostEpoch !== registration.hostEpoch) {
       transport.destroy();
       return { kind: 'unavailable', reason: 'epoch_mismatch', registration };
     }
     if (handshake.kind === 'accepted') {
       if (
-        handshake.selectedProtocol < input.protocol.min
-        || handshake.selectedProtocol > input.protocol.max
-        || handshake.selectedProtocol < registration.protocolMin
-        || handshake.selectedProtocol > registration.protocolMax
+        handshake.selectedProtocol < input.protocol.min ||
+        handshake.selectedProtocol > input.protocol.max ||
+        handshake.selectedProtocol < registration.protocolMin ||
+        handshake.selectedProtocol > registration.protocolMax
       ) {
         throw new Error('Runtime Host selected a protocol outside the negotiated range');
       }
@@ -389,9 +398,11 @@ function openTransport(
     const timer = setTimeout(() => {
       cleanup();
       socket.destroy();
-      reject(exhaustsElection
-        ? new ElectionDeadlineElapsedError()
-        : new Error('Timed out connecting to Runtime Host'));
+      reject(
+        exhaustsElection
+          ? new ElectionDeadlineElapsedError()
+          : new Error('Timed out connecting to Runtime Host'),
+      );
     }, timeoutMs);
     const onConnect = () => {
       const transport = new FramedTransport(socket);
@@ -449,10 +460,7 @@ function readRegistrationBeforeDeadline(
   }
   const operation = readHostRegistration(controlDirectory);
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(
-      () => reject(new ElectionDeadlineElapsedError()),
-      remaining,
-    );
+    const timer = setTimeout(() => reject(new ElectionDeadlineElapsedError()), remaining);
     operation.then(
       (registration) => {
         clearTimeout(timer);

@@ -2,14 +2,8 @@ import type { CapabilityId, CapabilityReadinessState, CapabilitySnapshot } from 
 import type { LlmConnection } from './llm-connections.js';
 import type { UsageLogRow } from './usage-stats/types.js';
 
-export const HEALTH_SIGNAL_STATUSES = [
-  'ok',
-  'info',
-  'warning',
-  'error',
-  'unknown',
-] as const;
-export type HealthSignalStatus = typeof HEALTH_SIGNAL_STATUSES[number];
+export const HEALTH_SIGNAL_STATUSES = ['ok', 'info', 'warning', 'error', 'unknown'] as const;
+export type HealthSignalStatus = (typeof HEALTH_SIGNAL_STATUSES)[number];
 
 export const HEALTH_SIGNAL_LAYERS = [
   'configuration',
@@ -21,14 +15,9 @@ export const HEALTH_SIGNAL_LAYERS = [
   'runtime_probe',
   'storage',
 ] as const;
-export type HealthSignalLayer = typeof HEALTH_SIGNAL_LAYERS[number];
+export type HealthSignalLayer = (typeof HEALTH_SIGNAL_LAYERS)[number];
 
-export type HealthSignalScope =
-  | 'app'
-  | 'llm_connection'
-  | 'bot'
-  | 'capability'
-  | 'storage';
+export type HealthSignalScope = 'app' | 'llm_connection' | 'bot' | 'capability' | 'storage';
 
 export type HealthSignalSource =
   | 'connection_test'
@@ -103,7 +92,10 @@ export function healthSignalFromCapability(capability: CapabilitySnapshot): Heal
   };
 }
 
-export function healthSignalFromConnection(connection: LlmConnection, checkedAt: number): HealthSignal {
+export function healthSignalFromConnection(
+  connection: LlmConnection,
+  checkedAt: number,
+): HealthSignal {
   const configured = Boolean(connection.defaultModel);
   if (!connection.enabled) {
     return {
@@ -246,7 +238,9 @@ export function healthSignalFromConnectionRuntime(
   };
 }
 
-function healthStatusFromCapabilityReadiness(readiness: CapabilityReadinessState): HealthSignalStatus {
+function healthStatusFromCapabilityReadiness(
+  readiness: CapabilityReadinessState,
+): HealthSignalStatus {
   switch (readiness) {
     case 'enabled':
       return 'ok';
@@ -265,10 +259,18 @@ function healthLayerFromCapability(capability: CapabilitySnapshot): HealthSignal
   if (capability.readiness === 'degraded') return 'runtime_probe';
 
   const requiredPermissions = capability.osPermissions.filter((permission) => permission.required);
-  if (requiredPermissions.some((permission) => permission.status === 'denied' || permission.status === 'unsupported')) {
+  if (
+    requiredPermissions.some(
+      (permission) => permission.status === 'denied' || permission.status === 'unsupported',
+    )
+  ) {
     return 'permission';
   }
-  if (requiredPermissions.some((permission) => permission.status === 'not_determined' || permission.status === 'unknown')) {
+  if (
+    requiredPermissions.some(
+      (permission) => permission.status === 'not_determined' || permission.status === 'unknown',
+    )
+  ) {
     return 'permission';
   }
   if (capability.configuration.state === 'missing') return 'configuration';
@@ -345,10 +347,7 @@ function runtimeProbeMessage(status: UsageLogRow['status']): string {
 }
 
 function runtimeProbeDetail(row: UsageLogRow): string {
-  const parts = [
-    `模型=${row.modelId}`,
-    `延迟=${row.latencyMs}ms`,
-  ];
+  const parts = [`模型=${row.modelId}`, `延迟=${row.latencyMs}ms`];
   if (row.errorClass) parts.push(`错误类型=${row.errorClass}`);
   return parts.join(' · ');
 }

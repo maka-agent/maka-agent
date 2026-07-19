@@ -36,36 +36,65 @@ export function buildGoalTools(deps: GoalToolsDeps): MakaTool[] {
   ];
 }
 
-function buildGoalSetTool(deps: GoalToolsDeps): MakaTool<{
-  condition: string;
-  max_iterations?: number;
-  block_cap?: number;
-  token_budget?: number;
-}, string> {
+function buildGoalSetTool(deps: GoalToolsDeps): MakaTool<
+  {
+    condition: string;
+    max_iterations?: number;
+    block_cap?: number;
+    token_budget?: number;
+  },
+  string
+> {
   return {
     name: GOAL_SET_TOOL_NAME,
     displayName: 'Goal Set',
     description:
-      'Set an autonomous execution goal. After each turn an evaluator judges progress; '
-      + 'if the condition is not met the system continues working turn after turn until it is '
-      + 'met, deemed impossible, stalls, or hits a limit. Only one goal is active per session; '
-      + 'an unfinished goal must be cleared or completed before another can be set.',
+      'Set an autonomous execution goal. After each turn an evaluator judges progress; ' +
+      'if the condition is not met the system continues working turn after turn until it is ' +
+      'met, deemed impossible, stalls, or hits a limit. Only one goal is active per session; ' +
+      'an unfinished goal must be cleared or completed before another can be set.',
     parameters: z.object({
-      condition: z.string().trim().min(1).max(500)
-        .describe('The objective to achieve. Should be observable and verifiable (e.g. "all tests in packages/runtime pass", "PR #522 review comments addressed").'),
-      max_iterations: z.number().int().min(1).max(200).optional()
+      condition: z
+        .string()
+        .trim()
+        .min(1)
+        .max(500)
+        .describe(
+          'The objective to achieve. Should be observable and verifiable (e.g. "all tests in packages/runtime pass", "PR #522 review comments addressed").',
+        ),
+      max_iterations: z
+        .number()
+        .int()
+        .min(1)
+        .max(200)
+        .optional()
         .describe('Absolute ceiling on total turns before giving up. Defaults to 50.'),
-      block_cap: z.number().int().min(1).max(50).optional()
-        .describe('Stop after this many consecutive turns with no progress (stall detection). Defaults to 8.'),
-      token_budget: z.number().int().min(1000).optional()
-        .describe('Optional token budget; the goal stops (budget_limited) once this many tokens are spent working toward it.'),
+      block_cap: z
+        .number()
+        .int()
+        .min(1)
+        .max(50)
+        .optional()
+        .describe(
+          'Stop after this many consecutive turns with no progress (stall detection). Defaults to 8.',
+        ),
+      token_budget: z
+        .number()
+        .int()
+        .min(1000)
+        .optional()
+        .describe(
+          'Optional token budget; the goal stops (budget_limited) once this many tokens are spent working toward it.',
+        ),
     }),
     permissionRequired: false,
     impl: (input, ctx) => {
       const existing = deps.goalManager.get(ctx.sessionId);
       if (existing && !TERMINAL_GOAL_STATUSES.has(existing.status)) {
-        return `Goal not set: unfinished goal "${existing.condition}" is ${existing.status}. `
-          + 'Clear or complete it before setting another goal.';
+        return (
+          `Goal not set: unfinished goal "${existing.condition}" is ${existing.status}. ` +
+          'Clear or complete it before setting another goal.'
+        );
       }
       const tokensAtStart = deps.getTokenCount?.(ctx.sessionId) ?? 0;
       const goal = deps.goalContinuation.activateGoal(ctx.sessionId, ctx.turnId, () => {
@@ -83,9 +112,13 @@ function buildGoalSetTool(deps: GoalToolsDeps): MakaTool<{
         `max ${goal.maxIterations} turns`,
         `stall after ${goal.blockCap} no-progress turns`,
         goal.tokenBudget ? `budget ${goal.tokenBudget} tokens` : undefined,
-      ].filter(Boolean).join(', ');
-      return `Goal set: "${goal.condition}" (${limits}). `
-        + 'The system will evaluate progress after each turn and continue autonomously until the condition is met.';
+      ]
+        .filter(Boolean)
+        .join(', ');
+      return (
+        `Goal set: "${goal.condition}" (${limits}). ` +
+        'The system will evaluate progress after each turn and continue autonomously until the condition is met.'
+      );
     },
   };
 }
@@ -117,7 +150,8 @@ function buildGoalPauseTool(deps: GoalToolsDeps): MakaTool<Record<string, never>
   return {
     name: GOAL_PAUSE_TOOL_NAME,
     displayName: 'Goal Pause',
-    description: 'Pause the active goal. Autonomous continuation stops until GoalResume is called; state is preserved.',
+    description:
+      'Pause the active goal. Autonomous continuation stops until GoalResume is called; state is preserved.',
     parameters: z.object({}),
     permissionRequired: false,
     impl: (_input, ctx) => {

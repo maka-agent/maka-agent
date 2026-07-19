@@ -58,8 +58,17 @@ describe('prepareStep activates a group within the same turn (Codex Δ1)', () =>
               { type: 'stream-start', warnings: [] },
               // The real load_tools carries the { group } schema, so the SDK
               // parses the tool-call input correctly.
-              { type: 'tool-call', toolCallId: 'tc1', toolName: LOAD_TOOLS_NAME, input: JSON.stringify({ group: 'rive' }) },
-              { type: 'finish', finishReason: { unified: 'tool-calls', raw: 'tool_calls' }, usage: ZERO_USAGE },
+              {
+                type: 'tool-call',
+                toolCallId: 'tc1',
+                toolName: LOAD_TOOLS_NAME,
+                input: JSON.stringify({ group: 'rive' }),
+              },
+              {
+                type: 'finish',
+                finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+                usage: ZERO_USAGE,
+              },
             ]
           : [
               { type: 'stream-start', warnings: [] },
@@ -76,7 +85,8 @@ describe('prepareStep activates a group within the same turn (Codex Δ1)', () =>
       aiSdkTools[t.name] = {
         description: t.description,
         inputSchema: t.parameters,
-        execute: t.name === LOAD_TOOLS_NAME ? () => ({ loaded: ['RiveWorkflow'] }) : () => ({ ok: true }),
+        execute:
+          t.name === LOAD_TOOLS_NAME ? () => ({ loaded: ['RiveWorkflow'] }) : () => ({ ok: true }),
       };
     }
 
@@ -95,8 +105,14 @@ describe('prepareStep activates a group within the same turn (Codex Δ1)', () =>
     }
 
     assert.equal(toolsPerStep.length, 2, 'expected two model steps (load then use)');
-    assert.ok(!toolsPerStep[0].includes('RiveWorkflow'), 'step 0 must NOT see the hidden RiveWorkflow');
+    assert.ok(
+      !toolsPerStep[0].includes('RiveWorkflow'),
+      'step 0 must NOT see the hidden RiveWorkflow',
+    );
     assert.ok(toolsPerStep[0].includes(LOAD_TOOLS_NAME), 'step 0 sees load_tools');
-    assert.ok(toolsPerStep[1].includes('RiveWorkflow'), 'step 1 MUST see RiveWorkflow after the load');
+    assert.ok(
+      toolsPerStep[1].includes('RiveWorkflow'),
+      'step 1 MUST see RiveWorkflow after the load',
+    );
   });
 });

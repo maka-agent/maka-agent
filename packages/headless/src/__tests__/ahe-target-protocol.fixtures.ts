@@ -20,7 +20,8 @@ export const VALID_MAKA_AHE_CHANGE_MANIFEST: MakaAheChangeManifest = {
       summary: 'Official verifier failed after the trace showed a missing gcov artifact.',
     },
   ],
-  hypothesis: 'Tool contract omitted the expected artifact path, so the task plan never verified coverage output.',
+  hypothesis:
+    'Tool contract omitted the expected artifact path, so the task plan never verified coverage output.',
   targetedFix: 'Clarify the artifact contract in the tool description and prompt policy.',
   predictedFixes: [
     {
@@ -41,9 +42,7 @@ export const VALID_MAKA_AHE_CHANGE_MANIFEST: MakaAheChangeManifest = {
   },
   patch: {
     applyMode: 'staged_patch',
-    changedFiles: [
-      'packages/runtime/src/tool-runtime.ts',
-    ],
+    changedFiles: ['packages/runtime/src/tool-runtime.ts'],
   },
   rollbackCriteria: ['Any pass_to_fail official transition in the validation dataset.'],
 };

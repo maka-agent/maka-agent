@@ -144,9 +144,7 @@ export {
 } from './execution-evidence.js';
 
 // runtime-event-store.ts
-export type {
-  RuntimeEventStore,
-} from './runtime-event-store.js';
+export type { RuntimeEventStore } from './runtime-event-store.js';
 export { DurableStoreWriteError } from './runtime-event-store.js';
 
 // session.ts
@@ -453,9 +451,7 @@ export type {
   CompilePermissionProfileInput,
   CompiledPermissionProfile,
 } from './permission-profile-compiler.js';
-export {
-  compilePermissionProfile,
-} from './permission-profile-compiler.js';
+export { compilePermissionProfile } from './permission-profile-compiler.js';
 
 // permission-request-health.ts
 export type {

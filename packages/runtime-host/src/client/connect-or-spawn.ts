@@ -16,10 +16,7 @@ import {
   type ConnectRuntimeHostResult,
   type RuntimeHostConnection,
 } from './connection.js';
-import {
-  launchDetachedRuntimeHostCandidate,
-  type CandidateLauncher,
-} from './launcher.js';
+import { launchDetachedRuntimeHostCandidate, type CandidateLauncher } from './launcher.js';
 
 const DEFAULT_ELECTION_DEADLINE_MS = 45_000;
 const DEFAULT_BACKOFF_MIN_MS = 20;
@@ -148,7 +145,10 @@ function settleBeforeDeadline<T>(operation: Promise<T>, deadline: number): Promi
   const remaining = deadline - performance.now();
   if (remaining <= 0) return Promise.reject(new Error('Runtime Host election deadline elapsed'));
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('Runtime Host election deadline elapsed')), remaining);
+    const timer = setTimeout(
+      () => reject(new Error('Runtime Host election deadline elapsed')),
+      remaining,
+    );
     operation.then(
       (value) => {
         clearTimeout(timer);
@@ -162,11 +162,7 @@ function settleBeforeDeadline<T>(operation: Promise<T>, deadline: number): Promi
   });
 }
 
-function requireOptionalTimeout(
-  value: number | undefined,
-  label: string,
-  minimum: number,
-): void {
+function requireOptionalTimeout(value: number | undefined, label: string, minimum: number): void {
   if (value === undefined) return;
   if (!Number.isSafeInteger(value) || value < minimum || value > 120_000) {
     throw new RangeError(`${label} must be an integer between ${minimum} and 120000`);

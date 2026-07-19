@@ -1,11 +1,7 @@
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
-import type {
-  BackendKind,
-  PricingConfig,
-  ProviderType,
-} from '@maka/core';
+import type { BackendKind, PricingConfig, ProviderType } from '@maka/core';
 import { isThinkingLevel } from '@maka/core';
 import {
   AiSdkBackend,
@@ -47,10 +43,7 @@ import { validateRealBackendIsolation } from './isolation.js';
 import { PiCliJsonTransport } from './pi-cli-json-transport.js';
 import { providerFromEnv, resolveHarborCellAiSdkEnv } from './provider-env.js';
 import { backendNeedsIsolation } from './runner.js';
-import {
-  buildIsolatedHeadlessToolAvailability,
-  buildIsolatedHeadlessTools,
-} from './tools.js';
+import { buildIsolatedHeadlessToolAvailability, buildIsolatedHeadlessTools } from './tools.js';
 import { createHeadlessSessionCapabilityBridge } from './session-capabilities.js';
 import {
   createInMemoryTaskLedgerExperimentStore,
@@ -158,7 +151,8 @@ export interface RunHarborCellResult {
   settledByDeadline: boolean;
 }
 
-export const HARBOR_CELL_DEFAULT_CONTINUATION_PROMPT = 'Continue the same benchmark task from the current workspace state. Do not restart. If the task is complete, provide the final response.';
+export const HARBOR_CELL_DEFAULT_CONTINUATION_PROMPT =
+  'Continue the same benchmark task from the current workspace state. Do not restart. If the task is complete, provide the final response.';
 const HARBOR_CELL_DEFAULT_MAX_STEPS_PER_TURN = 50;
 
 export interface RunHarborCellFromEnvOptions {
@@ -179,10 +173,23 @@ export interface HarborCellUsageCheckpoint {
   costUsd?: number;
 }
 
-const PI_BASE_ENV_KEYS = ['PATH', 'HOME', 'USER', 'TMPDIR', 'TMP', 'TEMP', 'SHELL', 'SystemRoot', 'COMSPEC'];
+const PI_BASE_ENV_KEYS = [
+  'PATH',
+  'HOME',
+  'USER',
+  'TMPDIR',
+  'TMP',
+  'TEMP',
+  'SHELL',
+  'SystemRoot',
+  'COMSPEC',
+];
 const PI_PROVIDER_ENV_RULES = [
   { includes: ['volcengine'], prefixes: ['XIAOMI_', 'VOLCENGINE_'] },
-  { includes: ['deepseek'], keys: ['DEEPSEEK_API_KEY', 'DEEPSEEK_API_KEY_FILE', 'DEEPSEEK_BASE_URL'] },
+  {
+    includes: ['deepseek'],
+    keys: ['DEEPSEEK_API_KEY', 'DEEPSEEK_API_KEY_FILE', 'DEEPSEEK_BASE_URL'],
+  },
   { includes: ['openai'], keys: ['OPENAI_API_KEY', 'OPENAI_API_KEY_FILE', 'OPENAI_BASE_URL'] },
   { includes: ['anthropic', 'claude'], keys: ['ANTHROPIC_API_KEY', 'ANTHROPIC_API_KEY_FILE'] },
   {
@@ -198,16 +205,28 @@ const PI_PROVIDER_ENV_RULES = [
       'GOOGLE_GENAI_USE_VERTEXAI',
     ],
   },
-  { includes: ['moonshot', 'kimi'], keys: ['MOONSHOT_API_KEY', 'MOONSHOT_API_KEY_FILE', 'MOONSHOT_BASE_URL'] },
+  {
+    includes: ['moonshot', 'kimi'],
+    keys: ['MOONSHOT_API_KEY', 'MOONSHOT_API_KEY_FILE', 'MOONSHOT_BASE_URL'],
+  },
   {
     includes: ['zai'],
-    keys: ['ZAI_API_KEY', 'ZAI_API_KEY_FILE', 'ZAI_CODING_CN_API_KEY', 'ZAI_CODING_CN_API_KEY_FILE', 'ZAI_BASE_URL'],
+    keys: [
+      'ZAI_API_KEY',
+      'ZAI_API_KEY_FILE',
+      'ZAI_CODING_CN_API_KEY',
+      'ZAI_CODING_CN_API_KEY_FILE',
+      'ZAI_BASE_URL',
+    ],
   },
   { includes: ['minimax'], keys: ['MINIMAX_API_KEY', 'MINIMAX_API_KEY_FILE', 'MINIMAX_BASE_URL'] },
 ] satisfies Array<{ includes: string[]; keys?: string[]; prefixes?: string[] }>;
 
 export async function runHarborCell(input: RunHarborCellInput): Promise<RunHarborCellResult> {
-  if (input.settleAfterMs !== undefined && (!Number.isFinite(input.settleAfterMs) || input.settleAfterMs <= 0)) {
+  if (
+    input.settleAfterMs !== undefined &&
+    (!Number.isFinite(input.settleAfterMs) || input.settleAfterMs <= 0)
+  ) {
     throw new Error('settleAfterMs must be a finite positive number');
   }
   if (backendNeedsIsolation(input.config.backend)) {
@@ -235,17 +254,22 @@ export async function runHarborCell(input: RunHarborCellInput): Promise<RunHarbo
   const configAfterHeavy = configWithHeavyTaskPolicy(input.config, heavyTaskMode);
   const economyTaskMode = resolveEconomyTaskMode(configAfterHeavy, task);
   const config = configWithEconomyTaskPolicy(configAfterHeavy, economyTaskMode);
-  const registerBackends = input.registerBackends ?? ((registry: BackendRegistry) => registerFakeBackend(registry));
+  const registerBackends =
+    input.registerBackends ?? ((registry: BackendRegistry) => registerFakeBackend(registry));
   await registerBackends(backends, {
     config,
     task,
     workspaceDir: input.cwd,
     ...sessionCapabilities.capabilities,
     ...(backendNeedsIsolation(input.config.backend)
-      ? { realBackendIsolation: input.realBackendIsolation, toolExecutor: input.realBackendIsolation?.toolExecutor }
+      ? {
+          realBackendIsolation: input.realBackendIsolation,
+          toolExecutor: input.realBackendIsolation?.toolExecutor,
+        }
       : {}),
   });
-  if (!config.model) throw new Error('Harbor cell config must include a model for execution identity');
+  if (!config.model)
+    throw new Error('Harbor cell config must include a model for execution identity');
   const executionIdentity = {
     llmConnectionSlug: config.llmConnectionSlug,
     model: config.model,
@@ -295,17 +319,20 @@ export async function runHarborCell(input: RunHarborCellInput): Promise<RunHarbo
   let deadlineReached = false;
   let settlementError: unknown;
   let settlementAttempt: Promise<void> | undefined;
-  const settlementTimer = input.settleAfterMs === undefined
-    ? undefined
-    : setTimeout(() => {
-        deadlineReached = true;
-        settlementAttempt = manager.stopSession(session.id, {
-          source: 'benchmark_deadline',
-          mode: 'immediate',
-        }).catch((error) => {
-          settlementError = error;
-        });
-      }, input.settleAfterMs);
+  const settlementTimer =
+    input.settleAfterMs === undefined
+      ? undefined
+      : setTimeout(() => {
+          deadlineReached = true;
+          settlementAttempt = manager
+            .stopSession(session.id, {
+              source: 'benchmark_deadline',
+              mode: 'immediate',
+            })
+            .catch((error) => {
+              settlementError = error;
+            });
+        }, input.settleAfterMs);
 
   const continuationPolicy = input.continuationPolicy ?? {
     enabled: false,
@@ -327,10 +354,15 @@ export async function runHarborCell(input: RunHarborCellInput): Promise<RunHarbo
       for await (const event of manager.sendMessage(session.id, { turnId, text: nextText })) {
         if ((event as { type?: string }).type === 'permission_request') {
           const { requestId } = event as { requestId: string };
-          await manager.respondToPermission(session.id, { requestId, decision: 'deny', rememberForTurn: true });
+          await manager.respondToPermission(session.id, {
+            requestId,
+            decision: 'deny',
+            rememberForTurn: true,
+          });
         }
       }
-      if (!invocation) throw new Error('Harbor cell turn finished without a runtime invocation result');
+      if (!invocation)
+        throw new Error('Harbor cell turn finished without a runtime invocation result');
       invocations.push(invocation);
       if (deadlineReached) break;
       if (!isToolCallStepCap(invocation)) break;
@@ -347,12 +379,14 @@ export async function runHarborCell(input: RunHarborCellInput): Promise<RunHarbo
   await settlementAttempt;
   if (settlementError) throw settlementError;
   if (sendMessageError) {
-    invocations.push(failedInvocationFromError(sendMessageError, {
-      newId,
-      now,
-      sessionId: session.id,
-      turnId: attemptedTurnId ?? newId(),
-    }));
+    invocations.push(
+      failedInvocationFromError(sendMessageError, {
+        newId,
+        now,
+        sessionId: session.id,
+        turnId: attemptedTurnId ?? newId(),
+      }),
+    );
   } else if (invocations.length === 0) {
     throw new Error('Harbor cell finished without a runtime invocation result');
   }
@@ -360,8 +394,8 @@ export async function runHarborCell(input: RunHarborCellInput): Promise<RunHarbo
   const terminalRun = deadlineReached
     ? await agentRunStore.readRun(session.id, combinedInvocation.runId).catch(() => undefined)
     : undefined;
-  const settledByDeadline = terminalRun?.status === 'cancelled'
-    && terminalRun.abortSource === 'benchmark.deadline';
+  const settledByDeadline =
+    terminalRun?.status === 'cancelled' && terminalRun.abortSource === 'benchmark.deadline';
   const continuationSummary = continuationPolicy.enabled
     ? buildContinuationSummary(continuationPolicy, invocations, stepCapHits)
     : undefined;
@@ -370,20 +404,35 @@ export async function runHarborCell(input: RunHarborCellInput): Promise<RunHarbo
   const runtimeEventsPath = join(input.outputDir, HARBOR_CELL_RUNTIME_EVENTS_FILENAME);
   const outputPath = join(input.outputDir, HARBOR_CELL_OUTPUT_FILENAME);
   await writeHarborCellArtifact(runtimeEventsPath, runtimeEventsJsonl(combinedInvocation));
-  const output = validateHarborCellOutput(buildHarborCellOutput({
-    invocation: combinedInvocation,
-    runtimeEventsPath,
-    executionIdentity,
-    ...(settledByDeadline
-      ? { deadlineSettlement: { source: 'benchmark.deadline' as const, mode: 'immediate' as const } }
-      : {}),
-    ...(input.contextBudgetPolicy ? { contextBudgetPolicy: input.contextBudgetPolicy } : {}),
-    ...(continuationSummary ? { continuationSummary } : {}),
-    ...(input.taskToolSummaryEnabled !== undefined ? { taskToolSummaryEnabled: input.taskToolSummaryEnabled } : {}),
-  }));
+  const output = validateHarborCellOutput(
+    buildHarborCellOutput({
+      invocation: combinedInvocation,
+      runtimeEventsPath,
+      executionIdentity,
+      ...(settledByDeadline
+        ? {
+            deadlineSettlement: {
+              source: 'benchmark.deadline' as const,
+              mode: 'immediate' as const,
+            },
+          }
+        : {}),
+      ...(input.contextBudgetPolicy ? { contextBudgetPolicy: input.contextBudgetPolicy } : {}),
+      ...(continuationSummary ? { continuationSummary } : {}),
+      ...(input.taskToolSummaryEnabled !== undefined
+        ? { taskToolSummaryEnabled: input.taskToolSummaryEnabled }
+        : {}),
+    }),
+  );
   await writeHarborCellArtifact(outputPath, `${JSON.stringify(output, null, 2)}\n`);
 
-  return { invocation: combinedInvocation, output, outputPath, runtimeEventsPath, settledByDeadline };
+  return {
+    invocation: combinedInvocation,
+    output,
+    outputPath,
+    runtimeEventsPath,
+    settledByDeadline,
+  };
 }
 
 export async function runHarborCellFromEnv(
@@ -394,7 +443,11 @@ export async function runHarborCellFromEnv(
   const newId = options.newId ?? randomId;
   const outputDir = env.MAKA_OUTPUT_DIR ?? '/logs/agent';
   const storageRoot = env.MAKA_STORAGE_ROOT ?? join(outputDir, 'maka-storage');
-  const resolvedEnv: RunHarborCellEnv = { ...env, MAKA_OUTPUT_DIR: outputDir, MAKA_STORAGE_ROOT: storageRoot };
+  const resolvedEnv: RunHarborCellEnv = {
+    ...env,
+    MAKA_OUTPUT_DIR: outputDir,
+    MAKA_STORAGE_ROOT: storageRoot,
+  };
   const backend = backendFromEnv(resolvedEnv.MAKA_BACKEND);
   const contextBudgetPolicy = buildHarborCellContextBudgetPolicySnapshot(resolvedEnv);
   const continuationPolicy = buildHarborCellContinuationPolicy(resolvedEnv);
@@ -407,7 +460,9 @@ export async function runHarborCellFromEnv(
     id: resolvedEnv.MAKA_CONFIG_ID ?? 'harbor-cell',
     backend,
     ...(reasoningEffort ? { thinkingLevel: reasoningEffort } : {}),
-    ...(resolvedEnv.MAKA_SYSTEM_PROMPT !== undefined ? { systemPrompt: resolvedEnv.MAKA_SYSTEM_PROMPT } : {}),
+    ...(resolvedEnv.MAKA_SYSTEM_PROMPT !== undefined
+      ? { systemPrompt: resolvedEnv.MAKA_SYSTEM_PROMPT }
+      : {}),
     ...(economyTaskMode !== undefined ? { economyTaskMode } : {}),
   };
   let config: Config;
@@ -437,7 +492,8 @@ export async function runHarborCellFromEnv(
     }
     case 'pi-agent': {
       const model = resolvedEnv.MAKA_PI_MODEL ?? resolvedEnv.MAKA_MODEL ?? resolvedEnv.HARBOR_MODEL;
-      if (!model) throw new Error('MAKA_PI_MODEL, MAKA_MODEL, or HARBOR_MODEL must include a model id');
+      if (!model)
+        throw new Error('MAKA_PI_MODEL, MAKA_MODEL, or HARBOR_MODEL must include a model id');
       const piProvider = resolvedEnv.MAKA_PI_PROVIDER;
       if (!registerBackends && !piProvider) {
         throw new Error('MAKA_PI_PROVIDER is required when using the default Pi CLI transport');
@@ -448,19 +504,22 @@ export async function runHarborCellFromEnv(
         model,
       };
       registerBackends ??= (registry) => {
-        registry.register('pi-agent', (ctx) =>
-          new PiAgentBackend({
-            sessionId: ctx.sessionId,
-            header: ctx.header,
-            appendMessage: ctx.appendMessage ?? ((message) => ctx.store.appendMessage(ctx.sessionId, message)),
-            permissionEngine: new PermissionEngine({ newId, now }),
-            transport: new PiCliJsonTransport({
-              command: resolvedEnv.MAKA_PI_COMMAND ?? 'pi',
-              ...(piProvider ? { provider: piProvider } : {}),
-              model,
-              env: buildPiCliEnv(resolvedEnv, piProvider),
+        registry.register(
+          'pi-agent',
+          (ctx) =>
+            new PiAgentBackend({
+              sessionId: ctx.sessionId,
+              header: ctx.header,
+              appendMessage:
+                ctx.appendMessage ?? ((message) => ctx.store.appendMessage(ctx.sessionId, message)),
+              permissionEngine: new PermissionEngine({ newId, now }),
+              transport: new PiCliJsonTransport({
+                command: resolvedEnv.MAKA_PI_COMMAND ?? 'pi',
+                ...(piProvider ? { provider: piProvider } : {}),
+                model,
+                env: buildPiCliEnv(resolvedEnv, piProvider),
+              }),
             }),
-          }),
         );
       };
       break;
@@ -500,7 +559,9 @@ export async function runHarborCellFromEnv(
   });
 }
 
-export function reasoningEffortFromEnv(value: string | undefined): import('@maka/core').ThinkingLevel | undefined {
+export function reasoningEffortFromEnv(
+  value: string | undefined,
+): import('@maka/core').ThinkingLevel | undefined {
   if (value === undefined) return undefined;
   if (!isThinkingLevel(value)) throw new Error(`unsupported MAKA_REASONING_EFFORT: ${value}`);
   return value;
@@ -517,14 +578,17 @@ export function buildHarborCellContinuationPolicy(
 ): HarborCellContinuationPolicy | undefined {
   const enabled = booleanEnv(env.MAKA_HARBOR_CONTINUATION, 'MAKA_HARBOR_CONTINUATION') ?? false;
   if (!enabled) return undefined;
-  const maxTurns = positiveIntEnv(env.MAKA_HARBOR_CONTINUATION_MAX_TURNS, 'MAKA_HARBOR_CONTINUATION_MAX_TURNS') ?? 3;
+  const maxTurns =
+    positiveIntEnv(env.MAKA_HARBOR_CONTINUATION_MAX_TURNS, 'MAKA_HARBOR_CONTINUATION_MAX_TURNS') ??
+    3;
   return {
     enabled: true,
     maxTurns,
-    maxTotalRuntimeSteps: positiveIntEnv(
-      env.MAKA_HARBOR_CONTINUATION_MAX_TOTAL_RUNTIME_STEPS,
-      'MAKA_HARBOR_CONTINUATION_MAX_TOTAL_RUNTIME_STEPS',
-    ) ?? maxTurns * HARBOR_CELL_DEFAULT_MAX_STEPS_PER_TURN,
+    maxTotalRuntimeSteps:
+      positiveIntEnv(
+        env.MAKA_HARBOR_CONTINUATION_MAX_TOTAL_RUNTIME_STEPS,
+        'MAKA_HARBOR_CONTINUATION_MAX_TOTAL_RUNTIME_STEPS',
+      ) ?? maxTurns * HARBOR_CELL_DEFAULT_MAX_STEPS_PER_TURN,
     prompt: env.MAKA_HARBOR_CONTINUATION_PROMPT ?? HARBOR_CELL_DEFAULT_CONTINUATION_PROMPT,
   };
 }
@@ -533,13 +597,17 @@ export function harborCellMaxStepsFromEnv(env: RunHarborCellEnv = process.env): 
   return positiveIntEnv(env.MAKA_MAX_STEPS, 'MAKA_MAX_STEPS');
 }
 
-export function harborCellSoftTimeoutMsFromEnv(env: RunHarborCellEnv = process.env): number | undefined {
+export function harborCellSoftTimeoutMsFromEnv(
+  env: RunHarborCellEnv = process.env,
+): number | undefined {
   return positiveIntEnv(env.MAKA_CELL_SOFT_TIMEOUT_MS, 'MAKA_CELL_SOFT_TIMEOUT_MS');
 }
 
 function isToolCallStepCap(invocation: InvocationResult): boolean {
-  return invocation.failure?.class === 'tool_step_cap_reached'
-    || invocation.failure?.class === 'incomplete_tool_calls';
+  return (
+    invocation.failure?.class === 'tool_step_cap_reached' ||
+    invocation.failure?.class === 'incomplete_tool_calls'
+  );
 }
 
 function combineInvocations(invocations: readonly InvocationResult[]): InvocationResult {
@@ -573,9 +641,10 @@ function buildContinuationSummary(
     turnsUsed: invocations.length,
     continuedTurns: Math.max(0, invocations.length - 1),
     stepCapHits,
-    capExhausted: stepCapHits > 0
-      && isToolCallStepCap(invocations[invocations.length - 1]!)
-      && (invocations.length >= policy.maxTurns || runtimeSteps >= policy.maxTotalRuntimeSteps),
+    capExhausted:
+      stepCapHits > 0 &&
+      isToolCallStepCap(invocations[invocations.length - 1]!) &&
+      (invocations.length >= policy.maxTurns || runtimeSteps >= policy.maxTotalRuntimeSteps),
     totalRuntimeSteps: runtimeSteps,
     turns,
   };
@@ -601,12 +670,15 @@ function invocationRuntimeSteps(invocation: InvocationResult): number {
   return countRuntimeSteps(invocation.events);
 }
 
-function failedInvocationFromError(error: unknown, input: {
-  newId: () => string;
-  now: () => number;
-  sessionId: string;
-  turnId: string;
-}): InvocationResult {
+function failedInvocationFromError(
+  error: unknown,
+  input: {
+    newId: () => string;
+    now: () => number;
+    sessionId: string;
+    turnId: string;
+  },
+): InvocationResult {
   const ts = input.now();
   const failureClass = error instanceof Error ? error.name : 'Error';
   return {
@@ -643,7 +715,8 @@ export function buildAiSdkCellBackendRegistration(input: {
   const modelKey = `${connection.providerType}:${input.model}`;
   const pricingOverride = resolveHarborCellPricingOverride(input.env, modelKey);
   const lookupPricing = pricingOverride
-    ? (key: string): PricingConfig | null => (key === modelKey ? pricingOverride : getBuiltinPricing(key))
+    ? (key: string): PricingConfig | null =>
+        key === modelKey ? pricingOverride : getBuiltinPricing(key)
     : getBuiltinPricing;
   const permissionEngine = new PermissionEngine({ newId: input.newId, now: input.now });
   const contextBudgetBackendOptions = buildHarborCellContextBudgetBackendOptions(input.env);
@@ -672,15 +745,17 @@ export function buildAiSdkCellBackendRegistration(input: {
       return new AiSdkBackend({
         sessionId: ctx.sessionId,
         header: { ...ctx.header, model: input.model },
-        appendMessage: ctx.appendMessage ?? ((message) => ctx.store.appendMessage(ctx.sessionId, message)),
+        appendMessage:
+          ctx.appendMessage ?? ((message) => ctx.store.appendMessage(ctx.sessionId, message)),
         connection,
         apiKey,
         modelId: input.model,
         permissionEngine,
-        modelFactory: (modelInput) => getAIModel({
-          ...modelInput,
-          ...(subscriptionFetch ? { fetch: subscriptionFetch } : {}),
-        }),
+        modelFactory: (modelInput) =>
+          getAIModel({
+            ...modelInput,
+            ...(subscriptionFetch ? { fetch: subscriptionFetch } : {}),
+          }),
         tools: buildHarborCellAiSdkTools(context.toolExecutor!, {
           ...(context.heavyTaskEvidence ? { heavyTaskEvidence: context.heavyTaskEvidence } : {}),
           ...(context.heavyTaskProgress ? { heavyTaskProgress: context.heavyTaskProgress } : {}),
@@ -697,8 +772,7 @@ export function buildAiSdkCellBackendRegistration(input: {
           ? () => context.listChildAgents!(ctx.sessionId)
           : undefined,
         readChildAgentOutput: context.readChildAgentOutput
-          ? (childInput) =>
-              context.readChildAgentOutput!(ctx.sessionId, childInput)
+          ? (childInput) => context.readChildAgentOutput!(ctx.sessionId, childInput)
           : undefined,
         providerOptions: buildProviderOptions(connection, input.model, ctx.header.thinkingLevel),
         systemPrompt: harborCellSystemPrompt(context.config.systemPrompt),
@@ -719,7 +793,9 @@ export function buildAiSdkCellBackendRegistration(input: {
         recordRunTrace: ctx.recordRunTrace,
         recordActiveFullCompactBlock: ctx.recordActiveFullCompactBlock,
         recordSemanticCompactBlock: ctx.recordSemanticCompactBlock,
-        ...(input.recordUsageCheckpoint ? { recordUsageCheckpoint: input.recordUsageCheckpoint } : {}),
+        ...(input.recordUsageCheckpoint
+          ? { recordUsageCheckpoint: input.recordUsageCheckpoint }
+          : {}),
       });
     });
   };
@@ -795,7 +871,10 @@ function harborCellSystemPrompt(configPrompt: string | undefined): string {
 // flag every task as a zero_cost_with_tokens plumbing failure. Honor the same
 // MAKA_TRIAL_*_USD_PER_1M env the Python adapter (trial_pricing.py) already reads,
 // so one pricing source feeds both the runtime cell cost and the Harbor trial cost.
-function resolveHarborCellPricingOverride(env: RunHarborCellEnv, modelKey: string): PricingConfig | null {
+function resolveHarborCellPricingOverride(
+  env: RunHarborCellEnv,
+  modelKey: string,
+): PricingConfig | null {
   const inputUsdPer1M = numericEnv(env.MAKA_TRIAL_INPUT_USD_PER_1M);
   const outputUsdPer1M = numericEnv(env.MAKA_TRIAL_OUTPUT_USD_PER_1M);
   if (inputUsdPer1M === undefined || outputUsdPer1M === undefined) return null;
@@ -825,7 +904,11 @@ function buildPiCliEnv(env: RunHarborCellEnv, provider: string | undefined): Nod
   return result;
 }
 
-function copyPrefixedEnv(target: NodeJS.ProcessEnv, source: RunHarborCellEnv, prefix: string): void {
+function copyPrefixedEnv(
+  target: NodeJS.ProcessEnv,
+  source: RunHarborCellEnv,
+  prefix: string,
+): void {
   for (const [key, value] of Object.entries(source)) {
     if (key.startsWith(prefix) && value !== undefined) target[key] = value;
   }
@@ -850,15 +933,19 @@ function backendFromEnv(value: string | undefined): BackendKind {
   throw new Error(`unsupported MAKA_BACKEND: ${value}`);
 }
 
-function parseModelSpec(rawModel: string, rawProvider: string | undefined): { provider: ProviderType; model: string } {
+function parseModelSpec(
+  rawModel: string,
+  rawProvider: string | undefined,
+): { provider: ProviderType; model: string } {
   if (rawProvider !== undefined) {
     if (!rawModel) throw new Error('MAKA_MODEL must include a model id');
     return { provider: providerFromEnv(rawProvider), model: rawModel };
   }
   const separator = rawModel.indexOf('/');
-  const [providerPart, modelPart] = separator >= 0
-    ? [rawModel.slice(0, separator), rawModel.slice(separator + 1)]
-    : ['deepseek', rawModel];
+  const [providerPart, modelPart] =
+    separator >= 0
+      ? [rawModel.slice(0, separator), rawModel.slice(separator + 1)]
+      : ['deepseek', rawModel];
   const provider = providerFromEnv(providerPart);
   if (!modelPart) throw new Error('MAKA_MODEL must include a model id');
   return { provider, model: modelPart };
@@ -870,5 +957,8 @@ function runtimeEventsJsonl(invocation: InvocationResult): string {
 }
 
 function randomId(): string {
-  return globalThis.crypto?.randomUUID?.() ?? `cell_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
+  return (
+    globalThis.crypto?.randomUUID?.() ??
+    `cell_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`
+  );
 }

@@ -4,8 +4,16 @@ import { readFile } from 'node:fs/promises';
 import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describeChatConfigurationReason, parseNoRealConnectionError } from '@maka/core';
-import { fetchProviderModels, resolveSelectedModelContextWindow, SessionActivityRegistry } from '@maka/runtime';
-import { createConnectionStore, createFileCredentialStore, createSessionStore } from '@maka/storage';
+import {
+  fetchProviderModels,
+  resolveSelectedModelContextWindow,
+  SessionActivityRegistry,
+} from '@maka/runtime';
+import {
+  createConnectionStore,
+  createFileCredentialStore,
+  createSessionStore,
+} from '@maka/storage';
 import { createMakaSessionDriver, type MakaSessionDriver } from './session-driver.js';
 import { createMakaCliRuntimeContext } from './runtime-bootstrap.js';
 import { selectableModelIdsForTarget } from './connection-target.js';
@@ -58,7 +66,7 @@ export function resolveMakaCliExitCode(
 }
 
 export function formatMakaCliFatalError(error: unknown): string {
-  return error instanceof Error ? error.stack ?? error.message : String(error);
+  return error instanceof Error ? (error.stack ?? error.message) : String(error);
 }
 
 let processExitTimer: NodeJS.Timeout | undefined;
@@ -239,7 +247,10 @@ export async function runMakaCli(argv: string[] = process.argv.slice(2)): Promis
           modelChoices: context.modelChoices,
           connectionSlug: context.target.connection.slug,
           providerType: context.target.connection.providerType,
-          modelContextWindow: resolveSelectedModelContextWindow(context.target.connection, context.target.model),
+          modelContextWindow: resolveSelectedModelContextWindow(
+            context.target.connection,
+            context.target.model,
+          ),
           permissionMode: 'ask',
           subscribeShellRunUpdates: context.subscribeShellRunUpdates,
           subscribeSessionTitleChanges: (listener) => {
@@ -311,7 +322,11 @@ async function runFirstRunOnboarding(workspaceRoot: string): Promise<boolean> {
       beginExternalTurn: () => ({ kind: 'registered', settle: async () => {} }),
       bindHost: () => () => {},
     } satisfies MakaPiTuiGoalLifecycle,
-    onboarding: createApiKeyOnboardingSurface({ connectionStore, credentialStore, fetchModels: fetchProviderModels }),
+    onboarding: createApiKeyOnboardingSurface({
+      connectionStore,
+      credentialStore,
+      fetchModels: fetchProviderModels,
+    }),
   });
   // Configured iff a connection was actually persisted during the wizard — the
   // wizard only closes after a verified key (or on cancel; see runner firstRun).

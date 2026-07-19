@@ -48,7 +48,9 @@ test('provider auth proxy keeps the provider key host-side', async () => {
     assert.equal(upstreamPath, '/api/v4/chat/completions?stream=true');
   } finally {
     await proxy.close();
-    await new Promise<void>((resolve, reject) => upstream.close((error) => error ? reject(error) : resolve()));
+    await new Promise<void>((resolve, reject) =>
+      upstream.close((error) => (error ? reject(error) : resolve())),
+    );
     await rm(dir, { recursive: true, force: true });
   }
 });
@@ -92,7 +94,9 @@ test('provider auth proxy supports Anthropic x-api-key without replacing the cli
     assert.equal(upstreamUserAgent, 'opencode/1.17.18 ai-sdk/6');
   } finally {
     await proxy.close();
-    await new Promise<void>((resolve, reject) => upstream.close((error) => error ? reject(error) : resolve()));
+    await new Promise<void>((resolve, reject) =>
+      upstream.close((error) => (error ? reject(error) : resolve())),
+    );
     await rm(dir, { recursive: true, force: true });
   }
 });
@@ -139,7 +143,9 @@ test('provider auth proxy totals Anthropic streaming usage without changing the 
     });
   } finally {
     await proxy.close();
-    await new Promise<void>((resolve, reject) => upstream.close((error) => error ? reject(error) : resolve()));
+    await new Promise<void>((resolve, reject) =>
+      upstream.close((error) => (error ? reject(error) : resolve())),
+    );
     await rm(dir, { recursive: true, force: true });
   }
 });
@@ -185,45 +191,52 @@ test('provider auth proxy totals OpenAI chat streaming usage without changing th
     });
   } finally {
     await proxy.close();
-    await new Promise<void>((resolve, reject) => upstream.close((error) => error ? reject(error) : resolve()));
+    await new Promise<void>((resolve, reject) =>
+      upstream.close((error) => (error ? reject(error) : resolve())),
+    );
     await rm(dir, { recursive: true, force: true });
   }
 });
 
 test('provider telemetry summarizes output, reasoning, and stream-stall evidence', () => {
-  assert.deepEqual(summarizeProviderTelemetry([{
-    requestId: 1,
-    method: 'POST',
-    path: '/chat/completions',
-    protocol: 'openai-chat-sse',
-    status: 200,
-    outcome: 'completed',
-    firstOutputTokenMs: 250,
-    lastOutputTokenMs: 350,
-    firstReasoningTokenMs: 250,
-    lastReasoningTokenMs: 300,
-    reasoningEndMs: 450,
-    maxBodyChunkGapMs: 175,
-    durationMs: 500,
-    bodyChunks: 4,
-    responseBytes: 254,
-    terminalEvent: true,
-    usage: { input: 100, cacheRead: 0, cacheWrite: 0, output: 25, reasoning: 15 },
-  }]), {
-    requests: 1,
-    completed: 1,
-    interrupted: 0,
-    failed: 0,
-    aborted: 0,
-    inputTokens: 100,
-    outputTokens: 25,
-    reasoningTokens: 15,
-    usageMeasuredRequests: 1,
-    reasoningMeasuredRequests: 1,
-    outputTokensPerSecond: 250,
-    reasoningTokensPerSecond: 300,
-    maxBodyChunkGapMs: 175,
-  });
+  assert.deepEqual(
+    summarizeProviderTelemetry([
+      {
+        requestId: 1,
+        method: 'POST',
+        path: '/chat/completions',
+        protocol: 'openai-chat-sse',
+        status: 200,
+        outcome: 'completed',
+        firstOutputTokenMs: 250,
+        lastOutputTokenMs: 350,
+        firstReasoningTokenMs: 250,
+        lastReasoningTokenMs: 300,
+        reasoningEndMs: 450,
+        maxBodyChunkGapMs: 175,
+        durationMs: 500,
+        bodyChunks: 4,
+        responseBytes: 254,
+        terminalEvent: true,
+        usage: { input: 100, cacheRead: 0, cacheWrite: 0, output: 25, reasoning: 15 },
+      },
+    ]),
+    {
+      requests: 1,
+      completed: 1,
+      interrupted: 0,
+      failed: 0,
+      aborted: 0,
+      inputTokens: 100,
+      outputTokens: 25,
+      reasoningTokens: 15,
+      usageMeasuredRequests: 1,
+      reasoningMeasuredRequests: 1,
+      outputTokensPerSecond: 250,
+      reasoningTokensPerSecond: 300,
+      maxBodyChunkGapMs: 175,
+    },
+  );
 });
 
 test('provider auth proxy records token timing, stream stalls, and clean completion', async () => {
@@ -241,7 +254,9 @@ test('provider auth proxy records token timing, stream stalls, and clean complet
     response.write('data: {"choices":[{"delta":{"content":"answer"}}]}\n\n');
     await new Promise<void>((resolve) => setImmediate(resolve));
     clock = 1_700;
-    response.write('data: {"choices":[],"usage":{"prompt_tokens":100,"completion_tokens":25,"completion_tokens_details":{"reasoning_tokens":15}}}\n\n');
+    response.write(
+      'data: {"choices":[],"usage":{"prompt_tokens":100,"completion_tokens":25,"completion_tokens_details":{"reasoning_tokens":15}}}\n\n',
+    );
     await new Promise<void>((resolve) => setImmediate(resolve));
     clock = 1_750;
     response.end('data: [DONE]\n\n');
@@ -285,7 +300,9 @@ test('provider auth proxy records token timing, stream stalls, and clean complet
     });
   } finally {
     await proxy.close();
-    await new Promise<void>((resolve, reject) => upstream.close((error) => error ? reject(error) : resolve()));
+    await new Promise<void>((resolve, reject) =>
+      upstream.close((error) => (error ? reject(error) : resolve())),
+    );
     await rm(dir, { recursive: true, force: true });
   }
 });
@@ -318,7 +335,9 @@ test('provider auth proxy marks a stream without its terminal event as interrupt
     assert.equal(proxy.telemetry()[0]?.outcome, 'interrupted');
   } finally {
     await proxy.close();
-    await new Promise<void>((resolve, reject) => upstream.close((error) => error ? reject(error) : resolve()));
+    await new Promise<void>((resolve, reject) =>
+      upstream.close((error) => (error ? reject(error) : resolve())),
+    );
     await rm(dir, { recursive: true, force: true });
   }
 });
@@ -351,7 +370,9 @@ test('provider auth proxy marks an upstream HTTP error as failed', async () => {
     assert.equal(proxy.telemetry()[0]?.outcome, 'failed');
   } finally {
     await proxy.close();
-    await new Promise<void>((resolve, reject) => upstream.close((error) => error ? reject(error) : resolve()));
+    await new Promise<void>((resolve, reject) =>
+      upstream.close((error) => (error ? reject(error) : resolve())),
+    );
     await rm(dir, { recursive: true, force: true });
   }
 });
@@ -360,8 +381,12 @@ test('provider auth proxy forwards streaming response headers before the first b
   const dir = await mkdtemp(join(tmpdir(), 'maka-provider-proxy-stream-headers-'));
   let upstreamHeadersSent!: () => void;
   let releaseBody!: () => void;
-  const headersSent = new Promise<void>((resolve) => { upstreamHeadersSent = resolve; });
-  const bodyReleased = new Promise<void>((resolve) => { releaseBody = resolve; });
+  const headersSent = new Promise<void>((resolve) => {
+    upstreamHeadersSent = resolve;
+  });
+  const bodyReleased = new Promise<void>((resolve) => {
+    releaseBody = resolve;
+  });
   const upstream = createServer(async (_request, response) => {
     response.writeHead(200, { 'content-type': 'text/event-stream' });
     response.flushHeaders();
@@ -398,7 +423,9 @@ test('provider auth proxy forwards streaming response headers before the first b
   } finally {
     releaseBody();
     await proxy.close();
-    await new Promise<void>((resolve, reject) => upstream.close((error) => error ? reject(error) : resolve()));
+    await new Promise<void>((resolve, reject) =>
+      upstream.close((error) => (error ? reject(error) : resolve())),
+    );
     await rm(dir, { recursive: true, force: true });
   }
 });
@@ -431,7 +458,9 @@ test('provider auth proxy keeps unknown streaming usage schemas missing', async 
     assert.equal(proxy.usage(), null);
   } finally {
     await proxy.close();
-    await new Promise<void>((resolve, reject) => upstream.close((error) => error ? reject(error) : resolve()));
+    await new Promise<void>((resolve, reject) =>
+      upstream.close((error) => (error ? reject(error) : resolve())),
+    );
     await rm(dir, { recursive: true, force: true });
   }
 });
@@ -439,8 +468,12 @@ test('provider auth proxy keeps unknown streaming usage schemas missing', async 
 test('provider auth proxy aborts an in-flight upstream request on close', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'maka-provider-proxy-close-'));
   let received!: () => void;
-  const requestReceived = new Promise<void>((resolve) => { received = resolve; });
-  const upstream = createServer(() => { received(); });
+  const requestReceived = new Promise<void>((resolve) => {
+    received = resolve;
+  });
+  const upstream = createServer(() => {
+    received();
+  });
   await new Promise<void>((resolve) => upstream.listen(0, '127.0.0.1', resolve));
   const address = upstream.address();
   assert.ok(address && typeof address !== 'string');
@@ -461,7 +494,9 @@ test('provider auth proxy aborts an in-flight upstream request on close', async 
     await requestReceived;
     await Promise.race([
       proxy.close(),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('proxy close timed out')), 1_000)),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('proxy close timed out')), 1_000),
+      ),
     ]);
     await assert.rejects(pending);
     assert.equal(proxy.telemetry()[0]?.outcome, 'aborted');
@@ -475,7 +510,9 @@ test('provider auth proxy aborts an in-flight upstream request on close', async 
 test('provider auth proxy aborts the upstream stream when its client disconnects', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'maka-provider-proxy-client-disconnect-'));
   let upstreamClosed!: () => void;
-  const upstreamResponseClosed = new Promise<void>((resolve) => { upstreamClosed = resolve; });
+  const upstreamResponseClosed = new Promise<void>((resolve) => {
+    upstreamClosed = resolve;
+  });
   const upstream = createServer((_request, response) => {
     response.once('close', upstreamClosed);
     response.writeHead(200, { 'content-type': 'text/event-stream' });
@@ -506,7 +543,9 @@ test('provider auth proxy aborts the upstream stream when its client disconnects
     controller.abort();
     await Promise.race([
       upstreamResponseClosed,
-      new Promise((_, reject) => setTimeout(() => reject(new Error('upstream stream was not aborted')), 1_000)),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('upstream stream was not aborted')), 1_000),
+      ),
     ]);
     assert.equal(proxy.telemetry()[0]?.outcome, 'aborted');
   } finally {

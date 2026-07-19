@@ -83,9 +83,9 @@ export function summarizeProviderTelemetry(
     inputTokens += request.usage.input;
     outputTokens += request.usage.output;
     if (
-      request.firstOutputTokenMs !== undefined
-      && request.lastOutputTokenMs !== undefined
-      && request.lastOutputTokenMs > request.firstOutputTokenMs
+      request.firstOutputTokenMs !== undefined &&
+      request.lastOutputTokenMs !== undefined &&
+      request.lastOutputTokenMs > request.firstOutputTokenMs
     ) {
       outputGenerationMs += request.lastOutputTokenMs - request.firstOutputTokenMs;
       outputRateTokens += request.usage.output;
@@ -94,18 +94,17 @@ export function summarizeProviderTelemetry(
       reasoningMeasuredRequests += 1;
       reasoningTokens += request.usage.reasoning;
       if (
-        request.firstReasoningTokenMs !== undefined
-        && request.lastReasoningTokenMs !== undefined
-        && request.lastReasoningTokenMs > request.firstReasoningTokenMs
+        request.firstReasoningTokenMs !== undefined &&
+        request.lastReasoningTokenMs !== undefined &&
+        request.lastReasoningTokenMs > request.firstReasoningTokenMs
       ) {
         reasoningGenerationMs += request.lastReasoningTokenMs - request.firstReasoningTokenMs;
         reasoningRateTokens += request.usage.reasoning;
       }
     }
   }
-  const count = (outcome: ProviderRequestTelemetry['outcome']) => (
-    requests.filter((request) => request.outcome === outcome).length
-  );
+  const count = (outcome: ProviderRequestTelemetry['outcome']) =>
+    requests.filter((request) => request.outcome === outcome).length;
   return {
     requests: requests.length,
     completed: count('completed'),
@@ -117,8 +116,10 @@ export function summarizeProviderTelemetry(
     reasoningTokens: reasoningMeasuredRequests > 0 ? reasoningTokens : null,
     usageMeasuredRequests,
     reasoningMeasuredRequests,
-    outputTokensPerSecond: outputGenerationMs > 0 ? outputRateTokens / (outputGenerationMs / 1_000) : null,
-    reasoningTokensPerSecond: reasoningGenerationMs > 0 ? reasoningRateTokens / (reasoningGenerationMs / 1_000) : null,
+    outputTokensPerSecond:
+      outputGenerationMs > 0 ? outputRateTokens / (outputGenerationMs / 1_000) : null,
+    reasoningTokensPerSecond:
+      reasoningGenerationMs > 0 ? reasoningRateTokens / (reasoningGenerationMs / 1_000) : null,
     maxBodyChunkGapMs,
   };
 }
@@ -137,7 +138,9 @@ export async function startProviderAuthProxy(input: {
 }): Promise<ProviderAuthProxy> {
   const upstreamBaseUrl = new URL(input.upstreamBaseUrl);
   if (upstreamBaseUrl.protocol !== 'https:' && upstreamBaseUrl.protocol !== 'http:') {
-    throw new Error(`provider auth proxy requires an HTTP(S) upstream: ${upstreamBaseUrl.protocol}`);
+    throw new Error(
+      `provider auth proxy requires an HTTP(S) upstream: ${upstreamBaseUrl.protocol}`,
+    );
   }
   const providerKey = (await readFile(input.apiKeyFile, 'utf8')).trim();
   if (providerKey.length === 0) throw new Error('provider API key file is empty');
@@ -202,7 +205,7 @@ export async function startProviderAuthProxy(input: {
     telemetry: () => telemetry.snapshot(),
     close: async () => {
       const closed = new Promise<void>((resolve, reject) => {
-        server.close((error) => error ? reject(error) : resolve());
+        server.close((error) => (error ? reject(error) : resolve()));
       });
       const forwards = [...activeForwards];
       for (const controller of activeRequests) controller.abort();
@@ -228,9 +231,10 @@ async function forwardProviderRequest(input: {
 }): Promise<void> {
   let requestTelemetry: MutableProviderRequestTelemetry | null = null;
   try {
-    const presentedCredential = input.authMode === 'x-api-key'
-      ? input.request.headers['x-api-key']
-      : input.request.headers.authorization;
+    const presentedCredential =
+      input.authMode === 'x-api-key'
+        ? input.request.headers['x-api-key']
+        : input.request.headers.authorization;
     if (!authorized(presentedCredential, input.token, input.authMode)) {
       input.response.writeHead(401).end('unauthorized');
       return;
@@ -254,9 +258,10 @@ async function forwardProviderRequest(input: {
     }
     if (input.authMode === 'x-api-key') headers.set('x-api-key', input.providerKey);
     else headers.set('authorization', `Bearer ${input.providerKey}`);
-    const body = input.request.method === 'GET' || input.request.method === 'HEAD'
-      ? undefined
-      : await readRequestBody(input.request);
+    const body =
+      input.request.method === 'GET' || input.request.method === 'HEAD'
+        ? undefined
+        : await readRequestBody(input.request);
     const upstreamResponse = await fetch(upstreamUrl, {
       method: input.request.method,
       headers,
@@ -271,10 +276,11 @@ async function forwardProviderRequest(input: {
     });
     input.response.writeHead(upstreamResponse.status, responseHeaders);
     input.response.flushHeaders();
-    const responseUsage = input.usageProtocol
-      && upstreamResponse.headers.get('content-type')?.includes('text/event-stream')
-      ? new SseUsageParser(input.usageProtocol)
-      : null;
+    const responseUsage =
+      input.usageProtocol &&
+      upstreamResponse.headers.get('content-type')?.includes('text/event-stream')
+        ? new SseUsageParser(input.usageProtocol)
+        : null;
     if (upstreamResponse.body) {
       for await (const chunk of upstreamResponse.body) {
         const observedAt = input.now();
@@ -298,10 +304,10 @@ async function forwardProviderRequest(input: {
           requestTelemetry.lastReasoningTokenMs = elapsedMs(startedAt, observedAt);
         }
         if (
-          observation?.output
-          && !observation.reasoning
-          && requestTelemetry.firstReasoningTokenMs !== undefined
-          && requestTelemetry.reasoningEndMs === undefined
+          observation?.output &&
+          !observation.reasoning &&
+          requestTelemetry.firstReasoningTokenMs !== undefined &&
+          requestTelemetry.reasoningEndMs === undefined
         ) {
           requestTelemetry.reasoningEndMs = elapsedMs(startedAt, observedAt);
         }
@@ -369,7 +375,9 @@ class ProviderTelemetryAccumulator {
   private nextRequestId = 1;
   private readonly requests: ProviderRequestTelemetry[] = [];
 
-  start(input: Pick<MutableProviderRequestTelemetry, 'method' | 'path' | 'protocol' | 'startedAt'>): MutableProviderRequestTelemetry {
+  start(
+    input: Pick<MutableProviderRequestTelemetry, 'method' | 'path' | 'protocol' | 'startedAt'>,
+  ): MutableProviderRequestTelemetry {
     return {
       requestId: this.nextRequestId++,
       method: input.method,
@@ -385,11 +393,7 @@ class ProviderTelemetryAccumulator {
   }
 
   finish(request: MutableProviderRequestTelemetry): void {
-    const {
-      startedAt: _startedAt,
-      lastBodyChunkAt: _lastBodyChunkAt,
-      ...snapshot
-    } = request;
+    const { startedAt: _startedAt, lastBodyChunkAt: _lastBodyChunkAt, ...snapshot } = request;
     this.requests.push(snapshot);
   }
 
@@ -427,7 +431,7 @@ class SseUsageParser {
   private consumeCompleteLines(flush = false): SseChunkObservation {
     const observation: SseChunkObservation = { output: false, reasoning: false };
     const lines = this.buffer.split(/\r?\n/);
-    this.buffer = flush ? '' : lines.pop() ?? '';
+    this.buffer = flush ? '' : (lines.pop() ?? '');
     for (const line of lines) {
       if (!line.startsWith('data:')) continue;
       const raw = line.slice('data:'.length).trim();
@@ -443,13 +447,13 @@ class SseUsageParser {
         continue;
       }
       if (!isRecord(event)) continue;
-      if (this.protocol === 'anthropic-sse' && event.type === 'message_stop') this.terminalEvent = true;
+      if (this.protocol === 'anthropic-sse' && event.type === 'message_stop')
+        this.terminalEvent = true;
       const generated = generatedDelta(this.protocol, event);
       observation.output ||= generated.output;
       observation.reasoning ||= generated.reasoning;
-      const usage = this.protocol === 'anthropic-sse'
-        ? anthropicUsage(event)
-        : openAiChatUsage(event);
+      const usage =
+        this.protocol === 'anthropic-sse' ? anthropicUsage(event) : openAiChatUsage(event);
       if (!usage) continue;
       this.sawUsage = true;
       this.usage.input = Math.max(this.usage.input, usage.input);
@@ -469,15 +473,22 @@ interface SseChunkObservation {
   reasoning: boolean;
 }
 
-function generatedDelta(protocol: ProviderUsageProtocol, event: Record<string, unknown>): SseChunkObservation {
+function generatedDelta(
+  protocol: ProviderUsageProtocol,
+  event: Record<string, unknown>,
+): SseChunkObservation {
   if (protocol === 'anthropic-sse') {
     const delta = isRecord(event.delta) ? event.delta : null;
-    const reasoning = delta?.type === 'thinking_delta'
-      && typeof delta.thinking === 'string'
-      && delta.thinking.length > 0;
-    const output = reasoning
-      || (delta?.type === 'text_delta' && typeof delta.text === 'string' && delta.text.length > 0)
-      || (delta?.type === 'input_json_delta' && typeof delta.partial_json === 'string' && delta.partial_json.length > 0);
+    const reasoning =
+      delta?.type === 'thinking_delta' &&
+      typeof delta.thinking === 'string' &&
+      delta.thinking.length > 0;
+    const output =
+      reasoning ||
+      (delta?.type === 'text_delta' && typeof delta.text === 'string' && delta.text.length > 0) ||
+      (delta?.type === 'input_json_delta' &&
+        typeof delta.partial_json === 'string' &&
+        delta.partial_json.length > 0);
     return { output, reasoning };
   }
   const choices = Array.isArray(event.choices) ? event.choices : [];
@@ -486,13 +497,15 @@ function generatedDelta(protocol: ProviderUsageProtocol, event: Record<string, u
   for (const choice of choices) {
     if (!isRecord(choice) || !isRecord(choice.delta)) continue;
     const delta = choice.delta;
-    const hasReasoning = (typeof delta.reasoning_content === 'string' && delta.reasoning_content.length > 0)
-      || (typeof delta.reasoning === 'string' && delta.reasoning.length > 0);
+    const hasReasoning =
+      (typeof delta.reasoning_content === 'string' && delta.reasoning_content.length > 0) ||
+      (typeof delta.reasoning === 'string' && delta.reasoning.length > 0);
     reasoning ||= hasReasoning;
-    output ||= hasReasoning
-      || (typeof delta.content === 'string' && delta.content.length > 0)
-      || (Array.isArray(delta.tool_calls) && delta.tool_calls.length > 0)
-      || isRecord(delta.function_call);
+    output ||=
+      hasReasoning ||
+      (typeof delta.content === 'string' && delta.content.length > 0) ||
+      (Array.isArray(delta.tool_calls) && delta.tool_calls.length > 0) ||
+      isRecord(delta.function_call);
   }
   return { output, reasoning };
 }
@@ -503,12 +516,16 @@ function anthropicUsage(event: Record<string, unknown>): ProviderTokenUsage | nu
     : isRecord(event.message) && isRecord(event.message.usage)
       ? event.message.usage
       : null;
-  if (!usage || !hasAnyNumber(usage, [
-    'input_tokens',
-    'cache_read_input_tokens',
-    'cache_creation_input_tokens',
-    'output_tokens',
-  ])) return null;
+  if (
+    !usage ||
+    !hasAnyNumber(usage, [
+      'input_tokens',
+      'cache_read_input_tokens',
+      'cache_creation_input_tokens',
+      'output_tokens',
+    ])
+  )
+    return null;
   const cacheRead = nonNegativeNumber(usage.cache_read_input_tokens);
   const cacheWrite = nonNegativeNumber(usage.cache_creation_input_tokens);
   return {
@@ -520,8 +537,11 @@ function anthropicUsage(event: Record<string, unknown>): ProviderTokenUsage | nu
 }
 
 function openAiChatUsage(event: Record<string, unknown>): ProviderTokenUsage | null {
-  if (!isRecord(event.usage) || !hasAnyNumber(event.usage, ['prompt_tokens', 'completion_tokens'])) return null;
-  const details = isRecord(event.usage.prompt_tokens_details) ? event.usage.prompt_tokens_details : null;
+  if (!isRecord(event.usage) || !hasAnyNumber(event.usage, ['prompt_tokens', 'completion_tokens']))
+    return null;
+  const details = isRecord(event.usage.prompt_tokens_details)
+    ? event.usage.prompt_tokens_details
+    : null;
   const completionDetails = isRecord(event.usage.completion_tokens_details)
     ? event.usage.completion_tokens_details
     : null;
@@ -541,11 +561,12 @@ function elapsedMs(startedAt: number, finishedAt: number): number {
 }
 
 function hasAnyNumber(record: Record<string, unknown>, keys: readonly string[]): boolean {
-  return keys.some((key) => (
-    typeof record[key] === 'number'
-    && Number.isFinite(record[key])
-    && (record[key] as number) >= 0
-  ));
+  return keys.some(
+    (key) =>
+      typeof record[key] === 'number' &&
+      Number.isFinite(record[key]) &&
+      (record[key] as number) >= 0,
+  );
 }
 
 function nonNegativeNumber(value: unknown): number {
@@ -562,11 +583,12 @@ function authorized(
   authMode: ProviderAuthProxyMode,
 ): boolean {
   if (typeof header !== 'string') return false;
-  const value = authMode === 'bearer'
-    ? header.startsWith('Bearer ')
-      ? header.slice('Bearer '.length)
-      : undefined
-    : header;
+  const value =
+    authMode === 'bearer'
+      ? header.startsWith('Bearer ')
+        ? header.slice('Bearer '.length)
+        : undefined
+      : header;
   if (value === undefined) return false;
   const presented = Buffer.from(value);
   const expected = Buffer.from(token);
@@ -575,7 +597,8 @@ function authorized(
 
 async function readRequestBody(request: IncomingMessage): Promise<Buffer> {
   const chunks: Buffer[] = [];
-  for await (const chunk of request) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  for await (const chunk of request)
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
   return Buffer.concat(chunks);
 }
 
@@ -595,7 +618,4 @@ const HOP_BY_HOP_HEADERS = new Set([
   'upgrade',
 ]);
 
-const REQUEST_HEADER_DENYLIST = new Set([
-  ...HOP_BY_HOP_HEADERS,
-  'x-api-key',
-]);
+const REQUEST_HEADER_DENYLIST = new Set([...HOP_BY_HOP_HEADERS, 'x-api-key']);

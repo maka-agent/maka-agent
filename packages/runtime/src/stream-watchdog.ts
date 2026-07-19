@@ -48,7 +48,8 @@ export class StreamWatchdog {
     this.connectTimeoutMs = input.connectTimeoutMs ?? DEFAULT_STREAM_CONNECT_TIMEOUT_MS;
     this.idleTimeoutMs = input.idleTimeoutMs ?? DEFAULT_STREAM_IDLE_TIMEOUT_MS;
     this.setTimer = input.setTimer ?? ((callback, delayMs) => setTimeout(callback, delayMs));
-    this.clearTimer = input.clearTimer ?? ((timer) => clearTimeout(timer as ReturnType<typeof setTimeout>));
+    this.clearTimer =
+      input.clearTimer ?? ((timer) => clearTimeout(timer as ReturnType<typeof setTimeout>));
   }
 
   start(): void {

@@ -4,7 +4,10 @@ import { MAX_ATTACHMENT_BYTES, type ArtifactBinaryReadResult, type StorageRef } 
 import type { ArtifactStore } from '../artifact-store.js';
 import { createAttachmentByteReader, createReadImageSnapshotter } from '../artifact-attachments.js';
 
-function fakeArtifactStore(readBinary: ArtifactStore['readBinary'], artifactSessionId = 's1'): ArtifactStore {
+function fakeArtifactStore(
+  readBinary: ArtifactStore['readBinary'],
+  artifactSessionId = 's1',
+): ArtifactStore {
   return {
     readBinary,
     get: async (id: string) => ({ id, sessionId: artifactSessionId }),
@@ -25,22 +28,37 @@ describe('createAttachmentByteReader', () => {
       return { ok: true, base64: Buffer.from('hello').toString('base64'), mimeType: 'image/png' };
     });
 
-    const result = await createAttachmentByteReader({ artifactStore: store, sessionId: 's1' })(sessionFileRef('art-1'));
+    const result = await createAttachmentByteReader({ artifactStore: store, sessionId: 's1' })(
+      sessionFileRef('art-1'),
+    );
 
     assert.deepEqual(result, { ok: true, bytes: Buffer.from('hello') });
     assert.equal(maxBytes, MAX_ATTACHMENT_BYTES);
   });
 
   test('rejects refs and artifacts from a different session', async () => {
-    const readBinary = async (): Promise<ArtifactBinaryReadResult> => ({ ok: true, base64: '', mimeType: 'image/png' });
-    const reader = createAttachmentByteReader({ artifactStore: fakeArtifactStore(readBinary), sessionId: 's1' });
-    assert.deepEqual(await reader(sessionFileRef('art-1', 'other')), { ok: false, reason: 'session_mismatch' });
+    const readBinary = async (): Promise<ArtifactBinaryReadResult> => ({
+      ok: true,
+      base64: '',
+      mimeType: 'image/png',
+    });
+    const reader = createAttachmentByteReader({
+      artifactStore: fakeArtifactStore(readBinary),
+      sessionId: 's1',
+    });
+    assert.deepEqual(await reader(sessionFileRef('art-1', 'other')), {
+      ok: false,
+      reason: 'session_mismatch',
+    });
 
     const otherArtifactReader = createAttachmentByteReader({
       artifactStore: fakeArtifactStore(readBinary, 'other'),
       sessionId: 's1',
     });
-    assert.deepEqual(await otherArtifactReader(sessionFileRef('art-1')), { ok: false, reason: 'session_mismatch' });
+    assert.deepEqual(await otherArtifactReader(sessionFileRef('art-1')), {
+      ok: false,
+      reason: 'session_mismatch',
+    });
   });
 
   test('rejects unsupported refs and passes through store failures', async () => {
@@ -48,10 +66,10 @@ describe('createAttachmentByteReader', () => {
       artifactStore: fakeArtifactStore(async () => ({ ok: false, reason: 'too_large' })),
       sessionId: 's1',
     });
-    assert.deepEqual(
-      await reader({ kind: 'workspace_file', relativePath: 'image.png' }),
-      { ok: false, reason: 'unsupported_ref_kind' },
-    );
+    assert.deepEqual(await reader({ kind: 'workspace_file', relativePath: 'image.png' }), {
+      ok: false,
+      reason: 'unsupported_ref_kind',
+    });
     assert.deepEqual(await reader(sessionFileRef('art-1')), { ok: false, reason: 'too_large' });
   });
 });
@@ -67,13 +85,22 @@ test('createReadImageSnapshotter stores a tool-result image and returns its sess
   const bytes = new Uint8Array([1, 2, 3]);
 
   const ref = await createReadImageSnapshotter(store)({
-    sessionId: 's1', turnId: 't1', name: 'image.png', bytes, mimeType: 'image/png',
+    sessionId: 's1',
+    turnId: 't1',
+    name: 'image.png',
+    bytes,
+    mimeType: 'image/png',
   });
 
   assert.deepEqual(ref, { kind: 'session_file', sessionId: 's1', relativePath: 'artifact-1' });
   assert.deepEqual(created, {
-    sessionId: 's1', turnId: 't1', name: 'image.png', kind: 'image', content: bytes,
-    mimeType: 'image/png', source: 'tool_result',
+    sessionId: 's1',
+    turnId: 't1',
+    name: 'image.png',
+    kind: 'image',
+    content: bytes,
+    mimeType: 'image/png',
+    source: 'tool_result',
   });
 });
 

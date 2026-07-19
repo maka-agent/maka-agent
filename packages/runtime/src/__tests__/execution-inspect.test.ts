@@ -30,19 +30,30 @@ describe('versioned execution inspect documents', () => {
       const header = runHeader(session.id);
       await runStore.createRun(header);
       await runStore.appendEvent(session.id, RUN_ID, runEvent(session.id, 'run_completed'));
-      await runtimeStore.appendRuntimeEvent(session.id, RUN_ID, runtimeEvent(session.id, 'call', {
-        role: 'model',
-        author: 'agent',
-        content: {
-          kind: 'function_call',
-          id: 'tool-pending',
-          name: 'Write',
-          args: { path: 'private.txt', content: 'DO_NOT_COPY' },
-        },
-      }));
-      await runtimeStore.appendRuntimeEvent(session.id, RUN_ID, runtimeEvent(session.id, 'terminal', {
-        role: 'system', author: 'system', status: 'completed', actions: { endInvocation: true },
-      }));
+      await runtimeStore.appendRuntimeEvent(
+        session.id,
+        RUN_ID,
+        runtimeEvent(session.id, 'call', {
+          role: 'model',
+          author: 'agent',
+          content: {
+            kind: 'function_call',
+            id: 'tool-pending',
+            name: 'Write',
+            args: { path: 'private.txt', content: 'DO_NOT_COPY' },
+          },
+        }),
+      );
+      await runtimeStore.appendRuntimeEvent(
+        session.id,
+        RUN_ID,
+        runtimeEvent(session.id, 'terminal', {
+          role: 'system',
+          author: 'system',
+          status: 'completed',
+          actions: { endInvocation: true },
+        }),
+      );
 
       const document = await inspectAgentRunDocument(runStore, runtimeStore, {
         sessionId: session.id,
@@ -50,15 +61,25 @@ describe('versioned execution inspect documents', () => {
       });
 
       assert.equal(document.schemaVersion, AGENT_RUN_INSPECT_DOCUMENT_VERSION);
-      assert.deepEqual(document.tools.callsWithoutResponse, [{
-        toolCallId: 'tool-pending', toolName: 'Write', eventId: 'call',
-      }]);
+      assert.deepEqual(document.tools.callsWithoutResponse, [
+        {
+          toolCallId: 'tool-pending',
+          toolName: 'Write',
+          eventId: 'call',
+        },
+      ]);
       assert.equal(document.sources.runtimeCoverage?.highWater.sequence, 1);
-      assert.equal(document.diagnostics.some((item) => item.code === 'tool_response_missing'), true);
+      assert.equal(
+        document.diagnostics.some((item) => item.code === 'tool_response_missing'),
+        true,
+      );
       const json = JSON.stringify(document);
       assert.equal(json.includes('private.txt'), false);
       assert.equal(json.includes('DO_NOT_COPY'), false);
-      assert.match(renderAgentRunInspectTree(document), /outcome and external side effects are unknown/);
+      assert.match(
+        renderAgentRunInspectTree(document),
+        /outcome and external side effects are unknown/,
+      );
     });
   });
 
@@ -68,15 +89,26 @@ describe('versioned execution inspect documents', () => {
       const runStore = createAgentRunStore(root);
       const runtimeStore = createRuntimeEventStore(root);
       const session = await sessionStore.create({
-        cwd: '/tmp/workspace', name: 'Inspectable session', backend: 'fake',
-        llmConnectionSlug: 'fake', model: 'fake-model', permissionMode: 'ask',
+        cwd: '/tmp/workspace',
+        name: 'Inspectable session',
+        backend: 'fake',
+        llmConnectionSlug: 'fake',
+        model: 'fake-model',
+        permissionMode: 'ask',
       });
       const header = runHeader(session.id);
       await runStore.createRun(header);
       await runStore.appendEvent(session.id, RUN_ID, runEvent(session.id, 'run_completed'));
-      await runtimeStore.appendRuntimeEvent(session.id, RUN_ID, runtimeEvent(session.id, 'terminal', {
-        role: 'system', author: 'system', status: 'completed', actions: { endInvocation: true },
-      }));
+      await runtimeStore.appendRuntimeEvent(
+        session.id,
+        RUN_ID,
+        runtimeEvent(session.id, 'terminal', {
+          role: 'system',
+          author: 'system',
+          status: 'completed',
+          actions: { endInvocation: true },
+        }),
+      );
 
       const document = await inspectSessionDocument(
         { readHeader: (id) => sessionStore.readHeaderSnapshot(id) },
@@ -119,7 +151,11 @@ function runEvent(sessionId: string, type: AgentRunEvent['type']): AgentRunEvent
   return { id: `op-${type}`, type, runId: RUN_ID, sessionId, turnId: TURN_ID, ts: TS + 1 };
 }
 
-function runtimeEvent(sessionId: string, id: string, overrides: Partial<RuntimeEvent>): RuntimeEvent {
+function runtimeEvent(
+  sessionId: string,
+  id: string,
+  overrides: Partial<RuntimeEvent>,
+): RuntimeEvent {
   return {
     id,
     invocationId: 'invocation-1',

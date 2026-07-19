@@ -1,5 +1,10 @@
 import { z } from 'zod';
-import { TASK_ID_MAX_CHARS, isSafeTaskId, type TaskLedgerStore, type ToolResultContent } from '@maka/core';
+import {
+  TASK_ID_MAX_CHARS,
+  isSafeTaskId,
+  type TaskLedgerStore,
+  type ToolResultContent,
+} from '@maka/core';
 import type { SessionEvent } from '@maka/core/events';
 import type { MakaTool, MakaToolContext } from './tool-runtime.js';
 import {
@@ -14,10 +19,7 @@ import {
 } from './agent-catalog.js';
 import type { ToolGroup } from './tool-availability.js';
 import { AGENT_TEAM_CHILD_TOOL_NAMES } from './agent-team-tool-names.js';
-import {
-  AGENT_SWARM_TOOL_NAME,
-  buildAgentSwarmTool,
-} from './agent-swarm-tools.js';
+import { AGENT_SWARM_TOOL_NAME, buildAgentSwarmTool } from './agent-swarm-tools.js';
 
 export const AGENT_SPAWN_TOOL_NAME = 'agent_spawn';
 export const AGENT_LIST_TOOL_NAME = 'agent_list';
@@ -31,13 +33,16 @@ export const AGENT_TOOL_NAMES = [
 ] as const;
 export const CHILD_AGENT_TOOL_NAMES = [
   ...new Set(
-    BUILTIN_AGENT_DEFINITIONS
-      .filter((definition) => definition.contract.workspace === AGENT_WORKSPACE_SAME_WORKSPACE)
-      .flatMap((definition) => definition.tools),
+    BUILTIN_AGENT_DEFINITIONS.filter(
+      (definition) => definition.contract.workspace === AGENT_WORKSPACE_SAME_WORKSPACE,
+    ).flatMap((definition) => definition.tools),
   ),
 ] as readonly string[];
 const AGENT_SPAWN_WRITE_BACK_MODES = [AGENT_WRITE_BACK_SUMMARY, AGENT_WRITE_BACK_PATCH] as const;
-const AGENT_SPAWN_ISOLATION_MODES = [AGENT_WORKSPACE_SAME_WORKSPACE, AGENT_WORKSPACE_WORKTREE] as const;
+const AGENT_SPAWN_ISOLATION_MODES = [
+  AGENT_WORKSPACE_SAME_WORKSPACE,
+  AGENT_WORKSPACE_WORKTREE,
+] as const;
 const CHILD_PROGRESS_MAX_EVENTS = 64;
 const CHILD_PROGRESS_MAX_CHARS = 8_192;
 const CHILD_PROGRESS_ERROR_MAX_CHARS = 1_000;
@@ -77,35 +82,51 @@ export function buildSubagentSpawnTool(deps: { taskLedger?: TaskLedgerStore } = 
   return {
     name: AGENT_SPAWN_TOOL_NAME,
     displayName: 'Agent',
-    description: 'Run a foreground catalog child agent for a bounded task and return its explicit result.',
-    parameters: z.object({
-      profile: z.enum(BUILTIN_AGENT_PROFILES).describe('Child agent profile.'),
-      task: z.string().min(1).max(60_000).describe('Bounded task for the selected child agent.'),
-      write_back: z.enum(AGENT_SPAWN_WRITE_BACK_MODES).optional()
-        .describe('Requested child write-back mode. Each built-in profile declares its supported modes.'),
-      isolation: z.enum(AGENT_SPAWN_ISOLATION_MODES).optional()
-        .describe('Requested child workspace isolation. Worktree profiles fail closed until a worktree child executor is available.'),
-      task_id: z.string().min(1).max(TASK_ID_MAX_CHARS).refine(isSafeTaskId)
-        .optional().describe('Existing task UUID or short key to bind to this child run.'),
-    }).superRefine((input, ctx) => {
-      const definition = requireBuiltinAgentDefinitionByProfile(input.profile);
-      const requestedWriteBack = input.write_back ?? definition.contract.defaultWriteBack;
-      if (!definition.contract.supportedWriteBack.some((mode) => mode === requestedWriteBack)) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['write_back'],
-          message: `Agent profile "${definition.profile}" does not support write_back "${requestedWriteBack}".`,
-        });
-      }
-      const requestedIsolation = input.isolation ?? definition.contract.workspace;
-      if (requestedIsolation !== definition.contract.workspace) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['isolation'],
-          message: `Agent profile "${definition.profile}" requires isolation "${definition.contract.workspace}", not "${requestedIsolation}".`,
-        });
-      }
-    }),
+    description:
+      'Run a foreground catalog child agent for a bounded task and return its explicit result.',
+    parameters: z
+      .object({
+        profile: z.enum(BUILTIN_AGENT_PROFILES).describe('Child agent profile.'),
+        task: z.string().min(1).max(60_000).describe('Bounded task for the selected child agent.'),
+        write_back: z
+          .enum(AGENT_SPAWN_WRITE_BACK_MODES)
+          .optional()
+          .describe(
+            'Requested child write-back mode. Each built-in profile declares its supported modes.',
+          ),
+        isolation: z
+          .enum(AGENT_SPAWN_ISOLATION_MODES)
+          .optional()
+          .describe(
+            'Requested child workspace isolation. Worktree profiles fail closed until a worktree child executor is available.',
+          ),
+        task_id: z
+          .string()
+          .min(1)
+          .max(TASK_ID_MAX_CHARS)
+          .refine(isSafeTaskId)
+          .optional()
+          .describe('Existing task UUID or short key to bind to this child run.'),
+      })
+      .superRefine((input, ctx) => {
+        const definition = requireBuiltinAgentDefinitionByProfile(input.profile);
+        const requestedWriteBack = input.write_back ?? definition.contract.defaultWriteBack;
+        if (!definition.contract.supportedWriteBack.some((mode) => mode === requestedWriteBack)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['write_back'],
+            message: `Agent profile "${definition.profile}" does not support write_back "${requestedWriteBack}".`,
+          });
+        }
+        const requestedIsolation = input.isolation ?? definition.contract.workspace;
+        if (requestedIsolation !== definition.contract.workspace) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['isolation'],
+            message: `Agent profile "${definition.profile}" requires isolation "${definition.contract.workspace}", not "${requestedIsolation}".`,
+          });
+        }
+      }),
     permissionRequired: true,
     categoryHint: 'subagent',
     impl: async (input, ctx) => {
@@ -133,52 +154,64 @@ export function buildSubagentSpawnTool(deps: { taskLedger?: TaskLedgerStore } = 
       const boundTask = input.task_id
         ? await deps.taskLedger?.get(ctx.sessionId, input.task_id)
         : undefined;
-      if (input.task_id && !deps.taskLedger) throw new Error('Task binding is unavailable in this runtime');
-      if (input.task_id && !boundTask) throw new Error(`No such task in this session: ${input.task_id}`);
+      if (input.task_id && !deps.taskLedger)
+        throw new Error('Task binding is unavailable in this runtime');
+      if (input.task_id && !boundTask)
+        throw new Error(`No such task in this session: ${input.task_id}`);
       let claimedOwner: { actor: 'child_agent'; agentId: string; turnId: string } | undefined;
       let result: Omit<SubagentToolResult, 'kind'>;
       const progress = new ChildAgentProgressProjector(ctx);
       ctx.emitOutput('stdout', `Starting child agent: ${definition.name}\n`);
       try {
-        result = await ctx.spawnChildAgent({
+        result = (await ctx.spawnChildAgent({
           spec: {
             id: definition.id,
             name: definition.name,
             systemPrompt: definition.systemPrompt,
           },
           prompt: input.task,
-          ...(boundTask ? {
-            onReady: async ({ turnId, agentId }) => {
-              const owner = { actor: 'child_agent' as const, agentId, turnId };
-              await deps.taskLedger!.claim(ctx.sessionId, boundTask.id, owner, {
-                runId: ctx.runId,
-                turnId: ctx.turnId,
-                toolCallId: ctx.toolCallId,
-                source: 'system',
-                actor: 'main_agent',
-                reason: `assigned to child agent ${agentId}`,
-              });
-              claimedOwner = owner;
-            },
-          } : {}),
+          ...(boundTask
+            ? {
+                onReady: async ({ turnId, agentId }) => {
+                  const owner = { actor: 'child_agent' as const, agentId, turnId };
+                  await deps.taskLedger!.claim(ctx.sessionId, boundTask.id, owner, {
+                    runId: ctx.runId,
+                    turnId: ctx.turnId,
+                    toolCallId: ctx.toolCallId,
+                    source: 'system',
+                    actor: 'main_agent',
+                    reason: `assigned to child agent ${agentId}`,
+                  });
+                  claimedOwner = owner;
+                },
+              }
+            : {}),
           onEvent: (event) => progress.observe(event),
-        }) as Omit<SubagentToolResult, 'kind'>;
+        })) as Omit<SubagentToolResult, 'kind'>;
       } catch (error) {
         ctx.emitOutput(
           'stderr',
           `Child agent ${definition.name} failed: ${boundedChildError(error)}\n`,
         );
         if (boundTask && claimedOwner) {
-          await deps.taskLedger!.settleAgentOutcome(ctx.sessionId, boundTask.id, {
-            status: 'failed',
-            owner: claimedOwner,
-            reason: error instanceof Error ? error.message : 'Child agent failed before returning a result',
-          }, {
-            turnId: claimedOwner.turnId,
-            toolCallId: ctx.toolCallId,
-            source: 'system',
-            actor: 'child_agent',
-          });
+          await deps.taskLedger!.settleAgentOutcome(
+            ctx.sessionId,
+            boundTask.id,
+            {
+              status: 'failed',
+              owner: claimedOwner,
+              reason:
+                error instanceof Error
+                  ? error.message
+                  : 'Child agent failed before returning a result',
+            },
+            {
+              turnId: claimedOwner.turnId,
+              toolCallId: ctx.toolCallId,
+              source: 'system',
+              actor: 'child_agent',
+            },
+          );
         }
         throw error;
       }
@@ -189,17 +222,22 @@ export function buildSubagentSpawnTool(deps: { taskLedger?: TaskLedgerStore } = 
           ...(result.runId ? { runId: result.runId } : {}),
           turnId: result.turnId,
         };
-        await deps.taskLedger!.settleAgentOutcome(ctx.sessionId, boundTask.id, {
-          status: result.status,
-          owner,
-          reason: result.failureClass ?? result.summary,
-        }, {
-          runId: result.runId,
-          turnId: result.turnId,
-          toolCallId: ctx.toolCallId,
-          source: 'system',
-          actor: 'child_agent',
-        });
+        await deps.taskLedger!.settleAgentOutcome(
+          ctx.sessionId,
+          boundTask.id,
+          {
+            status: result.status,
+            owner,
+            reason: result.failureClass ?? result.summary,
+          },
+          {
+            runId: result.runId,
+            turnId: result.turnId,
+            toolCallId: ctx.toolCallId,
+            source: 'system',
+            actor: 'child_agent',
+          },
+        );
       }
       return {
         kind: 'subagent',
@@ -227,7 +265,10 @@ class ChildAgentProgressProjector {
     if (event.type === 'tool_result') {
       const name = this.tools.get(event.toolUseId) ?? 'tool';
       this.tools.delete(event.toolUseId);
-      this.emit(event.isError ? 'stderr' : 'stdout', `Child tool ${event.isError ? 'failed' : 'finished'}: ${name}\n`);
+      this.emit(
+        event.isError ? 'stderr' : 'stdout',
+        `Child tool ${event.isError ? 'failed' : 'finished'}: ${name}\n`,
+      );
     }
   }
 
@@ -252,7 +293,8 @@ export function buildSubagentListTool(): MakaTool<Record<string, never>, unknown
   return {
     name: AGENT_LIST_TOOL_NAME,
     displayName: 'Agent List',
-    description: 'List available agent catalog definitions and child agent runs for the current session.',
+    description:
+      'List available agent catalog definitions and child agent runs for the current session.',
     parameters: z.object({}),
     permissionRequired: false,
     categoryHint: 'read',
@@ -276,14 +318,17 @@ export function buildSubagentOutputTool(): MakaTool<
   return {
     name: AGENT_OUTPUT_TOOL_NAME,
     displayName: 'Agent Output',
-    description: 'Inspect a child agent run by run_id or turn_id, including runtime events and artifacts.',
-    parameters: z.object({
-      run_id: z.string().optional(),
-      turn_id: z.string().optional(),
-      max_events: z.number().int().min(1).max(100).optional(),
-    }).refine((input) => Number(!!input.run_id) + Number(!!input.turn_id) === 1, {
-      message: 'Provide exactly one of run_id or turn_id',
-    }),
+    description:
+      'Inspect a child agent run by run_id or turn_id, including runtime events and artifacts.',
+    parameters: z
+      .object({
+        run_id: z.string().optional(),
+        turn_id: z.string().optional(),
+        max_events: z.number().int().min(1).max(100).optional(),
+      })
+      .refine((input) => Number(!!input.run_id) + Number(!!input.turn_id) === 1, {
+        message: 'Provide exactly one of run_id or turn_id',
+      }),
     permissionRequired: false,
     categoryHint: 'read',
     impl: async (input, ctx) => {
@@ -303,14 +348,8 @@ export function buildSubagentProjectionTools(): MakaTool[] {
   return [buildSubagentListTool(), buildSubagentOutputTool()];
 }
 
-export function buildParentAgentTools(
-  deps: { taskLedger?: TaskLedgerStore } = {},
-): MakaTool[] {
-  return [
-    buildSubagentSpawnTool(deps),
-    buildAgentSwarmTool(),
-    ...buildSubagentProjectionTools(),
-  ];
+export function buildParentAgentTools(deps: { taskLedger?: TaskLedgerStore } = {}): MakaTool[] {
+  return [buildSubagentSpawnTool(deps), buildAgentSwarmTool(), ...buildSubagentProjectionTools()];
 }
 
 export function buildSubagentToolGroup(): ToolGroup {

@@ -1,9 +1,24 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { appendFile, link, mkdir, open, readFile, readdir, rename, rm, unlink, writeFile } from 'node:fs/promises';
+import {
+  appendFile,
+  link,
+  mkdir,
+  open,
+  readFile,
+  readdir,
+  rename,
+  rm,
+  unlink,
+  writeFile,
+} from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { appendJsonl } from './jsonl-append.js';
-import { decodeAgentRunEvent, decodeAgentRunHeader, decodeRuntimeEvent } from './execution-record-codec.js';
+import {
+  decodeAgentRunEvent,
+  decodeAgentRunHeader,
+  decodeRuntimeEvent,
+} from './execution-record-codec.js';
 import { classifyJsonRecord } from './json-prefix.js';
 import { syncDirectory, syncDirectoryChain, syncFile } from './stable-storage.js';
 import { chainWrite } from './write-queue.js';
@@ -19,7 +34,8 @@ import {
 } from '@maka/core';
 
 const SAFE_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
-const EXCLUSIVE_TEMP_SUFFIX_PATTERN = /^\d+\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.tmp$/;
+const EXCLUSIVE_TEMP_SUFFIX_PATTERN =
+  /^\d+\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.tmp$/;
 
 export const ROOT_TURN_ADMISSION_SCHEMA_VERSION = 1 as const;
 
@@ -101,7 +117,10 @@ class FileAgentRunStore implements DurableAgentRunStore {
     this.sessionsRoot = join(this.durabilityRoot, 'sessions');
   }
 
-  async createRun(header: AgentRunHeader, options: { durable?: boolean } = {}): Promise<AgentRunHeader> {
+  async createRun(
+    header: AgentRunHeader,
+    options: { durable?: boolean } = {},
+  ): Promise<AgentRunHeader> {
     assertSafeId(header.sessionId, 'Invalid session id');
     assertSafeId(header.runId, 'Invalid run id');
     await this.withQueue(header.sessionId, header.runId, async () => {
@@ -113,13 +132,17 @@ class FileAgentRunStore implements DurableAgentRunStore {
       );
       if (!created) throw new Error(`Agent run already exists: ${header.runId}`);
     });
-    await this.withProjectionQueue(header.sessionId, 'history_compact_checkpoint_recorded', async () => {
-      await this.initializeEventProjectionUnlocked(
-        header.sessionId,
-        header.runId,
-        'history_compact_checkpoint_recorded',
-      );
-    }).catch(() => {
+    await this.withProjectionQueue(
+      header.sessionId,
+      'history_compact_checkpoint_recorded',
+      async () => {
+        await this.initializeEventProjectionUnlocked(
+          header.sessionId,
+          header.runId,
+          'history_compact_checkpoint_recorded',
+        );
+      },
+    ).catch(() => {
       // Projection initialization is derived state; recovery can rebuild it from the run ledger.
     });
     return header;
@@ -192,7 +215,7 @@ class FileAgentRunStore implements DurableAgentRunStore {
       }
       const turnId = turnIdFromAdmissionFile(entry.name);
       if (turnId) {
-        admissions.push(await this.readRootTurnAdmission(sessionId, turnId) as RootTurnAdmission);
+        admissions.push((await this.readRootTurnAdmission(sessionId, turnId)) as RootTurnAdmission);
         continue;
       }
       if (isRootTurnAdmissionTemp(entry.name)) {
@@ -203,7 +226,9 @@ class FileAgentRunStore implements DurableAgentRunStore {
       throw new Error(`Invalid root turn admission entry: ${entry.name}`);
     }
     if (removedStagingFile) await syncDirectory(admissionsRoot);
-    return admissions.sort((a, b) => a.admittedAt - b.admittedAt || a.turnId.localeCompare(b.turnId));
+    return admissions.sort(
+      (a, b) => a.admittedAt - b.admittedAt || a.turnId.localeCompare(b.turnId),
+    );
   }
 
   async updateRun(
@@ -216,11 +241,10 @@ class FileAgentRunStore implements DurableAgentRunStore {
     await this.withQueue(sessionId, runId, async () => {
       const current = await this.readRunUnlocked(sessionId, runId);
       next = { ...current, ...patch, sessionId, runId };
-      await writeAtomic(
-        this.runPath(sessionId, runId),
-        JSON.stringify(next, sanitizeJson) + '\n',
-        { ...options, durabilityRoot: this.durabilityRoot },
-      );
+      await writeAtomic(this.runPath(sessionId, runId), JSON.stringify(next, sanitizeJson) + '\n', {
+        ...options,
+        durabilityRoot: this.durabilityRoot,
+      });
     });
     if (!next) throw new Error(`Failed to update run ${runId}`);
     return next;
@@ -270,7 +294,10 @@ class FileAgentRunStore implements DurableAgentRunStore {
       try {
         headers.push(await this.readRunUnlocked(sessionId, entry.name));
       } catch (error) {
-        if (isMissingFile(error) && await this.removeUncommittedRunDirectory(sessionId, entry.name)) {
+        if (
+          isMissingFile(error) &&
+          (await this.removeUncommittedRunDirectory(sessionId, entry.name))
+        ) {
           continue;
         }
         throw error;
@@ -370,7 +397,9 @@ class FileAgentRunStore implements DurableAgentRunStore {
           continue;
         if (strict) {
           const detail = error instanceof Error ? error.message : String(error);
-          throw new Error(`AgentRun ${runId} has a corrupt JSONL record at line ${entry.lineNumber}: ${detail}`);
+          throw new Error(
+            `AgentRun ${runId} has a corrupt JSONL record at line ${entry.lineNumber}: ${detail}`,
+          );
         }
         events.push({
           type: 'event_corrupt',
@@ -440,9 +469,10 @@ class FileAgentRunStore implements DurableAgentRunStore {
         current = undefined;
       }
       if (
-        current?.id !== options.replaceEventId
-        && shouldPreserveProjectionDuringRepair(current, event, type)
-      ) return;
+        current?.id !== options.replaceEventId &&
+        shouldPreserveProjectionDuringRepair(current, event, type)
+      )
+        return;
       await this.writeEventProjectionUnlocked(sessionId, type, event);
     });
   }
@@ -497,7 +527,11 @@ class FileAgentRunStore implements DurableAgentRunStore {
     return true;
   }
 
-  private withQueue(sessionId: string, runId: string, operation: () => Promise<void>): Promise<void> {
+  private withQueue(
+    sessionId: string,
+    runId: string,
+    operation: () => Promise<void>,
+  ): Promise<void> {
     assertSafeId(sessionId, 'Invalid session id');
     assertSafeId(runId, 'Invalid run id');
     return chainWrite(this.writeQueues, `${sessionId}:${runId}`, operation);
@@ -556,7 +590,11 @@ class FileAgentRunStore implements DurableAgentRunStore {
       const runs = await readdir(this.runsRoot(sessionId), {
         withFileTypes: true,
       });
-      if (runs.some((entry) => entry.isDirectory() && isSafeId(entry.name) && entry.name !== currentRunId)) {
+      if (
+        runs.some(
+          (entry) => entry.isDirectory() && isSafeId(entry.name) && entry.name !== currentRunId,
+        )
+      ) {
         return;
       }
       await this.writeEventProjectionUnlocked(sessionId, type, null);
@@ -574,8 +612,10 @@ function shouldPreserveCheckpointProjectionDuringAppend(
   if (currentSourceBound !== candidateSourceBound) return currentSourceBound;
   const currentCoverage = historyCompactProjectionCoverage(current);
   const candidateCoverage = historyCompactProjectionCoverage(candidate);
-  return currentCoverage !== undefined
-    && (candidateCoverage === undefined || currentCoverage > candidateCoverage);
+  return (
+    currentCoverage !== undefined &&
+    (candidateCoverage === undefined || currentCoverage > candidateCoverage)
+  );
 }
 
 function shouldPreserveProjectionDuringRepair(
@@ -590,8 +630,12 @@ function shouldPreserveProjectionDuringRepair(
   if (currentSourceBound !== candidateSourceBound) return currentSourceBound;
   const currentCoverage = historyCompactProjectionCoverage(current);
   const candidateCoverage = candidate && historyCompactProjectionCoverage(candidate);
-  return currentCoverage !== undefined
-    && (candidateCoverage === null || candidateCoverage === undefined || currentCoverage >= candidateCoverage);
+  return (
+    currentCoverage !== undefined &&
+    (candidateCoverage === null ||
+      candidateCoverage === undefined ||
+      currentCoverage >= candidateCoverage)
+  );
 }
 
 function historyCompactProjectionIsSourceBound(event: AgentRunEvent): boolean {
@@ -644,7 +688,9 @@ class FileRuntimeEventStore implements DurableRuntimeEventStore {
             this.runtimeEventsPath(sessionId, runId),
             await this.readRunHeader(sessionId, runId),
           );
-          if (immutableEvents.some((item) => completedPartialRuntimeStreamKey(item) === partial.key)) {
+          if (
+            immutableEvents.some((item) => completedPartialRuntimeStreamKey(item) === partial.key)
+          ) {
             return;
           }
           const metadata: RuntimePartialSnapshot = {
@@ -652,11 +698,10 @@ class FileRuntimeEventStore implements DurableRuntimeEventStore {
             event: partial.snapshot,
             ...(immutableEvents.at(-1)?.id ? { afterEventId: immutableEvents.at(-1)!.id } : {}),
           };
-          await writeAtomic(
-            partialPath,
-            JSON.stringify(metadata, sanitizeJson) + '\n',
-            { ...options, durabilityRoot: this.durabilityRoot },
-          );
+          await writeAtomic(partialPath, JSON.stringify(metadata, sanitizeJson) + '\n', {
+            ...options,
+            durabilityRoot: this.durabilityRoot,
+          });
         }
         if (partial.text) {
           if (options.durable) {
@@ -674,7 +719,9 @@ class FileRuntimeEventStore implements DurableRuntimeEventStore {
       );
       const completedPartialKey = completedPartialRuntimeStreamKey(event);
       if (completedPartialKey) {
-        await rm(this.runtimePartialPath(sessionId, runId, completedPartialKey), { force: true }).catch(() => {
+        await rm(this.runtimePartialPath(sessionId, runId, completedPartialKey), {
+          force: true,
+        }).catch(() => {
           // The immutable final is already durable. Reads suppress any stale snapshot.
         });
       }
@@ -689,7 +736,9 @@ class FileRuntimeEventStore implements DurableRuntimeEventStore {
     assertSafeId(sessionId, 'Invalid session id');
     assertSafeId(runId, 'Invalid run id');
     if (event.partial || !isTerminalRuntimeEvent(event)) {
-      throw new Error('Only a final terminal RuntimeEvent can cross the terminal durability barrier');
+      throw new Error(
+        'Only a final terminal RuntimeEvent can cross the terminal durability barrier',
+      );
     }
     await this.withQueue(sessionId, runId, async () => {
       const path = this.runtimeEventsPath(sessionId, runId);
@@ -717,9 +766,7 @@ class FileRuntimeEventStore implements DurableRuntimeEventStore {
       }
       const existingTerminal = existing.find(isTerminalRuntimeEvent);
       if (existingTerminal) {
-        throw new Error(
-          `Run ${runId} already has terminal RuntimeEvent ${existingTerminal.id}`,
-        );
+        throw new Error(`Run ${runId} already has terminal RuntimeEvent ${existingTerminal.id}`);
       }
       await appendJsonl(path, JSON.stringify(event, sanitizeJson) + '\n', {
         durable: true,
@@ -737,7 +784,9 @@ class FileRuntimeEventStore implements DurableRuntimeEventStore {
     );
     const partials = await this.readRuntimePartials(sessionId, runId);
     const completedPartialKeys = new Set(
-      events.map(completedPartialRuntimeStreamKey).filter((key): key is string => key !== undefined),
+      events
+        .map(completedPartialRuntimeStreamKey)
+        .filter((key): key is string => key !== undefined),
     );
     const visiblePartials = partials.filter(({ event }) => {
       const key = partialRuntimeStream(event)?.key;
@@ -749,7 +798,10 @@ class FileRuntimeEventStore implements DurableRuntimeEventStore {
   async readImmutableRuntimeEvents(sessionId: string, runId: string): Promise<RuntimeEvent[]> {
     assertSafeId(sessionId, 'Invalid session id');
     assertSafeId(runId, 'Invalid run id');
-    return readRuntimeEventJsonl(this.runtimeEventsPath(sessionId, runId), await this.readRunHeader(sessionId, runId));
+    return readRuntimeEventJsonl(
+      this.runtimeEventsPath(sessionId, runId),
+      await this.readRunHeader(sessionId, runId),
+    );
   }
 
   async readSessionRuntimeEvents(sessionId: string): Promise<RuntimeEvent[]> {
@@ -778,11 +830,12 @@ class FileRuntimeEventStore implements DurableRuntimeEventStore {
         });
       }
     }
-    ordered.sort((a, b) =>
-      a.event.ts - b.event.ts ||
-      a.runId.localeCompare(b.runId) ||
-      a.eventIndex - b.eventIndex ||
-      a.event.id.localeCompare(b.event.id)
+    ordered.sort(
+      (a, b) =>
+        a.event.ts - b.event.ts ||
+        a.runId.localeCompare(b.runId) ||
+        a.eventIndex - b.eventIndex ||
+        a.event.id.localeCompare(b.event.id),
     );
     return ordered.map((item) => item.event);
   }
@@ -802,10 +855,13 @@ class FileRuntimeEventStore implements DurableRuntimeEventStore {
   }
 
   private async readRunHeader(sessionId: string, runId: string): Promise<AgentRunHeader> {
-    return decodeAgentRunHeader(JSON.parse(await readFile(join(this.runDir(sessionId, runId), 'run.json'), 'utf8')), {
-      sessionId,
-      runId,
-    });
+    return decodeAgentRunHeader(
+      JSON.parse(await readFile(join(this.runDir(sessionId, runId), 'run.json'), 'utf8')),
+      {
+        sessionId,
+        runId,
+      },
+    );
   }
 
   private runtimePartialsDir(sessionId: string, runId: string): string {
@@ -816,7 +872,10 @@ class FileRuntimeEventStore implements DurableRuntimeEventStore {
     return join(this.runtimePartialsDir(sessionId, runId), `${key}.partial`);
   }
 
-  private async readRuntimePartials(sessionId: string, runId: string): Promise<RuntimePartialSnapshot[]> {
+  private async readRuntimePartials(
+    sessionId: string,
+    runId: string,
+  ): Promise<RuntimePartialSnapshot[]> {
     let entries;
     try {
       entries = await readdir(this.runtimePartialsDir(sessionId, runId), {
@@ -851,7 +910,11 @@ class FileRuntimeEventStore implements DurableRuntimeEventStore {
     return partials;
   }
 
-  private withQueue(sessionId: string, runId: string, operation: () => Promise<void>): Promise<void> {
+  private withQueue(
+    sessionId: string,
+    runId: string,
+    operation: () => Promise<void>,
+  ): Promise<void> {
     assertSafeId(sessionId, 'Invalid session id');
     assertSafeId(runId, 'Invalid run id');
     return chainWrite(this.writeQueues, `${sessionId}:${runId}`, operation);
@@ -889,28 +952,30 @@ function mergeRuntimePartialSnapshots(
   return merged;
 }
 
-function partialRuntimeStream(event: RuntimeEvent): {
-  key: string;
-  snapshot: RuntimeEvent;
-  text: string;
-} | undefined {
+function partialRuntimeStream(event: RuntimeEvent):
+  | {
+      key: string;
+      snapshot: RuntimeEvent;
+      text: string;
+    }
+  | undefined {
   if (!event.partial || event.status !== undefined || event.actions) return undefined;
   const content = event.content;
   let identity: string | undefined;
   let text = '';
   if (
-    content?.kind === 'text'
-    && content.attachments === undefined
-    && event.refs?.providerEventId
-    && hasOnlyKeys(event.refs, ['providerEventId'])
+    content?.kind === 'text' &&
+    content.attachments === undefined &&
+    event.refs?.providerEventId &&
+    hasOnlyKeys(event.refs, ['providerEventId'])
   ) {
     identity = `${content.kind}:provider:${event.refs.providerEventId}`;
     text = content.text;
   } else if (
-    content?.kind === 'thinking'
-    && content.signature === undefined
-    && event.refs?.providerEventId
-    && hasOnlyKeys(event.refs, ['providerEventId'])
+    content?.kind === 'thinking' &&
+    content.signature === undefined &&
+    event.refs?.providerEventId &&
+    hasOnlyKeys(event.refs, ['providerEventId'])
   ) {
     identity = `${content.kind}:provider:${event.refs.providerEventId}`;
     text = content.text;
@@ -919,9 +984,10 @@ function partialRuntimeStream(event: RuntimeEvent): {
   }
   if (!identity) return undefined;
   const key = runtimePartialStreamKey(identity, event);
-  const snapshot = content?.kind === 'text' || content?.kind === 'thinking'
-    ? { ...event, content: { ...content, text: '' } }
-    : event;
+  const snapshot =
+    content?.kind === 'text' || content?.kind === 'thinking'
+      ? { ...event, content: { ...content, text: '' } }
+      : event;
   return { key, snapshot, text };
 }
 
@@ -938,23 +1004,30 @@ function completedPartialRuntimeStreamKey(event: RuntimeEvent): string | undefin
 }
 
 function runtimePartialStreamKey(identity: string, event: RuntimeEvent): string {
-  return createHash('sha256').update(JSON.stringify([
-    identity,
-    event.sessionId,
-    event.invocationId,
-    event.runId,
-    event.turnId,
-    event.branch ?? null,
-    event.role,
-    event.author,
-  ])).digest('hex');
+  return createHash('sha256')
+    .update(
+      JSON.stringify([
+        identity,
+        event.sessionId,
+        event.invocationId,
+        event.runId,
+        event.turnId,
+        event.branch ?? null,
+        event.role,
+        event.author,
+      ]),
+    )
+    .digest('hex');
 }
 
 function hasOnlyKeys(value: object, allowed: readonly string[]): boolean {
   return Object.keys(value).every((key) => allowed.includes(key));
 }
 
-async function readRuntimeEventJsonl(path: string, expected: AgentRunHeader): Promise<RuntimeEvent[]> {
+async function readRuntimeEventJsonl(
+  path: string,
+  expected: AgentRunHeader,
+): Promise<RuntimeEvent[]> {
   let text: string;
   try {
     text = await readFile(path, 'utf8');
@@ -981,13 +1054,17 @@ async function readRuntimeEventJsonl(path: string, expected: AgentRunHeader): Pr
       )
         continue;
       const message = error instanceof Error ? error.message : 'Invalid JSON';
-      throw new Error(`Invalid RuntimeEvent JSONL line ${entry.lineNumber} for run ${expected.runId}: ${message}`);
+      throw new Error(
+        `Invalid RuntimeEvent JSONL line ${entry.lineNumber} for run ${expected.runId}: ${message}`,
+      );
     }
     try {
       events.push(decodeRuntimeEvent(parsed, expected));
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Invalid RuntimeEvent';
-      throw new Error(`Invalid RuntimeEvent JSONL line ${entry.lineNumber} for run ${expected.runId}: ${message}`);
+      throw new Error(
+        `Invalid RuntimeEvent JSONL line ${entry.lineNumber} for run ${expected.runId}: ${message}`,
+      );
     }
   }
   return events;
@@ -1000,12 +1077,14 @@ function isProjectedAgentRunEvent(
 ): value is AgentRunEvent {
   if (!value || typeof value !== 'object') return false;
   const event = value as Partial<AgentRunEvent>;
-  return event.type === type
-    && event.sessionId === sessionId
-    && typeof event.id === 'string'
-    && typeof event.runId === 'string'
-    && typeof event.turnId === 'string'
-    && Number.isFinite(event.ts);
+  return (
+    event.type === type &&
+    event.sessionId === sessionId &&
+    typeof event.id === 'string' &&
+    typeof event.runId === 'string' &&
+    typeof event.turnId === 'string' &&
+    Number.isFinite(event.ts)
+  );
 }
 
 interface AtomicWriteOptions {
@@ -1013,16 +1092,27 @@ interface AtomicWriteOptions {
   durabilityRoot?: string;
 }
 
-async function writeAtomic(path: string, content: string, options: AtomicWriteOptions = {}): Promise<void> {
+async function writeAtomic(
+  path: string,
+  content: string,
+  options: AtomicWriteOptions = {},
+): Promise<void> {
   try {
     await writeAtomicUnchecked(path, content, options);
   } catch (error) {
     if (!options.durable || error instanceof DurableStoreWriteError) throw error;
-    throw new DurableStoreWriteError(`Durable atomic write did not reach stable storage: ${path}`, error);
+    throw new DurableStoreWriteError(
+      `Durable atomic write did not reach stable storage: ${path}`,
+      error,
+    );
   }
 }
 
-async function appendFileDurably(path: string, content: string, durabilityRoot: string): Promise<void> {
+async function appendFileDurably(
+  path: string,
+  content: string,
+  durabilityRoot: string,
+): Promise<void> {
   try {
     const handle = await open(path, 'a');
     try {
@@ -1038,7 +1128,11 @@ async function appendFileDurably(path: string, content: string, durabilityRoot: 
   }
 }
 
-async function writeAtomicUnchecked(path: string, content: string, options: AtomicWriteOptions): Promise<void> {
+async function writeAtomicUnchecked(
+  path: string,
+  content: string,
+  options: AtomicWriteOptions,
+): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   const tempPath = `${path}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`;
   if (options.durable) {
@@ -1071,7 +1165,10 @@ async function writeExclusiveAtomic(
     return await writeExclusiveAtomicUnchecked(path, content, options, durabilityRoot);
   } catch (error) {
     if (!options.durable || error instanceof DurableStoreWriteError) throw error;
-    throw new DurableStoreWriteError(`Durable exclusive write did not reach stable storage: ${path}`, error);
+    throw new DurableStoreWriteError(
+      `Durable exclusive write did not reach stable storage: ${path}`,
+      error,
+    );
   }
 }
 
@@ -1126,16 +1223,17 @@ function normalizeRootTurnAdmission(
     throw new Error(`Invalid root turn admission for turn ${turnId}: expected an object`);
   }
   const record = value as Record<string, unknown>;
-  const valid = record.schemaVersion === ROOT_TURN_ADMISSION_SCHEMA_VERSION
-    && record.sessionId === sessionId
-    && record.turnId === turnId
-    && typeof record.runId === 'string'
-    && isSafeId(record.runId)
-    && typeof record.userMessageId === 'string'
-    && isSafeId(record.userMessageId)
-    && Number.isSafeInteger(record.admittedAt)
-    && (record.admittedAt as number) >= 0
-    && hasExactKeys(record, [
+  const valid =
+    record.schemaVersion === ROOT_TURN_ADMISSION_SCHEMA_VERSION &&
+    record.sessionId === sessionId &&
+    record.turnId === turnId &&
+    typeof record.runId === 'string' &&
+    isSafeId(record.runId) &&
+    typeof record.userMessageId === 'string' &&
+    isSafeId(record.userMessageId) &&
+    Number.isSafeInteger(record.admittedAt) &&
+    (record.admittedAt as number) >= 0 &&
+    hasExactKeys(record, [
       'schemaVersion',
       'sessionId',
       'turnId',
@@ -1163,7 +1261,11 @@ function normalizeRootTurnAdmissionInput(value: unknown): RootTurnAdmissionInput
     throw new Error('Invalid root turn normalized input: expected an object');
   }
   const record = value as Record<string, unknown>;
-  if (!hasExactKeys(record, ['text']) || typeof record.text !== 'string' || record.text.length === 0) {
+  if (
+    !hasExactKeys(record, ['text']) ||
+    typeof record.text !== 'string' ||
+    record.text.length === 0
+  ) {
     throw new Error('Invalid root turn normalized input');
   }
   return { text: record.text };
@@ -1179,14 +1281,15 @@ function isRootTurnAdmissionTemp(name: string): boolean {
   const marker = '.json.';
   const markerIndex = name.indexOf(marker);
   if (markerIndex < 1) return false;
-  return isSafeId(name.slice(0, markerIndex))
-    && EXCLUSIVE_TEMP_SUFFIX_PATTERN.test(name.slice(markerIndex + marker.length));
+  return (
+    isSafeId(name.slice(0, markerIndex)) &&
+    EXCLUSIVE_TEMP_SUFFIX_PATTERN.test(name.slice(markerIndex + marker.length))
+  );
 }
 
 function isExclusiveWriteTemp(name: string, targetName: string): boolean {
   const prefix = `${targetName}.`;
-  return name.startsWith(prefix)
-    && EXCLUSIVE_TEMP_SUFFIX_PATTERN.test(name.slice(prefix.length));
+  return name.startsWith(prefix) && EXCLUSIVE_TEMP_SUFFIX_PATTERN.test(name.slice(prefix.length));
 }
 
 function hasExactKeys(record: Record<string, unknown>, expected: readonly string[]): boolean {

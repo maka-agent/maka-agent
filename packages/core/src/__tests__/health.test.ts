@@ -33,10 +33,13 @@ describe('HealthSignal contract', () => {
   });
 
   test('verified LLM connection is validation health, not runtime operational', () => {
-    const result = healthSignalFromConnection(connection({
-      lastTestStatus: 'verified',
-      lastTestAt: '2026-05-22T07:30:00.000Z',
-    }), 20);
+    const result = healthSignalFromConnection(
+      connection({
+        lastTestStatus: 'verified',
+        lastTestAt: '2026-05-22T07:30:00.000Z',
+      }),
+      20,
+    );
 
     expect(result.status).toBe('ok');
     expect(result.layer).toBe('validation');
@@ -46,52 +49,64 @@ describe('HealthSignal contract', () => {
   });
 
   test('LLM runtime probe is separate from credential validation', () => {
-    const unknown = healthSignalFromConnectionRuntime(connection({ lastTestStatus: 'verified' }), undefined, 30);
+    const unknown = healthSignalFromConnectionRuntime(
+      connection({ lastTestStatus: 'verified' }),
+      undefined,
+      30,
+    );
     expect(unknown?.status).toBe('unknown');
     expect(unknown?.layer).toBe('runtime_probe');
     expect(unknown?.source).toBe('runtime_probe');
     expect(unknown?.message).toBe('等待完成发送运行态探测。');
     expect(/还没有记录到发送运行态探测/.test(unknown?.message ?? '')).toBe(false);
 
-    const ok = healthSignalFromConnectionRuntime(connection({ lastTestStatus: 'verified' }), {
-      id: 'usage_turn_1',
-      ts: 40,
-      connectionSlug: 'zai',
-      providerId: 'zai-coding-plan',
-      modelId: 'glm-4.7',
-      inputTokens: 1,
-      outputTokens: 2,
-      cacheMissTokens: 0,
-      cacheReadTokens: 0,
-      cacheWriteTokens: 0,
-      reasoningTokens: 0,
-      totalTokens: 3,
-      costUsd: 0,
-      latencyMs: 250,
-      status: 'success',
-    }, 30);
+    const ok = healthSignalFromConnectionRuntime(
+      connection({ lastTestStatus: 'verified' }),
+      {
+        id: 'usage_turn_1',
+        ts: 40,
+        connectionSlug: 'zai',
+        providerId: 'zai-coding-plan',
+        modelId: 'glm-4.7',
+        inputTokens: 1,
+        outputTokens: 2,
+        cacheMissTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        reasoningTokens: 0,
+        totalTokens: 3,
+        costUsd: 0,
+        latencyMs: 250,
+        status: 'success',
+      },
+      30,
+    );
     expect(ok?.status).toBe('ok');
     expect(ok?.checkedAt).toBe(40);
     expect(ok?.detail).toContain('模型=glm-4.7');
 
-    const failed = healthSignalFromConnectionRuntime(connection({ lastTestStatus: 'verified' }), {
-      id: 'usage_turn_2',
-      ts: 50,
-      connectionSlug: 'zai',
-      providerId: 'zai-coding-plan',
-      modelId: 'glm-4.7',
-      inputTokens: 1,
-      outputTokens: 0,
-      cacheMissTokens: 0,
-      cacheReadTokens: 0,
-      cacheWriteTokens: 0,
-      reasoningTokens: 0,
-      totalTokens: 1,
-      costUsd: 0,
-      latencyMs: 90,
-      status: 'error',
-      errorClass: 'auth',
-    }, 30);
+    const failed = healthSignalFromConnectionRuntime(
+      connection({ lastTestStatus: 'verified' }),
+      {
+        id: 'usage_turn_2',
+        ts: 50,
+        connectionSlug: 'zai',
+        providerId: 'zai-coding-plan',
+        modelId: 'glm-4.7',
+        inputTokens: 1,
+        outputTokens: 0,
+        cacheMissTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        reasoningTokens: 0,
+        totalTokens: 1,
+        costUsd: 0,
+        latencyMs: 90,
+        status: 'error',
+        errorClass: 'auth',
+      },
+      30,
+    );
     expect(failed?.status).toBe('warning');
     // PR-HEALTH-1 (xuan msg `e4887ffd` + kenji msg `bd8ee4c1`, I2 — demote):
     // historical runtime_probe error is surfaced as a warning, NOT a send
@@ -103,8 +118,12 @@ describe('HealthSignal contract', () => {
   });
 
   test('disabled or unconfigured connections do not emit runtime probe health', () => {
-    expect(healthSignalFromConnectionRuntime(connection({ enabled: false }), undefined, 30)).toBe(undefined);
-    expect(healthSignalFromConnectionRuntime(connection({ defaultModel: '' }), undefined, 30)).toBe(undefined);
+    expect(healthSignalFromConnectionRuntime(connection({ enabled: false }), undefined, 30)).toBe(
+      undefined,
+    );
+    expect(healthSignalFromConnectionRuntime(connection({ defaultModel: '' }), undefined, 30)).toBe(
+      undefined,
+    );
   });
 
   test('unconfigured connection health copy is an actionable waiting state', () => {
@@ -123,7 +142,11 @@ describe('HealthSignal contract', () => {
    * and `requireReadyConnection` (chat-readiness.ts) only.
    */
   describe('I2 — runtime_probe blocksSend is always false (demote)', () => {
-    function probeRow(overrides: { status: 'success' | 'error' | 'aborted'; ts?: number; errorClass?: string }) {
+    function probeRow(overrides: {
+      status: 'success' | 'error' | 'aborted';
+      ts?: number;
+      errorClass?: string;
+    }) {
       return {
         id: `usage_${overrides.status}`,
         ts: overrides.ts ?? 100,
@@ -215,12 +238,17 @@ describe('HealthSignal contract', () => {
    * signals — neither layer should impersonate the other.
    */
   test('E1: bot capability operational + connection unverified → two independent signals', () => {
-    const connectionUnverified = healthSignalFromConnection(connection({
-      lastTestStatus: undefined,
-    }), 20);
-    const botOperational = healthSignalFromCapability(capability('bot:telegram', 'enabled', {
-      runtimeProbe: { state: 'healthy', source: 'bot_registry', lastCheckedAt: 15 },
-    }));
+    const connectionUnverified = healthSignalFromConnection(
+      connection({
+        lastTestStatus: undefined,
+      }),
+      20,
+    );
+    const botOperational = healthSignalFromCapability(
+      capability('bot:telegram', 'enabled', {
+        runtimeProbe: { state: 'healthy', source: 'bot_registry', lastCheckedAt: 15 },
+      }),
+    );
 
     // Connection layer reports its own status (unknown because no test yet),
     // independent of the bot layer.
@@ -242,9 +270,11 @@ describe('HealthSignal contract', () => {
   });
 
   test('capability denied and degraded remain distinct health states', () => {
-    const denied = healthSignalFromCapability(capability('computer_use', 'denied', {
-      osPermissions: [{ id: 'accessibility', required: true, status: 'denied' }],
-    }));
+    const denied = healthSignalFromCapability(
+      capability('computer_use', 'denied', {
+        osPermissions: [{ id: 'accessibility', required: true, status: 'denied' }],
+      }),
+    );
     const degraded = healthSignalFromCapability(capability('bot:telegram', 'degraded'));
 
     expect(denied.status).toBe('error');
@@ -257,18 +287,20 @@ describe('HealthSignal contract', () => {
   });
 
   test('partial-only capabilities are warnings, not app-wide error states', () => {
-    const partial = healthSignalFromCapability(capability('activity_recorder', 'not_configured', {
-      feature: {
-        state: 'partial',
-        source: 'runtime',
-        reason: 'Daily Review 已聚合本地会话 / 工具 / 模型活动；当前不包含屏幕与应用级录制',
-      },
-      runtimeProbe: {
-        state: 'not_run',
-        source: 'runtime_probe',
-        reason: '打开 Daily Review 可查看本地活动聚合结果',
-      },
-    }));
+    const partial = healthSignalFromCapability(
+      capability('activity_recorder', 'not_configured', {
+        feature: {
+          state: 'partial',
+          source: 'runtime',
+          reason: 'Daily Review 已聚合本地会话 / 工具 / 模型活动；当前不包含屏幕与应用级录制',
+        },
+        runtimeProbe: {
+          state: 'not_run',
+          source: 'runtime_probe',
+          reason: '打开 Daily Review 可查看本地活动聚合结果',
+        },
+      }),
+    );
 
     expect(partial.status).toBe('warning');
     expect(partial.layer).toBe('feature');
@@ -276,18 +308,34 @@ describe('HealthSignal contract', () => {
   });
 
   test('capability details localize internal reason strings before renderer display', () => {
-    const paused = healthSignalFromCapability(capability('bot:telegram', 'paused', {
-      feature: { state: 'disabled', source: 'settings', reason: 'disabled' },
-    }));
-    const missing = healthSignalFromCapability(capability('bot:telegram', 'not_configured', {
-      configuration: { state: 'missing', source: 'settings', reason: 'missing platform credentials' },
-    }));
-    const unknownEnglish = healthSignalFromCapability(capability('bot:telegram', 'degraded', {
-      runtimeProbe: { state: 'degraded', source: 'runtime_probe', reason: 'polling-timeout' },
-    }));
-    const chinese = healthSignalFromCapability(capability('activity_recorder', 'enabled', {
-      runtimeProbe: { state: 'healthy', source: 'runtime_probe', reason: '打开 Daily Review 可查看本地活动聚合结果' },
-    }));
+    const paused = healthSignalFromCapability(
+      capability('bot:telegram', 'paused', {
+        feature: { state: 'disabled', source: 'settings', reason: 'disabled' },
+      }),
+    );
+    const missing = healthSignalFromCapability(
+      capability('bot:telegram', 'not_configured', {
+        configuration: {
+          state: 'missing',
+          source: 'settings',
+          reason: 'missing platform credentials',
+        },
+      }),
+    );
+    const unknownEnglish = healthSignalFromCapability(
+      capability('bot:telegram', 'degraded', {
+        runtimeProbe: { state: 'degraded', source: 'runtime_probe', reason: 'polling-timeout' },
+      }),
+    );
+    const chinese = healthSignalFromCapability(
+      capability('activity_recorder', 'enabled', {
+        runtimeProbe: {
+          state: 'healthy',
+          source: 'runtime_probe',
+          reason: '打开 Daily Review 可查看本地活动聚合结果',
+        },
+      }),
+    );
 
     expect(paused.detail).toBe('该能力当前已关闭。');
     expect(missing.detail).toBe('等待填写平台凭据。');
@@ -300,8 +348,14 @@ describe('HealthSignal contract', () => {
       healthSignalFromConnection(connection({ enabled: false }), 20),
       healthSignalFromConnection(connection({ defaultModel: '' }), 20),
       healthSignalFromConnection(connection({ lastTestStatus: 'verified' }), 20),
-      healthSignalFromConnection(connection({ lastTestStatus: 'needs_reauth', lastTestMessage: '需要重新登录' }), 20),
-      healthSignalFromConnection(connection({ lastTestStatus: 'error', lastTestMessage: '网络超时' }), 20),
+      healthSignalFromConnection(
+        connection({ lastTestStatus: 'needs_reauth', lastTestMessage: '需要重新登录' }),
+        20,
+      ),
+      healthSignalFromConnection(
+        connection({ lastTestStatus: 'error', lastTestMessage: '网络超时' }),
+        20,
+      ),
       healthSignalFromConnection(connection({ lastTestStatus: undefined }), 20),
       healthSignalFromConnectionRuntime(connection({ lastTestStatus: 'verified' }), undefined, 20),
       healthSignalFromConnectionRuntime(
@@ -327,33 +381,51 @@ describe('HealthSignal contract', () => {
         20,
       ),
       healthSignalFromCapability(capability('bot:telegram', 'enabled')),
-      healthSignalFromCapability(capability('bot:telegram', 'paused', {
-        feature: { state: 'disabled', source: 'settings', reason: 'disabled' },
-      })),
-      healthSignalFromCapability(capability('bot:telegram', 'not_configured', {
-        configuration: { state: 'missing', source: 'settings', reason: 'missing platform credentials' },
-      })),
+      healthSignalFromCapability(
+        capability('bot:telegram', 'paused', {
+          feature: { state: 'disabled', source: 'settings', reason: 'disabled' },
+        }),
+      ),
+      healthSignalFromCapability(
+        capability('bot:telegram', 'not_configured', {
+          configuration: {
+            state: 'missing',
+            source: 'settings',
+            reason: 'missing platform credentials',
+          },
+        }),
+      ),
       healthSignalFromCapability(capability('computer_use', 'denied')),
-      healthSignalFromCapability(capability('bot:telegram', 'degraded', {
-        runtimeProbe: { state: 'degraded', source: 'runtime_probe', reason: 'polling-timeout' },
-      })),
+      healthSignalFromCapability(
+        capability('bot:telegram', 'degraded', {
+          runtimeProbe: { state: 'degraded', source: 'runtime_probe', reason: 'polling-timeout' },
+        }),
+      ),
     ].filter((item): item is HealthSignal => Boolean(item));
-    const englishImplementationCopy = /\b(?:Connection|Credential|endpoint|validation|Capability|runtime probe|agent send|errorClass|latency|model=)\b/;
-    const unfinishedStateCopy = /连接尚未验证|能力尚未完整配置|还没有记录到发送运行态探测|连接缺少默认模型/;
+    const englishImplementationCopy =
+      /\b(?:Connection|Credential|endpoint|validation|Capability|runtime probe|agent send|errorClass|latency|model=)\b/;
+    const unfinishedStateCopy =
+      /连接尚未验证|能力尚未完整配置|还没有记录到发送运行态探测|连接缺少默认模型/;
     const rawReasonCopy = /\b(?:disabled|missing platform credentials|polling-timeout)\b/;
 
     for (const signal of signals) {
       if (englishImplementationCopy.test(signal.message)) {
-        throw new Error(`Health signal message exposes English implementation copy: ${signal.message}`);
+        throw new Error(
+          `Health signal message exposes English implementation copy: ${signal.message}`,
+        );
       }
       if (signal.detail && englishImplementationCopy.test(signal.detail)) {
-        throw new Error(`Health signal detail exposes English implementation copy: ${signal.detail}`);
+        throw new Error(
+          `Health signal detail exposes English implementation copy: ${signal.detail}`,
+        );
       }
       if (signal.detail && rawReasonCopy.test(signal.detail)) {
         throw new Error(`Health signal detail exposes raw reason copy: ${signal.detail}`);
       }
       if (unfinishedStateCopy.test(signal.message)) {
-        throw new Error(`Health signal message should describe an actionable state: ${signal.message}`);
+        throw new Error(
+          `Health signal message should describe an actionable state: ${signal.message}`,
+        );
       }
     }
   });
@@ -399,7 +471,10 @@ function capability(
     osPermissions: [],
     actionApproval: { state: 'required_per_action', source: 'capability_policy' },
     memoryAcceptance: { state: 'not_applicable', source: 'not_applicable' },
-    runtimeProbe: { state: readiness === 'degraded' ? 'degraded' : 'not_run', source: 'runtime_probe' },
+    runtimeProbe: {
+      state: readiness === 'degraded' ? 'degraded' : 'not_run',
+      source: 'runtime_probe',
+    },
     canRevoke: false,
     canPause: false,
     guidance: [],

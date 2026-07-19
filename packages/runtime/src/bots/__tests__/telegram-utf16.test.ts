@@ -94,6 +94,9 @@ describe('splitForTelegram (PR-TELEGRAM-UTF16-LIMIT-0)', () => {
     assert.ok(out.length >= 2);
     // The first chunk SHOULD end on a line boundary (not mid-word).
     const body0 = out[0]!.replace(/^\[\d+\/\d+\]\n/, '');
-    assert.ok(body0.endsWith('line') || body0.endsWith('line\n'), `unexpected tail: ${JSON.stringify(body0.slice(-20))}`);
+    assert.ok(
+      body0.endsWith('line') || body0.endsWith('line\n'),
+      `unexpected tail: ${JSON.stringify(body0.slice(-20))}`,
+    );
   });
 });

@@ -1,7 +1,7 @@
 /** Resolved locales supported by the desktop renderer. */
 export const UI_LOCALES = ['zh', 'en'] as const;
 
-export type UiLocale = typeof UI_LOCALES[number];
+export type UiLocale = (typeof UI_LOCALES)[number];
 
 /** The only persisted locale preference. The resolved locale is never stored. */
 export type UiLocalePreference = 'auto' | UiLocale;

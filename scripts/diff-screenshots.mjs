@@ -49,14 +49,54 @@ const MANIFEST_PATH = join(BASELINE_DIR, 'manifest.json');
  * adds a viewport but forgets to update sanity expectations).
  */
 const VARIANTS = [
-  { name: 'light-1280-motion', theme: 'light', viewport: { width: 1280, height: 820 }, reducedMotion: false },
-  { name: 'light-990-motion', theme: 'light', viewport: { width: 990, height: 820 }, reducedMotion: false },
-  { name: 'light-1280-reduced-motion', theme: 'light', viewport: { width: 1280, height: 820 }, reducedMotion: true },
-  { name: 'light-990-reduced-motion', theme: 'light', viewport: { width: 990, height: 820 }, reducedMotion: true },
-  { name: 'dark-1280-motion', theme: 'dark', viewport: { width: 1280, height: 820 }, reducedMotion: false },
-  { name: 'dark-990-motion', theme: 'dark', viewport: { width: 990, height: 820 }, reducedMotion: false },
-  { name: 'dark-1280-reduced-motion', theme: 'dark', viewport: { width: 1280, height: 820 }, reducedMotion: true },
-  { name: 'dark-990-reduced-motion', theme: 'dark', viewport: { width: 990, height: 820 }, reducedMotion: true },
+  {
+    name: 'light-1280-motion',
+    theme: 'light',
+    viewport: { width: 1280, height: 820 },
+    reducedMotion: false,
+  },
+  {
+    name: 'light-990-motion',
+    theme: 'light',
+    viewport: { width: 990, height: 820 },
+    reducedMotion: false,
+  },
+  {
+    name: 'light-1280-reduced-motion',
+    theme: 'light',
+    viewport: { width: 1280, height: 820 },
+    reducedMotion: true,
+  },
+  {
+    name: 'light-990-reduced-motion',
+    theme: 'light',
+    viewport: { width: 990, height: 820 },
+    reducedMotion: true,
+  },
+  {
+    name: 'dark-1280-motion',
+    theme: 'dark',
+    viewport: { width: 1280, height: 820 },
+    reducedMotion: false,
+  },
+  {
+    name: 'dark-990-motion',
+    theme: 'dark',
+    viewport: { width: 990, height: 820 },
+    reducedMotion: false,
+  },
+  {
+    name: 'dark-1280-reduced-motion',
+    theme: 'dark',
+    viewport: { width: 1280, height: 820 },
+    reducedMotion: true,
+  },
+  {
+    name: 'dark-990-reduced-motion',
+    theme: 'dark',
+    viewport: { width: 990, height: 820 },
+    reducedMotion: true,
+  },
 ];
 
 const SCALE_FACTORS = [1, 2]; // Retina captures may be 2x or 3x; we accept 1x or 2x for now.
@@ -111,9 +151,16 @@ function parseArgs(argv) {
         console.error('[diff-screenshots] --subset requires a comma-separated list of scenarios');
         process.exit(2);
       }
-      args.subset = new Set(value.split(',').map((s) => s.trim()).filter(Boolean));
+      args.subset = new Set(
+        value
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean),
+      );
     } else if (a === '--help' || a === '-h') {
-      console.log('Usage: diff-screenshots.mjs [--manifest|--update-baseline] [--subset stable|s1,s2,...]');
+      console.log(
+        'Usage: diff-screenshots.mjs [--manifest|--update-baseline] [--subset stable|s1,s2,...]',
+      );
       console.log('');
       console.log('Options:');
       console.log('  --subset stable       Only check the known-stable scenarios');
@@ -159,7 +206,10 @@ async function readPngDimensions(path) {
 async function listScenarios(root) {
   if (!existsSync(root)) return [];
   const entries = await readdir(root, { withFileTypes: true });
-  return entries.filter((e) => e.isDirectory()).map((e) => e.name).sort();
+  return entries
+    .filter((e) => e.isDirectory())
+    .map((e) => e.name)
+    .sort();
 }
 
 /**
@@ -199,9 +249,7 @@ async function checkOne(root, scenario, variant) {
 
 async function buildManifest(root, subset) {
   const allScenarios = await listScenarios(root);
-  const scenarios = subset
-    ? allScenarios.filter((s) => subset.has(s))
-    : allScenarios;
+  const scenarios = subset ? allScenarios.filter((s) => subset.has(s)) : allScenarios;
   if (subset && scenarios.length === 0) {
     console.error(`[diff-screenshots] --subset filtered out every scenario; nothing to compare.`);
     process.exit(2);
@@ -235,7 +283,12 @@ async function buildManifest(root, subset) {
         reducedMotion: variant.reducedMotion,
         ok: result.ok,
         locale: captureMeta?.locale ?? null,
-        ...(result.info ? { dimensions: { width: result.info.width, height: result.info.height }, bytes: result.info.bytes } : {}),
+        ...(result.info
+          ? {
+              dimensions: { width: result.info.width, height: result.info.height },
+              bytes: result.info.bytes,
+            }
+          : {}),
         ...(result.reason ? { reason: result.reason } : {}),
       });
     }
@@ -278,7 +331,9 @@ async function main() {
   const args = parseArgs(process.argv);
 
   if (!existsSync(SCREENSHOTS_DIR)) {
-    console.error(`[diff-screenshots] no screenshots dir at ${relative(REPO_ROOT, SCREENSHOTS_DIR)}`);
+    console.error(
+      `[diff-screenshots] no screenshots dir at ${relative(REPO_ROOT, SCREENSHOTS_DIR)}`,
+    );
     console.error('  Run `npm --workspace @maka/desktop run screenshots` first.');
     process.exit(2);
   }
@@ -318,7 +373,9 @@ async function main() {
     }
     await writeFile(MANIFEST_PATH, JSON.stringify(current, null, 2));
     console.log('');
-    console.log(`Baseline updated: ${summary.ok} PNGs + manifest at ${relative(REPO_ROOT, MANIFEST_PATH)}`);
+    console.log(
+      `Baseline updated: ${summary.ok} PNGs + manifest at ${relative(REPO_ROOT, MANIFEST_PATH)}`,
+    );
     process.exit(summary.failures.length === 0 ? 0 : 1);
   }
 
@@ -360,31 +417,43 @@ async function main() {
     console.log('');
     console.log('Failures (hard fail):');
     for (const entry of summary.failures) {
-      const detail = entry.reason === 'wrong_dimensions'
-        ? ` (got ${entry.dimensions?.width}×${entry.dimensions?.height})`
-        : entry.reason === 'too_small'
-        ? ` (${entry.bytes} bytes)`
-        : '';
+      const detail =
+        entry.reason === 'wrong_dimensions'
+          ? ` (got ${entry.dimensions?.width}×${entry.dimensions?.height})`
+          : entry.reason === 'too_small'
+            ? ` (${entry.bytes} bytes)`
+            : '';
       console.log(`  ${entry.scenario}/${entry.variant}.png — ${entry.reason}${detail}`);
     }
     console.log('');
     console.log('Fix options:');
     console.log('  - missing:           re-run `npm --workspace @maka/desktop run screenshots`');
     console.log('  - corrupt_png:       capture pipeline produced an invalid file; re-run');
-    console.log('  - too_small:         renderer didn\'t fully paint before capture; investigate fixture');
-    console.log('  - wrong_dimensions:  fixture viewport bounds not honored; check main.ts read of MAKA_VISUAL_SMOKE_WIDTH/HEIGHT');
-    if (sizeWarnings.length > 0) console.log('  - (size drift warnings reported below; not blocking)');
+    console.log(
+      "  - too_small:         renderer didn't fully paint before capture; investigate fixture",
+    );
+    console.log(
+      '  - wrong_dimensions:  fixture viewport bounds not honored; check main.ts read of MAKA_VISUAL_SMOKE_WIDTH/HEIGHT',
+    );
+    if (sizeWarnings.length > 0)
+      console.log('  - (size drift warnings reported below; not blocking)');
   }
 
   if (sizeWarnings.length > 0) {
     console.log('');
     console.log(`Size drift warnings (not blocking; ${sizeWarnings.length} entries):`);
     for (const w of sizeWarnings) {
-      console.log(`  ${w.scenario}/${w.variant}.png  baseline ${w.baselineBytes} → current ${w.currentBytes}  (${w.driftPct}% > ${w.tolerancePct}% tolerance)`);
+      console.log(
+        `  ${w.scenario}/${w.variant}.png  baseline ${w.baselineBytes} → current ${w.currentBytes}  (${w.driftPct}% > ${w.tolerancePct}% tolerance)`,
+      );
     }
     console.log('');
-    console.log('Large drift is usually OK (Electron rasterization noise) but watch for cliff-edge UI');
-    console.log('changes that produce a much larger / smaller PNG. Update baseline with `--update-baseline`');
+    console.log(
+      'Large drift is usually OK (Electron rasterization noise) but watch for cliff-edge UI',
+    );
+    console.log(
+      'changes that produce a much larger / smaller PNG. Update baseline with `--update-baseline`',
+    );
     console.log('after manual review.');
   }
 
@@ -395,7 +464,9 @@ async function main() {
   if (existsSync(MANIFEST_PATH)) {
     try {
       const baseline = JSON.parse(await readFile(MANIFEST_PATH, 'utf8'));
-      console.log(`  baseline captured: ${baseline.capturedAt} (main.js sha ${baseline.mainSha ?? 'n/a'})`);
+      console.log(
+        `  baseline captured: ${baseline.capturedAt} (main.js sha ${baseline.mainSha ?? 'n/a'})`,
+      );
     } catch {
       /* baseline manifest unreadable */
     }

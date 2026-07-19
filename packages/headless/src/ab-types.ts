@@ -46,12 +46,7 @@ export interface AbArmRunInput {
 
 export type AbArmRunner = (input: AbArmRunInput) => Promise<FixedPromptTaskWalEvent>;
 
-export type AbDecision =
-  | 'non_inferior'
-  | 'inferior'
-  | 'not_cleared'
-  | 'diagnostic'
-  | 'invalid';
+export type AbDecision = 'non_inferior' | 'inferior' | 'not_cleared' | 'diagnostic' | 'invalid';
 
 export interface AbArmSummary {
   attempts: number;

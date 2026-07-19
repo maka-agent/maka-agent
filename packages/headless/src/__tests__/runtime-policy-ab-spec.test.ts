@@ -18,6 +18,12 @@ test('runtime A/B spec requires a real pilot and repeated full evidence', () => 
   };
 
   assert.equal(parseRuntimePolicyAbSpec(base).fullReps, 2);
-  assert.throws(() => parseRuntimePolicyAbSpec({ ...base, fullReps: 1 }), /fullReps must be an integer of at least 2/);
-  assert.throws(() => parseRuntimePolicyAbSpec({ ...base, pilotTaskIds: [] }), /pilotTaskIds must be a non-empty string array/);
+  assert.throws(
+    () => parseRuntimePolicyAbSpec({ ...base, fullReps: 1 }),
+    /fullReps must be an integer of at least 2/,
+  );
+  assert.throws(
+    () => parseRuntimePolicyAbSpec({ ...base, pilotTaskIds: [] }),
+    /pilotTaskIds must be a non-empty string array/,
+  );
 });

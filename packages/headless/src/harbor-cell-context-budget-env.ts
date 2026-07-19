@@ -108,7 +108,7 @@ export const HARBOR_CELL_CONTEXT_ENV_KEYS = [
   'MAKA_CONTEXT_TASK_REPLAY_MAX_CHARS',
 ] as const;
 
-export type HarborCellContextEnvKey = typeof HARBOR_CELL_CONTEXT_ENV_KEYS[number];
+export type HarborCellContextEnvKey = (typeof HARBOR_CELL_CONTEXT_ENV_KEYS)[number];
 
 const HARBOR_CELL_CONTEXT_ENV_KEY_SET = new Set<string>(HARBOR_CELL_CONTEXT_ENV_KEYS);
 
@@ -118,7 +118,8 @@ export function normalizeHarborCellContextEnv(
   const result: Partial<Record<HarborCellContextEnvKey, string>> = {};
   for (const [key, value] of Object.entries(env)) {
     if (!key.startsWith('MAKA_CONTEXT_')) continue;
-    if (!HARBOR_CELL_CONTEXT_ENV_KEY_SET.has(key)) throw new Error(`unsupported Harbor context env key: ${key}`);
+    if (!HARBOR_CELL_CONTEXT_ENV_KEY_SET.has(key))
+      throw new Error(`unsupported Harbor context env key: ${key}`);
     if (value !== undefined) result[key as HarborCellContextEnvKey] = value;
   }
   return result;
@@ -141,39 +142,49 @@ export function buildHarborCellContextBudgetBackendOptions(
 ): HarborCellContextBudgetBackendOptions {
   normalizeHarborCellContextEnv(env);
   if (env.MAKA_CONTEXT_BUDGET === 'off') return {};
-  const pruneEnabled = booleanEnv(
-    env.MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE ??
-    env.MAKA_HARBOR_CONTEXT_STALE_TOOL_RESULT_PRUNE ??
-    env.MAKA_TOOL_RESULT_PRUNE,
-    'MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE',
-  ) ?? true;
-  const activePruneEnabled = booleanEnv(
-    env.MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE ??
-    env.MAKA_HARBOR_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE ??
-    env.MAKA_ACTIVE_TOOL_RESULT_PRUNE,
-    'MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE',
-  ) ?? true;
-  const archiveRetrievalEnabled = booleanEnv(
-    env.MAKA_CONTEXT_ARCHIVE_RETRIEVAL ??
-    env.MAKA_HARBOR_CONTEXT_ARCHIVE_RETRIEVAL,
-    'MAKA_CONTEXT_ARCHIVE_RETRIEVAL',
-  ) ?? false;
-  const activeFullCompactEnabled = booleanEnv(
-    env.MAKA_CONTEXT_ACTIVE_FULL_COMPACT ??
-    env.MAKA_HARBOR_CONTEXT_ACTIVE_FULL_COMPACT,
-    'MAKA_CONTEXT_ACTIVE_FULL_COMPACT',
-  ) ?? false;
-  const semanticCompactEnabled = booleanEnv(
-    env.MAKA_CONTEXT_SEMANTIC_COMPACT ??
-    env.MAKA_HARBOR_CONTEXT_SEMANTIC_COMPACT,
-    'MAKA_CONTEXT_SEMANTIC_COMPACT',
-  ) ?? false;
-  const synthesisCacheEnabled = booleanEnv(
-    env.MAKA_CONTEXT_SYNTHESIS_CACHE ??
-    env.MAKA_HARBOR_CONTEXT_SYNTHESIS_CACHE,
-    'MAKA_CONTEXT_SYNTHESIS_CACHE',
-  ) ?? false;
-  if (!pruneEnabled && !activePruneEnabled && !archiveRetrievalEnabled && !activeFullCompactEnabled && !semanticCompactEnabled && !synthesisCacheEnabled) return {};
+  const pruneEnabled =
+    booleanEnv(
+      env.MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE ??
+        env.MAKA_HARBOR_CONTEXT_STALE_TOOL_RESULT_PRUNE ??
+        env.MAKA_TOOL_RESULT_PRUNE,
+      'MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE',
+    ) ?? true;
+  const activePruneEnabled =
+    booleanEnv(
+      env.MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE ??
+        env.MAKA_HARBOR_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE ??
+        env.MAKA_ACTIVE_TOOL_RESULT_PRUNE,
+      'MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE',
+    ) ?? true;
+  const archiveRetrievalEnabled =
+    booleanEnv(
+      env.MAKA_CONTEXT_ARCHIVE_RETRIEVAL ?? env.MAKA_HARBOR_CONTEXT_ARCHIVE_RETRIEVAL,
+      'MAKA_CONTEXT_ARCHIVE_RETRIEVAL',
+    ) ?? false;
+  const activeFullCompactEnabled =
+    booleanEnv(
+      env.MAKA_CONTEXT_ACTIVE_FULL_COMPACT ?? env.MAKA_HARBOR_CONTEXT_ACTIVE_FULL_COMPACT,
+      'MAKA_CONTEXT_ACTIVE_FULL_COMPACT',
+    ) ?? false;
+  const semanticCompactEnabled =
+    booleanEnv(
+      env.MAKA_CONTEXT_SEMANTIC_COMPACT ?? env.MAKA_HARBOR_CONTEXT_SEMANTIC_COMPACT,
+      'MAKA_CONTEXT_SEMANTIC_COMPACT',
+    ) ?? false;
+  const synthesisCacheEnabled =
+    booleanEnv(
+      env.MAKA_CONTEXT_SYNTHESIS_CACHE ?? env.MAKA_HARBOR_CONTEXT_SYNTHESIS_CACHE,
+      'MAKA_CONTEXT_SYNTHESIS_CACHE',
+    ) ?? false;
+  if (
+    !pruneEnabled &&
+    !activePruneEnabled &&
+    !archiveRetrievalEnabled &&
+    !activeFullCompactEnabled &&
+    !semanticCompactEnabled &&
+    !synthesisCacheEnabled
+  )
+    return {};
 
   const contextBudget: ContextBudgetPolicy = {
     name: env.MAKA_CONTEXT_BUDGET_NAME ?? 'harbor-cell-context-budget',
@@ -189,15 +200,16 @@ export function buildHarborCellContextBudgetBackendOptions(
   ]);
   const minRecentTurns = firstContextNonNegativeIntEnv(env, ['MAKA_CONTEXT_MIN_RECENT_TURNS']);
   if (charsPerToken !== undefined) contextBudget.charsPerToken = charsPerToken;
-  if (maxHistoryEstimatedTokens !== undefined) contextBudget.maxHistoryEstimatedTokens = maxHistoryEstimatedTokens;
+  if (maxHistoryEstimatedTokens !== undefined)
+    contextBudget.maxHistoryEstimatedTokens = maxHistoryEstimatedTokens;
   if (maxHistoryTurns !== undefined) contextBudget.maxHistoryTurns = maxHistoryTurns;
   if (minRecentTurns !== undefined) contextBudget.minRecentTurns = minRecentTurns;
 
   if (pruneEnabled) {
     const maxResultEstimatedTokens = positiveIntEnv(
       env.MAKA_CONTEXT_STALE_TOOL_RESULT_MAX_ESTIMATED_TOKENS ??
-      env.MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE_MAX_ESTIMATED_TOKENS ??
-      env.MAKA_CONTEXT_STALE_TOOL_RESULT_MAX_TOKENS,
+        env.MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE_MAX_ESTIMATED_TOKENS ??
+        env.MAKA_CONTEXT_STALE_TOOL_RESULT_MAX_TOKENS,
       'MAKA_CONTEXT_STALE_TOOL_RESULT_MAX_ESTIMATED_TOKENS',
     );
     const minRecentTurnsFull = firstContextNonNegativeIntEnv(env, [
@@ -216,10 +228,12 @@ export function buildHarborCellContextBudgetBackendOptions(
   if (activePruneEnabled) {
     const maxCurrentResultEstimatedTokens = positiveIntEnv(
       env.MAKA_CONTEXT_ACTIVE_TOOL_RESULT_MAX_ESTIMATED_TOKENS ??
-      env.MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE_MAX_ESTIMATED_TOKENS,
+        env.MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE_MAX_ESTIMATED_TOKENS,
       'MAKA_CONTEXT_ACTIVE_TOOL_RESULT_MAX_ESTIMATED_TOKENS',
     );
-    const minStepNumber = firstContextNonNegativeIntEnv(env, ['MAKA_CONTEXT_ACTIVE_TOOL_RESULT_MIN_STEP_NUMBER']);
+    const minStepNumber = firstContextNonNegativeIntEnv(env, [
+      'MAKA_CONTEXT_ACTIVE_TOOL_RESULT_MIN_STEP_NUMBER',
+    ]);
     contextBudget.activeToolResultPrune = {
       enabled: true,
       ...(maxCurrentResultEstimatedTokens !== undefined ? { maxCurrentResultEstimatedTokens } : {}),
@@ -229,13 +243,19 @@ export function buildHarborCellContextBudgetBackendOptions(
 
   if (archiveRetrievalEnabled) {
     const mode = archiveRetrievalModeEnv(env.MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MODE);
-    const maxResults = positiveIntEnv(env.MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_RESULTS, 'MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_RESULTS');
+    const maxResults = positiveIntEnv(
+      env.MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_RESULTS,
+      'MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_RESULTS',
+    );
     const maxEstimatedTokens = positiveIntEnv(
       env.MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_ESTIMATED_TOKENS ??
-      env.MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_TOKENS,
+        env.MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_TOKENS,
       'MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_ESTIMATED_TOKENS',
     );
-    const maxBytes = positiveIntEnv(env.MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_BYTES, 'MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_BYTES');
+    const maxBytes = positiveIntEnv(
+      env.MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_BYTES,
+      'MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_BYTES',
+    );
     contextBudget.archiveRetrieval = {
       enabled: true,
       ...(mode ? { mode } : {}),
@@ -249,15 +269,21 @@ export function buildHarborCellContextBudgetBackendOptions(
     const mode = activeFullCompactModeEnv(env.MAKA_CONTEXT_ACTIVE_FULL_COMPACT_MODE);
     const maxActiveEstimatedTokens = positiveIntEnv(
       env.MAKA_CONTEXT_ACTIVE_FULL_COMPACT_MAX_ACTIVE_ESTIMATED_TOKENS ??
-      env.MAKA_CONTEXT_ACTIVE_FULL_COMPACT_MAX_ESTIMATED_TOKENS,
+        env.MAKA_CONTEXT_ACTIVE_FULL_COMPACT_MAX_ESTIMATED_TOKENS,
       'MAKA_CONTEXT_ACTIVE_FULL_COMPACT_MAX_ACTIVE_ESTIMATED_TOKENS',
     );
-    const minStepNumber = firstContextNonNegativeIntEnv(env, ['MAKA_CONTEXT_ACTIVE_FULL_COMPACT_MIN_STEP_NUMBER']);
-    const minRecentMessages = firstContextNonNegativeIntEnv(env, ['MAKA_CONTEXT_ACTIVE_FULL_COMPACT_MIN_RECENT_MESSAGES']);
-    const minRecentToolPairs = firstContextNonNegativeIntEnv(env, ['MAKA_CONTEXT_ACTIVE_FULL_COMPACT_MIN_RECENT_TOOL_PAIRS']);
+    const minStepNumber = firstContextNonNegativeIntEnv(env, [
+      'MAKA_CONTEXT_ACTIVE_FULL_COMPACT_MIN_STEP_NUMBER',
+    ]);
+    const minRecentMessages = firstContextNonNegativeIntEnv(env, [
+      'MAKA_CONTEXT_ACTIVE_FULL_COMPACT_MIN_RECENT_MESSAGES',
+    ]);
+    const minRecentToolPairs = firstContextNonNegativeIntEnv(env, [
+      'MAKA_CONTEXT_ACTIVE_FULL_COMPACT_MIN_RECENT_TOOL_PAIRS',
+    ]);
     const maxSummaryEstimatedTokens = positiveIntEnv(
       env.MAKA_CONTEXT_ACTIVE_FULL_COMPACT_MAX_SUMMARY_ESTIMATED_TOKENS ??
-      env.MAKA_CONTEXT_ACTIVE_FULL_COMPACT_SUMMARY_MAX_ESTIMATED_TOKENS,
+        env.MAKA_CONTEXT_ACTIVE_FULL_COMPACT_SUMMARY_MAX_ESTIMATED_TOKENS,
       'MAKA_CONTEXT_ACTIVE_FULL_COMPACT_MAX_SUMMARY_ESTIMATED_TOKENS',
     );
     const archiveRequired = booleanEnv(
@@ -289,12 +315,18 @@ export function buildHarborCellContextBudgetBackendOptions(
     const mode = semanticCompactModeEnv(env.MAKA_CONTEXT_SEMANTIC_COMPACT_MODE);
     const maxActiveEstimatedTokens = positiveIntEnv(
       env.MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_ACTIVE_ESTIMATED_TOKENS ??
-      env.MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_ESTIMATED_TOKENS,
+        env.MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_ESTIMATED_TOKENS,
       'MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_ACTIVE_ESTIMATED_TOKENS',
     );
-    const minStepNumber = firstContextNonNegativeIntEnv(env, ['MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_STEP_NUMBER']);
-    const minRecentMessages = firstContextNonNegativeIntEnv(env, ['MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_RECENT_MESSAGES']);
-    const minRecentToolPairs = firstContextNonNegativeIntEnv(env, ['MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_RECENT_TOOL_PAIRS']);
+    const minStepNumber = firstContextNonNegativeIntEnv(env, [
+      'MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_STEP_NUMBER',
+    ]);
+    const minRecentMessages = firstContextNonNegativeIntEnv(env, [
+      'MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_RECENT_MESSAGES',
+    ]);
+    const minRecentToolPairs = firstContextNonNegativeIntEnv(env, [
+      'MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_RECENT_TOOL_PAIRS',
+    ]);
     const minSafePrefixEstimatedTokens = positiveIntEnv(
       env.MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_SAFE_PREFIX_ESTIMATED_TOKENS,
       'MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_SAFE_PREFIX_ESTIMATED_TOKENS',
@@ -305,23 +337,31 @@ export function buildHarborCellContextBudgetBackendOptions(
     );
     const maxSummaryEstimatedTokens = positiveIntEnv(
       env.MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_SUMMARY_ESTIMATED_TOKENS ??
-      env.MAKA_CONTEXT_SEMANTIC_COMPACT_SUMMARY_MAX_ESTIMATED_TOKENS,
+        env.MAKA_CONTEXT_SEMANTIC_COMPACT_SUMMARY_MAX_ESTIMATED_TOKENS,
       'MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_SUMMARY_ESTIMATED_TOKENS',
     );
     const maxAcceptedProjectionEstimatedTokens = positiveIntEnv(
       env.MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_ACCEPTED_PROJECTION_ESTIMATED_TOKENS ??
-      env.MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_SUMMARY_ESTIMATED_TOKENS ??
-      env.MAKA_CONTEXT_SEMANTIC_COMPACT_SUMMARY_MAX_ESTIMATED_TOKENS,
+        env.MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_SUMMARY_ESTIMATED_TOKENS ??
+        env.MAKA_CONTEXT_SEMANTIC_COMPACT_SUMMARY_MAX_ESTIMATED_TOKENS,
       'MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_ACCEPTED_PROJECTION_ESTIMATED_TOKENS',
     );
-    const minSavingsTokens = firstContextNonNegativeIntEnv(env, ['MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_SAVINGS_TOKENS']);
-    const minNetSavingsTokens = firstContextNonNegativeIntEnv(env, ['MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_NET_SAVINGS_TOKENS']);
+    const minSavingsTokens = firstContextNonNegativeIntEnv(env, [
+      'MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_SAVINGS_TOKENS',
+    ]);
+    const minNetSavingsTokens = firstContextNonNegativeIntEnv(env, [
+      'MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_NET_SAVINGS_TOKENS',
+    ]);
     const maxCompactCallTokens = positiveIntEnv(
       env.MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_CALL_TOKENS,
       'MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_CALL_TOKENS',
     );
-    const maxConsecutiveInvalidSummaries = firstContextNonNegativeIntEnv(env, ['MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_CONSECUTIVE_INVALID_SUMMARIES']);
-    const invalidSummaryCooldownSteps = firstContextNonNegativeIntEnv(env, ['MAKA_CONTEXT_SEMANTIC_COMPACT_INVALID_SUMMARY_COOLDOWN_STEPS']);
+    const maxConsecutiveInvalidSummaries = firstContextNonNegativeIntEnv(env, [
+      'MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_CONSECUTIVE_INVALID_SUMMARIES',
+    ]);
+    const invalidSummaryCooldownSteps = firstContextNonNegativeIntEnv(env, [
+      'MAKA_CONTEXT_SEMANTIC_COMPACT_INVALID_SUMMARY_COOLDOWN_STEPS',
+    ]);
     const timeoutMs = positiveIntEnv(
       env.MAKA_CONTEXT_SEMANTIC_COMPACT_TIMEOUT_MS,
       'MAKA_CONTEXT_SEMANTIC_COMPACT_TIMEOUT_MS',
@@ -334,7 +374,9 @@ export function buildHarborCellContextBudgetBackendOptions(
     const forceRatio = numericEnv(env.MAKA_CONTEXT_SEMANTIC_COMPACT_FORCE_RATIO);
     const targetRatio = numericEnv(env.MAKA_CONTEXT_SEMANTIC_COMPACT_TARGET_RATIO);
     const minSavingsRatio = numericEnv(env.MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_SAVINGS_RATIO);
-    const compactCallTokenCostWeight = numericEnv(env.MAKA_CONTEXT_SEMANTIC_COMPACT_CALL_TOKEN_COST_WEIGHT);
+    const compactCallTokenCostWeight = numericEnv(
+      env.MAKA_CONTEXT_SEMANTIC_COMPACT_CALL_TOKEN_COST_WEIGHT,
+    );
     contextBudget.semanticCompact = {
       enabled: true,
       ...(mode ? { mode } : {}),
@@ -347,7 +389,9 @@ export function buildHarborCellContextBudgetBackendOptions(
       ...(minRecentToolPairs !== undefined ? { minRecentToolPairs } : {}),
       ...(minSafePrefixEstimatedTokens !== undefined ? { minSafePrefixEstimatedTokens } : {}),
       ...(minNewPrefixEstimatedTokens !== undefined ? { minNewPrefixEstimatedTokens } : {}),
-      ...(maxAcceptedProjectionEstimatedTokens !== undefined ? { maxAcceptedProjectionEstimatedTokens } : {}),
+      ...(maxAcceptedProjectionEstimatedTokens !== undefined
+        ? { maxAcceptedProjectionEstimatedTokens }
+        : {}),
       ...(maxSummaryEstimatedTokens !== undefined ? { maxSummaryEstimatedTokens } : {}),
       ...(minSavingsTokens !== undefined ? { minSavingsTokens } : {}),
       ...(minSavingsRatio !== undefined ? { minSavingsRatio } : {}),
@@ -374,9 +418,21 @@ export function buildHarborCellContextBudgetBackendOptions(
     contextBudget.synthesisCache = {
       enabled: true,
       mode: env.MAKA_CONTEXT_SYNTHESIS_CACHE_MODE === 'read_write' ? 'read_write' : 'lookup',
-      maxBlocks: positiveIntEnv(env.MAKA_CONTEXT_SYNTHESIS_CACHE_MAX_BLOCKS, 'MAKA_CONTEXT_SYNTHESIS_CACHE_MAX_BLOCKS') ?? 1,
-      maxEstimatedTokens: positiveIntEnv(env.MAKA_CONTEXT_SYNTHESIS_CACHE_MAX_TOKENS, 'MAKA_CONTEXT_SYNTHESIS_CACHE_MAX_TOKENS') ?? 2048,
-      maxBlockEstimatedTokens: positiveIntEnv(env.MAKA_CONTEXT_SYNTHESIS_CACHE_MAX_BLOCK_TOKENS, 'MAKA_CONTEXT_SYNTHESIS_CACHE_MAX_BLOCK_TOKENS') ?? 1024,
+      maxBlocks:
+        positiveIntEnv(
+          env.MAKA_CONTEXT_SYNTHESIS_CACHE_MAX_BLOCKS,
+          'MAKA_CONTEXT_SYNTHESIS_CACHE_MAX_BLOCKS',
+        ) ?? 1,
+      maxEstimatedTokens:
+        positiveIntEnv(
+          env.MAKA_CONTEXT_SYNTHESIS_CACHE_MAX_TOKENS,
+          'MAKA_CONTEXT_SYNTHESIS_CACHE_MAX_TOKENS',
+        ) ?? 2048,
+      maxBlockEstimatedTokens:
+        positiveIntEnv(
+          env.MAKA_CONTEXT_SYNTHESIS_CACHE_MAX_BLOCK_TOKENS,
+          'MAKA_CONTEXT_SYNTHESIS_CACHE_MAX_BLOCK_TOKENS',
+        ) ?? 1024,
       invalidateOnNewToolResult: true,
       schemaVersion: 1,
     };
@@ -404,7 +460,8 @@ export function buildHarborCellContextBudgetBackendOptions(
       return { artifactId };
     },
     readToolResultArchive: async (input) => {
-      if (!isSafeHarborCellArchiveArtifactId(input.artifactId)) return { ok: false, reason: 'not_allowed' };
+      if (!isSafeHarborCellArchiveArtifactId(input.artifactId))
+        return { ok: false, reason: 'not_allowed' };
       let raw: string;
       try {
         raw = await readFile(join(archiveDir, input.artifactId), 'utf8');
@@ -419,10 +476,14 @@ export function buildHarborCellContextBudgetBackendOptions(
       }
       if (!isHarborCellToolResultArchiveRecord(parsed)) return { ok: false, reason: 'corrupt' };
       if (parsed.sessionId !== input.sessionId) return { ok: false, reason: 'session_mismatch' };
-      if (parsed.runtimeEventId !== input.runtimeEventId || parsed.toolCallId !== input.toolCallId) {
+      if (
+        parsed.runtimeEventId !== input.runtimeEventId ||
+        parsed.toolCallId !== input.toolCallId
+      ) {
         return { ok: false, reason: 'source_mismatch' };
       }
-      if (parsed.originalBytes !== input.originalBytes) return { ok: false, reason: 'size_mismatch' };
+      if (parsed.originalBytes !== input.originalBytes)
+        return { ok: false, reason: 'size_mismatch' };
       if (parsed.bodySha256 !== input.bodySha256) return { ok: false, reason: 'source_mismatch' };
       const actualSha = createHash('sha256').update(parsed.serializedResult).digest('hex');
       if (actualSha !== input.bodySha256) return { ok: false, reason: 'corrupt' };
@@ -442,7 +503,11 @@ export function buildHarborCellTaskLedgerExperimentPolicy(
   if (!enabled) return undefined;
   return {
     enabled: true,
-    replayMaxChars: positiveIntEnv(env.MAKA_CONTEXT_TASK_REPLAY_MAX_CHARS, 'MAKA_CONTEXT_TASK_REPLAY_MAX_CHARS') ?? 4_000,
+    replayMaxChars:
+      positiveIntEnv(
+        env.MAKA_CONTEXT_TASK_REPLAY_MAX_CHARS,
+        'MAKA_CONTEXT_TASK_REPLAY_MAX_CHARS',
+      ) ?? 4_000,
   };
 }
 
@@ -456,7 +521,9 @@ export function buildHarborCellContextBudgetPolicySnapshot(
   return {
     enabled: true,
     name: contextBudget.name,
-    ...(contextBudget.maxHistoryTurns !== undefined ? { maxHistoryTurns: contextBudget.maxHistoryTurns } : {}),
+    ...(contextBudget.maxHistoryTurns !== undefined
+      ? { maxHistoryTurns: contextBudget.maxHistoryTurns }
+      : {}),
     ...(contextBudget.maxHistoryEstimatedTokens !== undefined
       ? { maxHistoryEstimatedTokens: contextBudget.maxHistoryEstimatedTokens }
       : {}),
@@ -464,8 +531,10 @@ export function buildHarborCellContextBudgetPolicySnapshot(
       ? {
           staleToolResultPrune: {
             enabled: contextBudget.staleToolResultPrune.enabled,
-            maxResultEstimatedTokens: contextBudget.staleToolResultPrune.maxResultEstimatedTokens ?? 2048,
-            minRecentTurnsFull: contextBudget.staleToolResultPrune.minRecentTurnsFull ?? minRecentTurns,
+            maxResultEstimatedTokens:
+              contextBudget.staleToolResultPrune.maxResultEstimatedTokens ?? 2048,
+            minRecentTurnsFull:
+              contextBudget.staleToolResultPrune.minRecentTurnsFull ?? minRecentTurns,
           },
         }
       : {}),
@@ -473,7 +542,8 @@ export function buildHarborCellContextBudgetPolicySnapshot(
       ? {
           activeToolResultPrune: {
             enabled: contextBudget.activeToolResultPrune.enabled,
-            maxCurrentResultEstimatedTokens: contextBudget.activeToolResultPrune.maxCurrentResultEstimatedTokens ?? 2048,
+            maxCurrentResultEstimatedTokens:
+              contextBudget.activeToolResultPrune.maxCurrentResultEstimatedTokens ?? 2048,
             minStepNumber: contextBudget.activeToolResultPrune.minStepNumber ?? 1,
           },
         }
@@ -482,7 +552,9 @@ export function buildHarborCellContextBudgetPolicySnapshot(
       ? {
           activeFullCompact: {
             enabled: contextBudget.activeFullCompact.enabled,
-            ...(contextBudget.activeFullCompact.mode ? { mode: contextBudget.activeFullCompact.mode } : {}),
+            ...(contextBudget.activeFullCompact.mode
+              ? { mode: contextBudget.activeFullCompact.mode }
+              : {}),
             ...(contextBudget.activeFullCompact.minStepNumber !== undefined
               ? { minStepNumber: contextBudget.activeFullCompact.minStepNumber }
               : {}),
@@ -496,7 +568,10 @@ export function buildHarborCellContextBudgetPolicySnapshot(
               ? { targetRatio: contextBudget.activeFullCompact.targetRatio }
               : {}),
             ...(contextBudget.activeFullCompact.maxActiveEstimatedTokens !== undefined
-              ? { maxActiveEstimatedTokens: contextBudget.activeFullCompact.maxActiveEstimatedTokens }
+              ? {
+                  maxActiveEstimatedTokens:
+                    contextBudget.activeFullCompact.maxActiveEstimatedTokens,
+                }
               : {}),
             ...(contextBudget.activeFullCompact.minRecentMessages !== undefined
               ? { minRecentMessages: contextBudget.activeFullCompact.minRecentMessages }
@@ -505,7 +580,10 @@ export function buildHarborCellContextBudgetPolicySnapshot(
               ? { minRecentToolPairs: contextBudget.activeFullCompact.minRecentToolPairs }
               : {}),
             ...(contextBudget.activeFullCompact.maxSummaryEstimatedTokens !== undefined
-              ? { maxSummaryEstimatedTokens: contextBudget.activeFullCompact.maxSummaryEstimatedTokens }
+              ? {
+                  maxSummaryEstimatedTokens:
+                    contextBudget.activeFullCompact.maxSummaryEstimatedTokens,
+                }
               : {}),
             ...(contextBudget.activeFullCompact.archiveRequired !== undefined
               ? { archiveRequired: contextBudget.activeFullCompact.archiveRequired }
@@ -520,7 +598,9 @@ export function buildHarborCellContextBudgetPolicySnapshot(
       ? {
           semanticCompact: {
             enabled: contextBudget.semanticCompact.enabled,
-            ...(contextBudget.semanticCompact.mode ? { mode: contextBudget.semanticCompact.mode } : {}),
+            ...(contextBudget.semanticCompact.mode
+              ? { mode: contextBudget.semanticCompact.mode }
+              : {}),
             ...(contextBudget.semanticCompact.minStepNumber !== undefined
               ? { minStepNumber: contextBudget.semanticCompact.minStepNumber }
               : {}),
@@ -543,16 +623,28 @@ export function buildHarborCellContextBudgetPolicySnapshot(
               ? { minRecentToolPairs: contextBudget.semanticCompact.minRecentToolPairs }
               : {}),
             ...(contextBudget.semanticCompact.minSafePrefixEstimatedTokens !== undefined
-              ? { minSafePrefixEstimatedTokens: contextBudget.semanticCompact.minSafePrefixEstimatedTokens }
+              ? {
+                  minSafePrefixEstimatedTokens:
+                    contextBudget.semanticCompact.minSafePrefixEstimatedTokens,
+                }
               : {}),
             ...(contextBudget.semanticCompact.minNewPrefixEstimatedTokens !== undefined
-              ? { minNewPrefixEstimatedTokens: contextBudget.semanticCompact.minNewPrefixEstimatedTokens }
+              ? {
+                  minNewPrefixEstimatedTokens:
+                    contextBudget.semanticCompact.minNewPrefixEstimatedTokens,
+                }
               : {}),
             ...(contextBudget.semanticCompact.maxAcceptedProjectionEstimatedTokens !== undefined
-              ? { maxAcceptedProjectionEstimatedTokens: contextBudget.semanticCompact.maxAcceptedProjectionEstimatedTokens }
+              ? {
+                  maxAcceptedProjectionEstimatedTokens:
+                    contextBudget.semanticCompact.maxAcceptedProjectionEstimatedTokens,
+                }
               : {}),
             ...(contextBudget.semanticCompact.maxSummaryEstimatedTokens !== undefined
-              ? { maxSummaryEstimatedTokens: contextBudget.semanticCompact.maxSummaryEstimatedTokens }
+              ? {
+                  maxSummaryEstimatedTokens:
+                    contextBudget.semanticCompact.maxSummaryEstimatedTokens,
+                }
               : {}),
             ...(contextBudget.semanticCompact.minSavingsTokens !== undefined
               ? { minSavingsTokens: contextBudget.semanticCompact.minSavingsTokens }
@@ -564,16 +656,25 @@ export function buildHarborCellContextBudgetPolicySnapshot(
               ? { minNetSavingsTokens: contextBudget.semanticCompact.minNetSavingsTokens }
               : {}),
             ...(contextBudget.semanticCompact.compactCallTokenCostWeight !== undefined
-              ? { compactCallTokenCostWeight: contextBudget.semanticCompact.compactCallTokenCostWeight }
+              ? {
+                  compactCallTokenCostWeight:
+                    contextBudget.semanticCompact.compactCallTokenCostWeight,
+                }
               : {}),
             ...(contextBudget.semanticCompact.maxCompactCallTokens !== undefined
               ? { maxCompactCallTokens: contextBudget.semanticCompact.maxCompactCallTokens }
               : {}),
             ...(contextBudget.semanticCompact.maxConsecutiveInvalidSummaries !== undefined
-              ? { maxConsecutiveInvalidSummaries: contextBudget.semanticCompact.maxConsecutiveInvalidSummaries }
+              ? {
+                  maxConsecutiveInvalidSummaries:
+                    contextBudget.semanticCompact.maxConsecutiveInvalidSummaries,
+                }
               : {}),
             ...(contextBudget.semanticCompact.invalidSummaryCooldownSteps !== undefined
-              ? { invalidSummaryCooldownSteps: contextBudget.semanticCompact.invalidSummaryCooldownSteps }
+              ? {
+                  invalidSummaryCooldownSteps:
+                    contextBudget.semanticCompact.invalidSummaryCooldownSteps,
+                }
               : {}),
             ...(contextBudget.semanticCompact.timeoutMs !== undefined
               ? { timeoutMs: contextBudget.semanticCompact.timeoutMs }
@@ -597,7 +698,9 @@ export function buildHarborCellContextBudgetPolicySnapshot(
       ? {
           archiveRetrieval: {
             enabled: contextBudget.archiveRetrieval.enabled,
-            ...(contextBudget.archiveRetrieval.mode ? { mode: contextBudget.archiveRetrieval.mode } : {}),
+            ...(contextBudget.archiveRetrieval.mode
+              ? { mode: contextBudget.archiveRetrieval.mode }
+              : {}),
             maxResults: contextBudget.archiveRetrieval.maxResults ?? 3,
             maxEstimatedTokens: contextBudget.archiveRetrieval.maxEstimatedTokens ?? 8192,
             maxBytes: contextBudget.archiveRetrieval.maxBytes ?? 1024 * 1024,
@@ -609,12 +712,16 @@ export function buildHarborCellContextBudgetPolicySnapshot(
       ? {
           synthesisCache: {
             enabled: contextBudget.synthesisCache.enabled,
-            ...(contextBudget.synthesisCache.mode ? { mode: contextBudget.synthesisCache.mode } : {}),
+            ...(contextBudget.synthesisCache.mode
+              ? { mode: contextBudget.synthesisCache.mode }
+              : {}),
             maxBlocks: contextBudget.synthesisCache.maxBlocks ?? 1,
             maxEstimatedTokens: contextBudget.synthesisCache.maxEstimatedTokens ?? 2048,
             maxBlockEstimatedTokens: contextBudget.synthesisCache.maxBlockEstimatedTokens ?? 1024,
             ...(contextBudget.synthesisCache.invalidateOnNewToolResult !== undefined
-              ? { invalidateOnNewToolResult: contextBudget.synthesisCache.invalidateOnNewToolResult }
+              ? {
+                  invalidateOnNewToolResult: contextBudget.synthesisCache.invalidateOnNewToolResult,
+                }
               : {}),
             ...(contextBudget.synthesisCache.schemaVersion !== undefined
               ? { schemaVersion: contextBudget.synthesisCache.schemaVersion }
@@ -640,7 +747,8 @@ function firstContextNonNegativeIntEnv(
 function contextNonNegativeIntEnv(raw: string | undefined, name: string): number | undefined {
   const value = raw?.trim();
   if (value === undefined || value === '') return undefined;
-  if (!/^\d+$/.test(value)) throw new Error(`${name} must be a non-negative integer, got ${JSON.stringify(raw)}`);
+  if (!/^\d+$/.test(value))
+    throw new Error(`${name} must be a non-negative integer, got ${JSON.stringify(raw)}`);
   return Number(value);
 }
 
@@ -650,7 +758,9 @@ function archiveRetrievalModeEnv(
   const value = raw?.trim();
   if (value === undefined || value === '') return undefined;
   if (value === 'eager' || value === 'history_search_gated') return value;
-  throw new Error(`MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MODE must be one of eager, history_search_gated, got ${JSON.stringify(raw)}`);
+  throw new Error(
+    `MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MODE must be one of eager, history_search_gated, got ${JSON.stringify(raw)}`,
+  );
 }
 
 function activeFullCompactModeEnv(
@@ -658,7 +768,12 @@ function activeFullCompactModeEnv(
 ): NonNullable<ContextBudgetPolicy['activeFullCompact']>['mode'] | undefined {
   const value = raw?.trim();
   if (value === undefined || value === '') return undefined;
-  if (value === 'off' || value === 'index_only' || value === 'validate_only' || value === 'prepare_step_dry_run') {
+  if (
+    value === 'off' ||
+    value === 'index_only' ||
+    value === 'validate_only' ||
+    value === 'prepare_step_dry_run'
+  ) {
     return value;
   }
   throw new Error(
@@ -671,7 +786,12 @@ function semanticCompactModeEnv(
 ): NonNullable<ContextBudgetPolicy['semanticCompact']>['mode'] | undefined {
   const value = raw?.trim();
   if (value === undefined || value === '') return undefined;
-  if (value === 'off' || value === 'validate_only' || value === 'prepare_step_dry_run' || value === 'replace') {
+  if (
+    value === 'off' ||
+    value === 'validate_only' ||
+    value === 'prepare_step_dry_run' ||
+    value === 'replace'
+  ) {
     return value;
   }
   throw new Error(
@@ -693,11 +813,13 @@ function harborCellToolResultArchiveArtifactId(input: {
   runtimeEventId: string;
   bodySha256: string;
 }): string {
-  return [
-    safeArtifactIdPart(input.sessionId),
-    safeArtifactIdPart(input.runtimeEventId),
-    safeArtifactIdPart(input.bodySha256.slice(0, 16)),
-  ].join('--') + '.json';
+  return (
+    [
+      safeArtifactIdPart(input.sessionId),
+      safeArtifactIdPart(input.runtimeEventId),
+      safeArtifactIdPart(input.bodySha256.slice(0, 16)),
+    ].join('--') + '.json'
+  );
 }
 
 function safeArtifactIdPart(value: string): string {
@@ -709,7 +831,9 @@ function isSafeHarborCellArchiveArtifactId(value: string): boolean {
   return /^[A-Za-z0-9_.=-]+\.json$/.test(value);
 }
 
-function isHarborCellToolResultArchiveRecord(value: unknown): value is HarborCellToolResultArchiveRecord {
+function isHarborCellToolResultArchiveRecord(
+  value: unknown,
+): value is HarborCellToolResultArchiveRecord {
   return (
     isRecord(value) &&
     value.version === 1 &&

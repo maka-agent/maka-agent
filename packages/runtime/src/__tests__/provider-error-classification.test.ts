@@ -3,10 +3,7 @@ import { describe, test } from 'node:test';
 import { createJsonErrorResponseHandler } from '@ai-sdk/provider-utils';
 import { z } from 'zod/v4';
 
-import {
-  classifyError,
-  errorPresentationFromClass,
-} from '../provider-error-classification.js';
+import { classifyError, errorPresentationFromClass } from '../provider-error-classification.js';
 
 describe('Provider error classification', () => {
   test('classifies provider context-length overflow errors as ContextLength', () => {
@@ -14,19 +11,72 @@ describe('Provider error classification', () => {
       classifyError(Object.assign(new Error(message), { name: 'AI_APICallError', ...extra }));
 
     // A representative sample across the providers Maka supports.
-    assert.equal(overflow('prompt is too long: 213462 tokens > 200000 maximum', { statusCode: 400 }), 'ContextLength'); // Anthropic
-    assert.equal(overflow('413 request_too_large: Request exceeds the maximum size', { statusCode: 413 }), 'ContextLength'); // Anthropic 413
-    assert.equal(overflow('Your input exceeds the context window of this model', { statusCode: 400 }), 'ContextLength'); // OpenAI
-    assert.equal(overflow("Requested token count exceeds the model's maximum context length of 131072 tokens", { statusCode: 400 }), 'ContextLength'); // LiteLLM
-    assert.equal(overflow('The input token count (1196265) exceeds the maximum number of tokens allowed (1048575)', { statusCode: 400 }), 'ContextLength'); // Google
-    assert.equal(overflow("This model's maximum prompt length is 131072 but the request contains 537812 tokens", { statusCode: 400 }), 'ContextLength'); // xAI
-    assert.equal(overflow('Please reduce the length of the messages or completion', { statusCode: 400 }), 'ContextLength'); // Groq
-    assert.equal(overflow("This endpoint's maximum context length is 262144 tokens", { statusCode: 400 }), 'ContextLength'); // OpenRouter
-    assert.equal(overflow('Prompt contains 5000 tokens; too large for model with 4096 maximum context length', { statusCode: 400 }), 'ContextLength'); // Mistral
-    assert.equal(overflow('invalid params, context window exceeds limit', { statusCode: 400 }), 'ContextLength'); // MiniMax
-    assert.equal(overflow('Your request exceeded model token limit: 200000 (requested: 260000)', { statusCode: 400 }), 'ContextLength'); // Kimi
-    assert.equal(overflow('prompt token count of 21000 exceeds the limit of 16384', { statusCode: 400 }), 'ContextLength'); // GitHub Copilot
-    assert.equal(overflow('the prompt contains too many tokens', { statusCode: 400 }), 'ContextLength'); // generic prompt-overflow wording
+    assert.equal(
+      overflow('prompt is too long: 213462 tokens > 200000 maximum', { statusCode: 400 }),
+      'ContextLength',
+    ); // Anthropic
+    assert.equal(
+      overflow('413 request_too_large: Request exceeds the maximum size', { statusCode: 413 }),
+      'ContextLength',
+    ); // Anthropic 413
+    assert.equal(
+      overflow('Your input exceeds the context window of this model', { statusCode: 400 }),
+      'ContextLength',
+    ); // OpenAI
+    assert.equal(
+      overflow(
+        "Requested token count exceeds the model's maximum context length of 131072 tokens",
+        { statusCode: 400 },
+      ),
+      'ContextLength',
+    ); // LiteLLM
+    assert.equal(
+      overflow(
+        'The input token count (1196265) exceeds the maximum number of tokens allowed (1048575)',
+        { statusCode: 400 },
+      ),
+      'ContextLength',
+    ); // Google
+    assert.equal(
+      overflow(
+        "This model's maximum prompt length is 131072 but the request contains 537812 tokens",
+        { statusCode: 400 },
+      ),
+      'ContextLength',
+    ); // xAI
+    assert.equal(
+      overflow('Please reduce the length of the messages or completion', { statusCode: 400 }),
+      'ContextLength',
+    ); // Groq
+    assert.equal(
+      overflow("This endpoint's maximum context length is 262144 tokens", { statusCode: 400 }),
+      'ContextLength',
+    ); // OpenRouter
+    assert.equal(
+      overflow(
+        'Prompt contains 5000 tokens; too large for model with 4096 maximum context length',
+        { statusCode: 400 },
+      ),
+      'ContextLength',
+    ); // Mistral
+    assert.equal(
+      overflow('invalid params, context window exceeds limit', { statusCode: 400 }),
+      'ContextLength',
+    ); // MiniMax
+    assert.equal(
+      overflow('Your request exceeded model token limit: 200000 (requested: 260000)', {
+        statusCode: 400,
+      }),
+      'ContextLength',
+    ); // Kimi
+    assert.equal(
+      overflow('prompt token count of 21000 exceeds the limit of 16384', { statusCode: 400 }),
+      'ContextLength',
+    ); // GitHub Copilot
+    assert.equal(
+      overflow('the prompt contains too many tokens', { statusCode: 400 }),
+      'ContextLength',
+    ); // generic prompt-overflow wording
 
     // The classification covers the ORIGINAL error fields, not just the message.
     // A real AI SDK APICallError carries the provider's structured error JSON in
@@ -36,7 +86,13 @@ describe('Provider error classification', () => {
     assert.equal(
       overflow('Bad Request', {
         statusCode: 400,
-        data: { error: { message: 'Bad Request', type: 'invalid_request_error', code: 'context_length_exceeded' } },
+        data: {
+          error: {
+            message: 'Bad Request',
+            type: 'invalid_request_error',
+            code: 'context_length_exceeded',
+          },
+        },
       }),
       'ContextLength',
     );
@@ -56,7 +112,10 @@ describe('Provider error classification', () => {
     assert.equal(
       overflow('Request Entity Too Large', {
         statusCode: 413,
-        data: { type: 'error', error: { type: 'request_too_large', message: 'Request Entity Too Large' } },
+        data: {
+          type: 'error',
+          error: { type: 'request_too_large', message: 'Request Entity Too Large' },
+        },
       }),
       'ContextLength',
     );
@@ -79,13 +138,21 @@ describe('Provider error classification', () => {
       classifyError({
         type: 'error',
         sequence_number: 3,
-        error: { type: 'invalid_request_error', code: 'context_length_exceeded', message: 'Bad Request', param: null },
+        error: {
+          type: 'invalid_request_error',
+          code: 'context_length_exceeded',
+          message: 'Bad Request',
+          param: null,
+        },
       }),
       'ContextLength',
     );
     // …Anthropic emits the inner {type, message} object (anthropic-messages-language-model.ts:2441)…
     assert.equal(
-      classifyError({ type: 'invalid_request_error', message: 'prompt is too long: 213462 tokens > 200000 maximum' }),
+      classifyError({
+        type: 'invalid_request_error',
+        message: 'prompt is too long: 213462 tokens > 200000 maximum',
+      }),
       'ContextLength',
     );
     assert.equal(
@@ -94,7 +161,9 @@ describe('Provider error classification', () => {
     );
     // …and openai-compatible emits a bare message STRING (openai-compatible-chat-language-model.ts:466).
     assert.equal(
-      classifyError("Requested token count exceeds the model's maximum context length of 131072 tokens."),
+      classifyError(
+        "Requested token count exceeds the model's maximum context length of 131072 tokens.",
+      ),
       'ContextLength',
     );
     // Non-overflow object/string errors do not become ContextLength.
@@ -141,80 +210,185 @@ describe('Provider error classification', () => {
     // The weak rate heuristic is word-shaped, not a substring: "generate" and
     // "separate" are not rate limits (review round-8 P2)…
     assert.notEqual(overflow('Failed to generate response', { statusCode: 400 }), 'RateLimit');
-    assert.notEqual(overflow('Unable to separate response chunks', { statusCode: 400 }), 'RateLimit');
+    assert.notEqual(
+      overflow('Unable to separate response chunks', { statusCode: 400 }),
+      'RateLimit',
+    );
     // …while genuine rate wording without an explicit 429 still classifies.
     assert.equal(overflow('Please rate limit your requests', {}), 'RateLimit');
     assert.equal(overflow('rate_limit_exceeded: slow down', {}), 'RateLimit');
 
     // Exclusion-first: throttling/rate-limit wording must NOT be read as overflow
     // even when it superficially mentions tokens.
-    assert.equal(overflow('Rate limit reached: too many tokens, please wait before trying again', { statusCode: 429 }), 'RateLimit');
-    assert.notEqual(overflow('ThrottlingException: too many tokens, please wait before trying again', { statusCode: 400 }), 'ContextLength');
+    assert.equal(
+      overflow('Rate limit reached: too many tokens, please wait before trying again', {
+        statusCode: 429,
+      }),
+      'RateLimit',
+    );
+    assert.notEqual(
+      overflow('ThrottlingException: too many tokens, please wait before trying again', {
+        statusCode: 400,
+      }),
+      'ContextLength',
+    );
     // Unrelated 400s stay in their own buckets, never ContextLength: a token-free
     // size limit and an output-parameter error merely mention limits/tokens, and
     // misreading either would run (and persist) a pointless compaction + retry.
-    assert.notEqual(overflow('invalid request: missing required field', { statusCode: 400 }), 'ContextLength');
-    assert.notEqual(overflow('file size exceeds the limit of 10485760', { statusCode: 400 }), 'ContextLength');
-    assert.notEqual(overflow('max_tokens is too many tokens for this model', { statusCode: 400 }), 'ContextLength');
+    assert.notEqual(
+      overflow('invalid request: missing required field', { statusCode: 400 }),
+      'ContextLength',
+    );
+    assert.notEqual(
+      overflow('file size exceeds the limit of 10485760', { statusCode: 400 }),
+      'ContextLength',
+    );
+    assert.notEqual(
+      overflow('max_tokens is too many tokens for this model', { statusCode: 400 }),
+      'ContextLength',
+    );
     // An OUTPUT token cap is not an input overflow: compacting the history
     // cannot fix it, so it must never trigger a persisted compaction retry.
     assert.notEqual(overflow('Output token limit exceeded', { statusCode: 400 }), 'ContextLength');
-    assert.notEqual(overflow('Maximum output token limit exceeded', { statusCode: 400 }), 'ContextLength');
-    assert.notEqual(overflow('output token count of 8192 exceeds the limit of 4096', { statusCode: 400 }), 'ContextLength');
-    assert.notEqual(overflow('completion token count of 8192 exceeds the limit of 4096', { statusCode: 400 }), 'ContextLength');
-    assert.notEqual(overflow('max output token count of 8192 exceeds the limit of 4096', { statusCode: 400 }), 'ContextLength');
+    assert.notEqual(
+      overflow('Maximum output token limit exceeded', { statusCode: 400 }),
+      'ContextLength',
+    );
+    assert.notEqual(
+      overflow('output token count of 8192 exceeds the limit of 4096', { statusCode: 400 }),
+      'ContextLength',
+    );
+    assert.notEqual(
+      overflow('completion token count of 8192 exceeds the limit of 4096', { statusCode: 400 }),
+      'ContextLength',
+    );
+    assert.notEqual(
+      overflow('max output token count of 8192 exceeds the limit of 4096', { statusCode: 400 }),
+      'ContextLength',
+    );
     // A generic prefix must not smuggle an output cap past the input-subject
     // constraints ("request" in "Invalid request:" is not the token subject):
     // output caps are excluded at the exclusion-first owner, wording-wide.
-    assert.notEqual(overflow('Invalid request: output token count of 8192 exceeds the limit of 4096', { statusCode: 400 }), 'ContextLength');
-    assert.notEqual(overflow('Invalid request: completion token count of 8192 exceeds the limit of 4096', { statusCode: 400 }), 'ContextLength');
-    assert.notEqual(overflow('Invalid request: max output token count of 8192 exceeds the limit of 4096', { statusCode: 400 }), 'ContextLength');
-    assert.notEqual(overflow('Invalid request: max_tokens is too many tokens for this model', { statusCode: 400 }), 'ContextLength');
-    assert.notEqual(overflow('Invalid request: Maximum output token limit exceeded', { statusCode: 400 }), 'ContextLength');
+    assert.notEqual(
+      overflow('Invalid request: output token count of 8192 exceeds the limit of 4096', {
+        statusCode: 400,
+      }),
+      'ContextLength',
+    );
+    assert.notEqual(
+      overflow('Invalid request: completion token count of 8192 exceeds the limit of 4096', {
+        statusCode: 400,
+      }),
+      'ContextLength',
+    );
+    assert.notEqual(
+      overflow('Invalid request: max output token count of 8192 exceeds the limit of 4096', {
+        statusCode: 400,
+      }),
+      'ContextLength',
+    );
+    assert.notEqual(
+      overflow('Invalid request: max_tokens is too many tokens for this model', {
+        statusCode: 400,
+      }),
+      'ContextLength',
+    );
+    assert.notEqual(
+      overflow('Invalid request: Maximum output token limit exceeded', { statusCode: 400 }),
+      'ContextLength',
+    );
     // Complete output-cap RELATIONS are excluded even when reworded — the
     // veto is not a fixed word order.
-    assert.notEqual(overflow('Invalid request: completion has too many tokens for this model', { statusCode: 400 }), 'ContextLength');
-    assert.notEqual(overflow('Invalid request: max_tokens token limit exceeded', { statusCode: 400 }), 'ContextLength');
+    assert.notEqual(
+      overflow('Invalid request: completion has too many tokens for this model', {
+        statusCode: 400,
+      }),
+      'ContextLength',
+    );
+    assert.notEqual(
+      overflow('Invalid request: max_tokens token limit exceeded', { statusCode: 400 }),
+      'ContextLength',
+    );
     // ...including the passive voice, where the output subject FOLLOWS the
     // token predicate (review round-7 P1-3).
-    assert.notEqual(overflow('Invalid input: too many tokens were requested for the completion', { statusCode: 400 }), 'ContextLength');
+    assert.notEqual(
+      overflow('Invalid input: too many tokens were requested for the completion', {
+        statusCode: 400,
+      }),
+      'ContextLength',
+    );
     // ...and the embedded-role permutation, where the output word sits INSIDE
     // the token phrase — even when a capacity statement follows in the same
     // message (review round-8 P1-4).
     assert.notEqual(
-      overflow("Too many completion tokens were requested. This endpoint's maximum context length is 262144 tokens.", { statusCode: 400 }),
+      overflow(
+        "Too many completion tokens were requested. This endpoint's maximum context length is 262144 tokens.",
+        { statusCode: 400 },
+      ),
       'ContextLength',
     );
-    assert.notEqual(overflow('Too many output tokens requested for this model', { statusCode: 400 }), 'ContextLength');
     assert.notEqual(
-      overflow("Maximum completion tokens exceeded. This endpoint's maximum context length is 262144 tokens.", { statusCode: 400 }),
+      overflow('Too many output tokens requested for this model', { statusCode: 400 }),
+      'ContextLength',
+    );
+    assert.notEqual(
+      overflow(
+        "Maximum completion tokens exceeded. This endpoint's maximum context length is 262144 tokens.",
+        { statusCode: 400 },
+      ),
       'ContextLength',
     );
     // A bare capacity STATEMENT inside an unrelated error is not an overflow
     // relation: throttle/quota wording vetoes every free-text signal — only a
     // structured provider code is unconditional (review round-7 P1-4).
     assert.notEqual(
-      overflow("ThrottlingException: quota exceeded. This endpoint's maximum context length is 262144 tokens.", { statusCode: 400 }),
+      overflow(
+        "ThrottlingException: quota exceeded. This endpoint's maximum context length is 262144 tokens.",
+        { statusCode: 400 },
+      ),
       'ContextLength',
     );
     // ...while the input-side form of the same wording still classifies.
-    assert.equal(overflow('Input token limit exceeded: 250000 tokens > 200000 maximum', { statusCode: 400 }), 'ContextLength');
+    assert.equal(
+      overflow('Input token limit exceeded: 250000 tokens > 200000 maximum', { statusCode: 400 }),
+      'ContextLength',
+    );
     // The output-cap exclusions stay adjacency-tight: OpenAI's classic input
     // overflow mentions the completion and max_tokens without being an output
     // cap, and must keep classifying.
-    assert.equal(overflow("This model's maximum context length is 8192 tokens. However, you requested 10240 tokens (10140 in the messages, 100 in the completion). Please reduce the length of the messages or completion.", { statusCode: 400 }), 'ContextLength');
-    assert.equal(overflow("This model's maximum context length is 8192 tokens. However, you requested 10240 tokens (10140 in the messages, 100 in max_tokens). Please reduce the length of the messages or completion.", { statusCode: 400 }), 'ContextLength');
+    assert.equal(
+      overflow(
+        "This model's maximum context length is 8192 tokens. However, you requested 10240 tokens (10140 in the messages, 100 in the completion). Please reduce the length of the messages or completion.",
+        { statusCode: 400 },
+      ),
+      'ContextLength',
+    );
+    assert.equal(
+      overflow(
+        "This model's maximum context length is 8192 tokens. However, you requested 10240 tokens (10140 in the messages, 100 in max_tokens). Please reduce the length of the messages or completion.",
+        { statusCode: 400 },
+      ),
+      'ContextLength',
+    );
     // Structured provider evidence is the ONLY unconditional signal: a genuine
     // input overflow may word its message as an output-cap relation the text
     // vetoes would reject, and the context_length_exceeded code must still win.
     assert.equal(
       overflow('Invalid request: completion has too many tokens for this model', {
         statusCode: 400,
-        data: { error: { message: 'Invalid request: completion has too many tokens for this model', code: 'context_length_exceeded' } },
+        data: {
+          error: {
+            message: 'Invalid request: completion has too many tokens for this model',
+            code: 'context_length_exceeded',
+          },
+        },
       }),
       'ContextLength',
     );
-    assert.equal(classifyError(Object.assign(new Error('401 Authorization'), { statusCode: 401 })), 'Auth');
+    assert.equal(
+      classifyError(Object.assign(new Error('401 Authorization'), { statusCode: 401 })),
+      'Auth',
+    );
   });
 
   test('classifies overflow wording that only survives in a schema-invalid responseBody (review round-9 P2)', async () => {
@@ -227,13 +401,18 @@ describe('Provider error classification', () => {
       errorSchema: z.object({ error: z.object({ message: z.string() }) }),
       errorToMessage: (data) => data.error.message,
     });
-    const errorFromBody = async (body: string) => (await handler({
-      response: new Response(body, { status: 400, statusText: 'Bad Request' }),
-      url: 'https://api.example.test/v1/chat/completions',
-      requestBodyValues: {},
-    })).value;
+    const errorFromBody = async (body: string) =>
+      (
+        await handler({
+          response: new Response(body, { status: 400, statusText: 'Bad Request' }),
+          url: 'https://api.example.test/v1/chat/completions',
+          requestBodyValues: {},
+        })
+      ).value;
 
-    const overflowError = await errorFromBody('{"error":"Your input exceeds the context window of this model"}');
+    const overflowError = await errorFromBody(
+      '{"error":"Your input exceeds the context window of this model"}',
+    );
     // Prove the degradation is real before asserting on classification.
     assert.equal(overflowError.message, 'Bad Request');
     assert.equal(overflowError.data, undefined);

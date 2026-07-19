@@ -4,7 +4,11 @@ import { join } from 'node:path';
 import type { LlmConnection } from '@maka/core';
 import type { Config } from './contracts.js';
 import type { FixedPromptTask, HarborTaskRunner } from './fixed-prompt-controller.js';
-import { createHarborTaskRunner, modelIdForProvider, type HarborTaskPricing } from './harbor-task-runner.js';
+import {
+  createHarborTaskRunner,
+  modelIdForProvider,
+  type HarborTaskPricing,
+} from './harbor-task-runner.js';
 import { createAiSdkMetaAgent } from './meta-agent-completion.js';
 import { createCliPromptCandidateGit, type MetaAgent } from './prompt-candidate-loop.js';
 import {
@@ -44,8 +48,9 @@ export function selectPromptOptimizationPartitions(
   }
   const sorted = [...tasks].sort((a, b) => a.id.localeCompare(b.id));
   const hasPattern = (task: FixedPromptTask) =>
-    (input.rewardHackVerifierPatternsByTaskId[task.id] ?? [])
-      .some((pattern) => pattern.trim().length > 0);
+    (input.rewardHackVerifierPatternsByTaskId[task.id] ?? []).some(
+      (pattern) => pattern.trim().length > 0,
+    );
   const heldInTasks = sorted.filter(hasPattern).slice(0, input.heldInCount);
   if (heldInTasks.length < input.heldInCount) {
     throw new Error(
@@ -57,7 +62,9 @@ export function selectPromptOptimizationPartitions(
     .filter((task) => !heldInIds.has(task.id))
     .slice(0, input.heldOutCount);
   if (heldOutTasks.length < input.heldOutCount) {
-    throw new Error(`not enough tasks: need ${input.heldInCount + input.heldOutCount}, have ${sorted.length}`);
+    throw new Error(
+      `not enough tasks: need ${input.heldInCount + input.heldOutCount}, have ${sorted.length}`,
+    );
   }
   return {
     heldInTasks,
@@ -109,11 +116,15 @@ async function collectCanaryPatterns(dir: string, patterns: Set<string>): Promis
   }
 }
 
-async function collectTaskMaterialCanaryPatterns(taskPath: string, patterns: Set<string>): Promise<void> {
-  await collectCanaryPatternsExcept(taskPath, patterns, new Set([
-    join(taskPath, 'tests'),
-    join(taskPath, 'solution'),
-  ]));
+async function collectTaskMaterialCanaryPatterns(
+  taskPath: string,
+  patterns: Set<string>,
+): Promise<void> {
+  await collectCanaryPatternsExcept(
+    taskPath,
+    patterns,
+    new Set([join(taskPath, 'tests'), join(taskPath, 'solution')]),
+  );
 }
 
 async function collectCanaryPatternsExcept(
@@ -139,7 +150,10 @@ async function collectCanaryPatternsExcept(
   }
 }
 
-async function collectCanaryPatternsFromFile(filePath: string, patterns: Set<string>): Promise<void> {
+async function collectCanaryPatternsFromFile(
+  filePath: string,
+  patterns: Set<string>,
+): Promise<void> {
   let content;
   try {
     content = await readFile(filePath, 'utf8');
@@ -240,9 +254,10 @@ export function buildPromptOptimizationTaskAgentEnv(
   const env = { ...(baseAgentEnv ?? {}) };
   if (profile?.taskBudgetSec !== undefined) {
     const taskTimeoutSec = task.metadata?.agentTimeoutSec;
-    const timeoutSec = taskTimeoutSec !== undefined
-      ? Math.min(taskTimeoutSec, profile.taskBudgetSec)
-      : profile.taskBudgetSec;
+    const timeoutSec =
+      taskTimeoutSec !== undefined
+        ? Math.min(taskTimeoutSec, profile.taskBudgetSec)
+        : profile.taskBudgetSec;
     env.MAKA_CELL_TIMEOUT_SEC = String(timeoutSec);
   }
   if (profile?.commandTimeoutMs !== undefined) {
@@ -254,7 +269,9 @@ export function buildPromptOptimizationTaskAgentEnv(
       env.MAKA_HARBOR_CONTINUATION_MAX_TURNS = String(profile.continuation.maxTurns);
     }
     if (profile.continuation.maxTotalRuntimeSteps !== undefined) {
-      env.MAKA_HARBOR_CONTINUATION_MAX_TOTAL_RUNTIME_STEPS = String(profile.continuation.maxTotalRuntimeSteps);
+      env.MAKA_HARBOR_CONTINUATION_MAX_TOTAL_RUNTIME_STEPS = String(
+        profile.continuation.maxTotalRuntimeSteps,
+      );
     }
     if (profile.continuation.prompt !== undefined) {
       env.MAKA_HARBOR_CONTINUATION_PROMPT = profile.continuation.prompt;
@@ -271,32 +288,40 @@ export async function runPromptOptimizationRun(
 
   const modelId = resolvePromptOptimizationModelId(input.model, input.provider);
 
-  const baseHarborRunner = input.harborRunner ?? createHarborTaskRunner({
-    makaRepoPath: input.makaRepoPath,
-    jobsDir: input.jobsDir,
-    model: input.model,
-    provider: input.provider,
-    apiKeyFile: input.apiKeyFile,
-    pricing: input.pricing,
-    ...(input.harborBin ? { harborBin: input.harborBin } : {}),
-    ...(input.agentEnv ? { agentEnv: input.agentEnv } : {}),
-    ...(input.harborTimeoutMs !== undefined ? { harborTimeoutMs: input.harborTimeoutMs } : {}),
-  });
-  const harborRunner: HarborTaskRunner = async (runInput) => baseHarborRunner({
-    ...runInput,
-    agentEnv: {
-      ...buildPromptOptimizationTaskAgentEnv(input.agentEnv, runInput.task, input.runtimeProfile),
-      ...(runInput.agentEnv ?? {}),
-    },
-  });
+  const baseHarborRunner =
+    input.harborRunner ??
+    createHarborTaskRunner({
+      makaRepoPath: input.makaRepoPath,
+      jobsDir: input.jobsDir,
+      model: input.model,
+      provider: input.provider,
+      apiKeyFile: input.apiKeyFile,
+      pricing: input.pricing,
+      ...(input.harborBin ? { harborBin: input.harborBin } : {}),
+      ...(input.agentEnv ? { agentEnv: input.agentEnv } : {}),
+      ...(input.harborTimeoutMs !== undefined ? { harborTimeoutMs: input.harborTimeoutMs } : {}),
+    });
+  const harborRunner: HarborTaskRunner = async (runInput) =>
+    baseHarborRunner({
+      ...runInput,
+      agentEnv: {
+        ...buildPromptOptimizationTaskAgentEnv(input.agentEnv, runInput.task, input.runtimeProfile),
+        ...(runInput.agentEnv ?? {}),
+      },
+    });
 
-  const metaAgent = input.metaAgent ?? createAiSdkMetaAgent({
-    connection: input.connection,
-    apiKey: readFileSync(input.apiKeyFile, 'utf8').trim(),
-    modelId,
-  });
+  const metaAgent =
+    input.metaAgent ??
+    createAiSdkMetaAgent({
+      connection: input.connection,
+      apiKey: readFileSync(input.apiKeyFile, 'utf8').trim(),
+      modelId,
+    });
 
-  const git = createCliPromptCandidateGit({ cwd: input.gitCwdPath, systemPromptPath: input.systemPromptPath });
+  const git = createCliPromptCandidateGit({
+    cwd: input.gitCwdPath,
+    systemPromptPath: input.systemPromptPath,
+  });
   const config: Config = {
     id: input.runId,
     backend: 'ai-sdk',
@@ -325,11 +350,19 @@ export async function runPromptOptimizationRun(
     rewardHackVerifierPatternsByTaskId: input.rewardHackVerifierPatternsByTaskId,
     ...(input.resumeFingerprint ? { resumeFingerprint: input.resumeFingerprint } : {}),
     ...(input.costCeilingUsd !== undefined ? { costCeilingUsd: input.costCeilingUsd } : {}),
-    ...(input.maxInfraFailureRate !== undefined ? { maxInfraFailureRate: input.maxInfraFailureRate } : {}),
+    ...(input.maxInfraFailureRate !== undefined
+      ? { maxInfraFailureRate: input.maxInfraFailureRate }
+      : {}),
     ...(input.maxConcurrency !== undefined ? { maxConcurrency: input.maxConcurrency } : {}),
-    ...(input.minStableHeldInTasks !== undefined ? { minStableHeldInTasks: input.minStableHeldInTasks } : {}),
-    ...(input.minStableHeldOutTasks !== undefined ? { minStableHeldOutTasks: input.minStableHeldOutTasks } : {}),
-    ...(input.maxStableTaskDurationMs !== undefined ? { maxStableTaskDurationMs: input.maxStableTaskDurationMs } : {}),
+    ...(input.minStableHeldInTasks !== undefined
+      ? { minStableHeldInTasks: input.minStableHeldInTasks }
+      : {}),
+    ...(input.minStableHeldOutTasks !== undefined
+      ? { minStableHeldOutTasks: input.minStableHeldOutTasks }
+      : {}),
+    ...(input.maxStableTaskDurationMs !== undefined
+      ? { maxStableTaskDurationMs: input.maxStableTaskDurationMs }
+      : {}),
     ...(input.now ? { now: input.now } : {}),
     ...(input.newId ? { newId: input.newId } : {}),
   });

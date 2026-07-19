@@ -41,7 +41,10 @@ export async function validatePreparedNodeCliToolchain<TSpec>(
   path: string,
   definition: PinnedNodeCliToolchainDefinition<TSpec>,
 ): Promise<PreparedNodeCliToolchain> {
-  const manifest = parseManifest(await readFile(join(path, 'manifest.json'), 'utf8'), definition.label);
+  const manifest = parseManifest(
+    await readFile(join(path, 'manifest.json'), 'utf8'),
+    definition.label,
+  );
   if (manifest.fingerprint !== definition.fingerprint) {
     throw new Error(`${definition.label} toolchain fingerprint mismatch: ${manifest.fingerprint}`);
   }
@@ -54,12 +57,12 @@ export async function validatePreparedNodeCliToolchain<TSpec>(
   ];
   const checksums: string[] = [];
   for (const file of pinnedFiles) {
-    if (await sha256File(join(path, file.installedPath)) !== file.sha256) {
+    if ((await sha256File(join(path, file.installedPath))) !== file.sha256) {
       throw new Error(`${definition.label} toolchain ${file.installedPath} SHA-256 mismatch`);
     }
     checksums.push(`${file.sha256}  ${file.installedPath}\n`);
   }
-  if (await readFile(join(path, 'checksums.sha256'), 'utf8') !== checksums.join('')) {
+  if ((await readFile(join(path, 'checksums.sha256'), 'utf8')) !== checksums.join('')) {
     throw new Error(`${definition.label} toolchain checksums.sha256 does not match its manifest`);
   }
   return { path, fingerprint: definition.fingerprint };
@@ -70,7 +73,8 @@ export async function prepareNodeCliToolchain<TSpec>(
   definition: PinnedNodeCliToolchainDefinition<TSpec>,
   options: { fetchFn?: typeof fetch } = {},
 ): Promise<PreparedNodeCliToolchain> {
-  if (await exists(join(path, 'manifest.json'))) return validatePreparedNodeCliToolchain(path, definition);
+  if (await exists(join(path, 'manifest.json')))
+    return validatePreparedNodeCliToolchain(path, definition);
   await mkdir(dirname(path), { recursive: true });
   const temporaryPath = await mkdtemp(join(dirname(path), `.${basename(path)}-`));
   try {
@@ -93,8 +97,10 @@ export async function prepareNodeCliToolchain<TSpec>(
     });
     await mkdir(join(temporaryPath, 'bin'));
     await execFileAsync('tar', [
-      '-xzf', nodeArchive,
-      '-C', join(temporaryPath, 'bin'),
+      '-xzf',
+      nodeArchive,
+      '-C',
+      join(temporaryPath, 'bin'),
       '--strip-components=2',
       `node-v${definition.node.version}-linux-x64/bin/node`,
     ]);
@@ -104,8 +110,10 @@ export async function prepareNodeCliToolchain<TSpec>(
       const targetDir = dirname(installedPath);
       await mkdir(targetDir, { recursive: true });
       await execFileAsync('tar', [
-        '-xzf', packageArchive,
-        '-C', targetDir,
+        '-xzf',
+        packageArchive,
+        '-C',
+        targetDir,
         `--strip-components=${file.stripComponents ?? 2}`,
         file.archivePath,
       ]);
@@ -113,24 +121,40 @@ export async function prepareNodeCliToolchain<TSpec>(
         if (file.sourceSha256 === undefined) {
           throw new Error(`${definition.label} toolchain transform requires a source SHA-256`);
         }
-        if (await sha256File(installedPath) !== file.sourceSha256) {
-          throw new Error(`${definition.label} toolchain ${file.installedPath} source SHA-256 mismatch`);
+        if ((await sha256File(installedPath)) !== file.sourceSha256) {
+          throw new Error(
+            `${definition.label} toolchain ${file.installedPath} source SHA-256 mismatch`,
+          );
         }
-        await writeFile(installedPath, file.transform(await readFile(installedPath, 'utf8')), 'utf8');
+        await writeFile(
+          installedPath,
+          file.transform(await readFile(installedPath, 'utf8')),
+          'utf8',
+        );
       }
       if (file.executable) await chmod(installedPath, 0o755);
     }
-    await writeFile(join(temporaryPath, 'manifest.json'), `${JSON.stringify({
-      schemaVersion: 1,
-      fingerprint: definition.fingerprint,
-      spec: definition.spec,
-    }, null, 2)}\n`, 'utf8');
+    await writeFile(
+      join(temporaryPath, 'manifest.json'),
+      `${JSON.stringify(
+        {
+          schemaVersion: 1,
+          fingerprint: definition.fingerprint,
+          spec: definition.spec,
+        },
+        null,
+        2,
+      )}\n`,
+      'utf8',
+    );
     await writeFile(
       join(temporaryPath, 'checksums.sha256'),
       [
         { installedPath: 'bin/node', sha256: definition.node.binarySha256 },
         ...definition.packageFiles,
-      ].map((file) => `${file.sha256}  ${file.installedPath}\n`).join(''),
+      ]
+        .map((file) => `${file.sha256}  ${file.installedPath}\n`)
+        .join(''),
       'utf8',
     );
     await rm(nodeArchive);
@@ -156,7 +180,12 @@ function parseManifest(raw: string, label: string): { fingerprint: string; spec:
   } catch (error) {
     throw new Error(`${label} toolchain manifest is not valid JSON`, { cause: error });
   }
-  if (!isRecord(value) || value.schemaVersion !== 1 || !isRecord(value.spec) || typeof value.fingerprint !== 'string') {
+  if (
+    !isRecord(value) ||
+    value.schemaVersion !== 1 ||
+    !isRecord(value.spec) ||
+    typeof value.fingerprint !== 'string'
+  ) {
     throw new Error(`${label} toolchain manifest has an invalid shape`);
   }
   return { fingerprint: value.fingerprint, spec: value.spec };
@@ -173,7 +202,9 @@ async function downloadVerified(input: {
   const response = await input.fetchFn(input.url);
   if (!response.ok) throw new Error(`failed to download ${input.url}: HTTP ${response.status}`);
   const bytes = new Uint8Array(await response.arrayBuffer());
-  const actual = createHash(input.algorithm).update(bytes).digest(input.encoding ?? 'hex');
+  const actual = createHash(input.algorithm)
+    .update(bytes)
+    .digest(input.encoding ?? 'hex');
   if (actual !== input.expected) throw new Error(`archive checksum mismatch for ${input.url}`);
   await writeFile(input.path, bytes);
 }

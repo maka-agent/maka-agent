@@ -5,4 +5,8 @@ export { recordLlmCall } from './record-llm-call.js';
 export { recordToolInvocation } from './record-tool-invocation.js';
 export type { LlmRecorderDeps } from './record-llm-call.js';
 export type { ToolRecorderDeps } from './record-tool-invocation.js';
-export type { PersistedLlmCallRecord, PersistedToolInvocationRecord, TelemetryRepoLite } from './types.js';
+export type {
+  PersistedLlmCallRecord,
+  PersistedToolInvocationRecord,
+  TelemetryRepoLite,
+} from './types.js';

@@ -13,12 +13,27 @@ describe('bindSelfCheckEvidence', () => {
     assert.equal(result.ok, true);
     if (!result.ok) return;
     assert.deepEqual(result.link.provenance.runtimeCoverage, {
-      lowWater: { ledger: 'runtime_event', streamId: 'run-1', sequence: 0, eventId: 'runtime-call' },
-      highWater: { ledger: 'runtime_event', streamId: 'run-1', sequence: 1, eventId: 'runtime-result' },
+      lowWater: {
+        ledger: 'runtime_event',
+        streamId: 'run-1',
+        sequence: 0,
+        eventId: 'runtime-call',
+      },
+      highWater: {
+        ledger: 'runtime_event',
+        streamId: 'run-1',
+        sequence: 1,
+        eventId: 'runtime-result',
+      },
       eventCount: 2,
     });
     assert.deepEqual(result.link.provenance.taskCoverage, {
-      highWater: { ledger: 'task_event', streamId: 'task-run-1', sequence: 7, eventId: 'self-check-event' },
+      highWater: {
+        ledger: 'task_event',
+        streamId: 'task-run-1',
+        sequence: 7,
+        eventId: 'self-check-event',
+      },
       eventCount: 8,
     });
     assert.equal(result.link.provenance.workspace?.ref, 'sha256:workspace-1');
@@ -110,19 +125,34 @@ function bindingInput() {
       runtimeEvent('runtime-call', {
         role: 'model',
         author: 'agent',
-        content: { kind: 'function_call', id: 'self-check-call', name: 'self_check_submit', args: {} },
+        content: {
+          kind: 'function_call',
+          id: 'self-check-call',
+          name: 'self_check_submit',
+          args: {},
+        },
         refs: { toolCallId: 'self-check-call' },
       }),
       runtimeEvent('runtime-result', {
         role: 'tool',
         author: 'tool',
-        content: { kind: 'function_response', id: 'self-check-call', name: 'self_check_submit', result: { accepted: true } },
+        content: {
+          kind: 'function_response',
+          id: 'self-check-call',
+          name: 'self_check_submit',
+          result: { accepted: true },
+        },
         refs: { toolCallId: 'self-check-call' },
       }),
     ],
     selfCheckRecord: {
       event: selfCheckEvent,
-      cursor: { ledger: 'task_event' as const, streamId: 'task-run-1', sequence: 7, eventId: 'self-check-event' },
+      cursor: {
+        ledger: 'task_event' as const,
+        streamId: 'task-run-1',
+        sequence: 7,
+        eventId: 'self-check-event',
+      },
     },
     workspaceObservation,
   };

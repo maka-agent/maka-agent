@@ -157,10 +157,10 @@ export function parseMakaRunArgs(argv: readonly string[]): ParseMakaRunArgsResul
     return { kind: 'error', message: `unknown thinking level: ${thinking}` };
   }
   if (
-    permissionMode !== undefined
-    && permissionMode !== 'explore'
-    && permissionMode !== 'execute'
-    && permissionMode !== 'bypass'
+    permissionMode !== undefined &&
+    permissionMode !== 'explore' &&
+    permissionMode !== 'execute' &&
+    permissionMode !== 'bypass'
   ) {
     return {
       kind: 'error',
@@ -214,28 +214,32 @@ export async function runMakaTextCli(
   const workspaceRoot = deps.workspaceRoot();
   try {
     prompt = await resolveRunPrompt(parsed.options, deps);
-    const sessions = parsed.options.resumeId !== undefined || parsed.options.continueLatest === true
-      ? await deps.listSessions(workspaceRoot)
-      : [];
-    selection = await selectMakaRunSession({
-      sessions,
-      ...(parsed.options.resumeId !== undefined ? { resumeId: parsed.options.resumeId } : {}),
-      continueLatest: parsed.options.continueLatest === true,
-      ...(parsed.options.cwd !== undefined ? { explicitCwd: parsed.options.cwd } : {}),
-      processCwd: deps.processCwd(),
-      ...(parsed.options.connection !== undefined
-        ? { explicitConnection: parsed.options.connection }
-        : {}),
-      ...(parsed.options.model !== undefined ? { explicitModel: parsed.options.model } : {}),
-      thinkingSpecified: parsed.options.thinking !== undefined
-        || parsed.options.thinkingDefaultExplicit === true,
-      ...(parsed.options.thinking !== undefined
-        ? { explicitThinking: parsed.options.thinking }
-        : {}),
-      ...(parsed.options.permissionMode !== undefined
-        ? { explicitPermissionMode: parsed.options.permissionMode }
-        : {}),
-    }, { canonicalizeDirectory: canonicalDirectory });
+    const sessions =
+      parsed.options.resumeId !== undefined || parsed.options.continueLatest === true
+        ? await deps.listSessions(workspaceRoot)
+        : [];
+    selection = await selectMakaRunSession(
+      {
+        sessions,
+        ...(parsed.options.resumeId !== undefined ? { resumeId: parsed.options.resumeId } : {}),
+        continueLatest: parsed.options.continueLatest === true,
+        ...(parsed.options.cwd !== undefined ? { explicitCwd: parsed.options.cwd } : {}),
+        processCwd: deps.processCwd(),
+        ...(parsed.options.connection !== undefined
+          ? { explicitConnection: parsed.options.connection }
+          : {}),
+        ...(parsed.options.model !== undefined ? { explicitModel: parsed.options.model } : {}),
+        thinkingSpecified:
+          parsed.options.thinking !== undefined || parsed.options.thinkingDefaultExplicit === true,
+        ...(parsed.options.thinking !== undefined
+          ? { explicitThinking: parsed.options.thinking }
+          : {}),
+        ...(parsed.options.permissionMode !== undefined
+          ? { explicitPermissionMode: parsed.options.permissionMode }
+          : {}),
+      },
+      { canonicalizeDirectory: canonicalDirectory },
+    );
   } catch (error) {
     deps.writeStderr(`maka run: ${errorMessage(error)}\n`);
     return 2;
@@ -248,18 +252,18 @@ export async function runMakaTextCli(
       surface: 'run',
       workspaceRoot,
       cwd: selection.cwd,
-      ...((selection.kind === 'existing' || parsed.options.connection)
+      ...(selection.kind === 'existing' || parsed.options.connection
         ? {
-            requestedConnectionSlug: selection.kind === 'existing'
-              ? selection.session.llmConnectionSlug
-              : parsed.options.connection,
+            requestedConnectionSlug:
+              selection.kind === 'existing'
+                ? selection.session.llmConnectionSlug
+                : parsed.options.connection,
           }
         : {}),
-      ...((selection.kind === 'existing' || parsed.options.model)
+      ...(selection.kind === 'existing' || parsed.options.model
         ? {
-            requestedModel: selection.kind === 'existing'
-              ? selection.session.model
-              : parsed.options.model,
+            requestedModel:
+              selection.kind === 'existing' ? selection.session.model : parsed.options.model,
           }
         : {}),
       ...(selection.kind === 'existing'
@@ -280,17 +284,20 @@ export async function runMakaTextCli(
 
   let session: SessionSummary;
   try {
-    session = selection.kind === 'existing'
-      ? selection.session
-      : await context.runtime.createSession({
-          cwd: selection.cwd,
-          name: firstLine(prompt).slice(0, 42) || 'Maka run',
-          backend: 'ai-sdk',
-          llmConnectionSlug: context.target.connection.slug,
-          model: context.target.model,
-          permissionMode: parsed.options.permissionMode ?? 'explore',
-          ...(parsed.options.thinking !== undefined ? { thinkingLevel: parsed.options.thinking } : {}),
-        });
+    session =
+      selection.kind === 'existing'
+        ? selection.session
+        : await context.runtime.createSession({
+            cwd: selection.cwd,
+            name: firstLine(prompt).slice(0, 42) || 'Maka run',
+            backend: 'ai-sdk',
+            llmConnectionSlug: context.target.connection.slug,
+            model: context.target.model,
+            permissionMode: parsed.options.permissionMode ?? 'explore',
+            ...(parsed.options.thinking !== undefined
+              ? { thinkingLevel: parsed.options.thinking }
+              : {}),
+          });
   } catch (error) {
     await context.close();
     deps.writeStderr(`maka run: ${errorMessage(error)}\n`);
@@ -310,12 +317,13 @@ export async function runMakaTextCli(
     interrupted = true;
     stop();
   });
-  const timer = parsed.options.timeoutMs === undefined
-    ? undefined
-    : deps.setTimer(() => {
-      timedOut = true;
-      stop();
-    }, parsed.options.timeoutMs);
+  const timer =
+    parsed.options.timeoutMs === undefined
+      ? undefined
+      : deps.setTimer(() => {
+          timedOut = true;
+          stop();
+        }, parsed.options.timeoutMs);
 
   try {
     for await (const event of context.runtime.sendMessage(session.id, {
@@ -443,8 +451,12 @@ function defaultMakaRunDeps(): MakaRunDeps {
     processCwd: () => process.cwd(),
     stdinIsTTY: () => process.stdin.isTTY === true,
     readStdin: readProcessStdin,
-    writeStdout: (text) => { process.stdout.write(text); },
-    writeStderr: (text) => { process.stderr.write(text); },
+    writeStdout: (text) => {
+      process.stdout.write(text);
+    },
+    writeStderr: (text) => {
+      process.stderr.write(text);
+    },
     onSigint: (handler) => {
       process.on('SIGINT', handler);
       return () => process.off('SIGINT', handler);
@@ -468,7 +480,12 @@ async function readProcessStdin(): Promise<string> {
 }
 
 function firstLine(text: string): string {
-  return text.split('\n').map((line) => line.trim()).find(Boolean) ?? '';
+  return (
+    text
+      .split('\n')
+      .map((line) => line.trim())
+      .find(Boolean) ?? ''
+  );
 }
 
 function withTrailingNewline(text: string): string {

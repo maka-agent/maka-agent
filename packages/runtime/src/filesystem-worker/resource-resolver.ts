@@ -12,7 +12,9 @@ export type FilesystemWorkerResourceResult =
   | { ok: true; path: string }
   | { ok: false; reason: 'bundle_not_found' | 'bundle_invalid'; path: string };
 
-export function filesystemWorkerBundleCandidate(location: FilesystemWorkerResourceLocation): string {
+export function filesystemWorkerBundleCandidate(
+  location: FilesystemWorkerResourceLocation,
+): string {
   if (location.kind === 'desktop-packaged') {
     return join(location.resourcesPath, 'workers', FILESYSTEM_WORKER_BUNDLE_NAME);
   }

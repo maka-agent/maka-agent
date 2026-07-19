@@ -25,7 +25,10 @@ export function sessionTitleSource(input: { text: string; displayText?: string }
 }
 
 export function fallbackSessionTitle(sourceText: string): string | undefined {
-  const firstLine = sourceText.split(/\r?\n/).find((line) => line.trim())?.trim();
+  const firstLine = sourceText
+    .split(/\r?\n/)
+    .find((line) => line.trim())
+    ?.trim();
   return firstLine ? Array.from(firstLine).slice(0, MAX_FALLBACK_CODE_POINTS).join('') : undefined;
 }
 
@@ -43,7 +46,9 @@ export async function generateSessionTitle(input: {
 }): Promise<string | undefined> {
   if (!input.sourceText.trim()) return undefined;
   try {
-    const generateText: GenerateText = input.generateText ?? (async (options) => aiGenerateText(options as Parameters<typeof aiGenerateText>[0]));
+    const generateText: GenerateText =
+      input.generateText ??
+      (async (options) => aiGenerateText(options as Parameters<typeof aiGenerateText>[0]));
     const abortSignal = AbortSignal.timeout(input.timeoutMs ?? TITLE_GENERATION_TIMEOUT_MS);
     let onAbort!: () => void;
     const timeout = new Promise<never>((_resolve, reject) => {
@@ -76,8 +81,17 @@ function cleanGeneratedSessionTitle(text: string): string | undefined {
     ?.replace(/^(?:title|标题)\s*[:：]\s*/i, '')
     .trim();
   if (!firstLine) return undefined;
-  const pairs: ReadonlyArray<readonly [string, string]> = [['"', '"'], ["'", "'"], ['`', '`'], ['“', '”'], ['「', '」'], ['『', '』']];
-  const unquoted = pairs.find(([left, right]) => firstLine.startsWith(left) && firstLine.endsWith(right))
+  const pairs: ReadonlyArray<readonly [string, string]> = [
+    ['"', '"'],
+    ["'", "'"],
+    ['`', '`'],
+    ['“', '”'],
+    ['「', '」'],
+    ['『', '』'],
+  ];
+  const unquoted = pairs.find(
+    ([left, right]) => firstLine.startsWith(left) && firstLine.endsWith(right),
+  )
     ? firstLine.slice(1, -1).trim()
     : firstLine;
   const normalized = normalizeUserSessionName(unquoted);

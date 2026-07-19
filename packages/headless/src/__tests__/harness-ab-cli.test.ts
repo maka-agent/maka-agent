@@ -13,16 +13,19 @@ test('harness A/B CLI accepts a 5-task operational canary', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'maka-harness-ab-cli-'));
   try {
     const scriptPath = new URL('../../harbor/run-harness-ab.mjs', import.meta.url);
-    await assert.rejects(execFileAsync(process.execPath, [scriptPath.pathname], {
-      cwd: process.cwd(),
-      env: {
-        ...process.env,
-        MAKA_HARNESS_AB_OUT_DIR: join(dir, 'out'),
-        MAKA_HARNESS_AB_TASKS_ROOT: join(dir, 'missing-tasks'),
-        MAKA_HARNESS_AB_LIMIT: '5',
-        MAKA_HARNESS_AB_DRY_RUN: '1',
-      },
-    }), /Terminal-Bench 2\.1 task set mismatch/);
+    await assert.rejects(
+      execFileAsync(process.execPath, [scriptPath.pathname], {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          MAKA_HARNESS_AB_OUT_DIR: join(dir, 'out'),
+          MAKA_HARNESS_AB_TASKS_ROOT: join(dir, 'missing-tasks'),
+          MAKA_HARNESS_AB_LIMIT: '5',
+          MAKA_HARNESS_AB_DRY_RUN: '1',
+        },
+      }),
+      /Terminal-Bench 2\.1 task set mismatch/,
+    );
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -50,9 +53,7 @@ test('harness A/B selects one named task only with an explicit run identity', as
     resolveHarnessAbRunId,
     resolveHarnessAbTaskSelection,
     resolveHarnessCompetitorProfile,
-  } = await import(
-    new URL('../../harbor/run-harness-ab.mjs', import.meta.url).href
-  );
+  } = await import(new URL('../../harbor/run-harness-ab.mjs', import.meta.url).href);
   const taskId = 'extract-moves-from-video';
   const selection = resolveHarnessAbTaskSelection(taskId, undefined, undefined);
 
@@ -105,13 +106,16 @@ test('harness Oracle environment selects the linux/amd64 image manifest digest',
   const { resolvedImageDigestFromInspect } = await import(
     new URL('../../harbor/run-harness-ab.mjs', import.meta.url).href
   );
-  const digest = resolvedImageDigestFromInspect(JSON.stringify({
-    digest: `sha256:${'0'.repeat(64)}`,
-    manifests: [
-      { digest: `sha256:${'a'.repeat(64)}`, platform: { os: 'linux', architecture: 'arm64' } },
-      { digest: `sha256:${'b'.repeat(64)}`, platform: { os: 'linux', architecture: 'amd64' } },
-    ],
-  }), 'linux/amd64');
+  const digest = resolvedImageDigestFromInspect(
+    JSON.stringify({
+      digest: `sha256:${'0'.repeat(64)}`,
+      manifests: [
+        { digest: `sha256:${'a'.repeat(64)}`, platform: { os: 'linux', architecture: 'arm64' } },
+        { digest: `sha256:${'b'.repeat(64)}`, platform: { os: 'linux', architecture: 'amd64' } },
+      ],
+    }),
+    'linux/amd64',
+  );
 
   assert.equal(digest, `sha256:${'b'.repeat(64)}`);
 });
@@ -175,7 +179,9 @@ test('harness A/B bounds a stalled advisory evidence lookup', async () => {
 
   const evidence = await Promise.race([
     resolution,
-    new Promise((_, reject) => setTimeout(() => reject(new Error('advisory lookup remained pending')), 100)),
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('advisory lookup remained pending')), 100),
+    ),
   ]);
 
   assert.deepEqual(evidence.annotations, [{ taskId: 'task-a', state: 'missing' }]);
@@ -219,9 +225,7 @@ test('harness A/B defaults to pinned Kimi Code and keeps OpenCode selectable', a
     resolveHarnessAbRunId,
     resolveHarnessCompetitorProfile,
     resolveHarnessCompetitorToolchainPath,
-  } = await import(
-    new URL('../../harbor/run-harness-ab.mjs', import.meta.url).href
-  );
+  } = await import(new URL('../../harbor/run-harness-ab.mjs', import.meta.url).href);
 
   const manifest = buildHarnessAbManifest({
     subjectFingerprint: 'subject',
@@ -252,10 +256,7 @@ test('harness A/B defaults to pinned Kimi Code and keeps OpenCode selectable', a
   assert.equal(manifest.maxConcurrency, 4);
   assert.equal(manifest.maxConcurrentAttempts, 8);
   const kimiProfile = resolveHarnessCompetitorProfile('kimi-code');
-  assert.equal(
-    resolveHarnessAbRunId(kimiProfile),
-    'k3-maka-vs-kimi-code-tbench-2.1-full-v2',
-  );
+  assert.equal(resolveHarnessAbRunId(kimiProfile), 'k3-maka-vs-kimi-code-tbench-2.1-full-v2');
   assert.match(
     resolveHarnessCompetitorToolchainPath('/run', kimiProfile),
     new RegExp(`kimi-code-0\\.26\\.0-${kimiProfile.toolchainFingerprint.slice(7, 19)}-linux-x64$`),
@@ -277,17 +278,20 @@ test('detached named-task launcher requires a run id before creating artifacts',
   try {
     const outDir = join(dir, 'out');
     const scriptPath = new URL('../../harbor/run-harness-ab-detached.mjs', import.meta.url);
-    await assert.rejects(execFileAsync(process.execPath, [scriptPath.pathname], {
-      cwd: process.cwd(),
-      env: {
-        ...process.env,
-        MAKA_HARNESS_AB_OUT_DIR: outDir,
-        MAKA_HARNESS_AB_RUN_ID: '',
-        MAKA_HARNESS_AB_TASK_ID: 'extract-moves-from-video',
-        MAKA_HARNESS_AB_TASKS_ROOT: join(dir, 'missing-tasks'),
-        MAKA_HARNESS_AB_DRY_RUN: '1',
-      },
-    }), /MAKA_HARNESS_AB_RUN_ID is required with MAKA_HARNESS_AB_TASK_ID/);
+    await assert.rejects(
+      execFileAsync(process.execPath, [scriptPath.pathname], {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          MAKA_HARNESS_AB_OUT_DIR: outDir,
+          MAKA_HARNESS_AB_RUN_ID: '',
+          MAKA_HARNESS_AB_TASK_ID: 'extract-moves-from-video',
+          MAKA_HARNESS_AB_TASKS_ROOT: join(dir, 'missing-tasks'),
+          MAKA_HARNESS_AB_DRY_RUN: '1',
+        },
+      }),
+      /MAKA_HARNESS_AB_RUN_ID is required with MAKA_HARNESS_AB_TASK_ID/,
+    );
     await assert.rejects(
       readFile(join(outDir, 'k3-maka-vs-kimi-code-tbench-2.1-full-v2', 'background-run.log')),
       { code: 'ENOENT' },
@@ -321,8 +325,14 @@ test('detached harness launcher persists a terminal failed journal after the wor
     assert.equal(typeof journal.pid, 'number');
     assert.equal(typeof journal.startedAt, 'string');
     assert.equal(typeof journal.finishedAt, 'string');
-    await waitForFileMatch(join(outDir, runId, 'background-run.log'), /Terminal-Bench 2\.1 task set mismatch/);
-    assert.match(await readFile(join(outDir, runId, 'background-run.log'), 'utf8'), /Terminal-Bench 2\.1 task set mismatch/);
+    await waitForFileMatch(
+      join(outDir, runId, 'background-run.log'),
+      /Terminal-Bench 2\.1 task set mismatch/,
+    );
+    assert.match(
+      await readFile(join(outDir, runId, 'background-run.log'), 'utf8'),
+      /Terminal-Bench 2\.1 task set mismatch/,
+    );
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -364,7 +374,11 @@ test('duplicate detached launch does not overwrite the active run journal', asyn
     const runRoot = join(outDir, runId);
     const lockDir = join(runRoot, '.ab-run.lock');
     await mkdir(lockDir, { recursive: true });
-    await writeFile(join(lockDir, 'owner.json'), `${JSON.stringify({ pid: process.pid, startedAt: Date.now() })}\n`, 'utf8');
+    await writeFile(
+      join(lockDir, 'owner.json'),
+      `${JSON.stringify({ pid: process.pid, startedAt: Date.now() })}\n`,
+      'utf8',
+    );
     const journal = {
       schemaVersion: 1,
       pid: process.pid,
@@ -372,22 +386,32 @@ test('duplicate detached launch does not overwrite the active run journal', asyn
       logPath: join(runRoot, 'background-run.log'),
       status: 'running',
     };
-    await writeFile(join(runRoot, 'background-run.json'), `${JSON.stringify(journal, null, 2)}\n`, 'utf8');
+    await writeFile(
+      join(runRoot, 'background-run.json'),
+      `${JSON.stringify(journal, null, 2)}\n`,
+      'utf8',
+    );
 
     const scriptPath = new URL('../../harbor/run-harness-ab-detached.mjs', import.meta.url);
-    await assert.rejects(execFileAsync(process.execPath, [scriptPath.pathname], {
-      cwd: process.cwd(),
-      env: {
-        ...process.env,
-        MAKA_HARNESS_AB_OUT_DIR: outDir,
-        MAKA_HARNESS_AB_RUN_ID: runId,
-        MAKA_HARNESS_AB_TASKS_ROOT: join(dir, 'missing-tasks'),
-        MAKA_HARNESS_AB_LIMIT: '5',
-        MAKA_HARNESS_AB_DRY_RUN: '1',
-      },
-    }), /before acquiring the run lock/);
+    await assert.rejects(
+      execFileAsync(process.execPath, [scriptPath.pathname], {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          MAKA_HARNESS_AB_OUT_DIR: outDir,
+          MAKA_HARNESS_AB_RUN_ID: runId,
+          MAKA_HARNESS_AB_TASKS_ROOT: join(dir, 'missing-tasks'),
+          MAKA_HARNESS_AB_LIMIT: '5',
+          MAKA_HARNESS_AB_DRY_RUN: '1',
+        },
+      }),
+      /before acquiring the run lock/,
+    );
 
-    await waitForFileMatch(join(runRoot, 'background-run.log'), /Terminal-Bench 2\.1 task set mismatch|A\/B run is already active/);
+    await waitForFileMatch(
+      join(runRoot, 'background-run.log'),
+      /Terminal-Bench 2\.1 task set mismatch|A\/B run is already active/,
+    );
     assert.deepEqual(
       JSON.parse(await readFile(join(runRoot, 'background-run.json'), 'utf8')),
       journal,
@@ -401,16 +425,19 @@ test('harness A/B CLI rejects the superseded 30-task pilot checkpoint', async ()
   const dir = await mkdtemp(join(tmpdir(), 'maka-harness-ab-cli-'));
   try {
     const scriptPath = new URL('../../harbor/run-harness-ab.mjs', import.meta.url);
-    await assert.rejects(execFileAsync(process.execPath, [scriptPath.pathname], {
-      cwd: process.cwd(),
-      env: {
-        ...process.env,
-        MAKA_HARNESS_AB_OUT_DIR: join(dir, 'out'),
-        MAKA_HARNESS_AB_TASKS_ROOT: join(dir, 'missing-tasks'),
-        MAKA_HARNESS_AB_LIMIT: '30',
-        MAKA_HARNESS_AB_DRY_RUN: '1',
-      },
-    }), /MAKA_HARNESS_AB_LIMIT must be 5 or 89/);
+    await assert.rejects(
+      execFileAsync(process.execPath, [scriptPath.pathname], {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          MAKA_HARNESS_AB_OUT_DIR: join(dir, 'out'),
+          MAKA_HARNESS_AB_TASKS_ROOT: join(dir, 'missing-tasks'),
+          MAKA_HARNESS_AB_LIMIT: '30',
+          MAKA_HARNESS_AB_DRY_RUN: '1',
+        },
+      }),
+      /MAKA_HARNESS_AB_LIMIT must be 5 or 89/,
+    );
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -420,16 +447,19 @@ test('harness A/B CLI accepts the complete 89-task profile limit', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'maka-harness-ab-cli-'));
   try {
     const scriptPath = new URL('../../harbor/run-harness-ab.mjs', import.meta.url);
-    await assert.rejects(execFileAsync(process.execPath, [scriptPath.pathname], {
-      cwd: process.cwd(),
-      env: {
-        ...process.env,
-        MAKA_HARNESS_AB_OUT_DIR: join(dir, 'out'),
-        MAKA_HARNESS_AB_TASKS_ROOT: join(dir, 'missing-tasks'),
-        MAKA_HARNESS_AB_LIMIT: '89',
-        MAKA_HARNESS_AB_DRY_RUN: '1',
-      },
-    }), /Terminal-Bench 2\.1 task set mismatch/);
+    await assert.rejects(
+      execFileAsync(process.execPath, [scriptPath.pathname], {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          MAKA_HARNESS_AB_OUT_DIR: join(dir, 'out'),
+          MAKA_HARNESS_AB_TASKS_ROOT: join(dir, 'missing-tasks'),
+          MAKA_HARNESS_AB_LIMIT: '89',
+          MAKA_HARNESS_AB_DRY_RUN: '1',
+        },
+      }),
+      /Terminal-Bench 2\.1 task set mismatch/,
+    );
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -446,20 +476,23 @@ test('harness A/B CLI rejects modified task contents before reading credentials'
     }
     const outDir = join(dir, 'out');
     const scriptPath = new URL('../../harbor/run-harness-ab.mjs', import.meta.url);
-    await assert.rejects(execFileAsync(process.execPath, [scriptPath.pathname], {
-      cwd: process.cwd(),
-      env: {
-        ...process.env,
-        MAKA_HARNESS_AB_OUT_DIR: outDir,
-        MAKA_HARNESS_AB_TASKS_ROOT: tasksRoot,
-        MAKA_HARNESS_AB_RUN_ID: 'dry-run',
-        MAKA_HARNESS_AB_LIMIT: '5',
-        MAKA_HARNESS_AB_DRY_RUN: '1',
-        MAKA_HARNESS_AB_KEY_FILE: join(dir, 'must-not-be-read'),
-        MAKA_HARNESS_AB_EXPLICIT_SUBJECT_FINGERPRINT: `sha256:${'a'.repeat(64)}`,
-        MAKA_HARNESS_AB_TOOLCHAIN_FINGERPRINT: `sha256:${'b'.repeat(64)}`,
-      },
-    }), /Terminal-Bench 2\.1 task tree fingerprint mismatch/);
+    await assert.rejects(
+      execFileAsync(process.execPath, [scriptPath.pathname], {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          MAKA_HARNESS_AB_OUT_DIR: outDir,
+          MAKA_HARNESS_AB_TASKS_ROOT: tasksRoot,
+          MAKA_HARNESS_AB_RUN_ID: 'dry-run',
+          MAKA_HARNESS_AB_LIMIT: '5',
+          MAKA_HARNESS_AB_DRY_RUN: '1',
+          MAKA_HARNESS_AB_KEY_FILE: join(dir, 'must-not-be-read'),
+          MAKA_HARNESS_AB_EXPLICIT_SUBJECT_FINGERPRINT: `sha256:${'a'.repeat(64)}`,
+          MAKA_HARNESS_AB_TOOLCHAIN_FINGERPRINT: `sha256:${'b'.repeat(64)}`,
+        },
+      }),
+      /Terminal-Bench 2\.1 task tree fingerprint mismatch/,
+    );
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

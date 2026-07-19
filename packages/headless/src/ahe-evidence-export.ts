@@ -53,7 +53,14 @@ import {
   heavyTaskSelfCheckStrongPassBlocker,
   heavyTaskSelfCheckWorkspaceGuardStatus,
 } from './heavy-task-self-check.js';
-import type { AutonomousResultTaxonomy, HeavyTaskSelfCheckExecutionHygiene, HeavyTaskSelfCheckPlanAuditSummary, ScoreResult, TaskRunArtifact, VerifierResult } from './task-contracts.js';
+import type {
+  AutonomousResultTaxonomy,
+  HeavyTaskSelfCheckExecutionHygiene,
+  HeavyTaskSelfCheckPlanAuditSummary,
+  ScoreResult,
+  TaskRunArtifact,
+  VerifierResult,
+} from './task-contracts.js';
 import type { TaskRunProjection } from './task-run-store.js';
 
 export const MAKA_AHE_EVIDENCE_EXPORT_SOURCE_LABEL = 'ahe-evidence-export-20260714' as const;
@@ -166,7 +173,12 @@ export interface MakaAheFailureDigest {
     sourceRef?: MakaAheArtifactRef;
   };
   selfCheck: {
-    divergence: 'self_check_pass_official_fail' | 'self_check_fail_official_pass' | 'aligned' | 'no_self_check' | 'unscored';
+    divergence:
+      | 'self_check_pass_official_fail'
+      | 'self_check_fail_official_pass'
+      | 'aligned'
+      | 'no_self_check'
+      | 'unscored';
     hygiene: {
       scratchUsed: boolean | 'unknown';
       cleanupPerformed: boolean | 'unknown';
@@ -287,19 +299,23 @@ export async function validateMakaAheSourceRefs(
     return errors;
   }
 
-  await Promise.all(components.flatMap((component, componentIndex) => component.sourceRefs.map(async (sourceRef, refIndex) => {
-    const path = `components[${componentIndex}].sourceRefs[${refIndex}].path`;
-    const issue = unsafeRepoPathReason(sourceRef.path);
-    if (issue) {
-      errors.push({ path, message: issue });
-      return;
-    }
-    try {
-      await resolveMakaAheSourceFile(repoRoot, sourceRef.path);
-    } catch (error) {
-      errors.push({ path, message: (error as Error).message });
-    }
-  })));
+  await Promise.all(
+    components.flatMap((component, componentIndex) =>
+      component.sourceRefs.map(async (sourceRef, refIndex) => {
+        const path = `components[${componentIndex}].sourceRefs[${refIndex}].path`;
+        const issue = unsafeRepoPathReason(sourceRef.path);
+        if (issue) {
+          errors.push({ path, message: issue });
+          return;
+        }
+        try {
+          await resolveMakaAheSourceFile(repoRoot, sourceRef.path);
+        } catch (error) {
+          errors.push({ path, message: (error as Error).message });
+        }
+      }),
+    ),
+  );
 
   return errors.sort((a, b) => a.path.localeCompare(b.path) || a.message.localeCompare(b.message));
 }
@@ -310,7 +326,9 @@ export async function buildMakaAheTargetSnapshot(
   const components = options.components ?? MAKA_AHE_CURRENT_COMPONENTS;
   const errors = await validateMakaAheSourceRefs(options.repoRoot, components);
   if (errors.length > 0) {
-    throw new Error(`invalid Maka AHE target snapshot source refs:\n${errors.map((error) => `- ${error.path}: ${error.message}`).join('\n')}`);
+    throw new Error(
+      `invalid Maka AHE target snapshot source refs:\n${errors.map((error) => `- ${error.path}: ${error.message}`).join('\n')}`,
+    );
   }
 
   const sourceLabel = options.sourceLabel ?? MAKA_AHE_EVIDENCE_EXPORT_SOURCE_LABEL;
@@ -332,10 +350,12 @@ export function makaAheEvidenceFromTaskRunProjections(
   options: MakaAheRunEvidenceOptions,
 ): MakaAheRunEvidence {
   const sorted = sortProjections(projections);
-  const runId = options.runId ?? `maka-ahe-run-${shortHash({
-    snapshotId: options.snapshotId,
-    taskRunIds: sorted.map((projection) => projection.taskRunId),
-  })}`;
+  const runId =
+    options.runId ??
+    `maka-ahe-run-${shortHash({
+      snapshotId: options.snapshotId,
+      taskRunIds: sorted.map((projection) => projection.taskRunId),
+    })}`;
   const traceBaseRef = trimTrailingSlash(options.traceBaseRef ?? 'traces');
   const results: MakaAheRunResult[] = [];
   const entries: MakaAheTraceIndexEntry[] = [];
@@ -343,7 +363,9 @@ export function makaAheEvidenceFromTaskRunProjections(
   for (const projection of sorted) {
     const exported = taskRunExportFromProjection(projection, { exportedAt: options.exportedAt });
     const official = officialResultFor(options.officialResults, projection.taskRunId);
-    const effectiveExport = official ? taskRunExportWithOfficialOverlay(exported, official) : exported;
+    const effectiveExport = official
+      ? taskRunExportWithOfficialOverlay(exported, official)
+      : exported;
     const taskRunRef = `${traceBaseRef}/${safePathSegment(projection.taskRunId)}`;
     const generatedRefs = generatedRefsFor(options.generatedRefs, projection.taskRunId);
     const result = runResultFromProjection(projection, effectiveExport, {
@@ -355,16 +377,20 @@ export function makaAheEvidenceFromTaskRunProjections(
     });
     const validation = validateMakaAheRunResult(result);
     if (!validation.ok) {
-      throw new Error(`invalid Maka AHE run result for ${projection.taskRunId}:\n${validation.errors.map((error) => `- ${error.path}: ${error.message}`).join('\n')}`);
+      throw new Error(
+        `invalid Maka AHE run result for ${projection.taskRunId}:\n${validation.errors.map((error) => `- ${error.path}: ${error.message}`).join('\n')}`,
+      );
     }
     results.push(result);
-    entries.push(traceIndexEntryFromProjection(projection, effectiveExport, {
-      snapshotId: options.snapshotId,
-      runId,
-      taskRunRef,
-      officialResultRef: official ? `${taskRunRef}/official-harbor-result.json` : undefined,
-      generatedRefs,
-    }));
+    entries.push(
+      traceIndexEntryFromProjection(projection, effectiveExport, {
+        snapshotId: options.snapshotId,
+        runId,
+        taskRunRef,
+        officialResultRef: official ? `${taskRunRef}/official-harbor-result.json` : undefined,
+        generatedRefs,
+      }),
+    );
   }
 
   return {
@@ -389,7 +415,9 @@ export async function writeMakaAheEvidenceExport(
 ): Promise<WriteMakaAheEvidenceExportResult> {
   const snapshotValidation = validateMakaAheTargetSnapshot(options.snapshot);
   if (!snapshotValidation.ok) {
-    throw new Error(`invalid Maka AHE target snapshot:\n${snapshotValidation.errors.map((error) => `- ${error.path}: ${error.message}`).join('\n')}`);
+    throw new Error(
+      `invalid Maka AHE target snapshot:\n${snapshotValidation.errors.map((error) => `- ${error.path}: ${error.message}`).join('\n')}`,
+    );
   }
   await mkdir(outDir, { recursive: true });
   const exportedAt = options.exportedAt ?? new Date().toISOString();
@@ -418,10 +446,15 @@ export async function writeMakaAheEvidenceExport(
     });
     const exported = taskRunWrite.export;
     const official = officialResultFor(options.officialResults, projection.taskRunId);
-    const effectiveExport = official ? taskRunExportWithOfficialOverlay(exported, official) : exported;
+    const effectiveExport = official
+      ? taskRunExportWithOfficialOverlay(exported, official)
+      : exported;
     const sessionMessages = sessionMessagesFor(options.sessionMessages, projection.taskRunId);
     const messagesPath = join(traceDir, 'messages.json');
-    await writeStableJson(messagesPath, aheAgentRunMessages(projection, exported, official, sessionMessages));
+    await writeStableJson(
+      messagesPath,
+      aheAgentRunMessages(projection, exported, official, sessionMessages),
+    );
     const officialResultPath = official ? join(traceDir, 'official-harbor-result.json') : undefined;
     if (official) {
       await writeStableJson(officialResultPath!, official);
@@ -445,15 +478,25 @@ export async function writeMakaAheEvidenceExport(
     );
     const lineageValidation = validateMakaAheExecutionLineage(lineage);
     if (!lineageValidation.ok) {
-      throw new Error(`invalid Maka AHE execution lineage for ${projection.taskRunId}:\n${lineageValidation.errors.map((error) => `- ${error.path}: ${error.message}`).join('\n')}`);
+      throw new Error(
+        `invalid Maka AHE execution lineage for ${projection.taskRunId}:\n${lineageValidation.errors.map((error) => `- ${error.path}: ${error.message}`).join('\n')}`,
+      );
     }
     const lineagePath = join(traceDir, 'execution-lineage.json');
     files.executionLineageJson[projection.taskRunId] = lineagePath;
     await writeStableJson(lineagePath, lineage);
 
     const taskRefs: MakaAheGeneratedTaskRefs = {
-      taskRun: await localFileRef(taskRunWrite.files.taskRunJson, `${taskRunRef}/task-run.json`, 'application/json'),
-      transcript: await localFileRef(taskRunWrite.files.resultMd, `${taskRunRef}/result.md`, 'text/markdown'),
+      taskRun: await localFileRef(
+        taskRunWrite.files.taskRunJson,
+        `${taskRunRef}/task-run.json`,
+        'application/json',
+      ),
+      transcript: await localFileRef(
+        taskRunWrite.files.resultMd,
+        `${taskRunRef}/result.md`,
+        'text/markdown',
+      ),
       messages: await localFileRef(messagesPath, `${taskRunRef}/messages.json`, 'application/json'),
       taskEvents: await localFileRef(
         taskRunWrite.files.eventsJsonl!,
@@ -461,11 +504,25 @@ export async function writeMakaAheEvidenceExport(
         'application/jsonl',
         'payload-safe Task Event projection; source coverage refers to the canonical Task Event ledger',
       ),
-      executionLineage: await localFileRef(lineagePath, `${taskRunRef}/execution-lineage.json`, 'application/json'),
-      agentRunInspections: materializedAgentRuns.flatMap((source) => source.inspectRef ? [source.inspectRef] : []),
-      runtimeEventSources: materializedAgentRuns.flatMap((source) => source.runtimeEventsRef ? [source.runtimeEventsRef] : []),
+      executionLineage: await localFileRef(
+        lineagePath,
+        `${taskRunRef}/execution-lineage.json`,
+        'application/json',
+      ),
+      agentRunInspections: materializedAgentRuns.flatMap((source) =>
+        source.inspectRef ? [source.inspectRef] : [],
+      ),
+      runtimeEventSources: materializedAgentRuns.flatMap((source) =>
+        source.runtimeEventsRef ? [source.runtimeEventsRef] : [],
+      ),
       ...(officialResultPath
-        ? { officialResult: await localFileRef(officialResultPath, `${taskRunRef}/official-harbor-result.json`, 'application/json') }
+        ? {
+            officialResult: await localFileRef(
+              officialResultPath,
+              `${taskRunRef}/official-harbor-result.json`,
+              'application/json',
+            ),
+          }
         : {}),
     };
     const failureDigest = failureDigestFromProjection(projection, effectiveExport, {
@@ -530,17 +587,29 @@ function runResultFromProjection(
     status,
     scoreAuthority: authority,
     ...(normalized !== undefined ? { score: normalized } : {}),
-    ...(exported.verifier ? {
-      verifierRef: ids.generatedRefs?.officialResult
-        ?? (ids.generatedRefs?.taskRun
-          ? { ...ids.generatedRefs.taskRun, description: `${exported.verifier.kind} verifier result ${exported.verifier.id}` }
-          : undefined)
-        ?? verifierRef(exported.verifier, ids.taskRunRef, ids.officialResultRef),
-    } : {}),
-    traceRef: ids.generatedRefs?.taskRun
-      ?? { kind: 'file', ref: `${ids.taskRunRef}/task-run.json`, mediaType: 'application/json' },
-    executionLineageRef: ids.generatedRefs?.executionLineage
-      ?? { kind: 'file', ref: `${ids.taskRunRef}/execution-lineage.json`, mediaType: 'application/json' },
+    ...(exported.verifier
+      ? {
+          verifierRef:
+            ids.generatedRefs?.officialResult ??
+            (ids.generatedRefs?.taskRun
+              ? {
+                  ...ids.generatedRefs.taskRun,
+                  description: `${exported.verifier.kind} verifier result ${exported.verifier.id}`,
+                }
+              : undefined) ??
+            verifierRef(exported.verifier, ids.taskRunRef, ids.officialResultRef),
+        }
+      : {}),
+    traceRef: ids.generatedRefs?.taskRun ?? {
+      kind: 'file',
+      ref: `${ids.taskRunRef}/task-run.json`,
+      mediaType: 'application/json',
+    },
+    executionLineageRef: ids.generatedRefs?.executionLineage ?? {
+      kind: 'file',
+      ref: `${ids.taskRunRef}/execution-lineage.json`,
+      mediaType: 'application/json',
+    },
     ...(status === 'official_pass' ? {} : { failureTaxonomy: failureTaxonomy(exported) }),
     ...(warnings.length > 0 ? { warnings } : {}),
   };
@@ -558,22 +627,31 @@ function traceIndexEntryFromProjection(
   },
 ): MakaAheTraceIndexEntry {
   const artifacts = [
-    ...(ids.officialResultRef ? [{
-      ...(ids.generatedRefs?.officialResult ?? {
-        kind: 'file' as const,
-        ref: ids.officialResultRef,
-        mediaType: 'application/json',
-      }),
-      description: 'Harbor post-exit official verifier result imported for AHE scoring',
-    }] : []),
-    ...(shouldWriteFailureDigest(projection, exported) ? [{
-      ...(ids.generatedRefs?.failureDigest ?? {
-        kind: 'file' as const,
-        ref: `${ids.taskRunRef}/failure-digest.json`,
-        mediaType: 'application/json',
-      }),
-      description: 'AHE failure digest with official verifier excerpts, self-check blocks, and final artifact state',
-    }] : []),
+    ...(ids.officialResultRef
+      ? [
+          {
+            ...(ids.generatedRefs?.officialResult ?? {
+              kind: 'file' as const,
+              ref: ids.officialResultRef,
+              mediaType: 'application/json',
+            }),
+            description: 'Harbor post-exit official verifier result imported for AHE scoring',
+          },
+        ]
+      : []),
+    ...(shouldWriteFailureDigest(projection, exported)
+      ? [
+          {
+            ...(ids.generatedRefs?.failureDigest ?? {
+              kind: 'file' as const,
+              ref: `${ids.taskRunRef}/failure-digest.json`,
+              mediaType: 'application/json',
+            }),
+            description:
+              'AHE failure digest with official verifier excerpts, self-check blocks, and final artifact state',
+          },
+        ]
+      : []),
     ...exported.artifacts.items.map(artifactRefFromTaskRunArtifact),
   ];
   return {
@@ -581,25 +659,36 @@ function traceIndexEntryFromProjection(
     taskId: exported.taskRun.taskId,
     runId: ids.runId,
     snapshotId: ids.snapshotId,
-    executionLineage: ids.generatedRefs?.executionLineage
-      ?? { kind: 'file', ref: `${ids.taskRunRef}/execution-lineage.json`, mediaType: 'application/json' },
-    taskEventsJsonl: ids.generatedRefs?.taskEvents
-      ?? { kind: 'file', ref: `${ids.taskRunRef}/task-events.jsonl`, mediaType: 'application/jsonl' },
+    executionLineage: ids.generatedRefs?.executionLineage ?? {
+      kind: 'file',
+      ref: `${ids.taskRunRef}/execution-lineage.json`,
+      mediaType: 'application/json',
+    },
+    taskEventsJsonl: ids.generatedRefs?.taskEvents ?? {
+      kind: 'file',
+      ref: `${ids.taskRunRef}/task-events.jsonl`,
+      mediaType: 'application/jsonl',
+    },
     agentRunInspections: ids.generatedRefs?.agentRunInspections ?? [],
     runtimeEventSources: ids.generatedRefs?.runtimeEventSources ?? [],
-    messages: ids.generatedRefs?.messages
-      ?? { kind: 'file', ref: `${ids.taskRunRef}/messages.json`, mediaType: 'application/json' },
-    transcript: ids.generatedRefs?.transcript
-      ?? { kind: 'file', ref: `${ids.taskRunRef}/result.md`, mediaType: 'text/markdown' },
-    toolResults: projection.artifacts.filter((artifact) => artifact.kind === 'runtime_trace').map(artifactRefFromTaskRunArtifact),
+    messages: ids.generatedRefs?.messages ?? {
+      kind: 'file',
+      ref: `${ids.taskRunRef}/messages.json`,
+      mediaType: 'application/json',
+    },
+    transcript: ids.generatedRefs?.transcript ?? {
+      kind: 'file',
+      ref: `${ids.taskRunRef}/result.md`,
+      mediaType: 'text/markdown',
+    },
+    toolResults: projection.artifacts
+      .filter((artifact) => artifact.kind === 'runtime_trace')
+      .map(artifactRefFromTaskRunArtifact),
     artifacts,
   };
 }
 
-function shouldWriteFailureDigest(
-  projection: TaskRunProjection,
-  exported: TaskRunExport,
-): boolean {
+function shouldWriteFailureDigest(projection: TaskRunProjection, exported: TaskRunExport): boolean {
   const authority = scoreAuthority(exported.score, exported.verifier, projection);
   return resultStatus(exported, projection, authority) !== 'official_pass';
 }
@@ -624,7 +713,9 @@ function failureDigestFromProjection(
     exportedAt: options.exportedAt ?? new Date().toISOString(),
     status,
     scoreAuthority: authority,
-    ...(normalizedScore(exported.score, exported.verifier) !== undefined ? { score: normalizedScore(exported.score, exported.verifier) } : {}),
+    ...(normalizedScore(exported.score, exported.verifier) !== undefined
+      ? { score: normalizedScore(exported.score, exported.verifier) }
+      : {}),
     failureTaxonomy: failureTaxonomy(exported),
     warnings: resultWarnings(exported, projection, status, authority),
     officialHarbor: {
@@ -640,8 +731,13 @@ function failureDigestFromProjection(
       ...(projection.latestHeavyTaskSelfCheckPlan || projection.latestHeavyTaskSelfCheck
         ? {
             selfCheckPlan: {
-              ...(projection.latestHeavyTaskSelfCheckPlan ? { latest: projection.latestHeavyTaskSelfCheckPlan } : {}),
-              audit: auditSelfCheckPlanConsistency(projection.latestHeavyTaskSelfCheckPlan, projection.latestHeavyTaskSelfCheck),
+              ...(projection.latestHeavyTaskSelfCheckPlan
+                ? { latest: projection.latestHeavyTaskSelfCheckPlan }
+                : {}),
+              audit: auditSelfCheckPlanConsistency(
+                projection.latestHeavyTaskSelfCheckPlan,
+                projection.latestHeavyTaskSelfCheck,
+              ),
             },
           }
         : {}),
@@ -650,28 +746,50 @@ function failureDigestFromProjection(
     finalState: {
       taskRun: exported.taskRun,
       workspace: exported.workspace,
-      ...(exported.heavyTask?.selfCheckGate ? { selfCheckGate: exported.heavyTask.selfCheckGate } : {}),
+      ...(exported.heavyTask?.selfCheckGate
+        ? { selfCheckGate: exported.heavyTask.selfCheckGate }
+        : {}),
       artifacts: exported.artifacts.items.map(compactArtifact),
       ...(exported.progress ? { progress: exported.progress } : {}),
       recentEvidence: projection.heavyTaskEvidence.slice(-20).map(compactHeavyTaskEvidence),
     },
     debugRefs: {
-      taskRun: options.generatedRefs?.taskRun
-        ?? { kind: 'file', ref: `${taskRunRef}/task-run.json`, mediaType: 'application/json' },
-      messages: options.generatedRefs?.messages
-        ?? { kind: 'file', ref: `${taskRunRef}/messages.json`, mediaType: 'application/json' },
-      transcript: options.generatedRefs?.transcript
-        ?? { kind: 'file', ref: `${taskRunRef}/result.md`, mediaType: 'text/markdown' },
-      executionLineage: options.generatedRefs?.executionLineage
-        ?? { kind: 'file', ref: `${taskRunRef}/execution-lineage.json`, mediaType: 'application/json' },
-      taskEventsJsonl: options.generatedRefs?.taskEvents
-        ?? { kind: 'file', ref: `${taskRunRef}/task-events.jsonl`, mediaType: 'application/jsonl' },
+      taskRun: options.generatedRefs?.taskRun ?? {
+        kind: 'file',
+        ref: `${taskRunRef}/task-run.json`,
+        mediaType: 'application/json',
+      },
+      messages: options.generatedRefs?.messages ?? {
+        kind: 'file',
+        ref: `${taskRunRef}/messages.json`,
+        mediaType: 'application/json',
+      },
+      transcript: options.generatedRefs?.transcript ?? {
+        kind: 'file',
+        ref: `${taskRunRef}/result.md`,
+        mediaType: 'text/markdown',
+      },
+      executionLineage: options.generatedRefs?.executionLineage ?? {
+        kind: 'file',
+        ref: `${taskRunRef}/execution-lineage.json`,
+        mediaType: 'application/json',
+      },
+      taskEventsJsonl: options.generatedRefs?.taskEvents ?? {
+        kind: 'file',
+        ref: `${taskRunRef}/task-events.jsonl`,
+        mediaType: 'application/jsonl',
+      },
       agentRunInspections: [...(options.generatedRefs?.agentRunInspections ?? [])],
       runtimeEventSources: [...(options.generatedRefs?.runtimeEventSources ?? [])],
-      ...(options.official ? {
-        officialHarborResult: options.generatedRefs?.officialResult
-          ?? { kind: 'file', ref: `${taskRunRef}/official-harbor-result.json`, mediaType: 'application/json' },
-      } : {}),
+      ...(options.official
+        ? {
+            officialHarborResult: options.generatedRefs?.officialResult ?? {
+              kind: 'file',
+              ref: `${taskRunRef}/official-harbor-result.json`,
+              mediaType: 'application/json',
+            },
+          }
+        : {}),
     },
   };
 }
@@ -684,7 +802,9 @@ function resultStatus(
   if (isExcluded(exported.score)) return 'excluded';
   if (isInfraFailure(exported)) return 'infra_failed';
   if (authority === 'official_scorer' || authority === 'official_verifier') {
-    return (exported.score?.passed ?? exported.verifier?.passed ?? false) ? 'official_pass' : 'official_fail';
+    return (exported.score?.passed ?? exported.verifier?.passed ?? false)
+      ? 'official_pass'
+      : 'official_fail';
   }
   if (hasSelfCheckEvidence(projection, exported.score, exported.verifier)) return 'self_check_only';
   if (exported.score?.scored === false) return 'unscored';
@@ -702,7 +822,9 @@ function scoreAuthority(
   return 'analysis_only';
 }
 
-function isOfficialAuthority(authority: { source: string; authoritative: boolean } | undefined): boolean {
+function isOfficialAuthority(
+  authority: { source: string; authoritative: boolean } | undefined,
+): boolean {
   return authority?.authoritative === true && authority.source === 'official_harbor_verifier';
 }
 
@@ -711,11 +833,13 @@ function hasSelfCheckEvidence(
   score: ScoreResult | undefined,
   verifier: VerifierResult | undefined,
 ): boolean {
-  return score?.authority?.source === 'self_check'
-    || verifier?.authority?.source === 'self_check'
-    || projection.selfChecks.length > 0
-    || projection.heavyTaskSelfChecks.length > 0
-    || projection.heavyTaskEvidence.some((item) => item.kind === 'check');
+  return (
+    score?.authority?.source === 'self_check' ||
+    verifier?.authority?.source === 'self_check' ||
+    projection.selfChecks.length > 0 ||
+    projection.heavyTaskSelfChecks.length > 0 ||
+    projection.heavyTaskEvidence.some((item) => item.kind === 'check')
+  );
 }
 
 function isExcluded(score: ScoreResult | undefined): boolean {
@@ -731,20 +855,25 @@ function isInfraFailure(exported: TaskRunExport): boolean {
     exported.score?.errorClass,
     exported.verifier?.errorClass,
   ].filter((value): value is string => typeof value === 'string');
-  return fields.some((field) => [
-    'infra_failed',
-    'setup_failed',
-    'verification_error',
-    'agent_failed',
-    'agent_incomplete',
-    'budget_exhausted',
-    'aborted',
-    'blocked',
-    'cancelled',
-  ].includes(field));
+  return fields.some((field) =>
+    [
+      'infra_failed',
+      'setup_failed',
+      'verification_error',
+      'agent_failed',
+      'agent_incomplete',
+      'budget_exhausted',
+      'aborted',
+      'blocked',
+      'cancelled',
+    ].includes(field),
+  );
 }
 
-function normalizedScore(score: ScoreResult | undefined, verifier: VerifierResult | undefined): number | undefined {
+function normalizedScore(
+  score: ScoreResult | undefined,
+  verifier: VerifierResult | undefined,
+): number | undefined {
   const rawScore = score?.score ?? verifier?.score;
   const maxScore = score?.maxScore ?? verifier?.maxScore;
   if (typeof rawScore !== 'number') return undefined;
@@ -772,11 +901,25 @@ function resultWarnings(
   authority: MakaAheScoreAuthority,
 ): string[] {
   const warnings = [...exported.warnings];
-  const hasNonOfficialPass = exported.score?.passed === true || exported.verifier?.passed === true || exported.taxonomy.passed === true;
-  if (status !== 'official_pass' && authority !== 'official_scorer' && authority !== 'official_verifier' && hasNonOfficialPass) {
-    warnings.push('non-authoritative pass evidence was exported outside official pass/fail buckets');
+  const hasNonOfficialPass =
+    exported.score?.passed === true ||
+    exported.verifier?.passed === true ||
+    exported.taxonomy.passed === true;
+  if (
+    status !== 'official_pass' &&
+    authority !== 'official_scorer' &&
+    authority !== 'official_verifier' &&
+    hasNonOfficialPass
+  ) {
+    warnings.push(
+      'non-authoritative pass evidence was exported outside official pass/fail buckets',
+    );
   }
-  if (projection.latestHeavyTaskSelfCheck && status !== 'official_pass' && status !== 'official_fail') {
+  if (
+    projection.latestHeavyTaskSelfCheck &&
+    status !== 'official_pass' &&
+    status !== 'official_fail'
+  ) {
     warnings.push('self-check evidence is advisory and was exported as non-official evidence');
   }
   return uniqueStrings(warnings);
@@ -787,10 +930,11 @@ function selfCheckDivergence(
   exported: TaskRunExport,
 ): MakaAheFailureDigest['selfCheck']['divergence'] {
   const latest = projection.latestHeavyTaskSelfCheck;
-  const officialPassed = exported.score?.authority?.source === 'official_harbor_verifier'
-    || exported.verifier?.authority?.source === 'official_harbor_verifier'
-    ? exported.score?.passed ?? exported.verifier?.passed
-    : undefined;
+  const officialPassed =
+    exported.score?.authority?.source === 'official_harbor_verifier' ||
+    exported.verifier?.authority?.source === 'official_harbor_verifier'
+      ? (exported.score?.passed ?? exported.verifier?.passed)
+      : undefined;
   if (!latest && projection.selfChecks.length === 0) return 'no_self_check';
   if (officialPassed === undefined) return 'unscored';
   if (latest?.status === 'pass' && officialPassed === false) return 'self_check_pass_official_fail';
@@ -798,7 +942,9 @@ function selfCheckDivergence(
   return 'aligned';
 }
 
-function selfCheckHygieneSummary(projection: TaskRunProjection): MakaAheFailureDigest['selfCheck']['hygiene'] {
+function selfCheckHygieneSummary(
+  projection: TaskRunProjection,
+): MakaAheFailureDigest['selfCheck']['hygiene'] {
   const latest = projection.latestHeavyTaskSelfCheck?.executionHygiene;
   if (!latest) {
     return {
@@ -824,15 +970,24 @@ function selfCheckHygieneSummary(projection: TaskRunProjection): MakaAheFailureD
   const removedPaths = uniqueStrings(latest.workspaceGuard?.removedPaths ?? []);
   const checkedPaths = uniqueStrings(latest.workspaceGuard?.checkedPaths ?? []);
   const workspaceGuardStatus = projection.latestHeavyTaskSelfCheck
-    ? heavyTaskSelfCheckWorkspaceGuardStatus(projection.latestHeavyTaskSelfCheck, projection.latestHeavyTaskSelfCheckPlan)
+    ? heavyTaskSelfCheckWorkspaceGuardStatus(
+        projection.latestHeavyTaskSelfCheck,
+        projection.latestHeavyTaskSelfCheckPlan,
+      )
     : 'unchecked';
   const sandboxStatus = projection.latestHeavyTaskSelfCheck
     ? heavyTaskSelfCheckSandboxStatus(projection.latestHeavyTaskSelfCheck)
     : 'missing';
   const strongPassBlocker = projection.latestHeavyTaskSelfCheck
-    ? heavyTaskSelfCheckStrongPassBlocker(projection.latestHeavyTaskSelfCheck, projection.latestHeavyTaskSelfCheckPlan)
+    ? heavyTaskSelfCheckStrongPassBlocker(
+        projection.latestHeavyTaskSelfCheck,
+        projection.latestHeavyTaskSelfCheckPlan,
+      )
     : 'latest self-check is missing sandbox execution evidence';
-  const planAudit = auditSelfCheckPlanConsistency(projection.latestHeavyTaskSelfCheckPlan, projection.latestHeavyTaskSelfCheck);
+  const planAudit = auditSelfCheckPlanConsistency(
+    projection.latestHeavyTaskSelfCheckPlan,
+    projection.latestHeavyTaskSelfCheck,
+  );
   const riskFlags = [
     ...(sandboxStatus === 'missing' ? ['sandbox_not_reported'] : []),
     ...(latest.scratchUsed === false ? ['scratch_not_used'] : []),
@@ -840,7 +995,9 @@ function selfCheckHygieneSummary(projection: TaskRunProjection): MakaAheFailureD
     ...(latest.cleanupPerformed === false ? ['cleanup_not_performed'] : []),
     ...(latest.cleanupPerformed === undefined ? ['cleanup_unknown'] : []),
     ...(latest.workspaceSideEffects === 'present' ? ['workspace_side_effects_present'] : []),
-    ...(latest.workspaceSideEffects === 'unknown' || latest.workspaceSideEffects === undefined ? ['workspace_side_effects_unknown'] : []),
+    ...(latest.workspaceSideEffects === 'unknown' || latest.workspaceSideEffects === undefined
+      ? ['workspace_side_effects_unknown']
+      : []),
     ...(remainingSideEffectPaths.length > 0 ? ['remaining_side_effect_paths_reported'] : []),
     ...(latest.workspaceGuard?.checked !== true ? ['workspace_guard_not_checked'] : []),
     ...(addedPaths.length > 0 ? ['workspace_guard_added_paths_reported'] : []),
@@ -880,7 +1037,9 @@ function compactVerifierResult(verifier: VerifierResult): CompactVerifierResult 
     ...(verifier.stdout ? { stdoutExcerpt: truncateText(verifier.stdout, 20000, 'tail') } : {}),
     ...(verifier.stderr ? { stderrExcerpt: truncateText(verifier.stderr, 12000, 'tail') } : {}),
     ...(verifier.authority ? { authority: verifier.authority } : {}),
-    ...(recordValue(verifier.details) ? { details: verifier.details as Record<string, unknown> } : {}),
+    ...(recordValue(verifier.details)
+      ? { details: verifier.details as Record<string, unknown> }
+      : {}),
   };
 }
 
@@ -899,14 +1058,18 @@ function compactScoreResult(score: ScoreResult): CompactScoreResult {
   };
 }
 
-function compactArtifact(artifact: TaskRunArtifact): MakaAheFailureDigest['finalState']['artifacts'][number] {
+function compactArtifact(
+  artifact: TaskRunArtifact,
+): MakaAheFailureDigest['finalState']['artifacts'][number] {
   return {
     kind: artifact.kind,
     ref: artifact.artifactRef ?? artifact.path ?? artifact.workspacePath ?? artifact.artifactId,
     ...(artifact.label ? { label: artifact.label } : {}),
     ...(artifact.authority ? { authority: artifact.authority.source } : {}),
     ...(artifact.hash ? { hash: artifact.hash } : {}),
-    ...(recordValue(artifact.metadata) ? { metadata: artifact.metadata as Record<string, unknown> } : {}),
+    ...(recordValue(artifact.metadata)
+      ? { metadata: artifact.metadata as Record<string, unknown> }
+      : {}),
   };
 }
 
@@ -917,15 +1080,19 @@ function compactHeavyTaskEvidence(
     kind: evidence.kind,
     ts: evidence.ts,
     source: compactRecord(evidence.source),
-    ...(evidence.tool ? { tool: compactRecord({
-      name: evidence.tool.name,
-      inputSummary: evidence.tool.inputSummary,
-      exitCode: evidence.tool.exitCode,
-      timedOut: evidence.tool.timedOut,
-      ok: evidence.tool.ok,
-      outputs: evidence.tool.outputs,
-      diff: evidence.tool.diff,
-    }) } : {}),
+    ...(evidence.tool
+      ? {
+          tool: compactRecord({
+            name: evidence.tool.name,
+            inputSummary: evidence.tool.inputSummary,
+            exitCode: evidence.tool.exitCode,
+            timedOut: evidence.tool.timedOut,
+            ok: evidence.tool.ok,
+            outputs: evidence.tool.outputs,
+            diff: evidence.tool.diff,
+          }),
+        }
+      : {}),
     ...(evidence.artifact ? { artifact: compactRecord(evidence.artifact) } : {}),
     ...(evidence.check ? { check: compactRecord(evidence.check) } : {}),
   };
@@ -933,12 +1100,18 @@ function compactHeavyTaskEvidence(
 
 function compactRecord(value: unknown): Record<string, unknown> {
   if (!recordValue(value)) return {};
-  return JSON.parse(JSON.stringify(value, (_key, inner) => (
-    typeof inner === 'string' ? truncateText(inner, 4000) : inner
-  ))) as Record<string, unknown>;
+  return JSON.parse(
+    JSON.stringify(value, (_key, inner) =>
+      typeof inner === 'string' ? truncateText(inner, 4000) : inner,
+    ),
+  ) as Record<string, unknown>;
 }
 
-function verifierRef(verifier: VerifierResult, taskRunRef: string, officialResultRef: string | undefined): MakaAheArtifactRef {
+function verifierRef(
+  verifier: VerifierResult,
+  taskRunRef: string,
+  officialResultRef: string | undefined,
+): MakaAheArtifactRef {
   return {
     kind: 'file',
     ref: officialResultRef ?? `${taskRunRef}/task-run.json`,
@@ -947,7 +1120,10 @@ function verifierRef(verifier: VerifierResult, taskRunRef: string, officialResul
   };
 }
 
-function taskRunExportWithOfficialOverlay(exported: TaskRunExport, official: MakaAheOfficialResultOverlay): TaskRunExport {
+function taskRunExportWithOfficialOverlay(
+  exported: TaskRunExport,
+  official: MakaAheOfficialResultOverlay,
+): TaskRunExport {
   return {
     ...exported,
     verifier: official.verifier,
@@ -960,7 +1136,10 @@ function taskRunExportWithOfficialOverlay(exported: TaskRunExport, official: Mak
       errorClass: official.score.errorClass,
       excludedReason: official.score.excludedReason,
     },
-    warnings: uniqueStrings([...exported.warnings, 'Harbor post-exit official verifier result was imported for AHE scoring']),
+    warnings: uniqueStrings([
+      ...exported.warnings,
+      'Harbor post-exit official verifier result was imported for AHE scoring',
+    ]),
   };
 }
 
@@ -1000,7 +1179,13 @@ function officialOverlayFromHarborOutput(
     ...(output.score !== undefined ? { score: output.score } : {}),
     ...(output.maxScore !== undefined ? { maxScore: output.maxScore } : {}),
     ...(output.authority ? { authority: output.authority } : {}),
-    ...(output.artifacts ? { artifacts: output.artifacts.map((artifact, index) => taskRunArtifactFromDescriptor(artifact, projection, ts + index)) } : {}),
+    ...(output.artifacts
+      ? {
+          artifacts: output.artifacts.map((artifact, index) =>
+            taskRunArtifactFromDescriptor(artifact, projection, ts + index),
+          ),
+        }
+      : {}),
     ...(output.details ? { details: output.details } : {}),
   };
   const authoritative = isOfficialAuthority(verifier.authority);
@@ -1063,7 +1248,9 @@ function taskRunArtifactFromDescriptor(
 ): TaskRunArtifact {
   return {
     schemaVersion: 1,
-    artifactId: descriptor.artifactId ?? `harbor-official-artifact-${shortHash({ projection: projection.taskRunId, descriptor })}`,
+    artifactId:
+      descriptor.artifactId ??
+      `harbor-official-artifact-${shortHash({ projection: projection.taskRunId, descriptor })}`,
     taskRunId: descriptor.taskRunId ?? projection.taskRunId,
     ts: descriptor.ts ?? fallbackTs,
     kind: descriptor.kind,
@@ -1084,9 +1271,14 @@ function aheAgentRunMessages(
   exported: TaskRunExport,
   official: MakaAheOfficialResultOverlay | undefined,
   sessionMessages: readonly unknown[] | undefined,
-): { trace_id: string; messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> } {
+): {
+  trace_id: string;
+  messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>;
+} {
   const publicEvents = projection.events.flatMap(exportableTaskEvents);
-  const normalizedSessionMessages = (sessionMessages ?? []).flatMap(aheMessagesFromStoredSessionMessage);
+  const normalizedSessionMessages = (sessionMessages ?? []).flatMap(
+    aheMessagesFromStoredSessionMessage,
+  );
   return {
     trace_id: projection.taskRunId,
     messages: [
@@ -1100,15 +1292,20 @@ function aheAgentRunMessages(
       ...normalizedSessionMessages,
       {
         role: 'user',
-        content: JSON.stringify({
-          taskRun: exported,
-          publicEvents,
-          officialHarborResult: official,
-        }, null, 2),
+        content: JSON.stringify(
+          {
+            taskRun: exported,
+            publicEvents,
+            officialHarborResult: official,
+          },
+          null,
+          2,
+        ),
       },
       {
         role: 'assistant',
-        content: 'Ready to analyze this Maka task-run evidence, including runtime events, advisory self-checks, and any imported official Harbor result.',
+        content:
+          'Ready to analyze this Maka task-run evidence, including runtime events, advisory self-checks, and any imported official Harbor result.',
       },
     ],
   };
@@ -1123,7 +1320,9 @@ function sessionMessagesFor(
   return messages[taskRunId];
 }
 
-function aheMessagesFromStoredSessionMessage(message: unknown): Array<{ role: 'user' | 'assistant'; content: string }> {
+function aheMessagesFromStoredSessionMessage(
+  message: unknown,
+): Array<{ role: 'user' | 'assistant'; content: string }> {
   if (!message || typeof message !== 'object') return [];
   const record = message as Record<string, unknown>;
   switch (record.type) {
@@ -1133,34 +1332,48 @@ function aheMessagesFromStoredSessionMessage(message: unknown): Array<{ role: 'u
         : [];
     case 'assistant': {
       const parts = [
-        stringField(record, 'thinking') ? `[thinking]\n${stringField(record, 'thinking')}` : undefined,
+        stringField(record, 'thinking')
+          ? `[thinking]\n${stringField(record, 'thinking')}`
+          : undefined,
         stringField(record, 'text'),
       ].filter((part): part is string => Boolean(part));
       return parts.length > 0 ? [{ role: 'assistant', content: parts.join('\n\n') }] : [];
     }
     case 'tool_call':
-      return [{
-        role: 'assistant',
-        content: JSON.stringify({
-          kind: 'tool_call',
-          id: stringField(record, 'id'),
-          toolName: stringField(record, 'toolName'),
-          args: record.args,
-          ts: record.ts,
-        }, null, 2),
-      }];
+      return [
+        {
+          role: 'assistant',
+          content: JSON.stringify(
+            {
+              kind: 'tool_call',
+              id: stringField(record, 'id'),
+              toolName: stringField(record, 'toolName'),
+              args: record.args,
+              ts: record.ts,
+            },
+            null,
+            2,
+          ),
+        },
+      ];
     case 'tool_result':
-      return [{
-        role: 'user',
-        content: JSON.stringify({
-          kind: 'tool_result',
-          toolUseId: stringField(record, 'toolUseId'),
-          isError: record.isError,
-          content: record.content,
-          durationMs: record.durationMs,
-          ts: record.ts,
-        }, null, 2),
-      }];
+      return [
+        {
+          role: 'user',
+          content: JSON.stringify(
+            {
+              kind: 'tool_result',
+              toolUseId: stringField(record, 'toolUseId'),
+              isError: record.isError,
+              content: record.content,
+              durationMs: record.durationMs,
+              ts: record.ts,
+            },
+            null,
+            2,
+          ),
+        },
+      ];
     case 'system_note':
       return stringField(record, 'text')
         ? [{ role: 'user', content: `[system_note]\n${stringField(record, 'text')}` }]
@@ -1204,12 +1417,13 @@ async function readOptionalText(path: string): Promise<string | undefined> {
 }
 
 function artifactRefFromTaskRunArtifact(artifact: TaskRunArtifact): MakaAheArtifactRef {
-  const ref = artifact.artifactRef ?? artifact.path ?? artifact.workspacePath ?? artifact.artifactId;
+  const ref =
+    artifact.artifactRef ?? artifact.path ?? artifact.workspacePath ?? artifact.artifactId;
   return {
     kind: artifactRefKind(ref, artifact),
     ref,
     ...(artifact.mimeType ? { mediaType: artifact.mimeType } : {}),
-    ...(artifact.label ?? artifact.kind ? { description: artifact.label ?? artifact.kind } : {}),
+    ...((artifact.label ?? artifact.kind) ? { description: artifact.label ?? artifact.kind } : {}),
   };
 }
 
@@ -1222,7 +1436,9 @@ function artifactRefKind(ref: string, artifact: TaskRunArtifact): MakaAheArtifac
 }
 
 function sortProjections(projections: readonly TaskRunProjection[]): TaskRunProjection[] {
-  return [...projections].sort((a, b) => a.taskId.localeCompare(b.taskId) || a.taskRunId.localeCompare(b.taskRunId));
+  return [...projections].sort(
+    (a, b) => a.taskId.localeCompare(b.taskId) || a.taskRunId.localeCompare(b.taskRunId),
+  );
 }
 
 interface MaterializedAgentRunEvidence {
@@ -1251,12 +1467,14 @@ async function materializeAgentRunEvidence(
     runSegmentCounts.set(segment, (runSegmentCounts.get(segment) ?? 0) + 1);
   }
   const materialized: MaterializedAgentRunEvidence[] = [];
-  for (const source of [...unique.values()].sort((a, b) =>
-    a.agentRunId.localeCompare(b.agentRunId) || a.sessionId.localeCompare(b.sessionId))) {
+  for (const source of [...unique.values()].sort(
+    (a, b) => a.agentRunId.localeCompare(b.agentRunId) || a.sessionId.localeCompare(b.sessionId),
+  )) {
     const baseRunSegment = safePathSegment(source.agentRunId);
-    const runSegment = runSegmentCounts.get(baseRunSegment)! > 1
-      ? `${baseRunSegment}-${shortHash({ sessionId: source.sessionId, agentRunId: source.agentRunId })}`
-      : baseRunSegment;
+    const runSegment =
+      runSegmentCounts.get(baseRunSegment)! > 1
+        ? `${baseRunSegment}-${shortHash({ sessionId: source.sessionId, agentRunId: source.agentRunId })}`
+        : baseRunSegment;
     const runDir = join(traceDir, 'agent-runs', runSegment);
     const runRef = `${taskRunRef}/agent-runs/${runSegment}`;
     const outputKey = `${source.sessionId}/${source.agentRunId}`;
@@ -1269,8 +1487,10 @@ async function materializeAgentRunEvidence(
     };
 
     if (source.inspect) {
-      if (source.inspect.agentRun.sessionId !== source.sessionId
-        || source.inspect.agentRun.agentRunId !== source.agentRunId) {
+      if (
+        source.inspect.agentRun.sessionId !== source.sessionId ||
+        source.inspect.agentRun.agentRunId !== source.agentRunId
+      ) {
         row.inspectError = 'AgentRun inspect identity does not match the supplied source identity';
       } else {
         const inspectPath = join(runDir, 'inspect.json');
@@ -1285,15 +1505,17 @@ async function materializeAgentRunEvidence(
     }
 
     if (includeRuntimeEvents && source.runtimeEvents) {
-      const identityMismatch = source.runtimeEvents.find((event) =>
-        event.sessionId !== source.sessionId || event.runId !== source.agentRunId);
+      const identityMismatch = source.runtimeEvents.find(
+        (event) => event.sessionId !== source.sessionId || event.runId !== source.agentRunId,
+      );
       if (identityMismatch) {
         row.runtimeEventsError = `RuntimeEvent ${identityMismatch.id} identity does not match the supplied AgentRun`;
       } else {
         const runtimeEventsPath = join(runDir, 'runtime-events.jsonl');
         await writeFile(
           runtimeEventsPath,
-          source.runtimeEvents.map((event) => JSON.stringify(event)).join('\n') + (source.runtimeEvents.length > 0 ? '\n' : ''),
+          source.runtimeEvents.map((event) => JSON.stringify(event)).join('\n') +
+            (source.runtimeEvents.length > 0 ? '\n' : ''),
           'utf8',
         );
         row.runtimeEventsRef = await localFileRef(
@@ -1317,10 +1539,12 @@ function executionLineageFromProjection(
 ): MakaAheExecutionLineage {
   const target = { snapshotId: snapshot.snapshotId, sourceLabel: snapshot.sourceLabel };
   const taskCoverage = coverageForTaskEvents(projection);
-  const sourceByAgentRun = new Map(materialized.map((source) => [
-    agentRunEvidenceKey(source.source.sessionId, source.source.agentRunId),
-    source,
-  ]));
+  const sourceByAgentRun = new Map(
+    materialized.map((source) => [
+      agentRunEvidenceKey(source.source.sessionId, source.source.agentRunId),
+      source,
+    ]),
+  );
   const gaps: MakaAheExecutionLineageGap[] = [];
   if (projection.attempts.length === 0) {
     gaps.push({
@@ -1337,94 +1561,107 @@ function executionLineageFromProjection(
         attemptId: attempt.attemptId,
       });
     }
-    const executions = attempt.executionLineage.map((sourceEvidence): MakaAheExecutionLineageAgentRun => {
-      const evidence: ExecutionEvidenceRef = {
-        ...sourceEvidence,
-        schemaVersion: EXECUTION_EVIDENCE_REF_SCHEMA_VERSION,
-        task: { taskRunId: projection.taskRunId, attemptId: attempt.attemptId },
-        ...(taskCoverage ? { taskCoverage } : {}),
-        target,
-      };
-      const validation = validateExecutionEvidenceRef(evidence);
-      if (!validation.ok) {
-        throw new Error(`invalid projected AHE execution evidence: ${validation.errors.map((issue) => `${issue.path}: ${issue.message}`).join('; ')}`);
-      }
-      const executionGaps: MakaAheExecutionLineageGap[] = [];
-      const identity = evidence.execution;
-      if (!identity?.sessionId || !identity.agentRunId) {
-        executionGaps.push({
-          code: 'execution_identity_missing',
-          message: 'Execution link does not identify an AgentRun.',
-          attemptId: attempt.attemptId,
-        });
-      }
-      if (!evidence.runtimeCoverage) {
-        executionGaps.push({
-          code: 'runtime_coverage_missing',
-          message: 'Execution link has no immutable Runtime Event coverage.',
-          attemptId: attempt.attemptId,
-          ...(identity?.sessionId ? { sessionId: identity.sessionId } : {}),
-          ...(identity?.agentRunId ? { agentRunId: identity.agentRunId } : {}),
-        });
-      }
-      const source = identity?.sessionId && identity.agentRunId
-        ? sourceByAgentRun.get(agentRunEvidenceKey(identity.sessionId, identity.agentRunId))
-        : undefined;
-      if (!source?.inspectRef) {
-        executionGaps.push({
-          code: 'agent_run_inspect_missing',
-          message: source?.inspectError
-            ? `Payload-safe AgentRun inspect is unavailable: ${source.inspectError}`
-            : 'Payload-safe AgentRun inspect was not supplied.',
-          attemptId: attempt.attemptId,
-          ...(identity?.sessionId ? { sessionId: identity.sessionId } : {}),
-          ...(identity?.agentRunId ? { agentRunId: identity.agentRunId } : {}),
-        });
-      } else if (evidence.runtimeCoverage
-        && source.source.inspect?.sources.runtimeCoverage
-        && !sameCoverage(evidence.runtimeCoverage, source.source.inspect.sources.runtimeCoverage)) {
-        executionGaps.push({
-          code: 'runtime_coverage_mismatch',
-          message: 'AgentRun inspect coverage does not match the TaskRun execution-link coverage.',
-          attemptId: attempt.attemptId,
-          ...(identity?.sessionId ? { sessionId: identity.sessionId } : {}),
-          ...(identity?.agentRunId ? { agentRunId: identity.agentRunId } : {}),
-        });
-      }
-      if (includeRuntimeEvents) {
-        const runtimeEvents = source?.source.runtimeEvents;
-        if (!source?.runtimeEventsRef || !runtimeEvents || runtimeEvents.length === 0) {
+    const executions = attempt.executionLineage.map(
+      (sourceEvidence): MakaAheExecutionLineageAgentRun => {
+        const evidence: ExecutionEvidenceRef = {
+          ...sourceEvidence,
+          schemaVersion: EXECUTION_EVIDENCE_REF_SCHEMA_VERSION,
+          task: { taskRunId: projection.taskRunId, attemptId: attempt.attemptId },
+          ...(taskCoverage ? { taskCoverage } : {}),
+          target,
+        };
+        const validation = validateExecutionEvidenceRef(evidence);
+        if (!validation.ok) {
+          throw new Error(
+            `invalid projected AHE execution evidence: ${validation.errors.map((issue) => `${issue.path}: ${issue.message}`).join('; ')}`,
+          );
+        }
+        const executionGaps: MakaAheExecutionLineageGap[] = [];
+        const identity = evidence.execution;
+        if (!identity?.sessionId || !identity.agentRunId) {
           executionGaps.push({
-            code: 'runtime_events_missing',
-            message: source?.runtimeEventsError
-              ? `Canonical Runtime Events are unavailable: ${source.runtimeEventsError}`
-              : 'Canonical Runtime Events were requested but not supplied.',
+            code: 'execution_identity_missing',
+            message: 'Execution link does not identify an AgentRun.',
+            attemptId: attempt.attemptId,
+          });
+        }
+        if (!evidence.runtimeCoverage) {
+          executionGaps.push({
+            code: 'runtime_coverage_missing',
+            message: 'Execution link has no immutable Runtime Event coverage.',
             attemptId: attempt.attemptId,
             ...(identity?.sessionId ? { sessionId: identity.sessionId } : {}),
             ...(identity?.agentRunId ? { agentRunId: identity.agentRunId } : {}),
           });
-        } else {
-          const observed = coverageForRuntimeEvents(identity!.agentRunId!, runtimeEvents);
-          if ((!evidence.runtimeCoverage || !sameCoverage(evidence.runtimeCoverage, observed))
-            && !executionGaps.some((gap) => gap.code === 'runtime_coverage_mismatch')) {
+        }
+        const source =
+          identity?.sessionId && identity.agentRunId
+            ? sourceByAgentRun.get(agentRunEvidenceKey(identity.sessionId, identity.agentRunId))
+            : undefined;
+        if (!source?.inspectRef) {
+          executionGaps.push({
+            code: 'agent_run_inspect_missing',
+            message: source?.inspectError
+              ? `Payload-safe AgentRun inspect is unavailable: ${source.inspectError}`
+              : 'Payload-safe AgentRun inspect was not supplied.',
+            attemptId: attempt.attemptId,
+            ...(identity?.sessionId ? { sessionId: identity.sessionId } : {}),
+            ...(identity?.agentRunId ? { agentRunId: identity.agentRunId } : {}),
+          });
+        } else if (
+          evidence.runtimeCoverage &&
+          source.source.inspect?.sources.runtimeCoverage &&
+          !sameCoverage(evidence.runtimeCoverage, source.source.inspect.sources.runtimeCoverage)
+        ) {
+          executionGaps.push({
+            code: 'runtime_coverage_mismatch',
+            message:
+              'AgentRun inspect coverage does not match the TaskRun execution-link coverage.',
+            attemptId: attempt.attemptId,
+            ...(identity?.sessionId ? { sessionId: identity.sessionId } : {}),
+            ...(identity?.agentRunId ? { agentRunId: identity.agentRunId } : {}),
+          });
+        }
+        if (includeRuntimeEvents) {
+          const runtimeEvents = source?.source.runtimeEvents;
+          if (!source?.runtimeEventsRef || !runtimeEvents || runtimeEvents.length === 0) {
             executionGaps.push({
-              code: 'runtime_coverage_mismatch',
-              message: 'Exported Runtime Event rows do not match the TaskRun execution-link coverage.',
+              code: 'runtime_events_missing',
+              message: source?.runtimeEventsError
+                ? `Canonical Runtime Events are unavailable: ${source.runtimeEventsError}`
+                : 'Canonical Runtime Events were requested but not supplied.',
               attemptId: attempt.attemptId,
-              sessionId: identity!.sessionId,
-              agentRunId: identity!.agentRunId!,
+              ...(identity?.sessionId ? { sessionId: identity.sessionId } : {}),
+              ...(identity?.agentRunId ? { agentRunId: identity.agentRunId } : {}),
             });
+          } else {
+            const observed = coverageForRuntimeEvents(identity!.agentRunId!, runtimeEvents);
+            if (
+              (!evidence.runtimeCoverage || !sameCoverage(evidence.runtimeCoverage, observed)) &&
+              !executionGaps.some((gap) => gap.code === 'runtime_coverage_mismatch')
+            ) {
+              executionGaps.push({
+                code: 'runtime_coverage_mismatch',
+                message:
+                  'Exported Runtime Event rows do not match the TaskRun execution-link coverage.',
+                attemptId: attempt.attemptId,
+                sessionId: identity!.sessionId,
+                agentRunId: identity!.agentRunId!,
+              });
+            }
           }
         }
-      }
-      gaps.push(...executionGaps);
-      return {
-        evidence: validation.value,
-        ...(source?.inspectRef ? { inspectRef: source.inspectRef } : {}),
-        ...(includeRuntimeEvents && source?.runtimeEventsRef ? { runtimeEventsRef: source.runtimeEventsRef } : {}),
-        gaps: executionGaps,
-      };
-    });
+        gaps.push(...executionGaps);
+        return {
+          evidence: validation.value,
+          ...(source?.inspectRef ? { inspectRef: source.inspectRef } : {}),
+          ...(includeRuntimeEvents && source?.runtimeEventsRef
+            ? { runtimeEventsRef: source.runtimeEventsRef }
+            : {}),
+          gaps: executionGaps,
+        };
+      },
+    );
     gaps.push(...attemptGaps);
     return {
       attemptId: attempt.attemptId,
@@ -1443,8 +1680,8 @@ function executionLineageFromProjection(
     },
     rawRuntimeEvents: !includeRuntimeEvents
       ? 'omitted_by_policy'
-      : attempts.some((attempt) => attempt.executions.length > 0)
-        && !gaps.some((gap) => gap.code === 'runtime_events_missing')
+      : attempts.some((attempt) => attempt.executions.length > 0) &&
+          !gaps.some((gap) => gap.code === 'runtime_events_missing')
         ? 'included'
         : 'requested_with_gaps',
     attempts,
@@ -1457,7 +1694,12 @@ function coverageForTaskEvents(projection: TaskRunProjection): ExecutionLogCover
   const last = projection.events.at(-1);
   if (!first || !last) return undefined;
   return {
-    lowWater: { ledger: 'task_event', streamId: projection.taskRunId, sequence: 0, eventId: first.id },
+    lowWater: {
+      ledger: 'task_event',
+      streamId: projection.taskRunId,
+      sequence: 0,
+      eventId: first.id,
+    },
     highWater: {
       ledger: 'task_event',
       streamId: projection.taskRunId,
@@ -1468,7 +1710,10 @@ function coverageForTaskEvents(projection: TaskRunProjection): ExecutionLogCover
   };
 }
 
-function coverageForRuntimeEvents(agentRunId: string, events: readonly RuntimeEvent[]): ExecutionLogCoverage | undefined {
+function coverageForRuntimeEvents(
+  agentRunId: string,
+  events: readonly RuntimeEvent[],
+): ExecutionLogCoverage | undefined {
   const first = events[0];
   const last = events.at(-1);
   if (!first || !last) return undefined;
@@ -1484,17 +1729,22 @@ function coverageForRuntimeEvents(agentRunId: string, events: readonly RuntimeEv
   };
 }
 
-function sameCoverage(left: ExecutionLogCoverage, right: ExecutionLogCoverage | undefined): boolean {
+function sameCoverage(
+  left: ExecutionLogCoverage,
+  right: ExecutionLogCoverage | undefined,
+): boolean {
   if (!right) return false;
-  return left.lowWater?.ledger === right.lowWater?.ledger
-    && left.lowWater?.streamId === right.lowWater?.streamId
-    && left.lowWater?.sequence === right.lowWater?.sequence
-    && left.lowWater?.eventId === right.lowWater?.eventId
-    && left.highWater.ledger === right.highWater.ledger
-    && left.highWater.streamId === right.highWater.streamId
-    && left.highWater.sequence === right.highWater.sequence
-    && left.highWater.eventId === right.highWater.eventId
-    && left.eventCount === right.eventCount;
+  return (
+    left.lowWater?.ledger === right.lowWater?.ledger &&
+    left.lowWater?.streamId === right.lowWater?.streamId &&
+    left.lowWater?.sequence === right.lowWater?.sequence &&
+    left.lowWater?.eventId === right.lowWater?.eventId &&
+    left.highWater.ledger === right.highWater.ledger &&
+    left.highWater.streamId === right.highWater.streamId &&
+    left.highWater.sequence === right.highWater.sequence &&
+    left.highWater.eventId === right.highWater.eventId &&
+    left.eventCount === right.eventCount
+  );
 }
 
 async function localFileRef(
@@ -1523,20 +1773,24 @@ function agentRunEvidenceFor(
   taskRunId: string,
 ): readonly MakaAheAgentRunEvidenceSource[] {
   if (!sources) return [];
-  return isReadonlyMap(sources) ? sources.get(taskRunId) ?? [] : sources[taskRunId] ?? [];
+  return isReadonlyMap(sources) ? (sources.get(taskRunId) ?? []) : (sources[taskRunId] ?? []);
 }
 
 function linkedAgentRunEvidence(
   projection: TaskRunProjection,
   sources: readonly MakaAheAgentRunEvidenceSource[],
 ): MakaAheAgentRunEvidenceSource[] {
-  const linked = new Set(projection.executionLineage.flatMap((evidence) => {
-    const identity = evidence.execution;
-    return identity?.sessionId && identity.agentRunId
-      ? [agentRunEvidenceKey(identity.sessionId, identity.agentRunId)]
-      : [];
-  }));
-  return sources.filter((source) => linked.has(agentRunEvidenceKey(source.sessionId, source.agentRunId)));
+  const linked = new Set(
+    projection.executionLineage.flatMap((evidence) => {
+      const identity = evidence.execution;
+      return identity?.sessionId && identity.agentRunId
+        ? [agentRunEvidenceKey(identity.sessionId, identity.agentRunId)]
+        : [];
+    }),
+  );
+  return sources.filter((source) =>
+    linked.has(agentRunEvidenceKey(source.sessionId, source.agentRunId)),
+  );
 }
 
 function generatedRefsFor(
@@ -1566,19 +1820,26 @@ async function buildMakaAheSourceManifest(
     sourceDigests.set(sourceRefPath, pending);
     return pending;
   };
-  const entries = await Promise.all(components.flatMap((component) => component.sourceRefs.map(async (sourceRef) => {
-    const source = await digestFor(sourceRef.path);
-    return {
-      componentId: component.id,
-      path: sourceRef.path,
-      ...(sourceRef.exportName ? { exportName: sourceRef.exportName } : {}),
-      digest: source.digest,
-      sizeBytes: source.sizeBytes,
-    } satisfies MakaAheSourceManifestEntry;
-  })));
-  entries.sort((a, b) => a.componentId.localeCompare(b.componentId)
-    || a.path.localeCompare(b.path)
-    || (a.exportName ?? '').localeCompare(b.exportName ?? ''));
+  const entries = await Promise.all(
+    components.flatMap((component) =>
+      component.sourceRefs.map(async (sourceRef) => {
+        const source = await digestFor(sourceRef.path);
+        return {
+          componentId: component.id,
+          path: sourceRef.path,
+          ...(sourceRef.exportName ? { exportName: sourceRef.exportName } : {}),
+          digest: source.digest,
+          sizeBytes: source.sizeBytes,
+        } satisfies MakaAheSourceManifestEntry;
+      }),
+    ),
+  );
+  entries.sort(
+    (a, b) =>
+      a.componentId.localeCompare(b.componentId) ||
+      a.path.localeCompare(b.path) ||
+      (a.exportName ?? '').localeCompare(b.exportName ?? ''),
+  );
   return {
     algorithm: 'sha256',
     digest: makaAheSourceManifestDigest(entries),
@@ -1607,7 +1868,9 @@ async function resolveMakaAheSourceFile(repoRoot: string, sourcePath: string): P
     throw new Error(`source ref "${sourcePath}" does not exist under repo root`);
   }
   if (!isWithinRoot(canonicalRoot, canonicalPath)) {
-    throw new Error(`source ref "${sourcePath}" resolves outside the repo root through a symbolic link`);
+    throw new Error(
+      `source ref "${sourcePath}" resolves outside the repo root through a symbolic link`,
+    );
   }
   const sourceStat = await stat(canonicalPath);
   if (!sourceStat.isFile()) {
@@ -1618,8 +1881,10 @@ async function resolveMakaAheSourceFile(repoRoot: string, sourcePath: string): P
 
 function unsafeRepoPathReason(path: string): string | undefined {
   if (path.trim().length === 0) return 'source ref path must be non-empty';
-  if (path.startsWith('/') || path.includes('\\')) return 'source ref path must be a repo-relative POSIX path';
-  if (path === '.' || path === '..' || path.includes('../') || path.includes('/..')) return 'source ref path must not traverse outside the repo';
+  if (path.startsWith('/') || path.includes('\\'))
+    return 'source ref path must be a repo-relative POSIX path';
+  if (path === '.' || path === '..' || path.includes('../') || path.includes('/..'))
+    return 'source ref path must not traverse outside the repo';
   return undefined;
 }
 
@@ -1633,7 +1898,9 @@ function safePathSegment(value: string): string {
 }
 
 function shortHash(value: unknown): string {
-  return exportContentHash(value).replace(/^sha256:/, '').slice(0, 16);
+  return exportContentHash(value)
+    .replace(/^sha256:/, '')
+    .slice(0, 16);
 }
 
 function trimTrailingSlash(value: string): string {
@@ -1645,7 +1912,11 @@ async function writeStableJson(path: string, value: unknown): Promise<void> {
 }
 
 function uniqueStrings(values: readonly (string | undefined)[]): string[] {
-  return [...new Set(values.filter((value): value is string => typeof value === 'string' && value.length > 0))];
+  return [
+    ...new Set(
+      values.filter((value): value is string => typeof value === 'string' && value.length > 0),
+    ),
+  ];
 }
 
 function recordValue(value: unknown): value is Record<string, unknown> {

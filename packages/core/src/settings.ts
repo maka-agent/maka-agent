@@ -64,7 +64,7 @@ export const SETTINGS_SECTIONS = [
   'about',
 ] as const;
 
-export type SettingsSection = typeof SETTINGS_SECTIONS[number];
+export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 
 export type ProxyProtocol = 'http' | 'https' | 'socks5';
 
@@ -101,7 +101,7 @@ export const BOT_READINESS_STATES = [
   'operational',
   'degraded',
 ] as const;
-export type BotReadinessState = typeof BOT_READINESS_STATES[number];
+export type BotReadinessState = (typeof BOT_READINESS_STATES)[number];
 
 export interface BotChannelSettings {
   provider: BotProvider;
@@ -187,7 +187,7 @@ export const THEME_PALETTES = [
   'mono',
 ] as const;
 
-export type ThemePalette = typeof THEME_PALETTES[number];
+export type ThemePalette = (typeof THEME_PALETTES)[number];
 
 export function isThemePalette(value: unknown): value is ThemePalette {
   return typeof value === 'string' && (THEME_PALETTES as readonly string[]).includes(value);
@@ -283,7 +283,10 @@ export const CHAT_DEFAULT_PERMISSION_MODES: readonly ChatDefaultPermissionMode[]
   PERMISSION_MODES.filter((mode): mode is ChatDefaultPermissionMode => mode !== 'explore');
 
 export function isChatDefaultPermissionMode(value: unknown): value is ChatDefaultPermissionMode {
-  return typeof value === 'string' && (CHAT_DEFAULT_PERMISSION_MODES as readonly string[]).includes(value);
+  return (
+    typeof value === 'string' &&
+    (CHAT_DEFAULT_PERMISSION_MODES as readonly string[]).includes(value)
+  );
 }
 
 /** Seeds new sessions' starting permission mode (Settings → 通用 → 默认权限模式). */
@@ -377,8 +380,19 @@ export interface UsageStats {
   logs: UsageRequestLog[];
   byProvider: Array<{ provider: string; requests: number; tokens: number; costUsd: number }>;
   byModel: Array<{ model: string; requests: number; tokens: number; costUsd: number }>;
-  byTool: Array<{ tool: string; calls: number; success: number; errors: number; avgDurationMs: number }>;
-  pricing: Array<{ provider: string; model: string; inputPerMTokUsd: number; outputPerMTokUsd: number }>;
+  byTool: Array<{
+    tool: string;
+    calls: number;
+    success: number;
+    errors: number;
+    avgDurationMs: number;
+  }>;
+  pricing: Array<{
+    provider: string;
+    model: string;
+    inputPerMTokUsd: number;
+    outputPerMTokUsd: number;
+  }>;
 }
 
 export interface SettingsTestResult {
@@ -438,7 +452,10 @@ export const BOT_PROVIDERS: BotProvider[] = [
   'qq',
 ];
 
-export type BotDeliveryProvider = Extract<BotProvider, 'telegram' | 'wechat' | 'discord' | 'dingtalk' | 'qq'>;
+export type BotDeliveryProvider = Extract<
+  BotProvider,
+  'telegram' | 'wechat' | 'discord' | 'dingtalk' | 'qq'
+>;
 
 export const BOT_DELIVERY_PROVIDERS: BotDeliveryProvider[] = [
   'telegram',
@@ -599,7 +616,10 @@ export function mergeSettings(current: AppSettings, patch: UpdateAppSettingsInpu
       ? normalizeLocalMemorySettings({ ...current.localMemory, ...patch.localMemory })
       : current.localMemory,
     workspaceInstructions: patch.workspaceInstructions
-      ? normalizeWorkspaceInstructionsSettings({ ...current.workspaceInstructions, ...patch.workspaceInstructions })
+      ? normalizeWorkspaceInstructionsSettings({
+          ...current.workspaceInstructions,
+          ...patch.workspaceInstructions,
+        })
       : current.workspaceInstructions,
     privacy: patch.privacy
       ? normalizePrivacySettings({ ...current.privacy, ...patch.privacy })
@@ -635,7 +655,9 @@ function mergeWebSearchSettings(
     tavilyPatch && typeof tavilyPatch.apiKey === 'string'
       ? reconcileMaskedToken(current.providers.tavily.apiKey, tavilyPatch.apiKey)
       : current.providers.tavily.apiKey;
-  const currentCredentialVersion = normalizeCredentialVersion(current.providers.tavily.credentialVersion);
+  const currentCredentialVersion = normalizeCredentialVersion(
+    current.providers.tavily.credentialVersion,
+  );
   const explicitCredentialCheckedAt =
     tavilyPatch &&
     typeof tavilyPatch.credentialCheckedAt === 'string' &&
@@ -714,8 +736,7 @@ export function normalizeSettings(input: unknown): AppSettings {
     toastPosition: _legacyToastPosition,
     density: _legacyDensity,
     ...appearanceWithoutLegacyFields
-  } =
-    base.appearance as AppearanceSettings & Record<string, unknown>;
+  } = base.appearance as AppearanceSettings & Record<string, unknown>;
   return {
     ...base,
     // PR-UI-D1 (@kenji msg 68bf2b13): closed-enum fail-closed for
@@ -751,7 +772,9 @@ export function normalizeSettings(input: unknown): AppSettings {
     botChat: {
       channels: Object.fromEntries(
         BOT_PROVIDERS.map((provider) => {
-          const rawChannel = value.botChat?.channels?.[provider] as Partial<BotChannelSettings> | undefined;
+          const rawChannel = value.botChat?.channels?.[provider] as
+            | Partial<BotChannelSettings>
+            | undefined;
           return [
             provider,
             normalizeBotChannel(provider, base.botChat.channels[provider], rawChannel),
@@ -790,7 +813,9 @@ export function normalizeSettings(input: unknown): AppSettings {
   };
 }
 
-function normalizeWorkspaceInstructionsSettings(settings: WorkspaceInstructionsSettings): WorkspaceInstructionsSettings {
+function normalizeWorkspaceInstructionsSettings(
+  settings: WorkspaceInstructionsSettings,
+): WorkspaceInstructionsSettings {
   return {
     enabled: settings.enabled !== false,
   };
@@ -811,7 +836,9 @@ function defaultChatDefaultsSettings(): ChatDefaultsSettings {
 // doesn't recognize -- fall back to the safest default instead.
 function normalizeChatDefaultsSettings(settings: ChatDefaultsSettings): ChatDefaultsSettings {
   return {
-    permissionMode: isChatDefaultPermissionMode(settings.permissionMode) ? settings.permissionMode : 'ask',
+    permissionMode: isChatDefaultPermissionMode(settings.permissionMode)
+      ? settings.permissionMode
+      : 'ask',
   };
 }
 
@@ -829,8 +856,7 @@ function normalizeWebSearchSettings(settings: WebSearchSettings): WebSearchSetti
   // Cap apiKey length defensively. Tavily keys are < 64 chars; anything
   // longer is almost certainly garbage that would break log redaction.
   const rawApiKey = settings.providers?.tavily?.apiKey;
-  const apiKey =
-    typeof rawApiKey === 'string' && rawApiKey.length <= 256 ? rawApiKey : '';
+  const apiKey = typeof rawApiKey === 'string' && rawApiKey.length <= 256 ? rawApiKey : '';
   const rawCredentialStatus = settings.providers?.tavily?.credentialStatus;
   const credentialStatus = isWebSearchCredentialStatus(rawCredentialStatus)
     ? rawCredentialStatus
@@ -840,7 +866,9 @@ function normalizeWebSearchSettings(settings: WebSearchSettings): WebSearchSetti
     typeof rawCredentialCheckedAt === 'string' && rawCredentialCheckedAt.length <= 64
       ? rawCredentialCheckedAt
       : undefined;
-  const credentialVersion = normalizeCredentialVersion(settings.providers?.tavily?.credentialVersion);
+  const credentialVersion = normalizeCredentialVersion(
+    settings.providers?.tavily?.credentialVersion,
+  );
   return {
     enabled,
     defaultProvider,
@@ -867,13 +895,13 @@ function normalizeOptionalCredentialVersion(value: unknown): number | undefined 
 }
 
 function normalizeOpenGatewaySettings(settings: OpenGatewaySettings): OpenGatewaySettings {
-  const port = Number.isInteger(settings.port) && settings.port >= 1024 && settings.port <= 65535
-    ? settings.port
-    : 3939;
+  const port =
+    Number.isInteger(settings.port) && settings.port >= 1024 && settings.port <= 65535
+      ? settings.port
+      : 3939;
   const host = settings.host === '0.0.0.0' ? '0.0.0.0' : '127.0.0.1';
-  const token = typeof settings.token === 'string' && settings.token.length <= 256
-    ? settings.token
-    : '';
+  const token =
+    typeof settings.token === 'string' && settings.token.length <= 256 ? settings.token : '';
   return {
     enabled: settings.enabled === true,
     host,
@@ -889,9 +917,12 @@ function normalizeBotChannel(
 ): BotChannelSettings {
   const hasExplicitReadiness = rawChannel && 'readiness' in rawChannel;
   const connected = channel.connected === true;
-  const candidateReadiness = hasExplicitReadiness && isBotReadinessState(rawChannel?.readiness)
-    ? channel.readiness
-    : (connected ? 'credentials_valid' : readinessFromChannel(channel));
+  const candidateReadiness =
+    hasExplicitReadiness && isBotReadinessState(rawChannel?.readiness)
+      ? channel.readiness
+      : connected
+        ? 'credentials_valid'
+        : readinessFromChannel(channel);
   const allowedUserIds = normalizeAllowedUserIds(channel.allowedUserIds);
   return {
     ...channel,
@@ -910,15 +941,18 @@ function normalizeBotChannel(
     // their own authoritative readiness via `BotStatus`; they are not
     // affected by this settings-write coerce path.
     readiness: coerceReadinessForCurrentState(channel, candidateReadiness),
-    readinessReason: typeof channel.readinessReason === 'string' ? channel.readinessReason : undefined,
-    readinessUpdatedAt: typeof channel.readinessUpdatedAt === 'number' && Number.isFinite(channel.readinessUpdatedAt)
-      ? channel.readinessUpdatedAt
-      : undefined,
+    readinessReason:
+      typeof channel.readinessReason === 'string' ? channel.readinessReason : undefined,
+    readinessUpdatedAt:
+      typeof channel.readinessUpdatedAt === 'number' && Number.isFinite(channel.readinessUpdatedAt)
+        ? channel.readinessUpdatedAt
+        : undefined,
   };
 }
 
 export function hasBotChannelCredentials(channel: BotChannelSettings): boolean {
-  if (channel.token.trim().length > 0 || Boolean(channel.appId) || Boolean(channel.appSecret)) return true;
+  if (channel.token.trim().length > 0 || Boolean(channel.appId) || Boolean(channel.appSecret))
+    return true;
   if (channel.provider === 'wechat' && Boolean(channel.webhookUrl?.trim())) return true;
   return false;
 }

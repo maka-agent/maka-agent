@@ -43,7 +43,10 @@ describe('deep research session profile', () => {
     assert.match(prompt, /Read, Glob, Grep/);
     assert.match(prompt, /ExploreAgent/);
     assert.match(prompt, /Do not use ExploreAgent just because it is available/);
-    assert.match(prompt, /known file, a specific symbol, package scripts, test setup, config, or 1-3 obvious files/);
+    assert.match(
+      prompt,
+      /known file, a specific symbol, package scripts, test setup, config, or 1-3 obvious files/,
+    );
     assert.match(prompt, /goal, relevant paths or keywords, what to ignore, a stopping condition/);
     assert.match(prompt, /Do not write/);
     assert.match(prompt, /borrow \/ diverge \/ risk \/ gate/);
@@ -126,7 +129,10 @@ describe('deep research session profile', () => {
     assert.match(DEEP_RESEARCH_PROGRESS_CHECKPOINTS[0]?.body ?? '', /相互关联/);
     assert.match(DEEP_RESEARCH_PROGRESS_CHECKPOINTS[1]?.body ?? '', /当前正在验证/);
     assert.match(DEEP_RESEARCH_PROGRESS_CHECKPOINTS[2]?.body ?? '', /blocked/);
-    assert.match(DEEP_RESEARCH_PROGRESS_CHECKPOINTS[3]?.body ?? '', /borrow \/ diverge \/ risk \/ gate/);
+    assert.match(
+      DEEP_RESEARCH_PROGRESS_CHECKPOINTS[3]?.body ?? '',
+      /borrow \/ diverge \/ risk \/ gate/,
+    );
   });
 
   it('keeps starter prompts read-only and implementation-oriented', () => {
@@ -139,7 +145,13 @@ describe('deep research session profile', () => {
       assert.doesNotMatch(starter.prompt, /PR/);
     }
     assert.match(DEEP_RESEARCH_STARTER_PROMPTS[1]?.prompt ?? '', /深挖范围/);
-    assert.match(DEEP_RESEARCH_STARTER_PROMPTS[1]?.prompt ?? '', /核心功能、运行时、存储、权限、UI、测试和文档/);
-    assert.match(DEEP_RESEARCH_STARTER_PROMPTS[1]?.prompt ?? '', /borrow \/ diverge \/ risk \/ gate/);
+    assert.match(
+      DEEP_RESEARCH_STARTER_PROMPTS[1]?.prompt ?? '',
+      /核心功能、运行时、存储、权限、UI、测试和文档/,
+    );
+    assert.match(
+      DEEP_RESEARCH_STARTER_PROMPTS[1]?.prompt ?? '',
+      /borrow \/ diverge \/ risk \/ gate/,
+    );
   });
 });

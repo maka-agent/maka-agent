@@ -86,20 +86,57 @@ function parseArgs(argv) {
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     switch (arg) {
-      case '--profile': opts.profile = takeValue(i, arg); i++; break;
-      case '--compare': opts.compare = true; break;
-      case '--compare-profiles': opts.compare = true; opts.compareProfiles = takeValue(i, arg); i++; break;
-      case '--task': opts.taskPattern = takeValue(i, arg); i++; break;
-      case '--n-tasks': opts.nTasks = Number(takeValue(i, arg)); i++; break;
-      case '--job-name': opts.jobName = takeValue(i, arg); i++; break;
-      case '--model': opts.model = takeValue(i, arg); i++; break;
-      case '--steps': opts.maxSteps = takeValue(i, arg); i++; break;
-      case '--agent-timeout-sec': opts.agentTimeoutSec = takeValue(i, arg); i++; break;
-      case '--dataset': opts.datasetName = takeValue(i, arg); i++; break;
-      case '--dataset-version': opts.datasetVersion = takeValue(i, arg); i++; break;
-      case '--dry-run': opts.dryRun = true; break;
+      case '--profile':
+        opts.profile = takeValue(i, arg);
+        i++;
+        break;
+      case '--compare':
+        opts.compare = true;
+        break;
+      case '--compare-profiles':
+        opts.compare = true;
+        opts.compareProfiles = takeValue(i, arg);
+        i++;
+        break;
+      case '--task':
+        opts.taskPattern = takeValue(i, arg);
+        i++;
+        break;
+      case '--n-tasks':
+        opts.nTasks = Number(takeValue(i, arg));
+        i++;
+        break;
+      case '--job-name':
+        opts.jobName = takeValue(i, arg);
+        i++;
+        break;
+      case '--model':
+        opts.model = takeValue(i, arg);
+        i++;
+        break;
+      case '--steps':
+        opts.maxSteps = takeValue(i, arg);
+        i++;
+        break;
+      case '--agent-timeout-sec':
+        opts.agentTimeoutSec = takeValue(i, arg);
+        i++;
+        break;
+      case '--dataset':
+        opts.datasetName = takeValue(i, arg);
+        i++;
+        break;
+      case '--dataset-version':
+        opts.datasetVersion = takeValue(i, arg);
+        i++;
+        break;
+      case '--dry-run':
+        opts.dryRun = true;
+        break;
       case '-h':
-      case '--help': opts.help = true; break;
+      case '--help':
+        opts.help = true;
+        break;
       default:
         throw new Error(`unknown option: ${arg}`);
     }
@@ -119,7 +156,9 @@ function overridesFor(opts) {
     // Match the retired shell runner: MAKA_BENCHMARK_DATASET in the environment
     // overrides the dataset-name default that maka-* profiles forward to the
     // adapter (an explicit value wins over the datasetName default).
-    ...(process.env.MAKA_BENCHMARK_DATASET ? { benchmarkDataset: process.env.MAKA_BENCHMARK_DATASET } : {}),
+    ...(process.env.MAKA_BENCHMARK_DATASET
+      ? { benchmarkDataset: process.env.MAKA_BENCHMARK_DATASET }
+      : {}),
   };
 }
 
@@ -172,7 +211,9 @@ function main() {
     process.stdout.write(`Generated Harbor config: ${configPath}\n`);
     process.stdout.write(`Profile: ${target.profileName}\n`);
     process.stdout.write(`Run command:\n`);
-    process.stdout.write(`  PYTHONPATH=${HARBOR_DIR} ${harborBin} run --config ${configPath} --yes\n`);
+    process.stdout.write(
+      `  PYTHONPATH=${HARBOR_DIR} ${harborBin} run --config ${configPath} --yes\n`,
+    );
 
     if (opts.dryRun) continue;
 

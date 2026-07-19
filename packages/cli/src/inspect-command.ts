@@ -46,7 +46,10 @@ export interface InspectResolutionDocument {
   candidates: InspectCandidateDescriptor[];
 }
 
-export type InspectDocument = SessionInspectDocument | AgentRunInspectDocument | TaskRunInspectDocument;
+export type InspectDocument =
+  | SessionInspectDocument
+  | AgentRunInspectDocument
+  | TaskRunInspectDocument;
 
 export interface InspectCommandStores {
   sessionStore: SessionStore;
@@ -124,11 +127,14 @@ export async function inspectResolvedTarget(
   candidate: InspectCandidate,
 ): Promise<InspectDocument> {
   if (candidate.kind === 'task-run') {
-    return inspectTaskRun({
-      taskRunStore: stores.taskRunStore,
-      agentRunStore: stores.agentRunStore,
-      runtimeEventStore: stores.runtimeEventStore,
-    }, candidate.id);
+    return inspectTaskRun(
+      {
+        taskRunStore: stores.taskRunStore,
+        agentRunStore: stores.agentRunStore,
+        runtimeEventStore: stores.runtimeEventStore,
+      },
+      candidate.id,
+    );
   }
   if (candidate.kind === 'agent-run') {
     return inspectAgentRunDocument(stores.agentRunStore, stores.runtimeEventStore, {
@@ -277,9 +283,9 @@ async function findAgentRunCandidates(
     }
   }
   const sessions = await stores.sessionStore.list();
-  const runLists = await Promise.all(sessions.map((session) =>
-    stores.agentRunStore.listSessionRuns(session.id)
-  ));
+  const runLists = await Promise.all(
+    sessions.map((session) => stores.agentRunStore.listSessionRuns(session.id)),
+  );
   const candidates: AgentRunCandidate[] = [];
   runLists.forEach((runs) => {
     for (const header of runs) {
@@ -302,7 +308,7 @@ function renderResolutionFailure(document: InspectResolutionDocument): string {
   const candidates = document.candidates.map((candidate) =>
     candidate.kind === 'agent-run'
       ? `  - agent-run ${candidate.id} in session ${candidate.sessionId}`
-      : `  - ${candidate.kind} ${candidate.id}`
+      : `  - ${candidate.kind} ${candidate.id}`,
   );
   return [
     `Inspect target ${document.query.id} is ambiguous:`,

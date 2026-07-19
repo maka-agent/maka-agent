@@ -49,11 +49,12 @@ function collectStructuredCodes(payload: unknown, out: string[]): void {
 function normalizeErrorEvidence(error: unknown): ProviderErrorEvidence | undefined {
   if (error instanceof Error) {
     const code = 'code' in error ? String((error as { code?: unknown }).code) : '';
-    const statusCode = 'statusCode' in error
-      ? String((error as { statusCode?: unknown }).statusCode)
-      : 'status' in error
-        ? String((error as { status?: unknown }).status)
-        : '';
+    const statusCode =
+      'statusCode' in error
+        ? String((error as { statusCode?: unknown }).statusCode)
+        : 'status' in error
+          ? String((error as { status?: unknown }).status)
+          : '';
     const rawBody = (error as { responseBody?: unknown }).responseBody;
     const body = typeof rawBody === 'string' ? rawBody : '';
     const structuredCodes: string[] = [];
@@ -223,7 +224,8 @@ export function classifyError(error: unknown): string {
   if (text.includes('abort')) return 'Abort';
   if (statusCode === '402' || code === '402') return 'ProviderBilling';
   if (statusCode === '429' || code === '429') return 'RateLimit';
-  if (statusCode === '401' || statusCode === '403' || code === '401' || code === '403') return 'Auth';
+  if (statusCode === '401' || statusCode === '403' || code === '401' || code === '403')
+    return 'Auth';
   // Structured provider evidence: the parsed error JSON's code/type is the
   // only unconditional signal for a context overflow.
   if (structuredCodes.some((c) => CONTEXT_OVERFLOW_PROVIDER_CODES.has(c))) return 'ContextLength';
@@ -239,11 +241,12 @@ export function classifyError(error: unknown): string {
   if (text.includes('auth')) return 'Auth';
   if (text.includes('timeout')) return 'Timeout';
   if (
-    text.includes('network')
-    || text.includes('fetch')
-    || /\btypeerror\b.*\bterminated\b/.test(text)
-  ) return 'Network';
-  return error instanceof Error ? (error.name || 'Other') : 'Other';
+    text.includes('network') ||
+    text.includes('fetch') ||
+    /\btypeerror\b.*\bterminated\b/.test(text)
+  )
+    return 'Network';
+  return error instanceof Error ? error.name || 'Other' : 'Other';
 }
 
 export function errorPresentationFromClass(errorClass: string): {

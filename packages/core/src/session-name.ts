@@ -63,9 +63,7 @@
  *     `'New Chat'`); this helper only accepts string inputs.
  */
 
-export type NormalizeSessionNameResult =
-  | { ok: true; value: string }
-  | { ok: false; error: string };
+export type NormalizeSessionNameResult = { ok: true; value: string } | { ok: false; error: string };
 
 export const DEFAULT_SESSION_NAME = 'New Chat';
 

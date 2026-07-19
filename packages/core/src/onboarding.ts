@@ -128,7 +128,10 @@ export function deriveOnboardingState(input: DeriveOnboardingStateInput): Onboar
   const defaultConn = input.defaultSlug ? slugToConnection.get(input.defaultSlug) : undefined;
 
   const readyDefault = defaultConn
-    ? isConnectionReady({ connection: defaultConn, hasSecret: input.secrets[defaultConn.slug] === true })
+    ? isConnectionReady({
+        connection: defaultConn,
+        hasSecret: input.secrets[defaultConn.slug] === true,
+      })
     : undefined;
 
   if (readyDefault?.ready === true && defaultConn) {
@@ -148,7 +151,8 @@ export function deriveOnboardingState(input: DeriveOnboardingStateInput): Onboar
   // Default is not ready. Is there another real connection that IS
   // ready? If so, the user just needs to switch the default.
   const anyRealReady = realConns.some(
-    (conn) => isConnectionReady({ connection: conn, hasSecret: input.secrets[conn.slug] === true }).ready,
+    (conn) =>
+      isConnectionReady({ connection: conn, hasSecret: input.secrets[conn.slug] === true }).ready,
   );
   if (anyRealReady) return { kind: 'needs_default_connection' };
 
@@ -221,7 +225,7 @@ export const ONBOARDING_MILESTONE_IDS = [
   'first_run_suggestion_web_research',
 ] as const;
 
-export type OnboardingMilestoneId = typeof ONBOARDING_MILESTONE_IDS[number];
+export type OnboardingMilestoneId = (typeof ONBOARDING_MILESTONE_IDS)[number];
 
 export interface OnboardingMilestone {
   id: OnboardingMilestoneId;
@@ -332,8 +336,11 @@ function isValidTimestamp(value: unknown): value is number {
  * onboarding is a one-time guide, not a gate that revives when
  * the user deletes all sessions.
  */
-export function hasSettledInitialOnboarding(milestones: ReadonlyArray<OnboardingMilestone>): boolean {
+export function hasSettledInitialOnboarding(
+  milestones: ReadonlyArray<OnboardingMilestone>,
+): boolean {
   return milestones.some(
-    (m) => m.id === 'initial_onboarding' && (m.completedAt !== undefined || m.skippedAt !== undefined),
+    (m) =>
+      m.id === 'initial_onboarding' && (m.completedAt !== undefined || m.skippedAt !== undefined),
   );
 }

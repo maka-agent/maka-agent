@@ -42,7 +42,10 @@ describe('FileArtifactStore', () => {
       assert.equal(second.relativePath, 'session-1/artifact-2-patch.diff');
 
       const rows = await store.list('session-1');
-      assert.deepEqual(rows.map((record) => record.id), ['artifact-2', 'artifact-1']);
+      assert.deepEqual(
+        rows.map((record) => record.id),
+        ['artifact-2', 'artifact-1'],
+      );
       assert.equal((await store.get('artifact-1'))?.name, 'notes.md');
       assert.deepEqual(await store.readText('artifact-1'), { ok: true, text: '# Notes' });
     });
@@ -62,7 +65,10 @@ describe('FileArtifactStore', () => {
       });
 
       const second = createArtifactStore(workspaceRoot);
-      assert.equal((await second.get('artifact-1'))?.relativePath, 'session-1/artifact-1-report.html');
+      assert.equal(
+        (await second.get('artifact-1'))?.relativePath,
+        'session-1/artifact-1-report.html',
+      );
       assert.deepEqual(await second.readText('artifact-1'), { ok: true, text: '<h1>Report</h1>' });
     });
   });
@@ -82,22 +88,23 @@ describe('FileArtifactStore', () => {
 
       const store = createArtifactStore(workspaceRoot);
       const ids = Array.from({ length: 12 }, (_, index) => `artifact-${index}`);
-      await Promise.all(ids.map((id, index) => store.create({
-        id,
-        sessionId: 'session-1',
-        turnId: 'turn-1',
-        name: `${id}.txt`,
-        kind: 'file',
-        content: id,
-        now: 10 + index,
-      })));
+      await Promise.all(
+        ids.map((id, index) =>
+          store.create({
+            id,
+            sessionId: 'session-1',
+            turnId: 'turn-1',
+            name: `${id}.txt`,
+            kind: 'file',
+            content: id,
+            now: 10 + index,
+          }),
+        ),
+      );
 
       const reloaded = createArtifactStore(workspaceRoot);
       const rows = await reloaded.list('session-1', { includeDeleted: true });
-      assert.deepEqual(
-        rows.map((record) => record.id).sort(),
-        ['seed', ...ids].sort(),
-      );
+      assert.deepEqual(rows.map((record) => record.id).sort(), ['seed', ...ids].sort());
 
       const metadata = await readFile(join(workspaceRoot, 'artifacts', 'metadata.jsonl'), 'utf8');
       for (const id of ['seed', ...ids]) {
@@ -138,7 +145,10 @@ describe('FileArtifactStore', () => {
 
       const store = createArtifactStore(workspaceRoot);
       const rows = await store.list('session-1', { includeDeleted: true });
-      assert.deepEqual(rows.map((record) => record.id), ['artifact-2', 'artifact-1']);
+      assert.deepEqual(
+        rows.map((record) => record.id),
+        ['artifact-2', 'artifact-1'],
+      );
       assert.deepEqual(await store.readText('artifact-1'), { ok: true, text: 'one' });
 
       const afterReadOnlyLoad = await readFile(metadataPath, 'utf8');
@@ -152,10 +162,7 @@ describe('FileArtifactStore', () => {
       await mkdir(metadataPath, { recursive: true });
 
       const store = createArtifactStore(workspaceRoot);
-      await assert.rejects(
-        () => store.list('session-1'),
-        { code: 'EISDIR' },
-      );
+      await assert.rejects(() => store.list('session-1'), { code: 'EISDIR' });
     });
   });
 
@@ -166,7 +173,10 @@ describe('FileArtifactStore', () => {
     assert.match(source, /this\.loadPromise = \(async \(\) => \{/);
     assert.match(source, /finally \{\s*this\.loadPromise = null;/);
     assert.match(source, /function parseArtifactMetadata\(text: string\): ArtifactRecord\[\] \{/);
-    assert.match(source, /records\.push\(normalizeRecord\(JSON\.parse\(line\) as ArtifactRecord\)\);/);
+    assert.match(
+      source,
+      /records\.push\(normalizeRecord\(JSON\.parse\(line\) as ArtifactRecord\)\);/,
+    );
   });
 
   test('persists archived tool-result artifacts by id', async () => {
@@ -212,10 +222,10 @@ describe('FileArtifactStore', () => {
       const [deleted] = await store.list('session-1', { includeDeleted: true });
       assert.equal(deleted?.status, 'deleted');
       assert.deepEqual(await store.readText('artifact-1'), { ok: false, reason: 'deleted' });
-      assert.deepEqual(
-        await store.readText('artifact-1', { includeDeleted: true }),
-        { ok: true, text: '<h1>Still on disk</h1>' },
-      );
+      assert.deepEqual(await store.readText('artifact-1', { includeDeleted: true }), {
+        ok: true,
+        text: '<h1>Still on disk</h1>',
+      });
       assert.deepEqual(await store.readBinary('artifact-1'), { ok: false, reason: 'deleted' });
     });
   });
@@ -357,10 +367,9 @@ describe('FileArtifactStore', () => {
       await store.purge(['artifact-link']);
 
       assert.equal(await readFile(targetPath, 'utf8'), 'keep target');
-      await assert.rejects(
-        () => readFile(join(sessionRoot, 'linked.txt'), 'utf8'),
-        { code: 'ENOENT' },
-      );
+      await assert.rejects(() => readFile(join(sessionRoot, 'linked.txt'), 'utf8'), {
+        code: 'ENOENT',
+      });
       assert.equal(await store.get('artifact-link'), null);
     });
   });
@@ -382,7 +391,10 @@ describe('FileArtifactStore', () => {
         /still referenced by artifact artifact-2/,
       );
 
-      assert.equal(await readFile(join(workspaceRoot, 'artifacts', first.relativePath), 'utf8'), 'shared bytes');
+      assert.equal(
+        await readFile(join(workspaceRoot, 'artifacts', first.relativePath), 'utf8'),
+        'shared bytes',
+      );
       assert.equal((await store.get('artifact-1'))?.id, 'artifact-1');
       assert.equal((await store.get('artifact-2'))?.id, 'artifact-2');
     });
@@ -459,13 +471,24 @@ describe('FileArtifactStore', () => {
       const png = await store.readBinary('png');
       assert.equal(png.ok, true);
       assert.equal(png.ok ? png.mimeType : '', 'image/png');
-      assert.deepEqual(await store.readBinary('unknown'), { ok: false, reason: 'unsupported_mime' });
+      assert.deepEqual(await store.readBinary('unknown'), {
+        ok: false,
+        reason: 'unsupported_mime',
+      });
     });
   });
 
   test('rejects absolute, traversal, URL-like, and empty relative paths', () => {
     assert.equal(isSafeRelativeArtifactPath('session-1/artifact.txt'), true);
-    for (const value of ['', '/tmp/file', '../file', 'session/../file', 'file:///tmp/a', 'http://example.test/a', 'session//file']) {
+    for (const value of [
+      '',
+      '/tmp/file',
+      '../file',
+      'session/../file',
+      'file:///tmp/a',
+      'http://example.test/a',
+      'session//file',
+    ]) {
       assert.equal(isSafeRelativeArtifactPath(value), false, value);
     }
   });
@@ -503,14 +526,15 @@ describe('FileArtifactStore', () => {
       const store = createArtifactStore(workspaceRoot);
 
       await assert.rejects(
-        () => store.create({
-          id: 'escaped',
-          sessionId: '../escape',
-          turnId: 'turn-1',
-          name: 'bad.txt',
-          kind: 'file',
-          content: 'should not write',
-        }),
+        () =>
+          store.create({
+            id: 'escaped',
+            sessionId: '../escape',
+            turnId: 'turn-1',
+            name: 'bad.txt',
+            kind: 'file',
+            content: 'should not write',
+          }),
         /Artifact relativePath must be artifact-root-relative/,
       );
       await assert.rejects(
@@ -519,14 +543,15 @@ describe('FileArtifactStore', () => {
       );
 
       await assert.rejects(
-        () => store.create({
-          id: '../escaped',
-          sessionId: 'session-1',
-          turnId: 'turn-1',
-          name: 'bad.txt',
-          kind: 'file',
-          content: 'should not write either',
-        }),
+        () =>
+          store.create({
+            id: '../escaped',
+            sessionId: 'session-1',
+            turnId: 'turn-1',
+            name: 'bad.txt',
+            kind: 'file',
+            content: 'should not write either',
+          }),
         /Artifact relativePath must be artifact-root-relative/,
       );
       await assert.rejects(
@@ -545,7 +570,9 @@ describe('FileArtifactStore', () => {
 async function withStore(
   fn: (store: ReturnType<typeof createArtifactStore>, workspaceRoot: string) => Promise<void>,
 ): Promise<void> {
-  await withWorkspace(async (workspaceRoot) => fn(createArtifactStore(workspaceRoot), workspaceRoot));
+  await withWorkspace(async (workspaceRoot) =>
+    fn(createArtifactStore(workspaceRoot), workspaceRoot),
+  );
 }
 
 async function withWorkspace(fn: (workspaceRoot: string) => Promise<void>): Promise<void> {

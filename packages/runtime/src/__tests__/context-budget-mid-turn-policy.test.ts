@@ -72,11 +72,14 @@ describe('window-bounded reserve derivation (issue #882 PR 3 review P2)', () => 
   });
 
   test('keeps the classic 16384 reserve when the window is unknown (metadata-less model)', () => {
-    const policy = buildDefaultContextBudgetPolicy({
-      ...gpt4Connection(),
-      defaultModel: 'custom-model',
-      models: [{ id: 'custom-model' }],
-    } as LlmConnection, { env: {}, modelId: 'custom-model' });
+    const policy = buildDefaultContextBudgetPolicy(
+      {
+        ...gpt4Connection(),
+        defaultModel: 'custom-model',
+        models: [{ id: 'custom-model' }],
+      } as LlmConnection,
+      { env: {}, modelId: 'custom-model' },
+    );
     // No window: the flat 32_000 fallback budget and the classic reserve.
     assert.equal(policy?.maxHistoryEstimatedTokens, 32_000);
     assert.deepEqual(policy?.historyCompact?.midTurn, { enabled: true, reserveTokens: 16_384 });

@@ -13,11 +13,18 @@ import {
 
 test('scenario library validates and covers every layer', () => {
   assert.equal(validateCuE2eScenarioLibrary(), CU_E2E_SCENARIOS);
-  assert.deepEqual(
-    [...new Set(CU_E2E_SCENARIOS.map((scenario) => scenario.level))].sort(),
-    ['L0', 'L1', 'L2', 'L3', 'L4', 'L5'],
+  assert.deepEqual([...new Set(CU_E2E_SCENARIOS.map((scenario) => scenario.level))].sort(), [
+    'L0',
+    'L1',
+    'L2',
+    'L3',
+    'L4',
+    'L5',
+  ]);
+  assert.equal(
+    new Set(CU_E2E_SCENARIOS.map((scenario) => scenario.id)).size,
+    CU_E2E_SCENARIOS.length,
   );
-  assert.equal(new Set(CU_E2E_SCENARIOS.map((scenario) => scenario.id)).size, CU_E2E_SCENARIOS.length);
 });
 
 test('L4 and L5 use dedicated non-mutating runners', () => {
@@ -47,7 +54,10 @@ test('every scenario carries prompt, fixture, expected state, forbidden effects,
       scenario.allowedActions.includes('screenshot') || scenario.allowedActions.includes('observe'),
       scenario.id,
     );
-    assert.ok(scenario.allowedActions.every((action) => knownActions.has(action)), scenario.id);
+    assert.ok(
+      scenario.allowedActions.every((action) => knownActions.has(action)),
+      scenario.id,
+    );
     assert.equal(typeof scenario.realRunEnabled, 'boolean', scenario.id);
     assert.ok(Array.isArray(scenario.requiresExecutionCapabilities), scenario.id);
     assert.ok(Array.isArray(scenario.contractChecks), scenario.id);
@@ -64,10 +74,11 @@ test('layer action budgets increase deliberately', () => {
   assert.ok(getCuE2eScenario('l1-single-click').allowedActions.includes('click_element'));
   assert.ok(!getCuE2eScenario('l1-single-click').allowedActions.includes('left_click'));
   assert.equal(getCuE2eScenario('l1-single-click').minimumActionCounts.observe, 2);
-  assert.deepEqual(
-    getCuE2eScenario('l1-single-click').expectedActionSequence,
-    ['observe', 'observe', 'click_element'],
-  );
+  assert.deepEqual(getCuE2eScenario('l1-single-click').expectedActionSequence, [
+    'observe',
+    'observe',
+    'click_element',
+  ]);
 
   const multi = getCuE2eScenario('l2-multi-control');
   assert.ok(multi.allowedActions.includes('scroll'));
@@ -82,11 +93,10 @@ test('layer action budgets increase deliberately', () => {
 
 test('L3 isolates two-window, stale, and occlusion hazards', () => {
   const l3 = CU_E2E_SCENARIOS.filter((scenario) => scenario.level === 'L3');
-  assert.deepEqual(l3.map((scenario) => scenario.id), [
-    'l3-two-window',
-    'l3-stale-window',
-    'l3-occlusion',
-  ]);
+  assert.deepEqual(
+    l3.map((scenario) => scenario.id),
+    ['l3-two-window', 'l3-stale-window', 'l3-occlusion'],
+  );
   assert.equal(getCuE2eScenario('l3-two-window').fixtureSetup.windows.length, 2);
   assert.equal(
     getCuE2eScenario('l3-stale-window').fixtureSetup.transitions[0].type,
@@ -97,9 +107,9 @@ test('L3 isolates two-window, stale, and occlusion hazards', () => {
 
 test('L1-L4 declare exact Window/frame, stale, zoom, display, and ownership gates', () => {
   const checks = new Set(
-    CU_E2E_SCENARIOS
-      .filter(({ level }) => ['L1', 'L2', 'L3', 'L4'].includes(level))
-      .flatMap(({ contractChecks }) => contractChecks),
+    CU_E2E_SCENARIOS.filter(({ level }) => ['L1', 'L2', 'L3', 'L4'].includes(level)).flatMap(
+      ({ contractChecks }) => contractChecks,
+    ),
   );
   assert.deepEqual([...checks].sort(), [
     'ax-diff-secondary-oracle',
@@ -133,7 +143,10 @@ test('state evaluation reports expected and forbidden-effect failures separately
   });
   assert.equal(failing.pass, false);
   assert.equal(failing.expected.find((result) => result.path === 'primaryClicks').pass, false);
-  assert.equal(failing.forbidden.every((result) => !result.pass), true);
+  assert.equal(
+    failing.forbidden.every((result) => !result.pass),
+    true,
+  );
 });
 
 test('validation rejects ambiguous or unsafe scenario declarations', () => {
@@ -150,68 +163,68 @@ test('validation rejects ambiguous or unsafe scenario declarations', () => {
 
   const unknownWindow = structuredClone(base);
   unknownWindow.expectedState[0].windowId = 'other';
-  assert.throws(
-    () => validateCuE2eScenario(unknownWindow),
-    /references unknown window "other"/,
-  );
+  assert.throws(() => validateCuE2eScenario(unknownWindow), /references unknown window "other"/);
 
   const ambiguousMatcher = structuredClone(base);
   ambiguousMatcher.expectedState[0].greaterThan = 0;
-  assert.throws(
-    () => validateCuE2eScenario(ambiguousMatcher),
-    /exactly one matcher/,
-  );
+  assert.throws(() => validateCuE2eScenario(ambiguousMatcher), /exactly one matcher/);
 
   assert.throws(
     () => validateCuE2eScenario({ ...base, contractChecks: ['not-a-contract'] }),
     /unknown check/,
   );
   assert.throws(
-    () => validateCuE2eScenario({
-      ...base,
-      minimumActionCounts: { left_click: 1 },
-    }),
+    () =>
+      validateCuE2eScenario({
+        ...base,
+        minimumActionCounts: { left_click: 1 },
+      }),
     /disallowed action/,
   );
   assert.throws(
-    () => validateCuE2eScenario({
-      ...base,
-      minimumActionCounts: { observe: 3 },
-      maxActionCounts: { observe: 2 },
-    }),
+    () =>
+      validateCuE2eScenario({
+        ...base,
+        minimumActionCounts: { observe: 3 },
+        maxActionCounts: { observe: 2 },
+      }),
     /minimum exceeds maximum/,
   );
   assert.throws(
-    () => validateCuE2eScenario({
-      ...base,
-      minimumActionCounts: { observe: 2, click_element: 2 },
-      maxActionCounts: { observe: 2, click_element: 2 },
-      maxTotalActions: 3,
-    }),
+    () =>
+      validateCuE2eScenario({
+        ...base,
+        minimumActionCounts: { observe: 2, click_element: 2 },
+        maxActionCounts: { observe: 2, click_element: 2 },
+        maxTotalActions: 3,
+      }),
     /exceed maxTotalActions/,
   );
   assert.throws(
-    () => validateCuE2eScenario({
-      ...base,
-      expectedFailures: [{ action: 'left_click', error: 'stale_frame' }],
-    }),
+    () =>
+      validateCuE2eScenario({
+        ...base,
+        expectedFailures: [{ action: 'left_click', error: 'stale_frame' }],
+      }),
     /allowed action and error pairs/,
   );
   assert.throws(
-    () => validateCuE2eScenario({
-      ...base,
-      expectedFailures: [{ action: 'click_element', error: 'Stale frame' }],
-    }),
+    () =>
+      validateCuE2eScenario({
+        ...base,
+        expectedFailures: [{ action: 'click_element', error: 'Stale frame' }],
+      }),
     /allowed action and error pairs/,
   );
   assert.throws(
-    () => validateCuE2eScenario({
-      ...base,
-      expectedFailures: [
-        { action: 'click_element', error: 'stale_frame' },
-        { action: 'click_element', error: 'stale_frame' },
-      ],
-    }),
+    () =>
+      validateCuE2eScenario({
+        ...base,
+        expectedFailures: [
+          { action: 'click_element', error: 'stale_frame' },
+          { action: 'click_element', error: 'stale_frame' },
+        ],
+      }),
     /contains duplicates/,
   );
 });
@@ -223,5 +236,8 @@ test('fixture helper is Electron-only and does not import Maka runtime or runner
   assert.match(source, /contextIsolation:\s*true/);
   assert.match(source, /nodeIntegration:\s*false/);
   assert.match(source, /sandbox:\s*true/);
-  assert.doesNotMatch(source, /@maka|packages\/|apps\/desktop|createCuaDriverBackend|runOpenAIComputerLoop/);
+  assert.doesNotMatch(
+    source,
+    /@maka|packages\/|apps\/desktop|createCuaDriverBackend|runOpenAIComputerLoop/,
+  );
 });

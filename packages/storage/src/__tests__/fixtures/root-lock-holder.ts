@@ -1,5 +1,9 @@
 import { spawn } from 'node:child_process';
-import { resolveStorageRoot, tryAcquireInteractiveRootOwner, tryAcquireInteractiveRootReader } from '../../root-authority.js';
+import {
+  resolveStorageRoot,
+  tryAcquireInteractiveRootOwner,
+  tryAcquireInteractiveRootReader,
+} from '../../root-authority.js';
 
 const [root, access] = process.argv.slice(2);
 if (!root || (access !== 'read' && access !== 'write')) {
@@ -7,9 +11,10 @@ if (!root || (access !== 'read' && access !== 'write')) {
 }
 
 const capability = await resolveStorageRoot({ path: root, kind: 'interactive' });
-const lock = access === 'write'
-  ? await tryAcquireInteractiveRootOwner(capability)
-  : await tryAcquireInteractiveRootReader(capability);
+const lock =
+  access === 'write'
+    ? await tryAcquireInteractiveRootOwner(capability)
+    : await tryAcquireInteractiveRootReader(capability);
 
 if (!lock) {
   process.send?.({ type: 'denied' });

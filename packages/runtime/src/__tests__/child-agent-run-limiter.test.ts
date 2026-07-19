@@ -67,10 +67,7 @@ describe('ChildAgentRunLimiter', () => {
 
     await assert.rejects(second, /turn scope ended/);
     await assert.rejects(third, /turn scope ended/);
-    await assert.rejects(
-      limiter.acquire(new AbortController().signal),
-      /turn scope ended/,
-    );
+    await assert.rejects(limiter.acquire(new AbortController().signal), /turn scope ended/);
     assert.equal(limiter.waitingCount, 0);
     first.release();
   });
@@ -133,7 +130,7 @@ describe('ToolRuntime child-agent run permits', () => {
 
     controller.abort(new Error('parent tool aborted'));
     for (const release of releases) release();
-    const result = await pending as { kind?: string; value?: { rejected?: number } };
+    const result = (await pending) as { kind?: string; value?: { rejected?: number } };
 
     assert.equal(started.length, MAX_ACTIVE_CHILD_AGENT_RUNS_PER_TURN);
     assert.equal(result.kind, 'json');
@@ -191,11 +188,11 @@ describe('ToolRuntime child-agent run permits', () => {
       throw new Error('child startup failed');
     });
     const attempts = MAX_ACTIVE_CHILD_AGENT_RUNS_PER_TURN * 2;
-    const result = await withTimeout(
+    const result = (await withTimeout(
       executeTool(runtime, sequentialFailureProbeTool(attempts), new AbortController()),
       1_000,
       'permit leak stalled sequential child starts',
-    ) as { kind?: string; value?: { rejected?: number } };
+    )) as { kind?: string; value?: { rejected?: number } };
 
     assert.equal(started, attempts);
     assert.equal(result.kind, 'json');
@@ -248,10 +245,12 @@ function childBatchProbeTool(
     categoryHint: 'subagent',
     impl: async (_args, ctx) => {
       if (!ctx.spawnChildAgent) throw new Error('missing spawn capability');
-      const pending = Array.from({ length: count }, (_, index) => ctx.spawnChildAgent!({
-        spec: childSpec(index),
-        prompt: `${promptPrefix}-${index}`,
-      }));
+      const pending = Array.from({ length: count }, (_, index) =>
+        ctx.spawnChildAgent!({
+          spec: childSpec(index),
+          prompt: `${promptPrefix}-${index}`,
+        }),
+      );
       if (!summarizeSettled) return { kind: 'json', value: await Promise.all(pending) };
       const settled = await Promise.allSettled(pending);
       return {
@@ -323,10 +322,13 @@ async function executeTool(
   tool: MakaTool,
   controller: AbortController,
 ): Promise<unknown> {
-  return await runtime.wrapToolExecute(tool, 'turn-1', { push: () => {} })({}, {
-    toolCallId: `tool-${tool.name}`,
-    abortSignal: controller.signal,
-  });
+  return await runtime.wrapToolExecute(tool, 'turn-1', { push: () => {} })(
+    {},
+    {
+      toolCallId: `tool-${tool.name}`,
+      abortSignal: controller.signal,
+    },
+  );
 }
 
 function testHeader(): SessionHeader {
@@ -378,11 +380,7 @@ async function waitFor(predicate: () => boolean, timeoutMs = 1_000): Promise<voi
   }
 }
 
-async function withTimeout<T>(
-  promise: Promise<T>,
-  timeoutMs: number,
-  message: string,
-): Promise<T> {
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([

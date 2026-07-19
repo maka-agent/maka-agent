@@ -116,7 +116,10 @@ export class PtyScreenCollector {
       this.throwIfUnavailable();
       return await mutation();
     });
-    this.sequence = result.then(() => undefined, () => undefined);
+    this.sequence = result.then(
+      () => undefined,
+      () => undefined,
+    );
     return result;
   }
 
@@ -187,22 +190,26 @@ export class PtyScreenCollector {
   }
 
   private installProtocolBoundary(): void {
-    this.subscriptions.push(this.terminal.onData((data) => {
-      if (this.failure || this.disposed) return;
-      if (this.protocolReplyBatch === undefined) {
-        this.fail(new Error('PTY protocol reply escaped its parser write boundary'));
-        return;
-      }
-      const bytes = Buffer.byteLength(data, 'utf8');
-      if (this.protocolReplyBytes + bytes > PTY_PROTOCOL_REPLY_MAX_BYTES) {
-        this.fail(new Error(
-          `PTY protocol replies exceeded the ${PTY_PROTOCOL_REPLY_MAX_BYTES}-byte process limit`,
-        ));
-        return;
-      }
-      this.protocolReplyBytes += bytes;
-      this.protocolReplyBatch += data;
-    }));
+    this.subscriptions.push(
+      this.terminal.onData((data) => {
+        if (this.failure || this.disposed) return;
+        if (this.protocolReplyBatch === undefined) {
+          this.fail(new Error('PTY protocol reply escaped its parser write boundary'));
+          return;
+        }
+        const bytes = Buffer.byteLength(data, 'utf8');
+        if (this.protocolReplyBytes + bytes > PTY_PROTOCOL_REPLY_MAX_BYTES) {
+          this.fail(
+            new Error(
+              `PTY protocol replies exceeded the ${PTY_PROTOCOL_REPLY_MAX_BYTES}-byte process limit`,
+            ),
+          );
+          return;
+        }
+        this.protocolReplyBytes += bytes;
+        this.protocolReplyBatch += data;
+      }),
+    );
     for (const ident of BLOCKED_OSC) {
       this.subscriptions.push(this.terminal.parser.registerOscHandler(ident, () => true));
     }
@@ -219,8 +226,8 @@ export class PtyScreenCollector {
       this.terminal.parser.registerCsiHandler({ prefix: '?', final: 'l' }, (params) => {
         const values = flatParams(params);
         if (
-          values.some((value) => ALTERNATE_BUFFER_MODES.has(value))
-          && this.terminal.buffer.active.type === 'alternate'
+          values.some((value) => ALTERNATE_BUFFER_MODES.has(value)) &&
+          this.terminal.buffer.active.type === 'alternate'
         ) {
           const rows = readScreenRows(this.terminal.buffer.active, this.terminal.rows);
           this.lastAlternateRows = rows.some((row) => row.text.length > 0) ? rows : undefined;
@@ -289,9 +296,7 @@ export class PtyScreenCollector {
         visible: this.cursorVisible,
       },
       alternateScreen: active.type === 'alternate',
-      truncated: this.historyTruncated
-        || current.truncated
-        || Boolean(lastAlternate?.truncated),
+      truncated: this.historyTruncated || current.truncated || Boolean(lastAlternate?.truncated),
       redacted: current.redacted || Boolean(lastAlternate?.redacted),
     };
   }
@@ -387,7 +392,7 @@ function sanitizeBuffer(input: RawRow[], screenRows: number): SanitizedBuffer {
 
   const scrollback: string[] = [];
   let redacted = false;
-  for (let index = 0; index < rows.length;) {
+  for (let index = 0; index < rows.length; ) {
     const group = [rows[index]];
     index += 1;
     while (index < rows.length && rows[index].isWrapped) {
@@ -416,9 +421,10 @@ function sanitizeBuffer(input: RawRow[], screenRows: number): SanitizedBuffer {
   while (screen.at(-1) === '') screen.pop();
   let screenText = screen.join('\n');
   let scrollbackText = scrollback.join('\n');
-  const complete = scrollbackText && screenText
-    ? `${scrollbackText}\n${screenText}`
-    : scrollbackText || screenText;
+  const complete =
+    scrollbackText && screenText
+      ? `${scrollbackText}\n${screenText}`
+      : scrollbackText || screenText;
   if (redactSecrets(complete) !== complete) {
     screenText = REDACTED_MARKER;
     scrollbackText = '';
@@ -442,7 +448,7 @@ function blankPtyOutput(cols: number, rows: number): PtyShellOutput {
 }
 
 function flatParams(params: (number | number[])[]): number[] {
-  return params.flatMap((value) => typeof value === 'number' ? [value] : value);
+  return params.flatMap((value) => (typeof value === 'number' ? [value] : value));
 }
 
 function asError(error: unknown, fallback: string): Error {

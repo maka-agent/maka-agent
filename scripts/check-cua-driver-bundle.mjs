@@ -60,7 +60,7 @@ export async function checkCuaDriverBundle(targetPlatform = process.platform) {
   if (actualBinarySha256 !== cua.binarySha256) {
     throw new Error(
       `cua-driver bundle checksum mismatch: expected ${cua.binarySha256}, got ${actualBinarySha256} (${binaryPath}). ` +
-      `Re-run \`npm run prepare:cua-driver\`.`,
+        `Re-run \`npm run prepare:cua-driver\`.`,
     );
   }
 
@@ -70,43 +70,47 @@ export async function checkCuaDriverBundle(targetPlatform = process.platform) {
   } catch {
     throw new Error(
       `cua-driver bundle marker is missing or invalid: ${markerPath}. ` +
-      `Re-run \`npm run prepare:cua-driver\`.`,
+        `Re-run \`npm run prepare:cua-driver\`.`,
     );
   }
   if (
-    marker.version !== cua.version
-    || marker.expectedVersion !== cua.expectedVersion
-    || marker.expectedProtocolVersion !== cua.expectedProtocolVersion
-    || marker.sourceCommit !== cua.sourceCommit
-    || marker.upstreamCommit !== cua.upstreamCommit
-    || marker.upstreamMergeCommit !== cua.upstreamMergeCommit
-    || marker.archiveSizeBytes !== cua.archiveSizeBytes
-    || marker.binarySizeBytes !== cua.binarySizeBytes
-    || marker.licenseSizeBytes !== cua.licenseSizeBytes
-    || marker.sourceSizeBytes !== cua.sourceSizeBytes
-    || marker.archiveSha256 !== cua.archiveSha256
-    || marker.binarySha256 !== cua.binarySha256
-    || marker.licenseSha256 !== cua.licenseSha256
-    || marker.sourceSha256 !== cua.sourceSha256
+    marker.version !== cua.version ||
+    marker.expectedVersion !== cua.expectedVersion ||
+    marker.expectedProtocolVersion !== cua.expectedProtocolVersion ||
+    marker.sourceCommit !== cua.sourceCommit ||
+    marker.upstreamCommit !== cua.upstreamCommit ||
+    marker.upstreamMergeCommit !== cua.upstreamMergeCommit ||
+    marker.archiveSizeBytes !== cua.archiveSizeBytes ||
+    marker.binarySizeBytes !== cua.binarySizeBytes ||
+    marker.licenseSizeBytes !== cua.licenseSizeBytes ||
+    marker.sourceSizeBytes !== cua.sourceSizeBytes ||
+    marker.archiveSha256 !== cua.archiveSha256 ||
+    marker.binarySha256 !== cua.binarySha256 ||
+    marker.licenseSha256 !== cua.licenseSha256 ||
+    marker.sourceSha256 !== cua.sourceSha256
   ) {
     throw new Error(
       `cua-driver bundle marker mismatch: manifest ${cua.version}/${cua.archiveSha256}/${cua.binarySha256}, ` +
-      `on disk ${marker.version}/${marker.archiveSha256}/${marker.binarySha256}. Re-run \`npm run prepare:cua-driver\`.`,
+        `on disk ${marker.version}/${marker.archiveSha256}/${marker.binarySha256}. Re-run \`npm run prepare:cua-driver\`.`,
     );
   }
 
   const licenseBytes = await readFile(licensePath);
   const sourceBytes = await readFile(sourcePath);
   if (
-    licenseBytes.byteLength !== cua.licenseSizeBytes
-    || sourceBytes.byteLength !== cua.sourceSizeBytes
+    licenseBytes.byteLength !== cua.licenseSizeBytes ||
+    sourceBytes.byteLength !== cua.sourceSizeBytes
   ) {
-    throw new Error('cua-driver license/provenance size mismatch. Re-run `npm run prepare:cua-driver`.');
+    throw new Error(
+      'cua-driver license/provenance size mismatch. Re-run `npm run prepare:cua-driver`.',
+    );
   }
   const actualLicenseSha256 = createHash('sha256').update(licenseBytes).digest('hex');
   const actualSourceSha256 = createHash('sha256').update(sourceBytes).digest('hex');
   if (actualLicenseSha256 !== cua.licenseSha256 || actualSourceSha256 !== cua.sourceSha256) {
-    throw new Error('cua-driver license/provenance checksum mismatch. Re-run `npm run prepare:cua-driver`.');
+    throw new Error(
+      'cua-driver license/provenance checksum mismatch. Re-run `npm run prepare:cua-driver`.',
+    );
   }
   assertSourceProvenance(JSON.parse(sourceBytes.toString('utf8')), cua);
   await verifyBinaryMetadata(binaryPath, cua, execFileAsync);

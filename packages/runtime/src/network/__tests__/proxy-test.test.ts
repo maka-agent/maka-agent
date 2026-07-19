@@ -13,7 +13,9 @@ describe('testProxyConnection', () => {
   });
 
   test('returns missing host/port error when enabled but empty', async () => {
-    const result = await testProxyConnection({ proxy: { ...PROXY_DEFAULTS, enabled: true, host: '', port: 0 } });
+    const result = await testProxyConnection({
+      proxy: { ...PROXY_DEFAULTS, enabled: true, host: '', port: 0 },
+    });
     expect(result.ok).toBe(false);
     expect(result.error).toMatch(/host.*port/i);
   });
@@ -48,7 +50,13 @@ describe('testProxyConnection', () => {
     const started = Date.now();
     try {
       const result = await testProxyConnection({
-        proxy: { ...PROXY_DEFAULTS, enabled: true, type: 'http', host: '127.0.0.1', port: address.port },
+        proxy: {
+          ...PROXY_DEFAULTS,
+          enabled: true,
+          type: 'http',
+          host: '127.0.0.1',
+          port: address.port,
+        },
         url: 'http://example.com',
         timeoutMs: 100,
       });

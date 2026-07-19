@@ -40,8 +40,9 @@ export function buildMcpTools(
     names.set(name, identity);
     return {
       name,
-      description: descriptor.description?.trim()
-        || `MCP tool ${descriptor.name} provided by ${descriptor.serverId}`,
+      description:
+        descriptor.description?.trim() ||
+        `MCP tool ${descriptor.name} provided by ${descriptor.serverId}`,
       displayName: descriptor.annotations?.title?.trim() || descriptor.name,
       activityKind: 'tool',
       // MCP annotations are advisory server claims, not a security boundary.
@@ -50,13 +51,16 @@ export function buildMcpTools(
       // explore mode.
       categoryHint: 'network_send',
       parameters: jsonSchema(descriptor.inputSchema),
-      permissionArgs: (args) => ({ serverId: descriptor.serverId, toolName: descriptor.name, arguments: args }),
-      impl: async (args: unknown, context) => provider.callTool(
-        descriptor.serverId,
-        descriptor.name,
-        asArguments(args),
-        { signal: context.abortSignal, timeoutMs: options.callTimeoutMs },
-      ),
+      permissionArgs: (args) => ({
+        serverId: descriptor.serverId,
+        toolName: descriptor.name,
+        arguments: args,
+      }),
+      impl: async (args: unknown, context) =>
+        provider.callTool(descriptor.serverId, descriptor.name, asArguments(args), {
+          signal: context.abortSignal,
+          timeoutMs: options.callTimeoutMs,
+        }),
       toModelOutput: ({ output }) => mcpResultToModelOutput(output),
     } satisfies MakaTool;
   });
@@ -65,12 +69,18 @@ export function buildMcpTools(
 export function mcpProxyToolName(serverId: string, toolName: string): string {
   const raw = `mcp__${sanitizeNamePart(serverId)}__${sanitizeNamePart(toolName)}`;
   if (raw.length <= MAX_PROVIDER_TOOL_NAME) return raw;
-  const hash = createHash('sha256').update(`${serverId}\0${toolName}`).digest('hex').slice(0, HASH_CHARS);
+  const hash = createHash('sha256')
+    .update(`${serverId}\0${toolName}`)
+    .digest('hex')
+    .slice(0, HASH_CHARS);
   return `${raw.slice(0, MAX_PROVIDER_TOOL_NAME - HASH_CHARS - 2)}__${hash}`;
 }
 
 function sanitizeNamePart(value: string): string {
-  const sanitized = value.normalize('NFKD').replace(/[^A-Za-z0-9_-]+/gu, '_').replace(/^_+|_+$/gu, '');
+  const sanitized = value
+    .normalize('NFKD')
+    .replace(/[^A-Za-z0-9_-]+/gu, '_')
+    .replace(/^_+|_+$/gu, '');
   return sanitized || 'unnamed';
 }
 
@@ -105,9 +115,9 @@ function mcpResultToModelOutput(output: unknown): ToolModelOutput {
   for (const block of blocks) {
     if (block.type === 'text') appendText(block.text);
     else if (
-      block.type === 'image'
-      && imageCount < MAX_NATIVE_IMAGES
-      && imageChars + block.data.length <= MAX_NATIVE_IMAGE_BASE64_CHARS
+      block.type === 'image' &&
+      imageCount < MAX_NATIVE_IMAGES &&
+      imageChars + block.data.length <= MAX_NATIVE_IMAGE_BASE64_CHARS
     ) {
       value.push({
         type: 'file',
@@ -119,11 +129,15 @@ function mcpResultToModelOutput(output: unknown): ToolModelOutput {
     } else appendSummary(summarizeNonVisualBlock(block));
   }
   if (nonVisual.length || omittedSummaryBlocks || result.structuredContent !== undefined) {
-    appendText(safeJsonStringify({
-      ...(nonVisual.length ? { content: nonVisual } : {}),
-      ...(omittedSummaryBlocks ? { omittedContentBlocks: omittedSummaryBlocks } : {}),
-      ...(result.structuredContent !== undefined ? { structuredContent: result.structuredContent } : {}),
-    }));
+    appendText(
+      safeJsonStringify({
+        ...(nonVisual.length ? { content: nonVisual } : {}),
+        ...(omittedSummaryBlocks ? { omittedContentBlocks: omittedSummaryBlocks } : {}),
+        ...(result.structuredContent !== undefined
+          ? { structuredContent: result.structuredContent }
+          : {}),
+      }),
+    );
   }
   if (value.length === 0) value.push({ type: 'text', text: 'MCP tool completed with no content.' });
   return { type: 'content', value };
@@ -141,7 +155,12 @@ function summarizeNonVisualBlock(block: McpCallResult['content'][number]): unkno
     };
   }
   if (block.type === 'image') {
-    return { type: block.type, mimeType: block.mimeType, base64Chars: block.data.length, omitted: 'too_large' };
+    return {
+      type: block.type,
+      mimeType: block.mimeType,
+      base64Chars: block.data.length,
+      omitted: 'too_large',
+    };
   }
   if (block.type === 'unknown') return { type: block.type, omitted: true };
   return block;

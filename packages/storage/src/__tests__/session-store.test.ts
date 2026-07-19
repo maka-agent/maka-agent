@@ -54,7 +54,11 @@ describe('FileSessionStore CRUD', () => {
     await withStore(async (store) => {
       const header = await store.create(makeInput({ name: 'Inspect me' }));
       await store.appendMessage(header.id, {
-        type: 'user', id: 'user-1', turnId: 'turn-1', ts: 1, text: 'hello',
+        type: 'user',
+        id: 'user-1',
+        turnId: 'turn-1',
+        ts: 1,
+        text: 'hello',
       });
 
       assert.equal((await store.readHeaderSnapshot(header.id)).connectionLocked, false);
@@ -98,7 +102,9 @@ describe('FileSessionStore CRUD', () => {
 
   test('create with a thinking level surfaces it in the list summary', async () => {
     await withStore(async (store) => {
-      const header = await store.create(makeInput({ name: 'Thinking from start', thinkingLevel: 'medium' }));
+      const header = await store.create(
+        makeInput({ name: 'Thinking from start', thinkingLevel: 'medium' }),
+      );
       assert.equal(header.thinkingLevel, 'medium');
       assert.equal((await store.list())[0]?.thinkingLevel, 'medium');
     });
@@ -106,11 +112,13 @@ describe('FileSessionStore CRUD', () => {
 
   test('persists session branch lineage in header and summaries', async () => {
     await withStore(async (store) => {
-      const header = await store.create(makeInput({
-        name: 'Branch',
-        parentSessionId: 'parent-session',
-        branchOfTurnId: 'turn-parent',
-      }));
+      const header = await store.create(
+        makeInput({
+          name: 'Branch',
+          parentSessionId: 'parent-session',
+          branchOfTurnId: 'turn-parent',
+        }),
+      );
 
       assert.equal(header.parentSessionId, 'parent-session');
       assert.equal(header.branchOfTurnId, 'turn-parent');
@@ -157,7 +165,10 @@ describe('FileSessionStore CRUD', () => {
       await withStore(async (store) => {
         const header = await store.create(makeInput({ name: 'Stale unread' }));
         await store.appendMessage(header.id, assistantMessageAt(250));
-        await store.updateHeader(header.id, { hasUnread: true, lastMessageAt: headerLastMessageAt });
+        await store.updateHeader(header.id, {
+          hasUnread: true,
+          lastMessageAt: headerLastMessageAt,
+        });
 
         const unchanged = await store.markSessionReadThrough(header.id, 200);
         assert.equal(unchanged.hasUnread, true);
@@ -193,9 +204,12 @@ describe('FileSessionStore CRUD', () => {
     await withStore(async (store) => {
       const generatedFirst = await store.create(makeInput({ name: 'New Chat' }));
       assert.equal(generatedFirst.titleIsManual, false);
-      assert.equal((await store.setGeneratedTitleIfAbsent(generatedFirst.id, '  Generated title  '))?.name, 'Generated title');
+      assert.equal(
+        (await store.setGeneratedTitleIfAbsent(generatedFirst.id, '  Generated title  '))?.name,
+        'Generated title',
+      );
       await store.rename(generatedFirst.id, 'Manual title');
-      assert.equal((await store.setGeneratedTitleIfAbsent(generatedFirst.id, 'Too late')), null);
+      assert.equal(await store.setGeneratedTitleIfAbsent(generatedFirst.id, 'Too late'), null);
       assert.equal((await store.readHeader(generatedFirst.id)).name, 'Manual title');
 
       const manualFirst = await store.create(makeInput({ name: 'New Chat' }));
@@ -241,7 +255,10 @@ describe('FileSessionStore CRUD', () => {
 
       await assert.rejects(readFile(join(sessionDir, 'session.jsonl'), 'utf8'));
       const remaining = await store.list();
-      assert.equal(remaining.find((s) => s.id === header.id), undefined);
+      assert.equal(
+        remaining.find((s) => s.id === header.id),
+        undefined,
+      );
     });
   });
 
@@ -285,10 +302,11 @@ describe('FileSessionStore CRUD', () => {
       const sessionId = 'malformed-write';
       const sessionDir = join(workspaceRoot, 'sessions', sessionId);
       const sessionPath = join(sessionDir, 'session.jsonl');
-      const invalid = JSON.stringify({
-        ...makeRawHeader({ id: sessionId, workspaceRoot, name: 'Broken timestamp' }),
-        lastUsedAt: 'soon',
-      }) + '\n';
+      const invalid =
+        JSON.stringify({
+          ...makeRawHeader({ id: sessionId, workspaceRoot, name: 'Broken timestamp' }),
+          lastUsedAt: 'soon',
+        }) + '\n';
       await mkdir(sessionDir, { recursive: true });
       await writeFile(sessionPath, invalid, 'utf8');
 
@@ -461,39 +479,83 @@ describe('FileSessionStore CRUD', () => {
       const existing = await readFile(path, 'utf8');
       const legacyResults = [
         {
-          type: 'tool_result', id: 'terminal-result', turnId: 'turn-1', ts: 2,
-          toolUseId: 'terminal-call', isError: false,
+          type: 'tool_result',
+          id: 'terminal-result',
+          turnId: 'turn-1',
+          ts: 2,
+          toolUseId: 'terminal-call',
+          isError: false,
           content: {
-            kind: 'terminal', cwd: '/workspace', cmd: 'printf ok', status: 'completed', exitCode: 0,
-            stdout: 'ok', stderr: '', stdoutTruncated: false, stderrTruncated: false,
+            kind: 'terminal',
+            cwd: '/workspace',
+            cmd: 'printf ok',
+            status: 'completed',
+            exitCode: 0,
+            stdout: 'ok',
+            stderr: '',
+            stdoutTruncated: false,
+            stderrTruncated: false,
           },
         },
         {
-          type: 'tool_result', id: 'shell-result', turnId: 'turn-2', ts: 4,
-          toolUseId: 'shell-call', isError: false,
+          type: 'tool_result',
+          id: 'shell-result',
+          turnId: 'turn-2',
+          ts: 4,
+          toolUseId: 'shell-call',
+          isError: false,
           content: {
-            kind: 'shell_run', ref: 'maka://runtime/background-tasks/shell-1', status: 'cancelled',
-            cwd: '/workspace', cmd: 'sleep 30', startedAt: 1, updatedAt: 4, completedAt: 4,
-            exitCode: 130, stdout: 'ready', stderr: '', latestOutputStream: 'stdout',
-            stdoutTruncated: false, stderrTruncated: false, observedAt: 4, cancelled: true,
+            kind: 'shell_run',
+            ref: 'maka://runtime/background-tasks/shell-1',
+            status: 'cancelled',
+            cwd: '/workspace',
+            cmd: 'sleep 30',
+            startedAt: 1,
+            updatedAt: 4,
+            completedAt: 4,
+            exitCode: 130,
+            stdout: 'ready',
+            stderr: '',
+            latestOutputStream: 'stdout',
+            stdoutTruncated: false,
+            stderrTruncated: false,
+            observedAt: 4,
+            cancelled: true,
           },
         },
       ];
       const mixedResult = {
-        type: 'tool_result', id: 'mixed-terminal-result', turnId: 'turn-3', ts: 6,
-        toolUseId: 'mixed-terminal-call', isError: false,
+        type: 'tool_result',
+        id: 'mixed-terminal-result',
+        turnId: 'turn-3',
+        ts: 6,
+        toolUseId: 'mixed-terminal-call',
+        isError: false,
         content: {
-          kind: 'terminal', cwd: '/workspace', cmd: 'printf bad', status: 'completed', exitCode: 0,
-          stdout: 'bad', stderr: '', stdoutTruncated: false, stderrTruncated: false,
+          kind: 'terminal',
+          cwd: '/workspace',
+          cmd: 'printf bad',
+          status: 'completed',
+          exitCode: 0,
+          stdout: 'bad',
+          stderr: '',
+          stdoutTruncated: false,
+          stderrTruncated: false,
           output: {
-            mode: 'pipes', stdout: 'bad', stderr: '',
-            stdoutTruncated: false, stderrTruncated: false, redacted: false,
+            mode: 'pipes',
+            stdout: 'bad',
+            stderr: '',
+            stdoutTruncated: false,
+            stderrTruncated: false,
+            redacted: false,
           },
         },
       };
       await writeFile(
         path,
-        existing + [...legacyResults, mixedResult].map((message) => JSON.stringify(message)).join('\n') + '\n',
+        existing +
+          [...legacyResults, mixedResult].map((message) => JSON.stringify(message)).join('\n') +
+          '\n',
         'utf8',
       );
 
@@ -507,8 +569,12 @@ describe('FileSessionStore CRUD', () => {
         status: 'completed',
         exitCode: 0,
         output: {
-          mode: 'pipes', stdout: 'ok', stderr: '',
-          stdoutTruncated: false, stderrTruncated: false, redacted: false,
+          mode: 'pipes',
+          stdout: 'ok',
+          stderr: '',
+          stdoutTruncated: false,
+          stderrTruncated: false,
+          redacted: false,
         },
       });
       assert.deepEqual(shellRun?.type === 'tool_result' ? shellRun.content : undefined, {
@@ -524,14 +590,24 @@ describe('FileSessionStore CRUD', () => {
         exitCode: 130,
         revision: 1,
         output: {
-          mode: 'pipes', stdout: 'ready', stderr: '', latestStream: 'stdout',
-          stdoutTruncated: false, stderrTruncated: false, redacted: false,
+          mode: 'pipes',
+          stdout: 'ready',
+          stderr: '',
+          latestStream: 'stdout',
+          stdoutTruncated: false,
+          stderrTruncated: false,
+          redacted: false,
         },
         operation: { kind: 'stop', applied: true },
       });
-      assert.equal(messages.some((message) => message.id === 'mixed-terminal-result'), false);
       assert.equal(
-        messages.some((message) => message.type === 'system_note' && message.id.startsWith('jsonl-corrupt-')),
+        messages.some((message) => message.id === 'mixed-terminal-result'),
+        false,
+      );
+      assert.equal(
+        messages.some(
+          (message) => message.type === 'system_note' && message.id.startsWith('jsonl-corrupt-'),
+        ),
         true,
       );
       await assert.rejects(
@@ -552,7 +628,14 @@ describe('FileSessionStore CRUD', () => {
           JSON.stringify(makeRawHeader({ id: sessionId, workspaceRoot, name: 'Corrupt middle' })),
           JSON.stringify({ type: 'user', id: 'u1', turnId: 't1', ts: 2, text: 'hello' }),
           '{"type":"assistant","id":"broken"',
-          JSON.stringify({ type: 'assistant', id: 'a1', turnId: 't1', ts: 4, text: 'recovered answer', modelId: 'fake' }),
+          JSON.stringify({
+            type: 'assistant',
+            id: 'a1',
+            turnId: 't1',
+            ts: 4,
+            text: 'recovered answer',
+            modelId: 'fake',
+          }),
           '',
         ].join('\n'),
         'utf8',
@@ -593,7 +676,10 @@ describe('FileSessionStore CRUD', () => {
       );
 
       const messages = await store.readMessages(sessionId);
-      assert.deepEqual(messages.map((message) => message.type), ['user']);
+      assert.deepEqual(
+        messages.map((message) => message.type),
+        ['user'],
+      );
 
       const [summary] = await store.list();
       assert.equal(summary?.id, sessionId);
@@ -648,7 +734,9 @@ describe('FileSessionStore CRUD', () => {
       await writeFile(
         join(sessionDir, 'session.jsonl'),
         [
-          JSON.stringify(makeRawHeader({ id: sessionId, workspaceRoot, name: 'Corrupt terminated tail' })),
+          JSON.stringify(
+            makeRawHeader({ id: sessionId, workspaceRoot, name: 'Corrupt terminated tail' }),
+          ),
           JSON.stringify({ type: 'user', id: 'u1', turnId: 't1', ts: 2, text: 'survives' }),
           '{"type":"assistant","id":"durably-broken"',
           '',
@@ -697,9 +785,7 @@ describe('FileSessionStore CRUD', () => {
 
   test('recovers a canonical token usage message with nested diagnostics', async () => {
     await withStore(async (store) => {
-      const session = await store.create(
-        makeInput({ name: 'Token usage recovery' }),
-      );
+      const session = await store.create(makeInput({ name: 'Token usage recovery' }));
       await store.appendMessage(session.id, {
         type: 'token_usage',
         id: 'usage-1',
@@ -709,9 +795,7 @@ describe('FileSessionStore CRUD', () => {
         output: 20,
         cacheHitInput: 80,
         prefixChangeReason: 'stable',
-        promptSegments: [
-          { kind: 'prior_history', chars: 400, estimatedTokens: 100 },
-        ],
+        promptSegments: [{ kind: 'prior_history', chars: 400, estimatedTokens: 100 }],
         contextBudget: {
           enabled: true,
           policyName: 'bounded-history',
@@ -736,8 +820,7 @@ describe('FileSessionStore CRUD', () => {
       const messages = await store.readMessagesForRecovery(session.id);
       assert.equal(messages[0]?.type, 'token_usage');
       assert.equal(
-        messages[0]?.type === 'token_usage' &&
-          messages[0].contextBudget?.policyName,
+        messages[0]?.type === 'token_usage' && messages[0].contextBudget?.policyName,
         'bounded-history',
       );
     });
@@ -788,9 +871,7 @@ describe('FileSessionStore CRUD', () => {
         );
         await assert.rejects(
           () => store.readMessagesForRecovery(sessionId),
-          new RegExp(
-            `Session malformed-nested-${index} has a corrupt JSONL record at line 2`,
-          ),
+          new RegExp(`Session malformed-nested-${index} has a corrupt JSONL record at line 2`),
         );
       }
     });
@@ -801,9 +882,29 @@ describe('FileSessionStore CRUD', () => {
       const header = await store.create(makeInput({ name: 'Preview' }));
 
       await store.appendMessages(header.id, [
-        { type: 'system_note', id: 'sys-1', ts: 1, kind: 'mode_change', data: { from: 'ask', to: 'execute' } },
-        { type: 'tool_call', id: 'tool-1', turnId: 't1', ts: 2, toolName: 'Read', args: { file: 'secret.ts' } },
-        { type: 'assistant', id: 'a1', turnId: 't1', ts: 3, text: 'Here is the latest answer.\nIt spans lines.', modelId: 'fake' },
+        {
+          type: 'system_note',
+          id: 'sys-1',
+          ts: 1,
+          kind: 'mode_change',
+          data: { from: 'ask', to: 'execute' },
+        },
+        {
+          type: 'tool_call',
+          id: 'tool-1',
+          turnId: 't1',
+          ts: 2,
+          toolName: 'Read',
+          args: { file: 'secret.ts' },
+        },
+        {
+          type: 'assistant',
+          id: 'a1',
+          turnId: 't1',
+          ts: 3,
+          text: 'Here is the latest answer.\nIt spans lines.',
+          modelId: 'fake',
+        },
       ]);
 
       const [summary] = await store.list();
@@ -842,13 +943,15 @@ describe('FileSessionStore CRUD', () => {
         turnId: 't1',
         ts: 1,
         text: '   ',
-        attachments: [{
-          kind: 'image',
-          name: 'shot.png',
-          mimeType: 'image/png',
-          bytes: 10,
-          ref: { kind: 'session_file', sessionId: header.id, relativePath: 'shot.png' },
-        }],
+        attachments: [
+          {
+            kind: 'image',
+            name: 'shot.png',
+            mimeType: 'image/png',
+            bytes: 10,
+            ref: { kind: 'session_file', sessionId: header.id, relativePath: 'shot.png' },
+          },
+        ],
       });
 
       const [summary] = await store.list();
@@ -863,8 +966,16 @@ describe('FileSessionStore CRUD', () => {
       await writeFile(
         join(workspaceRoot, 'sessions', missingId, 'session.jsonl'),
         [
-          JSON.stringify(makeRawHeader({ id: missingId, workspaceRoot, name: 'Missing timestamp' })),
-          JSON.stringify({ type: 'user', id: 'u1', turnId: 't1', ts: 20, text: 'new visible user text' }),
+          JSON.stringify(
+            makeRawHeader({ id: missingId, workspaceRoot, name: 'Missing timestamp' }),
+          ),
+          JSON.stringify({
+            type: 'user',
+            id: 'u1',
+            turnId: 't1',
+            ts: 20,
+            text: 'new visible user text',
+          }),
           JSON.stringify({ type: 'system_note', id: 'sys-1', ts: 30, kind: 'session_resume' }),
           '',
         ].join('\n'),
@@ -876,13 +987,22 @@ describe('FileSessionStore CRUD', () => {
       await writeFile(
         join(workspaceRoot, 'sessions', staleId, 'session.jsonl'),
         [
-          JSON.stringify(makeRawHeader({
-            id: staleId,
-            workspaceRoot,
-            name: 'Stale timestamp',
-            lastMessageAt: 5,
-          })),
-          JSON.stringify({ type: 'assistant', id: 'a1', turnId: 't1', ts: 40, text: 'new visible assistant text', modelId: 'fake' }),
+          JSON.stringify(
+            makeRawHeader({
+              id: staleId,
+              workspaceRoot,
+              name: 'Stale timestamp',
+              lastMessageAt: 5,
+            }),
+          ),
+          JSON.stringify({
+            type: 'assistant',
+            id: 'a1',
+            turnId: 't1',
+            ts: 40,
+            text: 'new visible assistant text',
+            modelId: 'fake',
+          }),
           '',
         ].join('\n'),
         'utf8',
@@ -896,7 +1016,10 @@ describe('FileSessionStore CRUD', () => {
       assert.equal(missing?.lastMessagePreview, 'new visible user text');
       assert.equal(stale?.lastMessageAt, 40);
       assert.equal(stale?.lastMessagePreview, 'new visible assistant text');
-      assert.deepEqual(summaries.slice(0, 2).map((summary) => summary.id), [staleId, missingId]);
+      assert.deepEqual(
+        summaries.slice(0, 2).map((summary) => summary.id),
+        [staleId, missingId],
+      );
     });
   });
 
@@ -908,13 +1031,22 @@ describe('FileSessionStore CRUD', () => {
         await writeFile(
           join(workspaceRoot, 'sessions', sessionId, 'session.jsonl'),
           [
-            JSON.stringify(makeRawHeader({
-              id: sessionId,
-              workspaceRoot,
-              name: `Preview tail ${index}`,
-              lastMessageAt: 100 - index,
-            })),
-            JSON.stringify({ type: 'assistant', id: `a-${index}`, turnId: `t-${index}`, ts: 100 - index, text: `tail preview ${index}`, modelId: 'fake' }),
+            JSON.stringify(
+              makeRawHeader({
+                id: sessionId,
+                workspaceRoot,
+                name: `Preview tail ${index}`,
+                lastMessageAt: 100 - index,
+              }),
+            ),
+            JSON.stringify({
+              type: 'assistant',
+              id: `a-${index}`,
+              turnId: `t-${index}`,
+              ts: 100 - index,
+              text: `tail preview ${index}`,
+              modelId: 'fake',
+            }),
             '',
           ].join('\n'),
           'utf8',
@@ -924,13 +1056,10 @@ describe('FileSessionStore CRUD', () => {
       const summaries = await store.list();
 
       assert.equal(summaries.length, 5);
-      assert.deepEqual(summaries.map((summary) => summary.lastMessagePreview), [
-        'tail preview 0',
-        'tail preview 1',
-        'tail preview 2',
-        'tail preview 3',
-        'tail preview 4',
-      ]);
+      assert.deepEqual(
+        summaries.map((summary) => summary.lastMessagePreview),
+        ['tail preview 0', 'tail preview 1', 'tail preview 2', 'tail preview 3', 'tail preview 4'],
+      );
     });
   });
 
@@ -941,14 +1070,23 @@ describe('FileSessionStore CRUD', () => {
       await writeFile(
         join(workspaceRoot, 'sessions', sessionId, 'session.jsonl'),
         [
-          JSON.stringify(makeRawHeader({
-            id: sessionId,
-            workspaceRoot,
-            name: 'Large header',
-            labels: Array.from({ length: 700 }, (_, index) => `label-${index}`),
-            lastMessageAt: 10,
-          })),
-          JSON.stringify({ type: 'assistant', id: 'a1', turnId: 't1', ts: 10, text: 'large header survives', modelId: 'fake' }),
+          JSON.stringify(
+            makeRawHeader({
+              id: sessionId,
+              workspaceRoot,
+              name: 'Large header',
+              labels: Array.from({ length: 700 }, (_, index) => `label-${index}`),
+              lastMessageAt: 10,
+            }),
+          ),
+          JSON.stringify({
+            type: 'assistant',
+            id: 'a1',
+            turnId: 't1',
+            ts: 10,
+            text: 'large header survives',
+            modelId: 'fake',
+          }),
           '',
         ].join('\n'),
         'utf8',
@@ -968,13 +1106,22 @@ describe('FileSessionStore CRUD', () => {
       await writeFile(
         join(workspaceRoot, 'sessions', sessionId, 'session.jsonl'),
         [
-          JSON.stringify(makeRawHeader({
-            id: sessionId,
-            workspaceRoot,
-            name: 'Newer header',
-            lastMessageAt: 100,
-          })),
-          JSON.stringify({ type: 'assistant', id: 'a1', turnId: 't1', ts: 40, text: 'old copied text', modelId: 'fake' }),
+          JSON.stringify(
+            makeRawHeader({
+              id: sessionId,
+              workspaceRoot,
+              name: 'Newer header',
+              lastMessageAt: 100,
+            }),
+          ),
+          JSON.stringify({
+            type: 'assistant',
+            id: 'a1',
+            turnId: 't1',
+            ts: 40,
+            text: 'old copied text',
+            modelId: 'fake',
+          }),
           '',
         ].join('\n'),
         'utf8',
@@ -994,7 +1141,14 @@ describe('FileSessionStore CRUD', () => {
 
       await store.appendMessages(header.id, [
         { type: 'user', id: 'u1', turnId: 't1', ts: 1, text: 'hello' },
-        { type: 'turn_state', id: 'state-1', turnId: 't1', ts: 2, status: 'running', partialOutputRetained: false },
+        {
+          type: 'turn_state',
+          id: 'state-1',
+          turnId: 't1',
+          ts: 2,
+          status: 'running',
+          partialOutputRetained: false,
+        },
         { type: 'assistant', id: 'a1', turnId: 't1', ts: 3, text: 'partial', modelId: 'fake' },
         {
           type: 'turn_state',
@@ -1107,7 +1261,10 @@ describe('FileSessionStore CRUD', () => {
         const header = await store.create(makeInput({ name: 'Valid' }));
         // Intentionally cast around the TS signature to simulate an
         // IPC payload that didn't honor the type contract.
-        await assert.rejects(store.rename(header.id, null as unknown as string), /must be a string/);
+        await assert.rejects(
+          store.rename(header.id, null as unknown as string),
+          /must be a string/,
+        );
         await assert.rejects(store.rename(header.id, 42 as unknown as string), /must be a string/);
       });
     });
@@ -1191,10 +1348,7 @@ function makeRawHeader(overrides: Partial<SessionHeader> = {}): SessionHeader {
   };
 }
 
-function exploreToolResult(overrides: {
-  candidateFiles: unknown[];
-  matches: unknown[];
-}): unknown {
+function exploreToolResult(overrides: { candidateFiles: unknown[]; matches: unknown[] }): unknown {
   return {
     type: 'tool_result',
     id: 'tool-result-1',

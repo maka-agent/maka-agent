@@ -7,10 +7,16 @@ import type {
   TurnStateMessage,
 } from '@maka/core/session';
 
-export type TurnStateLineage = Partial<Pick<
-  TurnStateMessage,
-  'parentTurnId' | 'retriedFromTurnId' | 'regeneratedFromTurnId' | 'branchOfTurnId' | 'parentSessionId'
->>;
+export type TurnStateLineage = Partial<
+  Pick<
+    TurnStateMessage,
+    | 'parentTurnId'
+    | 'retriedFromTurnId'
+    | 'regeneratedFromTurnId'
+    | 'branchOfTurnId'
+    | 'parentSessionId'
+  >
+>;
 
 export interface BuildTurnStateMessageInput {
   id: string;
@@ -45,7 +51,9 @@ export function buildTurnStateMessage(input: BuildTurnStateMessageInput): TurnSt
     status: input.status,
     ...(lineage.parentTurnId ? { parentTurnId: lineage.parentTurnId } : {}),
     ...(lineage.retriedFromTurnId ? { retriedFromTurnId: lineage.retriedFromTurnId } : {}),
-    ...(lineage.regeneratedFromTurnId ? { regeneratedFromTurnId: lineage.regeneratedFromTurnId } : {}),
+    ...(lineage.regeneratedFromTurnId
+      ? { regeneratedFromTurnId: lineage.regeneratedFromTurnId }
+      : {}),
     ...(lineage.branchOfTurnId ? { branchOfTurnId: lineage.branchOfTurnId } : {}),
     ...(lineage.parentSessionId ? { parentSessionId: lineage.parentSessionId } : {}),
     ...(input.status === 'aborted' ? { abortedAt: input.ts } : {}),
@@ -55,13 +63,13 @@ export function buildTurnStateMessage(input: BuildTurnStateMessageInput): TurnSt
   };
 }
 
-export function turnHasRetainedOutput(
-  messages: readonly StoredMessage[],
-  turnId: string,
-): boolean {
-  return messages.some((message) =>
-    (message.type === 'assistant' && message.turnId === turnId && message.text.trim().length > 0) ||
-    (message.type === 'tool_result' && message.turnId === turnId),
+export function turnHasRetainedOutput(messages: readonly StoredMessage[], turnId: string): boolean {
+  return messages.some(
+    (message) =>
+      (message.type === 'assistant' &&
+        message.turnId === turnId &&
+        message.text.trim().length > 0) ||
+      (message.type === 'tool_result' && message.turnId === turnId),
   );
 }
 
@@ -69,8 +77,11 @@ export function normalizeStopSessionSource(
   source: 'stop_button' | 'benchmark_deadline' | undefined,
 ): string | undefined {
   switch (source) {
-    case 'stop_button': return 'renderer.stop_button';
-    case 'benchmark_deadline': return 'benchmark.deadline';
-    case undefined: return undefined;
+    case 'stop_button':
+      return 'renderer.stop_button';
+    case 'benchmark_deadline':
+      return 'benchmark.deadline';
+    case undefined:
+      return undefined;
   }
 }

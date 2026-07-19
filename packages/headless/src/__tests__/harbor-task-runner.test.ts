@@ -6,7 +6,10 @@ import { join } from 'node:path';
 import { describe, test } from 'node:test';
 import { tokenSummary } from './helpers/cell-output-fixtures.js';
 import type { HarborCellExecutionIdentity, HarborCellOutput } from '../cell-output.js';
-import { FixedPromptBudgetExhaustedError, type HarborTaskRunInput } from '../fixed-prompt-controller.js';
+import {
+  FixedPromptBudgetExhaustedError,
+  type HarborTaskRunInput,
+} from '../fixed-prompt-controller.js';
 import {
   buildHarborJobConfig,
   createHarborOracleQualifier,
@@ -24,7 +27,13 @@ function cellOutput(overrides: Partial<HarborCellOutput> = {}): HarborCellOutput
     status: 'completed',
     runtimeEventsPath: '/logs/agent/runtime-events.jsonl',
     promptHash: 'sha256:abc',
-    tokenSummary: tokenSummary({ input: 100, output: 50, reasoning: 0, total: 150, costUsd: 0.0001 }),
+    tokenSummary: tokenSummary({
+      input: 100,
+      output: 50,
+      reasoning: 0,
+      total: 150,
+      costUsd: 0.0001,
+    }),
     toolSummary: {
       providerVisibleToolCount: 6,
       actualToolCalls: 2,
@@ -45,7 +54,12 @@ function runInput(overrides: Partial<HarborTaskRunInput> = {}): HarborTaskRunInp
     runId: 'run-1',
     roundId: 'round-1',
     task: { id: 'task-1', path: '/tasks/cobol-modernization' },
-    config: { id: 'cfg', backend: 'ai-sdk', llmConnectionSlug: 'deepseek', model: 'deepseek-v4-flash' },
+    config: {
+      id: 'cfg',
+      backend: 'ai-sdk',
+      llmConnectionSlug: 'deepseek',
+      model: 'deepseek-v4-flash',
+    },
     systemPrompt: 'CANDIDATE PROMPT\n',
     ...overrides,
   };
@@ -53,16 +67,18 @@ function runInput(overrides: Partial<HarborTaskRunInput> = {}): HarborTaskRunInp
 
 function copilotModelsResponse(): Response {
   return Response.json({
-    data: [{
-      id: 'gpt-5.4',
-      model_picker_enabled: true,
-      supported_endpoints: ['/responses'],
-      policy: { state: 'enabled' },
-      capabilities: {
-        limits: { max_prompt_tokens: 128_000, max_output_tokens: 16_000 },
-        supports: { tool_calls: true },
+    data: [
+      {
+        id: 'gpt-5.4',
+        model_picker_enabled: true,
+        supported_endpoints: ['/responses'],
+        policy: { state: 'enabled' },
+        capabilities: {
+          limits: { max_prompt_tokens: 128_000, max_output_tokens: 16_000 },
+          supports: { tool_calls: true },
+        },
       },
-    }],
+    ],
   });
 }
 
@@ -83,7 +99,10 @@ interface FakeOptions {
 
 function fakeRunner(opts: FakeOptions): HarborProcessRunner {
   return async (request): Promise<HarborRunResult> => {
-    const config = JSON.parse(await readFile(request.configPath, 'utf8')) as Record<string, unknown>;
+    const config = JSON.parse(await readFile(request.configPath, 'utf8')) as Record<
+      string,
+      unknown
+    >;
     if (opts.captured) {
       opts.captured.config = config;
       opts.captured.request = request;
@@ -102,19 +121,27 @@ function fakeRunner(opts: FakeOptions): HarborProcessRunner {
     if (opts.verifierStdout !== undefined) {
       await writeFile(join(trialDir, 'verifier', 'test-stdout.txt'), opts.verifierStdout, 'utf8');
     }
-    const verifierOutcome = opts.verifierOutcome === undefined && opts.reward !== undefined
-      ? Number(opts.reward.trim()) > 0
-        ? {
-            schemaVersion: 1,
-            outcome: 'passed',
-            attempts: [{ attempt: 1, classification: 'passed', durationMs: 1, reward: Number(opts.reward.trim()) }],
-          }
-        : {
-            schemaVersion: 1,
-            outcome: 'failed',
-            attempts: [{ attempt: 1, classification: 'failed', durationMs: 1, reward: 0 }],
-          }
-      : opts.verifierOutcome;
+    const verifierOutcome =
+      opts.verifierOutcome === undefined && opts.reward !== undefined
+        ? Number(opts.reward.trim()) > 0
+          ? {
+              schemaVersion: 1,
+              outcome: 'passed',
+              attempts: [
+                {
+                  attempt: 1,
+                  classification: 'passed',
+                  durationMs: 1,
+                  reward: Number(opts.reward.trim()),
+                },
+              ],
+            }
+          : {
+              schemaVersion: 1,
+              outcome: 'failed',
+              attempts: [{ attempt: 1, classification: 'failed', durationMs: 1, reward: 0 }],
+            }
+        : opts.verifierOutcome;
     if (verifierOutcome !== undefined && verifierOutcome !== null) {
       await writeFile(
         join(trialDir, 'verifier', 'maka-verifier-outcome.json'),
@@ -123,7 +150,11 @@ function fakeRunner(opts: FakeOptions): HarborProcessRunner {
       );
     }
     if (opts.cell !== null) {
-      await writeFile(join(trialDir, 'agent', 'maka-cell-output.json'), JSON.stringify(opts.cell ?? cellOutput()), 'utf8');
+      await writeFile(
+        join(trialDir, 'agent', 'maka-cell-output.json'),
+        JSON.stringify(opts.cell ?? cellOutput()),
+        'utf8',
+      );
     }
     if (opts.executionIdentity) {
       await writeFile(
@@ -142,10 +173,20 @@ function fakeRunner(opts: FakeOptions): HarborProcessRunner {
     if (opts.trialResult) {
       await writeFile(join(trialDir, 'result.json'), JSON.stringify(opts.trialResult), 'utf8');
     }
-    await writeFile(join(trialDir, 'agent', 'runtime-events.jsonl'), opts.events ?? '{"type":"x"}\n', 'utf8');
+    await writeFile(
+      join(trialDir, 'agent', 'runtime-events.jsonl'),
+      opts.events ?? '{"type":"x"}\n',
+      'utf8',
+    );
     if (opts.makaTrace !== false) {
-      await mkdir(join(trialDir, 'agent', 'maka-storage', 'sessions', 'sess', 'runs', 'run'), { recursive: true });
-      await writeFile(join(trialDir, 'agent', 'maka-storage', 'sessions', 'sess', 'runs', 'run', 'events.jsonl'), '{"type":"tool_failed"}\n', 'utf8');
+      await mkdir(join(trialDir, 'agent', 'maka-storage', 'sessions', 'sess', 'runs', 'run'), {
+        recursive: true,
+      });
+      await writeFile(
+        join(trialDir, 'agent', 'maka-storage', 'sessions', 'sess', 'runs', 'run', 'events.jsonl'),
+        '{"type":"tool_failed"}\n',
+        'utf8',
+      );
     }
     return {
       exitCode: opts.exitCodeAfterArtifacts ?? 0,
@@ -155,7 +196,9 @@ function fakeRunner(opts: FakeOptions): HarborProcessRunner {
   };
 }
 
-async function withRun<T>(fn: (dirs: { jobsDir: string; repo: string; keyFile: string }) => Promise<T>): Promise<T> {
+async function withRun<T>(
+  fn: (dirs: { jobsDir: string; repo: string; keyFile: string }) => Promise<T>,
+): Promise<T> {
   const base = await mkdtemp(join(tmpdir(), 'maka-harbor-runner-'));
   const repo = join(base, 'repo');
   const jobsDir = join(base, 'jobs');
@@ -178,8 +221,16 @@ describe('createHarborTaskRunner', () => {
         model: 'deepseek/deepseek-v4-flash',
         provider: 'deepseek',
         apiKeyFile: keyFile,
-        pricing: { inputUsdPer1M: 0.145, outputUsdPer1M: 0.29, cacheReadUsdPer1M: 0.0029, source: 'v4-flash' },
-        runHarbor: fakeRunner({ reward: '1\n', cell: cellOutput({ promptHash: 'sha256:candidate' }) }),
+        pricing: {
+          inputUsdPer1M: 0.145,
+          outputUsdPer1M: 0.29,
+          cacheReadUsdPer1M: 0.0029,
+          source: 'v4-flash',
+        },
+        runHarbor: fakeRunner({
+          reward: '1\n',
+          cell: cellOutput({ promptHash: 'sha256:candidate' }),
+        }),
       });
 
       const output = await runner(runInput());
@@ -187,9 +238,15 @@ describe('createHarborTaskRunner', () => {
       assert.equal(output.cell.status, 'completed');
       assert.equal(output.cell.promptHash, 'sha256:candidate');
       // runtimeEventsPath must be the host trial path, not the container path.
-      assert.match(output.cell.runtimeEventsPath, /run-1\/round-1\/task-1\/trial\/cobol-modernization__t1\/agent\/runtime-events\.jsonl$/);
+      assert.match(
+        output.cell.runtimeEventsPath,
+        /run-1\/round-1\/task-1\/trial\/cobol-modernization__t1\/agent\/runtime-events\.jsonl$/,
+      );
       assert.doesNotMatch(output.cell.runtimeEventsPath, /^\/logs\//);
-      assert.match(output.cell.traceEventsPath ?? '', /run-1\/round-1\/task-1\/trial\/cobol-modernization__t1\/agent\/maka-storage\/sessions\/sess\/runs\/run\/events\.jsonl$/);
+      assert.match(
+        output.cell.traceEventsPath ?? '',
+        /run-1\/round-1\/task-1\/trial\/cobol-modernization__t1\/agent\/maka-storage\/sessions\/sess\/runs\/run\/events\.jsonl$/,
+      );
       assert.doesNotMatch(output.cell.traceEventsPath ?? '', /^\/logs\//);
     });
   });
@@ -203,30 +260,61 @@ describe('createHarborTaskRunner', () => {
         runHarbor: async (request) => {
           const staleDir = join(request.jobsDir, request.jobName, 'cobol-modernization__aaa');
           await mkdir(join(staleDir, 'agent'), { recursive: true });
-          await writeFile(join(staleDir, 'agent', 'maka-cell-output.json'), JSON.stringify(cellOutput({ promptHash: 'sha256:stale' })), 'utf8');
+          await writeFile(
+            join(staleDir, 'agent', 'maka-cell-output.json'),
+            JSON.stringify(cellOutput({ promptHash: 'sha256:stale' })),
+            'utf8',
+          );
 
           const realDir = join(request.jobsDir, request.jobName, 'cobol-modernization__zzz');
           await mkdir(join(realDir, 'verifier'), { recursive: true });
           await mkdir(join(realDir, 'agent'), { recursive: true });
           await writeFile(join(realDir, 'verifier', 'reward.txt'), '1\n', 'utf8');
-          await writeFile(join(realDir, 'verifier', 'maka-verifier-outcome.json'), JSON.stringify({
-            schemaVersion: 1,
-            outcome: 'passed',
-            attempts: [{ attempt: 1, classification: 'passed', durationMs: 1, reward: 1 }],
-          }), 'utf8');
-          await writeFile(join(realDir, 'agent', 'maka-cell-output.json'), JSON.stringify(cellOutput({ promptHash: 'sha256:real' })), 'utf8');
+          await writeFile(
+            join(realDir, 'verifier', 'maka-verifier-outcome.json'),
+            JSON.stringify({
+              schemaVersion: 1,
+              outcome: 'passed',
+              attempts: [{ attempt: 1, classification: 'passed', durationMs: 1, reward: 1 }],
+            }),
+            'utf8',
+          );
+          await writeFile(
+            join(realDir, 'agent', 'maka-cell-output.json'),
+            JSON.stringify(cellOutput({ promptHash: 'sha256:real' })),
+            'utf8',
+          );
           await writeFile(join(realDir, 'agent', 'runtime-events.jsonl'), '{"type":"x"}\n', 'utf8');
-          await mkdir(join(realDir, 'agent', 'maka-storage', 'sessions', 'sess', 'runs', 'run'), { recursive: true });
-          await writeFile(join(realDir, 'agent', 'maka-storage', 'sessions', 'sess', 'runs', 'run', 'events.jsonl'), '{"type":"tool_failed"}\n', 'utf8');
-          await writeFile(join(request.jobsDir, request.jobName, 'result.json'), JSON.stringify({
-            stats: {
-              evals: {
-                maka: {
-                  reward_stats: { reward: { '1.0': ['cobol-modernization__zzz'] } },
+          await mkdir(join(realDir, 'agent', 'maka-storage', 'sessions', 'sess', 'runs', 'run'), {
+            recursive: true,
+          });
+          await writeFile(
+            join(
+              realDir,
+              'agent',
+              'maka-storage',
+              'sessions',
+              'sess',
+              'runs',
+              'run',
+              'events.jsonl',
+            ),
+            '{"type":"tool_failed"}\n',
+            'utf8',
+          );
+          await writeFile(
+            join(request.jobsDir, request.jobName, 'result.json'),
+            JSON.stringify({
+              stats: {
+                evals: {
+                  maka: {
+                    reward_stats: { reward: { '1.0': ['cobol-modernization__zzz'] } },
+                  },
                 },
               },
-            },
-          }), 'utf8');
+            }),
+            'utf8',
+          );
           return { exitCode: 0, stdout: 'ok', stderr: '' };
         },
       });
@@ -247,7 +335,12 @@ describe('createHarborTaskRunner', () => {
         model: 'deepseek/deepseek-v4-flash',
         provider: 'deepseek',
         apiKeyFile: keyFile,
-        pricing: { inputUsdPer1M: 0.145, outputUsdPer1M: 0.29, cacheReadUsdPer1M: 0.0029, source: 'v4-flash' },
+        pricing: {
+          inputUsdPer1M: 0.145,
+          outputUsdPer1M: 0.29,
+          cacheReadUsdPer1M: 0.0029,
+          source: 'v4-flash',
+        },
         agentEnv: { DEEPSEEK_BASE_URL: 'https://api.deepseek.com' },
         runHarbor: async (request) => {
           harborEnv = request.env;
@@ -278,8 +371,14 @@ describe('createHarborTaskRunner', () => {
       assert.equal(env.MAKA_TRIAL_PRICING_SOURCE, 'v4-flash');
       const mounts = (config.environment as { mounts: Array<Record<string, unknown>> }).mounts;
       assert.ok(mounts.some((m) => m.target === '/opt/maka-agent' && m.read_only === true));
-      assert.equal(mounts.some((m) => m.target === '/run/secrets/deepseek-key' || m.source === keyFile), false);
-      assert.doesNotMatch(JSON.stringify(config), /\/run\/secrets|deepseek-key|sk-secret|host\.docker\.internal|maka-broker/);
+      assert.equal(
+        mounts.some((m) => m.target === '/run/secrets/deepseek-key' || m.source === keyFile),
+        false,
+      );
+      assert.doesNotMatch(
+        JSON.stringify(config),
+        /\/run\/secrets|deepseek-key|sk-secret|host\.docker\.internal|maka-broker/,
+      );
       assert.equal(harborEnv?.MAKA_HOST_REPO_ROOT, repo);
       assert.equal(harborEnv?.MAKA_HOST_API_KEY_FILE, keyFile);
       assert.equal(harborEnv?.MAKA_HOST_API_KEY_ENV_NAME, 'DEEPSEEK_API_KEY');
@@ -412,12 +511,18 @@ describe('createHarborTaskRunner', () => {
       await runner(runInput());
 
       assert.equal(harborEnv?.ZAI_API_KEY_FILE, undefined);
-      assert.match(harborEnv?.MAKA_PROVIDER_PROXY_URL ?? '', /^http:\/\/host\.docker\.internal:\d+$/);
+      assert.match(
+        harborEnv?.MAKA_PROVIDER_PROXY_URL ?? '',
+        /^http:\/\/host\.docker\.internal:\d+$/,
+      );
       assert.match(harborEnv?.MAKA_PROVIDER_PROXY_TOKEN ?? '', /^[a-f0-9]{64}$/);
       assert.notEqual(harborEnv?.MAKA_PROVIDER_PROXY_TOKEN, keyFile);
       assert.doesNotMatch(JSON.stringify(harborEnv), /deepseek-key|sk-secret/);
       assert.doesNotMatch(JSON.stringify(captured.config), /ZAI_API_KEY|deepseek-key|sk-secret/);
-      const closedProxyUrl = harborEnv?.MAKA_PROVIDER_PROXY_URL?.replace('host.docker.internal', '127.0.0.1');
+      const closedProxyUrl = harborEnv?.MAKA_PROVIDER_PROXY_URL?.replace(
+        'host.docker.internal',
+        '127.0.0.1',
+      );
       assert.ok(closedProxyUrl);
       await assert.rejects(fetch(closedProxyUrl));
     });
@@ -446,8 +551,10 @@ describe('createHarborTaskRunner', () => {
           apiKeyFile: keyFile,
           agentEnv: { MAKA_BASE_URL: `http://127.0.0.1:${address.port}/coding/v1` },
           runHarbor: async (request) => {
-            const proxyUrl = request.env?.MAKA_PROVIDER_PROXY_URL
-              ?.replace('host.docker.internal', '127.0.0.1');
+            const proxyUrl = request.env?.MAKA_PROVIDER_PROXY_URL?.replace(
+              'host.docker.internal',
+              '127.0.0.1',
+            );
             const proxyToken = request.env?.MAKA_PROVIDER_PROXY_TOKEN;
             assert.ok(proxyUrl && proxyToken);
             const response = await fetch(`${proxyUrl}/messages`, {
@@ -463,7 +570,9 @@ describe('createHarborTaskRunner', () => {
         await runner(runInput());
         assert.equal(upstreamApiKey, 'sk-secret');
       } finally {
-        await new Promise<void>((resolve, reject) => upstream.close((error) => error ? reject(error) : resolve()));
+        await new Promise<void>((resolve, reject) =>
+          upstream.close((error) => (error ? reject(error) : resolve())),
+        );
       }
     });
   });
@@ -474,12 +583,14 @@ describe('createHarborTaskRunner', () => {
       const upstream = createServer((request, response) => {
         upstreamAuthorization = request.headers.authorization ?? '';
         response.writeHead(200, { 'content-type': 'text/event-stream' });
-        response.end([
-          'data: {"id":"chatcmpl-1","choices":[],"usage":{"prompt_tokens":100,"completion_tokens":25,"prompt_tokens_details":{"cached_tokens":20},"completion_tokens_details":{"reasoning_tokens":15}}}',
-          '',
-          'data: [DONE]',
-          '',
-        ].join('\n'));
+        response.end(
+          [
+            'data: {"id":"chatcmpl-1","choices":[],"usage":{"prompt_tokens":100,"completion_tokens":25,"prompt_tokens_details":{"cached_tokens":20},"completion_tokens_details":{"reasoning_tokens":15}}}',
+            '',
+            'data: [DONE]',
+            '',
+          ].join('\n'),
+        );
       });
       await new Promise<void>((resolve) => upstream.listen(0, '127.0.0.1', resolve));
       const address = upstream.address();
@@ -495,11 +606,18 @@ describe('createHarborTaskRunner', () => {
           provider: 'kimi-coding-plan',
           reasoningEffort: 'max',
           apiKeyFile: keyFile,
-          pricing: { inputUsdPer1M: 0, cacheReadUsdPer1M: 0, cacheWriteUsdPer1M: 0, outputUsdPer1M: 0 },
+          pricing: {
+            inputUsdPer1M: 0,
+            cacheReadUsdPer1M: 0,
+            cacheWriteUsdPer1M: 0,
+            outputUsdPer1M: 0,
+          },
           agentEnv: { MAKA_BASE_URL: `http://127.0.0.1:${address.port}/coding/v1` },
           runHarbor: async (request) => {
-            const proxyUrl = request.env?.MAKA_PROVIDER_PROXY_URL
-              ?.replace('host.docker.internal', '127.0.0.1');
+            const proxyUrl = request.env?.MAKA_PROVIDER_PROXY_URL?.replace(
+              'host.docker.internal',
+              '127.0.0.1',
+            );
             const proxyToken = request.env?.MAKA_PROVIDER_PROXY_TOKEN;
             assert.ok(proxyUrl && proxyToken);
             const response = await fetch(`${proxyUrl}/chat/completions`, {
@@ -544,7 +662,9 @@ describe('createHarborTaskRunner', () => {
         assert.equal(telemetry.requests[0]?.outcome, 'completed');
         assert.equal(telemetry.requests[0]?.terminalEvent, true);
       } finally {
-        await new Promise<void>((resolve, reject) => upstream.close((error) => error ? reject(error) : resolve()));
+        await new Promise<void>((resolve, reject) =>
+          upstream.close((error) => (error ? reject(error) : resolve())),
+        );
       }
     });
   });
@@ -679,10 +799,7 @@ describe('createHarborTaskRunner', () => {
     });
   });
 
-  for (const model of [
-    'hf.co/bartowski/Qwen2.5-Coder-7B-Instruct-GGUF:Q4_K_M',
-    'qwen3.5:cloud',
-  ]) {
+  for (const model of ['hf.co/bartowski/Qwen2.5-Coder-7B-Instruct-GGUF:Q4_K_M', 'qwen3.5:cloud']) {
     test(`routes no-auth Ollama model ${model} through the host-side cell without exposing credentials`, async () => {
       await withRun(async ({ jobsDir, repo }) => {
         let harborEnv: Record<string, string> | undefined;
@@ -707,7 +824,9 @@ describe('createHarborTaskRunner', () => {
         assert.equal(harborEnv?.MAKA_HOST_NO_AUTH, 'true');
         assert.equal(harborEnv?.MAKA_HOST_API_KEY, undefined);
         assert.equal(harborEnv?.MAKA_HOST_API_KEY_FILE, undefined);
-        const agent = (captured.config!.agents as Array<{ model_name: string; env: Record<string, string> }>)[0]!;
+        const agent = (
+          captured.config!.agents as Array<{ model_name: string; env: Record<string, string> }>
+        )[0]!;
         assert.equal(agent.model_name, model);
         assert.equal(agent.env.MAKA_MODEL, model);
         assert.equal(agent.env.MAKA_BASE_URL, undefined);
@@ -739,7 +858,9 @@ describe('createHarborTaskRunner', () => {
       assert.equal(harborEnv?.MAKA_HOST_BASE_URL, baseUrl);
       assert.equal(harborEnv?.MAKA_HOST_NO_AUTH, 'true');
       assert.equal(harborEnv?.MAKA_HOST_API_KEY_FILE, undefined);
-      const agent = (captured.config!.agents as Array<{ model_name: string; env: Record<string, string> }>)[0]!;
+      const agent = (
+        captured.config!.agents as Array<{ model_name: string; env: Record<string, string> }>
+      )[0]!;
       assert.equal(agent.model_name, model);
       assert.equal(agent.env.MAKA_MODEL, model);
       assert.equal(agent.env.LOCALAI_BASE_URL, undefined);
@@ -824,8 +945,10 @@ describe('createHarborTaskRunner', () => {
           apiKeyFile: keyFile,
           agentEnv: { MAKA_BASE_URL: `http://127.0.0.1:${address.port}/coding/v1` },
           runHarbor: async (request) => {
-            const proxyUrl = request.env?.MAKA_PROVIDER_PROXY_URL
-              ?.replace('host.docker.internal', '127.0.0.1');
+            const proxyUrl = request.env?.MAKA_PROVIDER_PROXY_URL?.replace(
+              'host.docker.internal',
+              '127.0.0.1',
+            );
             const proxyToken = request.env?.MAKA_PROVIDER_PROXY_TOKEN;
             assert.ok(proxyUrl && proxyToken);
             const response = await fetch(`${proxyUrl}/chat/completions`, {
@@ -847,12 +970,16 @@ describe('createHarborTaskRunner', () => {
         }
         assert.ok(caught instanceof HarborInfraError);
         assert.ok(caught.artifactRefs?.providerTelemetryPath);
-        const telemetry = JSON.parse(await readFile(caught.artifactRefs.providerTelemetryPath, 'utf8')) as {
+        const telemetry = JSON.parse(
+          await readFile(caught.artifactRefs.providerTelemetryPath, 'utf8'),
+        ) as {
           summary: { failed: number };
         };
         assert.equal(telemetry.summary.failed, 1);
       } finally {
-        await new Promise<void>((resolve, reject) => upstream.close((error) => error ? reject(error) : resolve()));
+        await new Promise<void>((resolve, reject) =>
+          upstream.close((error) => (error ? reject(error) : resolve())),
+        );
       }
     });
   });
@@ -1065,7 +1192,8 @@ describe('createHarborTaskRunner', () => {
       await assert.rejects(runner(runInput()), (error: unknown) => {
         assert.ok(error instanceof FixedPromptBudgetExhaustedError);
         assert.deepEqual(
-          (error.artifactRefs as { executionIdentity?: HarborCellExecutionIdentity } | undefined)?.executionIdentity,
+          (error.artifactRefs as { executionIdentity?: HarborCellExecutionIdentity } | undefined)
+            ?.executionIdentity,
           executionIdentity,
         );
         assert.deepEqual(error.artifactRefs?.tokenSummary, usageCheckpoint);
@@ -1132,9 +1260,7 @@ describe('createHarborTaskRunner', () => {
           verifierOutcome: {
             schemaVersion: 1,
             outcome: 'candidate_timeout',
-            attempts: [
-              { attempt: 1, classification: 'timeout', durationMs: 600_000 },
-            ],
+            attempts: [{ attempt: 1, classification: 'timeout', durationMs: 600_000 }],
           },
         }),
       });
@@ -1220,7 +1346,10 @@ describe('createHarborTaskRunner', () => {
 
       const output = await runner(runInput());
 
-      assert.equal(output.harbor.verifierFailureSummary, 'output_assertion_failed integer_output_off_by_one');
+      assert.equal(
+        output.harbor.verifierFailureSummary,
+        'output_assertion_failed integer_output_off_by_one',
+      );
       assert.equal(JSON.stringify(output).includes('79586'), false);
       assert.equal(JSON.stringify(output).includes('79585'), false);
     });
@@ -1244,7 +1373,10 @@ describe('createHarborTaskRunner', () => {
 
       const output = await runner(runInput());
 
-      assert.equal(output.harbor.verifierFailureSummary, 'output_assertion_failed final_state_expected_text_mismatch');
+      assert.equal(
+        output.harbor.verifierFailureSummary,
+        'output_assertion_failed final_state_expected_text_mismatch',
+      );
       assert.equal(JSON.stringify(output).includes('hello world'), false);
       assert.equal(JSON.stringify(output).includes('hello from final test'), false);
     });
@@ -1268,7 +1400,10 @@ describe('createHarborTaskRunner', () => {
 
       const output = await runner(runInput());
 
-      assert.equal(output.harbor.verifierFailureSummary, 'output_assertion_failed structured_output_values_mismatch');
+      assert.equal(
+        output.harbor.verifierFailureSummary,
+        'output_assertion_failed structured_output_values_mismatch',
+      );
       assert.equal(JSON.stringify(output).includes('0x401234'), false);
       assert.equal(JSON.stringify(output).includes('0x401250'), false);
     });
@@ -1310,10 +1445,13 @@ describe('createHarborOracleQualifier', () => {
         (config.environment as Record<string, unknown>).delete,
         HARBOR_ORACLE_EXECUTION_POLICY.environment.delete,
       );
-      assert.deepEqual(
-        (config.environment as Record<string, unknown>).extra_docker_compose,
-        [join(repo, 'packages/headless/harbor', HARBOR_ORACLE_EXECUTION_POLICY.environment.composeFile)],
-      );
+      assert.deepEqual((config.environment as Record<string, unknown>).extra_docker_compose, [
+        join(
+          repo,
+          'packages/headless/harbor',
+          HARBOR_ORACLE_EXECUTION_POLICY.environment.composeFile,
+        ),
+      ]);
       assert.equal(verifier.import_path, 'maka_verifier:MakaVerifier');
       assert.equal(
         (verifier.kwargs as Record<string, unknown>).attempt_timeout_sec,
@@ -1392,7 +1530,8 @@ describe('buildHarborJobConfig', () => {
     const agent = (config.agents as Array<Record<string, unknown>>)[0]!;
     const env = agent.env as Record<string, string>;
     const mounts = (config.environment as { mounts: Array<Record<string, unknown>> }).mounts;
-    const extraDockerCompose = (config.environment as { extra_docker_compose?: string[] }).extra_docker_compose;
+    const extraDockerCompose = (config.environment as { extra_docker_compose?: string[] })
+      .extra_docker_compose;
     const verifier = config.verifier as Record<string, unknown>;
 
     // Harbor resolves built-in names before import_path, so setting both would
@@ -1405,12 +1544,17 @@ describe('buildHarborJobConfig', () => {
     assert.equal(env.MAKA_LLM_CONNECTION_SLUG, 'zai-coding-plan');
     assert.equal(env.MAKA_REASONING_EFFORT, 'max');
     assert.match(env.MAKA_OPENCODE_TOOLCHAIN_FINGERPRINT, /^sha256:[a-f0-9]{64}$/);
-    assert.ok(mounts.some((mount) => (
-      mount.source === '/cache/opencode-1.17.18-linux-x64'
-      && mount.target === '/opt/maka-opencode-toolchain'
-      && mount.read_only === true
-    )));
-    assert.deepEqual(extraDockerCompose, ['/repo/packages/headless/harbor/docker-compose-linux-amd64.yaml']);
+    assert.ok(
+      mounts.some(
+        (mount) =>
+          mount.source === '/cache/opencode-1.17.18-linux-x64' &&
+          mount.target === '/opt/maka-opencode-toolchain' &&
+          mount.read_only === true,
+      ),
+    );
+    assert.deepEqual(extraDockerCompose, [
+      '/repo/packages/headless/harbor/docker-compose-linux-amd64.yaml',
+    ]);
     assert.equal(verifier.import_path, 'maka_verifier:MakaVerifier');
     assert.deepEqual(verifier.kwargs, { attempt_timeout_sec: 600, max_attempts: 2 });
     assert.equal(verifier.override_timeout_sec, 1_320);
@@ -1457,85 +1601,93 @@ describe('buildHarborJobConfig', () => {
     assert.equal(agent.model_name, 'k3');
     assert.deepEqual(agent.kwargs, { version: '0.26.0' });
     assert.match(env.MAKA_KIMI_CODE_TOOLCHAIN_FINGERPRINT, /^sha256:[a-f0-9]{64}$/);
-    assert.ok(mounts.some((mount) => (
-      mount.source === '/cache/kimi-code-0.26.0-linux-x64'
-      && mount.target === '/opt/maka-kimi-code-toolchain'
-      && mount.read_only === true
-    )));
+    assert.ok(
+      mounts.some(
+        (mount) =>
+          mount.source === '/cache/kimi-code-0.26.0-linux-x64' &&
+          mount.target === '/opt/maka-kimi-code-toolchain' &&
+          mount.read_only === true,
+      ),
+    );
     assert.equal(env.KIMI_API_KEY, undefined);
     assert.equal(env.ANTHROPIC_API_KEY, undefined);
   });
 
   test('requires a prepared toolchain for OpenCode before Harbor starts', () => {
     assert.throws(
-      () => buildHarborJobConfig(runInput(), {
-        makaRepoPath: '/repo',
-        jobsDir: '/jobs/x',
-        jobName: 'trial',
-        agent: 'opencode',
-        model: 'zai-coding-plan/glm-5.2',
-        provider: 'zai-coding-plan',
-        agentVersion: '1.17.18',
-      }),
+      () =>
+        buildHarborJobConfig(runInput(), {
+          makaRepoPath: '/repo',
+          jobsDir: '/jobs/x',
+          jobName: 'trial',
+          agent: 'opencode',
+          model: 'zai-coding-plan/glm-5.2',
+          provider: 'zai-coding-plan',
+          agentVersion: '1.17.18',
+        }),
       /opencodeToolchainPath is required for the OpenCode adapter/,
     );
   });
 
   test('requires the pinned Kimi Code toolchain before Harbor starts', () => {
     assert.throws(
-      () => buildHarborJobConfig(runInput(), {
-        makaRepoPath: '/repo',
-        jobsDir: '/jobs/x',
-        jobName: 'trial',
-        agent: 'kimi-code',
-        model: 'kimi-coding-plan/k3',
-        provider: 'kimi-coding-plan',
-        agentVersion: '0.26.0',
-      }),
+      () =>
+        buildHarborJobConfig(runInput(), {
+          makaRepoPath: '/repo',
+          jobsDir: '/jobs/x',
+          jobName: 'trial',
+          agent: 'kimi-code',
+          model: 'kimi-coding-plan/k3',
+          provider: 'kimi-coding-plan',
+          agentVersion: '0.26.0',
+        }),
       /kimiCodeToolchainPath is required for the Kimi Code adapter/,
     );
     assert.throws(
-      () => buildHarborJobConfig(runInput(), {
-        makaRepoPath: '/repo',
-        jobsDir: '/jobs/x',
-        jobName: 'trial',
-        agent: 'kimi-code',
-        model: 'kimi-coding-plan/k3',
-        provider: 'kimi-coding-plan',
-        agentVersion: '0.25.0',
-        kimiCodeToolchainPath: '/toolchain',
-      }),
+      () =>
+        buildHarborJobConfig(runInput(), {
+          makaRepoPath: '/repo',
+          jobsDir: '/jobs/x',
+          jobName: 'trial',
+          agent: 'kimi-code',
+          model: 'kimi-coding-plan/k3',
+          provider: 'kimi-coding-plan',
+          agentVersion: '0.25.0',
+          kimiCodeToolchainPath: '/toolchain',
+        }),
       /Kimi Code adapter version must match toolchain version 0\.26\.0/,
     );
   });
 
   test('rejects experiment identity overrides in extra agent env', () => {
     assert.throws(
-      () => buildHarborJobConfig(runInput(), {
-        makaRepoPath: '/repo',
-        jobsDir: '/jobs/x',
-        jobName: 'trial',
-        model: 'deepseek/deepseek-v4-flash',
-        pricing: { inputUsdPer1M: 0.145, outputUsdPer1M: 0.29 },
-        agentEnv: {
-          MAKA_MODEL: 'deepseek-v4-pro',
-          MAKA_SYSTEM_PROMPT: 'wrong prompt',
-          MAKA_TRIAL_INPUT_USD_PER_1M: '9',
-        },
-      }),
+      () =>
+        buildHarborJobConfig(runInput(), {
+          makaRepoPath: '/repo',
+          jobsDir: '/jobs/x',
+          jobName: 'trial',
+          model: 'deepseek/deepseek-v4-flash',
+          pricing: { inputUsdPer1M: 0.145, outputUsdPer1M: 0.29 },
+          agentEnv: {
+            MAKA_MODEL: 'deepseek-v4-pro',
+            MAKA_SYSTEM_PROMPT: 'wrong prompt',
+            MAKA_TRIAL_INPUT_USD_PER_1M: '9',
+          },
+        }),
       /agentEnv must not override experiment identity: MAKA_MODEL, MAKA_SYSTEM_PROMPT, MAKA_TRIAL_INPUT_USD_PER_1M/,
     );
   });
 
   test('rejects provider secrets in extra agent env at config-build time', () => {
     assert.throws(
-      () => buildHarborJobConfig(runInput(), {
-        makaRepoPath: '/repo',
-        jobsDir: '/jobs/x',
-        jobName: 'trial',
-        model: 'deepseek/deepseek-v4-flash',
-        agentEnv: { DEEPSEEK_API_KEY: 'raw-secret' },
-      }),
+      () =>
+        buildHarborJobConfig(runInput(), {
+          makaRepoPath: '/repo',
+          jobsDir: '/jobs/x',
+          jobName: 'trial',
+          model: 'deepseek/deepseek-v4-flash',
+          agentEnv: { DEEPSEEK_API_KEY: 'raw-secret' },
+        }),
       /agentEnv must not contain provider secrets: DEEPSEEK_API_KEY/,
     );
   });
@@ -1588,24 +1740,30 @@ describe('buildHarborJobConfig', () => {
       { raw: '9'.repeat(400), parsed: undefined },
     ];
     for (const { raw, parsed } of cases) {
-      const agentEnv: Record<string, string> = raw === undefined ? {} : { MAKA_CELL_TIMEOUT_SEC: raw };
+      const agentEnv: Record<string, string> =
+        raw === undefined ? {} : { MAKA_CELL_TIMEOUT_SEC: raw };
       const label = JSON.stringify(raw);
 
       // A parse miss falls back to the task metadata timeout.
-      const withMetadata = buildHarborJobConfig(runInput({
-        task: {
-          id: 'task-1',
-          path: '/tasks/task-1',
-          metadata: { agentTimeoutSec: 1234 },
+      const withMetadata = buildHarborJobConfig(
+        runInput({
+          task: {
+            id: 'task-1',
+            path: '/tasks/task-1',
+            metadata: { agentTimeoutSec: 1234 },
+          },
+          agentEnv,
+        }),
+        {
+          makaRepoPath: '/repo',
+          jobsDir: '/jobs/x',
+          jobName: 'trial',
+          model: 'deepseek/deepseek-v4-flash',
         },
-        agentEnv,
-      }), {
-        makaRepoPath: '/repo',
-        jobsDir: '/jobs/x',
-        jobName: 'trial',
-        model: 'deepseek/deepseek-v4-flash',
-      });
-      const metadataAgent = (withMetadata.agents as Array<{ env: Record<string, string>; max_timeout_sec?: number }>)[0]!;
+      );
+      const metadataAgent = (
+        withMetadata.agents as Array<{ env: Record<string, string>; max_timeout_sec?: number }>
+      )[0]!;
       assert.equal(metadataAgent.env.MAKA_CELL_TIMEOUT_SEC, String(parsed ?? 1234), label);
       assert.equal(metadataAgent.max_timeout_sec, parsed ?? 1234, label);
 
@@ -1617,7 +1775,9 @@ describe('buildHarborJobConfig', () => {
         jobName: 'trial',
         model: 'deepseek/deepseek-v4-flash',
       });
-      const agent = (withoutMetadata.agents as Array<{ env: Record<string, string>; max_timeout_sec?: number }>)[0]!;
+      const agent = (
+        withoutMetadata.agents as Array<{ env: Record<string, string>; max_timeout_sec?: number }>
+      )[0]!;
       assert.equal(
         agent.env.MAKA_CELL_TIMEOUT_SEC,
         parsed !== undefined ? String(parsed) : raw,
@@ -1628,37 +1788,45 @@ describe('buildHarborJobConfig', () => {
   });
 
   test('uses each Terminal-Bench task native agent timeout when no override is set', () => {
-    const config = buildHarborJobConfig(runInput({
-      task: {
-        id: 'task-1',
-        path: '/tasks/task-1',
-        metadata: { agentTimeoutSec: 1234 },
+    const config = buildHarborJobConfig(
+      runInput({
+        task: {
+          id: 'task-1',
+          path: '/tasks/task-1',
+          metadata: { agentTimeoutSec: 1234 },
+        },
+      }),
+      {
+        makaRepoPath: '/repo',
+        jobsDir: '/jobs/x',
+        jobName: 'trial',
+        model: 'zai-coding-plan/glm-5.2',
+        provider: 'zai-coding-plan',
       },
-    }), {
-      makaRepoPath: '/repo',
-      jobsDir: '/jobs/x',
-      jobName: 'trial',
-      model: 'zai-coding-plan/glm-5.2',
-      provider: 'zai-coding-plan',
-    });
-    const agent = (config.agents as Array<{ env: Record<string, string>; max_timeout_sec?: number }>)[0]!;
+    );
+    const agent = (
+      config.agents as Array<{ env: Record<string, string>; max_timeout_sec?: number }>
+    )[0]!;
     assert.equal(agent.env.MAKA_CELL_TIMEOUT_SEC, '1234');
     assert.equal(agent.max_timeout_sec, 1234);
   });
 
   test('merges per-attempt agent env into the Harbor agent config', () => {
-    const config = buildHarborJobConfig(runInput({
-      agentEnv: {
-        MAKA_CONTEXT_BUDGET: 'off',
-        MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE: 'on',
+    const config = buildHarborJobConfig(
+      runInput({
+        agentEnv: {
+          MAKA_CONTEXT_BUDGET: 'off',
+          MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE: 'on',
+        },
+      }),
+      {
+        makaRepoPath: '/repo',
+        jobsDir: '/jobs/x',
+        jobName: 'trial',
+        model: 'deepseek/deepseek-v4-flash',
+        agentEnv: { MAKA_CELL_TIMEOUT_SEC: '1800' },
       },
-    }), {
-      makaRepoPath: '/repo',
-      jobsDir: '/jobs/x',
-      jobName: 'trial',
-      model: 'deepseek/deepseek-v4-flash',
-      agentEnv: { MAKA_CELL_TIMEOUT_SEC: '1800' },
-    });
+    );
     const env = (config.agents as Array<{ env: Record<string, string> }>)[0]!.env;
     assert.equal(env.MAKA_CELL_TIMEOUT_SEC, '1800');
     assert.equal(env.MAKA_CONTEXT_BUDGET, 'off');
@@ -1710,13 +1878,15 @@ describe('createHarborTaskRunner timeout', () => {
           return fakeRunner({ reward: '1\n' })(request);
         },
       });
-      await runner(runInput({
-        task: {
-          id: 'task-1',
-          path: '/tasks/task-1',
-          metadata: { agentTimeoutSec: 7_200, verifierTimeoutSec: 600 },
-        },
-      }));
+      await runner(
+        runInput({
+          task: {
+            id: 'task-1',
+            path: '/tasks/task-1',
+            metadata: { agentTimeoutSec: 7_200, verifierTimeoutSec: 600 },
+          },
+        }),
+      );
       assert.equal(seenTimeout, (7_200 + 1_320 + 15 * 60) * 1_000);
     });
   });
@@ -1777,21 +1947,29 @@ describe('createHarborTaskRunner timeout', () => {
 
   test('keeps an outer watchdog timeout infrastructural after cell output exists', async () => {
     await withRun(async ({ jobsDir, repo }) => {
-      const writeArtifacts = fakeRunner({ cell: cellOutput({
-        executionIdentity: {
-          llmConnectionSlug: 'deepseek',
-          model: 'deepseek-v4-flash',
-          systemPromptHash: 'sha256:abc',
-          pricingProfile: 'test-profile',
-        },
-      }) });
+      const writeArtifacts = fakeRunner({
+        cell: cellOutput({
+          executionIdentity: {
+            llmConnectionSlug: 'deepseek',
+            model: 'deepseek-v4-flash',
+            systemPromptHash: 'sha256:abc',
+            pricingProfile: 'test-profile',
+          },
+        }),
+      });
       const runner = createHarborTaskRunner({
         makaRepoPath: repo,
         jobsDir,
         model: 'deepseek/deepseek-v4-flash',
         runHarbor: async (request) => {
           await writeArtifacts(request);
-          return { exitCode: 1, stdout: '', stderr: 'timed out', timedOut: true, signal: 'SIGKILL' };
+          return {
+            exitCode: 1,
+            stdout: '',
+            stderr: 'timed out',
+            timedOut: true,
+            signal: 'SIGKILL',
+          };
         },
       });
 
@@ -1814,7 +1992,13 @@ describe('createHarborTaskRunner timeout', () => {
         model: 'deepseek/deepseek-v4-flash',
         runHarbor: async (request) => {
           await writeArtifacts(request);
-          return { exitCode: 1, stdout: '', stderr: 'timed out', timedOut: true, signal: 'SIGKILL' };
+          return {
+            exitCode: 1,
+            stdout: '',
+            stderr: 'timed out',
+            timedOut: true,
+            signal: 'SIGKILL',
+          };
         },
       });
 

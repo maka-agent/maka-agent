@@ -32,8 +32,10 @@ const REASON_FIX_COPY: Record<ChatConfigurationReason, string> = {
   missing_model: '当前模型连接还没有可用模型。请到 设置 · 模型 选择默认模型后再发送。',
   empty_model_list: '当前模型连接没有启用模型。请到 设置 · 模型 添加或启用模型后再发送。',
   model_not_enabled: '当前会话选择的模型未启用。请到 设置 · 模型 重新选择可用模型后再发送。',
-  model_not_chat_capable: '当前会话选择的模型不能用于聊天。请到 设置 · 模型 重新选择支持聊天的模型后再发送。',
-  oauth_subscription_not_wired: '这个订阅账号暂时不能作为聊天模型。请先选择可用的 API key 或已接入 OAuth 模型连接。',
+  model_not_chat_capable:
+    '当前会话选择的模型不能用于聊天。请到 设置 · 模型 重新选择支持聊天的模型后再发送。',
+  oauth_subscription_not_wired:
+    '这个订阅账号暂时不能作为聊天模型。请先选择可用的 API key 或已接入 OAuth 模型连接。',
   fake_backend: '当前会话来自旧的本地模拟连接。请到 设置 · 模型 添加真实模型后新建会话。',
 };
 
@@ -86,8 +88,9 @@ export function parseNoRealConnectionError(error: unknown): ParsedNoRealConnecti
   const token = match[1];
   return {
     matched: true,
-    reason: token && KNOWN_CHAT_CONFIGURATION_REASONS.has(token)
-      ? (token as ChatConfigurationReason)
-      : undefined,
+    reason:
+      token && KNOWN_CHAT_CONFIGURATION_REASONS.has(token)
+        ? (token as ChatConfigurationReason)
+        : undefined,
   };
 }

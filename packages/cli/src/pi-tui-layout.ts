@@ -101,11 +101,14 @@ export class MakaPiLayoutComponent extends Container {
     // it from the last transcript line with a blank row. Without this, a
     // thinking or tool row (the agent-work stack, which has no internal blank
     // gaps) sits directly against `Working… 12s`.
-    const activityActive = activityLines.length > 0 && activityLines.some((line) => line.length > 0);
+    const activityActive =
+      activityLines.length > 0 && activityLines.some((line) => line.length > 0);
     const lastTranscriptLine = transcriptLines[transcriptLines.length - 1];
-    const needGap = activityActive && lastTranscriptLine !== undefined && lastTranscriptLine.length > 0;
+    const needGap =
+      activityActive && lastTranscriptLine !== undefined && lastTranscriptLine.length > 0;
     const paddedTranscript = needGap ? [...transcriptLines, ''] : transcriptLines;
-    const chromeRows = activityLines.length + pendingLines.length + editorLines.length + statusLines.length;
+    const chromeRows =
+      activityLines.length + pendingLines.length + editorLines.length + statusLines.length;
     const viewportRows = Math.max(0, this.terminal.rows - chromeRows);
     const paddingRows = Math.max(0, viewportRows - paddedTranscript.length);
     const lines = [

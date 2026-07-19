@@ -42,7 +42,9 @@ export function expect(actual: unknown) {
     },
     toMatchObject(expected: Record<string, unknown>) {
       assert.deepStrictEqual(
-        Object.fromEntries(Object.keys(expected).map((key) => [key, (actual as Record<string, unknown>)[key]])),
+        Object.fromEntries(
+          Object.keys(expected).map((key) => [key, (actual as Record<string, unknown>)[key]]),
+        ),
         expected,
       );
     },

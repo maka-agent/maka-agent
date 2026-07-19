@@ -118,7 +118,10 @@ describe('taskEventsFromResultRecord', () => {
       steps: 0,
       error: 'fixture missing',
     });
-    const events = taskEventsFromResultRecord(original, { eventId: eventIdFactory(), taskRunId: 'matrix-failure' });
+    const events = taskEventsFromResultRecord(original, {
+      eventId: eventIdFactory(),
+      taskRunId: 'matrix-failure',
+    });
     const projection = projectTaskRun(events, 'matrix-failure');
 
     assert.equal(taxonomyFromResultRecord(original), 'setup_failed');
@@ -146,7 +149,10 @@ describe('taskEventsFromResultRecord', () => {
         error: errorClass,
         errorClass,
       });
-      const projection = projectTaskRun(taskEventsFromResultRecord(original, { eventId: eventIdFactory() }), 'run-1');
+      const projection = projectTaskRun(
+        taskEventsFromResultRecord(original, { eventId: eventIdFactory() }),
+        'run-1',
+      );
       assert.equal(taxonomyFromResultRecord(original), taxonomy);
       assert.equal(projection.latestScoreResult?.taxonomy, taxonomy);
       assert.equal(projection.status, status);
@@ -155,11 +161,28 @@ describe('taskEventsFromResultRecord', () => {
   });
 
   test('maps cancelled projections into failed ResultRecord compatibility', () => {
-    const projection = projectTaskRun([
-      { type: 'task_run_created', id: 'e-1', taskRunId: 'tr-c', ts: 10, taskId: 'task-1', configId: 'cfg-1' },
-      { type: 'task_run_started', id: 'e-2', taskRunId: 'tr-c', ts: 11, sessionId: 's-1', agentRunId: 'r-1' },
-      { type: 'task_run_cancelled', id: 'e-3', taskRunId: 'tr-c', ts: 20 },
-    ], 'tr-c');
+    const projection = projectTaskRun(
+      [
+        {
+          type: 'task_run_created',
+          id: 'e-1',
+          taskRunId: 'tr-c',
+          ts: 10,
+          taskId: 'task-1',
+          configId: 'cfg-1',
+        },
+        {
+          type: 'task_run_started',
+          id: 'e-2',
+          taskRunId: 'tr-c',
+          ts: 11,
+          sessionId: 's-1',
+          agentRunId: 'r-1',
+        },
+        { type: 'task_run_cancelled', id: 'e-3', taskRunId: 'tr-c', ts: 20 },
+      ],
+      'tr-c',
+    );
 
     assert.deepEqual(resultRecordFromTaskRunProjection(projection), {
       taskId: 'task-1',

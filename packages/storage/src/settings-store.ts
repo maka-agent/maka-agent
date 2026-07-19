@@ -9,15 +9,9 @@ import type {
   UsageRange,
   UsageStats,
 } from '@maka/core';
-import {
-  createDefaultSettings,
-  mergeSettings,
-  normalizeSettings,
-} from '@maka/core/settings';
+import { createDefaultSettings, mergeSettings, normalizeSettings } from '@maka/core/settings';
 import { sanitizeOnboardingMilestones } from '@maka/core/onboarding';
-import type {
-  SessionHeader,
-} from '@maka/core/session';
+import type { SessionHeader } from '@maka/core/session';
 
 type UsageSessionHeader = Pick<SessionHeader, 'id' | 'llmConnectionSlug' | 'model'>;
 
@@ -145,9 +139,7 @@ class FileSettingsStore implements SettingsStore {
     }
     const timestamp = Date.now();
     const next: OnboardingMilestone =
-      status === 'completed'
-        ? { id, completedAt: timestamp }
-        : { id, skippedAt: timestamp };
+      status === 'completed' ? { id, completedAt: timestamp } : { id, skippedAt: timestamp };
     let result: OnboardingMilestone[] | undefined;
     await this.withQueue(async () => {
       const current = await this.readOrCreate();
@@ -245,7 +237,9 @@ class FileSettingsStore implements SettingsStore {
     });
 
     const toolRows = sessions.flatMap(({ messages }) => toolStatsFromMessages(messages, since));
-    const toolLogs = sessions.flatMap(({ header, messages }) => toolLogRowsFromMessages(header, messages, since));
+    const toolLogs = sessions.flatMap(({ header, messages }) =>
+      toolLogRowsFromMessages(header, messages, since),
+    );
     const logs = [...modelLogs, ...toolLogs].sort((a, b) => b.ts - a.ts);
     const totalInput = sum(modelLogs.map((log) => log.inputTokens));
     const totalOutput = sum(modelLogs.map((log) => log.outputTokens));
@@ -417,10 +411,14 @@ function isOptionalFiniteNumber(value: unknown): value is number | undefined {
 function rangeToSince(range: UsageRange): number | null {
   const now = Date.now();
   switch (range) {
-    case '24h': return now - 24 * 60 * 60 * 1000;
-    case '7d': return now - 7 * 24 * 60 * 60 * 1000;
-    case '30d': return now - 30 * 24 * 60 * 60 * 1000;
-    case 'all': return null;
+    case '24h':
+      return now - 24 * 60 * 60 * 1000;
+    case '7d':
+      return now - 7 * 24 * 60 * 60 * 1000;
+    case '30d':
+      return now - 30 * 24 * 60 * 60 * 1000;
+    case 'all':
+      return null;
   }
 }
 
@@ -439,18 +437,32 @@ function aggregateBy(logs: UsageStats['logs'], key: 'provider' | 'model') {
     .sort((a, b) => b.requests - a.requests) as never;
 }
 
-function toolStatsFromMessages(messages: UsageMessage[], since: number | null): UsageStats['byTool'] {
-  const calls = messages.filter((message): message is UsageToolCallMessage => message.type === 'tool_call');
+function toolStatsFromMessages(
+  messages: UsageMessage[],
+  since: number | null,
+): UsageStats['byTool'] {
+  const calls = messages.filter(
+    (message): message is UsageToolCallMessage => message.type === 'tool_call',
+  );
   const results = new Map(
     messages
       .filter((message): message is UsageToolResultMessage => message.type === 'tool_result')
       .map((message) => [message.toolUseId, message]),
   );
-  const rows = new Map<string, { calls: number; success: number; errors: number; totalDuration: number; durationCount: number }>();
+  const rows = new Map<
+    string,
+    { calls: number; success: number; errors: number; totalDuration: number; durationCount: number }
+  >();
   for (const call of calls) {
     if (since && call.ts < since) continue;
     const result = results.get(call.id);
-    const current = rows.get(call.toolName) ?? { calls: 0, success: 0, errors: 0, totalDuration: 0, durationCount: 0 };
+    const current = rows.get(call.toolName) ?? {
+      calls: 0,
+      success: 0,
+      errors: 0,
+      totalDuration: 0,
+      durationCount: 0,
+    };
     current.calls += 1;
     if (result?.isError) current.errors += 1;
     else current.success += 1;
@@ -474,7 +486,9 @@ function toolLogRowsFromMessages(
   messages: UsageMessage[],
   since: number | null,
 ): UsageStats['logs'] {
-  const calls = messages.filter((message): message is UsageToolCallMessage => message.type === 'tool_call');
+  const calls = messages.filter(
+    (message): message is UsageToolCallMessage => message.type === 'tool_call',
+  );
   const results = new Map(
     messages
       .filter((message): message is UsageToolResultMessage => message.type === 'tool_result')
@@ -497,7 +511,7 @@ function toolLogRowsFromMessages(
         inputTokens: 0,
         outputTokens: 0,
         latencyMs: result?.durationMs,
-        status: result?.isError ? 'error' as const : 'success' as const,
+        status: result?.isError ? ('error' as const) : ('success' as const),
       };
     });
 }

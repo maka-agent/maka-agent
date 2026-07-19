@@ -39,7 +39,12 @@ describe('Harbor cell output contract', () => {
       }),
       runtimeEvent({
         id: 'call-bash',
-        content: { kind: 'function_call', id: 'tool-2', name: 'Bash', args: { command: 'node vm.js' } },
+        content: {
+          kind: 'function_call',
+          id: 'tool-2',
+          name: 'Bash',
+          args: { command: 'node vm.js' },
+        },
       }),
       runtimeEvent({
         id: 'usage-2',
@@ -223,11 +228,13 @@ describe('Harbor cell output contract', () => {
   });
 
   test('counts completed model steps instead of streaming event chunks', () => {
-    const partialChunks = Array.from({ length: 100 }, (_, index) => runtimeEvent({
-      id: `partial-${index}`,
-      partial: true,
-      content: { kind: 'text', text: 'x' },
-    }));
+    const partialChunks = Array.from({ length: 100 }, (_, index) =>
+      runtimeEvent({
+        id: `partial-${index}`,
+        partial: true,
+        content: { kind: 'text', text: 'x' },
+      }),
+    );
     const output = buildHarborCellOutput({
       invocation: {
         invocationId: 'inv-stream-steps',
@@ -347,17 +354,19 @@ describe('Harbor cell output contract', () => {
                   archiveRetrievalSkippedReasonCounts: { max_bytes: 2, max_results: 1 },
                   archiveRetrievalFailures: 1,
                   archiveRetrievalFailureReasonCounts: { corrupt: 1 },
-                  compactionDecisions: [{
-                    stage: 'activeStep',
-                    sourceKind: 'providerMessages',
-                    decision: 'replaced',
-                    boundaryKind: 'semanticCompact',
-                    compactCallInputTokens: 31,
-                    compactCallOutputTokens: 11,
-                    compactCallCacheReadInputTokens: 7,
-                    compactCallCacheWriteInputTokens: 2,
-                    compactCallTotalTokens: 42,
-                  }],
+                  compactionDecisions: [
+                    {
+                      stage: 'activeStep',
+                      sourceKind: 'providerMessages',
+                      decision: 'replaced',
+                      boundaryKind: 'semanticCompact',
+                      compactCallInputTokens: 31,
+                      compactCallOutputTokens: 11,
+                      compactCallCacheReadInputTokens: 7,
+                      compactCallCacheWriteInputTokens: 2,
+                      compactCallTotalTokens: 42,
+                    },
+                  ],
                 },
               },
             },
@@ -433,7 +442,9 @@ describe('Harbor cell output contract', () => {
               kind: 'function_call',
               id: 'tool-6',
               name: 'todo_write',
-              args: { todos: [{ content: 'Run focused check', status: 'pending', priority: 'high' }] },
+              args: {
+                todos: [{ content: 'Run focused check', status: 'pending', priority: 'high' }],
+              },
             },
           }),
         ],
@@ -459,7 +470,12 @@ describe('Harbor cell output contract', () => {
       events: [
         runtimeEvent({
           id: 'regular-tool',
-          content: { kind: 'function_call', id: 'tool-regular', name: 'Read', args: { path: 'README.md' } },
+          content: {
+            kind: 'function_call',
+            id: 'tool-regular',
+            name: 'Read',
+            args: { path: 'README.md' },
+          },
         }),
       ],
       startedAt: 100,

@@ -47,7 +47,13 @@ export async function testConnection(
       case 'github-copilot':
         return await probeGitHubCopilot(baseUrl, secret, testModel, t0);
       case 'google':
-        return await probeGoogle(baseUrl, secret, testModel, t0, adapter.normalizeBaseUrl !== false);
+        return await probeGoogle(
+          baseUrl,
+          secret,
+          testModel,
+          t0,
+          adapter.normalizeBaseUrl !== false,
+        );
       case 'cohere':
         return await probeCohere(baseUrl, secret, testModel, t0);
       case 'unavailable':
@@ -72,7 +78,10 @@ async function probeGitHubCopilot(
 ): Promise<ConnectionTestResult> {
   const models = await fetchGitHubCopilotModels(baseUrl, apiKey);
   if (!models.some(({ id }) => id === model)) {
-    return { ok: false, errorMessage: 'Selected model is not available for this GitHub Copilot account' };
+    return {
+      ok: false,
+      errorMessage: 'Selected model is not available for this GitHub Copilot account',
+    };
   }
   return { ok: true, latencyMs: Date.now() - t0, modelTested: model };
 }
@@ -130,18 +139,19 @@ async function probeAnthropic(
   model: string,
   t0: number,
 ): Promise<ConnectionTestResult> {
-  const headers: Record<string, string> = connection.providerType === 'claude-subscription'
-    ? {
-        ...claudeSubscriptionHeaders(),
-        Authorization: `Bearer ${secret}`,
-        'anthropic-version': '2023-06-01',
-        'content-type': 'application/json',
-      }
-    : {
-        'x-api-key': secret,
-        'anthropic-version': '2023-06-01',
-        'content-type': 'application/json',
-      };
+  const headers: Record<string, string> =
+    connection.providerType === 'claude-subscription'
+      ? {
+          ...claudeSubscriptionHeaders(),
+          Authorization: `Bearer ${secret}`,
+          'anthropic-version': '2023-06-01',
+          'content-type': 'application/json',
+        }
+      : {
+          'x-api-key': secret,
+          'anthropic-version': '2023-06-01',
+          'content-type': 'application/json',
+        };
 
   if (connection.providerType === 'claude-subscription') {
     // Claude Subscription credentials are account-scoped OAuth tokens.
@@ -211,21 +221,18 @@ async function probeGoogle(
   const url = normalizeBaseUrl
     ? googleApiUrl(baseUrl, `/models/${encodeURIComponent(model)}:generateContent`, apiKey)
     : `${stripTrailing(baseUrl)}/models/${encodeURIComponent(model)}:generateContent`;
-  const r = await proxiedFetch(
-    url,
-    {
-      method: 'POST',
-      headers: {
-        ...(normalizeBaseUrl ? {} : { 'x-goog-api-key': apiKey }),
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        contents: [{ role: 'user', parts: [{ text: 'Hi' }] }],
-        generationConfig: { maxOutputTokens: 16 },
-      }),
-      timeoutMs: CONNECTION_TEST_TIMEOUT_MS,
+  const r = await proxiedFetch(url, {
+    method: 'POST',
+    headers: {
+      ...(normalizeBaseUrl ? {} : { 'x-goog-api-key': apiKey }),
+      'content-type': 'application/json',
     },
-  );
+    body: JSON.stringify({
+      contents: [{ role: 'user', parts: [{ text: 'Hi' }] }],
+      generationConfig: { maxOutputTokens: 16 },
+    }),
+    timeoutMs: CONNECTION_TEST_TIMEOUT_MS,
+  });
   if (!r.ok) return httpFailure(r, t0);
   return { ok: true, latencyMs: Date.now() - t0, modelTested: model };
 }
@@ -235,7 +242,8 @@ async function httpFailure(r: Response, t0: number): Promise<ConnectionTestResul
   if (statusCode === 429) {
     return {
       ok: false,
-      errorMessage: 'OAuth 已登录，但当前账号或 provider 正在 rate limit。请稍后重试，或先切换到其它可用模型。',
+      errorMessage:
+        'OAuth 已登录，但当前账号或 provider 正在 rate limit。请稍后重试，或先切换到其它可用模型。',
       statusCode,
       errorClass: 'provider_unavailable',
       latencyMs: Date.now() - t0,

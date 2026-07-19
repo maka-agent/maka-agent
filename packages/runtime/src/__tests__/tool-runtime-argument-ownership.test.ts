@@ -26,9 +26,11 @@ describe('ToolRuntime argument ownership', () => {
     permissionEngine.beginTurn('turn-1');
 
     let resolvePermission!: (event: Extract<SessionEvent, { type: 'permission_request' }>) => void;
-    const permissionRequested = new Promise<Extract<SessionEvent, { type: 'permission_request' }>>((resolve) => {
-      resolvePermission = resolve;
-    });
+    const permissionRequested = new Promise<Extract<SessionEvent, { type: 'permission_request' }>>(
+      (resolve) => {
+        resolvePermission = resolve;
+      },
+    );
     const runtime = new ToolRuntime({
       sessionId: 'session-1',
       header: testHeader(),

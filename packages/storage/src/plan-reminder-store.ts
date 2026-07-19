@@ -24,8 +24,14 @@ export interface PlanReminderStore {
   clearRunHistory(id: string): Promise<PlanReminder>;
   remove(id: string): Promise<void>;
   listDue(now?: number): Promise<PlanReminder[]>;
-  markTriggered(id: string, run: Omit<PlanReminderRunRecord, 'id'> & { id?: string }): Promise<PlanReminder>;
-  markBlocked(id: string, run: Omit<PlanReminderRunRecord, 'id' | 'status'> & { id?: string }): Promise<PlanReminder>;
+  markTriggered(
+    id: string,
+    run: Omit<PlanReminderRunRecord, 'id'> & { id?: string },
+  ): Promise<PlanReminder>;
+  markBlocked(
+    id: string,
+    run: Omit<PlanReminderRunRecord, 'id' | 'status'> & { id?: string },
+  ): Promise<PlanReminder>;
 }
 
 export function createPlanReminderStore(workspaceRoot: string): PlanReminderStore {
@@ -75,34 +81,50 @@ class FilePlanReminderStore implements PlanReminderStore {
     const normalized = normalizeUpdatePlanReminderInput(patch, now);
     if (!normalized.ok) throw new Error(normalized.message);
     let updated: PlanReminder | undefined;
-    await this.mutate((reminders) => reminders.map((reminder) => {
-      if (reminder.id !== id) return reminder;
-      const nextEnabled = normalized.value.enabled ?? reminder.enabled;
-      const nextRunAt = normalized.value.runAt ?? planReminderScheduleStartAt(reminder.schedule);
-      const nextRecurrence = normalized.value.recurrence ??
-        (reminder.schedule.kind === 'recurring' ? reminder.schedule.recurrence : reminder.schedule.kind === 'cron' ? 'cron' : 'none');
-      const nextCronExpression = normalized.value.cronExpression ?? (reminder.schedule.kind === 'cron' ? reminder.schedule.expression : undefined);
-      const scheduleChanged = normalized.value.runAt !== undefined ||
-        normalized.value.recurrence !== undefined ||
-        normalized.value.cronExpression !== undefined;
-      const nextSchedule = createPlanReminderSchedule(nextRunAt, nextRecurrence, nextCronExpression);
-      const nextScheduledRunAt = nextPlanReminderRunAtAfter(nextSchedule, now);
-      if ((nextEnabled || scheduleChanged) && typeof nextScheduledRunAt !== 'number') {
-        throw new Error('Plan reminder schedule has no run within one year');
-      }
-      updated = {
-        ...reminder,
-        ...(normalized.value.title !== undefined ? { title: normalized.value.title } : {}),
-        ...(normalized.value.note !== undefined ? { note: normalized.value.note } : {}),
-        ...(normalized.value.delivery !== undefined ? { delivery: normalized.value.delivery } : {}),
-        schedule: nextSchedule,
-        enabled: nextEnabled,
-        status: nextEnabled ? 'scheduled' : 'paused',
-        nextRunAt: nextEnabled ? nextScheduledRunAt : undefined,
-        updatedAt: now,
-      };
-      return updated;
-    }));
+    await this.mutate((reminders) =>
+      reminders.map((reminder) => {
+        if (reminder.id !== id) return reminder;
+        const nextEnabled = normalized.value.enabled ?? reminder.enabled;
+        const nextRunAt = normalized.value.runAt ?? planReminderScheduleStartAt(reminder.schedule);
+        const nextRecurrence =
+          normalized.value.recurrence ??
+          (reminder.schedule.kind === 'recurring'
+            ? reminder.schedule.recurrence
+            : reminder.schedule.kind === 'cron'
+              ? 'cron'
+              : 'none');
+        const nextCronExpression =
+          normalized.value.cronExpression ??
+          (reminder.schedule.kind === 'cron' ? reminder.schedule.expression : undefined);
+        const scheduleChanged =
+          normalized.value.runAt !== undefined ||
+          normalized.value.recurrence !== undefined ||
+          normalized.value.cronExpression !== undefined;
+        const nextSchedule = createPlanReminderSchedule(
+          nextRunAt,
+          nextRecurrence,
+          nextCronExpression,
+        );
+        const nextScheduledRunAt = nextPlanReminderRunAtAfter(nextSchedule, now);
+        if ((nextEnabled || scheduleChanged) && typeof nextScheduledRunAt !== 'number') {
+          throw new Error('Plan reminder schedule has no run within one year');
+        }
+        updated = {
+          ...reminder,
+          ...(normalized.value.title !== undefined ? { title: normalized.value.title } : {}),
+          ...(normalized.value.note !== undefined ? { note: normalized.value.note } : {}),
+          ...(normalized.value.delivery !== undefined
+            ? { delivery: normalized.value.delivery }
+            : {}),
+          schedule: nextSchedule,
+          enabled: nextEnabled,
+          status: nextEnabled ? 'scheduled' : 'paused',
+          nextRunAt: nextEnabled ? nextScheduledRunAt : undefined,
+          updatedAt: now,
+        };
+        return updated;
+      }),
+    );
     if (!updated) throw new Error(`No such plan reminder: ${id}`);
     return updated;
   }
@@ -111,25 +133,27 @@ class FilePlanReminderStore implements PlanReminderStore {
     if (typeof enabled !== 'boolean') throw new Error('Plan reminder enabled must be a boolean');
     const now = Date.now();
     let updated: PlanReminder | undefined;
-    await this.mutate((reminders) => reminders.map((reminder) => {
-      if (reminder.id !== id) return reminder;
-      if (reminder.status === 'completed') {
-        updated = reminder;
-        return reminder;
-      }
-      const nextRunAt = enabled ? nextPlanReminderResumeRunAt(reminder.schedule, now) : undefined;
-      if (enabled && typeof nextRunAt !== 'number') {
-        throw new Error('Plan reminder schedule has no run within one year');
-      }
-      updated = {
-        ...reminder,
-        enabled,
-        status: enabled ? 'scheduled' : 'paused',
-        nextRunAt,
-        updatedAt: now,
-      };
-      return updated;
-    }));
+    await this.mutate((reminders) =>
+      reminders.map((reminder) => {
+        if (reminder.id !== id) return reminder;
+        if (reminder.status === 'completed') {
+          updated = reminder;
+          return reminder;
+        }
+        const nextRunAt = enabled ? nextPlanReminderResumeRunAt(reminder.schedule, now) : undefined;
+        if (enabled && typeof nextRunAt !== 'number') {
+          throw new Error('Plan reminder schedule has no run within one year');
+        }
+        updated = {
+          ...reminder,
+          enabled,
+          status: enabled ? 'scheduled' : 'paused',
+          nextRunAt,
+          updatedAt: now,
+        };
+        return updated;
+      }),
+    );
     if (!updated) throw new Error(`No such plan reminder: ${id}`);
     return updated;
   }
@@ -139,21 +163,27 @@ class FilePlanReminderStore implements PlanReminderStore {
       throw new Error('Plan reminder snooze delay must be between 1 ms and 7 days');
     }
     let updated: PlanReminder | undefined;
-    await this.mutate((reminders) => reminders.map((reminder) => {
-      if (reminder.id !== id) return reminder;
-      if (!reminder.enabled || reminder.status !== 'scheduled' || typeof reminder.nextRunAt !== 'number') {
-        throw new Error('Only scheduled plan reminders can be snoozed');
-      }
-      const base = Math.max(now, reminder.nextRunAt);
-      updated = {
-        ...reminder,
-        nextRunAt: base + Math.floor(delayMs),
-        status: 'scheduled',
-        enabled: true,
-        updatedAt: now,
-      };
-      return updated;
-    }));
+    await this.mutate((reminders) =>
+      reminders.map((reminder) => {
+        if (reminder.id !== id) return reminder;
+        if (
+          !reminder.enabled ||
+          reminder.status !== 'scheduled' ||
+          typeof reminder.nextRunAt !== 'number'
+        ) {
+          throw new Error('Only scheduled plan reminders can be snoozed');
+        }
+        const base = Math.max(now, reminder.nextRunAt);
+        updated = {
+          ...reminder,
+          nextRunAt: base + Math.floor(delayMs),
+          status: 'scheduled',
+          enabled: true,
+          updatedAt: now,
+        };
+        return updated;
+      }),
+    );
     if (!updated) throw new Error(`No such plan reminder: ${id}`);
     return updated;
   }
@@ -161,32 +191,38 @@ class FilePlanReminderStore implements PlanReminderStore {
   async clearRunHistory(id: string): Promise<PlanReminder> {
     const now = Date.now();
     let updated: PlanReminder | undefined;
-    await this.mutate((reminders) => reminders.map((reminder) => {
-      if (reminder.id !== id) return reminder;
-      if (reminder.status === 'completed') {
-        throw new Error('Completed plan reminder history cannot be cleared; delete the reminder instead');
-      }
-      updated = {
-        ...reminder,
-        lastRun: undefined,
-        runs: [],
-        updatedAt: now,
-      };
-      return updated;
-    }));
+    await this.mutate((reminders) =>
+      reminders.map((reminder) => {
+        if (reminder.id !== id) return reminder;
+        if (reminder.status === 'completed') {
+          throw new Error(
+            'Completed plan reminder history cannot be cleared; delete the reminder instead',
+          );
+        }
+        updated = {
+          ...reminder,
+          lastRun: undefined,
+          runs: [],
+          updatedAt: now,
+        };
+        return updated;
+      }),
+    );
     if (!updated) throw new Error(`No such plan reminder: ${id}`);
     return updated;
   }
 
   async remove(id: string): Promise<void> {
     let found = false;
-    await this.mutate((reminders) => reminders.filter((reminder) => {
-      if (reminder.id === id) {
-        found = true;
-        return false;
-      }
-      return true;
-    }));
+    await this.mutate((reminders) =>
+      reminders.filter((reminder) => {
+        if (reminder.id === id) {
+          found = true;
+          return false;
+        }
+        return true;
+      }),
+    );
     if (!found) throw new Error(`No such plan reminder: ${id}`);
   }
 
@@ -194,37 +230,47 @@ class FilePlanReminderStore implements PlanReminderStore {
     return (await this.read()).filter((reminder) => isPlanReminderDue(reminder, now));
   }
 
-  async markTriggered(id: string, run: Omit<PlanReminderRunRecord, 'id'> & { id?: string }): Promise<PlanReminder> {
+  async markTriggered(
+    id: string,
+    run: Omit<PlanReminderRunRecord, 'id'> & { id?: string },
+  ): Promise<PlanReminder> {
     let updated: PlanReminder | undefined;
-    await this.mutate((reminders) => reminders.map((reminder) => {
-      if (reminder.id !== id) return reminder;
-      const record: PlanReminderRunRecord = {
-        id: run.id ?? randomUUID(),
-        at: run.at,
-        status: 'triggered',
-        message: run.message,
-      };
-      updated = nextPlanReminderStateAfterTrigger(reminder, record);
-      return updated;
-    }));
+    await this.mutate((reminders) =>
+      reminders.map((reminder) => {
+        if (reminder.id !== id) return reminder;
+        const record: PlanReminderRunRecord = {
+          id: run.id ?? randomUUID(),
+          at: run.at,
+          status: 'triggered',
+          message: run.message,
+        };
+        updated = nextPlanReminderStateAfterTrigger(reminder, record);
+        return updated;
+      }),
+    );
     if (!updated) throw new Error(`No such plan reminder: ${id}`);
     return updated;
   }
 
-  async markBlocked(id: string, run: Omit<PlanReminderRunRecord, 'id' | 'status'> & { id?: string }): Promise<PlanReminder> {
+  async markBlocked(
+    id: string,
+    run: Omit<PlanReminderRunRecord, 'id' | 'status'> & { id?: string },
+  ): Promise<PlanReminder> {
     let updated: PlanReminder | undefined;
-    await this.mutate((reminders) => reminders.map((reminder) => {
-      if (reminder.id !== id) return reminder;
-      const record: PlanReminderRunRecord = {
-        id: run.id ?? randomUUID(),
-        at: run.at,
-        status: 'blocked',
-        message: run.message,
-        ...(run.blockReason ? { blockReason: run.blockReason } : {}),
-      };
-      updated = nextPlanReminderStateAfterTrigger(reminder, record);
-      return updated;
-    }));
+    await this.mutate((reminders) =>
+      reminders.map((reminder) => {
+        if (reminder.id !== id) return reminder;
+        const record: PlanReminderRunRecord = {
+          id: run.id ?? randomUUID(),
+          at: run.at,
+          status: 'blocked',
+          message: run.message,
+          ...(run.blockReason ? { blockReason: run.blockReason } : {}),
+        };
+        updated = nextPlanReminderStateAfterTrigger(reminder, record);
+        return updated;
+      }),
+    );
     if (!updated) throw new Error(`No such plan reminder: ${id}`);
     return updated;
   }
@@ -282,7 +328,10 @@ function planReminderListPriority(reminder: PlanReminder): number {
   return 2;
 }
 
-function nextPlanReminderResumeRunAt(schedule: PlanReminder['schedule'], now: number): number | undefined {
+function nextPlanReminderResumeRunAt(
+  schedule: PlanReminder['schedule'],
+  now: number,
+): number | undefined {
   const nextRunAt = nextPlanReminderRunAtAfter(schedule, now);
   if (typeof nextRunAt === 'number') return nextRunAt;
   if (schedule.kind === 'once') return schedule.runAt;
@@ -297,11 +346,14 @@ function normalizePersistedPlanReminder(value: unknown, index: number): PlanRemi
     invalid('is not an object');
   }
   const record = value as Partial<PlanReminder>;
-  const valid = typeof record.id === 'string' &&
+  const valid =
+    typeof record.id === 'string' &&
     typeof record.title === 'string' &&
     typeof record.note === 'string' &&
     isPersistedPlanReminderSchedule(record.schedule) &&
-    (record.status === 'scheduled' || record.status === 'paused' || record.status === 'completed') &&
+    (record.status === 'scheduled' ||
+      record.status === 'paused' ||
+      record.status === 'completed') &&
     typeof record.enabled === 'boolean' &&
     typeof record.createdAt === 'number' &&
     typeof record.updatedAt === 'number' &&
@@ -346,13 +398,17 @@ function isPersistedPlanReminderSchedule(value: unknown): value is PlanReminder[
   }
   if (record.kind === 'recurring') {
     const recurrence = (record as { recurrence?: unknown }).recurrence;
-    return typeof (record as { startAt?: unknown }).startAt === 'number' &&
-      (recurrence === 'daily' || recurrence === 'weekly' || recurrence === 'monthly');
+    return (
+      typeof (record as { startAt?: unknown }).startAt === 'number' &&
+      (recurrence === 'daily' || recurrence === 'weekly' || recurrence === 'monthly')
+    );
   }
   if (record.kind === 'cron') {
     const expression = (record as { expression?: unknown }).expression;
-    return typeof (record as { startAt?: unknown }).startAt === 'number' &&
-      normalizePlanReminderCronExpression(expression).ok;
+    return (
+      typeof (record as { startAt?: unknown }).startAt === 'number' &&
+      normalizePlanReminderCronExpression(expression).ok
+    );
   }
   return false;
 }
@@ -360,9 +416,13 @@ function isPersistedPlanReminderSchedule(value: unknown): value is PlanReminder[
 function isPersistedPlanReminderRunRecord(value: unknown): value is PlanReminderRunRecord {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
   const record = value as Partial<PlanReminderRunRecord>;
-  return typeof record.id === 'string' &&
+  return (
+    typeof record.id === 'string' &&
     typeof record.at === 'number' &&
     (record.status === 'triggered' || record.status === 'blocked' || record.status === 'failed') &&
     typeof record.message === 'string' &&
-    (record.blockReason === undefined || record.blockReason === 'incognito_active' || record.blockReason === 'bot_delivery_unavailable');
+    (record.blockReason === undefined ||
+      record.blockReason === 'incognito_active' ||
+      record.blockReason === 'bot_delivery_unavailable')
+  );
 }

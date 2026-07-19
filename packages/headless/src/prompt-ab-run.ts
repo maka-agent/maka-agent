@@ -17,15 +17,9 @@ export {
   buildAbRunManifest,
   ensureAbRunManifest,
 } from './ab-manifest.js';
-export {
-  renderAbComparisonMarkdown,
-} from './ab-render.js';
-export {
-  runAbComparison,
-} from './ab-run.js';
-export {
-  summarizeAbComparison,
-} from './ab-summary.js';
+export { renderAbComparisonMarkdown } from './ab-render.js';
+export { runAbComparison } from './ab-run.js';
+export { summarizeAbComparison } from './ab-summary.js';
 export type * from './prompt-ab-types.js';
 export {
   buildPromptAbRunManifest,
@@ -36,7 +30,9 @@ export {
   limitPromptAbCandidateTasks,
 } from './prompt-ab-selection.js';
 
-export async function runPromptAbComparison(input: RunPromptAbComparisonInput): Promise<PromptAbComparisonSummary> {
+export async function runPromptAbComparison(
+  input: RunPromptAbComparisonInput,
+): Promise<PromptAbComparisonSummary> {
   const candidatePromptId = input.candidatePromptId ?? 'candidate';
   const summary = await runAbComparison({
     runId: input.runId,
@@ -56,13 +52,16 @@ export async function runPromptAbComparison(input: RunPromptAbComparisonInput): 
     ...(input.reps !== undefined ? { reps: input.reps } : {}),
     ...(input.maxConcurrency !== undefined ? { maxConcurrency: input.maxConcurrency } : {}),
     ...(input.budgetMs !== undefined ? { budgetMs: input.budgetMs } : {}),
-    ...(input.nonInferiorityMargin !== undefined ? { nonInferiorityMargin: input.nonInferiorityMargin } : {}),
-    runArm: async ({ roundId, arm, task }) => runComparisonTaskArm({
-      input,
-      task,
-      promptPath: arm.id === 'baseline' ? input.baselinePromptPath : input.candidatePromptPath,
-      roundId,
-    }),
+    ...(input.nonInferiorityMargin !== undefined
+      ? { nonInferiorityMargin: input.nonInferiorityMargin }
+      : {}),
+    runArm: async ({ roundId, arm, task }) =>
+      runComparisonTaskArm({
+        input,
+        task,
+        promptPath: arm.id === 'baseline' ? input.baselinePromptPath : input.candidatePromptPath,
+        roundId,
+      }),
   });
   return {
     ...summary,
@@ -73,7 +72,9 @@ export async function runPromptAbComparison(input: RunPromptAbComparisonInput): 
   };
 }
 
-export function summarizePromptAbComparison(input: SummarizePromptAbComparisonInput): PromptAbComparisonSummary {
+export function summarizePromptAbComparison(
+  input: SummarizePromptAbComparisonInput,
+): PromptAbComparisonSummary {
   return {
     ...summarizeAbComparison({
       runId: input.runId,
@@ -84,7 +85,9 @@ export function summarizePromptAbComparison(input: SummarizePromptAbComparisonIn
       baselineRuns: input.baselineRuns,
       candidateRuns: input.candidateRuns,
       ...(input.budgetMs !== undefined ? { budgetMs: input.budgetMs } : {}),
-      ...(input.nonInferiorityMargin !== undefined ? { nonInferiorityMargin: input.nonInferiorityMargin } : {}),
+      ...(input.nonInferiorityMargin !== undefined
+        ? { nonInferiorityMargin: input.nonInferiorityMargin }
+        : {}),
     }),
     baselinePromptId: input.baselinePromptId,
     candidatePromptId: input.candidatePromptId,
@@ -119,6 +122,7 @@ async function runComparisonTaskArm(input: {
     ...(input.input.newId ? { newId: input.input.newId } : {}),
   });
   const event = result.events.find((candidate) => candidate.taskId === input.task.id);
-  if (!event) throw new Error(`prompt A/B arm ${input.roundId} produced no event for ${input.task.id}`);
+  if (!event)
+    throw new Error(`prompt A/B arm ${input.roundId} produced no event for ${input.task.id}`);
   return event;
 }

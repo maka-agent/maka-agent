@@ -79,15 +79,21 @@ export interface ForeignSessionStoreOptions {
 }
 
 /** Default on; set to '0' to disable (cloak-flag convention). */
-export function isClaudeCodeImportEnabled(env: Record<string, string | undefined> = process.env): boolean {
+export function isClaudeCodeImportEnabled(
+  env: Record<string, string | undefined> = process.env,
+): boolean {
   return env.MAKA_IMPORT_CLAUDE_CODE !== '0';
 }
 
-export function isCodexImportEnabled(env: Record<string, string | undefined> = process.env): boolean {
+export function isCodexImportEnabled(
+  env: Record<string, string | undefined> = process.env,
+): boolean {
   return env.MAKA_IMPORT_CODEX !== '0';
 }
 
-export function createForeignSessionStore(options: ForeignSessionStoreOptions = {}): ForeignSessionStore {
+export function createForeignSessionStore(
+  options: ForeignSessionStoreOptions = {},
+): ForeignSessionStore {
   return new FileForeignSessionStore(options.homeDir ?? homedir(), options.env ?? process.env);
 }
 
@@ -161,7 +167,11 @@ class FileForeignSessionStore implements ForeignSessionStore {
     for (const candidate of candidates) {
       if (results.length >= FOREIGN_SESSION_SCAN_MAX_SESSIONS) break;
       if (now - candidate.mtimeMs > FOREIGN_SESSION_SCAN_MAX_AGE_MS) break;
-      const summary = await this.scanClaudeTranscript(candidate.path, candidate.mtimeMs, options.cwd);
+      const summary = await this.scanClaudeTranscript(
+        candidate.path,
+        candidate.mtimeMs,
+        options.cwd,
+      );
       if (summary) results.push(summary);
     }
     return results;
@@ -188,7 +198,8 @@ class FileForeignSessionStore implements ForeignSessionStore {
     }
     if (meta.isSidechain === true) return undefined;
     if (meta.cwd === undefined) return undefined;
-    if (cwdFilter !== undefined && normalizePath(meta.cwd) !== normalizePath(cwdFilter)) return undefined;
+    if (cwdFilter !== undefined && normalizePath(meta.cwd) !== normalizePath(cwdFilter))
+      return undefined;
 
     // Title fields use last-wins (freshest title in the tail beats an older
     // one); firstUserMessage uses first-wins (opening request). Feed the head
@@ -252,8 +263,12 @@ class FileForeignSessionStore implements ForeignSessionStore {
       const normalized = normalizeCodexThreadRow(row);
       if (!normalized) continue;
       if (now - normalized.updatedAtMs > FOREIGN_SESSION_SCAN_MAX_AGE_MS) continue;
-      if (options.cwd !== undefined && normalizePath(normalized.cwd) !== normalizePath(options.cwd)) continue;
-      const transcriptPath = await this.resolveCodexRolloutPath(normalized.rolloutPath, normalized.id);
+      if (options.cwd !== undefined && normalizePath(normalized.cwd) !== normalizePath(options.cwd))
+        continue;
+      const transcriptPath = await this.resolveCodexRolloutPath(
+        normalized.rolloutPath,
+        normalized.id,
+      );
       if (transcriptPath === undefined) continue;
       results.push({
         source: normalized.source,
@@ -296,7 +311,8 @@ class FileForeignSessionStore implements ForeignSessionStore {
       // The transcript filename must belong to this session (defends against
       // renamed / planted rollout files, as in the DB path).
       if (!rolloutFilenameMatchesId(basename(file.path), meta.id)) continue;
-      if (options.cwd !== undefined && normalizePath(meta.cwd) !== normalizePath(options.cwd)) continue;
+      if (options.cwd !== undefined && normalizePath(meta.cwd) !== normalizePath(options.cwd))
+        continue;
       results.push({
         source: 'codex',
         id: meta.id,
@@ -321,7 +337,10 @@ class FileForeignSessionStore implements ForeignSessionStore {
    * Codex versions (ISO datetime or epoch), so match by the id suffix rather
    * than parsing the timestamp.
    */
-  private async resolveCodexRolloutPath(rolloutPath: string, expectedId: string): Promise<string | undefined> {
+  private async resolveCodexRolloutPath(
+    rolloutPath: string,
+    expectedId: string,
+  ): Promise<string | undefined> {
     try {
       const real = await realpath(resolve(rolloutPath));
       const root = await realpath(this.codexRoot);
@@ -435,7 +454,10 @@ async function listSubdirectories(root: string): Promise<string[]> {
   }
 }
 
-async function listFilesWithSuffix(dir: string, suffix: string): Promise<{ path: string; mtimeMs: number }[]> {
+async function listFilesWithSuffix(
+  dir: string,
+  suffix: string,
+): Promise<{ path: string; mtimeMs: number }[]> {
   const out: { path: string; mtimeMs: number }[] = [];
   try {
     const entries = await readdir(dir, { withFileTypes: true });
@@ -455,7 +477,10 @@ async function listFilesWithSuffix(dir: string, suffix: string): Promise<{ path:
 }
 
 /** Codex sessions/YYYY/MM/DD/rollout-*.jsonl walk, newest days first. */
-async function walkRolloutFiles(root: string, now: number): Promise<{ path: string; mtimeMs: number }[]> {
+async function walkRolloutFiles(
+  root: string,
+  now: number,
+): Promise<{ path: string; mtimeMs: number }[]> {
   const out: { path: string; mtimeMs: number }[] = [];
   const years = (await listSubdirectories(root)).sort().reverse();
   for (const year of years) {
@@ -506,7 +531,10 @@ const CODEX_SOURCE_SQL_VALUES = ['cli', 'vscode', '{"custom":"atlas"}', '{"custo
  * so the caller descends to an older generation. An empty array is a real
  * "this DB has no matching threads".
  */
-async function readCodexThreadRows(dbPath: string, cwdFilter?: string): Promise<CodexThreadRow[] | undefined> {
+async function readCodexThreadRows(
+  dbPath: string,
+  cwdFilter?: string,
+): Promise<CodexThreadRow[] | undefined> {
   try {
     const sqlite = await import('node:sqlite');
     const db = new sqlite.DatabaseSync(dbPath, { readOnly: true });
@@ -587,7 +615,8 @@ async function readClaudeHeadRecords(path: string): Promise<Record<string, unkno
       records.push(record);
       if (typeof record.cwd === 'string') sawCwd = true;
     }
-    if (sawCwd || capped >= CLAUDE_HEAD_MAX_BYTES || capped >= (await fileSize(path))) return records;
+    if (sawCwd || capped >= CLAUDE_HEAD_MAX_BYTES || capped >= (await fileSize(path)))
+      return records;
   }
 }
 
@@ -602,7 +631,11 @@ async function fileSize(path: string): Promise<number> {
 }
 
 /** Read the trailing `bytes` of an open handle, dropping the partial first line. */
-async function readHandleTailWindow(handle: FileHandle, size: number, bytes: number): Promise<string> {
+async function readHandleTailWindow(
+  handle: FileHandle,
+  size: number,
+  bytes: number,
+): Promise<string> {
   const length = Math.min(bytes, size);
   const buffer = Buffer.alloc(length);
   await handle.read(buffer, 0, length, size - length);
@@ -617,7 +650,11 @@ async function readHandleTailWindow(handle: FileHandle, size: number, bytes: num
  * tail window drops its partial first line so a mid-line cut isn't parsed as
  * a malformed record (and isn't reported as one).
  */
-async function readWindow(path: string, where: 'head' | 'tail', bytes: number): Promise<string | undefined> {
+async function readWindow(
+  path: string,
+  where: 'head' | 'tail',
+  bytes: number,
+): Promise<string | undefined> {
   let handle: FileHandle | undefined;
   try {
     handle = await open(path, 'r');

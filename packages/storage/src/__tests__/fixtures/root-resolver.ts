@@ -1,7 +1,4 @@
-import {
-  resolveStorageRoot,
-  StorageRootAuthorityError,
-} from '../../root-authority.js';
+import { resolveStorageRoot, StorageRootAuthorityError } from '../../root-authority.js';
 
 const [root] = process.argv.slice(2);
 if (!root || !process.send) throw new Error('usage: root-resolver <root>');

@@ -69,7 +69,10 @@ export function normalizePricingModelKey(input: unknown): NormalizePricingModelK
     return { ok: false, error: 'modelKey cannot be empty' };
   }
   if (trimmed.length > PRICING_MODEL_KEY_MAX_CHARS) {
-    return { ok: false, error: `modelKey must be ${PRICING_MODEL_KEY_MAX_CHARS} characters or fewer` };
+    return {
+      ok: false,
+      error: `modelKey must be ${PRICING_MODEL_KEY_MAX_CHARS} characters or fewer`,
+    };
   }
   return { ok: true, value: trimmed };
 }

@@ -5,10 +5,7 @@ import type { BackendKind } from '@maka/core/session';
 import type { SessionEvent } from '@maka/core/events';
 import type { BackendSendInput, PermissionDecision } from '@maka/core/backend-types';
 import type { RuntimeEvent } from '@maka/core/runtime-event';
-import {
-  isTerminalRuntimeEvent,
-  isPartialRuntimeEvent,
-} from '@maka/core/runtime-event';
+import { isTerminalRuntimeEvent, isPartialRuntimeEvent } from '@maka/core/runtime-event';
 
 import {
   AiSdkFlow,
@@ -16,9 +13,7 @@ import {
   mapSessionEventToRuntimeEvent,
   createSessionEventMapMemory,
 } from '../ai-sdk-flow.js';
-import {
-  flowSupportsControl,
-} from '../agent-flow.js';
+import { flowSupportsControl } from '../agent-flow.js';
 import type { AgentBackend } from '@maka/core/backend-types';
 import { RuntimeRunner } from '../runtime-runner.js';
 import type { InvocationContext } from '../invocation-context.js';
@@ -83,7 +78,9 @@ class ScriptedBackend implements AgentBackend {
 
 let __seq = 0;
 type DistributiveOmit<T, K extends keyof any> = T extends any ? Omit<T, K> : never;
-function ev(e: DistributiveOmit<SessionEvent, 'id' | 'turnId' | 'ts'> & Partial<Pick<SessionEvent, 'ts'>>): SessionEvent {
+function ev(
+  e: DistributiveOmit<SessionEvent, 'id' | 'turnId' | 'ts'> & Partial<Pick<SessionEvent, 'ts'>>,
+): SessionEvent {
   __seq += 1;
   return { id: `evt-${__seq}`, turnId: 'turn-1', ts: e.ts ?? __seq, ...e } as SessionEvent;
 }
@@ -191,7 +188,11 @@ describe('AiSdkFlow seam', () => {
       name: 'chart.png',
       mimeType: 'image/png',
       bytes: 123,
-      ref: { kind: 'session_file' as const, sessionId: 'session-1', relativePath: 'attachments/chart.png' },
+      ref: {
+        kind: 'session_file' as const,
+        sessionId: 'session-1',
+        relativePath: 'attachments/chart.png',
+      },
     };
     const history = [
       {
@@ -304,7 +305,12 @@ describe('AiSdkFlow seam', () => {
     assert.equal(result.role, 'tool');
     assert.equal(result.author, 'tool');
     assert.equal(result.content?.kind, 'function_response');
-    const fnResp = result.content as { id: string; name: string; result: unknown; isError?: boolean };
+    const fnResp = result.content as {
+      id: string;
+      name: string;
+      result: unknown;
+      isError?: boolean;
+    };
     assert.equal(fnResp.name, 'read', 'tool_result recovers toolName from the prior tool_start');
     assert.equal(fnResp.isError, undefined);
     assert.equal(result.refs?.toolCallId, 'tu-1');
@@ -410,31 +416,35 @@ describe('AiSdkFlow seam', () => {
   });
 
   test('maps sandbox escalation as a bounded one-shot permission action', () => {
-    const mapped = mapSessionEventToRuntimeEvent(ev({
-      type: 'permission_request',
-      kind: 'sandbox_escalation',
-      requestId: 'req-escalation-1',
-      toolUseId: 'tu-escalation-1',
-      toolName: 'Bash',
-      category: 'shell_unsafe',
-      reason: 'sandbox_escalation',
-      args: undefined,
-      command: 'printf ok > /outside/result.txt',
-      cwd: '/workspace',
-      justification: 'Write the exact requested output.',
-      intentHash: 'intent-hash',
-      commandHash: 'command-hash',
-      trigger: 'sandbox_denial',
-      risk: {
-        unsandboxedExecution: true,
-        unrestrictedFileSystem: true,
-        unrestrictedNetwork: true,
-        protectedMetadataExposed: true,
-      },
-      alsoApprovesToolExecution: false,
-      availableDecisions: ['allow_once', 'deny'],
-      rememberForTurnAllowed: false,
-    }), ctx, createSessionEventMapMemory());
+    const mapped = mapSessionEventToRuntimeEvent(
+      ev({
+        type: 'permission_request',
+        kind: 'sandbox_escalation',
+        requestId: 'req-escalation-1',
+        toolUseId: 'tu-escalation-1',
+        toolName: 'Bash',
+        category: 'shell_unsafe',
+        reason: 'sandbox_escalation',
+        args: undefined,
+        command: 'printf ok > /outside/result.txt',
+        cwd: '/workspace',
+        justification: 'Write the exact requested output.',
+        intentHash: 'intent-hash',
+        commandHash: 'command-hash',
+        trigger: 'sandbox_denial',
+        risk: {
+          unsandboxedExecution: true,
+          unrestrictedFileSystem: true,
+          unrestrictedNetwork: true,
+          protectedMetadataExposed: true,
+        },
+        alsoApprovesToolExecution: false,
+        availableDecisions: ['allow_once', 'deny'],
+        rememberForTurnAllowed: false,
+      }),
+      ctx,
+      createSessionEventMapMemory(),
+    );
 
     const request = mapped.actions?.permissionRequest;
     assert.equal(request?.kind, 'sandbox_escalation');
@@ -461,11 +471,7 @@ describe('AiSdkFlow seam', () => {
     for (const kind of [undefined, 'unknown']) {
       const malformed = { ...valid, kind } as unknown as SessionEvent;
       assert.throws(
-        () => mapSessionEventToRuntimeEvent(
-          malformed,
-          ctx,
-          createSessionEventMapMemory(),
-        ),
+        () => mapSessionEventToRuntimeEvent(malformed, ctx, createSessionEventMapMemory()),
         /invalid or missing kind/,
       );
     }
@@ -474,7 +480,13 @@ describe('AiSdkFlow seam', () => {
   test('maps the error path preserving error content + terminal failed', async () => {
     const backend = new ScriptedBackend({
       events: [
-        ev({ type: 'error', recoverable: false, code: 'AUTH', reason: 'auth_failed', message: 'no token' }),
+        ev({
+          type: 'error',
+          recoverable: false,
+          code: 'AUTH',
+          reason: 'auth_failed',
+          message: 'no token',
+        }),
         ev({ type: 'complete', stopReason: 'error' }),
       ],
     });
@@ -498,9 +510,7 @@ describe('AiSdkFlow seam', () => {
     const seen: SessionEvent[] = [];
     let idSeq = 0;
     const backend = new ScriptedBackend({
-      events: [
-        ev({ type: 'text_delta', messageId: 'm1', text: 'partial answer' }),
-      ],
+      events: [ev({ type: 'text_delta', messageId: 'm1', text: 'partial answer' })],
     });
     const flow = new AiSdkFlow({
       backend,
@@ -508,18 +518,29 @@ describe('AiSdkFlow seam', () => {
         seen.push(sessionEvent);
       },
     });
-    const out = await collect(flow.run(
-      { ...ctx, newId: () => `synthetic-${(idSeq += 1)}`, now: () => 2000 },
-      { text: 'hi', context: [] },
-    ));
+    const out = await collect(
+      flow.run(
+        { ...ctx, newId: () => `synthetic-${(idSeq += 1)}`, now: () => 2000 },
+        { text: 'hi', context: [] },
+      ),
+    );
 
-    assert.deepEqual(seen.map((event) => event.type), ['text_delta', 'error', 'complete']);
+    assert.deepEqual(
+      seen.map((event) => event.type),
+      ['text_delta', 'error', 'complete'],
+    );
     assert.equal(seen[1]?.type, 'error');
-    assert.equal((seen[1] as Extract<SessionEvent, { type: 'error' }>).reason, 'missing_terminal_event');
+    assert.equal(
+      (seen[1] as Extract<SessionEvent, { type: 'error' }>).reason,
+      'missing_terminal_event',
+    );
     assert.equal(seen[2]?.type, 'complete');
     assert.equal((seen[2] as Extract<SessionEvent, { type: 'complete' }>).stopReason, 'error');
     assert.equal(out.at(-2)?.content?.kind, 'error');
-    assert.equal((out.at(-2)?.content as { reason?: string } | undefined)?.reason, 'missing_terminal_event');
+    assert.equal(
+      (out.at(-2)?.content as { reason?: string } | undefined)?.reason,
+      'missing_terminal_event',
+    );
     assert.equal(out.at(-1)?.status, 'failed');
     assert.equal(out.filter(isTerminalRuntimeEvent).length, 1);
   });
@@ -579,7 +600,10 @@ describe('AiSdkFlow seam', () => {
     const out = await collect(flow.run(ctx, { text: 'hi', context: [] }));
 
     assert.equal(backend.yieldedEvents, 3);
-    assert.deepEqual(seen.map((event) => event.type), ['abort']);
+    assert.deepEqual(
+      seen.map((event) => event.type),
+      ['abort'],
+    );
     assert.deepEqual(
       out.map((event) => event.content?.kind ?? event.status ?? null),
       ['aborted'],
@@ -662,12 +686,7 @@ describe('AiSdkFlow seam', () => {
     const flow = new AiSdkFlow({ backend });
 
     await assert.rejects(
-      collect(
-        flow.run(
-          { ...ctx, sessionId: 'other' },
-          { text: 'hi', context: [] },
-        ),
-      ),
+      collect(flow.run({ ...ctx, sessionId: 'other' }, { text: 'hi', context: [] })),
       /AiSdkFlow session mismatch/,
     );
   });
@@ -759,7 +778,17 @@ describe('mapSessionEventToRuntimeEvent (pure)', () => {
   test('tool_output_delta and tool_progress map to partial tool-role heartbeats', () => {
     const mem = createSessionEventMapMemory();
     const a = mapSessionEventToRuntimeEvent(
-      ev({ type: 'tool_output_delta', sessionId: 'session-1', toolCallId: 'tu-1', toolUseId: 'tu-1', seq: 1, stream: 'stdout', chunk: 'c', redacted: false, createdAt: 1 }),
+      ev({
+        type: 'tool_output_delta',
+        sessionId: 'session-1',
+        toolCallId: 'tu-1',
+        toolUseId: 'tu-1',
+        seq: 1,
+        stream: 'stdout',
+        chunk: 'c',
+        redacted: false,
+        createdAt: 1,
+      }),
       ctx,
       mem,
     );
@@ -796,28 +825,29 @@ describe('mapSessionEventToRuntimeEvent (pure)', () => {
   test('owns independent args across SessionEvent to RuntimeEvent mappings', () => {
     const cases = [
       {
-        event: (args: unknown) => ev({
-          type: 'tool_start',
-          toolUseId: 'tu-owned',
-          toolName: 'Write',
-          args,
-        }),
-        mappedArgs: (event: RuntimeEvent) => event.content?.kind === 'function_call'
-          ? event.content.args
-          : undefined,
+        event: (args: unknown) =>
+          ev({
+            type: 'tool_start',
+            toolUseId: 'tu-owned',
+            toolName: 'Write',
+            args,
+          }),
+        mappedArgs: (event: RuntimeEvent) =>
+          event.content?.kind === 'function_call' ? event.content.args : undefined,
       },
       {
-        event: (args: unknown) => ev({
-          type: 'permission_request',
-          kind: 'tool_permission',
-          requestId: 'permission-owned',
-          toolUseId: 'tu-owned',
-          toolName: 'Write',
-          category: 'file_write',
-          reason: 'file_write',
-          args,
-          rememberForTurnAllowed: true,
-        }),
+        event: (args: unknown) =>
+          ev({
+            type: 'permission_request',
+            kind: 'tool_permission',
+            requestId: 'permission-owned',
+            toolUseId: 'tu-owned',
+            toolName: 'Write',
+            category: 'file_write',
+            reason: 'file_write',
+            args,
+            rememberForTurnAllowed: true,
+          }),
         mappedArgs: (event: RuntimeEvent) => {
           const request = event.actions?.permissionRequest;
           return request?.kind === 'tool_permission' ? request.args : undefined;
@@ -828,11 +858,9 @@ describe('mapSessionEventToRuntimeEvent (pure)', () => {
     for (const scenario of cases) {
       const sourceArgs = { content: 'approved', layout: { cols: 120 } };
       const sourceEvent = scenario.event(sourceArgs);
-      const mappedArgs = scenario.mappedArgs(mapSessionEventToRuntimeEvent(
-        sourceEvent,
-        ctx,
-        createSessionEventMapMemory(),
-      )) as typeof sourceArgs;
+      const mappedArgs = scenario.mappedArgs(
+        mapSessionEventToRuntimeEvent(sourceEvent, ctx, createSessionEventMapMemory()),
+      ) as typeof sourceArgs;
 
       assert.notStrictEqual(mappedArgs, sourceArgs);
       assert.notStrictEqual(mappedArgs.layout, sourceArgs.layout);
@@ -859,13 +887,15 @@ describe('mapSessionEventToRuntimeEvent (pure)', () => {
         type: 'user_question_request',
         requestId: 'question-1',
         toolUseId: 'tool-1',
-        questions: [{
-          question: 'Choose an approach',
-          options: [
-            { label: 'Extend', description: 'Reuse the runtime seam' },
-            { label: 'Separate' },
-          ],
-        }],
+        questions: [
+          {
+            question: 'Choose an approach',
+            options: [
+              { label: 'Extend', description: 'Reuse the runtime seam' },
+              { label: 'Separate' },
+            ],
+          },
+        ],
       }),
       ctx,
     );
@@ -875,19 +905,26 @@ describe('mapSessionEventToRuntimeEvent (pure)', () => {
     assert.deepEqual(mapped.actions?.userQuestionRequest, {
       requestId: 'question-1',
       toolUseId: 'tool-1',
-      questions: [{
-        question: 'Choose an approach',
-        options: [
-          { label: 'Extend', description: 'Reuse the runtime seam' },
-          { label: 'Separate' },
-        ],
-      }],
+      questions: [
+        {
+          question: 'Choose an approach',
+          options: [
+            { label: 'Extend', description: 'Reuse the runtime seam' },
+            { label: 'Separate' },
+          ],
+        },
+      ],
     });
   });
 
   test('tool_result without a prior tool_start still maps (name falls back to empty)', () => {
     const a = mapSessionEventToRuntimeEvent(
-      ev({ type: 'tool_result', toolUseId: 'orphan', isError: true, content: { kind: 'text', text: 'boom' } }),
+      ev({
+        type: 'tool_result',
+        toolUseId: 'orphan',
+        isError: true,
+        content: { kind: 'text', text: 'boom' },
+      }),
       ctx,
     );
     const fnResp = a.content as { name: string; isError?: boolean };
@@ -896,10 +933,10 @@ describe('mapSessionEventToRuntimeEvent (pure)', () => {
   });
 
   test('branch is propagated when present on the context', () => {
-    const a = mapSessionEventToRuntimeEvent(
-      ev({ type: 'complete', stopReason: 'end_turn' }),
-      { ...ctx, branch: 'agent-b' },
-    );
+    const a = mapSessionEventToRuntimeEvent(ev({ type: 'complete', stopReason: 'end_turn' }), {
+      ...ctx,
+      branch: 'agent-b',
+    });
     assert.equal(a.branch, 'agent-b');
   });
 });

@@ -40,7 +40,11 @@ export function withUsage(
   };
 }
 
-export function withTrace<T extends FixedPromptTaskCompletedEvent>(event: T, arm: 'A' | 'B', taskId: string): T {
+export function withTrace<T extends FixedPromptTaskCompletedEvent>(
+  event: T,
+  arm: 'A' | 'B',
+  taskId: string,
+): T {
   return {
     ...event,
     id: `event-${arm}-${taskId}-r0`,

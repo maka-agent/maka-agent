@@ -48,9 +48,7 @@ export type ArtifactReadFailureReason =
   | 'not_allowed'
   | 'deleted';
 
-export type ArtifactBinaryReadFailureReason =
-  | ArtifactReadFailureReason
-  | 'unsupported_mime';
+export type ArtifactBinaryReadFailureReason = ArtifactReadFailureReason | 'unsupported_mime';
 
 export type ArtifactTextReadResult =
   | { ok: true; text: string }

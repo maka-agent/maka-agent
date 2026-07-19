@@ -5,7 +5,12 @@
  * package README and root ARCHITECTURE.md for responsibility boundaries.
  */
 
-export { SessionManager, BackendRegistry, headerToSummary, changesBackendConfig } from './session-manager.js';
+export {
+  SessionManager,
+  BackendRegistry,
+  headerToSummary,
+  changesBackendConfig,
+} from './session-manager.js';
 export type {
   CompactSessionInput,
   SessionManagerDeps,
@@ -328,10 +333,19 @@ export { computeEditedSource, COMPUTE_EDITED_SOURCE_FN_SOURCE } from './edit-rep
 export type { EditMatch, EditMatchStrategy } from './edit-replace.js';
 export { truncateToolOutput } from './tool-output.js';
 export type { TruncateToolOutputOptions, TruncatedToolOutput } from './tool-output.js';
-export { runProcessWithBoundedTail, runShellWithBoundedTail, BASH_MAX_RETAINED_CHARS } from './shell-exec.js';
+export {
+  runProcessWithBoundedTail,
+  runShellWithBoundedTail,
+  BASH_MAX_RETAINED_CHARS,
+} from './shell-exec.js';
 export type { BoundedShellOptions, BoundedShellResult } from './shell-exec.js';
 export type { ChildFdInput } from './child-fd-input.js';
-export { detectShell, defaultShellPlan, buildShellSpawnPlan, bashToolShellGuidance } from './shell-detect.js';
+export {
+  detectShell,
+  defaultShellPlan,
+  buildShellSpawnPlan,
+  bashToolShellGuidance,
+} from './shell-detect.js';
 export type { ShellPlan, ShellKind, ShellSpawnPlan, DetectShellInput } from './shell-detect.js';
 export {
   MACOS_SEATBELT_BASE_POLICY,
@@ -510,7 +524,11 @@ export {
   StreamWatchdog,
   formatStreamWatchdogError,
 } from './stream-watchdog.js';
-export type { StreamWatchdogInput, StreamWatchdogPhase, StreamWatchdogTimeout } from './stream-watchdog.js';
+export type {
+  StreamWatchdogInput,
+  StreamWatchdogPhase,
+  StreamWatchdogTimeout,
+} from './stream-watchdog.js';
 
 export { getAIModel, buildProviderOptions } from './model-factory.js';
 export { fallbackSessionTitle, generateSessionTitle, sessionTitleSource } from './session-title.js';
@@ -556,7 +574,11 @@ export type {
   CompactionSourceKind,
   CompactionStage,
 } from './compaction-boundary.js';
-export { buildDefaultContextBudgetPolicy, buildManualCompactLookupPolicy, resolveSelectedModelContextWindow } from './context-budget-policy.js';
+export {
+  buildDefaultContextBudgetPolicy,
+  buildManualCompactLookupPolicy,
+  resolveSelectedModelContextWindow,
+} from './context-budget-policy.js';
 export type {
   BuildDefaultContextBudgetPolicyOptions,
   BuildManualCompactLookupPolicyOptions,
@@ -611,10 +633,11 @@ export type {
   HistoryCompactCleanupResult,
   HistoryCompactCleanupSkip,
 } from './history-compact-cleanup.js';
-export { buildLlmHistorySummarizer, HistoryCompactSummarizerError } from './history-compact-summarizer.js';
-export type {
-  BuildLlmHistorySummarizerOptions,
+export {
+  buildLlmHistorySummarizer,
+  HistoryCompactSummarizerError,
 } from './history-compact-summarizer.js';
+export type { BuildLlmHistorySummarizerOptions } from './history-compact-summarizer.js';
 export type { HistoryCompactSummarizerFailureReason } from './history-compact-error.js';
 export {
   ACTIVE_ARCHIVED_TOOL_RESULT_PLACEHOLDER_KIND,
@@ -742,7 +765,12 @@ export type {
   SemanticCompactSummaryRequest,
 } from './semantic-compact.js';
 export { testConnection } from './test-connection.js';
-export { fetchGitHubCopilotModels, fetchOpenAiCodexModels, fetchProviderModels, OpenAiCodexDiscoveryError } from './model-fetcher.js';
+export {
+  fetchGitHubCopilotModels,
+  fetchOpenAiCodexModels,
+  fetchProviderModels,
+  OpenAiCodexDiscoveryError,
+} from './model-fetcher.js';
 
 export {
   materializeSession,
@@ -922,7 +950,10 @@ export type {
 } from './execution-inspect.js';
 
 // model-history.ts — policy-driven model-history projection.
-export { buildModelHistoryFromRuntimeEvents, buildRuntimeEventModelReplayPlan } from './model-history.js';
+export {
+  buildModelHistoryFromRuntimeEvents,
+  buildRuntimeEventModelReplayPlan,
+} from './model-history.js';
 export type {
   ModelHistoryEntry,
   BuildModelHistoryOptions,
@@ -1004,7 +1035,12 @@ export type { SessionEnvironmentPromptInput } from './system-prompt/session-envi
 // ───────────────────────────────────────────────────────────────────────────
 // Unified Automation (Codex-style: heartbeat + cron, single tool).
 // ───────────────────────────────────────────────────────────────────────────
-export { AutomationManager, computeNextCronFire, computeJitter, matchesCronField } from './automation-state.js';
+export {
+  AutomationManager,
+  computeNextCronFire,
+  computeJitter,
+  matchesCronField,
+} from './automation-state.js';
 export type {
   AutomationDefinition,
   AutomationKind,
@@ -1012,7 +1048,11 @@ export type {
   AutomationStatus,
   AutomationManagerDeps,
 } from './automation-state.js';
-export { AutomationScheduler, FIRE_CHECK_INTERVAL_MS, DEFER_WINDOW_MS } from './automation-scheduler.js';
+export {
+  AutomationScheduler,
+  FIRE_CHECK_INTERVAL_MS,
+  DEFER_WINDOW_MS,
+} from './automation-scheduler.js';
 export type { AutomationSchedulerDeps, AutomationFireResult } from './automation-scheduler.js';
 export { buildAutomationTool, AUTOMATION_TOOL_NAME } from './automation-tools.js';
 export type { AutomationToolDeps } from './automation-tools.js';
@@ -1022,7 +1062,12 @@ export type { CanFireSessionHeader, EvaluateAutomationCanFireDeps } from './auto
 // ───────────────────────────────────────────────────────────────────────────
 // Goal execution (Issue #15 Primitive 6).
 // ───────────────────────────────────────────────────────────────────────────
-export { GoalManager, TERMINAL_GOAL_STATUSES, DEFAULT_MAX_ITERATIONS, DEFAULT_BLOCK_CAP } from './goal-state.js';
+export {
+  GoalManager,
+  TERMINAL_GOAL_STATUSES,
+  DEFAULT_MAX_ITERATIONS,
+  DEFAULT_BLOCK_CAP,
+} from './goal-state.js';
 export type {
   GoalCheckpoint,
   GoalManagerDeps,

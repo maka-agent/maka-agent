@@ -11,8 +11,14 @@ import { createHash } from 'node:crypto';
 import { posix as pathPosix } from 'node:path';
 import { z } from 'zod';
 import type { HeavyTaskEvidenceRecorder } from './heavy-task-evidence.js';
-import { buildHeavyTaskProgressTools, type HeavyTaskProgressRecorder } from './heavy-task-progress.js';
-import { buildHeavyTaskSelfCheckTools, type HeavyTaskSelfCheckRecorder } from './heavy-task-self-check.js';
+import {
+  buildHeavyTaskProgressTools,
+  type HeavyTaskProgressRecorder,
+} from './heavy-task-progress.js';
+import {
+  buildHeavyTaskSelfCheckTools,
+  type HeavyTaskSelfCheckRecorder,
+} from './heavy-task-self-check.js';
 import type { IsolatedToolExecutor } from './isolation.js';
 import {
   buildTaskLedgerExperimentTools,
@@ -40,7 +46,8 @@ const fileWriteKey = (cwd: string, normalizedPath: string) =>
   JSON.stringify([pathPosix.normalize(cwd), pathPosix.normalize(normalizedPath)]);
 
 const EDIT_READ_FRAME_END = 'MAKA_EDIT_BYTES_END';
-const EDIT_READ_FRAME_HEADER_PATTERN = /^MAKA_EDIT_BYTES_V1 length=(0|[1-9]\d*) sha256=([a-f0-9]{64})$/;
+const EDIT_READ_FRAME_HEADER_PATTERN =
+  /^MAKA_EDIT_BYTES_V1 length=(0|[1-9]\d*) sha256=([a-f0-9]{64})$/;
 const CANONICAL_BASE64_PATTERN = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 /**
  * Build Maka's standard headless tool surface with shell and file operations
@@ -85,9 +92,9 @@ export function buildIsolatedBashTool(
   const guidance = executor.shell ? bashToolShellGuidance(executor.shell) : '';
   return buildForegroundBashTool({
     description:
-      'Run a shell command in the isolated headless task workspace. '
-      + 'Use it for inspection, builds, and task-local generation; prefer Read/Grep/Write/Edit for exact file operations and preserve required deliverables.'
-      + (guidance ? ` ${guidance}` : ''),
+      'Run a shell command in the isolated headless task workspace. ' +
+      'Use it for inspection, builds, and task-local generation; prefer Read/Grep/Write/Edit for exact file operations and preserve required deliverables.' +
+      (guidance ? ` ${guidance}` : ''),
     defaultTimeoutMs: cleanupCommandTimeoutMs,
     emitReturnedOutput: true,
     execute: async ({ command, cwd, timeoutMs, ctx }) => {
@@ -135,11 +142,12 @@ export function buildIsolatedReadTool(
       const input = { cwd, path: normalizedPath, offset, limit };
       // Read has no native fast path: every result must go through READ_SCRIPT so
       // it carries the line-number / line+byte-cap / binary-guard contract (#92).
-      const stdout = await execFileCommand(executor, cwd, shellFileCommand(READ_SCRIPT, [
-        normalizedPath,
-        numberArg(offset),
-        numberArg(limit),
-      ]), ctx.abortSignal);
+      const stdout = await execFileCommand(
+        executor,
+        cwd,
+        shellFileCommand(READ_SCRIPT, [normalizedPath, numberArg(offset), numberArg(limit)]),
+        ctx.abortSignal,
+      );
       const result = { content: stdout };
       await options.heavyTaskEvidence?.recordToolEvidence({ name: 'Read', input, result }, ctx);
       return result;
@@ -163,14 +171,23 @@ export function buildIsolatedWriteTool(
       return await withFileWriteLock(fileWriteKey(cwd, normalizedPath), async () => {
         if (executor.writeFile) {
           const result = await executor.writeFile(input, { abortSignal: ctx.abortSignal });
-          await options.heavyTaskEvidence?.recordToolEvidence({ name: 'Write', input, result }, ctx);
+          await options.heavyTaskEvidence?.recordToolEvidence(
+            { name: 'Write', input, result },
+            ctx,
+          );
           return result;
         }
-        await execFileCommand(executor, cwd, shellFileCommand(WRITE_SCRIPT, [
-          normalizedPath,
-          content,
-        ]), ctx.abortSignal);
-        const result = { ok: true, path: normalizedPath, bytes: Buffer.byteLength(content, 'utf8') };
+        await execFileCommand(
+          executor,
+          cwd,
+          shellFileCommand(WRITE_SCRIPT, [normalizedPath, content]),
+          ctx.abortSignal,
+        );
+        const result = {
+          ok: true,
+          path: normalizedPath,
+          bytes: Buffer.byteLength(content, 'utf8'),
+        };
         await options.heavyTaskEvidence?.recordToolEvidence({ name: 'Write', input, result }, ctx);
         return result;
       });
@@ -185,11 +202,11 @@ export function buildIsolatedEditTool(
   return {
     name: 'Edit',
     description:
-      'Replace old_string with new_string in a file in the isolated headless task workspace. '
-      + 'Prefers an exact, unique match; if exact fails it tolerates limited whitespace/indentation/escape '
-      + 'drift in old_string, but only when the match is unambiguous (otherwise it errors — re-read and retry '
-      + 'with exact text). new_string is written verbatim, so provide the exact final text/indentation you want. '
-      + 'Errors if old_string is not found or not unique.',
+      'Replace old_string with new_string in a file in the isolated headless task workspace. ' +
+      'Prefers an exact, unique match; if exact fails it tolerates limited whitespace/indentation/escape ' +
+      'drift in old_string, but only when the match is unambiguous (otherwise it errors — re-read and retry ' +
+      'with exact text). new_string is written verbatim, so provide the exact final text/indentation you want. ' +
+      'Errors if old_string is not found or not unique.',
     parameters: z.object({
       path: z.string(),
       old_string: z.string(),
@@ -202,11 +219,18 @@ export function buildIsolatedEditTool(
       const input = { cwd, path: normalizedPath, oldString: old_string, newString: new_string };
       return await withFileWriteLock(fileWriteKey(cwd, normalizedPath), async () => {
         const raw = await readIsolatedFileBytes(executor, cwd, normalizedPath, ctx.abortSignal);
-        const { content, ...metadata } = computeEditBytes(raw, old_string, new_string, normalizedPath);
+        const { content, ...metadata } = computeEditBytes(
+          raw,
+          old_string,
+          new_string,
+          normalizedPath,
+        );
         await writeIsolatedFileBytes(executor, cwd, normalizedPath, content, ctx.abortSignal);
         const stored = await readIsolatedFileBytes(executor, cwd, normalizedPath, ctx.abortSignal);
         if (!stored.equals(content)) {
-          throw new Error(`Edit post-write verification failed for ${normalizedPath}: stored bytes differ from the replacement result`);
+          throw new Error(
+            `Edit post-write verification failed for ${normalizedPath}: stored bytes differ from the replacement result`,
+          );
         }
         const result = { ok: true, path: normalizedPath, replacements: 1, ...metadata };
         await options.heavyTaskEvidence?.recordToolEvidence({ name: 'Edit', input, result }, ctx);
@@ -231,18 +255,24 @@ export function buildIsolatedGlobTool(
     impl: async ({ pattern, cwd: relCwd }, ctx) => {
       const { cwd } = ctx;
       const normalizedPattern = normalizeWorkspaceGlobPattern(pattern, cwd, 'Glob pattern');
-      const normalizedRelCwd = relCwd === undefined ? undefined : normalizeWorkspacePath(relCwd, cwd, 'Glob cwd');
+      const normalizedRelCwd =
+        relCwd === undefined ? undefined : normalizeWorkspacePath(relCwd, cwd, 'Glob cwd');
       const input = { cwd, pattern: normalizedPattern, searchCwd: normalizedRelCwd };
       if (executor.globFiles) {
         const result = await executor.globFiles(input, { abortSignal: ctx.abortSignal });
         await options.heavyTaskEvidence?.recordToolEvidence({ name: 'Glob', input, result }, ctx);
         return result;
       }
-      const stdout = await execFileCommand(executor, cwd, shellFileCommand(GLOB_SCRIPT, [
-        normalizedPattern,
-        globPatternToEre(normalizedPattern),
-        normalizedRelCwd ?? '',
-      ]), ctx.abortSignal);
+      const stdout = await execFileCommand(
+        executor,
+        cwd,
+        shellFileCommand(GLOB_SCRIPT, [
+          normalizedPattern,
+          globPatternToEre(normalizedPattern),
+          normalizedRelCwd ?? '',
+        ]),
+        ctx.abortSignal,
+      );
       const result = { files: parseLineArray(stdout) };
       await options.heavyTaskEvidence?.recordToolEvidence({ name: 'Glob', input, result }, ctx);
       return result;
@@ -265,8 +295,10 @@ export function buildIsolatedGrepTool(
     permissionRequired: false,
     impl: async ({ pattern, path, glob }, ctx) => {
       const { cwd } = ctx;
-      const normalizedPath = path === undefined ? undefined : normalizeWorkspacePath(path, cwd, 'Grep path');
-      const normalizedGlob = glob === undefined ? undefined : normalizeWorkspaceGlobPattern(glob, cwd, 'Grep glob');
+      const normalizedPath =
+        path === undefined ? undefined : normalizeWorkspacePath(path, cwd, 'Grep path');
+      const normalizedGlob =
+        glob === undefined ? undefined : normalizeWorkspaceGlobPattern(glob, cwd, 'Grep glob');
       const input = {
         cwd,
         pattern,
@@ -278,12 +310,17 @@ export function buildIsolatedGrepTool(
         await options.heavyTaskEvidence?.recordToolEvidence({ name: 'Grep', input, result }, ctx);
         return result;
       }
-      const stdout = await execFileCommand(executor, cwd, shellFileCommand(GREP_SCRIPT, [
-        pattern,
-        normalizedPath ?? '',
-        normalizedGlob ?? '',
-        normalizedGlob === undefined ? '' : globPatternToEre(normalizedGlob),
-      ]), ctx.abortSignal);
+      const stdout = await execFileCommand(
+        executor,
+        cwd,
+        shellFileCommand(GREP_SCRIPT, [
+          pattern,
+          normalizedPath ?? '',
+          normalizedGlob ?? '',
+          normalizedGlob === undefined ? '' : globPatternToEre(normalizedGlob),
+        ]),
+        ctx.abortSignal,
+      );
       const result = { matches: parseLineArray(stdout) };
       await options.heavyTaskEvidence?.recordToolEvidence({ name: 'Grep', input, result }, ctx);
       return result;
@@ -297,12 +334,11 @@ async function execFileCommand(
   command: string,
   abortSignal: AbortSignal,
 ): Promise<string> {
-  const result = await executor.exec(
-    { command, cwd, timeoutMs: 120_000 },
-    { abortSignal },
-  );
+  const result = await executor.exec({ command, cwd, timeoutMs: 120_000 }, { abortSignal });
   if (result.exitCode !== 0) {
-    throw new Error(result.stderr.trim() || `isolated file command failed with exit code ${result.exitCode}`);
+    throw new Error(
+      result.stderr.trim() || `isolated file command failed with exit code ${result.exitCode}`,
+    );
   }
   return result.stdout;
 }
@@ -313,7 +349,12 @@ async function readIsolatedFileBytes(
   path: string,
   abortSignal: AbortSignal,
 ): Promise<Buffer> {
-  const stdout = await execFileCommand(executor, cwd, shellFileCommand(EDIT_READ_BYTES_SCRIPT, [path]), abortSignal);
+  const stdout = await execFileCommand(
+    executor,
+    cwd,
+    shellFileCommand(EDIT_READ_BYTES_SCRIPT, [path]),
+    abortSignal,
+  );
   return parseEditReadFrame(stdout);
 }
 
@@ -326,7 +367,8 @@ function parseEditReadFrame(stdout: string): Buffer {
   const header = lines[0]?.match(EDIT_READ_FRAME_HEADER_PATTERN);
   if (!header) throw editReadIntegrityError('frame header is missing or malformed');
   const expectedLength = Number(header[1]);
-  if (!Number.isSafeInteger(expectedLength)) throw editReadIntegrityError('declared byte length is not safe');
+  if (!Number.isSafeInteger(expectedLength))
+    throw editReadIntegrityError('declared byte length is not safe');
 
   const payload = lines[1] ?? '';
   if (!CANONICAL_BASE64_PATTERN.test(payload)) {
@@ -355,10 +397,12 @@ async function writeIsolatedFileBytes(
   content: Buffer,
   abortSignal: AbortSignal,
 ): Promise<void> {
-  await execFileCommand(executor, cwd, shellFileCommand(EDIT_WRITE_BYTES_SCRIPT, [
-    path,
-    content.toString('base64'),
-  ]), abortSignal);
+  await execFileCommand(
+    executor,
+    cwd,
+    shellFileCommand(EDIT_WRITE_BYTES_SCRIPT, [path, content.toString('base64')]),
+    abortSignal,
+  );
 }
 
 function computeEditBytes(
@@ -383,14 +427,21 @@ function computeEditBytes(
   if (oldBuf.length === 0) throw new Error(`old_string must not be empty in ${inputPath}`);
   const first = raw.indexOf(oldBuf);
   if (first === -1) {
-    throw new Error(`Refusing a non-exact match in ${inputPath}: the file is not valid UTF-8 (looks binary). Re-read it and pass the exact bytes to replace.`);
+    throw new Error(
+      `Refusing a non-exact match in ${inputPath}: the file is not valid UTF-8 (looks binary). Re-read it and pass the exact bytes to replace.`,
+    );
   }
   if (raw.indexOf(oldBuf, first + oldBuf.length) !== -1) {
-    throw new Error(`old_string is not unique in ${inputPath} (binary file: the exact bytes match more than once)`);
+    throw new Error(
+      `old_string is not unique in ${inputPath} (binary file: the exact bytes match more than once)`,
+    );
   }
   const startLine = countNewlines(raw, first) + 1;
   const endsWithNewline = oldBuf[oldBuf.length - 1] === 10;
-  const spanLineCount = Math.max(countNewlines(oldBuf, oldBuf.length) + 1 - (endsWithNewline ? 1 : 0), 1);
+  const spanLineCount = Math.max(
+    countNewlines(oldBuf, oldBuf.length) + 1 - (endsWithNewline ? 1 : 0),
+    1,
+  );
   return {
     content: Buffer.concat([raw.slice(0, first), newBuf, raw.slice(first + oldBuf.length)]),
     matchedVia: 'exact',
@@ -421,7 +472,10 @@ function numberArg(value: number | undefined): string {
 
 function parseLineArray(stdout: string): string[] {
   if (!stdout) return [];
-  return stdout.replace(/\n$/, '').split('\n').filter((line) => line.length > 0);
+  return stdout
+    .replace(/\n$/, '')
+    .split('\n')
+    .filter((line) => line.length > 0);
 }
 
 function globPatternToEre(pattern: string): string {
@@ -461,7 +515,10 @@ function normalizeWorkspacePath(inputPath: string, cwd: string, label: string): 
 function normalizeWorkspaceGlobPattern(pattern: string, cwd: string, label: string): string {
   assertNoDriveOrParentSegment(pattern, label);
   if (!pattern.startsWith('/')) return assertNormalizedRelativePath(pattern, label);
-  return assertNormalizedRelativePath(pathPosix.relative(normalizeWorkspaceRoot(cwd), pattern) || '.', label);
+  return assertNormalizedRelativePath(
+    pathPosix.relative(normalizeWorkspaceRoot(cwd), pattern) || '.',
+    label,
+  );
 }
 
 function normalizeWorkspaceRoot(cwd: string): string {
@@ -470,9 +527,9 @@ function normalizeWorkspaceRoot(cwd: string): string {
 
 function assertNoDriveOrParentSegment(inputPath: string, label: string): void {
   if (
-    inputPath.length === 0
-    || /^[A-Za-z]:[\\/]/.test(inputPath)
-    || inputPath.split(/[\\/]+/).includes('..')
+    inputPath.length === 0 ||
+    /^[A-Za-z]:[\\/]/.test(inputPath) ||
+    inputPath.split(/[\\/]+/).includes('..')
   ) {
     throw new Error(`${label} must stay inside the isolated workspace`);
   }
@@ -480,10 +537,10 @@ function assertNoDriveOrParentSegment(inputPath: string, label: string): void {
 
 function assertNormalizedRelativePath(inputPath: string, label: string): string {
   if (
-    inputPath.length === 0
-    || inputPath.startsWith('/')
-    || /^[A-Za-z]:[\\/]/.test(inputPath)
-    || inputPath.split(/[\\/]+/).includes('..')
+    inputPath.length === 0 ||
+    inputPath.startsWith('/') ||
+    /^[A-Za-z]:[\\/]/.test(inputPath) ||
+    inputPath.split(/[\\/]+/).includes('..')
   ) {
     throw new Error(`${label} must stay inside the isolated workspace`);
   }

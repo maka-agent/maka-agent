@@ -9,7 +9,9 @@ import {
 
 function deferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
-  const promise = new Promise<T>((res) => { resolve = res; });
+  const promise = new Promise<T>((res) => {
+    resolve = res;
+  });
   return { promise, resolve };
 }
 
@@ -82,13 +84,15 @@ describe('Goal turn lifecycle', () => {
       },
       {
         name: 'abort event',
-        events: [{
-          type: 'abort',
-          id: 'abort-1',
-          turnId,
-          ts: 1,
-          reason: 'user_stop',
-        }],
+        events: [
+          {
+            type: 'abort',
+            id: 'abort-1',
+            turnId,
+            ts: 1,
+            reason: 'user_stop',
+          },
+        ],
         expected: { kind: 'aborted', turnId },
       },
       {
@@ -210,7 +214,9 @@ describe('Goal turn lifecycle', () => {
       onEvent: (event) => {
         if (event.type === 'error') errorObserved.resolve();
       },
-      onSettled: (outcome) => { settled = outcome; },
+      onSettled: (outcome) => {
+        settled = outcome;
+      },
     });
 
     await errorObserved.promise;
@@ -254,7 +260,9 @@ describe('Goal turn lifecycle', () => {
         projected.push(event.type);
         if (event.type === 'text_delta') throw new Error('projection failed');
       },
-      onSettled: (outcome) => { settled = outcome; },
+      onSettled: (outcome) => {
+        settled = outcome;
+      },
     });
 
     assert.equal(streamDrained, true);
@@ -267,5 +275,4 @@ describe('Goal turn lifecycle', () => {
     assert.deepEqual(settled, result);
     assert.equal(registry.whenIdle('session-1'), undefined);
   });
-
 });

@@ -62,7 +62,9 @@ describe('projectSessionSendOutcome — session’s own connection', () => {
 
   // Locked sessions isolate the own-connection reason: no rebind walk
   // can rescue them, so the outcome surfaces the raw failure cause.
-  function lockedInput(overrides: Partial<SessionSendProjectionInput> = {}): SessionSendProjectionInput {
+  function lockedInput(
+    overrides: Partial<SessionSendProjectionInput> = {},
+  ): SessionSendProjectionInput {
     const base = input(overrides);
     return { ...base, session: { ...base.session, connectionLocked: true } };
   }
@@ -85,7 +87,12 @@ describe('projectSessionSendOutcome — session’s own connection', () => {
   it('legacy/empty slug → missing_default_connection', () => {
     const outcome = projectSessionSendOutcome(
       lockedInput({
-        session: { backend: 'ai-sdk', llmConnectionSlug: '', model: 'gpt-4.1', connectionLocked: true },
+        session: {
+          backend: 'ai-sdk',
+          llmConnectionSlug: '',
+          model: 'gpt-4.1',
+          connectionLocked: true,
+        },
       }),
     );
     assert.equal(outcome.kind === 'blocked' && outcome.reason, 'missing_default_connection');
@@ -158,7 +165,12 @@ describe('projectSessionSendOutcome — silent rebind walk', () => {
   it('rebindable failure walks to the ready default connection', () => {
     const outcome = projectSessionSendOutcome(
       input({
-        session: { backend: 'fake', llmConnectionSlug: 'fake', model: 'fake-model', connectionLocked: false },
+        session: {
+          backend: 'fake',
+          llmConnectionSlug: 'fake',
+          model: 'fake-model',
+          connectionLocked: false,
+        },
       }),
     );
     assert.deepEqual(outcome, { kind: 'rebind', connectionSlug: 'openai-live', model: 'gpt-4.1' });
@@ -167,21 +179,39 @@ describe('projectSessionSendOutcome — silent rebind walk', () => {
   it('walks past an unready default to another ready connection', () => {
     const outcome = projectSessionSendOutcome(
       input({
-        session: { backend: 'fake', llmConnectionSlug: 'fake', model: 'fake-model', connectionLocked: false },
+        session: {
+          backend: 'fake',
+          llmConnectionSlug: 'fake',
+          model: 'fake-model',
+          connectionLocked: false,
+        },
         connections: [
           connection({ slug: 'default-broken', enabled: false }),
-          connection({ slug: 'second-ready', defaultModel: 'gpt-4.1-mini', models: [{ id: 'gpt-4.1-mini' }] }),
+          connection({
+            slug: 'second-ready',
+            defaultModel: 'gpt-4.1-mini',
+            models: [{ id: 'gpt-4.1-mini' }],
+          }),
         ],
         defaultSlug: 'default-broken',
       }),
     );
-    assert.deepEqual(outcome, { kind: 'rebind', connectionSlug: 'second-ready', model: 'gpt-4.1-mini' });
+    assert.deepEqual(outcome, {
+      kind: 'rebind',
+      connectionSlug: 'second-ready',
+      model: 'gpt-4.1-mini',
+    });
   });
 
   it('rebind requires a secret on the candidate connection', () => {
     const outcome = projectSessionSendOutcome(
       input({
-        session: { backend: 'fake', llmConnectionSlug: 'fake', model: 'fake-model', connectionLocked: false },
+        session: {
+          backend: 'fake',
+          llmConnectionSlug: 'fake',
+          model: 'fake-model',
+          connectionLocked: false,
+        },
         hasSecret: () => false,
       }),
     );
@@ -195,13 +225,22 @@ describe('projectSessionSendOutcome — silent rebind walk', () => {
         hasSecret: () => false, // own connection missing key
       }),
     );
-    assert.deepEqual(outcome, { kind: 'blocked', reason: 'missing_api_key', connectionLocked: false });
+    assert.deepEqual(outcome, {
+      kind: 'blocked',
+      reason: 'missing_api_key',
+      connectionLocked: false,
+    });
   });
 
   it('deleted default slug is skipped during the walk', () => {
     const outcome = projectSessionSendOutcome(
       input({
-        session: { backend: 'fake', llmConnectionSlug: 'fake', model: 'fake-model', connectionLocked: false },
+        session: {
+          backend: 'fake',
+          llmConnectionSlug: 'fake',
+          model: 'fake-model',
+          connectionLocked: false,
+        },
         defaultSlug: 'ghost-slug',
       }),
     );
@@ -224,7 +263,12 @@ describe('projectSessionSendOutcome — codex normalization', () => {
     // validates the normalized default instead → ready.
     const outcome = projectSessionSendOutcome(
       input({
-        session: { backend: 'ai-sdk', llmConnectionSlug: 'codex-sub', model: 'gpt-5-codex', connectionLocked: true },
+        session: {
+          backend: 'ai-sdk',
+          llmConnectionSlug: 'codex-sub',
+          model: 'gpt-5-codex',
+          connectionLocked: true,
+        },
         connections: [codex],
         defaultSlug: 'codex-sub',
       }),
@@ -235,7 +279,12 @@ describe('projectSessionSendOutcome — codex normalization', () => {
   it('a codex connection with only unsupported models rebinds onto the fallback list', () => {
     const outcome = projectSessionSendOutcome(
       input({
-        session: { backend: 'fake', llmConnectionSlug: 'fake', model: 'fake-model', connectionLocked: false },
+        session: {
+          backend: 'fake',
+          llmConnectionSlug: 'fake',
+          model: 'fake-model',
+          connectionLocked: false,
+        },
         connections: [
           connection({
             slug: 'codex-sub',
@@ -249,6 +298,10 @@ describe('projectSessionSendOutcome — codex normalization', () => {
     );
     // Normalization swaps the unservable list for the provider fallback
     // list, whose first entry becomes the rebind model.
-    assert.deepEqual(outcome, { kind: 'rebind', connectionSlug: 'codex-sub', model: 'gpt-5.6-sol' });
+    assert.deepEqual(outcome, {
+      kind: 'rebind',
+      connectionSlug: 'codex-sub',
+      model: 'gpt-5.6-sol',
+    });
   });
 });

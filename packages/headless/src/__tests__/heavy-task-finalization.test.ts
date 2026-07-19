@@ -48,7 +48,11 @@ describe('heavy-task finalization status', () => {
       latestHeavyTaskSelfCheck: selfCheck('pass'),
       latestHeavyTaskTodos: phaseGateTodos([
         { id: 'implemented', status: 'completed' },
-        { id: 'optional-polish', status: 'cancelled', evidence: 'Out of scope after public README review.' },
+        {
+          id: 'optional-polish',
+          status: 'cancelled',
+          evidence: 'Out of scope after public README review.',
+        },
       ]),
     });
 
@@ -63,9 +67,14 @@ describe('heavy-task finalization status', () => {
       { name: 'missing self-check', selfCheck: undefined },
       {
         name: 'rejected self-check',
-        selfCheck: selfCheck('pass', { guardStatus: 'rejected' }) as unknown as HeavyTaskSemanticSelfCheckState,
+        selfCheck: selfCheck('pass', {
+          guardStatus: 'rejected',
+        }) as unknown as HeavyTaskSemanticSelfCheckState,
       },
-      { name: 'private payload replay', selfCheck: selfCheck('pass', { publicReason: 'hidden/tests/private_case.py passed.' }) },
+      {
+        name: 'private payload replay',
+        selfCheck: selfCheck('pass', { publicReason: 'hidden/tests/private_case.py passed.' }),
+      },
       { name: 'failed self-check', selfCheck: selfCheck('fail') },
       { name: 'inconclusive self-check', selfCheck: selfCheck('inconclusive') },
     ];
@@ -150,9 +159,21 @@ describe('heavy-task finalization status', () => {
     const cases = [
       { name: 'missing todos', todos: undefined, unresolved: [] },
       { name: 'empty todos', todos: todos([]), unresolved: [] },
-      { name: 'pending todo', todos: phaseGateTodos([{ id: 'inspect', status: 'pending' }]), unresolved: ['inspect'] },
-      { name: 'in-progress todo', todos: phaseGateTodos([{ id: 'edit', status: 'in_progress' }]), unresolved: ['edit'] },
-      { name: 'cancelled without evidence', todos: phaseGateTodos([{ id: 'optional', status: 'cancelled' }]), unresolved: ['optional'] },
+      {
+        name: 'pending todo',
+        todos: phaseGateTodos([{ id: 'inspect', status: 'pending' }]),
+        unresolved: ['inspect'],
+      },
+      {
+        name: 'in-progress todo',
+        todos: phaseGateTodos([{ id: 'edit', status: 'in_progress' }]),
+        unresolved: ['edit'],
+      },
+      {
+        name: 'cancelled without evidence',
+        todos: phaseGateTodos([{ id: 'optional', status: 'cancelled' }]),
+        unresolved: ['optional'],
+      },
       {
         name: 'unknown future status',
         todos: phaseGateTodos([{ id: 'future', status: 'blocked' as HeavyTaskTodoItem['status'] }]),
@@ -180,21 +201,41 @@ describe('heavy-task finalization status', () => {
     const cases = [
       {
         name: 'missing both gate kinds',
-        todos: todos([{ id: 'edit', content: 'Patch implementation', status: 'completed', priority: 'high' }]),
+        todos: todos([
+          { id: 'edit', content: 'Patch implementation', status: 'completed', priority: 'high' },
+        ]),
         reason: /runnable_artifact, public_check/,
       },
       {
         name: 'missing public check',
         todos: todos([
-          { id: 'artifact', kind: 'runnable_artifact', content: 'Create runnable artifact', status: 'completed', priority: 'high' },
+          {
+            id: 'artifact',
+            kind: 'runnable_artifact',
+            content: 'Create runnable artifact',
+            status: 'completed',
+            priority: 'high',
+          },
         ]),
         reason: /public_check/,
       },
       {
         name: 'public check still pending',
         todos: todos([
-          { id: 'artifact', kind: 'runnable_artifact', content: 'Create runnable artifact', status: 'completed', priority: 'high' },
-          { id: 'check', kind: 'public_check', content: 'Run public check', status: 'pending', priority: 'high' },
+          {
+            id: 'artifact',
+            kind: 'runnable_artifact',
+            content: 'Create runnable artifact',
+            status: 'completed',
+            priority: 'high',
+          },
+          {
+            id: 'check',
+            kind: 'public_check',
+            content: 'Run public check',
+            status: 'pending',
+            priority: 'high',
+          },
         ]),
         reason: /unresolved work/,
       },
@@ -226,12 +267,43 @@ describe('heavy-task finalization status', () => {
       reason?: string;
       capKind: string;
     }> = [
-      { name: 'budget exhausted', status: 'budget_exhausted', taxonomy: 'budget_exhausted', capKind: 'budget_exhausted' },
-      { name: 'runtime step cap', status: 'failed', errorClass: 'max_steps', message: 'runtime step cap reached', capKind: 'runtime_step_cap' },
-      { name: 'wall time cap', status: 'failed', message: 'wall time cap reached', capKind: 'wall_time_cap' },
-      { name: 'max attempts', status: 'failed', reason: 'max attempts exhausted', capKind: 'max_attempts' },
-      { name: 'legacy tool calls', status: 'incomplete', errorClass: 'incomplete_tool_calls', capKind: 'tool_call_step_cap' },
-      { name: 'tool step cap', status: 'incomplete', errorClass: 'tool_step_cap_reached', capKind: 'tool_call_step_cap' },
+      {
+        name: 'budget exhausted',
+        status: 'budget_exhausted',
+        taxonomy: 'budget_exhausted',
+        capKind: 'budget_exhausted',
+      },
+      {
+        name: 'runtime step cap',
+        status: 'failed',
+        errorClass: 'max_steps',
+        message: 'runtime step cap reached',
+        capKind: 'runtime_step_cap',
+      },
+      {
+        name: 'wall time cap',
+        status: 'failed',
+        message: 'wall time cap reached',
+        capKind: 'wall_time_cap',
+      },
+      {
+        name: 'max attempts',
+        status: 'failed',
+        reason: 'max attempts exhausted',
+        capKind: 'max_attempts',
+      },
+      {
+        name: 'legacy tool calls',
+        status: 'incomplete',
+        errorClass: 'incomplete_tool_calls',
+        capKind: 'tool_call_step_cap',
+      },
+      {
+        name: 'tool step cap',
+        status: 'incomplete',
+        errorClass: 'tool_step_cap_reached',
+        capKind: 'tool_call_step_cap',
+      },
       { name: 'max tokens', status: 'incomplete', errorClass: 'max_tokens', capKind: 'token_cap' },
       { name: 'timeout', status: 'failed', errorClass: 'timeout', capKind: 'timeout' },
     ];
@@ -240,8 +312,21 @@ describe('heavy-task finalization status', () => {
       const status = evaluateHeavyTaskCompletionStatus({
         status: item.status,
         taxonomy: item.taxonomy,
-        error: item.errorClass || item.message ? { class: item.errorClass, message: item.message ?? item.errorClass ?? '' } : undefined,
-        decisions: item.reason ? [{ id: `decision-${item.name}`, taskRunId: 'run-1', ts: 1, decision: 'stop', reason: item.reason }] : undefined,
+        error:
+          item.errorClass || item.message
+            ? { class: item.errorClass, message: item.message ?? item.errorClass ?? '' }
+            : undefined,
+        decisions: item.reason
+          ? [
+              {
+                id: `decision-${item.name}`,
+                taskRunId: 'run-1',
+                ts: 1,
+                decision: 'stop',
+                reason: item.reason,
+              },
+            ]
+          : undefined,
         heavyTaskMode,
         latestHeavyTaskSelfCheckPlan: selfCheckPlan(),
         latestHeavyTaskSelfCheck: selfCheck('pass'),
@@ -308,9 +393,10 @@ function selfCheck(
       status: options.guardStatus ?? 'accepted',
       checkedAt: 2,
       categories: options.guardStatus === 'rejected' ? ['official_verifier_artifacts'] : [],
-      publicReason: options.guardStatus === 'rejected'
-        ? 'Rejected because submitted evidence referenced private, hidden, or evaluator-only material.'
-        : 'Accepted as public, task-derived advisory self-check evidence.',
+      publicReason:
+        options.guardStatus === 'rejected'
+          ? 'Rejected because submitted evidence referenced private, hidden, or evaluator-only material.'
+          : 'Accepted as public, task-derived advisory self-check evidence.',
     } as unknown as HeavyTaskSemanticSelfCheckState['guard'],
     source: { kind: 'model_tool', toolCallId: 'tool-self-check' },
   };
@@ -322,11 +408,13 @@ function selfCheckPlan(): HeavyTaskSelfCheckPlanState {
     planId: 'plan-1',
     taskRunId: 'run-1',
     ts: 1,
-    finalArtifacts: [{
-      path: 'build-output.log',
-      purpose: 'public self-check artifact',
-      publicReason: 'visible public check creates this artifact',
-    }],
+    finalArtifacts: [
+      {
+        path: 'build-output.log',
+        purpose: 'public self-check artifact',
+        publicReason: 'visible public check creates this artifact',
+      },
+    ],
     selfCheckScratch: {
       root: '/tmp/maka-self-check/run-1',
       expectedGeneratedPaths: ['/tmp/maka-self-check/run-1/check.log'],
@@ -349,7 +437,9 @@ function selfCheckPlan(): HeavyTaskSelfCheckPlanState {
   };
 }
 
-function phaseGateTodos(items: Array<{ id: string; status: HeavyTaskTodoItem['status']; evidence?: string }>): HeavyTaskTodoState {
+function phaseGateTodos(
+  items: Array<{ id: string; status: HeavyTaskTodoItem['status']; evidence?: string }>,
+): HeavyTaskTodoState {
   return todos([
     ...items.map((item) => ({
       id: item.id,

@@ -167,12 +167,16 @@ export async function migrateLegacyCredentialFile(
     const parsed = JSON.parse(raw) as { version?: number; values?: Record<string, string> };
     if (parsed.version === CREDENTIAL_SCHEMA_VERSION) return; // already migrated (possibly by a racing process)
     if (parsed.version !== undefined) {
-      throw new Error(`Cannot migrate credentials.json: unexpected schema version ${parsed.version}.`);
+      throw new Error(
+        `Cannot migrate credentials.json: unexpected schema version ${parsed.version}.`,
+      );
     }
 
     const legacy = parsed.values;
     if (legacy === null || typeof legacy !== 'object' || Array.isArray(legacy)) {
-      throw new Error('Cannot migrate credentials.json: missing or malformed `values`. Leaving it untouched.');
+      throw new Error(
+        'Cannot migrate credentials.json: missing or malformed `values`. Leaving it untouched.',
+      );
     }
     const entries = Object.entries(legacy);
     // Every legacy value must be a string we can hand to the decryptor. A
@@ -308,10 +312,10 @@ class FileCredentialStore implements CredentialStore {
     // not silently start a parallel plaintext store next to it.
     if (parsed.version !== CREDENTIAL_SCHEMA_VERSION) {
       throw new Error(
-        `Unsupported credentials.json schema version: ${String(parsed.version)} `
-          + `(expected ${CREDENTIAL_SCHEMA_VERSION}). Open the desktop app once to migrate, `
-          + `or re-authenticate. If migration keeps failing, a stale lock may be blocking it — `
-          + `remove ${this.path}.lock and retry.`,
+        `Unsupported credentials.json schema version: ${String(parsed.version)} ` +
+          `(expected ${CREDENTIAL_SCHEMA_VERSION}). Open the desktop app once to migrate, ` +
+          `or re-authenticate. If migration keeps failing, a stale lock may be blocking it — ` +
+          `remove ${this.path}.lock and retry.`,
       );
     }
     // A v1 file must carry a well-formed `values` map. Treat a missing or
@@ -432,8 +436,8 @@ export async function withCredentialFileLock<T>(
       if ((error as { code?: string }).code !== 'EEXIST') throw error;
       if (Date.now() >= deadline) {
         throw new Error(
-          `credentials.json is locked by another process (${lockPath}). `
-            + 'If no other process is using it, remove that directory and retry.',
+          `credentials.json is locked by another process (${lockPath}). ` +
+            'If no other process is using it, remove that directory and retry.',
         );
       }
       await delay(LOCK_POLL_MS);

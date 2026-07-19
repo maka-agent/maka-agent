@@ -34,49 +34,52 @@ test('OpenAI strict object schemas require every nullable property', () => {
     },
   });
   assert.deepEqual(schema.required, ['action', 'app', 'coordinate']);
-  assert.deepEqual(
-    (schema.properties as Record<string, unknown>).app,
-    { type: ['string', 'null'] },
-  );
-  assert.deepEqual(
-    (schema.properties as Record<string, unknown>).coordinate,
-    {
-      type: ['array', 'null'],
-      items: { type: 'integer' },
-    },
-  );
-});
-
-test('strict function projection drops only known irrelevant non-null fields', () => {
-  assert.deepEqual(projectOpenAIStrictFunctionArgs({
-    value: {
-      action: 'set_value',
-      app: 'pid:42',
-      window_id: 7,
-      include_screenshot: null,
-      observation_id: 'obs-1',
-      element_id: 'field-1',
-      value: 'next',
-    },
-    knownKeys,
-    allowedKeysByAction,
-  }), {
-    args: {
-      action: 'set_value',
-      observation_id: 'obs-1',
-      element_id: 'field-1',
-      value: 'next',
-    },
-    discardedKeys: ['app', 'window_id'],
+  assert.deepEqual((schema.properties as Record<string, unknown>).app, {
+    type: ['string', 'null'],
+  });
+  assert.deepEqual((schema.properties as Record<string, unknown>).coordinate, {
+    type: ['array', 'null'],
+    items: { type: 'integer' },
   });
 });
 
+test('strict function projection drops only known irrelevant non-null fields', () => {
+  assert.deepEqual(
+    projectOpenAIStrictFunctionArgs({
+      value: {
+        action: 'set_value',
+        app: 'pid:42',
+        window_id: 7,
+        include_screenshot: null,
+        observation_id: 'obs-1',
+        element_id: 'field-1',
+        value: 'next',
+      },
+      knownKeys,
+      allowedKeysByAction,
+    }),
+    {
+      args: {
+        action: 'set_value',
+        observation_id: 'obs-1',
+        element_id: 'field-1',
+        value: 'next',
+      },
+      discardedKeys: ['app', 'window_id'],
+    },
+  );
+});
+
 test('strict function projection rejects unknown keys, accessors, and actions', () => {
-  assert.throws(() => projectOpenAIStrictFunctionArgs({
-    value: { action: 'observe', surprise: true },
-    knownKeys,
-    allowedKeysByAction,
-  }), /unknown_keys:surprise/);
+  assert.throws(
+    () =>
+      projectOpenAIStrictFunctionArgs({
+        value: { action: 'observe', surprise: true },
+        knownKeys,
+        allowedKeysByAction,
+      }),
+    /unknown_keys:surprise/,
+  );
 
   const accessor = { action: 'observe' };
   Object.defineProperty(accessor, 'app', {
@@ -85,15 +88,23 @@ test('strict function projection rejects unknown keys, accessors, and actions', 
       throw new Error('must not run');
     },
   });
-  assert.throws(() => projectOpenAIStrictFunctionArgs({
-    value: accessor,
-    knownKeys,
-    allowedKeysByAction,
-  }), /not_data_property:app/);
+  assert.throws(
+    () =>
+      projectOpenAIStrictFunctionArgs({
+        value: accessor,
+        knownKeys,
+        allowedKeysByAction,
+      }),
+    /not_data_property:app/,
+  );
 
-  assert.throws(() => projectOpenAIStrictFunctionArgs({
-    value: { action: 'left_click' },
-    knownKeys,
-    allowedKeysByAction,
-  }), /unknown_action:left_click/);
+  assert.throws(
+    () =>
+      projectOpenAIStrictFunctionArgs({
+        value: { action: 'left_click' },
+        knownKeys,
+        allowedKeysByAction,
+      }),
+    /unknown_action:left_click/,
+  );
 });

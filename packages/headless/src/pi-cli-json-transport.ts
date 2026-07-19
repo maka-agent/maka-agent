@@ -17,7 +17,11 @@ export interface PiCliJsonChild {
   on(event: 'error', listener: (error: Error) => void): this;
 }
 
-export type PiCliJsonSpawn = (command: string, args: string[], options: PiCliJsonSpawnOptions) => PiCliJsonChild;
+export type PiCliJsonSpawn = (
+  command: string,
+  args: string[],
+  options: PiCliJsonSpawnOptions,
+) => PiCliJsonChild;
 
 export interface PiCliJsonTransportInput {
   command?: string;
@@ -43,14 +47,17 @@ interface PiUsageTotals {
 type PiTokenUsageFrame = Extract<PiAgentFrame, { type: 'token_usage' }>;
 
 export class PiCliJsonTransport implements PiAgentTransport {
-  private readonly input: Required<Pick<PiCliJsonTransportInput, 'command' | 'spawn'>> & Omit<PiCliJsonTransportInput, 'command' | 'spawn'>;
+  private readonly input: Required<Pick<PiCliJsonTransportInput, 'command' | 'spawn'>> &
+    Omit<PiCliJsonTransportInput, 'command' | 'spawn'>;
   private child: PiCliJsonChild | null = null;
 
   constructor(input: PiCliJsonTransportInput = {}) {
     this.input = {
       ...input,
       command: input.command ?? 'pi',
-      spawn: input.spawn ?? ((command, args, options) => nodeSpawn(command, args, options) as PiCliJsonChild),
+      spawn:
+        input.spawn ??
+        ((command, args, options) => nodeSpawn(command, args, options) as PiCliJsonChild),
     };
   }
 
@@ -110,7 +117,9 @@ export class PiCliJsonTransport implements PiAgentTransport {
       if (stdinError) throw stdinError;
       if (result.code !== 0) {
         const details = await stderr;
-        throw new Error(`pi exited with code ${result.code ?? 'signal'}${details ? `: ${details}` : ''}`);
+        throw new Error(
+          `pi exited with code ${result.code ?? 'signal'}${details ? `: ${details}` : ''}`,
+        );
       }
       if (!sawAgentEnd) throw new Error('pi exited before agent_end');
       yield { type: 'complete' };
@@ -137,7 +146,9 @@ export class PiCliJsonTransport implements PiAgentTransport {
   }
 }
 
-function childClose(child: PiCliJsonChild): Promise<{ code: number | null; signal: NodeJS.Signals | null }> {
+function childClose(
+  child: PiCliJsonChild,
+): Promise<{ code: number | null; signal: NodeJS.Signals | null }> {
   return new Promise((resolve, reject) => {
     child.on('close', (code, signal) => resolve({ code, signal }));
     child.on('error', reject);
@@ -184,7 +195,9 @@ function framesFromEvent(event: Record<string, unknown>): PiAgentFrame[] {
           return toolCalls;
         }
         default:
-          throw new Error(`pi emitted unsupported assistant event: ${assistantEvent.type ?? '<missing type>'}`);
+          throw new Error(
+            `pi emitted unsupported assistant event: ${assistantEvent.type ?? '<missing type>'}`,
+          );
       }
     }
 
@@ -193,12 +206,14 @@ function framesFromEvent(event: Record<string, unknown>): PiAgentFrame[] {
       if (message?.role !== 'toolResult') return [];
       const toolUseId = stringValue(message.toolCallId);
       if (!toolUseId) throw new Error('pi toolResult message_end missing toolCallId');
-      return [{
-        type: 'tool_result',
-        toolUseId,
-        isError: message.isError === true,
-        content: { kind: 'text', text: textFromPiContent(message.content) },
-      }];
+      return [
+        {
+          type: 'tool_result',
+          toolUseId,
+          isError: message.isError === true,
+          content: { kind: 'text', text: textFromPiContent(message.content) },
+        },
+      ];
     }
 
     case 'agent_end': {
@@ -284,7 +299,7 @@ function textFromPiContent(content: unknown): string {
   return content
     .map((item) => {
       const value = record(item);
-      return value?.type === 'text' ? stringValue(value.text) ?? '' : '';
+      return value?.type === 'text' ? (stringValue(value.text) ?? '') : '';
     })
     .filter(Boolean)
     .join('\n');
@@ -301,7 +316,9 @@ function parseJsonObject(line: string): Record<string, unknown> {
 }
 
 function record(value: unknown): Record<string, unknown> | undefined {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
 }
 
 function stringValue(value: unknown): string | undefined {

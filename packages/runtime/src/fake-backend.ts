@@ -18,12 +18,14 @@ export class FakeBackend implements AgentBackend {
   private stopped = false;
   private pendingQuestion: PendingQuestion | undefined;
 
-  constructor(private readonly ctx: {
-    sessionId: string;
-    header: SessionHeader;
-    store: SessionStore;
-    appendMessage?: (message: StoredMessage) => Promise<void>;
-  }) {
+  constructor(
+    private readonly ctx: {
+      sessionId: string;
+      header: SessionHeader;
+      store: SessionStore;
+      appendMessage?: (message: StoredMessage) => Promise<void>;
+    },
+  ) {
     this.sessionId = ctx.sessionId;
   }
 
@@ -86,7 +88,13 @@ export class FakeBackend implements AgentBackend {
       for (const chunk of chunks) {
         if (this.stopped) {
           yield { type: 'abort', id: randomUUID(), turnId, ts: Date.now(), reason: 'user_stop' };
-          yield { type: 'complete', id: randomUUID(), turnId, ts: Date.now(), stopReason: 'user_stop' };
+          yield {
+            type: 'complete',
+            id: randomUUID(),
+            turnId,
+            ts: Date.now(),
+            stopReason: 'user_stop',
+          };
           return;
         }
         await sleep(45);
@@ -94,7 +102,14 @@ export class FakeBackend implements AgentBackend {
           yield event;
           settleOutstanding(leaseId);
         }
-        yield { type: 'text_delta', id: randomUUID(), turnId, ts: Date.now(), messageId, text: chunk };
+        yield {
+          type: 'text_delta',
+          id: randomUUID(),
+          turnId,
+          ts: Date.now(),
+          messageId,
+          text: chunk,
+        };
       }
 
       // Final stranded drain (grok-build safety): a steer that landed after the
@@ -106,12 +121,20 @@ export class FakeBackend implements AgentBackend {
       if (steered.length > 0) {
         const ack = `\n\nAcknowledged steering: ${steered.join(' | ')}`;
         text += ack;
-        yield { type: 'text_delta', id: randomUUID(), turnId, ts: Date.now(), messageId, text: ack };
+        yield {
+          type: 'text_delta',
+          id: randomUUID(),
+          turnId,
+          ts: Date.now(),
+          messageId,
+          text: ack,
+        };
       }
 
       const ts = Date.now();
-      const appendMessage = this.ctx.appendMessage ?? ((message: StoredMessage) =>
-        this.ctx.store.appendMessage(this.sessionId, message));
+      const appendMessage =
+        this.ctx.appendMessage ??
+        ((message: StoredMessage) => this.ctx.store.appendMessage(this.sessionId, message));
       await appendMessage({
         type: 'assistant',
         id: messageId,
@@ -175,8 +198,9 @@ export class FakeBackend implements AgentBackend {
         options: [{ label: '是' }, { label: '否' }],
       },
     ];
-    const appendMessage = this.ctx.appendMessage ?? ((message: StoredMessage) =>
-      this.ctx.store.appendMessage(this.sessionId, message));
+    const appendMessage =
+      this.ctx.appendMessage ??
+      ((message: StoredMessage) => this.ctx.store.appendMessage(this.sessionId, message));
     const startedAt = Date.now();
     await appendMessage({
       type: 'tool_call',
@@ -222,7 +246,10 @@ export class FakeBackend implements AgentBackend {
     }
 
     const result = {
-      answers: questions.map((question, index) => ({ question: question.question, answer: response.answers[index] ?? null })),
+      answers: questions.map((question, index) => ({
+        question: question.question,
+        answer: response.answers[index] ?? null,
+      })),
     };
     const resultContent = { kind: 'json' as const, value: result };
     const resultTs = Date.now();
@@ -248,7 +275,14 @@ export class FakeBackend implements AgentBackend {
     const messageId = randomUUID();
     const text = `Fake question answers: ${response.answers.map((answer) => answer ?? '未回答').join(' / ')}`;
     for (const chunk of text.match(/[\s\S]{1,9}/g) ?? [text]) {
-      yield { type: 'text_delta', id: randomUUID(), turnId, ts: Date.now(), messageId, text: chunk };
+      yield {
+        type: 'text_delta',
+        id: randomUUID(),
+        turnId,
+        ts: Date.now(),
+        messageId,
+        text: chunk,
+      };
     }
     const completedAt = Date.now();
     await appendMessage({

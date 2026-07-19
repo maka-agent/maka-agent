@@ -26,7 +26,9 @@ export interface DroppedTextFilePreflightInput {
   sampleBytes?: ArrayLike<number>;
 }
 
-export function preflightDroppedTextFilesForPromptImport(files: readonly DroppedTextFilePreflightInput[]): TextFileImportPreflightResult {
+export function preflightDroppedTextFilesForPromptImport(
+  files: readonly DroppedTextFilePreflightInput[],
+): TextFileImportPreflightResult {
   if (files.length === 0) return { ok: false, reason: 'missing' };
   if (files.length > MAX_IMPORTED_TEXT_FILE_COUNT) return { ok: false, reason: 'too-many-files' };
 
@@ -44,7 +46,9 @@ export function isDroppedTextFileImportCompatible(file: DroppedTextFilePreflight
   return droppedTextFileIncompatibleReason(file) === null;
 }
 
-function droppedTextFileIncompatibleReason(file: DroppedTextFilePreflightInput): TextFileImportPreflightFailureReason | null {
+function droppedTextFileIncompatibleReason(
+  file: DroppedTextFilePreflightInput,
+): TextFileImportPreflightFailureReason | null {
   const mime = normalizeMime(file.type);
   const suffix = fileSuffix(file.name);
   const basename = fileBasename(file.name);
@@ -77,7 +81,8 @@ function isTextMime(mime: string): boolean {
 
 function isKnownBinaryMime(mime: string): boolean {
   if (!mime || mime === 'application/octet-stream') return false;
-  if (mime.startsWith('image/') || mime.startsWith('audio/') || mime.startsWith('video/')) return true;
+  if (mime.startsWith('image/') || mime.startsWith('audio/') || mime.startsWith('video/'))
+    return true;
   return BINARY_MIME_TYPES.has(mime);
 }
 
@@ -234,11 +239,4 @@ const BINARY_FILE_SUFFIXES = new Set([
   'zip',
 ]);
 
-const OFFICE_FILE_SUFFIXES = new Set([
-  'doc',
-  'docx',
-  'ppt',
-  'pptx',
-  'xls',
-  'xlsx',
-]);
+const OFFICE_FILE_SUFFIXES = new Set(['doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx']);

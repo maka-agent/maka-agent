@@ -1,7 +1,4 @@
-import {
-  failureClassFromCompleteStopReason,
-  type SessionEvent,
-} from '@maka/core';
+import { failureClassFromCompleteStopReason, type SessionEvent } from '@maka/core';
 
 export type GoalTurnOutcome =
   | { kind: 'completed'; turnId: string }
@@ -32,7 +29,9 @@ export class SessionActivityRegistry {
     let state = this.states.get(sessionId);
     if (!state) {
       let resolveIdle!: () => void;
-      const whenIdle = new Promise<void>((resolve) => { resolveIdle = resolve; });
+      const whenIdle = new Promise<void>((resolve) => {
+        resolveIdle = resolve;
+      });
       state = { count: 0, whenIdle, resolveIdle };
       this.states.set(sessionId, state);
     }
@@ -113,8 +112,9 @@ export async function drainGoalTurn(input: DrainGoalTurnInput): Promise<GoalTurn
     }
   }
 
-  let outcome: GoalTurnOutcome = observedOutcome
-    ?? failedOutcome(new Error('Session turn ended without a completion event'), input.turnId);
+  let outcome: GoalTurnOutcome =
+    observedOutcome ??
+    failedOutcome(new Error('Session turn ended without a completion event'), input.turnId);
   outcome = { ...outcome, turnId: input.turnId };
   try {
     await input.onDrained?.(outcome);
@@ -132,9 +132,8 @@ function observeGoalTurnOutcome(
   event: SessionEvent,
 ): GoalTurnOutcome | undefined {
   if (current) return current;
-  const failureClass = event.type === 'complete'
-    ? failureClassFromCompleteStopReason(event.stopReason)
-    : undefined;
+  const failureClass =
+    event.type === 'complete' ? failureClassFromCompleteStopReason(event.stopReason) : undefined;
   if (event.type === 'error' || failureClass !== undefined) {
     return {
       kind: 'errored',
