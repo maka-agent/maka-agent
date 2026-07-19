@@ -33,11 +33,18 @@ describe('permission response IPC boundary', () => {
   it('registers AskUserQuestion only on the Desktop root tool surface and routes its response', async () => {
     const mainPath = fileURLToPath(new URL('../../../src/main/main.ts', import.meta.url));
     const main = await readMainProcessCombinedSource();
-    const rootTools = main.match(/const builtinTools: MakaTool\[\] = \[[\s\S]*?\n\];/)?.[0] ?? '';
+    // Root surface is assembled as toolsBeforeSkill + Skill + toolsAfterSkill → builtinTools.
+    const rootBeforeSkill =
+      main.match(/const toolsBeforeSkill: MakaTool\[\] = \[[\s\S]*?\n\];/)?.[0] ?? '';
+    const rootBuiltin =
+      main.match(
+        /const builtinTools: MakaTool\[\] = \[\.\.\.toolsBeforeSkill, skillTool, \.\.\.toolsAfterSkill\];/,
+      )?.[0] ?? '';
     const childTools = main.match(/const childAgentTools = buildChildAgentTools\([\s\S]*?\n\]\);/)?.[0] ?? '';
     const handler = main.match(/ipcMain\.handle\('sessions:respondToUserQuestion'[\s\S]*?\n  \}\);/)?.[0] ?? '';
 
-    assert.match(rootTools, /buildAskUserQuestionTool\(\)/);
+    assert.match(rootBeforeSkill, /buildAskUserQuestionTool\(\)/);
+    assert.match(rootBuiltin, /toolsBeforeSkill/);
     assert.doesNotMatch(childTools, /buildAskUserQuestionTool\(\)/);
     assert.match(handler, /const normalized = normalizeUserQuestionResponse\(response\)/);
     assert.match(handler, /await ensureSessionWorkspaceAvailable\(sessionId\)/);

@@ -29,15 +29,37 @@ describe('AgentSwarm host registration contract', () => {
     }
   });
 
-  test('all hosts use the shared deferred Agent group contract', async () => {
-    const [desktop, cli, headless] = await Promise.all([
+  test('all hosts derive deferred groups from the shared catalog', async () => {
+    const [desktop, cli, headless, catalog] = await Promise.all([
       readFile(resolve(REPO_ROOT, 'apps/desktop/src/main/main.ts'), 'utf8'),
       readFile(resolve(REPO_ROOT, 'packages/cli/src/runtime-bootstrap.ts'), 'utf8'),
       readFile(resolve(REPO_ROOT, 'packages/headless/src/tools.ts'), 'utf8'),
+      readFile(resolve(REPO_ROOT, 'packages/core/src/tool-catalog.ts'), 'utf8'),
     ]);
 
-    assert.match(desktop, /buildSubagentToolGroup\(\)/);
-    assert.match(cli, /groups: \[buildSubagentToolGroup\(\)\]/);
-    assert.match(headless, /groups: \[buildSubagentToolGroup\(\)\]/);
+    // Agent pack identity stays owned by the catalog (matches AGENT_TOOL_GROUP_ID).
+    assert.match(catalog, /id:\s*'agent'/);
+    assert.match(catalog, /toolNames:\s*\[[\s\S]*'agent_spawn'[\s\S]*'agent_swarm'/);
+
+    assert.match(
+      desktop,
+      /groups:\s*buildDeferredToolGroupsFromCatalog\(\s*'desktop'/,
+    );
+    assert.match(
+      cli,
+      /groups:\s*buildDeferredToolGroupsFromCatalog\(\s*'cli'/,
+    );
+    assert.match(
+      headless,
+      /groups:\s*buildDeferredToolGroupsFromCatalog\(\s*'headless'/,
+    );
+
+    for (const source of [desktop, cli, headless]) {
+      assert.doesNotMatch(
+        source,
+        /buildSubagentToolGroup\(/,
+        'hosts must project deferred groups from the catalog, not hand-list buildSubagentToolGroup',
+      );
+    }
   });
 });

@@ -8,12 +8,17 @@ const ROOT = resolve(process.cwd(), '..', '..');
 
 describe('Desktop Computer Use production wiring', () => {
   it('registers the function harness without presentation or provider adapters', async () => {
-    const main = await readMainProcessCombinedSource();
+    const [main, catalog] = await Promise.all([
+      readMainProcessCombinedSource(),
+      readFile(resolve(ROOT, 'packages/core/src/tool-catalog.ts'), 'utf8'),
+    ]);
     assert.match(main, /createComputerUseHost/);
     assert.match(main, /createCursorOverlayController/);
     assert.match(main, /createComputerUseOverlayHook/);
     assert.match(main, /computerUseTools/);
-    assert.match(main, /id:\s*'computer_use'/);
+    // Deferred group identity lives in the shared catalog; desktop derives it.
+    assert.match(catalog, /id:\s*'computer_use'/);
+    assert.match(main, /buildDeferredToolGroupsFromCatalog\(\s*'desktop'/);
     assert.doesNotMatch(main, /createAnthropicComputerHarness|createKimiComputerHarness|createMiniMaxComputerHarness/);
   });
 
