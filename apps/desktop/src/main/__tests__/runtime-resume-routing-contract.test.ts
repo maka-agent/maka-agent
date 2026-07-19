@@ -9,13 +9,18 @@ const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');
 describe('runtime resume desktop routing contract', () => {
   it('renderer routes interrupted-banner resume and reports parked diagnostics', async () => {
     const shell = await readRendererShellSource('app-shell.tsx');
+    // R2: the resume cluster (state + resumeInterruptedSession handler) moved out of
+    // app-shell.tsx into use-shell-resume.ts (use-shell-connections house style). The
+    // handler-shape assertions read the hook file; app-shell keeps the sendWithAttachments
+    // guard and the banner `safeResumeAction=` wiring.
+    const resume = await readRendererShellSource('use-shell-resume.ts');
     const send = shell.match(/async function sendWithAttachments\(text: string\): Promise<boolean \| void> \{[\s\S]*?\n  \}/)?.[0] ?? '';
 
     assert.doesNotMatch(send, /text\.trim\(\) === '\/resume'/);
-    assert.match(shell, /async function resumeInterruptedSession\(\)/);
-    assert.match(shell, /window\.maka\.sessions\.resumeLatest\(sessionId\)/);
-    assert.match(shell, /resumeParkToastCopy\(result\.rejectionReasons\)/);
-    assert.doesNotMatch(shell, /result\.rejectionReasons\.join/);
+    assert.match(resume, /async function resumeInterruptedSession\(\)/);
+    assert.match(resume, /window\.maka\.sessions\.resumeLatest\(sessionId\)/);
+    assert.match(resume, /resumeParkToastCopy\(result\.rejectionReasons\)/);
+    assert.doesNotMatch(resume, /result\.rejectionReasons\.join/);
     assert.match(shell, /safeResumeAction=/);
 
     const turn = await readFile(resolve(REPO_ROOT, 'packages/ui/src/chat-turn.tsx'), 'utf8');

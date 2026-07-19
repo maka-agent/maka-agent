@@ -26,7 +26,6 @@ import {
   type TurnFooterActionMeta,
   useToast,
   activeInteractionFor,
-  resumeParkToastCopy,
 } from '@maka/ui';
 import { useKeyboardHelp } from './keyboard-help';
 import { useCommandPalette } from './command-palette';
@@ -96,6 +95,7 @@ import { useShellConnections } from './use-shell-connections';
 import { useShellChatModel } from './use-shell-chat-model';
 import { useShellLiveTurn } from './use-shell-live-turn';
 import { useShellLayout } from './use-shell-layout';
+import { useShellResume } from './use-shell-resume';
 import { useSettingsModal } from './use-settings-modal';
 import {
   isSessionWorkspaceUnavailableError,
@@ -265,8 +265,11 @@ function AppShellContent({
   const [paletteOpen, openPalette, closePalette] = useCommandPalette();
   const [viewMode, setViewMode] = useState<SessionViewMode>('status');
   const composerRef = useRef<ComposerHandle>(null);
-  const [resumePendingSessionId, setResumePendingSessionId] = useState<string | null>(null);
-  const [resumeParkDescriptionBySession, setResumeParkDescriptionBySession] = useState<Record<string, string>>({});
+  const {
+    resumePendingSessionId,
+    resumeParkDescriptionBySession,
+    resumeInterruptedSession,
+  } = useShellResume({ activeId, toastApi, shellCopy, uiLocale });
   const rendererMountedRef = useRef(true);
   // Active autonomous goal for the current session drives the header
   // kill-switch pill (visible indicator + one-click clear).
@@ -890,41 +893,6 @@ function AppShellContent({
     toastApi,
     upsertSessionSummary,
   });
-
-  async function resumeInterruptedSession(): Promise<void> {
-    const sessionId = activeId;
-    if (!sessionId || resumePendingSessionId !== null) return;
-    setResumePendingSessionId(sessionId);
-    try {
-      const result = await window.maka.sessions.resumeLatest(sessionId);
-      if (result.disposition === 'park') {
-        const parkCopy = resumeParkToastCopy(result.rejectionReasons);
-        setResumeParkDescriptionBySession((current) => ({
-          ...current,
-          [sessionId]: parkCopy.description,
-        }));
-        toastApi.error(parkCopy.title, parkCopy.description);
-      } else {
-        setResumeParkDescriptionBySession((current) => {
-          const { [sessionId]: _removed, ...remaining } = current;
-          void _removed;
-          return remaining;
-        });
-        toastApi.info(shellCopy.resumeStartedTitle, shellCopy.resumeStartedDescription);
-      }
-    } catch (error) {
-      toastApi.error(
-        shellCopy.resumeFailedTitle,
-        localizedShellErrorMessage(
-          error,
-          shellCopy.resumeFailedFallback,
-          uiLocale,
-        ),
-      );
-    } finally {
-      setResumePendingSessionId((current) => current === sessionId ? null : current);
-    }
-  }
 
   async function sendWithAttachments(text: string): Promise<boolean | void> {
     if (text.trim() === '/compact') {
