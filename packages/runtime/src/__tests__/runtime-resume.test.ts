@@ -148,30 +148,44 @@ describe('runtime resume phase 1 safe-boundary continuation', () => {
       turnId: 'turn-2',
     };
     const childEvents = [
-      { ...base({
-        id: 'continuation-start',
-        role: 'system',
-        author: 'system',
-        actions: { stateDelta: { continuationStart: true } },
-      }), ...continuationIdentity },
-      { ...callEvent('child-call', 'tool-2', 'Bash', { command: 'npm test' }), ...continuationIdentity },
-      { ...responseEvent('child-result', 'tool-2', 'Bash', { exitCode: 0 }, false), ...continuationIdentity },
-      { ...base({ id: 'child-terminal', status: 'failed', actions: { endInvocation: true } }), ...continuationIdentity },
+      {
+        ...base({
+          id: 'continuation-start',
+          role: 'system',
+          author: 'system',
+          actions: { stateDelta: { continuationStart: true } },
+        }),
+        ...continuationIdentity,
+      },
+      {
+        ...callEvent('child-call', 'tool-2', 'Bash', { command: 'npm test' }),
+        ...continuationIdentity,
+      },
+      {
+        ...responseEvent('child-result', 'tool-2', 'Bash', { exitCode: 0 }, false),
+        ...continuationIdentity,
+      },
+      {
+        ...base({ id: 'child-terminal', status: 'failed', actions: { endInvocation: true } }),
+        ...continuationIdentity,
+      },
     ];
     const planner = new RuntimeContinuationPlanner({
-      readSourceRun: async (_sessionId, runId) => runId === 'run-2'
-        ? {
-            cwd: '/workspace/repo',
-            status: 'failed',
-            continuationSource: {
-              sourceInvocationId: 'invocation-1',
-              sourceRunId: 'run-1',
-              sourceTurnId: 'turn-1',
-              sourceRuntimeEventHighWater: rootEvents.length,
-            },
-          }
-        : { cwd: '/workspace/repo', status: 'failed' },
-      readRuntimeEvents: async (_sessionId, runId) => runId === 'run-2' ? childEvents : rootEvents,
+      readSourceRun: async (_sessionId, runId) =>
+        runId === 'run-2'
+          ? {
+              cwd: '/workspace/repo',
+              status: 'failed',
+              continuationSource: {
+                sourceInvocationId: 'invocation-1',
+                sourceRunId: 'run-1',
+                sourceTurnId: 'turn-1',
+                sourceRuntimeEventHighWater: rootEvents.length,
+              },
+            }
+          : { cwd: '/workspace/repo', status: 'failed' },
+      readRuntimeEvents: async (_sessionId, runId) =>
+        runId === 'run-2' ? childEvents : rootEvents,
       newId: (() => {
         let next = 2;
         return () => `generated-${++next}`;
@@ -189,20 +203,21 @@ describe('runtime resume phase 1 safe-boundary continuation', () => {
     });
 
     assert.equal(plan.disposition, 'continue');
-    assert.deepEqual(plan.continuation?.runtimeContext.map((event) => event.id), [
-      'root-user',
-      'root-terminal',
-      'continuation-start',
-      'child-call',
-      'child-result',
-      'child-terminal',
-    ]);
-    assert.deepEqual(plan.continuation?.sourceRuntimeContext?.map((event) => event.id), [
-      'continuation-start',
-      'child-call',
-      'child-result',
-      'child-terminal',
-    ]);
+    assert.deepEqual(
+      plan.continuation?.runtimeContext.map((event) => event.id),
+      [
+        'root-user',
+        'root-terminal',
+        'continuation-start',
+        'child-call',
+        'child-result',
+        'child-terminal',
+      ],
+    );
+    assert.deepEqual(
+      plan.continuation?.sourceRuntimeContext?.map((event) => event.id),
+      ['continuation-start', 'child-call', 'child-result', 'child-terminal'],
+    );
   });
 
   test('uses RecoveryResolver to distinguish a new-protocol call that never crossed T1', () => {
@@ -218,9 +233,10 @@ describe('runtime resume phase 1 safe-boundary continuation', () => {
     assert.equal(plan.disposition, 'blocked');
     assert.equal(plan.operations[0]?.status, 'not_dispatched');
     assert.equal(plan.requiresVerification, false);
-    assert.deepEqual(plan.diagnostics.map((diagnostic) => diagnostic.code), [
-      'tool_not_dispatched',
-    ]);
+    assert.deepEqual(
+      plan.diagnostics.map((diagnostic) => diagnostic.code),
+      ['tool_not_dispatched'],
+    );
     assert.deepEqual(plan.rejectionReasons, ['dangling_tool_state']);
   });
 
@@ -268,10 +284,13 @@ describe('runtime resume phase 1 safe-boundary continuation', () => {
   });
 
   test('parks when a permission request has no committed decision', () => {
-    const plan = buildSafeBoundaryContinuationPlan([
-      textEvent('user-1', 'user', 'edit the file'),
-      permissionRequestEvent('permission-1', 'tool-1'),
-    ], safeBoundaryFacts());
+    const plan = buildSafeBoundaryContinuationPlan(
+      [
+        textEvent('user-1', 'user', 'edit the file'),
+        permissionRequestEvent('permission-1', 'tool-1'),
+      ],
+      safeBoundaryFacts(),
+    );
 
     assert.equal(plan.disposition, 'park');
     assert.deepEqual(plan.rejectionReasons, ['pending_permission']);
@@ -279,41 +298,54 @@ describe('runtime resume phase 1 safe-boundary continuation', () => {
   });
 
   test('parks when the current workspace identity differs from the source boundary', () => {
-    const plan = buildSafeBoundaryContinuationPlan([
-      textEvent('user-1', 'user', 'inspect the repository'),
-    ], {
-      ...safeBoundaryFacts(),
-      currentWorkspaceIdentity: 'workspace-2',
-    });
+    const plan = buildSafeBoundaryContinuationPlan(
+      [textEvent('user-1', 'user', 'inspect the repository')],
+      {
+        ...safeBoundaryFacts(),
+        currentWorkspaceIdentity: 'workspace-2',
+      },
+    );
 
     assert.equal(plan.disposition, 'park');
     assert.deepEqual(plan.rejectionReasons, ['workspace_identity_mismatch']);
   });
 
   test('parks while a background operation is still unsettled', () => {
-    const plan = buildSafeBoundaryContinuationPlan([
-      textEvent('user-1', 'user', 'start the service'),
-      callEvent('call-1', 'tool-1', 'Bash', { command: 'npm start', background: true }),
-      responseEvent('result-1', 'tool-1', 'Bash', {
-        kind: 'shell_run',
-        ref: 'maka://runtime/background-tasks/run-1',
-        status: 'running',
-      }, false),
-    ], {
-      ...safeBoundaryFacts(),
-      backgroundOperationsSettled: false,
-    });
+    const plan = buildSafeBoundaryContinuationPlan(
+      [
+        textEvent('user-1', 'user', 'start the service'),
+        callEvent('call-1', 'tool-1', 'Bash', { command: 'npm start', background: true }),
+        responseEvent(
+          'result-1',
+          'tool-1',
+          'Bash',
+          {
+            kind: 'shell_run',
+            ref: 'maka://runtime/background-tasks/run-1',
+            status: 'running',
+          },
+          false,
+        ),
+      ],
+      {
+        ...safeBoundaryFacts(),
+        backgroundOperationsSettled: false,
+      },
+    );
 
     assert.equal(plan.disposition, 'park');
     assert.deepEqual(plan.rejectionReasons, ['background_operation_pending']);
   });
 
   test('parks when a historical tool is unavailable in the current catalog', () => {
-    const plan = buildSafeBoundaryContinuationPlan([
-      textEvent('user-1', 'user', 'fetch the page'),
-      callEvent('call-1', 'tool-1', 'Fetch', { url: 'https://example.test' }),
-      responseEvent('result-1', 'tool-1', 'Fetch', { status: 200 }, false),
-    ], safeBoundaryFacts());
+    const plan = buildSafeBoundaryContinuationPlan(
+      [
+        textEvent('user-1', 'user', 'fetch the page'),
+        callEvent('call-1', 'tool-1', 'Fetch', { url: 'https://example.test' }),
+        responseEvent('result-1', 'tool-1', 'Fetch', { status: 200 }, false),
+      ],
+      safeBoundaryFacts(),
+    );
 
     assert.equal(plan.disposition, 'park');
     assert.deepEqual(plan.rejectionReasons, ['tool_catalog_mismatch']);
@@ -348,15 +380,16 @@ describe('runtime resume phase 1 safe-boundary continuation', () => {
     const empty = buildSafeBoundaryContinuationPlan([], safeBoundaryFacts());
     assert.deepEqual(empty.rejectionReasons, ['runtime_ledger_empty']);
 
-    const mixed = buildSafeBoundaryContinuationPlan([
-      textEvent('user-1', 'user', 'continue'),
-      base({ id: 'other-run', runId: 'run-other', content: { kind: 'text', text: 'other' } }),
-    ], safeBoundaryFacts());
+    const mixed = buildSafeBoundaryContinuationPlan(
+      [
+        textEvent('user-1', 'user', 'continue'),
+        base({ id: 'other-run', runId: 'run-other', content: { kind: 'text', text: 'other' } }),
+      ],
+      safeBoundaryFacts(),
+    );
     assert.deepEqual(mixed.rejectionReasons, ['runtime_identity_mismatch']);
 
-    const reused = buildSafeBoundaryContinuationPlan([
-      textEvent('user-1', 'user', 'continue'),
-    ], {
+    const reused = buildSafeBoundaryContinuationPlan([textEvent('user-1', 'user', 'continue')], {
       ...safeBoundaryFacts(),
       continuationIdentity: {
         invocationId: 'invocation-1',
@@ -368,31 +401,37 @@ describe('runtime resume phase 1 safe-boundary continuation', () => {
   });
 
   test('parks when committed provider history ends with a model message', () => {
-    const plan = buildSafeBoundaryContinuationPlan([
-      textEvent('user-1', 'user', 'write a summary'),
-      base({
-        id: 'assistant-1',
-        role: 'model',
-        author: 'agent',
-        content: { kind: 'text', text: 'partial but committed answer' },
-      }),
-    ], safeBoundaryFacts());
+    const plan = buildSafeBoundaryContinuationPlan(
+      [
+        textEvent('user-1', 'user', 'write a summary'),
+        base({
+          id: 'assistant-1',
+          role: 'model',
+          author: 'agent',
+          content: { kind: 'text', text: 'partial but committed answer' },
+        }),
+      ],
+      safeBoundaryFacts(),
+    );
 
     assert.equal(plan.disposition, 'park');
     assert.deepEqual(plan.rejectionReasons, ['provider_resume_boundary_unsupported']);
   });
 
   test('parks when committed provider history does not start at a user boundary', () => {
-    const plan = buildSafeBoundaryContinuationPlan([
-      base({
-        id: 'continuation-start',
-        role: 'system',
-        author: 'system',
-        actions: { stateDelta: { continuationStart: true } },
-      }),
-      callEvent('call-1', 'tool-1', 'Bash', { command: 'npm test' }),
-      responseEvent('result-1', 'tool-1', 'Bash', { exitCode: 0 }, false),
-    ], safeBoundaryFacts());
+    const plan = buildSafeBoundaryContinuationPlan(
+      [
+        base({
+          id: 'continuation-start',
+          role: 'system',
+          author: 'system',
+          actions: { stateDelta: { continuationStart: true } },
+        }),
+        callEvent('call-1', 'tool-1', 'Bash', { command: 'npm test' }),
+        responseEvent('result-1', 'tool-1', 'Bash', { exitCode: 0 }, false),
+      ],
+      safeBoundaryFacts(),
+    );
 
     assert.equal(plan.disposition, 'park');
     assert.deepEqual(plan.rejectionReasons, ['provider_resume_head_unsupported']);
@@ -421,20 +460,26 @@ describe('runtime resume phase 1 safe-boundary continuation', () => {
   });
 
   test('keeps the durable high-water even when partial events are excluded from replay context', () => {
-    const plan = buildSafeBoundaryContinuationPlan([
-      textEvent('user-1', 'user', 'continue'),
-      base({
-        id: 'partial-1',
-        partial: true,
-        role: 'model',
-        author: 'agent',
-        content: { kind: 'text', text: 'streaming' },
-      }),
-    ], safeBoundaryFacts());
+    const plan = buildSafeBoundaryContinuationPlan(
+      [
+        textEvent('user-1', 'user', 'continue'),
+        base({
+          id: 'partial-1',
+          partial: true,
+          role: 'model',
+          author: 'agent',
+          content: { kind: 'text', text: 'streaming' },
+        }),
+      ],
+      safeBoundaryFacts(),
+    );
 
     assert.equal(plan.disposition, 'continue');
     assert.equal(plan.continuation?.sourceRuntimeEventHighWater, 2);
-    assert.deepEqual(plan.continuation?.runtimeContext.map((event) => event.id), ['user-1']);
+    assert.deepEqual(
+      plan.continuation?.runtimeContext.map((event) => event.id),
+      ['user-1'],
+    );
   });
 });
 

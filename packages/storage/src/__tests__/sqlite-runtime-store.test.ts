@@ -63,9 +63,10 @@ describe('SqliteRuntimeStore', () => {
         dispatchEventId: 'dispatch-event-1',
         version: 1,
       });
-      assert.deepEqual((await store.readToolJournal('operation-1')).map((event) => event.state), [
-        'prepared',
-      ]);
+      assert.deepEqual(
+        (await store.readToolJournal('operation-1')).map((event) => event.state),
+        ['prepared'],
+      );
       assert.equal((await store.readToolJournal('operation-1'))[0]?.runtimeEventId, dispatch.id);
       assert.deepEqual(
         (await store.listUnsettledToolOperations()).map((operation) => operation.operationId),
@@ -165,10 +166,10 @@ describe('SqliteRuntimeStore', () => {
         resultEventId: 'response-event-1',
         version: 2,
       });
-      assert.deepEqual((await store.readToolJournal('operation-1')).map((event) => event.state), [
-        'prepared',
-        'outcome_committed',
-      ]);
+      assert.deepEqual(
+        (await store.readToolJournal('operation-1')).map((event) => event.state),
+        ['prepared', 'outcome_committed'],
+      );
       assert.deepEqual(await store.listUnsettledToolOperations(), []);
     });
   });
@@ -188,14 +189,15 @@ describe('SqliteRuntimeStore', () => {
         /sqlite runtime failpoint: after_runtime_event_insert/,
       );
 
-      assert.deepEqual((await store.readRuntimeEvents('session-1', 'run-1')).map((event) => event.id), [
-        'call-event-1',
-        'dispatch-event-1',
-      ]);
+      assert.deepEqual(
+        (await store.readRuntimeEvents('session-1', 'run-1')).map((event) => event.id),
+        ['call-event-1', 'dispatch-event-1'],
+      );
       assert.equal((await store.readToolOperation('operation-1'))?.currentState, 'prepared');
-      assert.deepEqual((await store.readToolJournal('operation-1')).map((event) => event.state), [
-        'prepared',
-      ]);
+      assert.deepEqual(
+        (await store.readToolJournal('operation-1')).map((event) => event.state),
+        ['prepared'],
+      );
       assert.equal((await store.readImmutableRuntimeEvents('session-1', 'run-1')).length, 2);
     });
   });
@@ -265,29 +267,39 @@ describe('SqliteRuntimeStore', () => {
       const result = await store.rebuildToolProjectionsFromRuntimeEvents();
 
       assert.deepEqual(result, { operations: 1, journalEvents: 2 });
-      assert.equal((await store.readToolOperation('operation-1'))?.dispatchEventId, 'dispatch-event-1');
-      assert.deepEqual((await store.readToolJournal('operation-1')).map((event) => ({
-        state: event.state,
-        runtimeEventId: event.runtimeEventId,
-      })), [
-        { state: 'prepared', runtimeEventId: 'dispatch-event-1' },
-        { state: 'outcome_committed', runtimeEventId: 'response-event-1' },
-      ]);
+      assert.equal(
+        (await store.readToolOperation('operation-1'))?.dispatchEventId,
+        'dispatch-event-1',
+      );
+      assert.deepEqual(
+        (await store.readToolJournal('operation-1')).map((event) => ({
+          state: event.state,
+          runtimeEventId: event.runtimeEventId,
+        })),
+        [
+          { state: 'prepared', runtimeEventId: 'dispatch-event-1' },
+          { state: 'outcome_committed', runtimeEventId: 'response-event-1' },
+        ],
+      );
     });
   });
 
   it('coalesces stream chunks outside the immutable high-water ledger', async () => {
     await withStore(async (store) => {
       for (const [index, text] of ['hel', 'lo', '!'].entries()) {
-        await store.appendRuntimeEvent('session-1', 'run-1', functionCallEvent({
-          id: `partial-${index}`,
-          ts: index + 1,
-          partial: true,
-          role: 'model',
-          author: 'agent',
-          content: { kind: 'text', text },
-          refs: { providerEventId: 'message-1' },
-        }));
+        await store.appendRuntimeEvent(
+          'session-1',
+          'run-1',
+          functionCallEvent({
+            id: `partial-${index}`,
+            ts: index + 1,
+            partial: true,
+            role: 'model',
+            author: 'agent',
+            content: { kind: 'text', text },
+            refs: { providerEventId: 'message-1' },
+          }),
+        );
       }
 
       const visible = await store.readRuntimeEvents('session-1', 'run-1');
@@ -300,34 +312,50 @@ describe('SqliteRuntimeStore', () => {
 
   it('replaces text and tool partial snapshots when their durable final arrives', async () => {
     await withStore(async (store) => {
-      await store.appendRuntimeEvent('session-1', 'run-1', functionCallEvent({
-        id: 'text-partial',
-        partial: true,
-        role: 'model',
-        author: 'agent',
-        content: { kind: 'text', text: 'working' },
-        refs: { providerEventId: 'message-1' },
-      }));
-      await store.appendRuntimeEvent('session-1', 'run-1', functionCallEvent({
-        id: 'tool-partial',
-        partial: true,
-        role: 'tool',
-        author: 'tool',
-        content: undefined,
-        refs: { toolCallId: 'provider-call-1' },
-      }));
-      await store.appendRuntimeEvent('session-1', 'run-1', functionCallEvent({
-        id: 'text-final',
-        ts: 2,
-        partial: false,
-        role: 'model',
-        author: 'agent',
-        content: { kind: 'text', text: 'done' },
-        refs: { providerEventId: 'message-1' },
-      }));
-      await store.appendRuntimeEvent('session-1', 'run-1', functionResponseEvent({
-        refs: { toolCallId: 'provider-call-1' },
-      }));
+      await store.appendRuntimeEvent(
+        'session-1',
+        'run-1',
+        functionCallEvent({
+          id: 'text-partial',
+          partial: true,
+          role: 'model',
+          author: 'agent',
+          content: { kind: 'text', text: 'working' },
+          refs: { providerEventId: 'message-1' },
+        }),
+      );
+      await store.appendRuntimeEvent(
+        'session-1',
+        'run-1',
+        functionCallEvent({
+          id: 'tool-partial',
+          partial: true,
+          role: 'tool',
+          author: 'tool',
+          content: undefined,
+          refs: { toolCallId: 'provider-call-1' },
+        }),
+      );
+      await store.appendRuntimeEvent(
+        'session-1',
+        'run-1',
+        functionCallEvent({
+          id: 'text-final',
+          ts: 2,
+          partial: false,
+          role: 'model',
+          author: 'agent',
+          content: { kind: 'text', text: 'done' },
+          refs: { providerEventId: 'message-1' },
+        }),
+      );
+      await store.appendRuntimeEvent(
+        'session-1',
+        'run-1',
+        functionResponseEvent({
+          refs: { toolCallId: 'provider-call-1' },
+        }),
+      );
 
       assert.deepEqual(
         (await store.readRuntimeEvents('session-1', 'run-1')).map((event) => event.id),
@@ -356,7 +384,9 @@ async function withStore(
     },
   });
   try {
-    await run(store, dbPath, (point) => { failpoint = point; });
+    await run(store, dbPath, (point) => {
+      failpoint = point;
+    });
   } finally {
     store.close();
     await rm(root, { recursive: true, force: true });

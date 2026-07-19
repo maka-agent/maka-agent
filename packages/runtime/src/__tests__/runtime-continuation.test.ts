@@ -30,7 +30,12 @@ test('local continuation safety inspector derives portable authoritative host fa
 
 test('RuntimeRunner continues from replay context without synthesizing another user event', async () => {
   const sourceEvents = [
-    event({ id: 'source-user', role: 'user', author: 'user', content: { kind: 'text', text: 'run tests' } }),
+    event({
+      id: 'source-user',
+      role: 'user',
+      author: 'user',
+      content: { kind: 'text', text: 'run tests' },
+    }),
     event({
       id: 'source-call',
       role: 'model',
@@ -71,7 +76,10 @@ test('RuntimeRunner continues from replay context without synthesizing another u
     },
     flow: {
       async *run(context, input) {
-        assert.deepEqual(committedStartEvents.map((candidate) => candidate.id), ['continuation-start']);
+        assert.deepEqual(
+          committedStartEvents.map((candidate) => candidate.id),
+          ['continuation-start'],
+        );
         capturedContext = context;
         capturedInput = input;
         yield event({
@@ -94,10 +102,10 @@ test('RuntimeRunner continues from replay context without synthesizing another u
   assert.equal(result.invocationId, 'invocation-2');
   assert.equal(result.runId, 'run-2');
   assert.equal(result.turnId, 'turn-2');
-  assert.deepEqual(result.events.map((candidate) => candidate.id), [
-    'continuation-start',
-    'continued-complete',
-  ]);
+  assert.deepEqual(
+    result.events.map((candidate) => candidate.id),
+    ['continuation-start', 'continued-complete'],
+  );
   assert.deepEqual(result.events[0]?.refs, {
     sourceInvocationId: 'invocation-1',
     sourceRunId: 'run-1',
@@ -178,23 +186,26 @@ test('RuntimeRunner preserves the immediate source segment when replay includes 
     providers: { newId: () => 'new-event', now: () => 20 },
   });
 
-  const result = await runner.resume({
-    sessionId: 'session-1',
-    invocationId: 'invocation-2',
-    runId: 'run-2',
-    turnId: 'turn-2',
-    sourceInvocationId: 'invocation-1',
-    sourceRunId: 'run-1',
-    sourceTurnId: 'turn-1',
-    sourceRuntimeEventHighWater: sourceRuntimeContext.length,
-    sourceRuntimeContext,
-    runtimeContext,
-    safetySnapshot: {
-      workspaceIdentity: 'workspace-1',
-      backgroundOperationsSettled: true,
-      availableToolNames: [],
+  const result = await runner.resume(
+    {
+      sessionId: 'session-1',
+      invocationId: 'invocation-2',
+      runId: 'run-2',
+      turnId: 'turn-2',
+      sourceInvocationId: 'invocation-1',
+      sourceRunId: 'run-1',
+      sourceTurnId: 'turn-1',
+      sourceRuntimeEventHighWater: sourceRuntimeContext.length,
+      sourceRuntimeContext,
+      runtimeContext,
+      safetySnapshot: {
+        workspaceIdentity: 'workspace-1',
+        backgroundOperationsSettled: true,
+        availableToolNames: [],
+      },
     },
-  }, { source: 'test' });
+    { source: 'test' },
+  );
 
   assert.equal(result.status, 'completed');
   assert.deepEqual(capturedInput?.runtimeContext, runtimeContext);
@@ -203,7 +214,12 @@ test('RuntimeRunner preserves the immediate source segment when replay includes 
 
 test('RuntimeContinuationPlanner reads the durable source boundary and allocates fresh identities', async () => {
   const sourceEvents = [
-    event({ id: 'source-user', role: 'user', author: 'user', content: { kind: 'text', text: 'continue' } }),
+    event({
+      id: 'source-user',
+      role: 'user',
+      author: 'user',
+      content: { kind: 'text', text: 'continue' },
+    }),
     event({
       id: 'source-terminal',
       role: 'system',
@@ -258,24 +274,32 @@ test('RuntimeRunner rejects a continuation envelope whose high-water is behind i
   });
 
   await assert.rejects(
-    runner.resume({
-      sessionId: 'session-1',
-      invocationId: 'invocation-2',
-      runId: 'run-2',
-      turnId: 'turn-2',
-      sourceInvocationId: 'invocation-1',
-      sourceRunId: 'run-1',
-      sourceTurnId: 'turn-1',
-      sourceRuntimeEventHighWater: 0,
-      runtimeContext: [
-        event({ id: 'source-user', role: 'user', author: 'user', content: { kind: 'text', text: 'continue' } }),
-      ],
-      safetySnapshot: {
-        workspaceIdentity: 'workspace-1',
-        backgroundOperationsSettled: true,
-        availableToolNames: [],
+    runner.resume(
+      {
+        sessionId: 'session-1',
+        invocationId: 'invocation-2',
+        runId: 'run-2',
+        turnId: 'turn-2',
+        sourceInvocationId: 'invocation-1',
+        sourceRunId: 'run-1',
+        sourceTurnId: 'turn-1',
+        sourceRuntimeEventHighWater: 0,
+        runtimeContext: [
+          event({
+            id: 'source-user',
+            role: 'user',
+            author: 'user',
+            content: { kind: 'text', text: 'continue' },
+          }),
+        ],
+        safetySnapshot: {
+          workspaceIdentity: 'workspace-1',
+          backgroundOperationsSettled: true,
+          availableToolNames: [],
+        },
       },
-    }, { source: 'test' }),
+      { source: 'test' },
+    ),
     /high-water/i,
   );
 });
@@ -283,7 +307,9 @@ test('RuntimeRunner rejects a continuation envelope whose high-water is behind i
 test('RuntimeContinuationPlanner parks with a stable reason when the ledger cannot be read', async () => {
   const planner = new RuntimeContinuationPlanner({
     readSourceRun: async () => ({ cwd: '/workspace/repo', status: 'failed' }),
-    readRuntimeEvents: async () => { throw new Error('corrupt ledger'); },
+    readRuntimeEvents: async () => {
+      throw new Error('corrupt ledger');
+    },
     newId: () => 'unused',
   });
 
@@ -305,7 +331,12 @@ test('RuntimeContinuationPlanner derives terminal repair from durable run and ev
   const planner = new RuntimeContinuationPlanner({
     readSourceRun: async () => ({ cwd: '/workspace/repo', status: 'running' }),
     readRuntimeEvents: async () => [
-      event({ id: 'source-user', role: 'user', author: 'user', content: { kind: 'text', text: 'continue' } }),
+      event({
+        id: 'source-user',
+        role: 'user',
+        author: 'user',
+        content: { kind: 'text', text: 'continue' },
+      }),
     ],
     newId: () => 'fresh-id',
   });
@@ -328,7 +359,12 @@ test('RuntimeContinuationPlanner parks when the terminal run header disagrees wi
   const planner = new RuntimeContinuationPlanner({
     readSourceRun: async () => ({ cwd: '/workspace/repo', status: 'completed' }),
     readRuntimeEvents: async () => [
-      event({ id: 'source-user', role: 'user', author: 'user', content: { kind: 'text', text: 'continue' } }),
+      event({
+        id: 'source-user',
+        role: 'user',
+        author: 'user',
+        content: { kind: 'text', text: 'continue' },
+      }),
       event({
         id: 'source-terminal',
         role: 'system',

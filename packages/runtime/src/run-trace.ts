@@ -151,10 +151,12 @@ export class RunTrace {
   ): void {
     this.emit('model', 'model_stream_failed', 'Model stream failed', {
       ...(errorClass ? { errorClass } : {}),
-      ...(replay ? {
-        priorReplayGate: replay.gate,
-        priorReplayDiagnosticCodes: [...replay.diagnosticCodes],
-      } : {}),
+      ...(replay
+        ? {
+            priorReplayGate: replay.gate,
+            priorReplayDiagnosticCodes: [...replay.diagnosticCodes],
+          }
+        : {}),
       error: explainError(error),
       ...diagnoseError(error),
     });

@@ -8,11 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, test } from 'node:test';
 
 import type { AgentRunHeader, RuntimeEvent } from '@maka/core';
-import {
-  createAgentRunStore,
-  createRuntimeEventStore,
-  createSessionStore,
-} from '@maka/storage';
+import { createAgentRunStore, createRuntimeEventStore, createSessionStore } from '@maka/storage';
 
 import { type RuntimeContinuationFailpoint } from '../agent-run.js';
 import { BackendRegistry, SessionManager } from '../session-manager.js';
@@ -30,7 +26,9 @@ if (process.env[CRASH_CHILD_ENV] === '1') {
   await runCrashChild();
 } else {
   describe('runtime resume phase 1 process crash harness', () => {
-    test('reopens and repairs every committed continuation prefix after SIGKILL', { timeout: 60_000 }, async () => {
+    test('reopens and repairs every committed continuation prefix after SIGKILL', {
+      timeout: 60_000,
+    }, async () => {
       const root = await mkdtemp(join(tmpdir(), 'maka-runtime-continuation-crash-'));
       try {
         for (const failpoint of FAILPOINTS) {
@@ -43,7 +41,9 @@ if (process.env[CRASH_CHILD_ENV] === '1') {
           const [session] = await store.list();
           assert.ok(session, `${failpoint} did not persist a session`);
           const runsBeforeRecovery = await runStore.listSessionRuns(session.id);
-          const continuation = runsBeforeRecovery.find((run) => run.continuationSource !== undefined);
+          const continuation = runsBeforeRecovery.find(
+            (run) => run.continuationSource !== undefined,
+          );
           assert.ok(continuation, `${failpoint} did not persist the continuation claim`);
           assert.equal(continuation.continuationSource?.sourceRunId, 'source-run');
           const prefix = await runtimeEventStore.readRuntimeEvents(session.id, continuation.runId);
@@ -58,11 +58,18 @@ if (process.env[CRASH_CHILD_ENV] === '1') {
 
           await manager.recoverInterruptedSessions();
           const repaired = await runStore.readRun(session.id, continuation.runId);
-          const repairedEvents = await runtimeEventStore.readRuntimeEvents(session.id, continuation.runId);
-          const terminalEvents = repairedEvents.filter((event) => event.actions?.endInvocation === true);
+          const repairedEvents = await runtimeEventStore.readRuntimeEvents(
+            session.id,
+            continuation.runId,
+          );
+          const terminalEvents = repairedEvents.filter(
+            (event) => event.actions?.endInvocation === true,
+          );
           assert.equal(terminalEvents.length, 1, `${failpoint} must recover one terminal fact`);
           assert.ok(
-            repaired.status === 'completed' || repaired.status === 'failed' || repaired.status === 'cancelled',
+            repaired.status === 'completed' ||
+              repaired.status === 'failed' ||
+              repaired.status === 'cancelled',
             `${failpoint} left the continuation non-terminal`,
           );
         }
@@ -75,17 +82,23 @@ if (process.env[CRASH_CHILD_ENV] === '1') {
 
 async function runCrashChild(): Promise<void> {
   const workspaceRoot = requiredEnv('MAKA_RUNTIME_CONTINUATION_WORKSPACE');
-  const failpoint = requiredEnv('MAKA_RUNTIME_CONTINUATION_FAILPOINT') as RuntimeContinuationFailpoint;
+  const failpoint = requiredEnv(
+    'MAKA_RUNTIME_CONTINUATION_FAILPOINT',
+  ) as RuntimeContinuationFailpoint;
   const store = createSessionStore(workspaceRoot);
   const runStore = createAgentRunStore(workspaceRoot);
   const runtimeEventStore = createRuntimeEventStore(workspaceRoot);
   const backends = new BackendRegistry();
-  backends.register('fake', (ctx) => new FakeBackend({
-    sessionId: ctx.sessionId,
-    header: ctx.header,
-    store: ctx.store,
-    appendMessage: ctx.appendMessage,
-  }));
+  backends.register(
+    'fake',
+    (ctx) =>
+      new FakeBackend({
+        sessionId: ctx.sessionId,
+        header: ctx.header,
+        store: ctx.store,
+        appendMessage: ctx.appendMessage,
+      }),
+  );
   let id = 0;
   const manager = new SessionManager({
     store,
@@ -123,7 +136,8 @@ async function runCrashChild(): Promise<void> {
   const plan = await manager.planAuthoritativeSafeBoundaryContinuation(session.id, {
     sourceRunId: 'source-run',
   });
-  if (!plan.continuation) throw new Error(`expected continuation: ${plan.rejectionReasons.join(',')}`);
+  if (!plan.continuation)
+    throw new Error(`expected continuation: ${plan.rejectionReasons.join(',')}`);
   for await (const _event of manager.resumeSafeBoundaryContinuation(plan.continuation)) {
     // drain until the selected failpoint suspends the child
   }
@@ -135,12 +149,16 @@ function createManager(workspaceRoot: string): SessionManager {
   const runStore = createAgentRunStore(workspaceRoot);
   const runtimeEventStore = createRuntimeEventStore(workspaceRoot);
   const backends = new BackendRegistry();
-  backends.register('fake', (ctx) => new FakeBackend({
-    sessionId: ctx.sessionId,
-    header: ctx.header,
-    store: ctx.store,
-    appendMessage: ctx.appendMessage,
-  }));
+  backends.register(
+    'fake',
+    (ctx) =>
+      new FakeBackend({
+        sessionId: ctx.sessionId,
+        header: ctx.header,
+        store: ctx.store,
+        appendMessage: ctx.appendMessage,
+      }),
+  );
   let id = 100;
   return new SessionManager({
     store,
@@ -173,11 +191,19 @@ async function crashContinuationAt(
   let stderr = '';
   child.stdout.setEncoding('utf8');
   child.stderr.setEncoding('utf8');
-  child.stdout.on('data', (chunk: string) => { stdout += chunk; });
-  child.stderr.on('data', (chunk: string) => { stderr += chunk; });
+  child.stdout.on('data', (chunk: string) => {
+    stdout += chunk;
+  });
+  child.stderr.on('data', (chunk: string) => {
+    stderr += chunk;
+  });
   const exited = once(child, 'exit') as Promise<[number | null, NodeJS.Signals | null]>;
   const deadline = Date.now() + 10_000;
-  while (!stdout.includes(`READY:${failpoint}\n`) && child.exitCode === null && Date.now() < deadline) {
+  while (
+    !stdout.includes(`READY:${failpoint}\n`) &&
+    child.exitCode === null &&
+    Date.now() < deadline
+  ) {
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   if (!stdout.includes(`READY:${failpoint}\n`)) {
@@ -202,7 +228,10 @@ function assertPrefix(
   }
   assert.equal(events[0]?.actions?.stateDelta?.continuationStart, true);
   if (failpoint === 'after_continuation_start_committed') {
-    assert.equal(events.some((event) => event.actions?.endInvocation === true), false);
+    assert.equal(
+      events.some((event) => event.actions?.endInvocation === true),
+      false,
+    );
     return;
   }
   assert.equal(events.filter((event) => event.actions?.endInvocation === true).length, 1);

@@ -10,13 +10,15 @@ describe('RecoveryResolver', () => {
       functionCallEvent(),
     ]);
 
-    assert.deepEqual(resolution.decisions, [{
-      toolCallId: 'call-1',
-      toolName: 'Bash',
-      status: 'definitely_not_dispatched',
-      reason: 'new_protocol_before_dispatch',
-      callRuntimeEventId: 'function-call-1',
-    }]);
+    assert.deepEqual(resolution.decisions, [
+      {
+        toolCallId: 'call-1',
+        toolName: 'Bash',
+        status: 'definitely_not_dispatched',
+        reason: 'new_protocol_before_dispatch',
+        callRuntimeEventId: 'function-call-1',
+      },
+    ]);
     assert.equal(resolution.hasCorruption, false);
     assert.equal(resolution.requiresReconciliation, false);
   });
@@ -28,15 +30,17 @@ describe('RecoveryResolver', () => {
       toolDispatchEvent(),
     ]);
 
-    assert.deepEqual(resolution.decisions, [{
-      toolCallId: 'call-1',
-      toolName: 'Bash',
-      operationId: 'operation-1',
-      status: 'indeterminate',
-      reason: 'dispatch_without_response',
-      callRuntimeEventId: 'function-call-1',
-      dispatchRuntimeEventId: 'dispatch-1',
-    }]);
+    assert.deepEqual(resolution.decisions, [
+      {
+        toolCallId: 'call-1',
+        toolName: 'Bash',
+        operationId: 'operation-1',
+        status: 'indeterminate',
+        reason: 'dispatch_without_response',
+        callRuntimeEventId: 'function-call-1',
+        dispatchRuntimeEventId: 'dispatch-1',
+      },
+    ]);
     assert.equal(resolution.hasCorruption, false);
     assert.equal(resolution.requiresReconciliation, true);
   });
@@ -48,15 +52,17 @@ describe('RecoveryResolver', () => {
       functionResponseEvent(true),
     ]);
 
-    assert.deepEqual(resolution.decisions, [{
-      toolCallId: 'call-1',
-      toolName: 'Bash',
-      status: 'completed',
-      reason: 'matching_response',
-      callRuntimeEventId: 'function-call-1',
-      responseRuntimeEventId: 'function-response-1',
-      responseIsError: true,
-    }]);
+    assert.deepEqual(resolution.decisions, [
+      {
+        toolCallId: 'call-1',
+        toolName: 'Bash',
+        status: 'completed',
+        reason: 'matching_response',
+        callRuntimeEventId: 'function-call-1',
+        responseRuntimeEventId: 'function-response-1',
+        responseIsError: true,
+      },
+    ]);
     assert.equal(resolution.requiresReconciliation, false);
   });
 
@@ -66,14 +72,16 @@ describe('RecoveryResolver', () => {
       toolDispatchEvent(),
     ]);
 
-    assert.deepEqual(resolution.decisions, [{
-      toolCallId: 'call-1',
-      toolName: 'Bash',
-      operationId: 'operation-1',
-      status: 'corruption',
-      reason: 'orphan_dispatch',
-      dispatchRuntimeEventId: 'dispatch-1',
-    }]);
+    assert.deepEqual(resolution.decisions, [
+      {
+        toolCallId: 'call-1',
+        toolName: 'Bash',
+        operationId: 'operation-1',
+        status: 'corruption',
+        reason: 'orphan_dispatch',
+        dispatchRuntimeEventId: 'dispatch-1',
+      },
+    ]);
     assert.equal(resolution.hasCorruption, true);
     assert.equal(resolution.requiresReconciliation, false);
   });
@@ -84,14 +92,16 @@ describe('RecoveryResolver', () => {
       functionResponseEvent(),
     ]);
 
-    assert.deepEqual(resolution.decisions, [{
-      toolCallId: 'call-1',
-      toolName: 'Bash',
-      status: 'corruption',
-      reason: 'orphan_response',
-      responseRuntimeEventId: 'function-response-1',
-      responseIsError: false,
-    }]);
+    assert.deepEqual(resolution.decisions, [
+      {
+        toolCallId: 'call-1',
+        toolName: 'Bash',
+        status: 'corruption',
+        reason: 'orphan_response',
+        responseRuntimeEventId: 'function-response-1',
+        responseIsError: false,
+      },
+    ]);
     assert.equal(resolution.hasCorruption, true);
   });
 
@@ -102,15 +112,17 @@ describe('RecoveryResolver', () => {
       toolDispatchEvent({ toolName: 'Write' }),
     ]);
 
-    assert.deepEqual(resolution.decisions, [{
-      toolCallId: 'call-1',
-      toolName: 'Bash',
-      operationId: 'operation-1',
-      status: 'corruption',
-      reason: 'identity_conflict',
-      callRuntimeEventId: 'function-call-1',
-      dispatchRuntimeEventId: 'dispatch-1',
-    }]);
+    assert.deepEqual(resolution.decisions, [
+      {
+        toolCallId: 'call-1',
+        toolName: 'Bash',
+        operationId: 'operation-1',
+        status: 'corruption',
+        reason: 'identity_conflict',
+        callRuntimeEventId: 'function-call-1',
+        dispatchRuntimeEventId: 'dispatch-1',
+      },
+    ]);
     assert.equal(resolution.hasCorruption, true);
   });
 
@@ -122,15 +134,17 @@ describe('RecoveryResolver', () => {
       { ...toolDispatchEvent(), id: 'dispatch-2' },
     ]);
 
-    assert.deepEqual(resolution.decisions, [{
-      toolCallId: 'call-1',
-      toolName: 'Bash',
-      operationId: 'operation-1',
-      status: 'corruption',
-      reason: 'duplicate_dispatch',
-      callRuntimeEventId: 'function-call-1',
-      dispatchRuntimeEventId: 'dispatch-1',
-    }]);
+    assert.deepEqual(resolution.decisions, [
+      {
+        toolCallId: 'call-1',
+        toolName: 'Bash',
+        operationId: 'operation-1',
+        status: 'corruption',
+        reason: 'duplicate_dispatch',
+        callRuntimeEventId: 'function-call-1',
+        dispatchRuntimeEventId: 'dispatch-1',
+      },
+    ]);
     assert.equal(resolution.hasCorruption, true);
     assert.equal(resolution.requiresReconciliation, false);
   });
@@ -144,17 +158,19 @@ describe('RecoveryResolver', () => {
       { ...functionResponseEvent(false, 'operation-1'), id: 'function-response-2' },
     ]);
 
-    assert.deepEqual(resolution.decisions, [{
-      toolCallId: 'call-1',
-      toolName: 'Bash',
-      operationId: 'operation-1',
-      status: 'corruption',
-      reason: 'duplicate_response',
-      callRuntimeEventId: 'function-call-1',
-      dispatchRuntimeEventId: 'dispatch-1',
-      responseRuntimeEventId: 'function-response-1',
-      responseIsError: false,
-    }]);
+    assert.deepEqual(resolution.decisions, [
+      {
+        toolCallId: 'call-1',
+        toolName: 'Bash',
+        operationId: 'operation-1',
+        status: 'corruption',
+        reason: 'duplicate_response',
+        callRuntimeEventId: 'function-call-1',
+        dispatchRuntimeEventId: 'dispatch-1',
+        responseRuntimeEventId: 'function-response-1',
+        responseIsError: false,
+      },
+    ]);
     assert.equal(resolution.hasCorruption, true);
     assert.equal(resolution.requiresReconciliation, false);
   });
@@ -168,10 +184,12 @@ describe('RecoveryResolver', () => {
       }),
     ]);
 
-    assert.deepEqual(resolution.issues, [{
-      code: 'protocol_marker_invalid',
-      eventId: 'late-marker',
-    }]);
+    assert.deepEqual(resolution.issues, [
+      {
+        code: 'protocol_marker_invalid',
+        eventId: 'late-marker',
+      },
+    ]);
     assert.equal(resolution.toolBoundaryProtocol, undefined);
     assert.equal(resolution.hasCorruption, true);
   });
@@ -183,10 +201,12 @@ describe('RecoveryResolver', () => {
     ]);
 
     assert.equal(resolution.toolBoundaryProtocol, undefined);
-    assert.deepEqual(resolution.issues, [{
-      code: 'protocol_marker_invalid',
-      eventId: 'initial-1',
-    }]);
+    assert.deepEqual(resolution.issues, [
+      {
+        code: 'protocol_marker_invalid',
+        eventId: 'initial-1',
+      },
+    ]);
     assert.equal(resolution.decisions[0]?.status, 'indeterminate');
     assert.equal(resolution.decisions[0]?.reason, 'legacy_dispatch_unknown');
     assert.equal(resolution.hasCorruption, true);
@@ -256,9 +276,7 @@ function functionResponseEvent(isError = false, operationId?: string): RuntimeEv
       result: isError ? 'permission denied' : 'ok',
       ...(isError ? { isError: true } : {}),
     },
-    ...(operationId
-      ? { refs: { operationId, toolCallId: 'call-1' } }
-      : {}),
+    ...(operationId ? { refs: { operationId, toolCallId: 'call-1' } } : {}),
   });
 }
 

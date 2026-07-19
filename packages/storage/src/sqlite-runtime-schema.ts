@@ -3,7 +3,9 @@ import type { DatabaseSync } from 'node:sqlite';
 export const SQLITE_RUNTIME_SCHEMA_VERSION = 4;
 
 const MIGRATIONS: ReadonlyMap<number, string> = new Map([
-  [1, `
+  [
+    1,
+    `
     CREATE TABLE runtime_events (
       event_id TEXT PRIMARY KEY,
       session_id TEXT NOT NULL,
@@ -60,8 +62,11 @@ const MIGRATIONS: ReadonlyMap<number, string> = new Map([
       FOREIGN KEY(result_event_id) REFERENCES runtime_events(event_id),
       UNIQUE(invocation_id, provider_tool_call_id)
     );
-  `],
-  [2, `
+  `,
+  ],
+  [
+    2,
+    `
     CREATE TABLE runtime_partial_snapshots (
       stream_key TEXT PRIMARY KEY,
       session_id TEXT NOT NULL,
@@ -76,18 +81,25 @@ const MIGRATIONS: ReadonlyMap<number, string> = new Map([
 
     CREATE INDEX runtime_partial_snapshots_by_run
       ON runtime_partial_snapshots(session_id, run_id, updated_at, stream_key);
-  `],
-  [3, `
+  `,
+  ],
+  [
+    3,
+    `
     CREATE TABLE runtime_import_sources (
       source_path TEXT PRIMARY KEY,
       fingerprint TEXT NOT NULL,
       imported_at INTEGER NOT NULL
     );
-  `],
-  [4, `
+  `,
+  ],
+  [
+    4,
+    `
     ALTER TABLE tool_operations ADD COLUMN dispatch_event_id TEXT
       REFERENCES runtime_events(event_id);
-  `],
+  `,
+  ],
 ]);
 
 export function configureSqliteRuntimeDatabase(db: DatabaseSync): void {

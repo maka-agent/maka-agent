@@ -45,13 +45,12 @@ export interface RuntimeRecoveryResolution {
   requiresReconciliation: boolean;
 }
 
-export function resolveRuntimeRecovery(
-  events: readonly RuntimeEvent[],
-): RuntimeRecoveryResolution {
+export function resolveRuntimeRecovery(events: readonly RuntimeEvent[]): RuntimeRecoveryResolution {
   const firstProtocol = events[0]?.actions?.runtimeProtocol;
-  const toolBoundaryProtocol = firstProtocol?.toolBoundary === TOOL_BOUNDARY_PROTOCOL_V1
-    ? TOOL_BOUNDARY_PROTOCOL_V1
-    : undefined;
+  const toolBoundaryProtocol =
+    firstProtocol?.toolBoundary === TOOL_BOUNDARY_PROTOCOL_V1
+      ? TOOL_BOUNDARY_PROTOCOL_V1
+      : undefined;
   const issues: RuntimeRecoveryResolution['issues'] = [];
   if (firstProtocol !== undefined && toolBoundaryProtocol === undefined && events[0]) {
     issues.push({
@@ -59,9 +58,12 @@ export function resolveRuntimeRecovery(
       eventId: events[0].id,
     });
   }
-  issues.push(...events.slice(1)
-    .filter((event) => event.actions?.runtimeProtocol !== undefined)
-    .map((event) => ({ code: 'protocol_marker_invalid' as const, eventId: event.id })));
+  issues.push(
+    ...events
+      .slice(1)
+      .filter((event) => event.actions?.runtimeProtocol !== undefined)
+      .map((event) => ({ code: 'protocol_marker_invalid' as const, eventId: event.id })),
+  );
   const decisions: ToolRecoveryDecision[] = [];
   const decisionsByToolCallId = new Map<string, ToolRecoveryDecision>();
   for (const event of events) {
@@ -69,12 +71,8 @@ export function resolveRuntimeRecovery(
     const decision: ToolRecoveryDecision = {
       toolCallId: event.content.id,
       toolName: event.content.name,
-      status: toolBoundaryProtocol
-        ? 'definitely_not_dispatched'
-        : 'indeterminate',
-      reason: toolBoundaryProtocol
-        ? 'new_protocol_before_dispatch'
-        : 'legacy_dispatch_unknown',
+      status: toolBoundaryProtocol ? 'definitely_not_dispatched' : 'indeterminate',
+      reason: toolBoundaryProtocol ? 'new_protocol_before_dispatch' : 'legacy_dispatch_unknown',
       callRuntimeEventId: event.id,
     };
     decisions.push(decision);
@@ -104,9 +102,9 @@ export function resolveRuntimeRecovery(
     decision.operationId = dispatch.operationId;
     decision.dispatchRuntimeEventId = event.id;
     if (
-      decision.toolName !== dispatch.toolName
-      || event.refs?.operationId !== dispatch.operationId
-      || event.refs?.toolCallId !== dispatch.providerToolCallId
+      decision.toolName !== dispatch.toolName ||
+      event.refs?.operationId !== dispatch.operationId ||
+      event.refs?.toolCallId !== dispatch.providerToolCallId
     ) {
       decision.status = 'corruption';
       decision.reason = 'identity_conflict';
@@ -138,11 +136,9 @@ export function resolveRuntimeRecovery(
     decision.responseIsError = event.content.isError === true;
     if (decision.status === 'corruption') continue;
     if (
-      decision.toolName !== event.content.name
-      || (decision.operationId !== undefined
-        && event.refs?.operationId !== decision.operationId)
-      || (event.refs?.toolCallId !== undefined
-        && event.refs.toolCallId !== decision.toolCallId)
+      decision.toolName !== event.content.name ||
+      (decision.operationId !== undefined && event.refs?.operationId !== decision.operationId) ||
+      (event.refs?.toolCallId !== undefined && event.refs.toolCallId !== decision.toolCallId)
     ) {
       decision.status = 'corruption';
       decision.reason = 'identity_conflict';
@@ -155,8 +151,8 @@ export function resolveRuntimeRecovery(
     ...(toolBoundaryProtocol ? { toolBoundaryProtocol } : {}),
     decisions,
     issues,
-    hasCorruption: issues.length > 0
-      || decisions.some((decision) => decision.status === 'corruption'),
+    hasCorruption:
+      issues.length > 0 || decisions.some((decision) => decision.status === 'corruption'),
     requiresReconciliation: decisions.some((decision) => decision.status === 'indeterminate'),
   };
 }

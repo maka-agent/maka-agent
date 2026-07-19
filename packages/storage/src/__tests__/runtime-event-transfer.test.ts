@@ -21,18 +21,38 @@ describe('runtime event JSONL compatibility transfer', () => {
     try {
       await legacy.appendRuntimeEvent('session-1', 'run-1', runtimeEvent('event-1'));
       await legacy.appendRuntimeEvent('session-1', 'run-1', runtimeEvent('event-2', { ts: 2 }));
-      await legacy.appendRuntimeEvent('session-1', 'run-2', runtimeEvent('event-3', {
-        invocationId: 'run-2',
-        runId: 'run-2',
-        turnId: 'turn-2',
-        ts: 3,
-      }));
+      await legacy.appendRuntimeEvent(
+        'session-1',
+        'run-2',
+        runtimeEvent('event-3', {
+          invocationId: 'run-2',
+          runId: 'run-2',
+          turnId: 'turn-2',
+          ts: 3,
+        }),
+      );
 
-      const first = await importLegacyRuntimeEventJsonlTree({ workspaceRoot: root, destination: sqlite });
-      const second = await importLegacyRuntimeEventJsonlTree({ workspaceRoot: root, destination: sqlite });
+      const first = await importLegacyRuntimeEventJsonlTree({
+        workspaceRoot: root,
+        destination: sqlite,
+      });
+      const second = await importLegacyRuntimeEventJsonlTree({
+        workspaceRoot: root,
+        destination: sqlite,
+      });
 
-      assert.deepEqual(first, { filesScanned: 2, eventsRead: 3, eventsImported: 3, eventsExisting: 0 });
-      assert.deepEqual(second, { filesScanned: 0, eventsRead: 0, eventsImported: 0, eventsExisting: 0 });
+      assert.deepEqual(first, {
+        filesScanned: 2,
+        eventsRead: 3,
+        eventsImported: 3,
+        eventsExisting: 0,
+      });
+      assert.deepEqual(second, {
+        filesScanned: 0,
+        eventsRead: 0,
+        eventsImported: 0,
+        eventsExisting: 0,
+      });
       assert.deepEqual(
         (await sqlite.readSessionRuntimeEvents('session-1')).map((event) => event.id),
         ['event-1', 'event-2', 'event-3'],
@@ -52,7 +72,14 @@ describe('runtime event JSONL compatibility transfer', () => {
       await legacy.appendRuntimeEvent('session-1', 'run-1', runtimeEvent('event-2', { ts: 2 }));
       // Older versions wrote stream partial snapshots straight into the JSONL
       // log; current code diverts them to .partial files. Simulate the legacy row.
-      const jsonlPath = join(root, 'sessions', 'session-1', 'runs', 'run-1', 'runtime-events.jsonl');
+      const jsonlPath = join(
+        root,
+        'sessions',
+        'session-1',
+        'runs',
+        'run-1',
+        'runtime-events.jsonl',
+      );
       const legacyStreamPartial = runtimeEvent('partial-thinking', {
         ts: 3,
         partial: true,
@@ -74,9 +101,17 @@ describe('runtime event JSONL compatibility transfer', () => {
         'utf8',
       );
 
-      const report = await importLegacyRuntimeEventJsonlTree({ workspaceRoot: root, destination: sqlite });
+      const report = await importLegacyRuntimeEventJsonlTree({
+        workspaceRoot: root,
+        destination: sqlite,
+      });
 
-      assert.deepEqual(report, { filesScanned: 1, eventsRead: 3, eventsImported: 3, eventsExisting: 0 });
+      assert.deepEqual(report, {
+        filesScanned: 1,
+        eventsRead: 3,
+        eventsImported: 3,
+        eventsExisting: 0,
+      });
       assert.deepEqual(
         (await sqlite.readImmutableRuntimeEvents('session-1', 'run-1')).map((event) => event.id),
         ['event-1', 'event-2', 'partial-terminal'],
@@ -163,7 +198,9 @@ describe('runtime event JSONL compatibility transfer', () => {
         assert.strictEqual(opened.runtimeEventStore, opened.runtimeCommitStore);
         assert.equal(opened.importReport?.eventsImported, 1);
         assert.deepEqual(
-          (await opened.runtimeEventStore.readRuntimeEvents('session-1', 'run-1')).map((event) => event.id),
+          (await opened.runtimeEventStore.readRuntimeEvents('session-1', 'run-1')).map(
+            (event) => event.id,
+          ),
           ['event-1'],
         );
         await opened.runtimeEventStore.appendRuntimeEvent(
@@ -182,8 +219,9 @@ describe('runtime event JSONL compatibility transfer', () => {
       try {
         assert.equal(stickyCanonical.kind, 'sqlite');
         assert.deepEqual(
-          (await stickyCanonical.runtimeEventStore.readRuntimeEvents('session-1', 'run-1'))
-            .map((event) => event.id),
+          (await stickyCanonical.runtimeEventStore.readRuntimeEvents('session-1', 'run-1')).map(
+            (event) => event.id,
+          ),
           ['event-1', 'sqlite-only-event'],
         );
       } finally {

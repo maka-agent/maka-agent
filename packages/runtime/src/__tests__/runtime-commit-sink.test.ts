@@ -1,9 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import {
-  buildToolOperationId,
-  canonicalToolArgsHash,
-} from '../runtime-commit-sink.js';
+import { buildToolOperationId, canonicalToolArgsHash } from '../runtime-commit-sink.js';
 
 describe('RuntimeCommitSink identities', () => {
   it('builds operation identity from the invocation and provider call, never argument text', () => {

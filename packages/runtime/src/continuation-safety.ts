@@ -17,19 +17,22 @@ export function createLocalContinuationSafetyInspector(
   deps: LocalContinuationSafetyInspectorDeps,
 ): (sessionId: string) => Promise<RuntimeContinuationSafetyObservation> {
   const resolveWorkspacePath = deps.resolveWorkspacePath ?? realpath;
-  const readWorkspaceStat = deps.readWorkspaceStat ?? (async (path: string) => {
-    const value = await stat(path);
-    return { dev: value.dev, ino: value.ino };
-  });
+  const readWorkspaceStat =
+    deps.readWorkspaceStat ??
+    (async (path: string) => {
+      const value = await stat(path);
+      return { dev: value.dev, ino: value.ino };
+    });
   return async (sessionId) => {
     const cwd = await deps.readSessionCwd(sessionId);
     const resolvedPath = normalizeWorkspacePath(await resolveWorkspacePath(cwd));
     const workspaceStat = await readWorkspaceStat(resolvedPath);
-    const [availableToolNames, hasPendingBackgroundOperations, workspaceCheckpoint] = await Promise.all([
-      deps.listAvailableToolNames(sessionId),
-      deps.hasPendingBackgroundOperations(sessionId),
-      deps.readWorkspaceCheckpoint?.(sessionId),
-    ]);
+    const [availableToolNames, hasPendingBackgroundOperations, workspaceCheckpoint] =
+      await Promise.all([
+        deps.listAvailableToolNames(sessionId),
+        deps.hasPendingBackgroundOperations(sessionId),
+        deps.readWorkspaceCheckpoint?.(sessionId),
+      ]);
     return {
       workspaceIdentity: `fs:${String(workspaceStat.dev)}:${String(workspaceStat.ino)}:${resolvedPath}`,
       backgroundOperationsSettled: !hasPendingBackgroundOperations,

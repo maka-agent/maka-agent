@@ -7,14 +7,19 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import type { RuntimeEvent } from '@maka/core';
-import { createSqliteRuntimeStore, type SqliteRuntimeStoreFailpoint } from '../sqlite-runtime-store.js';
+import {
+  createSqliteRuntimeStore,
+  type SqliteRuntimeStoreFailpoint,
+} from '../sqlite-runtime-store.js';
 
 const childMode = process.env.MAKA_SQLITE_CRASH_CHILD;
 
 if (childMode) {
   await runCrashChild(childMode);
 } else {
-  describe('SqliteRuntimeStore real-process crash boundaries', { skip: process.platform === 'win32' }, () => {
+  describe('SqliteRuntimeStore real-process crash boundaries', {
+    skip: process.platform === 'win32',
+  }, () => {
     it('rolls back a process killed inside T1', { timeout: 30_000 }, async () => {
       await withKilledChild('inside_t1', async (store) => {
         assert.deepEqual(await store.readRuntimeEvents('session-1', 'run-1'), []);
@@ -22,7 +27,9 @@ if (childMode) {
       });
     });
 
-    it('retains a prepared operation when killed after T1 and a possible side effect', { timeout: 30_000 }, async () => {
+    it('retains a prepared operation when killed after T1 and a possible side effect', {
+      timeout: 30_000,
+    }, async () => {
       await withKilledChild('after_effect', async (store, markerPath) => {
         assert.equal(await readFile(markerPath, 'utf8'), 'effect-happened');
         assert.deepEqual(
@@ -52,7 +59,10 @@ if (childMode) {
           (await store.readRuntimeEvents('session-1', 'run-1')).map((event) => event.id),
           ['call-event-1', 'dispatch-event-1', 'response-event-1'],
         );
-        assert.equal((await store.readToolOperation('operation-1'))?.currentState, 'outcome_committed');
+        assert.equal(
+          (await store.readToolOperation('operation-1'))?.currentState,
+          'outcome_committed',
+        );
         assert.deepEqual(await store.listUnsettledToolOperations(), []);
       });
     });
@@ -105,7 +115,9 @@ function waitForReady(child: ReturnType<typeof spawn>): Promise<void> {
       stdout += String(chunk);
       if (stdout.includes('READY\n')) resolve();
     });
-    child.stderr?.on('data', (chunk) => { stderr += String(chunk); });
+    child.stderr?.on('data', (chunk) => {
+      stderr += String(chunk);
+    });
     child.once('exit', (code, signal) => {
       reject(new Error(`crash child exited before READY: code=${code} signal=${signal} ${stderr}`));
     });

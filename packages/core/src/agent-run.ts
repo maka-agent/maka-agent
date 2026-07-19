@@ -268,8 +268,9 @@ export interface AgentRunStore {
  * Continuations carry parent lineage for recovery, but unlike child-agent runs
  * their output remains part of the parent session conversation.
  */
-export function isSessionInlineRun(
-  run: { readonly parentRunId?: string; readonly continuationSource?: unknown },
-): boolean {
+export function isSessionInlineRun(run: {
+  readonly parentRunId?: string;
+  readonly continuationSource?: unknown;
+}): boolean {
   return run.parentRunId === undefined || run.continuationSource !== undefined;
 }
