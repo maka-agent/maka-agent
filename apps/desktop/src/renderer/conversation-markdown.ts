@@ -1,4 +1,5 @@
 import type { StoredMessage } from '@maka/core';
+import { userFacingText } from '@maka/core/session';
 import { redactSecrets } from '@maka/ui';
 
 /**
@@ -50,12 +51,14 @@ export function renderConversationMarkdown(sessionName: string, messages: Stored
       .join('\n\n');
     const toolCalls = turnMessages.filter((m) => m.type === 'tool_call');
 
-    if (user) {
+    if (user && user.type === 'user') {
       lines.push('---');
       lines.push('');
       lines.push('## 你');
       lines.push('');
-      lines.push((user as { text: string }).text);
+      // Prefer displayText when the model text is a composed envelope (skill
+      // invocation) so exports match what the user typed, not the injected body.
+      lines.push(userFacingText(user));
       lines.push('');
     }
 

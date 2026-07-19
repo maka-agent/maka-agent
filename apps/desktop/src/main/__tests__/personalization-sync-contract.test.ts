@@ -56,7 +56,7 @@ describe('Personalization form state sync (PR-PERSONALIZATION-SYNC-0)', () => {
 
     assert.match(
       page,
-      /catch \(error\) \{[\s\S]*toast\.error\('保存失败', settingsActionErrorMessage\(error\)\)/,
+      /catch \(error\) \{[\s\S]*toast\.error\(copy\.saveFailed, settingsActionErrorMessage\(error, locale\)\)/,
       'Personalization save failures must use the shared Settings error scrubber',
     );
     assert.doesNotMatch(
@@ -66,7 +66,7 @@ describe('Personalization form state sync (PR-PERSONALIZATION-SYNC-0)', () => {
     );
   });
 
-  it('PersonalizationSettingsPage autosaves via a last-write-wins persist path', async () => {
+  it('PersonalizationSettingsPage autosaves via a field-aware persist path', async () => {
     const page = await readPersonalizationPage();
 
     // Shared persist helper takes a partial personalization patch and
@@ -76,8 +76,9 @@ describe('Personalization form state sync (PR-PERSONALIZATION-SYNC-0)', () => {
       /async function persistPersonalization\(patch: Partial<PersonalizationSettings>\) \{[\s\S]*?await props\.onUpdate\(\{ personalization: patch \}\)/,
       'Personalization must persist a partial patch through a shared autosave path',
     );
-    // Monotonic ticket disambiguates overlapping in-flight saves so a
-    // stale earlier response can't clobber a newer write (last write wins).
+    // The shared ticket suppresses stale failure feedback, while locale
+    // reconciliation has separate ownership because unrelated fields must
+    // not supersede a pending language save.
     assert.match(
       page,
       /const persistTicketRef = useRef\(0\)/,
@@ -85,8 +86,8 @@ describe('Personalization form state sync (PR-PERSONALIZATION-SYNC-0)', () => {
     );
     assert.match(
       page,
-      /const ticket = \+\+persistTicketRef\.current;[\s\S]*?if \(!personalizationMountedRef\.current \|\| ticket !== persistTicketRef\.current\) return;/,
-      'Personalization autosave must ignore responses whose ticket is no longer current',
+      /const ticket = \+\+persistTicketRef\.current;[\s\S]*?const localeTicket = patch\.uiLocale === undefined \? null : \+\+localePersistTicketRef\.current/,
+      'Personalization autosave must allocate locale ownership independently from the shared request ticket',
     );
     assert.match(
       page,
@@ -138,12 +139,12 @@ describe('Personalization form state sync (PR-PERSONALIZATION-SYNC-0)', () => {
 
     assert.match(
       page,
-      /onBlur=\{\(event\) => flushDisplayName\(event\.currentTarget\.value\)\}[\s\S]*?aria-label="显示名称"/,
+      /onBlur=\{\(event\) => flushDisplayName\(event\.currentTarget\.value\)\}[\s\S]*?aria-label=\{copy\.displayName\}/,
       'Display name must flush its autosave on blur',
     );
     assert.match(
       page,
-      /onChange=\{\(next\) => persistLocale\(next as UiLocalePreference\)\}[\s\S]*?ariaLabel="界面语言"/,
+      /onChange=\{\(next\) => persistLocale\(next as UiLocalePreference\)\}[\s\S]*?ariaLabel=\{copy\.interfaceLanguage\}/,
       'Locale segmented control must persist immediately on change',
     );
   });
@@ -208,16 +209,41 @@ describe('Personalization form state sync (PR-PERSONALIZATION-SYNC-0)', () => {
       'Personalization cleanup must invalidate in-flight saves and cancel the pending debounce',
     );
     // A stale canonical locale must not be reconciled into the form after
-    // Settings closes: the mount + ticket guard gates the local state write.
+    // Settings closes: the mount + locale ownership guards gate the write.
     assert.match(
       page,
-      /if \(!personalizationMountedRef\.current \|\| ticket !== persistTicketRef\.current\) return;[\s\S]*setUiLocale\(result\.settings\.personalization\.uiLocale\)/,
+      /if \(!personalizationMountedRef\.current\) return;[\s\S]*localeTicket === localePersistTicketRef\.current[\s\S]*setUiLocale\(result\.settings\.personalization\.uiLocale\)/,
       'Personalization save must not reconcile a stale UI locale after Settings is closed',
     );
     assert.match(
       page,
-      /catch \(error\) \{[\s\S]*if \(personalizationMountedRef\.current && ticket === persistTicketRef\.current\) \{[\s\S]*toast\.error\('保存失败', settingsActionErrorMessage\(error\)\)/,
+      /catch \(error\) \{[\s\S]*if \(!personalizationMountedRef\.current\) return;[\s\S]*if \(ticket === persistTicketRef\.current\) \{[\s\S]*toast\.error\(copy\.saveFailed, settingsActionErrorMessage\(error, locale\)\)/,
       'Personalization failure toast must only fire while the page still owns the save',
+    );
+  });
+
+  it('keeps locale rollback ownership independent from unrelated personalization saves', async () => {
+    const page = await readPersonalizationPage();
+
+    assert.match(
+      page,
+      /const localePersistTicketRef = useRef\(0\)/,
+      'Locale saves need their own request ownership instead of sharing the latest personalization ticket',
+    );
+    assert.match(
+      page,
+      /const localeTicket = patch\.uiLocale === undefined \? null : \+\+localePersistTicketRef\.current/,
+      'Unrelated display-name or tone saves must not supersede a pending locale save',
+    );
+    assert.match(
+      page,
+      /catch \(error\) \{[\s\S]*localeTicket !== null[\s\S]*localeTicket === localePersistTicketRef\.current[\s\S]*setUiLocale\(value\.uiLocale\)/,
+      'The latest locale failure must restore the persisted preference even when another field saved later',
+    );
+    assert.doesNotMatch(
+      page,
+      /ticket === persistTicketRef\.current[^}]*patch\.uiLocale !== undefined[^}]*setUiLocale\(value\.uiLocale\)/,
+      'Locale rollback must not be gated by the shared personalization latest-request ticket',
     );
   });
 });

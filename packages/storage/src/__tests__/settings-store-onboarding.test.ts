@@ -29,7 +29,10 @@ describe('SettingsStore.upsertOnboardingMilestone (PR110b)', () => {
       assert.ok(entry);
       assert.equal(entry.id, 'first_chat_sent');
       assert.ok(typeof entry.completedAt === 'number');
-      assert.ok(entry.completedAt! >= before && entry.completedAt! <= after, 'timestamp must come from main process clock');
+      assert.ok(
+        entry.completedAt! >= before && entry.completedAt! <= after,
+        'timestamp must come from main process clock',
+      );
     } finally {
       await rm(workspaceRoot, { recursive: true, force: true });
     }
@@ -58,10 +61,12 @@ describe('SettingsStore.upsertOnboardingMilestone (PR110b)', () => {
       // Keep the receiver via arrow fn so `this` isn't lost.
       await assert.rejects(
         () =>
-          (store.upsertOnboardingMilestone as unknown as (
-            id: string,
-            status: string,
-          ) => Promise<unknown>).call(store, 'first_chat_sent', 'unknown_status'),
+          (
+            store.upsertOnboardingMilestone as unknown as (
+              id: string,
+              status: string,
+            ) => Promise<unknown>
+          ).call(store, 'first_chat_sent', 'unknown_status'),
         /invalid onboarding milestone status/,
       );
     } finally {
@@ -75,10 +80,12 @@ describe('SettingsStore.upsertOnboardingMilestone (PR110b)', () => {
       const store = createSettingsStore(workspaceRoot);
       await assert.rejects(
         () =>
-          (store.upsertOnboardingMilestone as unknown as (
-            id: string,
-            status: 'completed' | 'skipped',
-          ) => Promise<unknown>).call(store, 'not_a_milestone', 'completed'),
+          (
+            store.upsertOnboardingMilestone as unknown as (
+              id: string,
+              status: 'completed' | 'skipped',
+            ) => Promise<unknown>
+          ).call(store, 'not_a_milestone', 'completed'),
         /invalid onboarding milestone id/,
       );
     } finally {
@@ -127,7 +134,9 @@ describe('SettingsStore.upsertOnboardingMilestone (PR110b)', () => {
       const store = createSettingsStore(workspaceRoot);
       await store.upsertOnboardingMilestone('first_chat_sent', 'completed');
       const raw = await readFile(join(workspaceRoot, 'settings.json'), 'utf8');
-      const parsed = JSON.parse(raw) as { onboarding: { milestones: Array<Record<string, unknown>> } };
+      const parsed = JSON.parse(raw) as {
+        onboarding: { milestones: Array<Record<string, unknown>> };
+      };
       assert.equal(parsed.onboarding.milestones.length, 1);
       const entry = parsed.onboarding.milestones[0]!;
       // Must contain only the schema fields — nothing else.
@@ -182,8 +191,14 @@ describe('SettingsStore.clearOnboardingMilestone', () => {
 
       const after = await store.clearOnboardingMilestone('first_run_suggestion_workspace_map');
 
-      assert.equal(after.some((entry) => entry.id === 'first_run_suggestion_workspace_map'), false);
-      assert.equal(after.some((entry) => entry.id === 'first_chat_sent'), true);
+      assert.equal(
+        after.some((entry) => entry.id === 'first_run_suggestion_workspace_map'),
+        false,
+      );
+      assert.equal(
+        after.some((entry) => entry.id === 'first_chat_sent'),
+        true,
+      );
     } finally {
       await rm(workspaceRoot, { recursive: true, force: true });
     }
@@ -195,8 +210,10 @@ describe('SettingsStore.clearOnboardingMilestone', () => {
       const store = createSettingsStore(workspaceRoot);
       await assert.rejects(
         () =>
-          (store.clearOnboardingMilestone as unknown as (id: string) => Promise<unknown>)
-            .call(store, 'not_a_milestone'),
+          (store.clearOnboardingMilestone as unknown as (id: string) => Promise<unknown>).call(
+            store,
+            'not_a_milestone',
+          ),
         /invalid onboarding milestone id/,
       );
     } finally {
@@ -215,7 +232,10 @@ describe('SettingsStore.get file recovery', () => {
 
       const settings = await Promise.all(Array.from({ length: 16 }, () => store.get()));
 
-      assert.equal(settings.every((value) => value.schemaVersion === 1), true);
+      assert.equal(
+        settings.every((value) => value.schemaVersion === 1),
+        true,
+      );
       const raw = await readFile(join(workspaceRoot, 'settings.json'), 'utf8');
       assert.equal(JSON.parse(raw).schemaVersion, 1);
     } finally {

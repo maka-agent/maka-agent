@@ -15,8 +15,13 @@ export { createOneShotActionGuard, teardownPendingAuthorization } from './oauth-
 // cancellation-on-unmount. Claude's paste-code flow is deliberately NOT
 // routed through this hook -- it needs a manual authorization-code step and
 // its own experimental gate, so it keeps its bespoke card.
+//
+// GitHub Copilot rides the same controller through the `direct` account
+// flow (#1042): importing an existing GitHub login is one bridge call, so
+// there is no browser handoff -- but the snapshot refresh, the one-shot
+// pending-action guard, and the unmount safety are identical.
 
-export type OAuthLoginPendingAction = 'login' | 'logout';
+export type OAuthLoginPendingAction = 'login' | 'logout' | 'refresh';
 
 export interface SubscriptionSnapshot {
   runtimeState:
@@ -50,6 +55,22 @@ export interface OAuthLoginFlowDisplay {
   shortName: string;
 }
 
+export type OAuthDirectActionResult =
+  | { ok: true }
+  | { ok: false; reason?: string; message: string };
+
+/**
+ * Direct-import account flow (GitHub Copilot): no browser loopback, so
+ * "login" is a single bridge call. Direct mode keeps the service's original
+ * UX instead of the loopback copy: no logout confirm, no success toasts
+ * (the refreshed snapshot IS the feedback), and every account-action
+ * failure surfaces under one `<display.name> 账号操作失败` title.
+ */
+export interface OAuthDirectAccountFlow {
+  login(): Promise<OAuthDirectActionResult>;
+  refreshTokens(): Promise<OAuthDirectActionResult>;
+}
+
 export interface OAuthLoginFlowController {
   state: SubscriptionSnapshot | null;
   runtimeState: SubscriptionSnapshot['runtimeState'] | 'loading';
@@ -62,6 +83,9 @@ export interface OAuthLoginFlowController {
   startLogin(): Promise<void>;
   logout(): Promise<void>;
   refresh(): Promise<boolean>;
+  // Direct account flows only (GitHub Copilot 重新验证); undefined for the
+  // browser-loopback services so they cannot render a dead action.
+  refreshTokens: (() => Promise<void>) | undefined;
 }
 
 export function useOAuthLoginFlow(params: {
@@ -71,8 +95,13 @@ export function useOAuthLoginFlow(params: {
   // The detail sheet uses it to re-probe hasSecret + reload connection status;
   // the modal leaves it undefined and relies on its own snapshot refresh.
   onLoginSuccess?: () => void | Promise<void>;
+  // When present, startLogin runs this one-shot import instead of the
+  // getAuthUrl -> openAuthUrl -> completeAuthorization handoff, and the
+  // controller exposes the extra `refreshTokens` action.
+  direct?: OAuthDirectAccountFlow;
 }): OAuthLoginFlowController {
   const { bridge, display } = params;
+  const direct = params.direct;
   const toast = useToast();
   const [state, setState] = useState<SubscriptionSnapshot | null>(null);
   const [authRequestId, setAuthRequestId] = useState<string | null>(null);
@@ -121,6 +150,26 @@ export function useOAuthLoginFlow(params: {
   async function startLogin() {
     if (!beginPendingAction('login')) return;
     setErrorMessage(null);
+    // Direct-import flow (GitHub Copilot): one bridge call, no authRequestId
+    // lifecycle, no success toast — the refreshed snapshot IS the feedback.
+    if (direct) {
+      try {
+        const result = await direct.login();
+        if (!oauthLoginFlowMountedRef.current) return;
+        if (!result.ok) {
+          toast.error(`${display.name} 账号操作失败`, subscriptionResultMessage(result.message, '登录失败，请稍后重试。'));
+        }
+        await refresh();
+        if (!oauthLoginFlowMountedRef.current) return;
+        if (result.ok && params.onLoginSuccess) await params.onLoginSuccess();
+      } catch (error) {
+        if (!oauthLoginFlowMountedRef.current) return;
+        toast.error(`${display.name} 账号操作失败`, subscriptionActionErrorMessage(error));
+      } finally {
+        finishPendingAction();
+      }
+      return;
+    }
     try {
       const payload = await bridge.getAuthUrl();
       if ('ok' in payload) {
@@ -186,25 +235,56 @@ export function useOAuthLoginFlow(params: {
   async function logout() {
     if (!beginPendingAction('logout')) return;
     try {
-      const ok = await toast.confirm({
-        title: `退出 ${display.name} 登录？`,
-        description: '将删除本机保存的订阅凭据，之后需要重新登录才能继续使用这些 OAuth 模型。',
-        confirmLabel: '退出登录',
-        cancelLabel: '取消',
-        destructive: true,
-      });
-      if (!ok) return;
+      // Direct-import flows keep their original no-confirm, silent-success
+      // logout; only the browser-loopback services confirm the destructive
+      // action and toast on success.
+      if (!direct) {
+        const ok = await toast.confirm({
+          title: `退出 ${display.name} 登录？`,
+          description: '将删除本机保存的订阅凭据，之后需要重新登录才能继续使用这些 OAuth 模型。',
+          confirmLabel: '退出登录',
+          cancelLabel: '取消',
+          destructive: true,
+        });
+        if (!ok) return;
+      }
       const result = await bridge.logout();
       if (!oauthLoginFlowMountedRef.current) return;
       if (result.ok) {
-        toast.success('已退出登录', '本地凭据已清除。');
+        if (!direct) {
+          toast.success('已退出登录', '本地凭据已清除。');
+        }
         await refresh();
+      } else if (direct) {
+        toast.error(`${display.name} 账号操作失败`, subscriptionResultMessage(result.message, '退出登录失败，请稍后重试。'));
       } else {
         toast.error('退出失败', subscriptionResultMessage(result.message, '退出登录失败，请稍后重试。'));
       }
     } catch (error) {
       if (!oauthLoginFlowMountedRef.current) return;
-      toast.error('退出失败', subscriptionActionErrorMessage(error));
+      if (direct) {
+        toast.error(`${display.name} 账号操作失败`, subscriptionActionErrorMessage(error));
+      } else {
+        toast.error('退出失败', subscriptionActionErrorMessage(error));
+      }
+    } finally {
+      finishPendingAction();
+    }
+  }
+
+  async function refreshTokens() {
+    if (!direct) return;
+    if (!beginPendingAction('refresh')) return;
+    try {
+      const result = await direct.refreshTokens();
+      if (!oauthLoginFlowMountedRef.current) return;
+      if (!result.ok) {
+        toast.error(`${display.name} 账号操作失败`, subscriptionResultMessage(result.message, '重新验证失败，请稍后重试。'));
+      }
+      await refresh();
+    } catch (error) {
+      if (!oauthLoginFlowMountedRef.current) return;
+      toast.error(`${display.name} 账号操作失败`, subscriptionActionErrorMessage(error));
     } finally {
       finishPendingAction();
     }
@@ -226,6 +306,7 @@ export function useOAuthLoginFlow(params: {
     startLogin,
     logout,
     refresh,
+    refreshTokens: direct ? refreshTokens : undefined,
   };
 }
 

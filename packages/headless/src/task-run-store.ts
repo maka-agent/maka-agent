@@ -7,7 +7,10 @@ import {
 } from '@maka/core/execution-evidence';
 import type { ResultRecord } from './contracts.js';
 import { compactArtifactEvidence, compactSelfCheckEvidence } from './heavy-task-evidence.js';
-import { evaluateHeavyTaskCompletionStatus, type HeavyTaskCompletionStatus } from './heavy-task-finalization.js';
+import {
+  evaluateHeavyTaskCompletionStatus,
+  type HeavyTaskCompletionStatus,
+} from './heavy-task-finalization.js';
 import { isAcceptedHeavyTaskSelfCheck } from './heavy-task-self-check.js';
 import type {
   AutonomousDecision,
@@ -101,7 +104,10 @@ export function createTaskRunStore(storageRoot: string): TaskRunStore {
   return new FileTaskRunStore(storageRoot);
 }
 
-export function projectTaskRun(events: readonly TaskEvent[], taskRunId?: string): TaskRunProjection {
+export function projectTaskRun(
+  events: readonly TaskEvent[],
+  taskRunId?: string,
+): TaskRunProjection {
   const projectedTaskRunId = taskRunId ?? events[0]?.taskRunId ?? '';
   const projection: TaskRunProjection = {
     taskRunId: projectedTaskRunId,
@@ -132,14 +138,22 @@ export function projectTaskRun(events: readonly TaskEvent[], taskRunId?: string)
   };
   const attempts = new Map<string, TaskAttempt>();
   const inboxItems = new Map<string, TaskInboxItem>();
-  const selfCheckRows = new Map<string, Array<{ sequence: number; projectionIndex: number; eventId: string }>>();
-  const workspaceObservationRows = new Map<string, { sequence: number; observation: HeavyTaskWorkspaceObservationState }>();
+  const selfCheckRows = new Map<
+    string,
+    Array<{ sequence: number; projectionIndex: number; eventId: string }>
+  >();
+  const workspaceObservationRows = new Map<
+    string,
+    { sequence: number; observation: HeavyTaskWorkspaceObservationState }
+  >();
   let terminalEvents = 0;
 
   for (let sequence = 0; sequence < events.length; sequence += 1) {
     const event = events[sequence]!;
     if (projectedTaskRunId && event.taskRunId !== projectedTaskRunId) {
-      projection.warnings.push(`ignored event ${event.id}: taskRunId ${event.taskRunId} does not match ${projectedTaskRunId}`);
+      projection.warnings.push(
+        `ignored event ${event.id}: taskRunId ${event.taskRunId} does not match ${projectedTaskRunId}`,
+      );
       continue;
     }
     projection.events.push(event);
@@ -221,15 +235,25 @@ export function projectTaskRun(events: readonly TaskEvent[], taskRunId?: string)
         break;
       case 'task_run_artifact_recorded':
         projection.artifacts.push(event.artifact);
-        if (projection.heavyTaskMode?.enabled === true && isCompactEvidenceEligibleArtifact(event.artifact)) {
-          appendCompactEvidence(projection, compactArtifactEvidence({
-            evidenceId: `${event.id}:compact-artifact`,
-            taskRunId: projection.taskRunId,
-            ...(event.artifact.attemptId ? { attemptId: event.artifact.attemptId } : {}),
-            ts: event.ts,
-            source: { kind: 'model_tool', toolCallId: `task-run-artifact:${event.id}`, toolName: 'artifact' },
-            artifact: event.artifact,
-          }));
+        if (
+          projection.heavyTaskMode?.enabled === true &&
+          isCompactEvidenceEligibleArtifact(event.artifact)
+        ) {
+          appendCompactEvidence(
+            projection,
+            compactArtifactEvidence({
+              evidenceId: `${event.id}:compact-artifact`,
+              taskRunId: projection.taskRunId,
+              ...(event.artifact.attemptId ? { attemptId: event.artifact.attemptId } : {}),
+              ts: event.ts,
+              source: {
+                kind: 'model_tool',
+                toolCallId: `task-run-artifact:${event.id}`,
+                toolName: 'artifact',
+              },
+              artifact: event.artifact,
+            }),
+          );
         }
         break;
       case 'score_result_recorded':
@@ -276,20 +300,26 @@ export function projectTaskRun(events: readonly TaskEvent[], taskRunId?: string)
             }),
           );
         } else {
-          projection.warnings.push(`ignored heavy-task self-check ${event.selfCheck.selfCheckId}: source guard did not accept public evidence`);
+          projection.warnings.push(
+            `ignored heavy-task self-check ${event.selfCheck.selfCheckId}: source guard did not accept public evidence`,
+          );
         }
         break;
       case 'heavy_task_self_check_evidence_linked': {
         const rows = selfCheckRows.get(event.selfCheckId) ?? [];
         if (rows.length !== 1) {
           const reason = rows.length === 0 ? 'was not recorded first' : 'is ambiguous';
-          projection.warnings.push(`ignored self-check evidence link ${event.id}: Self-check ${event.selfCheckId} ${reason}`);
+          projection.warnings.push(
+            `ignored self-check evidence link ${event.id}: Self-check ${event.selfCheckId} ${reason}`,
+          );
           break;
         }
         const row = rows[0]!;
         const selfCheck = projection.heavyTaskSelfChecks[row.projectionIndex]!;
         if (selfCheck.provenance) {
-          projection.warnings.push(`ignored self-check evidence link ${event.id}: Self-check ${event.selfCheckId} is already linked`);
+          projection.warnings.push(
+            `ignored self-check evidence link ${event.id}: Self-check ${event.selfCheckId} is already linked`,
+          );
           break;
         }
         const observationRow = workspaceObservationRows.get(event.workspaceObservationId);
@@ -323,16 +353,20 @@ export function projectTaskRun(events: readonly TaskEvent[], taskRunId?: string)
         break;
       case 'heavy_task_evidence_recorded':
         if (!appendCompactEvidence(projection, event.evidence)) {
-          projection.warnings.push(`ignored heavy-task evidence ${event.evidence.evidenceId}: evidence must be public and match taskRunId`);
+          projection.warnings.push(
+            `ignored heavy-task evidence ${event.evidence.evidenceId}: evidence must be public and match taskRunId`,
+          );
         }
         break;
       case 'heavy_task_evidence_provenance_linked': {
-        const matchingIndexes = projection.heavyTaskEvidence.flatMap((item, index) => (
-          item.evidenceId === event.evidenceId ? [index] : []
-        ));
+        const matchingIndexes = projection.heavyTaskEvidence.flatMap((item, index) =>
+          item.evidenceId === event.evidenceId ? [index] : [],
+        );
         if (matchingIndexes.length !== 1) {
           const reason = matchingIndexes.length === 0 ? 'was not recorded first' : 'is ambiguous';
-          projection.warnings.push(`ignored evidence provenance ${event.id}: evidence ${event.evidenceId} ${reason}`);
+          projection.warnings.push(
+            `ignored evidence provenance ${event.id}: evidence ${event.evidenceId} ${reason}`,
+          );
           break;
         }
         const index = matchingIndexes[0]!;
@@ -340,7 +374,9 @@ export function projectTaskRun(events: readonly TaskEvent[], taskRunId?: string)
         const provenance = validHeavyTaskEvidenceProvenance(event, evidence, projection.warnings);
         if (!provenance) break;
         if (evidence.provenance) {
-          projection.warnings.push(`ignored evidence provenance ${event.id}: evidence ${event.evidenceId} is already linked`);
+          projection.warnings.push(
+            `ignored evidence provenance ${event.id}: evidence ${event.evidenceId} is already linked`,
+          );
           break;
         }
         const linked = { ...evidence, provenance };
@@ -387,7 +423,11 @@ export function projectTaskRun(events: readonly TaskEvent[], taskRunId?: string)
       case 'task_run_needs_approval':
         if (terminalEvents === 0) {
           projection.status = 'needs_approval';
-          projection.parked = { reason: event.reason, inboxItemId: event.inboxItemId, since: event.ts };
+          projection.parked = {
+            reason: event.reason,
+            inboxItemId: event.inboxItemId,
+            since: event.ts,
+          };
           if (event.attemptId) {
             const previous = attempts.get(event.attemptId);
             attempts.set(event.attemptId, {
@@ -420,7 +460,10 @@ export function projectTaskRun(events: readonly TaskEvent[], taskRunId?: string)
         terminalEvents = applyTerminalEvent(projection, terminalEvents);
         projection.status = 'completed';
         projection.finishedAt = event.finishedAt ?? event.ts;
-        projection.result = event.result ?? projection.result ?? resultFromScore(projection.latestScoreResult, projection.latestVerifierResult);
+        projection.result =
+          event.result ??
+          projection.result ??
+          resultFromScore(projection.latestScoreResult, projection.latestVerifierResult);
         break;
       case 'task_run_failed':
         terminalEvents = applyTerminalEvent(projection, terminalEvents);
@@ -432,7 +475,10 @@ export function projectTaskRun(events: readonly TaskEvent[], taskRunId?: string)
         terminalEvents = applyTerminalEvent(projection, terminalEvents);
         projection.status = 'incomplete';
         projection.finishedAt = event.finishedAt ?? event.ts;
-        projection.error = event.error ?? { message: 'task run incomplete', class: 'agent_incomplete' };
+        projection.error = event.error ?? {
+          message: 'task run incomplete',
+          class: 'agent_incomplete',
+        };
         break;
       case 'task_run_blocked':
         terminalEvents = applyTerminalEvent(projection, terminalEvents);
@@ -444,13 +490,19 @@ export function projectTaskRun(events: readonly TaskEvent[], taskRunId?: string)
         terminalEvents = applyTerminalEvent(projection, terminalEvents);
         projection.status = 'policy_denied';
         projection.finishedAt = event.finishedAt ?? event.ts;
-        projection.error = event.error ?? { message: 'task run denied by policy', class: 'policy_denied' };
+        projection.error = event.error ?? {
+          message: 'task run denied by policy',
+          class: 'policy_denied',
+        };
         break;
       case 'task_run_budget_exhausted':
         terminalEvents = applyTerminalEvent(projection, terminalEvents);
         projection.status = 'budget_exhausted';
         projection.finishedAt = event.finishedAt ?? event.ts;
-        projection.error = event.error ?? { message: 'task run budget exhausted', class: 'budget_exhausted' };
+        projection.error = event.error ?? {
+          message: 'task run budget exhausted',
+          class: 'budget_exhausted',
+        };
         break;
       case 'task_run_aborted':
         terminalEvents = applyTerminalEvent(projection, terminalEvents);
@@ -474,9 +526,15 @@ export function projectTaskRun(events: readonly TaskEvent[], taskRunId?: string)
   projection.inboxItems = [...inboxItems.values()];
   refreshHeavyTaskSelfCheckFreshness(projection, events, workspaceObservationRows);
   projection.latestVerifierResult = preferredVerifierResult(projection.verifierResults);
-  projection.latestScoreResult = preferredScoreResult(projection.scoreResults, projection.latestVerifierResult);
+  projection.latestScoreResult = preferredScoreResult(
+    projection.scoreResults,
+    projection.latestVerifierResult,
+  );
   if (projection.latestScoreResult) {
-    projection.result = resultFromScore(projection.latestScoreResult, projection.latestVerifierResult);
+    projection.result = resultFromScore(
+      projection.latestScoreResult,
+      projection.latestVerifierResult,
+    );
   } else if (projection.latestVerifierResult) {
     projection.result = resultFromVerifier(projection.latestVerifierResult);
   }
@@ -518,7 +576,10 @@ class InMemoryTaskRunStore implements TaskRunStore {
       events.push(event);
       this.events.set(taskRunId, events);
     });
-    this.queues.set(taskRunId, next.catch(() => undefined));
+    this.queues.set(
+      taskRunId,
+      next.catch(() => undefined),
+    );
     await next;
   }
 
@@ -553,7 +614,10 @@ class FileTaskRunStore implements TaskRunStore {
       await mkdir(this.taskRunDir(), { recursive: true });
       await appendFile(this.taskRunPath(taskRunId), `${JSON.stringify(event)}\n`, 'utf8');
     });
-    this.queues.set(taskRunId, next.catch(() => undefined));
+    this.queues.set(
+      taskRunId,
+      next.catch(() => undefined),
+    );
     await next;
   }
 
@@ -609,7 +673,11 @@ class FileTaskRunStore implements TaskRunStore {
   }
 }
 
-function setOptionalRefs(projection: TaskRunProjection, sessionId: string | undefined, agentRunId: string | undefined): void {
+function setOptionalRefs(
+  projection: TaskRunProjection,
+  sessionId: string | undefined,
+  agentRunId: string | undefined,
+): void {
   if (sessionId) projection.sessionId = sessionId;
   if (agentRunId) projection.agentRunId = agentRunId;
 }
@@ -624,12 +692,16 @@ function validTaskAttemptExecutionEvidence(
 ): ExecutionEvidenceRef | undefined {
   const validation = validateExecutionEvidenceRef(event.evidence);
   if (!validation.ok) {
-    warnings.push(`ignored execution lineage ${event.id}: ${validation.errors.map((issue) => `${issue.path}: ${issue.message}`).join('; ')}`);
+    warnings.push(
+      `ignored execution lineage ${event.id}: ${validation.errors.map((issue) => `${issue.path}: ${issue.message}`).join('; ')}`,
+    );
     return undefined;
   }
   const evidence = validation.value;
   if (evidence.task?.taskRunId !== event.taskRunId || evidence.task.attemptId !== event.attemptId) {
-    warnings.push(`ignored execution lineage ${event.id}: task identity does not match the owning attempt`);
+    warnings.push(
+      `ignored execution lineage ${event.id}: task identity does not match the owning attempt`,
+    );
     return undefined;
   }
   if (!evidence.execution?.agentRunId) {
@@ -655,27 +727,35 @@ function validHeavyTaskEvidenceProvenance(
   }
   const provenance = validation.value;
   if (provenance.task?.taskRunId !== event.taskRunId) {
-    warnings.push(`ignored evidence provenance ${event.id}: task identity does not match the owning TaskRun`);
+    warnings.push(
+      `ignored evidence provenance ${event.id}: task identity does not match the owning TaskRun`,
+    );
     return undefined;
   }
   const attemptId = event.attemptId;
   if (
-    (subject.attemptId && event.attemptId !== subject.attemptId)
-    || provenance.task?.attemptId !== attemptId
+    (subject.attemptId && event.attemptId !== subject.attemptId) ||
+    provenance.task?.attemptId !== attemptId
   ) {
-    warnings.push(`ignored evidence provenance ${event.id}: attempt identity does not match the evidence`);
+    warnings.push(
+      `ignored evidence provenance ${event.id}: attempt identity does not match the evidence`,
+    );
     return undefined;
   }
   if (!provenance.execution?.agentRunId || !provenance.runtimeCoverage) {
-    warnings.push(`ignored evidence provenance ${event.id}: AgentRun identity and Runtime coverage are required`);
+    warnings.push(
+      `ignored evidence provenance ${event.id}: AgentRun identity and Runtime coverage are required`,
+    );
     return undefined;
   }
   if (
-    (subject.source.sessionId && subject.source.sessionId !== provenance.execution.sessionId)
-    || (subject.source.agentRunId && subject.source.agentRunId !== provenance.execution.agentRunId)
-    || (subject.source.turnId && subject.source.turnId !== provenance.execution.turnId)
+    (subject.source.sessionId && subject.source.sessionId !== provenance.execution.sessionId) ||
+    (subject.source.agentRunId && subject.source.agentRunId !== provenance.execution.agentRunId) ||
+    (subject.source.turnId && subject.source.turnId !== provenance.execution.turnId)
   ) {
-    warnings.push(`ignored evidence provenance ${event.id}: Runtime identity does not match the evidence source`);
+    warnings.push(
+      `ignored evidence provenance ${event.id}: Runtime identity does not match the evidence source`,
+    );
     return undefined;
   }
   return provenance;
@@ -700,47 +780,65 @@ function validHeavyTaskSelfCheckProvenance(
   }
   const provenance = validation.value;
   if (
-    provenance.task?.taskRunId !== event.taskRunId
-    || provenance.task.attemptId !== event.attemptId
-    || selfCheck.taskRunId !== event.taskRunId
-    || selfCheck.attemptId !== event.attemptId
+    provenance.task?.taskRunId !== event.taskRunId ||
+    provenance.task.attemptId !== event.attemptId ||
+    selfCheck.taskRunId !== event.taskRunId ||
+    selfCheck.attemptId !== event.attemptId
   ) {
-    warnings.push(`ignored self-check evidence link ${event.id}: TaskRun or attempt identity does not match`);
-    return undefined;
-  }
-  if (!provenance.execution?.agentRunId || !provenance.runtimeCoverage || !provenance.taskCoverage || !provenance.workspace) {
-    warnings.push(`ignored self-check evidence link ${event.id}: Runtime coverage, Task coverage, and workspace revision are required`);
+    warnings.push(
+      `ignored self-check evidence link ${event.id}: TaskRun or attempt identity does not match`,
+    );
     return undefined;
   }
   if (
-    (selfCheck.source.sessionId && selfCheck.source.sessionId !== provenance.execution.sessionId)
-    || (selfCheck.source.agentRunId && selfCheck.source.agentRunId !== provenance.execution.agentRunId)
-    || (selfCheck.source.turnId && selfCheck.source.turnId !== provenance.execution.turnId)
+    !provenance.execution?.agentRunId ||
+    !provenance.runtimeCoverage ||
+    !provenance.taskCoverage ||
+    !provenance.workspace
   ) {
-    warnings.push(`ignored self-check evidence link ${event.id}: Runtime identity does not match the Self-check source`);
+    warnings.push(
+      `ignored self-check evidence link ${event.id}: Runtime coverage, Task coverage, and workspace revision are required`,
+    );
+    return undefined;
+  }
+  if (
+    (selfCheck.source.sessionId && selfCheck.source.sessionId !== provenance.execution.sessionId) ||
+    (selfCheck.source.agentRunId &&
+      selfCheck.source.agentRunId !== provenance.execution.agentRunId) ||
+    (selfCheck.source.turnId && selfCheck.source.turnId !== provenance.execution.turnId)
+  ) {
+    warnings.push(
+      `ignored self-check evidence link ${event.id}: Runtime identity does not match the Self-check source`,
+    );
     return undefined;
   }
   const taskHighWater = provenance.taskCoverage.highWater;
   if (
-    taskHighWater.ledger !== 'task_event'
-    || taskHighWater.streamId !== event.taskRunId
-    || taskHighWater.sequence !== selfCheckSequence
-    || taskHighWater.eventId !== selfCheckEventId
+    taskHighWater.ledger !== 'task_event' ||
+    taskHighWater.streamId !== event.taskRunId ||
+    taskHighWater.sequence !== selfCheckSequence ||
+    taskHighWater.eventId !== selfCheckEventId
   ) {
-    warnings.push(`ignored self-check evidence link ${event.id}: Task high water does not identify the Self-check record`);
+    warnings.push(
+      `ignored self-check evidence link ${event.id}: Task high water does not identify the Self-check record`,
+    );
     return undefined;
   }
   if (
-    !observationRow
-    || observationRow.sequence <= selfCheckSequence
-    || observationRow.observation.status !== 'ok'
-    || !observationRow.observation.revision
+    !observationRow ||
+    observationRow.sequence <= selfCheckSequence ||
+    observationRow.observation.status !== 'ok' ||
+    !observationRow.observation.revision
   ) {
-    warnings.push(`ignored self-check evidence link ${event.id}: referenced post-check workspace observation is missing`);
+    warnings.push(
+      `ignored self-check evidence link ${event.id}: referenced post-check workspace observation is missing`,
+    );
     return undefined;
   }
   if (!sameWorkspaceRevision(provenance.workspace, observationRow.observation.revision)) {
-    warnings.push(`ignored self-check evidence link ${event.id}: workspace revision does not match the referenced observation`);
+    warnings.push(
+      `ignored self-check evidence link ${event.id}: workspace revision does not match the referenced observation`,
+    );
     return undefined;
   }
   return provenance;
@@ -749,7 +847,10 @@ function validHeavyTaskSelfCheckProvenance(
 function refreshHeavyTaskSelfCheckFreshness(
   projection: TaskRunProjection,
   events: readonly TaskEvent[],
-  observationRows: ReadonlyMap<string, { sequence: number; observation: HeavyTaskWorkspaceObservationState }>,
+  observationRows: ReadonlyMap<
+    string,
+    { sequence: number; observation: HeavyTaskWorkspaceObservationState }
+  >,
 ): void {
   projection.heavyTaskSelfChecks = projection.heavyTaskSelfChecks.map((selfCheck) => {
     if (!selfCheck.provenance || !selfCheck.workspaceObservationId) {
@@ -760,16 +861,24 @@ function refreshHeavyTaskSelfCheckFreshness(
       return withSelfCheckFreshness(selfCheck, 'unknown', ['workspace_observation_missing']);
     }
     const laterObservations = [...observationRows.values()]
-      .filter((row) => row.sequence >= baseline.sequence && row.observation.status === 'ok' && row.observation.revision)
+      .filter(
+        (row) =>
+          row.sequence >= baseline.sequence &&
+          row.observation.status === 'ok' &&
+          row.observation.revision,
+      )
       .sort((left, right) => left.sequence - right.sequence);
     const latestObservation = laterObservations.at(-1) ?? baseline;
-    if (!sameWorkspaceRevision(selfCheck.provenance.workspace, latestObservation.observation.revision)) {
+    if (
+      !sameWorkspaceRevision(selfCheck.provenance.workspace, latestObservation.observation.revision)
+    ) {
       return withSelfCheckFreshness(selfCheck, 'stale', ['workspace_revision_changed']);
     }
-    const hasLaterMutation = events.some((event, sequence) => (
-      sequence > latestObservation.sequence
-      && invalidatesSelfCheckWorkspace(event, selfCheck.attemptId)
-    ));
+    const hasLaterMutation = events.some(
+      (event, sequence) =>
+        sequence > latestObservation.sequence &&
+        invalidatesSelfCheckWorkspace(event, selfCheck.attemptId),
+    );
     if (hasLaterMutation) {
       return withSelfCheckFreshness(selfCheck, 'stale', ['later_workspace_mutation']);
     }
@@ -791,7 +900,9 @@ function invalidatesSelfCheckWorkspace(event: TaskEvent, attemptId: string | und
   if (!attemptId || event.evidence.attemptId !== attemptId) return false;
   if (event.evidence.kind === 'artifact') return true;
   if (event.evidence.kind !== 'tool') return false;
-  return ['Bash', 'Write', 'Edit'].includes(event.evidence.tool?.name ?? event.evidence.source.toolName ?? '');
+  return ['Bash', 'Write', 'Edit'].includes(
+    event.evidence.tool?.name ?? event.evidence.source.toolName ?? '',
+  );
 }
 
 function sameWorkspaceRevision(
@@ -799,16 +910,18 @@ function sameWorkspaceRevision(
   right: ExecutionEvidenceRef['workspace'],
 ): boolean {
   return Boolean(
-    left
-    && right
-    && left.kind === right.kind
-    && left.ref === right.ref
-    && left.dirty === right.dirty,
+    left &&
+      right &&
+      left.kind === right.kind &&
+      left.ref === right.ref &&
+      left.dirty === right.dirty,
   );
 }
 
-
-function resultFromScore(score: ScoreResult | undefined, verifier: VerifierResult | undefined): TaskRunResult | undefined {
+function resultFromScore(
+  score: ScoreResult | undefined,
+  verifier: VerifierResult | undefined,
+): TaskRunResult | undefined {
   if (!score) return undefined;
   return {
     passed: score.passed,
@@ -830,8 +943,14 @@ function preferredVerifierResult(results: readonly VerifierResult[]): VerifierRe
   return preferredByAuthority(results);
 }
 
-function preferredScoreResult(results: readonly ScoreResult[], verifier: VerifierResult | undefined): ScoreResult | undefined {
-  if (verifier?.authority?.authoritative === true && !results.some((result) => result.authority?.authoritative === true)) {
+function preferredScoreResult(
+  results: readonly ScoreResult[],
+  verifier: VerifierResult | undefined,
+): ScoreResult | undefined {
+  if (
+    verifier?.authority?.authoritative === true &&
+    !results.some((result) => result.authority?.authoritative === true)
+  ) {
     return undefined;
   }
   return preferredByAuthority(results);
@@ -849,13 +968,18 @@ function preferredByAuthority<T extends { authority?: { authoritative: boolean }
 
 function applyTerminalEvent(projection: TaskRunProjection, terminalEvents: number): number {
   if (terminalEvents > 0) {
-    projection.warnings.push('multiple terminal task run events observed; last terminal event wins');
+    projection.warnings.push(
+      'multiple terminal task run events observed; last terminal event wins',
+    );
   }
   delete projection.parked;
   return terminalEvents + 1;
 }
 
-function appendCompactEvidence(projection: TaskRunProjection, ...evidence: HeavyTaskCompactEvidenceEnvelope[]): boolean {
+function appendCompactEvidence(
+  projection: TaskRunProjection,
+  ...evidence: HeavyTaskCompactEvidenceEnvelope[]
+): boolean {
   let ok = true;
   for (const item of evidence) {
     if (item.public !== true || item.taskRunId !== projection.taskRunId) {
@@ -880,17 +1004,21 @@ function selfCheckEvidenceIdFactory(selfCheckId: string): () => string {
 }
 
 function isCompactEvidenceEligibleArtifact(artifact: TaskRunArtifact): boolean {
-  return (artifact.authority.source === 'runtime' || artifact.authority.source === 'self_check')
-    && artifact.authority.authoritative !== true;
+  return (
+    (artifact.authority.source === 'runtime' || artifact.authority.source === 'self_check') &&
+    artifact.authority.authoritative !== true
+  );
 }
 
 function hasHeavyTaskCompletionState(projection: TaskRunProjection): boolean {
-  return projection.heavyTaskMode?.enabled === true
-    || projection.heavyTaskInventory.length > 0
-    || projection.heavyTaskTodoStates.length > 0
-    || projection.heavyTaskSelfCheckPlans.length > 0
-    || projection.heavyTaskSelfChecks.length > 0
-    || projection.heavyTaskEvidence.length > 0;
+  return (
+    projection.heavyTaskMode?.enabled === true ||
+    projection.heavyTaskInventory.length > 0 ||
+    projection.heavyTaskTodoStates.length > 0 ||
+    projection.heavyTaskSelfCheckPlans.length > 0 ||
+    projection.heavyTaskSelfChecks.length > 0 ||
+    projection.heavyTaskEvidence.length > 0
+  );
 }
 
 function safeFileId(id: string): string {
@@ -898,7 +1026,9 @@ function safeFileId(id: string): string {
 }
 
 function isNotFound(error: unknown): boolean {
-  return typeof error === 'object' && error !== null && (error as { code?: string }).code === 'ENOENT';
+  return (
+    typeof error === 'object' && error !== null && (error as { code?: string }).code === 'ENOENT'
+  );
 }
 
 function errorMessage(error: unknown): string {

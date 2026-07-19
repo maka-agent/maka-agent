@@ -1,0 +1,1504 @@
+import {
+  generalizedErrorMessage,
+  generalizedErrorMessageChinese,
+  type UiCatalog,
+  type UiLocale,
+  type PermissionMode,
+  type ChatDefaultPermissionMode,
+  type SettingsSection,
+  type ThinkingLevel,
+} from '@maka/core';
+
+export const STATIC_COMMAND_IDS = [
+  'action:new-chat',
+  'action:new-deep-research',
+  'action:new-plan-reminder',
+  'action:open-settings',
+  'action:keyboard-help',
+  'theme:light',
+  'theme:dark',
+  'theme:auto',
+  'nav:sessions',
+  'nav:automations',
+  'nav:skills',
+  'nav:mcp',
+  'nav:daily-review',
+  'diag:open-workspace',
+  'diag:open-project-folder',
+  'diag:open-skills',
+  'diag:export-conversation',
+  'diag:save-conversation-file',
+  'diag:copy-today-daily-review',
+  'diag:paste-today-daily-review',
+  'diag:save-today-daily-review',
+  'diag:copy-env-summary',
+  'diag:test-network-proxy',
+  'diag:open-local-memory',
+  'diag:open-workspace-instructions',
+] as const;
+
+export type StaticCommandId = (typeof STATIC_COMMAND_IDS)[number];
+
+type CommandCopy = {
+  label: string;
+  group: string;
+  hint?: string;
+};
+
+const STATIC_COMMAND_KEYWORDS: Record<StaticCommandId, readonly string[]> = {
+  'action:new-chat': ['new', 'chat', 'start', '新', '建', '对话'],
+  'action:new-deep-research': ['deep', 'research', 'explore', 'readonly', '研究', '深度', '探索', '只读'],
+  'action:new-plan-reminder': ['plan', 'reminder', 'schedule', 'new', 'create', '计划', '提醒', '新建', '创建'],
+  'action:open-settings': ['settings', 'preferences', '设置', 'options'],
+  'action:keyboard-help': ['shortcuts', 'keyboard', 'help', '快捷键', '帮助'],
+  'theme:light': ['light', 'theme', '浅色', '主题'],
+  'theme:dark': ['dark', 'theme', '深色', 'night', '主题'],
+  'theme:auto': ['auto', 'system', 'theme', '跟随', '系统', '主题'],
+  'nav:sessions': ['sessions', 'chats', '会话', '对话', 'left'],
+  'nav:automations': ['automations', 'plan', 'reminder', 'schedule', 'cron', '定时任务', '计划', '提醒'],
+  'nav:skills': ['skills', '技能'],
+  'nav:mcp': ['mcp', 'server', 'tools', '扩展', '工具'],
+  'nav:daily-review': ['daily', 'review', 'today', '每日', '回顾', '今天'],
+  'diag:open-workspace': ['workspace', 'folder', 'open', 'finder', '工作区', '文件夹', '目录'],
+  'diag:open-project-folder': ['project', 'folder', 'open', 'finder', '项目', '目录', '文件夹'],
+  'diag:open-skills': ['skills', 'folder', 'open', 'finder', '技能', '文件夹'],
+  'diag:export-conversation': ['export', 'markdown', 'copy', 'conversation', '导出', '对话', '剪贴板', 'md'],
+  'diag:save-conversation-file': [
+    'save',
+    'file',
+    'markdown',
+    'conversation',
+    'export',
+    '保存',
+    '文件',
+    '对话',
+    '导出',
+    'md',
+  ],
+  'diag:copy-today-daily-review': ['daily', 'review', 'today', 'copy', 'markdown', '今日', '回顾', '复制', '剪贴板'],
+  'diag:paste-today-daily-review': ['daily', 'review', 'paste', 'composer', '今日', '回顾', '粘贴', '输入框'],
+  'diag:save-today-daily-review': [
+    'daily',
+    'review',
+    'save',
+    'file',
+    'export',
+    'markdown',
+    '今日',
+    '回顾',
+    '保存',
+    '文件',
+    '导出',
+  ],
+  'diag:copy-env-summary': [
+    'env',
+    'environment',
+    'version',
+    'about',
+    'bug',
+    'report',
+    '环境',
+    '版本',
+    '关于',
+    '诊断',
+    '汇报',
+  ],
+  'diag:test-network-proxy': ['network', 'proxy', 'test', 'ping', '网络', '代理', '测试', '连接', '诊断'],
+  'diag:open-local-memory': ['memory', 'md', 'open', '记忆', '本地', '编辑', 'edit'],
+  'diag:open-workspace-instructions': [
+    'workspace',
+    'instructions',
+    'agents',
+    'claude',
+    'md',
+    'open',
+    '项目',
+    '指引',
+    '本地',
+  ],
+};
+
+type ShellCopy = {
+  navigation: {
+    settings: string;
+  };
+  actions: {
+    retry: string;
+  };
+  paths: Record<'workspace' | 'project' | 'skills', string>;
+  errors: {
+    messageRead: string;
+    messageRefresh: string;
+    openPath(path: string): string;
+    workspaceUnavailableTitle: string;
+    workspaceUnavailableDescription: string;
+  };
+  chatActions: {
+    newConversation: string;
+    sendFailedTitle: string;
+    sendFailedFallback: string;
+    responseFailedTitle: string;
+    responseFailedFallback: string;
+    refreshFailedTitle: string;
+    quickChatFailedTitle: string;
+    quickChatFailedFallback: string;
+    expertTeamFailedTitle: string;
+    expertTeamFailedFallback: string;
+    expertTeamNotFound: string;
+  };
+  projectActions: {
+    currentProject: string;
+    readPathFailedTitle: string;
+    readPathFailedFallback: string;
+    selectDirectoryFailedTitle: string;
+    missingSelection: string;
+    directorySwitchFallback: string;
+    selectedPathUnreadable: string;
+    directorySwitchedTitle: string;
+    openFailedTitle(path: string): string;
+    openPathLabels: Record<'workspace' | 'skills' | 'memory' | 'project', string>;
+    openPathFailures: Record<
+      'unknown-key' | 'not-allowed' | 'missing' | 'not-a-directory' | 'open-failed' | 'unknown',
+      string
+    >;
+    branchListFailedTitle: string;
+    branchListFallback: string;
+    branchCheckoutFailedTitle: string;
+    branchCheckoutFallback(branch: string): string;
+    branchCheckoutSuccessTitle: string;
+  };
+  commandActions: {
+    connectionVerified(name: string): string;
+    connectionLatency(latency: number | string, model?: string): string;
+    connectionTestFailed(name: string): string;
+    testErrorTitle: string;
+    connectionUnavailable: string;
+    connectionFailures: Record<'rateLimit' | 'timeout' | 'auth' | 'network' | 'provider' | 'unknown', string>;
+    setDefaultSuccess(name: string): string;
+    setDefaultFailedTitle: string;
+    setDefaultFallback: string;
+    newConversation: string;
+    conversationCopiedTitle: string;
+    lineCount(lines: number): string;
+    copyFailedTitle: string;
+    clipboardUnavailable: string;
+    conversationSavedTitle: string;
+    saveSummary(lines: number, fileName: string): string;
+    saveFailedTitle: string;
+    invalidExport: string;
+    writeFailed: string;
+    exportFallback: string;
+    memoryOpenFailedTitle: string;
+    openFailedTitle: string;
+    memoryOpenFallback: string;
+    instructionsMissingTitle: string;
+    instructionsMissingDescription: string;
+    fileOpenFailed(file: string): string;
+    instructionsOpenFallback: string;
+    today: string;
+    reviewCopiedTitle: string;
+    reviewSummary(sessions: number, requests: number): string;
+    reviewCopyFallback: string;
+    reviewPastedTitle: string;
+    reviewCopied(label: string): string;
+    reviewPasted(label: string): string;
+    reviewSaved(label: string): string;
+    reviewSaveFallback: string;
+    pasteFailedTitle: string;
+    reviewUnavailable: string;
+    environmentCopiedTitle: string;
+    clipboardDenied: string;
+    networkPassedTitle: string;
+    networkFailedTitle: string;
+    genericTestFailedTitle: string;
+    networkTestFallback: string;
+  };
+  sessionRowActions: {
+    actionFallback: string;
+    flagFailedTitle: string;
+    unflagFailedTitle: string;
+    archiveFailedTitle: string;
+    unarchiveFailedTitle: string;
+    renameFailedTitle: string;
+    deleteFailedTitle: string;
+    currentConversation: string;
+    deleteTitle(name: string): string;
+    deleteDescription: string;
+    deleteLabel: string;
+    cancelLabel: string;
+    deletedTitle(name: string): string;
+  };
+  skillActions: {
+    refreshSkillsFailedTitle: string;
+    refreshSkillsFallback: string;
+    refreshSourcesFailedTitle: string;
+    refreshSourcesFallback: string;
+    refreshBundledFailedTitle: string;
+    refreshBundledFallback: string;
+    installBundledFailedTitle: string;
+    installBundledFallback: string;
+    installedBundledTitle: string;
+    installedDescription(id: string): string;
+    createTemplateFailedTitle: string;
+    createTemplateFallback: string;
+    createdTemplateTitle: string;
+    createdTemplateDescription(id: string): string;
+    openedExistingTemplateTitle: string;
+    openedExistingTemplateDescription: string;
+    openTemplateFailedTitle: string;
+    importSourceFailedTitle: string;
+    importSourceFallback: string;
+    importedSourceTitle: string;
+    installFailedTitle: string;
+    installFallback: string;
+    installedTitle: string;
+    previewFailedTitle: string;
+    previewFallback: string;
+    updateFailedTitle: string;
+    updateFallback: string;
+    updatedTitle: string;
+    forceUpdatedTitle: string;
+    updatedDescription(id: string): string;
+    toggleFailedTitle: string;
+    toggleFallback: string;
+    enabledTitle: string;
+    disabledTitle: string;
+    runtimeDescription(name: string): string;
+    deleteFailedTitle: string;
+    deleteFallback: string;
+    deletedTitle: string;
+    deletedDescription(id: string): string;
+    openFailedTitle: string;
+    openFallback: string;
+    createFailures: Record<'blocked_path' | 'already_exists' | 'write_failed', string>;
+    openFailures: Record<
+      'invalid_id' | 'missing' | 'blocked_path' | 'not_file' | 'not_directory' | 'open_failed',
+      string
+    >;
+    sourceFailures: Record<'invalid_skill' | 'already_exists' | 'blocked_path' | 'write_failed' | 'cancelled', string>;
+    installFailures: Record<'not_found' | 'already_exists' | 'blocked_path' | 'write_failed', string>;
+    updateFailures: Record<
+      'not_managed' | 'source_missing' | 'local_modified' | 'metadata_error' | 'blocked_path' | 'write_failed',
+      string
+    >;
+    previewFailures: Record<
+      'not_managed' | 'source_missing' | 'metadata_error' | 'blocked_path' | 'read_failed',
+      string
+    >;
+    deleteFailures: Record<'not_found' | 'blocked_path' | 'delete_failed', string>;
+    runtimeFailures: Record<'not_found' | 'blocked_path' | 'state_error' | 'write_failed', string>;
+  };
+  sessionSettingsActions: {
+    permissionLabels: Record<ChatDefaultPermissionMode, string>;
+    permissionDescriptions: Record<PermissionMode, string>;
+    permissionSwitched(label: string): string;
+    permissionFailedTitle: string;
+    permissionFallback: string;
+    modelSwitchedTitle: string;
+    modelFailedTitle: string;
+    modelFallback: string;
+    thinkingUpdatedTitle: string;
+    thinkingDefault: string;
+    thinkingLabels: Record<ThinkingLevel, string>;
+    thinkingFailedTitle: string;
+    thinkingFallback: string;
+  };
+  errorBoundary: {
+    copyPending: string;
+    copied: string;
+    copyFailed: string;
+    copyReport: string;
+    title: string;
+    descriptionBeforeRetry: string;
+    retry: string;
+    descriptionBeforeReload: string;
+    reload: string;
+    descriptionAfterReload: string;
+    errorDetails: string;
+    componentStack: string;
+    clipboardFailure: string;
+  };
+  commandPalette: {
+    label: string;
+    searchLabel: string;
+    placeholder: string;
+    closeLabel: string;
+    resultsLabel: string;
+    emptyTitle: string;
+    emptyDescription: string;
+    selectHint: string;
+    runHint: string;
+    closeHint: string;
+    current: string;
+    groups: {
+      settings: string;
+      permissions: string;
+      connections: string;
+      conversations: string;
+    };
+    staticKeywords: Record<StaticCommandId, readonly string[]>;
+    commands: Record<StaticCommandId, CommandCopy>;
+    settingsSections: Record<SettingsSection, string>;
+    permissionModes: Record<PermissionMode, { label: string; hint: string }>;
+    settingsCommand(section: string): string;
+    testDefaultConnection(name: string): string;
+    setDefaultConnection(name: string): string;
+    testConnection(name: string): string;
+    settingsKeywords(section: SettingsSection, label: string): string[];
+    permissionKeywords(mode: PermissionMode): string[];
+    connectionKeywords(action: 'default' | 'test', name: string, providerType: string): string[];
+  };
+  keyboardHelp: {
+    title: string;
+    sections: Array<{
+      heading: string;
+      rows: Array<{ keys: string[]; description: string }>;
+    }>;
+  };
+  chrome: {
+    windowActions: string;
+    searchConversations: string;
+    expandSidebar: string;
+    collapseSidebar: string;
+    newTask: string;
+    expandWorkbar: string;
+    collapseWorkbar: string;
+    workspaceActions: string;
+    feedback: string;
+    feedbackTooltip: string;
+    openCommandPalette: string;
+    openHelp: string;
+    openHealth: string;
+  };
+  app: {
+    loadingWorkbarLabel: string;
+    loadingWorkbar: string;
+    useSkillPrompt(skillName: string): string;
+    newConversation: string;
+    compactErrorTitle: string;
+    compactErrorFallback: string;
+    appearanceLoadErrorTitle: string;
+    appearanceLoadErrorFallback: string;
+    memoryRefreshErrorTitle: string;
+    memoryLoadErrorTitle: string;
+    memoryErrorFallback: string;
+    openModelSettings: string;
+    sidebarCollapsed: string;
+    resizeConversationList: string;
+    skipErrorTitle: string;
+    tryAgainLater: string;
+    loading: string;
+    goToAccount: string;
+    goToModels: string;
+    permissionModeChanging: string;
+    permissionModeStreaming: string;
+    permissionModeRunning: string;
+    permissionModeWaiting: string;
+    resizeWorkbar: string;
+  };
+};
+
+const ZH_STATIC_COMMANDS: Record<StaticCommandId, CommandCopy> = {
+  'action:new-chat': { label: '新建对话', hint: '开始新的会话', group: '操作' },
+  'action:new-deep-research': {
+    label: '新建深度研究',
+    hint: '只读探索',
+    group: '操作',
+  },
+  'action:new-plan-reminder': {
+    label: '新建计划提醒',
+    hint: '打开计划表单',
+    group: '操作',
+  },
+  'action:open-settings': { label: '打开设置', hint: '⌘,', group: '操作' },
+  'action:keyboard-help': { label: '查看键盘快捷键', hint: '?', group: '操作' },
+  'theme:light': { label: '主题 · 浅色', group: '主题' },
+  'theme:dark': { label: '主题 · 深色', group: '主题' },
+  'theme:auto': { label: '主题 · 跟随系统', group: '主题' },
+  'nav:sessions': { label: '侧栏 · 会话', group: '导航' },
+  'nav:automations': { label: '侧栏 · 定时任务', group: '导航' },
+  'nav:skills': { label: '打开 · 技能', group: '导航' },
+  'nav:mcp': { label: '打开 · MCP', group: '导航' },
+  'nav:daily-review': { label: '打开 · 每日回顾', group: '导航' },
+  'diag:open-workspace': {
+    label: '打开工作区文件夹',
+    hint: 'Finder',
+    group: '诊断',
+  },
+  'diag:open-project-folder': {
+    label: '打开项目目录',
+    hint: 'Finder',
+    group: '诊断',
+  },
+  'diag:open-skills': {
+    label: '打开 Skills 文件夹',
+    hint: 'Finder',
+    group: '诊断',
+  },
+  'diag:export-conversation': {
+    label: '导出当前对话为 Markdown',
+    hint: '复制到剪贴板',
+    group: '诊断',
+  },
+  'diag:save-conversation-file': {
+    label: '保存当前对话为 .md 文件',
+    hint: '用系统保存对话框',
+    group: '诊断',
+  },
+  'diag:copy-today-daily-review': {
+    label: '复制今日回顾为 Markdown',
+    hint: '复制到剪贴板',
+    group: '诊断',
+  },
+  'diag:paste-today-daily-review': {
+    label: '把今日回顾粘到 composer',
+    hint: '不进剪贴板',
+    group: '诊断',
+  },
+  'diag:save-today-daily-review': {
+    label: '保存今日回顾为 .md 文件',
+    hint: '用系统保存对话框',
+    group: '诊断',
+  },
+  'diag:copy-env-summary': {
+    label: '复制环境信息',
+    hint: 'Markdown · bug report 友好',
+    group: '诊断',
+  },
+  'diag:test-network-proxy': {
+    label: '测试当前网络代理',
+    hint: '诊断 · 不打开设置',
+    group: '诊断',
+  },
+  'diag:open-local-memory': {
+    label: '打开本地 MEMORY.md',
+    hint: '系统编辑器',
+    group: '诊断',
+  },
+  'diag:open-workspace-instructions': {
+    label: '打开项目指引文件',
+    hint: 'AGENTS.md / CLAUDE.md',
+    group: '诊断',
+  },
+};
+
+const EN_STATIC_COMMANDS: Record<StaticCommandId, CommandCopy> = {
+  'action:new-chat': {
+    label: 'New conversation',
+    hint: 'Start a new conversation',
+    group: 'Actions',
+  },
+  'action:new-deep-research': {
+    label: 'New deep research',
+    hint: 'Read-only exploration',
+    group: 'Actions',
+  },
+  'action:new-plan-reminder': {
+    label: 'New plan reminder',
+    hint: 'Open the reminder form',
+    group: 'Actions',
+  },
+  'action:open-settings': {
+    label: 'Open Settings',
+    hint: '⌘,',
+    group: 'Actions',
+  },
+  'action:keyboard-help': {
+    label: 'View keyboard shortcuts',
+    hint: '?',
+    group: 'Actions',
+  },
+  'theme:light': { label: 'Theme · Light', group: 'Theme' },
+  'theme:dark': { label: 'Theme · Dark', group: 'Theme' },
+  'theme:auto': { label: 'Theme · Follow system', group: 'Theme' },
+  'nav:sessions': { label: 'Sidebar · Conversations', group: 'Navigation' },
+  'nav:automations': { label: 'Sidebar · Automations', group: 'Navigation' },
+  'nav:skills': { label: 'Open · Skills', group: 'Navigation' },
+  'nav:mcp': { label: 'Open · MCP', group: 'Navigation' },
+  'nav:daily-review': { label: 'Open · Daily Review', group: 'Navigation' },
+  'diag:open-workspace': {
+    label: 'Open workspace folder',
+    hint: 'Finder',
+    group: 'Diagnostics',
+  },
+  'diag:open-project-folder': {
+    label: 'Open project folder',
+    hint: 'Finder',
+    group: 'Diagnostics',
+  },
+  'diag:open-skills': {
+    label: 'Open Skills folder',
+    hint: 'Finder',
+    group: 'Diagnostics',
+  },
+  'diag:export-conversation': {
+    label: 'Copy conversation as Markdown',
+    hint: 'Copy to clipboard',
+    group: 'Diagnostics',
+  },
+  'diag:save-conversation-file': {
+    label: 'Save conversation as an .md file',
+    hint: 'Use the system save dialog',
+    group: 'Diagnostics',
+  },
+  'diag:copy-today-daily-review': {
+    label: "Copy today's review as Markdown",
+    hint: 'Copy to clipboard',
+    group: 'Diagnostics',
+  },
+  'diag:paste-today-daily-review': {
+    label: "Paste today's review into the composer",
+    hint: 'Skip the clipboard',
+    group: 'Diagnostics',
+  },
+  'diag:save-today-daily-review': {
+    label: "Save today's review as an .md file",
+    hint: 'Use the system save dialog',
+    group: 'Diagnostics',
+  },
+  'diag:copy-env-summary': {
+    label: 'Copy environment information',
+    hint: 'Markdown · ready for bug reports',
+    group: 'Diagnostics',
+  },
+  'diag:test-network-proxy': {
+    label: 'Test the current network proxy',
+    hint: 'Diagnose without opening Settings',
+    group: 'Diagnostics',
+  },
+  'diag:open-local-memory': {
+    label: 'Open local MEMORY.md',
+    hint: 'System editor',
+    group: 'Diagnostics',
+  },
+  'diag:open-workspace-instructions': {
+    label: 'Open project instructions',
+    hint: 'AGENTS.md / CLAUDE.md',
+    group: 'Diagnostics',
+  },
+};
+
+const ZH_SETTINGS_SECTIONS: Record<SettingsSection, string> = {
+  general: '通用',
+  account: '账号',
+  appearance: '外观',
+  models: '模型',
+  usage: '使用统计',
+  memory: '记忆',
+  'daily-review': '每日回顾',
+  voice: '语音',
+  'open-gateway': '开放网关',
+  'bot-chat': '远程接入',
+  search: '联网搜索',
+  data: '数据',
+  permissions: '权限与能力',
+  health: '健康',
+  about: '关于',
+};
+
+const EN_SETTINGS_SECTIONS: Record<SettingsSection, string> = {
+  general: 'General',
+  account: 'Account',
+  appearance: 'Appearance',
+  models: 'Models',
+  usage: 'Usage',
+  memory: 'Memory',
+  'daily-review': 'Daily Review',
+  voice: 'Voice',
+  'open-gateway': 'Open Gateway',
+  'bot-chat': 'Remote Access',
+  search: 'Web Search',
+  data: 'Data',
+  permissions: 'Permissions & Capabilities',
+  health: 'Health',
+  about: 'About',
+};
+
+const SHELL_COPY_BY_LOCALE = {
+  zh: {
+    navigation: { settings: '设置' },
+    actions: { retry: '重试' },
+    paths: {
+      workspace: '工作区文件夹',
+      project: '项目目录',
+      skills: 'Skills 文件夹',
+    },
+    errors: {
+      messageRead: '对话内容暂时无法读取，请稍后重试。',
+      messageRefresh: '对话内容暂时无法刷新，请稍后重试。',
+      openPath: (path: string) => `无法打开${path}，请稍后重试。`,
+      workspaceUnavailableTitle: '工作目录不可用',
+      workspaceUnavailableDescription: '工作目录不存在或无法访问。请选择有效目录创建新任务。',
+    },
+    chatActions: {
+      newConversation: '新建对话',
+      sendFailedTitle: '发送失败',
+      sendFailedFallback: '消息暂时无法发送，请稍后重试。',
+      responseFailedTitle: '响应失败',
+      responseFailedFallback: '会话操作失败，请稍后重试。',
+      refreshFailedTitle: '刷新对话失败',
+      quickChatFailedTitle: '开始对话失败',
+      quickChatFailedFallback: '对话暂时无法开始，请稍后重试。',
+      expertTeamFailedTitle: '开始专家团失败',
+      expertTeamFailedFallback: '专家团暂时无法开始，请稍后重试。',
+      expertTeamNotFound: '找不到该专家团。',
+    },
+    projectActions: {
+      currentProject: '当前项目',
+      readPathFailedTitle: '读取项目路径失败',
+      readPathFailedFallback: '项目路径暂时无法读取，请稍后重试。',
+      selectDirectoryFailedTitle: '选择工作目录失败',
+      missingSelection: '没有读取到选中的目录，请重新选择。',
+      directorySwitchFallback: '工作目录暂时无法切换，请稍后重试。',
+      selectedPathUnreadable: '所选路径不存在或不可读。',
+      directorySwitchedTitle: '已切换工作目录',
+      openFailedTitle: (path: string) => `无法打开${path}`,
+      openPathLabels: {
+        workspace: '工作区目录',
+        skills: 'Skills 目录',
+        memory: '记忆目录',
+        project: '项目目录',
+      },
+      openPathFailures: {
+        'unknown-key': '未知的工作区目录。',
+        'not-allowed': '路径不在允许打开的工作区范围内。',
+        missing: '目录不存在。',
+        'not-a-directory': '目标不是目录。',
+        'open-failed': '系统没有打开该目录。',
+        unknown: '无法打开目录。',
+      },
+      branchListFailedTitle: '读取分支列表失败',
+      branchListFallback: '无法读取本地分支，请稍后重试。',
+      branchCheckoutFailedTitle: '切换分支失败',
+      branchCheckoutFallback: (branch: string) => `无法切换到分支 ${branch}。`,
+      branchCheckoutSuccessTitle: '已切换分支',
+    },
+    commandActions: {
+      connectionVerified: (name: string) => `连接已验证 · ${name}`,
+      connectionLatency: (latency: number | string, model?: string) =>
+        `延迟 ${latency} ms${model ? ` · ${model}` : ''}`,
+      connectionTestFailed: (name: string) => `连接测试失败 · ${name}`,
+      testErrorTitle: '测试出错',
+      connectionUnavailable: '连接测试暂时不可用，请稍后重试。',
+      connectionFailures: {
+        rateLimit: '当前账号或模型服务触发速率限制，请稍后重试。',
+        timeout: '请求超时，请检查网络或代理后重试。',
+        auth: '鉴权失败，请检查模型密钥、订阅账号登录或凭据配置后重试。',
+        network: '网络错误，请检查网络或代理后重试。',
+        provider: '模型服务返回错误，请稍后重试。',
+        unknown: '连接测试失败，请稍后重试。',
+      },
+      setDefaultSuccess: (name: string) => `已设为默认 · ${name}`,
+      setDefaultFailedTitle: '切换默认失败',
+      setDefaultFallback: '默认模型暂时无法切换，请稍后重试。',
+      newConversation: '新建对话',
+      conversationCopiedTitle: '已复制对话为 Markdown',
+      lineCount: (lines: number) => `${lines} 行 · 可粘贴到 Notion / Obsidian / GitHub`,
+      copyFailedTitle: '复制失败',
+      clipboardUnavailable: '剪贴板不可用',
+      conversationSavedTitle: '已保存当前对话',
+      saveSummary: (lines: number, fileName: string) => `${lines} 行 · 保存为 ${fileName}`,
+      saveFailedTitle: '保存失败',
+      invalidExport: '导出内容无效',
+      writeFailed: '无法写入选择的位置',
+      exportFallback: '导出当前对话失败，请稍后重试。',
+      memoryOpenFailedTitle: '无法打开 MEMORY.md',
+      openFailedTitle: '打开失败',
+      memoryOpenFallback: '无法打开 MEMORY.md，请稍后重试。',
+      instructionsMissingTitle: '等待创建项目指引',
+      instructionsMissingDescription: '在 Settings · 记忆 创建 AGENTS.md 或 CLAUDE.md',
+      fileOpenFailed: (file: string) => `无法打开 ${file}`,
+      instructionsOpenFallback: '无法打开项目指引，请稍后重试。',
+      today: '今天',
+      reviewCopiedTitle: '已复制今日回顾为 Markdown',
+      reviewSummary: (sessions: number, requests: number) => `${sessions} 个对话 · ${requests} 个请求`,
+      reviewCopyFallback: '今日回顾暂时不可用，或剪贴板被系统拒绝。',
+      reviewPastedTitle: '已追加今日回顾到输入框',
+      reviewCopied: (label: string) => `已复制${label}回顾`,
+      reviewPasted: (label: string) => `已追加${label}回顾到输入框`,
+      reviewSaved: (label: string) => `已保存${label}回顾`,
+      reviewSaveFallback: '保存每日回顾失败，请稍后重试。',
+      pasteFailedTitle: '粘贴失败',
+      reviewUnavailable: '今日回顾暂时不可用，请稍后重试。',
+      environmentCopiedTitle: '已复制环境信息',
+      clipboardDenied: '剪贴板不可用或被系统拒绝',
+      networkPassedTitle: '网络代理测试通过',
+      networkFailedTitle: '网络代理测试失败',
+      genericTestFailedTitle: '测试失败',
+      networkTestFallback: '网络代理测试暂时不可用，请稍后重试。',
+    },
+    sessionRowActions: {
+      actionFallback: '会话操作失败，请稍后重试。',
+      flagFailedTitle: '标记会话失败',
+      unflagFailedTitle: '取消标记失败',
+      archiveFailedTitle: '归档会话失败',
+      unarchiveFailedTitle: '恢复会话失败',
+      renameFailedTitle: '重命名会话失败',
+      deleteFailedTitle: '删除会话失败',
+      currentConversation: '当前会话',
+      deleteTitle: (name: string) => `删除 "${name}"`,
+      deleteDescription: '会话和全部消息会从磁盘上永久移除。该操作不可撤销。',
+      deleteLabel: '删除',
+      cancelLabel: '取消',
+      deletedTitle: (name: string) => `已删除 ${name}`,
+    },
+    skillActions: {
+      refreshSkillsFailedTitle: '刷新技能失败',
+      refreshSkillsFallback: '刷新技能失败，请稍后重试。',
+      refreshSourcesFailedTitle: '刷新来源库失败',
+      refreshSourcesFallback: '刷新来源库失败，请稍后重试。',
+      refreshBundledFailedTitle: '刷新内置技能失败',
+      refreshBundledFallback: '刷新内置技能失败，请稍后重试。',
+      installBundledFailedTitle: '无法安装内置 Skill',
+      installBundledFallback: '无法安装内置 Skill，请稍后重试。',
+      installedBundledTitle: '已安装内置 Skill',
+      installedDescription: (id: string) => `${id}/SKILL.md 已放到当前工作区。`,
+      createTemplateFailedTitle: '无法创建示例技能',
+      createTemplateFallback: '无法创建示例技能，请稍后重试。',
+      createdTemplateTitle: '已创建示例技能',
+      createdTemplateDescription: (id: string) => `${id}/SKILL.md 已放到工作区 skills 目录。`,
+      openedExistingTemplateTitle: '已打开现有示例技能',
+      openedExistingTemplateDescription: '示例技能已存在，直接打开了 SKILL.md（不会重复创建）。',
+      openTemplateFailedTitle: '无法打开示例技能',
+      importSourceFailedTitle: '无法导入 Skill 来源',
+      importSourceFallback: '无法导入 Skill 来源，请稍后重试。',
+      importedSourceTitle: '已导入 Skill 来源',
+      installFailedTitle: '无法安装 Skill',
+      installFallback: '无法安装 Skill，请稍后重试。',
+      installedTitle: '已安装 Skill',
+      previewFailedTitle: '无法预览 Skill 更新',
+      previewFallback: '无法预览 Skill 更新，请稍后重试。',
+      updateFailedTitle: '无法更新 Skill',
+      updateFallback: '无法更新 Skill，请稍后重试。',
+      updatedTitle: '已更新 Skill',
+      forceUpdatedTitle: '已覆盖更新 Skill',
+      updatedDescription: (id: string) => `${id}/SKILL.md 已更新到来源库版本。`,
+      toggleFailedTitle: '无法切换 Skill',
+      toggleFallback: '无法切换 Skill，请稍后重试。',
+      enabledTitle: '已启用 Skill',
+      disabledTitle: '已停用 Skill',
+      runtimeDescription: (name: string) => `${name} 已更新当前项目的运行状态。`,
+      deleteFailedTitle: '无法删除 Skill',
+      deleteFallback: '无法删除 Skill，请稍后重试。',
+      deletedTitle: '已删除 Skill',
+      deletedDescription: (id: string) => `${id} 已从当前工作区移除。`,
+      openFailedTitle: '无法打开 Skill',
+      openFallback: '无法打开 Skill，请稍后重试。',
+      createFailures: {
+        blocked_path: 'skills 目录不是普通工作区目录，已阻止写入。',
+        already_exists: '示例技能编号已占满，请先整理 skills 目录。',
+        write_failed: '写入 skills 目录失败，请检查工作区权限。',
+      },
+      openFailures: {
+        invalid_id: 'Skill 名称不在允许范围内。',
+        missing: '没有找到对应的 SKILL.md。',
+        blocked_path: 'Skill 路径不在工作区 skills 目录内，已阻止打开。',
+        not_file: '目标不是一个可打开的 SKILL.md 文件。',
+        not_directory: '目标不是一个可打开的目录。',
+        open_failed: '系统打开文件失败。',
+      },
+      sourceFailures: {
+        invalid_skill: '请选择有效的 SKILL.md 文件。',
+        already_exists: '来源库里已经有同名 Skill。',
+        blocked_path: '该文件路径不允许导入。',
+        write_failed: '写入来源库失败，请检查文件权限。',
+        cancelled: '已取消。',
+      },
+      installFailures: {
+        not_found: '没有找到这个 Skill 来源。',
+        already_exists: '当前工作区已经有同名 Skill。',
+        blocked_path: '目标路径不允许写入。',
+        write_failed: '写入工作区失败，请检查文件权限。',
+      },
+      updateFailures: {
+        not_managed: '这个 Skill 不是受管理来源。',
+        source_missing: '来源库中找不到对应来源。',
+        local_modified: '工作区副本已经被修改。请打开本地文件和来源文件手动比较后再更新。',
+        metadata_error: 'Skill 元数据异常，不能安全更新。',
+        blocked_path: '目标路径不允许写入。',
+        write_failed: '写入工作区失败，请检查文件权限。',
+      },
+      previewFailures: {
+        not_managed: '这个 Skill 不是受管理来源。',
+        source_missing: '来源库中找不到对应来源。',
+        metadata_error: 'Skill 元数据异常，不能安全预览。',
+        blocked_path: '目标路径不允许读取。',
+        read_failed: '读取 Skill 内容失败，请检查文件权限。',
+      },
+      deleteFailures: {
+        not_found: '当前工作区找不到这个 Skill。',
+        blocked_path: 'Skill 路径不允许删除。',
+        delete_failed: '删除 Skill 失败，请检查文件权限。',
+      },
+      runtimeFailures: {
+        not_found: '当前工作区找不到这个 Skill。',
+        blocked_path: 'Skill 状态路径不允许写入。',
+        state_error: '当前工作区的 Skill 状态文件异常，需要先修复。',
+        write_failed: '写入当前项目的 Skill 状态失败，请检查文件权限。',
+      },
+    },
+    sessionSettingsActions: {
+      permissionLabels: {
+        ask: '询问权限',
+        execute: '自动执行',
+        bypass: '跳过确认',
+      },
+      permissionDescriptions: {
+        explore: '只读工具直通，写入或网络仍需确认。',
+        ask: '所有敏感工具调用前都会停下来征求允许或拒绝。',
+        execute: '常见工具直通；破坏性操作、特权操作和浏览器操作仍然确认。',
+        bypass: '跳过全部工具确认，包括破坏性操作、特权操作和浏览器操作。',
+      },
+      permissionSwitched: (label: string) => `已切到 ${label}`,
+      permissionFailedTitle: '切换权限模式失败',
+      permissionFallback: '权限模式暂时无法切换，请稍后重试。',
+      modelSwitchedTitle: '已切换当前会话模型',
+      modelFailedTitle: '切换模型失败',
+      modelFallback: '模型暂时无法切换，请稍后重试。',
+      thinkingUpdatedTitle: '已更新思考级别',
+      thinkingDefault: '默认',
+      thinkingLabels: {
+        off: '关',
+        minimal: '最少',
+        low: '低',
+        medium: '中',
+        high: '高',
+        xhigh: '超高',
+        max: '最高',
+      },
+      thinkingFailedTitle: '切换思考级别失败',
+      thinkingFallback: '思考级别暂时无法切换，请稍后重试。',
+    },
+    errorBoundary: {
+      copyPending: '复制中…',
+      copied: '已复制',
+      copyFailed: '复制失败',
+      copyReport: '复制诊断信息',
+      title: 'Maka 渲染层崩溃了',
+      descriptionBeforeRetry: '已捕获一次未处理的 React 异常。下面是错误摘要；点',
+      retry: '重试',
+      descriptionBeforeReload: '清掉这次崩溃，',
+      reload: '重新加载',
+      descriptionAfterReload: '会刷新整个窗口。需要交接时先复制诊断信息。',
+      errorDetails: '错误详情',
+      componentStack: '组件栈',
+      clipboardFailure: '剪贴板不可用或被系统拒绝；可以手动选择上面的错误摘要。',
+    },
+    commandPalette: {
+      label: '命令面板',
+      searchLabel: '命令面板搜索',
+      placeholder: '搜索命令、设置项或会话…',
+      closeLabel: '关闭命令面板',
+      resultsLabel: '命令面板结果',
+      emptyTitle: '没有匹配的命令',
+      emptyDescription: '换个关键词，或按 Esc 关闭。',
+      selectHint: '选择',
+      runHint: '执行',
+      closeHint: '关闭',
+      current: '当前',
+      groups: {
+        settings: '设置',
+        permissions: '权限',
+        connections: '连接',
+        conversations: '会话',
+      },
+      staticKeywords: STATIC_COMMAND_KEYWORDS,
+      commands: ZH_STATIC_COMMANDS,
+      settingsSections: ZH_SETTINGS_SECTIONS,
+      permissionModes: {
+        explore: { label: '权限 · 只读', hint: '读取和搜索直通，写入仍确认' },
+        ask: { label: '权限 · 询问权限', hint: '每条敏感工具都先确认（默认）' },
+        execute: {
+          label: '权限 · 自动执行',
+          hint: '常见工具直通，破坏性操作仍确认',
+        },
+        bypass: {
+          label: '权限 · 跳过确认',
+          hint: '全部工具直通，不再弹权限确认',
+        },
+      },
+      settingsCommand: (section: string) => `设置 · ${section}`,
+      testDefaultConnection: (name: string) => `测试默认连接 · ${name}`,
+      setDefaultConnection: (name: string) => `设为默认 · ${name}`,
+      testConnection: (name: string) => `测试连接 · ${name}`,
+      settingsKeywords: (section: SettingsSection, label: string) => [section, label, 'settings', '设置'],
+      permissionKeywords: (mode: PermissionMode) => [mode, 'permission', 'mode', '权限', '模式'],
+      connectionKeywords: (action: 'default' | 'test', name: string, providerType: string) => [
+        action,
+        'connection',
+        '连接',
+        '默认',
+        '测试',
+        name,
+        providerType,
+      ],
+    },
+    keyboardHelp: {
+      title: '键盘快捷键',
+      sections: [
+        {
+          heading: '通用',
+          rows: [
+            {
+              keys: ['⌘', 'K'],
+              description: '打开命令面板（跳会话 / 设置 / 主题等）',
+            },
+            { keys: ['?'], description: '打开 / 关闭此快捷键面板' },
+            { keys: ['⌘', 'N'], description: '新建任务' },
+            { keys: ['⌘', ','], description: '打开设置' },
+            { keys: ['Esc'], description: '关闭当前模态框' },
+          ],
+        },
+        {
+          heading: 'Composer 输入',
+          rows: [
+            { keys: ['Enter'], description: '发送消息' },
+            { keys: ['Shift', 'Enter'], description: '插入换行' },
+            { keys: ['Alt', 'Enter'], description: '插入换行（备用）' },
+          ],
+        },
+        {
+          heading: '会话列表',
+          rows: [
+            { keys: ['Tab'], description: '在会话与导航之间移动焦点' },
+            { keys: ['↑', '↓'], description: '上下移动聚焦的会话' },
+            { keys: ['Home', 'End'], description: '跳到列表顶部 / 底部' },
+            {
+              keys: ['←', '→'],
+              description: '在会话 / 已标记 / 已归档之间循环切换',
+            },
+            { keys: ['Enter'], description: '打开聚焦的会话' },
+            { keys: ['Delete'], description: '弹出删除确认（永远不静默删除）' },
+            { keys: ['F'], description: '聚焦会话列表搜索框（按 Esc 清空）' },
+          ],
+        },
+        {
+          heading: '聊天区',
+          rows: [
+            { keys: ['Tab'], description: '聚焦工具活动 / 复制按钮' },
+            { keys: ['Space', 'Enter'], description: '展开 / 折叠工具调用' },
+          ],
+        },
+        {
+          heading: '面板调整',
+          rows: [
+            { keys: ['Tab'], description: '聚焦左右分割条' },
+            { keys: ['←', '→'], description: '微调会话列表宽度（±10 px）' },
+            { keys: ['Shift', '←', '→'], description: '快速调整（±50 px）' },
+            { keys: ['Home', 'End'], description: '直接拉到最小 / 最大宽度' },
+          ],
+        },
+      ],
+    },
+    chrome: {
+      windowActions: '窗口快捷操作',
+      searchConversations: '搜索对话',
+      expandSidebar: '展开侧边栏',
+      collapseSidebar: '收起侧边栏',
+      newTask: '新任务',
+      expandWorkbar: '展开会话工作栏',
+      collapseWorkbar: '收起会话工作栏',
+      workspaceActions: '工作区辅助操作',
+      feedback: '问题反馈',
+      feedbackTooltip: '问题反馈 · 打开关于与环境信息',
+      openCommandPalette: '打开命令面板',
+      openHelp: '打开帮助',
+      openHealth: '打开健康中心',
+    },
+    app: {
+      loadingWorkbarLabel: '正在加载会话工作栏',
+      loadingWorkbar: '正在加载会话工作栏…',
+      useSkillPrompt: (skillName: string) => `使用 ${skillName} 技能：`,
+      newConversation: '新建对话',
+      compactErrorTitle: '压缩失败',
+      compactErrorFallback: '对话暂时无法压缩，请稍后重试。',
+      appearanceLoadErrorTitle: '载入外观设置失败',
+      appearanceLoadErrorFallback: '外观设置暂时无法载入，请稍后重试。',
+      memoryRefreshErrorTitle: '刷新本地记忆状态失败',
+      memoryLoadErrorTitle: '载入本地记忆状态失败',
+      memoryErrorFallback: '本地记忆状态暂时无法刷新，请稍后重试。',
+      openModelSettings: '打开设置 · 模型',
+      sidebarCollapsed: '侧边栏已收起',
+      resizeConversationList: '调整对话列表宽度',
+      skipErrorTitle: '跳过失败',
+      tryAgainLater: '请稍后重试。',
+      loading: '加载中',
+      goToAccount: '去账号',
+      goToModels: '去模型',
+      permissionModeChanging: '权限模式正在切换，完成后再继续操作。',
+      permissionModeStreaming: '当前对话正在流式输出，等结束后再切换权限模式。',
+      permissionModeRunning: '当前对话正在运行，等结束后再切换权限模式。',
+      permissionModeWaiting: '当前有工具调用正在等待确认，处理后再切换权限模式。',
+      resizeWorkbar: '调整会话工作栏宽度',
+    },
+  },
+  en: {
+    navigation: { settings: 'Settings' },
+    actions: { retry: 'Retry' },
+    paths: {
+      workspace: 'workspace',
+      project: 'project folder',
+      skills: 'Skills folder',
+    },
+    errors: {
+      messageRead: 'Conversation content is temporarily unavailable. Try again later.',
+      messageRefresh: 'Conversation content could not be refreshed. Try again later.',
+      openPath: (path: string) => `Could not open the ${path}. Try again later.`,
+      workspaceUnavailableTitle: 'Working directory unavailable',
+      workspaceUnavailableDescription:
+        'The working directory does not exist or cannot be accessed. Select a valid folder for a new task.',
+    },
+    chatActions: {
+      newConversation: 'New conversation',
+      sendFailedTitle: 'Message not sent',
+      sendFailedFallback: 'The message could not be sent. Try again later.',
+      responseFailedTitle: 'Response failed',
+      responseFailedFallback: 'The conversation action failed. Try again later.',
+      refreshFailedTitle: 'Could not refresh conversation',
+      quickChatFailedTitle: 'Could not start conversation',
+      quickChatFailedFallback: 'The conversation could not be started. Try again later.',
+      expertTeamFailedTitle: 'Could not start expert team',
+      expertTeamFailedFallback: 'The expert team could not be started. Try again later.',
+      expertTeamNotFound: 'That expert team could not be found.',
+    },
+    projectActions: {
+      currentProject: 'Current project',
+      readPathFailedTitle: 'Could not read project path',
+      readPathFailedFallback: 'The project path is temporarily unavailable. Try again later.',
+      selectDirectoryFailedTitle: 'Could not select working directory',
+      missingSelection: 'The selected directory could not be read. Select it again.',
+      directorySwitchFallback: 'The working directory could not be changed. Try again later.',
+      selectedPathUnreadable: 'The selected path does not exist or cannot be read.',
+      directorySwitchedTitle: 'Working directory changed',
+      openFailedTitle: (path: string) => `Could not open ${path}`,
+      openPathLabels: {
+        workspace: 'workspace folder',
+        skills: 'Skills folder',
+        memory: 'memory folder',
+        project: 'project folder',
+      },
+      openPathFailures: {
+        'unknown-key': 'Unknown workspace folder.',
+        'not-allowed': 'The path is outside the folders that Maka can open.',
+        missing: 'The folder does not exist.',
+        'not-a-directory': 'The target is not a folder.',
+        'open-failed': 'The system could not open the folder.',
+        unknown: 'The folder could not be opened.',
+      },
+      branchListFailedTitle: 'Could not read branches',
+      branchListFallback: 'Local branches could not be read. Try again later.',
+      branchCheckoutFailedTitle: 'Could not switch branch',
+      branchCheckoutFallback: (branch: string) => `Could not switch to branch ${branch}.`,
+      branchCheckoutSuccessTitle: 'Branch switched',
+    },
+    commandActions: {
+      connectionVerified: (name: string) => `Connection verified · ${name}`,
+      connectionLatency: (latency: number | string, model?: string) =>
+        `Latency ${latency} ms${model ? ` · ${model}` : ''}`,
+      connectionTestFailed: (name: string) => `Connection test failed · ${name}`,
+      testErrorTitle: 'Test error',
+      connectionUnavailable: 'Connection testing is temporarily unavailable. Try again later.',
+      connectionFailures: {
+        rateLimit: 'The account or model service is rate limited. Try again later.',
+        timeout: 'The request timed out. Check the network or proxy and try again.',
+        auth: 'Authentication failed. Check the model key, subscription login, or credentials and try again.',
+        network: 'Network error. Check the network or proxy and try again.',
+        provider: 'The model service returned an error. Try again later.',
+        unknown: 'The connection test failed. Try again later.',
+      },
+      setDefaultSuccess: (name: string) => `Set as default · ${name}`,
+      setDefaultFailedTitle: 'Could not change default',
+      setDefaultFallback: 'The default model could not be changed. Try again later.',
+      newConversation: 'New conversation',
+      conversationCopiedTitle: 'Conversation copied as Markdown',
+      lineCount: (lines: number) => `${lines} lines · Ready for Notion / Obsidian / GitHub`,
+      copyFailedTitle: 'Copy failed',
+      clipboardUnavailable: 'Clipboard unavailable',
+      conversationSavedTitle: 'Conversation saved',
+      saveSummary: (lines: number, fileName: string) => `${lines} lines · Saved as ${fileName}`,
+      saveFailedTitle: 'Save failed',
+      invalidExport: 'The export content is invalid',
+      writeFailed: 'The selected location could not be written',
+      exportFallback: 'The conversation could not be exported. Try again later.',
+      memoryOpenFailedTitle: 'Could not open MEMORY.md',
+      openFailedTitle: 'Open failed',
+      memoryOpenFallback: 'MEMORY.md could not be opened. Try again later.',
+      instructionsMissingTitle: 'Project instructions not created yet',
+      instructionsMissingDescription: 'Create AGENTS.md or CLAUDE.md in Settings · Memory',
+      fileOpenFailed: (file: string) => `Could not open ${file}`,
+      instructionsOpenFallback: 'Project instructions could not be opened. Try again later.',
+      today: 'Today',
+      reviewCopiedTitle: "Today's review copied as Markdown",
+      reviewSummary: (sessions: number, requests: number) => `${sessions} conversations · ${requests} requests`,
+      reviewCopyFallback: "Today's review is unavailable, or the clipboard was denied.",
+      reviewPastedTitle: "Today's review added to the composer",
+      reviewCopied: (label: string) => `${label} review copied`,
+      reviewPasted: (label: string) => `${label} review added to the composer`,
+      reviewSaved: (label: string) => `${label} review saved`,
+      reviewSaveFallback: 'The Daily Review could not be saved. Try again later.',
+      pasteFailedTitle: 'Paste failed',
+      reviewUnavailable: "Today's review is temporarily unavailable. Try again later.",
+      environmentCopiedTitle: 'Environment information copied',
+      clipboardDenied: 'The clipboard is unavailable or was denied',
+      networkPassedTitle: 'Network proxy test passed',
+      networkFailedTitle: 'Network proxy test failed',
+      genericTestFailedTitle: 'Test failed',
+      networkTestFallback: 'Network proxy testing is temporarily unavailable. Try again later.',
+    },
+    sessionRowActions: {
+      actionFallback: 'The conversation action failed. Try again later.',
+      flagFailedTitle: 'Could not flag conversation',
+      unflagFailedTitle: 'Could not remove flag',
+      archiveFailedTitle: 'Could not archive conversation',
+      unarchiveFailedTitle: 'Could not restore conversation',
+      renameFailedTitle: 'Could not rename conversation',
+      deleteFailedTitle: 'Could not delete conversation',
+      currentConversation: 'Current conversation',
+      deleteTitle: (name: string) => `Delete "${name}"`,
+      deleteDescription:
+        'The conversation and all of its messages will be permanently removed from disk. This cannot be undone.',
+      deleteLabel: 'Delete',
+      cancelLabel: 'Cancel',
+      deletedTitle: (name: string) => `Deleted ${name}`,
+    },
+    skillActions: {
+      refreshSkillsFailedTitle: 'Could not refresh Skills',
+      refreshSkillsFallback: 'Skills could not be refreshed. Try again later.',
+      refreshSourcesFailedTitle: 'Could not refresh Skill sources',
+      refreshSourcesFallback: 'Skill sources could not be refreshed. Try again later.',
+      refreshBundledFailedTitle: 'Could not refresh built-in Skills',
+      refreshBundledFallback: 'Built-in Skills could not be refreshed. Try again later.',
+      installBundledFailedTitle: 'Could not install built-in Skill',
+      installBundledFallback: 'The built-in Skill could not be installed. Try again later.',
+      installedBundledTitle: 'Built-in Skill installed',
+      installedDescription: (id: string) => `${id}/SKILL.md was added to the current workspace.`,
+      createTemplateFailedTitle: 'Could not create sample Skill',
+      createTemplateFallback: 'The sample Skill could not be created. Try again later.',
+      createdTemplateTitle: 'Sample Skill created',
+      createdTemplateDescription: (id: string) => `${id}/SKILL.md was added to the workspace skills folder.`,
+      openedExistingTemplateTitle: 'Existing sample Skill opened',
+      openedExistingTemplateDescription:
+        'The sample Skill already exists, so its SKILL.md was opened without creating a duplicate.',
+      openTemplateFailedTitle: 'Could not open sample Skill',
+      importSourceFailedTitle: 'Could not import Skill source',
+      importSourceFallback: 'The Skill source could not be imported. Try again later.',
+      importedSourceTitle: 'Skill source imported',
+      installFailedTitle: 'Could not install Skill',
+      installFallback: 'The Skill could not be installed. Try again later.',
+      installedTitle: 'Skill installed',
+      previewFailedTitle: 'Could not preview Skill update',
+      previewFallback: 'The Skill update could not be previewed. Try again later.',
+      updateFailedTitle: 'Could not update Skill',
+      updateFallback: 'The Skill could not be updated. Try again later.',
+      updatedTitle: 'Skill updated',
+      forceUpdatedTitle: 'Skill update overwritten',
+      updatedDescription: (id: string) => `${id}/SKILL.md was updated to the source-library version.`,
+      toggleFailedTitle: 'Could not change Skill status',
+      toggleFallback: 'The Skill status could not be changed. Try again later.',
+      enabledTitle: 'Skill enabled',
+      disabledTitle: 'Skill disabled',
+      runtimeDescription: (name: string) => `${name} runtime status was updated for the current project.`,
+      deleteFailedTitle: 'Could not delete Skill',
+      deleteFallback: 'The Skill could not be deleted. Try again later.',
+      deletedTitle: 'Skill deleted',
+      deletedDescription: (id: string) => `${id} was removed from the current workspace.`,
+      openFailedTitle: 'Could not open Skill',
+      openFallback: 'The Skill could not be opened. Try again later.',
+      createFailures: {
+        blocked_path: 'The skills folder is not a regular workspace folder, so writing was blocked.',
+        already_exists: 'All sample Skill ids are in use. Clean up the skills folder first.',
+        write_failed: 'The skills folder could not be written. Check workspace permissions.',
+      },
+      openFailures: {
+        invalid_id: 'The Skill name is not allowed.',
+        missing: 'The matching SKILL.md was not found.',
+        blocked_path: 'The Skill path is outside the workspace skills folder, so opening was blocked.',
+        not_file: 'The target is not an openable SKILL.md file.',
+        not_directory: 'The target is not an openable folder.',
+        open_failed: 'The system could not open the file.',
+      },
+      sourceFailures: {
+        invalid_skill: 'Select a valid SKILL.md file.',
+        already_exists: 'A Skill with the same name already exists in the source library.',
+        blocked_path: 'This file path cannot be imported.',
+        write_failed: 'The source library could not be written. Check file permissions.',
+        cancelled: 'Cancelled.',
+      },
+      installFailures: {
+        not_found: 'This Skill source was not found.',
+        already_exists: 'A Skill with the same name already exists in this workspace.',
+        blocked_path: 'The target path cannot be written.',
+        write_failed: 'The workspace could not be written. Check file permissions.',
+      },
+      updateFailures: {
+        not_managed: 'This Skill is not from a managed source.',
+        source_missing: 'The matching source was not found in the source library.',
+        local_modified:
+          'The workspace copy was modified. Open the local and source files to compare them before updating.',
+        metadata_error: 'The Skill metadata is invalid, so it cannot be updated safely.',
+        blocked_path: 'The target path cannot be written.',
+        write_failed: 'The workspace could not be written. Check file permissions.',
+      },
+      previewFailures: {
+        not_managed: 'This Skill is not from a managed source.',
+        source_missing: 'The matching source was not found in the source library.',
+        metadata_error: 'The Skill metadata is invalid, so it cannot be previewed safely.',
+        blocked_path: 'The target path cannot be read.',
+        read_failed: 'The Skill content could not be read. Check file permissions.',
+      },
+      deleteFailures: {
+        not_found: 'This Skill was not found in the current workspace.',
+        blocked_path: 'The Skill path cannot be deleted.',
+        delete_failed: 'The Skill could not be deleted. Check file permissions.',
+      },
+      runtimeFailures: {
+        not_found: 'This Skill was not found in the current workspace.',
+        blocked_path: 'The Skill status path cannot be written.',
+        state_error: 'The Skill status file in this workspace is invalid and must be fixed first.',
+        write_failed: 'The Skill status for the current project could not be written. Check file permissions.',
+      },
+    },
+    sessionSettingsActions: {
+      permissionLabels: {
+        ask: 'Ask first',
+        execute: 'Auto execute',
+        bypass: 'Bypass confirmations',
+      },
+      permissionDescriptions: {
+        explore: 'Run read-only tools directly; confirm writes and network access.',
+        ask: 'Ask before every sensitive tool call.',
+        execute: 'Run common tools directly; confirm destructive, privileged, and browser actions.',
+        bypass: 'Skip all tool confirmations, including destructive, privileged, and browser actions.',
+      },
+      permissionSwitched: (label: string) => `Switched to ${label}`,
+      permissionFailedTitle: 'Could not change permission mode',
+      permissionFallback: 'The permission mode could not be changed. Try again later.',
+      modelSwitchedTitle: 'Conversation model changed',
+      modelFailedTitle: 'Could not change model',
+      modelFallback: 'The model could not be changed. Try again later.',
+      thinkingUpdatedTitle: 'Thinking level updated',
+      thinkingDefault: 'Default',
+      thinkingLabels: {
+        off: 'Off',
+        minimal: 'Minimal',
+        low: 'Low',
+        medium: 'Medium',
+        high: 'High',
+        xhigh: 'Extra high',
+        max: 'Maximum',
+      },
+      thinkingFailedTitle: 'Could not change thinking level',
+      thinkingFallback: 'The thinking level could not be changed. Try again later.',
+    },
+    errorBoundary: {
+      copyPending: 'Copying…',
+      copied: 'Copied',
+      copyFailed: 'Copy failed',
+      copyReport: 'Copy diagnostics',
+      title: 'The Maka renderer crashed',
+      descriptionBeforeRetry: 'An unhandled React error was caught. The summary is below. Choose',
+      retry: 'Try again',
+      descriptionBeforeReload: 'to clear this crash, or',
+      reload: 'Reload',
+      descriptionAfterReload: 'to refresh the entire window. Copy the diagnostics before handing off the issue.',
+      errorDetails: 'Error details',
+      componentStack: 'Component stack',
+      clipboardFailure: 'The clipboard is unavailable or was denied. You can select the error summary above manually.',
+    },
+    commandPalette: {
+      label: 'Command palette',
+      searchLabel: 'Search the command palette',
+      placeholder: 'Search commands, settings, or conversations…',
+      closeLabel: 'Close command palette',
+      resultsLabel: 'Command palette results',
+      emptyTitle: 'No matching commands',
+      emptyDescription: 'Try another search, or press Esc to close.',
+      selectHint: 'Select',
+      runHint: 'Run',
+      closeHint: 'Close',
+      current: 'Current',
+      groups: {
+        settings: 'Settings',
+        permissions: 'Permissions',
+        connections: 'Connections',
+        conversations: 'Conversations',
+      },
+      staticKeywords: STATIC_COMMAND_KEYWORDS,
+      commands: EN_STATIC_COMMANDS,
+      settingsSections: EN_SETTINGS_SECTIONS,
+      permissionModes: {
+        explore: {
+          label: 'Permissions · Read only',
+          hint: 'Read and search directly; confirm writes',
+        },
+        ask: {
+          label: 'Permissions · Ask first',
+          hint: 'Confirm every sensitive tool call (default)',
+        },
+        execute: {
+          label: 'Permissions · Auto execute',
+          hint: 'Run common tools; confirm destructive actions',
+        },
+        bypass: {
+          label: 'Permissions · Bypass confirmations',
+          hint: 'Run all tools without permission prompts',
+        },
+      },
+      settingsCommand: (section: string) => `Settings · ${section}`,
+      testDefaultConnection: (name: string) => `Test default connection · ${name}`,
+      setDefaultConnection: (name: string) => `Set as default · ${name}`,
+      testConnection: (name: string) => `Test connection · ${name}`,
+      settingsKeywords: (section: SettingsSection, label: string) => [section, label, 'settings', '设置'],
+      permissionKeywords: (mode: PermissionMode) => [mode, 'permission', 'mode', '权限', '模式'],
+      connectionKeywords: (action: 'default' | 'test', name: string, providerType: string) => [
+        action,
+        'connection',
+        '连接',
+        '默认',
+        '测试',
+        name,
+        providerType,
+      ],
+    },
+    keyboardHelp: {
+      title: 'Keyboard shortcuts',
+      sections: [
+        {
+          heading: 'General',
+          rows: [
+            {
+              keys: ['⌘', 'K'],
+              description: 'Open the command palette (conversations, Settings, themes, and more)',
+            },
+            { keys: ['?'], description: 'Open or close this shortcuts panel' },
+            { keys: ['⌘', 'N'], description: 'Create a new task' },
+            { keys: ['⌘', ','], description: 'Open Settings' },
+            { keys: ['Esc'], description: 'Close the current dialog' },
+          ],
+        },
+        {
+          heading: 'Composer',
+          rows: [
+            { keys: ['Enter'], description: 'Send the message' },
+            { keys: ['Shift', 'Enter'], description: 'Insert a line break' },
+            {
+              keys: ['Alt', 'Enter'],
+              description: 'Insert a line break (alternative)',
+            },
+          ],
+        },
+        {
+          heading: 'Conversation list',
+          rows: [
+            {
+              keys: ['Tab'],
+              description: 'Move focus between conversations and navigation',
+            },
+            {
+              keys: ['↑', '↓'],
+              description: 'Move through focused conversations',
+            },
+            {
+              keys: ['Home', 'End'],
+              description: 'Jump to the top or bottom of the list',
+            },
+            {
+              keys: ['←', '→'],
+              description: 'Cycle through Conversations, Flagged, and Archived',
+            },
+            { keys: ['Enter'], description: 'Open the focused conversation' },
+            {
+              keys: ['Delete'],
+              description: 'Open the delete confirmation (never delete silently)',
+            },
+            {
+              keys: ['F'],
+              description: 'Focus conversation search (press Esc to clear)',
+            },
+          ],
+        },
+        {
+          heading: 'Chat',
+          rows: [
+            {
+              keys: ['Tab'],
+              description: 'Focus tool activity and Copy buttons',
+            },
+            {
+              keys: ['Space', 'Enter'],
+              description: 'Expand or collapse a tool call',
+            },
+          ],
+        },
+        {
+          heading: 'Panel sizing',
+          rows: [
+            { keys: ['Tab'], description: 'Focus the left or right splitter' },
+            {
+              keys: ['←', '→'],
+              description: 'Adjust conversation-list width (±10 px)',
+            },
+            {
+              keys: ['Shift', '←', '→'],
+              description: 'Adjust quickly (±50 px)',
+            },
+            {
+              keys: ['Home', 'End'],
+              description: 'Jump directly to minimum or maximum width',
+            },
+          ],
+        },
+      ],
+    },
+    chrome: {
+      windowActions: 'Window shortcuts',
+      searchConversations: 'Search conversations',
+      expandSidebar: 'Expand sidebar',
+      collapseSidebar: 'Collapse sidebar',
+      newTask: 'New task',
+      expandWorkbar: 'Expand conversation workbar',
+      collapseWorkbar: 'Collapse conversation workbar',
+      workspaceActions: 'Workspace actions',
+      feedback: 'Send feedback',
+      feedbackTooltip: 'Send feedback · Open About and environment information',
+      openCommandPalette: 'Open command palette',
+      openHelp: 'Open help',
+      openHealth: 'Open Health Center',
+    },
+    app: {
+      loadingWorkbarLabel: 'Loading conversation workbar',
+      loadingWorkbar: 'Loading conversation workbar…',
+      useSkillPrompt: (skillName: string) => `Use the ${skillName} skill: `,
+      newConversation: 'New conversation',
+      compactErrorTitle: 'Compaction failed',
+      compactErrorFallback: 'The conversation could not be compacted. Try again later.',
+      appearanceLoadErrorTitle: 'Could not load appearance settings',
+      appearanceLoadErrorFallback: 'Appearance settings are temporarily unavailable. Try again later.',
+      memoryRefreshErrorTitle: 'Could not refresh local memory status',
+      memoryLoadErrorTitle: 'Could not load local memory status',
+      memoryErrorFallback: 'Local memory status could not be refreshed. Try again later.',
+      openModelSettings: 'Open Settings · Models',
+      sidebarCollapsed: 'Sidebar is collapsed',
+      resizeConversationList: 'Resize conversation list',
+      skipErrorTitle: 'Could not skip onboarding',
+      tryAgainLater: 'Try again later.',
+      loading: 'Loading',
+      goToAccount: 'Go to Account',
+      goToModels: 'Go to Models',
+      permissionModeChanging: 'The permission mode is changing. Wait for it to finish before continuing.',
+      permissionModeStreaming:
+        'This conversation is streaming. Wait for it to finish before changing the permission mode.',
+      permissionModeRunning: 'This conversation is running. Wait for it to finish before changing the permission mode.',
+      permissionModeWaiting: 'A tool call is waiting for confirmation. Respond before changing the permission mode.',
+      resizeWorkbar: 'Resize conversation workbar',
+    },
+  },
+} satisfies UiCatalog<ShellCopy>;
+
+export function getShellCopy(locale: UiLocale): ShellCopy {
+  return SHELL_COPY_BY_LOCALE[locale];
+}
+
+export function localizedShellErrorMessage(error: unknown, fallback: string, locale: UiLocale): string {
+  return locale === 'zh' ? generalizedErrorMessageChinese(error, fallback) : generalizedErrorMessage(error, fallback);
+}

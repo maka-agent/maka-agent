@@ -18,17 +18,10 @@ import {
   type InvocationResult,
   type SessionStore,
 } from '@maka/runtime';
-import {
-  createAgentRunStore,
-  createRuntimeEventStore,
-  createSessionStore,
-} from '@maka/storage';
+import { createAgentRunStore, createRuntimeEventStore, createSessionStore } from '@maka/storage';
 import type { Config, ResultRecord, Task } from './contracts.js';
 import { registerFakeBackend } from './backends.js';
-import {
-  summarizeCellTools,
-  type HarborCellToolSummary,
-} from './cell-output.js';
+import { summarizeCellTools, type HarborCellToolSummary } from './cell-output.js';
 import {
   createHeavyTaskEvidenceRecorder,
   renderHeavyTaskEvidenceForPrompt,
@@ -63,7 +56,12 @@ import {
   matchPermissionGrant,
   permissionPreview,
 } from './permission-grants.js';
-import { freezeSubmittedWorkspace, prepareScoringWorkspace, prepareWorkspace, restoreProtectedPaths } from './sandbox.js';
+import {
+  freezeSubmittedWorkspace,
+  prepareScoringWorkspace,
+  prepareWorkspace,
+  restoreProtectedPaths,
+} from './sandbox.js';
 import { defaultFinalScorer } from './scorer.js';
 import { approvalRequestInboxItem } from './task-inbox.js';
 import { normalizeVerifier, runVerifier, verifierProtectedPaths } from './verifier.js';
@@ -87,11 +85,7 @@ import {
   type TaskRunResult,
   type VerifierResult,
 } from './task-contracts.js';
-import {
-  createTaskRunStore,
-  type TaskRunProjection,
-  type TaskRunStore,
-} from './task-run-store.js';
+import { createTaskRunStore, type TaskRunProjection, type TaskRunStore } from './task-run-store.js';
 import { taskDefinitionFromTask } from './task-run-adapter.js';
 import { taskEvidenceRuntimeProvenanceLinks } from './task-evidence-provenance.js';
 import { taskAttemptExecutionEvidence } from './task-execution-lineage.js';
@@ -163,9 +157,15 @@ export async function runTaskOnce(
   const economyTaskMode = resolveEconomyTaskMode(configAfterHeavy, task);
   const effectiveConfig = configWithEconomyTaskPolicy(configAfterHeavy, economyTaskMode);
   const priorProjection = heavyTaskMode.enabled ? await taskRunStore.project(taskRunId) : undefined;
-  const priorProgressPrompt = priorProjection ? renderHeavyTaskProgressForPrompt(priorProjection) : undefined;
-  const priorSelfCheckPrompt = priorProjection ? renderHeavyTaskSelfCheckForPrompt(priorProjection) : undefined;
-  const priorEvidencePrompt = priorProjection ? renderHeavyTaskEvidenceForPrompt(priorProjection) : undefined;
+  const priorProgressPrompt = priorProjection
+    ? renderHeavyTaskProgressForPrompt(priorProjection)
+    : undefined;
+  const priorSelfCheckPrompt = priorProjection
+    ? renderHeavyTaskSelfCheckForPrompt(priorProjection)
+    : undefined;
+  const priorEvidencePrompt = priorProjection
+    ? renderHeavyTaskEvidenceForPrompt(priorProjection)
+    : undefined;
   const instruction = withOptionalStatePrompts(deps.instructionOverride ?? task.instruction, [
     priorProgressPrompt,
     priorSelfCheckPrompt,
@@ -269,7 +269,10 @@ export async function runTaskOnce(
         taskRunId,
         attemptId,
         isolation: deps.realBackendIsolation,
-        toolNames: toolNamesForIdentity(Boolean(deps.realBackendIsolation?.toolExecutor), heavyTaskMode.enabled),
+        toolNames: toolNamesForIdentity(
+          Boolean(deps.realBackendIsolation?.toolExecutor),
+          heavyTaskMode.enabled,
+        ),
       }),
     });
     const backends = new BackendRegistry();
@@ -284,7 +287,10 @@ export async function runTaskOnce(
       ...(heavyTaskSelfCheck ? { heavyTaskSelfCheck } : {}),
       ...(heavyTaskEvidence ? { heavyTaskEvidence } : {}),
       ...(backendNeedsIsolation(config.backend)
-        ? { realBackendIsolation: deps.realBackendIsolation, toolExecutor: deps.realBackendIsolation?.toolExecutor }
+        ? {
+            realBackendIsolation: deps.realBackendIsolation,
+            toolExecutor: deps.realBackendIsolation?.toolExecutor,
+          }
         : {}),
     });
 
@@ -546,7 +552,11 @@ export async function runTaskOnce(
     const scoringWorkspace = await prepareScoringWorkspace(frozen.submittedSnapshot);
     let verifierResult: VerifierResult;
     try {
-      await restoreProtectedPaths(task.workspaceDir, scoringWorkspace.dir, verifierProtectedPaths(verifier));
+      await restoreProtectedPaths(
+        task.workspaceDir,
+        scoringWorkspace.dir,
+        verifierProtectedPaths(verifier),
+      );
       const verifierStartedAt = now();
       verifierResult = await runVerifier({
         verifier,
@@ -608,7 +618,8 @@ export async function runTaskOnce(
         runtimeRefs: runtimeSummary.runtimeRefs,
         artifactRefs: runtimeSummary.artifactRefs,
         submittedSnapshot: frozen.submittedSnapshot,
-        scoringWorkspaceContract: 'v1_copy_snapshot_then_restore_protected_paths_in_disposable_scoring_workspace',
+        scoringWorkspaceContract:
+          'v1_copy_snapshot_then_restore_protected_paths_in_disposable_scoring_workspace',
         isolation: runtimeSummary.isolation,
         budget: runtimeSummary.budget,
         tools: runtimeSummary.tools,
@@ -653,7 +664,9 @@ export async function runTaskOnce(
       attemptId,
       finishedAt,
       status: attemptStatusFromResult(resultRecord.status, taxonomy),
-      ...(resultRecord.status === 'failed' ? { error: errorFromResultRecord(resultRecord, taxonomy) } : {}),
+      ...(resultRecord.status === 'failed'
+        ? { error: errorFromResultRecord(resultRecord, taxonomy) }
+        : {}),
     });
     if (closeTaskRun) {
       await appendTaskEvent(
@@ -708,22 +721,33 @@ async function appendHeavyTaskSelfCheckEvidenceLinks(input: {
 }): Promise<void> {
   if (!input.workspaceObservation || !input.runtimeEventStore.readImmutableRuntimeEvents) return;
   const [runtimeEvents, records] = await Promise.all([
-    input.runtimeEventStore.readImmutableRuntimeEvents(input.invocation.sessionId, input.invocation.runId),
+    input.runtimeEventStore.readImmutableRuntimeEvents(
+      input.invocation.sessionId,
+      input.invocation.runId,
+    ),
     input.store.readEventRecords(input.taskRunId),
   ]);
-  const linkedSelfChecks = new Set(records.flatMap(({ event }) => (
-    event.type === 'heavy_task_self_check_evidence_linked' ? [event.selfCheckId] : []
-  )));
-  const candidates = records.filter((record): record is typeof record & {
-    event: Extract<TaskEvent, { type: 'heavy_task_self_check_recorded' }>;
-  } => (
-    record.event.type === 'heavy_task_self_check_recorded'
-    && record.event.selfCheck.attemptId === input.attemptId
-    && !linkedSelfChecks.has(record.event.selfCheck.selfCheckId)
-    && (!record.event.selfCheck.source.sessionId || record.event.selfCheck.source.sessionId === input.invocation.sessionId)
-    && (!record.event.selfCheck.source.agentRunId || record.event.selfCheck.source.agentRunId === input.invocation.runId)
-    && (!record.event.selfCheck.source.turnId || record.event.selfCheck.source.turnId === input.invocation.turnId)
-  ));
+  const linkedSelfChecks = new Set(
+    records.flatMap(({ event }) =>
+      event.type === 'heavy_task_self_check_evidence_linked' ? [event.selfCheckId] : [],
+    ),
+  );
+  const candidates = records.filter(
+    (
+      record,
+    ): record is typeof record & {
+      event: Extract<TaskEvent, { type: 'heavy_task_self_check_recorded' }>;
+    } =>
+      record.event.type === 'heavy_task_self_check_recorded' &&
+      record.event.selfCheck.attemptId === input.attemptId &&
+      !linkedSelfChecks.has(record.event.selfCheck.selfCheckId) &&
+      (!record.event.selfCheck.source.sessionId ||
+        record.event.selfCheck.source.sessionId === input.invocation.sessionId) &&
+      (!record.event.selfCheck.source.agentRunId ||
+        record.event.selfCheck.source.agentRunId === input.invocation.runId) &&
+      (!record.event.selfCheck.source.turnId ||
+        record.event.selfCheck.source.turnId === input.invocation.turnId),
+  );
   for (const selfCheckRecord of candidates) {
     const binding = bindSelfCheckEvidence({
       taskRunId: input.taskRunId,
@@ -748,7 +772,10 @@ async function appendHeavyTaskSelfCheckEvidenceLinks(input: {
 const DEFAULT_INTERVENTION_POLICY: TaskInterventionPolicy = { mode: 'fail_closed' };
 const DEFAULT_APPROVAL_TIMEOUT_MS = 5 * 60 * 1000;
 
-function withOptionalStatePrompts(instruction: string, prompts: readonly (string | undefined)[]): string {
+function withOptionalStatePrompts(
+  instruction: string,
+  prompts: readonly (string | undefined)[],
+): string {
   let next = instruction;
   for (const prompt of prompts) {
     if (!prompt) continue;
@@ -761,7 +788,8 @@ function withOptionalStatePrompts(instruction: string, prompts: readonly (string
 
 function toolNamesForIdentity(hasIsolatedExecutor: boolean, heavyTaskEnabled: boolean): string[] {
   const names = hasIsolatedExecutor ? [...ISOLATED_HEADLESS_TOOL_NAMES] : ['registered_backend'];
-  if (heavyTaskEnabled && hasIsolatedExecutor) names.push(...HEAVY_TASK_PROGRESS_TOOL_NAMES, ...HEAVY_TASK_SELF_CHECK_TOOL_NAMES);
+  if (heavyTaskEnabled && hasIsolatedExecutor)
+    names.push(...HEAVY_TASK_PROGRESS_TOOL_NAMES, ...HEAVY_TASK_SELF_CHECK_TOOL_NAMES);
   return names;
 }
 
@@ -802,11 +830,11 @@ async function appendTaskAttemptExecutionLink(input: {
   const projectedEvidence = new Map(
     projection.heavyTaskEvidence.map((item) => [item.evidenceId, item]),
   );
-  const durableEvidence = projection.events.flatMap((event) => (
+  const durableEvidence = projection.events.flatMap((event) =>
     event.type === 'heavy_task_evidence_recorded'
       ? [projectedEvidence.get(event.evidence.evidenceId) ?? event.evidence]
-      : []
-  ));
+      : [],
+  );
   const provenanceLinks = taskEvidenceRuntimeProvenanceLinks({
     taskRunId: input.taskRunId,
     attemptId: input.attemptId,
@@ -849,8 +877,12 @@ type PermissionInterventionResult =
   | { parked: false; invocation: InvocationResult }
   | { parked: true; invocation: InvocationResult; resultRecord: ResultRecord };
 
-async function handlePermissionIntervention(input: PermissionInterventionInput): Promise<PermissionInterventionResult> {
-  const permissionRequestEvent = input.invocation.events.find((event) => event.actions?.permissionRequest);
+async function handlePermissionIntervention(
+  input: PermissionInterventionInput,
+): Promise<PermissionInterventionResult> {
+  const permissionRequestEvent = input.invocation.events.find(
+    (event) => event.actions?.permissionRequest,
+  );
   const rawRequest = permissionRequestEvent?.actions?.permissionRequest;
   if (!rawRequest) {
     return { parked: false, invocation: input.invocation };
@@ -978,7 +1010,8 @@ function permissionRequestFromRuntime(input: {
 }): TaskPermissionRequest {
   const args = input.rawRequest.args;
   const toolName = input.rawRequest.toolName ?? 'unknown_tool';
-  const toolCallId = input.rawRequest.toolUseId ?? input.rawRequest.requestId ?? 'unknown_tool_call';
+  const toolCallId =
+    input.rawRequest.toolUseId ?? input.rawRequest.requestId ?? 'unknown_tool_call';
   return {
     schemaVersion: 1,
     requestId: input.rawRequest.requestId ?? `${input.taskRunId}:${input.attemptId}:${toolCallId}`,
@@ -1163,12 +1196,18 @@ function createSingleRunActiveSession(
           ts,
           status,
           ...(runLineage.parentTurnId ? { parentTurnId: runLineage.parentTurnId } : {}),
-          ...(runLineage.retriedFromTurnId ? { retriedFromTurnId: runLineage.retriedFromTurnId } : {}),
-          ...(runLineage.regeneratedFromTurnId ? { regeneratedFromTurnId: runLineage.regeneratedFromTurnId } : {}),
+          ...(runLineage.retriedFromTurnId
+            ? { retriedFromTurnId: runLineage.retriedFromTurnId }
+            : {}),
+          ...(runLineage.regeneratedFromTurnId
+            ? { regeneratedFromTurnId: runLineage.regeneratedFromTurnId }
+            : {}),
           ...(runLineage.branchOfTurnId ? { branchOfTurnId: runLineage.branchOfTurnId } : {}),
           ...(runLineage.parentSessionId ? { parentSessionId: runLineage.parentSessionId } : {}),
           ...(status === 'aborted' ? { abortedAt: ts } : {}),
-          ...(status === 'aborted' && options.abortSource ? { abortSource: options.abortSource } : {}),
+          ...(status === 'aborted' && options.abortSource
+            ? { abortSource: options.abortSource }
+            : {}),
           ...(status === 'failed' ? { errorClass: options.errorClass ?? 'unknown' } : {}),
           partialOutputRetained: await turnHasRetainedOutput(store, sessionId, turnId),
         });
@@ -1194,11 +1233,18 @@ function statusPatch(
   };
 }
 
-async function turnHasRetainedOutput(store: SessionStore, sessionId: string, turnId: string): Promise<boolean> {
+async function turnHasRetainedOutput(
+  store: SessionStore,
+  sessionId: string,
+  turnId: string,
+): Promise<boolean> {
   const messages = await store.readMessages(sessionId).catch((): StoredMessage[] => []);
-  return messages.some((message) =>
-    (message.type === 'assistant' && message.turnId === turnId && message.text.trim().length > 0) ||
-    (message.type === 'tool_result' && message.turnId === turnId),
+  return messages.some(
+    (message) =>
+      (message.type === 'assistant' &&
+        message.turnId === turnId &&
+        message.text.trim().length > 0) ||
+      (message.type === 'tool_result' && message.turnId === turnId),
   );
 }
 
@@ -1237,17 +1283,27 @@ function resultRecordFromInvocation(input: {
     finishedAt: input.finishedAt,
     ...(input.finalScore.errorClass ? { errorClass: input.finalScore.errorClass } : {}),
     ...(!input.finalScore.scored && input.finalScore.errorClass
-      ? { error: input.finalScore.excludedReason ?? input.invocation.failure?.message ?? input.finalScore.errorClass }
-      : status === 'failed'
       ? {
-          error: input.invocation.failure?.message ?? input.invocation.failure?.class ?? 'run did not complete',
+          error:
+            input.finalScore.excludedReason ??
+            input.invocation.failure?.message ??
+            input.finalScore.errorClass,
         }
-      : {}),
+      : status === 'failed'
+        ? {
+            error:
+              input.invocation.failure?.message ??
+              input.invocation.failure?.class ??
+              'run did not complete',
+          }
+        : {}),
   };
 }
 
 function normalizeHeadlessInvocation(invocation: InvocationResult): InvocationResult {
-  const permissionRequestEvent = invocation.events.find((event) => event.actions?.permissionRequest);
+  const permissionRequestEvent = invocation.events.find(
+    (event) => event.actions?.permissionRequest,
+  );
   if (!permissionRequestEvent) return invocation;
 
   const request = permissionRequestEvent.actions?.permissionRequest;
@@ -1283,7 +1339,10 @@ interface RuntimeSummary {
   tools: HarborCellToolSummary;
 }
 
-function summarizeRuntime(invocation: InvocationResult, isolation: RunExperimentDeps['realBackendIsolation']): RuntimeSummary {
+function summarizeRuntime(
+  invocation: InvocationResult,
+  isolation: RunExperimentDeps['realBackendIsolation'],
+): RuntimeSummary {
   return {
     runtimeRefs: {
       invocationId: invocation.invocationId,
@@ -1293,7 +1352,9 @@ function summarizeRuntime(invocation: InvocationResult, isolation: RunExperiment
       runtimeEventIds: invocation.events.map((event) => event.id),
     },
     artifactRefs: collectArtifactRefs(invocation.events),
-    isolation: isolation ? { kind: isolation.kind, label: isolation.label } : { kind: 'inert_fake_backend' },
+    isolation: isolation
+      ? { kind: isolation.kind, label: isolation.label }
+      : { kind: 'inert_fake_backend' },
     budget: summarizeBudget(invocation),
     tools: summarizeCellTools(invocation.events),
   };
@@ -1304,7 +1365,10 @@ function mergeRuntimeSummaries(first: RuntimeSummary, second: RuntimeSummary): R
     ...second,
     runtimeRefs: {
       ...second.runtimeRefs,
-      runtimeEventIds: uniqueStrings([...first.runtimeRefs.runtimeEventIds, ...second.runtimeRefs.runtimeEventIds]),
+      runtimeEventIds: uniqueStrings([
+        ...first.runtimeRefs.runtimeEventIds,
+        ...second.runtimeRefs.runtimeEventIds,
+      ]),
       previousTurns: [
         ...(first.runtimeRefs.previousTurns ?? []),
         {
@@ -1466,7 +1530,10 @@ function terminalEventFromResult(
   }
 }
 
-function errorFromResultRecord(record: ResultRecord, taxonomy: AutonomousResultTaxonomy): TaskRunError {
+function errorFromResultRecord(
+  record: ResultRecord,
+  taxonomy: AutonomousResultTaxonomy,
+): TaskRunError {
   return {
     message: record.error ?? errorMessageFromTaxonomy(taxonomy),
     ...(record.errorClass ? { class: record.errorClass } : {}),
@@ -1516,7 +1583,9 @@ function uniqueStrings(values: readonly string[]): string[] {
   return [...new Set(values)];
 }
 
-function isPermissionHandoffTerminal(event: { actions?: { stateDelta?: Record<string, unknown> } }): boolean {
+function isPermissionHandoffTerminal(event: {
+  actions?: { stateDelta?: Record<string, unknown> };
+}): boolean {
   return event.actions?.stateDelta?.stopReason === 'permission_handoff';
 }
 

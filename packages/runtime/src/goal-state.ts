@@ -1,18 +1,17 @@
 /**
  * Goal execution state — session-scoped, in-memory.
  *
- * A goal is a durable objective the agent works toward autonomously across
+ * A goal is a long-running objective the agent works toward autonomously across
  * turns. After each turn, an external evaluator (CC-style) judges whether the
  * condition is met; if not, the system auto-continues.
  *
- * PERSISTENCE: goals live only in memory and are intentionally NOT persisted —
- * a restart clears every goal (the autonomous loop stops rather than silently
- * resuming an objective the user may no longer want). This is a deliberate v1
- * default: a goal is bounded to the running session's lifetime. Durable,
- * cross-restart objectives are the Automation primitive's job, not this one.
+ * PERSISTENCE: this phase owns only in-process state. A restart clears every
+ * Goal; persisted snapshots and restart recovery require a separate lifecycle
+ * boundary and are deliberately deferred.
  *
  * Lifecycle (Codex-inspired):
- *   active → achieved / impossible / cleared / paused
+ *   active → waiting → active
+ *          → achieved / impossible / cleared / paused
  *          → stalled (block cap: N consecutive no-progress turns)
  *          → budget_limited (token budget exhausted)
  *          → max_iterations (total turn ceiling)
@@ -20,6 +19,7 @@
 
 export type GoalStatus =
   | 'active'
+  | 'waiting'
   | 'achieved'
   | 'impossible'
   | 'cleared'
@@ -75,6 +75,15 @@ export interface GoalCheckpoint {
   readonly revision: number;
 }
 
+/**
+ * Opaque in-process ownership token for externally queued Goal evidence.
+ * Ordinary turn settlements retain the lease; explicit lifecycle control
+ * replaces it so queued work cannot cross a pause/resume ABA boundary.
+ */
+export interface GoalControlLease {
+  readonly goalId: string;
+}
+
 export function goalCheckpoint(goal: Pick<GoalState, 'id' | 'revision'>): GoalCheckpoint {
   return Object.freeze({ goalId: goal.id, revision: goal.revision });
 }
@@ -85,7 +94,6 @@ export type GoalCreateResult =
 
 interface GoalTurnSettlementBase {
   readonly checkpoint: GoalCheckpoint;
-  readonly turnId: string;
   readonly reason: string;
 }
 
@@ -96,19 +104,22 @@ export type GoalTurnSettlementInput =
   | (GoalTurnSettlementBase & {
       readonly verdict: 'impossible';
     })
-  | (GoalTurnSettlementBase & {
-      readonly verdict: 'continue';
-      /** Undefined is neutral: neither advances nor resets the no-progress streak. */
-      readonly madeProgress?: boolean;
-      readonly tokensNow?: number;
-    });
-
-export type GoalTurnSettlementResult =
-  | { kind: 'applied'; goal: GoalState }
-  | { kind: 'duplicate'; goal: GoalState }
-  | { kind: 'stale'; goal: GoalState }
-  | { kind: 'inactive'; goal: GoalState }
-  | { kind: 'not_found' };
+  | (GoalTurnSettlementBase &
+      (
+        | {
+            readonly verdict: 'continue';
+            readonly waiting: true;
+            readonly madeProgress?: never;
+            readonly tokensNow?: number;
+          }
+        | {
+            readonly verdict: 'continue';
+            readonly waiting?: false;
+            /** Undefined is neutral: neither advances nor resets the no-progress streak. */
+            readonly madeProgress?: boolean;
+            readonly tokensNow?: number;
+          }
+      ));
 
 export interface GoalManagerDeps {
   generateId: () => string;
@@ -116,7 +127,8 @@ export interface GoalManagerDeps {
   /**
    * Fired after every accepted goal state transition. Lets a host surface an
    * autonomous loop to the UI — a token-burning goal must never run without a
-   * visible indicator and a clear affordance.
+   * visible indicator and a clear affordance. This is a best-effort observer:
+   * failures cannot roll back an already committed state transition.
    */
   onChange?: (goal: GoalState, previous?: GoalStatus) => void;
 }
@@ -126,14 +138,17 @@ export const DEFAULT_BLOCK_CAP = 8;
 
 interface GoalRecord {
   state: GoalState;
-  /** Turn identity belongs to the session lifetime, not an individual Goal. */
-  readonly settledTurnIds: Set<string>;
+  controlLease: GoalControlLease;
 }
 
-type GoalStatePatch = Partial<Omit<
-  GoalState,
-  'id' | 'revision' | 'sessionId' | 'condition' | 'setAt'
->>;
+export interface GoalPauseOptions {
+  readonly checkpoint?: GoalCheckpoint;
+  readonly reason?: string;
+}
+
+type GoalStatePatch = Partial<
+  Omit<GoalState, 'id' | 'revision' | 'sessionId' | 'condition' | 'setAt'>
+>;
 
 export class GoalManager {
   private goals = new Map<string, GoalRecord>();
@@ -141,10 +156,19 @@ export class GoalManager {
   constructor(private readonly deps: GoalManagerDeps) {}
 
   private emit(goal: GoalState, previous?: GoalStatus): void {
-    this.deps.onChange?.(goal, previous);
+    try {
+      this.deps.onChange?.(goal, previous);
+    } catch {
+      // State and control leases are already committed. A host notification
+      // must not make the caller observe failure after that point.
+    }
   }
 
-  private commit(record: GoalRecord, patch: GoalStatePatch): GoalState {
+  private commit(
+    record: GoalRecord,
+    patch: GoalStatePatch,
+    options?: { renewControlLease?: boolean },
+  ): GoalState {
     const previous = record.state.status;
     const committed = Object.freeze({
       ...record.state,
@@ -152,18 +176,24 @@ export class GoalManager {
       revision: record.state.revision + 1,
     });
     record.state = committed;
+    if (options?.renewControlLease) {
+      record.controlLease = createControlLease(committed.id);
+    }
     this.emit(committed, previous);
     return committed;
   }
 
-  create(sessionId: string, condition: string, opts?: {
-    maxIterations?: number;
-    blockCap?: number;
-    tokenBudget?: number;
-    tokensAtStart?: number;
-  }): GoalCreateResult {
-    const record = this.goals.get(sessionId);
-    const existing = record?.state;
+  create(
+    sessionId: string,
+    condition: string,
+    opts?: {
+      maxIterations?: number;
+      blockCap?: number;
+      tokenBudget?: number;
+      tokensAtStart?: number;
+    },
+  ): GoalCreateResult {
+    const existing = this.goals.get(sessionId)?.state;
     if (existing && !TERMINAL_GOAL_STATUSES.has(existing.status)) {
       return { kind: 'unfinished', goal: existing };
     }
@@ -185,11 +215,11 @@ export class GoalManager {
       tokensNow: start,
       tokensBaselinePending: true,
     });
-    if (record) {
-      record.state = goal;
-    } else {
-      this.goals.set(sessionId, { state: goal, settledTurnIds: new Set() });
-    }
+    const goalRecord: GoalRecord = {
+      state: goal,
+      controlLease: createControlLease(goal.id),
+    };
+    this.goals.set(sessionId, goalRecord);
     this.emit(goal);
     return { kind: 'created', goal };
   }
@@ -203,15 +233,26 @@ export class GoalManager {
     return goal?.status === 'active' ? goal : undefined;
   }
 
-  matchesActive(sessionId: string, checkpoint: GoalCheckpoint): boolean {
-    const goal = this.goals.get(sessionId)?.state;
-    return goal?.status === 'active'
-      && goal.id === checkpoint.goalId
-      && goal.revision === checkpoint.revision;
+  getControlLease(sessionId: string): GoalControlLease | undefined {
+    return this.goals.get(sessionId)?.controlLease;
   }
 
-  hasSettledTurn(sessionId: string, turnId: string): boolean {
-    return this.goals.get(sessionId)?.settledTurnIds.has(turnId) ?? false;
+  matchesControlLease(sessionId: string, lease: GoalControlLease): boolean {
+    return this.goals.get(sessionId)?.controlLease === lease;
+  }
+
+  matchesActive(sessionId: string, checkpoint: GoalCheckpoint): boolean {
+    const goal = this.goals.get(sessionId)?.state;
+    return (
+      goal?.status === 'active' &&
+      goal.id === checkpoint.goalId &&
+      goal.revision === checkpoint.revision
+    );
+  }
+
+  matches(sessionId: string, checkpoint: GoalCheckpoint): boolean {
+    const goal = this.goals.get(sessionId)?.state;
+    return goal?.id === checkpoint.goalId && goal.revision === checkpoint.revision;
   }
 
   tokensSpent(sessionId: string): number {
@@ -220,14 +261,13 @@ export class GoalManager {
     return Math.max(0, goal.tokensNow - goal.tokensAtStart);
   }
 
-  settleTurn(sessionId: string, input: GoalTurnSettlementInput): GoalTurnSettlementResult {
+  settleTurn(sessionId: string, input: GoalTurnSettlementInput): GoalState | undefined {
     const record = this.goals.get(sessionId);
-    if (!record) return { kind: 'not_found' };
+    if (!record) return undefined;
     const current = record.state;
-    if (record.settledTurnIds.has(input.turnId)) return { kind: 'duplicate', goal: current };
-    if (current.id !== input.checkpoint.goalId) return { kind: 'stale', goal: current };
-    if (current.revision !== input.checkpoint.revision) return { kind: 'stale', goal: current };
-    if (current.status !== 'active') return { kind: 'inactive', goal: current };
+    if (current.id !== input.checkpoint.goalId) return undefined;
+    if (current.revision !== input.checkpoint.revision) return undefined;
+    if (current.status !== 'active') return undefined;
 
     let patch: GoalStatePatch;
     if (input.verdict === 'achieved') {
@@ -255,8 +295,8 @@ export class GoalManager {
         } else {
           tokensNow = Math.max(tokensNow, input.tokensNow);
           if (
-            current.tokenBudget !== undefined
-            && tokensNow - tokensAtStart >= current.tokenBudget
+            current.tokenBudget !== undefined &&
+            tokensNow - tokensAtStart >= current.tokenBudget
           ) {
             status = 'budget_limited';
             lastReason = `Token budget exhausted (${current.tokenBudget} tokens)`;
@@ -284,6 +324,10 @@ export class GoalManager {
         }
       }
 
+      if (status === 'active' && input.waiting === true) {
+        status = 'waiting';
+      }
+
       patch = {
         status,
         iterations,
@@ -295,26 +339,48 @@ export class GoalManager {
       };
     }
 
-    record.settledTurnIds.add(input.turnId);
-    return { kind: 'applied', goal: this.commit(record, patch) };
+    return this.commit(record, patch);
   }
 
-  pause(sessionId: string): GoalState | undefined {
+  pause(sessionId: string, options?: GoalPauseOptions): GoalState | undefined {
     const record = this.goals.get(sessionId);
-    if (!record || record.state.status !== 'active') return undefined;
-    return this.commit(record, { status: 'paused', pausedAt: this.deps.now() });
+    if (!record || (record.state.status !== 'active' && record.state.status !== 'waiting')) {
+      return undefined;
+    }
+    if (options?.checkpoint && !this.matches(sessionId, options.checkpoint)) return undefined;
+    return this.commit(
+      record,
+      {
+        status: 'paused',
+        pausedAt: this.deps.now(),
+        ...(options?.reason !== undefined ? { lastReason: options.reason } : {}),
+      },
+      { renewControlLease: true },
+    );
   }
 
   resume(sessionId: string): GoalState | undefined {
     const record = this.goals.get(sessionId);
     if (!record || record.state.status !== 'paused') return undefined;
-    return this.commit(record, { status: 'active', pausedAt: undefined });
+    return this.commit(
+      record,
+      { status: 'active', pausedAt: undefined },
+      { renewControlLease: true },
+    );
+  }
+
+  wakeWaiting(sessionId: string, checkpoint: GoalCheckpoint): GoalState | undefined {
+    const record = this.goals.get(sessionId);
+    if (!record || record.state.status !== 'waiting' || !this.matches(sessionId, checkpoint)) {
+      return undefined;
+    }
+    return this.commit(record, { status: 'active' });
   }
 
   clear(sessionId: string): GoalState | undefined {
     const record = this.goals.get(sessionId);
     if (!record || TERMINAL_GOAL_STATUSES.has(record.state.status)) return undefined;
-    return this.commit(record, { status: 'cleared' });
+    return this.commit(record, { status: 'cleared' }, { renewControlLease: true });
   }
 
   remove(sessionId: string): boolean {
@@ -327,4 +393,8 @@ export class GoalManager {
   dispose(): void {
     this.goals.clear();
   }
+}
+
+function createControlLease(goalId: string): GoalControlLease {
+  return Object.freeze({ goalId });
 }

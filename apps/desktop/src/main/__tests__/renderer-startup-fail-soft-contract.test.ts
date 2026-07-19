@@ -18,7 +18,7 @@ describe('renderer startup fail-soft contract', () => {
     assert.match(mountEffect, /void (?:options\.|latest\.)?refreshAppInfo\(\)/);
     assert.match(
       refreshAppInfo,
-      /try \{[\s\S]*window\.maka\.app\.info\(\)[\s\S]*setAppInfo\(\{ projectPath: next\.projectPath, projectGit: next\.projectGit \}\)[\s\S]*\} catch \(error\) \{[\s\S]*toastApi\.error\('读取项目路径失败', generalizedErrorMessageChinese\(error, '项目路径暂时无法读取，请稍后重试。'\)\)/,
+      /try \{[\s\S]*window\.maka\.app\.info\(\)[\s\S]*setAppInfo\(\{[\s\S]*projectPath: next\.projectPath,[\s\S]*projectGit: next\.projectGit,[\s\S]*\}\)[\s\S]*\} catch \(error\) \{[\s\S]*toastApi\.error\([\s\S]*copy\.readPathFailedTitle,[\s\S]*localizedShellErrorMessage\(error, copy\.readPathFailedFallback, uiLocale\)/,
       'app-info refresh failures must be visible and preserve the last known project badge',
     );
     assert.doesNotMatch(refreshAppInfo, /toastApi\.error\('读取项目路径失败', cleanErrorMessage\(error\)\)/);
@@ -27,10 +27,10 @@ describe('renderer startup fail-soft contract', () => {
       /setAppInfo\(null\)/,
       'app-info refresh failure must not silently hide the existing project badge',
     );
-    assert.match(mountEffect, /void (?:options\.|latest\.)?refreshMemoryActive\('载入本地记忆状态失败'\)/);
+    assert.match(mountEffect, /void (?:options\.|latest\.)?refreshMemoryActive\('load'\)/);
     assert.match(
       refreshMemoryActive,
-      /try \{[\s\S]*window\.maka\.memory\.getState\(\)[\s\S]*setMemoryActive\(next\.agentReadEnabled && next\.status === 'ok' && next\.content\.trim\(\)\.length > 0\)[\s\S]*\} catch \(error\) \{[\s\S]*toastApi\.error\(failureTitle, generalizedErrorMessageChinese\(error, '本地记忆状态暂时无法刷新，请稍后重试。'\)\)/,
+      /try \{[\s\S]*window\.maka\.memory\.getState\(\)[\s\S]*setMemoryActive\(next\.agentReadEnabled && next\.status === 'ok' && next\.content\.trim\(\)\.length > 0\)[\s\S]*\} catch \(error\) \{[\s\S]*toastApi\.error\([\s\S]*copy\.memoryLoadErrorTitle[\s\S]*copy\.memoryRefreshErrorTitle,[\s\S]*localizedShellErrorMessage\(error, copy\.memoryErrorFallback, uiLocale\)/,
       'memory-active refresh failures must be visible without exposing raw storage details and preserve the last known header pill state',
     );
     assert.doesNotMatch(refreshMemoryActive, /toastApi\.error\(failureTitle, cleanErrorMessage\(error\)\)/);
@@ -42,7 +42,7 @@ describe('renderer startup fail-soft contract', () => {
     assert.match(mountEffect, /void (?:options\.|latest\.)?refreshShellSettings\(\)/);
     assert.match(
       refreshShellSettings,
-      /try \{[\s\S]*window\.maka\.settings\.get\(\)[\s\S]*setUiLocaleOverride\(smoke\?\.locale \?\? null\)[\s\S]*uiLocaleUpdateGate\.commitHydration\([\s\S]*setUiLocalePreference\(preference\)[\s\S]*applyTheme\(pref\)[\s\S]*applyThemePalette\(palette\)[\s\S]*\} catch \(error\) \{[\s\S]*toastApi\.error\('载入外观设置失败', generalizedErrorMessageChinese\(error, '外观设置暂时无法载入，请稍后重试。'\)\)/,
+      /try \{[\s\S]*window\.maka\.settings\.get\(\)[\s\S]*setUiLocaleOverride\(smoke\?\.locale \?\? null\)[\s\S]*uiLocaleUpdateGate\.commitHydration\([\s\S]*setUiLocalePreference\(preference\)[\s\S]*applyTheme\(pref\)[\s\S]*applyThemePalette\(palette\)[\s\S]*\} catch \(error\) \{[\s\S]*const copy = getShellCopy\(uiLocale\)\.app;[\s\S]*toastApi\.error\([\s\S]*copy\.appearanceLoadErrorTitle,[\s\S]*localizedShellErrorMessage\(error, copy\.appearanceLoadErrorFallback, uiLocale\)/,
       'startup shell settings load failures must surface visibly without exposing raw storage/system details',
     );
     assert.doesNotMatch(refreshShellSettings, /toastApi\.error\('载入外观设置失败', cleanErrorMessage\(error\)\)/);
@@ -69,7 +69,7 @@ describe('renderer startup fail-soft contract', () => {
     );
     assert.match(
       refreshSkills,
-      /try \{[\s\S]*window\.maka\.skills\.list\(\)[\s\S]*setSkills\(next\)[\s\S]*\} catch \(error\) \{[\s\S]*if \(options\.shouldShowError\?\.\(\) \?\? true\) \{[\s\S]*toastApi\.error\('刷新技能失败', generalizedErrorMessageChinese\(error, '刷新技能失败，请稍后重试。'\)\);[\s\S]*\}/,
+      /try \{[\s\S]*window\.maka\.skills\.list\(\)[\s\S]*setSkills\(next\)[\s\S]*\} catch \(error\) \{[\s\S]*if \(options\.shouldShowError\?\.\(\) \?\? true\) \{[\s\S]*toastApi\.error\([\s\S]*copy\.refreshSkillsFailedTitle,[\s\S]*localizedShellErrorMessage\(error, copy\.refreshSkillsFallback, uiLocale\)[\s\S]*\);[\s\S]*\}/,
       'skills refresh failures must be visible and must preserve the existing list',
     );
     assert.doesNotMatch(
@@ -90,7 +90,7 @@ describe('renderer startup fail-soft contract', () => {
       'Data settings app-info load failure must surface visibly instead of leaving the path row loading forever',
     );
     assert.match(dataPage, /role="alert"[\s\S]*无法载入工作区路径：\{infoError\}/);
-    assert.match(dataPage, /catch \(error\) \{[\s\S]*toast\.error\(`无法打开\$\{openPathActionLabel\('workspace'\)\}`, settingsActionErrorMessage\(error\)\)/);
+    assert.match(dataPage, /catch \(error\) \{[\s\S]*toast\.error\(`无法打开\$\{openPathActionLabel\('workspace', locale\)\}`, settingsActionErrorMessage\(error\)\)/);
     assert.match(
       botPage,
       /window\.maka\.settings\.bots\.listStatuses\(\)\.then\([\s\S]*?setStatuses\(next\)[\s\S]*?setStatusLoadError\(null\)[\s\S]*?\.catch\(\(error\) => \{[\s\S]*const message = settingsActionErrorMessage\(error\);[\s\S]*setStatusLoadError\(message\);[\s\S]*toast\.error\('载入远程接入状态失败', message\)/,
@@ -101,8 +101,10 @@ describe('renderer startup fail-soft contract', () => {
       /catch[\s\S]*setStatuses\(null\)/,
       'bot status probe failure must preserve current statuses instead of clearing them',
     );
-    assert.match(botPage, /<Alert variant="error">[\s\S]*<AlertTitle>远程接入状态载入失败<\/AlertTitle>[\s\S]*<AlertDescription>\{statusLoadError\}<\/AlertDescription>/);
-    assert.match(botPage, /<Alert variant="error">[\s\S]*<AlertTitle>运行状态刷新失败<\/AlertTitle>[\s\S]*<AlertDescription>\{statusLoadError\}<\/AlertDescription>/);
+    // #1042: the overview/detail views render the page's statusLoadError
+    // via props after the bot-chat split.
+    assert.match(botPage, /<Alert variant="error">[\s\S]*<AlertTitle>远程接入状态载入失败<\/AlertTitle>[\s\S]*<AlertDescription>\{props\.statusLoadError\}<\/AlertDescription>/);
+    assert.match(botPage, /<Alert variant="error">[\s\S]*<AlertTitle>运行状态刷新失败<\/AlertTitle>[\s\S]*<AlertDescription>\{props\.statusLoadError\}<\/AlertDescription>/);
     assert.match(
       botPage,
       /async function refreshBotStatuses\(\): Promise<boolean> \{[\s\S]*try \{[\s\S]*window\.maka\.settings\.bots\.listStatuses\(\)[\s\S]*setStatuses\(nextStatuses\)[\s\S]*setStatusLoadError\(null\)[\s\S]*return true;[\s\S]*\} catch \(error\) \{[\s\S]*setStatusLoadError\(message\);[\s\S]*toast\.error\('刷新远程接入状态失败', message\)[\s\S]*return false;/,
@@ -131,7 +133,7 @@ describe('renderer startup fail-soft contract', () => {
     );
     assert.match(
       reloadSettingsBlock,
-      /catch \(error\) \{[\s\S]*if \(settingsModalMountedRef\.current && ticket === settingsReloadTicketRef\.current\) \{[\s\S]*toast\.error\('载入设置失败', settingsActionErrorMessage\(error\)\)/,
+      /catch \(error\) \{[\s\S]*if \(settingsModalMountedRef\.current && ticket === settingsReloadTicketRef\.current\) \{[\s\S]*toast\.error\(copy\.settingsLoadFailed, settingsActionErrorMessage\(error, locale\)\)/,
       'root settings load failures must not toast after close',
     );
     assert.match(
@@ -142,7 +144,7 @@ describe('renderer startup fail-soft contract', () => {
     assert.match(reloadUsageBlock, /try \{[\s\S]*window\.maka\.settings\.usageStats\(range\)/);
     assert.match(
       reloadUsageBlock,
-      /catch \(error\) \{[\s\S]*if \(settingsModalMountedRef\.current && ticket === usageReloadTicketRef\.current\) \{[\s\S]*toast\.error\('载入使用统计失败', settingsActionErrorMessage\(error\)\)/,
+      /catch \(error\) \{[\s\S]*if \(settingsModalMountedRef\.current && ticket === usageReloadTicketRef\.current\) \{[\s\S]*toast\.error\(copy\.usageLoadFailed, settingsActionErrorMessage\(error, locale\)\)/,
       'usage stats reload failures must be visible only while Settings is still open',
     );
     assert.doesNotMatch(

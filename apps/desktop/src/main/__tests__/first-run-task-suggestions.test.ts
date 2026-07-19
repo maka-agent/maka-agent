@@ -6,9 +6,11 @@ import { readAllRendererCss } from './css-test-helpers.js';
 import { readRendererShellCombinedSource } from './renderer-shell-source-helpers.js';
 import {
   FIRST_RUN_TASK_SUGGESTION_MILESTONES,
-  FIRST_RUN_TASK_SUGGESTIONS,
+  getFirstRunTaskSuggestions,
   type FirstRunTaskSuggestionId,
 } from '../../renderer/first-run-task-suggestions.js';
+
+const FIRST_RUN_TASK_SUGGESTIONS = getFirstRunTaskSuggestions('zh');
 
 describe('FIRST_RUN_TASK_SUGGESTIONS', () => {
   it('keeps the first-run task rows small and stable', () => {
@@ -69,6 +71,12 @@ describe('FIRST_RUN_TASK_SUGGESTIONS', () => {
     assert.match(fileOrganize.prompt, /等我确认/);
   });
 
+  it('provides a complete English suggestion set without CJK', () => {
+    const suggestions = getFirstRunTaskSuggestions('en');
+    assert.deepEqual(suggestions.map((suggestion) => suggestion.id), FIRST_RUN_TASK_SUGGESTIONS.map((suggestion) => suggestion.id));
+    assert.doesNotMatch(JSON.stringify(suggestions), /[\u3400-\u9fff]/);
+  });
+
   it('renders fixed first-run suggestions and replaces the composer draft on click', async () => {
     // PR #190 review: the per-suggestion dismiss + bulk restore flow
     // was removed entirely — the four FIRST_RUN_TASK_SUGGESTIONS are
@@ -79,8 +87,9 @@ describe('FIRST_RUN_TASK_SUGGESTIONS', () => {
     const hero = await readFile(join(process.cwd(), 'src/renderer/OnboardingHero.tsx'), 'utf8');
     const readyBlock = hero.match(/function ReadyEmptyHero[\s\S]*?interface SetupHeroProps/)?.[0] ?? '';
 
-    assert.match(readyBlock, /FIRST_RUN_TASK_SUGGESTIONS\.length > 0/);
-    assert.match(readyBlock, /FIRST_RUN_TASK_SUGGESTIONS\.map\(\(suggestion\) =>/);
+    assert.match(readyBlock, /const suggestions = getFirstRunTaskSuggestions\(locale\)/);
+    assert.match(readyBlock, /suggestions\.length > 0/);
+    assert.match(readyBlock, /suggestions\.map\(\(suggestion\) =>/);
     assert.match(readyBlock, /const nextDraft = prompt;/);
     assert.match(readyBlock, /setDraft\(nextDraft\)/);
     assert.match(readyBlock, /onClick=\{\(\) => prefillSuggestion\(suggestion\.prompt, suggestion\.mode\)\}/);
@@ -144,10 +153,10 @@ describe('FIRST_RUN_TASK_SUGGESTIONS', () => {
     );
     assert.match(hero, /onRefreshConnections=\{props\.onRefreshConnections \? runRefreshConnections : undefined\}/);
     assert.match(hero, /refreshConnectionsPending=\{refreshConnectionsPending\}/);
-    assert.match(hero, /refreshConnectionsPending === true \? '刷新中…' : '已经配好了？刷新检测'/);
-    assert.match(hero, /refreshConnectionsPending === true \? '刷新中…' : '已经填好了？刷新检测'/);
-    assert.match(hero, /refreshConnectionsPending === true \? '刷新中…' : '已经选好了？刷新检测'/);
-    assert.match(hero, /refreshConnectionsPending === true \? '刷新中…' : '已经修好了？刷新检测'/);
+    assert.match(hero, /refreshConnectionsPending === true \? copy\.refresh\.pending : copy\.refresh\.connection/);
+    assert.match(hero, /refreshConnectionsPending === true \? copy\.refresh\.pending : copy\.refresh\.credentials/);
+    assert.match(hero, /refreshConnectionsPending === true \? copy\.refresh\.pending : copy\.refresh\.model/);
+    assert.match(hero, /refreshConnectionsPending === true \? copy\.refresh\.pending : copy\.refresh\.blocked/);
     assert.match(setupBlock, /secondaryCta\?: \{ label: string; onClick: \(\) => void; disabled\?: boolean; busy\?: boolean \}/);
     assert.match(setupBlock, /disabled=\{props\.secondaryCta\.disabled === true\}/);
     assert.match(setupBlock, /aria-busy=\{props\.secondaryCta\.busy === true \? 'true' : undefined\}/);
@@ -162,7 +171,7 @@ describe('FIRST_RUN_TASK_SUGGESTIONS', () => {
     const source = await readFile(join(process.cwd(), 'src/renderer/FirstRunChecklist.tsx'), 'utf8');
 
     assert.match(source, /workspaceInstructions\.getState\(\)/);
-    assert.match(source, /创建项目指令文件/);
+    assert.match(source, /itemCopy\['workspace-instructions'\]\.title/);
     assert.match(source, /workspaceInstructionCount > 0/);
     // PR-SETTINGS-REVIEW-0: memory section is on its own again
     // (the merged memory-review page was too dense). Workspace
@@ -198,12 +207,12 @@ describe('FIRST_RUN_TASK_SUGGESTIONS', () => {
     assert.match(source, /onClick=\{\(\) => void refreshChecklistStatus\(\)\}/);
     assert.match(source, /disabled=\{statusRefreshPending\}/);
     assert.match(source, /aria-busy=\{statusRefreshPending \? 'true' : undefined\}/);
-    assert.match(source, /statusRefreshPending \? '刷新中…' : '重试'/);
+    assert.match(source, /statusRefreshPending \? copy\.refreshing : copy\.retry/);
     assert.match(source, /planReminders,\s*setPlanReminders\] = useState<ReadonlyArray<PlanReminder> \| null>\(null\)/);
     assert.match(source, /workspaceInstructionCount,\s*setWorkspaceInstructionCount\] = useState<number \| null>\(null\)/);
     assert.match(source, /trackCompletion:\s*planStatusKnown/);
     assert.match(source, /trackCompletion:\s*workspaceInstructionStatusKnown/);
-    assert.match(source, /部分状态暂时没刷新成功，已避免把未知状态计成未完成/);
+    assert.match(source, /copy\.partialFailureBody/);
     assert.match(source, /role="alert"/);
     assert.match(styles, /\.maka-first-run-checklist-error\s*\{/);
     assert.match(source, /variant="secondary"\s+size="sm"[\s\S]*refreshChecklistStatus/);
@@ -217,7 +226,7 @@ describe('FIRST_RUN_TASK_SUGGESTIONS', () => {
 
     assert.match(checklist, /onStartPlanReminder\?\(\): void/);
     assert.match(checklist, /id:\s*'plan-reminder'/);
-    assert.match(checklist, /建一条本地计划提醒/);
+    assert.match(checklist, /itemCopy\['plan-reminder'\]\.title/);
     // The old `props.onStartPlanReminder?.() ?? props.onOpenSidebarModule(...)`
     // pattern was a bug: the callback returns void, so `?.()` always yields
     // undefined and the "fallback" fired unconditionally. The contract now
@@ -231,15 +240,17 @@ describe('FIRST_RUN_TASK_SUGGESTIONS', () => {
       /else\s*props\.onOpenSidebarModule\('automations'\);/,
     );
     assert.match(main, /function\s+openPlanReminderForm\(\)/);
-    assert.match(main, /<FirstRunChecklist[\s\S]*onStartPlanReminder=\{openPlanReminderForm\}/);
+    assert.match(main, /<ChatMessageSurface[\s\S]*onStartPlanReminder=\{openPlanReminderForm\}/);
+    assert.match(main, /<OnboardingEmptyState[\s\S]*onStartPlanReminder=\{onStartPlanReminder\}/);
+    assert.match(main, /<FirstRunChecklist[\s\S]*onStartPlanReminder=\{onStartPlanReminder\}/);
   });
 
   it('does not count exploration-only rows as unfinished setup todos', async () => {
     const source = await readFile(join(process.cwd(), 'src/renderer/FirstRunChecklist.tsx'), 'utf8');
 
     assert.match(source, /const completableItems = items\.filter\(\(item\) => item\.trackCompletion !== false\)/);
-    assert.match(source, /待完成 \$\{remaining\} 项/);
-    assert.match(source, /\{remaining\} \/ \{completableItems\.length\} 待完成/);
+    assert.match(source, /copy\.remainingAria\(remaining\)/);
+    assert.match(source, /copy\.remainingCount\(remaining, completableItems\.length\)/);
     assert.match(source, /id:\s*'daily-review'[\s\S]*trackCompletion:\s*false/);
     assert.match(source, /id:\s*'voice-smoke'[\s\S]*trackCompletion:\s*false/);
     assert.match(source, /data-kind=\{item\.trackCompletion === false \? 'explore' : 'setup'\}/);

@@ -110,10 +110,7 @@ function policyText(profile: PermissionProfile): string {
 
 describe('escapeSeatbeltRegex', () => {
   it('escapes regex metacharacters before inserting paths into SBPL regex literals', () => {
-    assert.equal(
-      escapeSeatbeltRegex('/tmp/repo.(test)+[x]'),
-      '/tmp/repo\\.\\(test\\)\\+\\[x\\]',
-    );
+    assert.equal(escapeSeatbeltRegex('/tmp/repo.(test)+[x]'), '/tmp/repo\\.\\(test\\)\\+\\[x\\]');
   });
 });
 
@@ -157,10 +154,7 @@ describe('buildSeatbeltPolicy', () => {
   it('protects metadata names with require-not regex under writable workspace roots', () => {
     const policy = policyText(createWorkspaceWritePermissionProfile());
 
-    assert.match(
-      policy,
-      /\(require-all\n    \(subpath \(param "WRITABLE_ROOT_0"\)\)/,
-    );
+    assert.match(policy, /\(require-all\n    \(subpath \(param "WRITABLE_ROOT_0"\)\)/);
     assert.ok(policy.includes(String.raw`(require-not (regex #"^/repo/(.*/)?\.git(/.*)?$"))`));
     assert.ok(policy.includes(String.raw`(require-not (regex #"^/repo/(.*/)?\.agents(/.*)?$"))`));
     assert.ok(policy.includes(String.raw`(require-not (regex #"^/repo/(.*/)?\.codex(/.*)?$"))`));
@@ -195,10 +189,7 @@ describe('buildSeatbeltPolicy', () => {
       pathContext: { workspaceRoots: ['/tmp/repo.(test)+[x]'] },
     });
 
-    assert.match(
-      result.policy,
-      /\^\/tmp\/repo\\\.\\\(test\\\)\\\+\\\[x\\\]\/\(\.\*\/\)\?\\\.git/,
-    );
+    assert.match(result.policy, /\^\/tmp\/repo\\\.\\\(test\\\)\\\+\\\[x\\\]\/\(\.\*\/\)\?\\\.git/);
   });
 
   it('emits network restricted and enabled policy sections', () => {

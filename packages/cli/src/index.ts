@@ -43,10 +43,10 @@ export {
 } from './pi-tui-runner.js';
 export {
   appendUserPrompt,
+  appendTurnFailureToTranscript,
   applyMakaSessionEventToTranscript,
   createMakaPiTranscriptState,
   renderMakaPiTranscript,
-  submitPromptToTranscript,
   type MakaPiTranscriptEntry,
   type MakaPiTranscriptMetadata,
   type MakaPiTranscriptState,

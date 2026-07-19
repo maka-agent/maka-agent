@@ -6,6 +6,8 @@ import type {
   ThemePreference,
   UiLocalePreference,
 } from '@maka/core';
+import { useUiLocale } from '@maka/ui';
+import { getSettingsSharedCopy } from '../locales/settings-shared-copy';
 import { SettingsSurface } from './settings-surface';
 import type { UiLocaleUpdateGate } from './ui-locale-update-gate';
 
@@ -50,6 +52,8 @@ export function SettingsModal(props: {
    */
   onOpenSession?(sessionId: string): void;
 }) {
+  const locale = useUiLocale();
+  const copy = getSettingsSharedCopy(locale);
   const pageRef = useRef<HTMLDivElement>(null);
   // Focused by SettingsSurface's section-keyed effect (mount + section
   // change). Deliberately NOT focused from an effect here keyed on any
@@ -74,7 +78,7 @@ export function SettingsModal(props: {
     <div
       ref={pageRef}
       role="region"
-      aria-label="设置"
+      aria-label={copy.modalLabel}
       className="settingsModal settingsPage agents-layout-root"
       data-agents-page
     >

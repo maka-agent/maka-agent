@@ -108,7 +108,7 @@ export function materializeChat(messages: StoredMessage[]): ChatItem[] {
       items.push({
         id: message.id,
         role: 'user',
-        text: message.text,
+        text: message.displayText ?? message.text,
         ts: message.ts,
         ...(message.attachments && message.attachments.length > 0 ? { attachments: message.attachments } : {}),
       });
@@ -465,7 +465,7 @@ export function materializeTurns(messages: StoredMessage[]): TurnViewModel[] {
       turn.user = {
         id: message.id,
         role: 'user',
-        text: message.text,
+        text: message.displayText ?? message.text,
         ts: message.ts,
         ...(message.attachments && message.attachments.length > 0 ? { attachments: message.attachments } : {}),
         ...(message.origin?.kind === 'automation' ? { automationOrigin: { automationId: message.origin.automationId } } : {}),

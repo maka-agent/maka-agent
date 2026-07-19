@@ -46,25 +46,42 @@ export function runVerification(
     // detached: the shell becomes its own process-group leader so a
     // timeout can kill the WHOLE tree (backgrounded grandchildren
     // included), not just the shell.
-    const child = spawn(command, { cwd, shell: true, detached: true, env: env ? { ...process.env, ...env } : undefined });
+    const child = spawn(command, {
+      cwd,
+      shell: true,
+      detached: true,
+      env: env ? { ...process.env, ...env } : undefined,
+    });
     let stdout = '';
     let stderr = '';
     let timedOut = false;
 
     const cap = (buf: string, chunk: Buffer): string =>
-      buf.length >= MAX_OUTPUT_BYTES ? buf : (buf + chunk.toString('utf8')).slice(0, MAX_OUTPUT_BYTES);
+      buf.length >= MAX_OUTPUT_BYTES
+        ? buf
+        : (buf + chunk.toString('utf8')).slice(0, MAX_OUTPUT_BYTES);
 
     const timer = setTimeout(() => {
       timedOut = true;
       killTree(child);
     }, timeoutMs);
 
-    child.stdout?.on('data', (chunk: Buffer) => { stdout = cap(stdout, chunk); });
-    child.stderr?.on('data', (chunk: Buffer) => { stderr = cap(stderr, chunk); });
+    child.stdout?.on('data', (chunk: Buffer) => {
+      stdout = cap(stdout, chunk);
+    });
+    child.stderr?.on('data', (chunk: Buffer) => {
+      stderr = cap(stderr, chunk);
+    });
 
     child.on('error', (err) => {
       clearTimeout(timer);
-      resolve({ passed: false, exitCode: null, stdout, stderr: `${stderr}${String(err)}`, timedOut });
+      resolve({
+        passed: false,
+        exitCode: null,
+        stdout,
+        stderr: `${stderr}${String(err)}`,
+        timedOut,
+      });
     });
     child.on('close', (code) => {
       clearTimeout(timer);

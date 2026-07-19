@@ -35,12 +35,15 @@ export function detectShell(input: DetectShellInput = {}): ShellPlan {
   if (platform !== 'win32') return { kind: 'posix', displayName: '/bin/sh' };
   const env = input.env ?? process.env;
   const fileExists = input.fileExists ?? defaultFileExists;
-  const pwsh = findOnWindowsPath('pwsh.exe', env, fileExists)
-    ?? findAt(env.ProgramFiles, 'PowerShell\\7\\pwsh.exe', fileExists);
+  const pwsh =
+    findOnWindowsPath('pwsh.exe', env, fileExists) ??
+    findAt(env.ProgramFiles, 'PowerShell\\7\\pwsh.exe', fileExists);
   if (pwsh) return { kind: 'pwsh', displayName: 'PowerShell 7 (pwsh)', exe: pwsh };
-  const powershell = findOnWindowsPath('powershell.exe', env, fileExists)
-    ?? findAt(env.SystemRoot, 'System32\\WindowsPowerShell\\v1.0\\powershell.exe', fileExists);
-  if (powershell) return { kind: 'powershell', displayName: 'Windows PowerShell 5.1', exe: powershell };
+  const powershell =
+    findOnWindowsPath('powershell.exe', env, fileExists) ??
+    findAt(env.SystemRoot, 'System32\\WindowsPowerShell\\v1.0\\powershell.exe', fileExists);
+  if (powershell)
+    return { kind: 'powershell', displayName: 'Windows PowerShell 5.1', exe: powershell };
   return { kind: 'cmd', displayName: 'cmd.exe' };
 }
 
@@ -88,14 +91,20 @@ export interface PtyShellSpawnPlan {
 // command fails last" shape back to 1. Both outcomes are non-zero either way;
 // stderr still carries the cmdlet error. Pinned in shell-exec.test.ts.
 const POWERSHELL_EXIT_CODE_TAIL =
-  '$__makaOk = $?\n'
-  + 'if (-not $__makaOk) { if ($LASTEXITCODE -is [int] -and $LASTEXITCODE -ne 0) { exit $LASTEXITCODE } else { exit 1 } }';
+  '$__makaOk = $?\n' +
+  'if (-not $__makaOk) { if ($LASTEXITCODE -is [int] -and $LASTEXITCODE -ne 0) { exit $LASTEXITCODE } else { exit 1 } }';
 
 export function buildShellSpawnPlan(shell: ShellPlan, command: string): ShellSpawnPlan {
   if ((shell.kind === 'pwsh' || shell.kind === 'powershell') && shell.exe) {
     return {
       file: shell.exe,
-      args: ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', `${command}\n${POWERSHELL_EXIT_CODE_TAIL}`],
+      args: [
+        '-NoLogo',
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        `${command}\n${POWERSHELL_EXIT_CODE_TAIL}`,
+      ],
       useShellOption: false,
     };
   }
@@ -131,9 +140,11 @@ export function buildPtyShellSpawnPlan(
 export function bashToolShellGuidance(shell: ShellPlan): string {
   if (shell.kind === 'posix') return '';
   const dialect =
-    shell.kind === 'pwsh' ? 'Commands are executed by PowerShell 7 (pwsh); write PowerShell syntax, not cmd or bash syntax.'
-    : shell.kind === 'powershell' ? 'Commands are executed by Windows PowerShell 5.1; write PowerShell 5.1-compatible syntax, not cmd or bash syntax.'
-    : 'Commands are executed by cmd.exe; write cmd syntax, not bash syntax.';
+    shell.kind === 'pwsh'
+      ? 'Commands are executed by PowerShell 7 (pwsh); write PowerShell syntax, not cmd or bash syntax.'
+      : shell.kind === 'powershell'
+        ? 'Commands are executed by Windows PowerShell 5.1; write PowerShell 5.1-compatible syntax, not cmd or bash syntax.'
+        : 'Commands are executed by cmd.exe; write cmd syntax, not bash syntax.';
   return `${dialect} Prefer \`git ls-files\` or the Grep/Glob tools over recursive directory listings, and always exclude node_modules and build output when enumerating files.`;
 }
 

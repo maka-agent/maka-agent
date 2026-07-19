@@ -12,7 +12,8 @@ describe('Daily Review export-to-file contract (PR-DAILY-REVIEW-EXPORT-FILE-0)',
   it('exposes the save-to-file IPC, preload bridge, and command palette entry', async () => {
     const main = await readMainProcessCombinedSource();
     const preload = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/preload/preload.ts'), 'utf8');
-    const palette = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/renderer/command-palette.tsx'), 'utf8');
+    const palette = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/renderer/command-palette-commands.ts'), 'utf8');
+    const catalog = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/renderer/locales/shell-copy.ts'), 'utf8');
     const renderer = await readRendererShellCombinedSource();
     const ui = await readFile(resolve(REPO_ROOT, 'packages/ui/src/daily-review-panel.tsx'), 'utf8');
     const modulePages = await readFile(resolve(REPO_ROOT, 'packages/ui/src/module-pages.tsx'), 'utf8');
@@ -35,13 +36,15 @@ describe('Daily Review export-to-file contract (PR-DAILY-REVIEW-EXPORT-FILE-0)',
     // active session (export should work even on an empty rail).
     assert.match(palette, /onSaveTodayDailyReviewToFile/);
     assert.match(palette, /diag:save-today-daily-review/);
-    assert.match(palette, /保存今日回顾为 \.md 文件/);
+    assert.match(palette, /staticCopy\('diag:save-today-daily-review'\)/);
+    assert.match(catalog, /label: '保存今日回顾为 \.md 文件'/);
+    assert.match(catalog, /label: "Save today's review as an \.md file"/);
 
     // Renderer wires the callback to fetch summary, render markdown,
     // invoke IPC, and surface a toast on success/failure.
     assert.match(renderer, /onSaveTodayDailyReviewToFile:\s*async \(\)/);
     assert.match(renderer, /dailyReview\.saveMarkdownToFile\(\{\s*markdown:\s*input\.markdown,\s*defaultName/);
-    assert.match(renderer, /toastApi\.success\(\s*`已保存\$\{input\.label\}回顾`/);
+    assert.match(renderer, /toastApi\.success\(\s*copy\.reviewSaved\(input\.label\)/);
 
     // The main Daily Review panel exposes save next to copy, so export
     // is not hidden behind command palette muscle memory.

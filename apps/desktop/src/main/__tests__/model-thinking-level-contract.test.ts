@@ -22,15 +22,20 @@ async function readModelPickerCss(): Promise<string> {
 }
 
 describe('model thinking-level picker contract', () => {
-  it('labels thinking efforts in Chinese', async () => {
-    const source = await readModelPickerSources();
+  it('labels thinking efforts through the locale catalog', async () => {
+    const [source, copy] = await Promise.all([
+      readModelPickerSources(),
+      readFile(resolve(REPO_ROOT, 'packages/ui/src/conversation-copy.ts'), 'utf8'),
+    ]);
 
-    assert.match(source, /minimal:\s*'最小'/, 'minimal reasoning effort should render as 最小');
-    assert.match(source, /low:\s*'低'/, 'low reasoning effort should render as 低');
-    assert.match(source, /medium:\s*'中'/, 'medium reasoning effort should render as 中');
-    assert.match(source, /high:\s*'高'/, 'high reasoning effort should render as 高');
-    assert.match(source, /xhigh:\s*'超高'/, 'xhigh reasoning effort should render as 超高');
-    assert.match(source, /max:\s*'最高'/, 'max reasoning effort should render as 最高');
+    assert.match(source, /copy\.level\[level\]/, 'thinking choices must render from the resolved locale catalog');
+    assert.match(copy, /minimal:\s*'最小'/, 'minimal reasoning effort should render as 最小');
+    assert.match(copy, /low:\s*'低'/, 'low reasoning effort should render as 低');
+    assert.match(copy, /medium:\s*'中'/, 'medium reasoning effort should render as 中');
+    assert.match(copy, /high:\s*'高'/, 'high reasoning effort should render as 高');
+    assert.match(copy, /xhigh:\s*'超高'/, 'xhigh reasoning effort should render as 超高');
+    assert.match(copy, /max:\s*'最高'/, 'max reasoning effort should render as 最高');
+    assert.match(copy, /minimal:\s*'Minimal'/, 'English catalog must define minimal reasoning effort');
   });
 
   it('renders model picker popups as a fixed shell, a scrollable model list, and a footer action', async () => {

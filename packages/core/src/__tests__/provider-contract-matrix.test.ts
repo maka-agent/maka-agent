@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { PROVIDER_REGISTRY, type ProviderDefaults, type ProviderType } from '../provider-registry.js';
+import {
+  PROVIDER_REGISTRY,
+  type ProviderDefaults,
+  type ProviderType,
+} from '../provider-registry.js';
 import {
   PROVIDER_CONTRACT_DIMENSIONS,
   PROVIDER_CONTRACT_MATRIX_PLAN,
@@ -18,14 +22,19 @@ function rowFor(providerType: ProviderType) {
   return row;
 }
 
-function cellFor(providerType: ProviderType, dimension: ProviderContractDimension): ProviderContractCell {
+function cellFor(
+  providerType: ProviderType,
+  dimension: ProviderContractDimension,
+): ProviderContractCell {
   return rowFor(providerType).cells[dimension];
 }
 
 describe('provider contract matrix — row selection', () => {
   it('includes every ready, wired provider and excludes experimental / unavailable ones', () => {
     const rowTypes = new Set(plan.rows.map((row) => row.providerType));
-    for (const [providerType, def] of Object.entries(PROVIDER_REGISTRY) as Array<[ProviderType, ProviderDefaults]>) {
+    for (const [providerType, def] of Object.entries(PROVIDER_REGISTRY) as Array<
+      [ProviderType, ProviderDefaults]
+    >) {
       const shouldBeRow = def.status === 'ready' && def.runtimeAdapter.kind !== 'unavailable';
       assert.equal(
         rowTypes.has(providerType),
@@ -44,18 +53,19 @@ describe('provider contract matrix — row selection', () => {
 
   it('excludes the experimental oauth providers and the unavailable gemini-cli', () => {
     for (const excluded of ['claude-subscription', 'openai-codex', 'gemini-cli'] as const) {
-      assert.ok(!plan.rows.some((row) => row.providerType === excluded), `${excluded} must not be a row`);
+      assert.ok(
+        !plan.rows.some((row) => row.providerType === excluded),
+        `${excluded} must not be a row`,
+      );
     }
   });
 
   it('exposes the four contract dimensions', () => {
     assert.deepEqual(plan.dimensions, PROVIDER_CONTRACT_DIMENSIONS);
-    assert.deepEqual([...PROVIDER_CONTRACT_DIMENSIONS], [
-      'discovery',
-      'exact-model-id',
-      'tool-loop',
-      'reasoning-replay',
-    ]);
+    assert.deepEqual(
+      [...PROVIDER_CONTRACT_DIMENSIONS],
+      ['discovery', 'exact-model-id', 'tool-loop', 'reasoning-replay'],
+    );
   });
 });
 
@@ -90,10 +100,9 @@ describe('provider contract matrix — discovery derivation', () => {
     const siliconflow = cellFor('siliconflow', 'discovery');
     assert.equal(siliconflow.state, 'generated');
     assert.equal(siliconflow.state === 'generated' && siliconflow.discovery?.protocol, 'openai');
-    assert.deepEqual(
-      siliconflow.state === 'generated' ? siliconflow.discovery?.query : undefined,
-      { sub_type: 'chat' },
-    );
+    assert.deepEqual(siliconflow.state === 'generated' ? siliconflow.discovery?.query : undefined, {
+      sub_type: 'chat',
+    });
 
     const vercel = cellFor('vercel', 'discovery');
     assert.equal(vercel.state, 'generated');
@@ -125,7 +134,11 @@ describe('provider contract matrix — discovery derivation', () => {
   });
 
   it('marks fallback discovery not-applicable with a no-/models reverse assertion', () => {
-    for (const providerType of ['volcengine-ark', 'tencent-coding-plan', 'cloudflare-workers-ai'] as const) {
+    for (const providerType of [
+      'volcengine-ark',
+      'tencent-coding-plan',
+      'cloudflare-workers-ai',
+    ] as const) {
       const cell = cellFor(providerType, 'discovery');
       assert.equal(cell.state, 'not-applicable', `${providerType} discovery should be N/A`);
       assert.equal(
@@ -159,10 +172,10 @@ describe('provider contract matrix — wire and reasoning derivation', () => {
   it('generates a plain reasoning_content round-trip for plain openai-compatible providers', () => {
     const cell = cellFor('volcengine-ark', 'reasoning-replay');
     assert.equal(cell.state, 'generated');
-    assert.deepEqual(
-      cell.state === 'generated' ? cell.reasoningReplay : undefined,
-      { sourceField: 'reasoning_content', replayField: 'reasoning_content' },
-    );
+    assert.deepEqual(cell.state === 'generated' ? cell.reasoningReplay : undefined, {
+      sourceField: 'reasoning_content',
+      replayField: 'reasoning_content',
+    });
   });
 
   it('generates a reasoning field rename when the adapter declares replayAssistantReasoningAs', () => {
@@ -255,7 +268,10 @@ describe('provider contract matrix — derivation is a total function over a fix
       },
     };
     const fixturePlan = buildProviderContractMatrixPlan(fixture);
-    assert.deepEqual(fixturePlan.rows.map((row) => row.providerType), ['fixture-provider']);
+    assert.deepEqual(
+      fixturePlan.rows.map((row) => row.providerType),
+      ['fixture-provider'],
+    );
     const row = fixturePlan.rows[0]!;
     assert.equal(row.sampleModelId, 'fixture-model');
     assert.equal(row.cells.discovery.state, 'generated');

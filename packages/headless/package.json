@@ -39,6 +39,7 @@
     "#provider-env": "./dist/provider-env.js",
     "#harbor-cell": "./dist/harbor-cell.js",
     "#opencode-toolchain": "./dist/opencode-toolchain.js",
+    "#kimi-code-toolchain": "./dist/kimi-code-toolchain.js",
     "#runtime-policy-ab-profile": "./dist/runtime-policy-ab-profile.js",
     "#runtime-policy-ab-spec": "./dist/runtime-policy-ab-spec.js",
     "#runtime-policy-ab-run": "./dist/runtime-policy-ab-run.js",
@@ -57,12 +58,13 @@
     "clean": "node ../../scripts/clean-paths.mjs dist tsconfig.tsbuildinfo",
     "build": "tsc -p tsconfig.json && node scripts/chmod-bin.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "npm run clean && npm run build && node ../../scripts/run-headless-tests.mjs"
+    "test": "npm run clean && npm run build && npm run test:dist",
+    "test:dist": "node ../../scripts/run-headless-tests.mjs"
   },
   "dependencies": {
     "@maka/core": "0.1.0",
     "@maka/runtime": "0.1.0",
     "@maka/storage": "0.1.0",
-    "ai": "^6.0.185"
+    "ai": "^7.0.31"
   }
 }

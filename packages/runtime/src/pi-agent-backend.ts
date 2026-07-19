@@ -11,7 +11,7 @@ import type {
   ToolResultMessage,
   TokenUsageMessage,
 } from '@maka/core';
-import { computerUseApprovalSummary } from '@maka/core';
+import { computerUseApprovalSummary, decodeCanonicalToolResultContent } from '@maka/core';
 import type { BackendSendInput, PermissionDecision } from '@maka/core/backend-types';
 import { redactSecrets } from '@maka/core/redaction';
 import { isToolCategory, type ToolCategory } from '@maka/core/permission';
@@ -46,9 +46,21 @@ export interface PiAgentSendInput {
 export type PiAgentFrame =
   | { type: 'text_delta'; text: string; messageId?: string }
   | { type: 'text_complete'; text?: string; messageId?: string }
-  | { type: 'tool_start'; toolUseId: string; toolName: string; args?: unknown; displayName?: string; intent?: string }
+  | {
+      type: 'tool_start';
+      toolUseId: string;
+      toolName: string;
+      args?: unknown;
+      displayName?: string;
+      intent?: string;
+    }
   | { type: 'tool_output_delta'; toolUseId: string; stream?: ToolOutputStream; chunk: string }
-  | { type: 'tool_result'; toolUseId: string; isError?: boolean; content?: ToolResultContent | unknown }
+  | {
+      type: 'tool_result';
+      toolUseId: string;
+      isError?: boolean;
+      content?: ToolResultContent | unknown;
+    }
   | {
       type: 'token_usage';
       input: number;
@@ -125,7 +137,9 @@ export class PiAgentBackend implements AgentBackend {
       await this.appendAssistant(turnId, messageId, assistantText);
       assistantPersisted = true;
     };
-    const completeStepText = async (): Promise<Extract<SessionEvent, { type: 'text_complete' }> | undefined> => {
+    const completeStepText = async (): Promise<
+      Extract<SessionEvent, { type: 'text_complete' }> | undefined
+    > => {
       if (textCompleteEmitted || assistantText.length === 0) return undefined;
       await persistAssistant();
       textCompleteEmitted = true;
@@ -141,9 +155,8 @@ export class PiAgentBackend implements AgentBackend {
     const prepareTextStep = (providerMessageId?: string): void => {
       const stepEnded = textCompleteEmitted || (stepHasTools && activeToolUseIds.size === 0);
       if (stepEnded) {
-        const preferredMessageId = providerMessageId !== currentProviderMessageId
-          ? providerMessageId
-          : undefined;
+        const preferredMessageId =
+          providerMessageId !== currentProviderMessageId ? providerMessageId : undefined;
         beginStep(preferredMessageId, providerMessageId);
       } else if (providerMessageId && providerMessageId !== currentProviderMessageId) {
         beginStep(providerMessageId, providerMessageId);
@@ -285,7 +298,9 @@ export class PiAgentBackend implements AgentBackend {
               ...(frame.code ? { code: frame.code } : {}),
               reason: 'pi_agent_error',
               message: redactBoundedText(frame.message),
-              ...(frame.details ? { details: redactUnknown(frame.details) as Record<string, unknown> } : {}),
+              ...(frame.details
+                ? { details: redactUnknown(frame.details) as Record<string, unknown> }
+                : {}),
             };
             yield this.completeEvent(turnId, 'error');
             return;
@@ -405,7 +420,9 @@ export class PiAgentBackend implements AgentBackend {
       toolUseId: frame.toolUseId,
       toolName: frame.toolName,
       decision: response.decision,
-      ...(response.rememberForTurn !== undefined ? { rememberForTurn: response.rememberForTurn } : {}),
+      ...(response.rememberForTurn !== undefined
+        ? { rememberForTurn: response.rememberForTurn }
+        : {}),
     };
     await this.input.appendMessage(decisionMsg);
     yield {
@@ -416,7 +433,9 @@ export class PiAgentBackend implements AgentBackend {
       requestId: response.requestId,
       toolUseId: frame.toolUseId,
       decision: response.decision,
-      ...(response.rememberForTurn !== undefined ? { rememberForTurn: response.rememberForTurn } : {}),
+      ...(response.rememberForTurn !== undefined
+        ? { rememberForTurn: response.rememberForTurn }
+        : {}),
     };
 
     if (response.decision === 'deny') {
@@ -507,7 +526,10 @@ export class PiAgentBackend implements AgentBackend {
     };
   }
 
-  private tokenUsageEvent(turnId: string, frame: Extract<PiAgentFrame, { type: 'token_usage' }>): TokenUsageMessage {
+  private tokenUsageEvent(
+    turnId: string,
+    frame: Extract<PiAgentFrame, { type: 'token_usage' }>,
+  ): TokenUsageMessage {
     const cacheHitInput = frame.cacheHitInput ?? 0;
     const cacheWriteInput = frame.cacheWriteInput ?? 0;
     return {
@@ -518,7 +540,9 @@ export class PiAgentBackend implements AgentBackend {
       input: frame.input,
       output: frame.output,
       ...(cacheHitInput > 0 ? { cacheHitInput, cacheRead: cacheHitInput } : {}),
-      ...(frame.cacheMissInput !== undefined ? { cacheMissInput: frame.cacheMissInput, cacheMissInputSource: 'explicit' } : {}),
+      ...(frame.cacheMissInput !== undefined
+        ? { cacheMissInput: frame.cacheMissInput, cacheMissInputSource: 'explicit' }
+        : {}),
       ...(cacheWriteInput > 0 ? { cacheWriteInput, cacheCreation: cacheWriteInput } : {}),
       ...(frame.reasoning !== undefined ? { reasoning: frame.reasoning } : {}),
       ...(frame.total !== undefined ? { total: frame.total } : {}),
@@ -530,19 +554,19 @@ export class PiAgentBackend implements AgentBackend {
     return { type: 'abort', id: this.newId(), turnId, ts: this.now(), reason: 'user_stop' };
   }
 
-  private completeEvent(turnId: string, stopReason: 'end_turn' | 'user_stop' | 'error' | 'max_tokens'): SessionEvent {
+  private completeEvent(
+    turnId: string,
+    stopReason: 'end_turn' | 'user_stop' | 'error' | 'max_tokens',
+  ): SessionEvent {
     return { type: 'complete', id: this.newId(), turnId, ts: this.now(), stopReason };
   }
 }
 
-function projectPiToolArgs(
-  toolName: string,
-  args: unknown,
-  categoryHint?: ToolCategory,
-): unknown {
-  const projected = categoryHint === 'computer_use' || toolName === 'maka_computer'
-    ? computerUseApprovalSummary(args)
-    : redactUnknown(args);
+function projectPiToolArgs(toolName: string, args: unknown, categoryHint?: ToolCategory): unknown {
+  const projected =
+    categoryHint === 'computer_use' || toolName === 'maka_computer'
+      ? computerUseApprovalSummary(args)
+      : redactUnknown(args);
   return structuredClone(projected);
 }
 
@@ -551,27 +575,48 @@ export function normalizePiAgentFrame(frame: unknown): PiAgentFrame | null {
   const value = frame as Record<string, unknown>;
   const type = typeof value.type === 'string' ? value.type : undefined;
   if (type === 'text_delta' && typeof value.text === 'string') {
-    return { type, text: value.text, ...(typeof value.messageId === 'string' ? { messageId: value.messageId } : {}) };
+    return {
+      type,
+      text: value.text,
+      ...(typeof value.messageId === 'string' ? { messageId: value.messageId } : {}),
+    };
   }
   if (type === 'text_complete') {
-    return { type, ...(typeof value.text === 'string' ? { text: value.text } : {}), ...(typeof value.messageId === 'string' ? { messageId: value.messageId } : {}) };
+    return {
+      type,
+      ...(typeof value.text === 'string' ? { text: value.text } : {}),
+      ...(typeof value.messageId === 'string' ? { messageId: value.messageId } : {}),
+    };
   }
-  if (type === 'tool_start' && typeof value.toolUseId === 'string' && typeof value.toolName === 'string') {
+  if (
+    type === 'tool_start' &&
+    typeof value.toolUseId === 'string' &&
+    typeof value.toolName === 'string'
+  ) {
     return {
       type,
       toolUseId: value.toolUseId,
       toolName: value.toolName,
-      args: value.args,
+      args: value.args ?? null,
       ...(typeof value.displayName === 'string' ? { displayName: value.displayName } : {}),
       ...(typeof value.intent === 'string' ? { intent: value.intent } : {}),
     };
   }
-  if (type === 'tool_output_delta' && typeof value.toolUseId === 'string' && typeof value.chunk === 'string') {
+  if (
+    type === 'tool_output_delta' &&
+    typeof value.toolUseId === 'string' &&
+    typeof value.chunk === 'string'
+  ) {
     const stream = value.stream === 'stderr' ? 'stderr' : 'stdout';
     return { type, toolUseId: value.toolUseId, stream, chunk: value.chunk };
   }
   if (type === 'tool_result' && typeof value.toolUseId === 'string') {
-    return { type, toolUseId: value.toolUseId, isError: value.isError === true, content: value.content };
+    return {
+      type,
+      toolUseId: value.toolUseId,
+      isError: value.isError === true,
+      content: value.content ?? null,
+    };
   }
   if (type === 'token_usage') {
     const input = finiteNumber(value.input);
@@ -589,12 +634,16 @@ export function normalizePiAgentFrame(frame: unknown): PiAgentFrame | null {
       ...numberField('costUsd', value.costUsd),
     };
   }
-  if (type === 'permission_request' && typeof value.toolUseId === 'string' && typeof value.toolName === 'string') {
+  if (
+    type === 'permission_request' &&
+    typeof value.toolUseId === 'string' &&
+    typeof value.toolName === 'string'
+  ) {
     return {
       type,
       toolUseId: value.toolUseId,
       toolName: value.toolName,
-      args: value.args,
+      args: value.args ?? null,
       ...(isToolCategory(value.categoryHint) ? { categoryHint: value.categoryHint } : {}),
       ...(typeof value.hint === 'string' ? { hint: value.hint } : {}),
     };
@@ -608,9 +657,10 @@ export function normalizePiAgentFrame(frame: unknown): PiAgentFrame | null {
     };
   }
   if (type === 'complete') {
-    const stopReason = value.stopReason === 'error' || value.stopReason === 'max_tokens'
-      ? value.stopReason
-      : 'end_turn';
+    const stopReason =
+      value.stopReason === 'error' || value.stopReason === 'max_tokens'
+        ? value.stopReason
+        : 'end_turn';
     return { type, stopReason };
   }
   return null;
@@ -618,7 +668,7 @@ export function normalizePiAgentFrame(frame: unknown): PiAgentFrame | null {
 
 function numberField<K extends string>(key: K, value: unknown): { [P in K]?: number } {
   const number = finiteNumber(value);
-  return number === undefined ? {} : { [key]: number } as { [P in K]?: number };
+  return number === undefined ? {} : ({ [key]: number } as { [P in K]?: number });
 }
 
 function finiteNumber(value: unknown): number | undefined {
@@ -626,11 +676,13 @@ function finiteNumber(value: unknown): number | undefined {
 }
 
 function normalizeToolResultContent(content: unknown): ToolResultContent {
-  if (content && typeof content === 'object' && 'kind' in content) {
-    return redactUnknown(content) as ToolResultContent;
-  }
   if (typeof content === 'string') return { kind: 'text', text: redactBoundedText(content) };
-  return { kind: 'json', value: redactUnknown(content) };
+  const redacted = redactUnknown(content ?? null);
+  try {
+    return decodeCanonicalToolResultContent(redacted);
+  } catch {
+    return { kind: 'json', value: redacted };
+  }
 }
 
 function redactBoundedText(text: string, maxChars = 8192): string {

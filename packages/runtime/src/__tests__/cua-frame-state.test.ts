@@ -81,10 +81,10 @@ describe('CuaFrameState', () => {
       ok: false,
       reason: 'no_active_frame',
     });
-    assert.deepEqual(
-      (({ frameId, epoch }) => ({ frameId, epoch }))(state.observe(observation())),
-      { frameId: 'frame-2', epoch: 1 },
-    );
+    assert.deepEqual((({ frameId, epoch }) => ({ frameId, epoch }))(state.observe(observation())), {
+      frameId: 'frame-2',
+      epoch: 1,
+    });
     assert.deepEqual(state.claimAction(action), {
       ok: false,
       reason: 'stale_epoch',
@@ -102,10 +102,10 @@ describe('CuaFrameState', () => {
     });
     assert.deepEqual(state.claimAction(action), { ok: true });
     assert.deepEqual(state.confirmAction(action), { ok: true, epoch: 1 });
-    assert.deepEqual(
-      (({ frameId, epoch }) => ({ frameId, epoch }))(state.observe(observation())),
-      { frameId: 'frame-2', epoch: 1 },
-    );
+    assert.deepEqual((({ frameId, epoch }) => ({ frameId, epoch }))(state.observe(observation())), {
+      frameId: 'frame-2',
+      epoch: 1,
+    });
   });
 
   test('binds coordinates to the immediately preceding window screenshot space', () => {
@@ -144,10 +144,13 @@ describe('CuaFrameState', () => {
       target: { pid: 42, windowId: 7 },
     });
 
-    assert.equal(bindCuaActionToObservation(observation, {
-      type: 'left_click',
-      coordinate: { x: 801, y: 30 },
-    }), undefined);
+    assert.equal(
+      bindCuaActionToObservation(observation, {
+        type: 'left_click',
+        coordinate: { x: 801, y: 30 },
+      }),
+      undefined,
+    );
   });
 
   test('semantic actions bind element identity to the observed window', () => {

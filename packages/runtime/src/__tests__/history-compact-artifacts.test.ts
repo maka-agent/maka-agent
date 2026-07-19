@@ -14,7 +14,8 @@ describe('history compact artifacts', () => {
   test('persists a compact block within default limits when the fold covers many events', async () => {
     const store = memoryArtifactStore();
     const foldedEvents = Array.from({ length: 60 }, (_, index) =>
-      textEvent(`old-${index}`, `turn-${Math.floor(index / 4)}`, `folded fact number ${index}`));
+      textEvent(`old-${index}`, `turn-${Math.floor(index / 4)}`, `folded fact number ${index}`),
+    );
     const input: HistoryCompactWriteInput = {
       sessionId: 'session-1',
       turnId: 'turn-write',
@@ -52,32 +53,37 @@ describe('history compact artifacts', () => {
   test('loads a metadata-heavy block without an explicit byte cap', async () => {
     const store = memoryArtifactStore();
     const foldedEvents = Array.from({ length: 60 }, (_, index) =>
-      textEvent(`old-${index}`, `turn-${Math.floor(index / 4)}`, `folded fact number ${index}`));
-    const write = await persistHistoryCompactBlocksToArtifacts(store, {
-      sessionId: 'session-1',
-      turnId: 'turn-write',
-      source: {
-        draftBlock: buildHistoryCompactBlockFromSummary({
-          sessionId: 'session-1',
+      textEvent(`old-${index}`, `turn-${Math.floor(index / 4)}`, `folded fact number ${index}`),
+    );
+    const write = await persistHistoryCompactBlocksToArtifacts(
+      store,
+      {
+        sessionId: 'session-1',
+        turnId: 'turn-write',
+        source: {
+          draftBlock: buildHistoryCompactBlockFromSummary({
+            sessionId: 'session-1',
+            foldedRuntimeEvents: foldedEvents,
+            summary: 'deterministic fallback',
+            highWaterName: 'test-history-compact',
+            highWaterSeq: 1,
+            now: 1_800_000_000_000,
+            charsPerToken: 4,
+          }),
           foldedRuntimeEvents: foldedEvents,
-          summary: 'deterministic fallback',
-          highWaterName: 'test-history-compact',
-          highWaterSeq: 1,
-          now: 1_800_000_000_000,
+        },
+        limits: {
+          maxBlocks: 1,
+          maxBlockEstimatedTokens: 1_024,
+          maxEstimatedTokens: 2_048,
           charsPerToken: 4,
-        }),
-        foldedRuntimeEvents: foldedEvents,
+        },
       },
-      limits: {
-        maxBlocks: 1,
-        maxBlockEstimatedTokens: 1_024,
-        maxEstimatedTokens: 2_048,
-        charsPerToken: 4,
+      {
+        now: () => 1_800_000_000_100,
+        summarize: () => 'short summary of a long session',
       },
-    }, {
-      now: () => 1_800_000_000_100,
-      summarize: () => 'short summary of a long session',
-    });
+    );
     assert.equal(write.blocks.length, 1);
 
     const loaded = await loadHistoryCompactBlocksFromArtifacts(store, {
@@ -93,7 +99,8 @@ describe('history compact artifacts', () => {
   test('keeps read-only compatibility with legacy V1 blocks larger than 1 MiB', async () => {
     const store = memoryArtifactStore();
     const foldedEvents = Array.from({ length: 6_000 }, (_, index) =>
-      textEvent(`legacy-${index}`, `legacy-turn-${Math.floor(index / 4)}`, `legacy fact ${index}`));
+      textEvent(`legacy-${index}`, `legacy-turn-${Math.floor(index / 4)}`, `legacy fact ${index}`),
+    );
     const block = buildHistoryCompactBlockFromSummary({
       sessionId: 'session-1',
       foldedRuntimeEvents: foldedEvents,
@@ -141,7 +148,11 @@ describe('history compact artifacts', () => {
       turnId: 'turn-write',
       name: `history-compact-${block.blockId}.json`,
       kind: 'file',
-      content: JSON.stringify({ ...block, summary: 'oversized '.repeat(4_000), estimatedTokens: 1 }),
+      content: JSON.stringify({
+        ...block,
+        summary: 'oversized '.repeat(4_000),
+        estimatedTokens: 1,
+      }),
       mimeType: 'application/json',
       source: 'history_compact_block',
     });

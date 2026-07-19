@@ -8,7 +8,7 @@ export const CUA_SESSION_STATUSES = [
   'user_stopped',
 ] as const;
 
-export type CuaSessionStatus = typeof CUA_SESSION_STATUSES[number];
+export type CuaSessionStatus = (typeof CUA_SESSION_STATUSES)[number];
 
 export type CuaSessionActionBlockReason =
   | 'no_active_frame'
@@ -123,14 +123,15 @@ export class CuaSessionState {
   }
 
   private sameGeneration(lease: CuaActionLease): boolean {
-    return lease.sessionId === this.sessionId
-      && lease.generation === this.generation;
+    return lease.sessionId === this.sessionId && lease.generation === this.generation;
   }
 
   private canObserve(): boolean {
-    return this.status === 'unobserved'
-      || this.status === 'active'
-      || this.status === 'reobserve_required';
+    return (
+      this.status === 'unobserved' ||
+      this.status === 'active' ||
+      this.status === 'reobserve_required'
+    );
   }
 
   private isTerminal(): boolean {

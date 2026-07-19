@@ -25,7 +25,10 @@ describe('mergeShellRunState', () => {
     });
 
     const ignored = mergeShellRunState(current, older);
-    assert.equal(ignored.result.output?.mode === 'pipes' ? ignored.result.output.stdout : '', 'old');
+    assert.equal(
+      ignored.result.output?.mode === 'pipes' ? ignored.result.output.stdout : '',
+      'old',
+    );
     const merged = mergeShellRunState(current, newer);
     assert.equal(merged.changed, true);
     assert.equal(merged.result.output?.mode === 'pipes' ? merged.result.output.stdout : '', 'new');
@@ -38,7 +41,10 @@ describe('mergeShellRunState', () => {
 
     const enriched = mergeShellRunState(compact, full);
     assert.equal(enriched.changed, true);
-    assert.equal(enriched.result.output?.mode === 'pipes' ? enriched.result.output.stdout : '', 'ready');
+    assert.equal(
+      enriched.result.output?.mode === 'pipes' ? enriched.result.output.stdout : '',
+      'ready',
+    );
     assert.equal(mergeShellRunState(full, compact).changed, false);
   });
 
@@ -47,21 +53,26 @@ describe('mergeShellRunState', () => {
     const conflicting = shellRun({ revision: 2, output: pipeOutput('two') });
     const other = shellRun({ ref: 'maka://runtime/background-tasks/other', revision: 3 });
 
-    assert.equal(mergeShellRunState(current, conflicting).invariantViolation, 'same_revision_conflict');
+    assert.equal(
+      mergeShellRunState(current, conflicting).invariantViolation,
+      'same_revision_conflict',
+    );
     assert.equal(mergeShellRunState(current, other).invariantViolation, 'ref_mismatch');
 
     const diagnostics: ShellRunMergeDiagnostic[] = [];
     mergeShellRunStateWithDiagnostics(current, conflicting, 'test.reconciliation', (diagnostic) => {
       diagnostics.push(diagnostic);
     });
-    assert.deepEqual(diagnostics, [{
-      context: 'test.reconciliation',
-      violation: 'same_revision_conflict',
-      currentRef: current.ref,
-      candidateRef: conflicting.ref,
-      currentRevision: 2,
-      candidateRevision: 2,
-    }]);
+    assert.deepEqual(diagnostics, [
+      {
+        context: 'test.reconciliation',
+        violation: 'same_revision_conflict',
+        currentRef: current.ref,
+        candidateRef: conflicting.ref,
+        currentRevision: 2,
+        candidateRevision: 2,
+      },
+    ]);
   });
 });
 
@@ -147,10 +158,13 @@ describe('ShellRun view updates', () => {
     assert.equal(buffer.size, 2);
     const drained = buffer.drain();
     assert.equal(drained.overflowed, true);
-    assert.deepEqual(drained.updates.map((update) => [update.result.ref, update.result.revision]), [
-      ['maka://runtime/background-tasks/run-1', 2],
-      ['maka://runtime/background-tasks/run-3', 1],
-    ]);
+    assert.deepEqual(
+      drained.updates.map((update) => [update.result.ref, update.result.revision]),
+      [
+        ['maka://runtime/background-tasks/run-1', 2],
+        ['maka://runtime/background-tasks/run-3', 1],
+      ],
+    );
     assert.equal(buffer.size, 0);
     assert.deepEqual(buffer.drain(), { updates: [], overflowed: false });
   });
@@ -158,31 +172,34 @@ describe('ShellRun view updates', () => {
 
 describe('normalizeShellToolResultContent', () => {
   it('normalizes the exact pre-status terminal result and preserves its truncation marker', () => {
-    assert.deepEqual(normalizeShellToolResultContent({
-      kind: 'terminal',
-      cwd: '/repo',
-      cmd: 'printf ok',
-      exitCode: 0,
-      stdout: '...12 bytes truncated. historical recovery guidance\n\nok',
-      stderr: '',
-    }), {
-      state: 'valid',
-      content: {
+    assert.deepEqual(
+      normalizeShellToolResultContent({
         kind: 'terminal',
         cwd: '/repo',
         cmd: 'printf ok',
-        status: 'completed',
         exitCode: 0,
-        output: {
-          mode: 'pipes',
-          stdout: '...12 bytes truncated. historical recovery guidance\n\nok',
-          stderr: '',
-          stdoutTruncated: true,
-          stderrTruncated: false,
-          redacted: false,
+        stdout: '...12 bytes truncated. historical recovery guidance\n\nok',
+        stderr: '',
+      }),
+      {
+        state: 'valid',
+        content: {
+          kind: 'terminal',
+          cwd: '/repo',
+          cmd: 'printf ok',
+          status: 'completed',
+          exitCode: 0,
+          output: {
+            mode: 'pipes',
+            stdout: '...12 bytes truncated. historical recovery guidance\n\nok',
+            stderr: '',
+            stdoutTruncated: true,
+            stderrTruncated: false,
+            redacted: false,
+          },
         },
       },
-    });
+    );
   });
 
   it('rejects incomplete or contradictory pre-status terminal results', () => {
@@ -214,17 +231,20 @@ describe('normalizeShellToolResultContent', () => {
     };
     assert.equal(normalizeShellToolResultContent(current).state, 'valid');
     assert.equal(normalizeShellToolResultContent({ ...current, exitCode: 1 }).state, 'invalid');
-    assert.equal(normalizeShellToolResultContent({
-      kind: 'terminal',
-      cwd: '/repo',
-      cmd: 'printf bad',
-      status: 'completed',
-      exitCode: 1,
-      stdout: 'bad',
-      stderr: '',
-      stdoutTruncated: false,
-      stderrTruncated: false,
-    }).state, 'invalid');
+    assert.equal(
+      normalizeShellToolResultContent({
+        kind: 'terminal',
+        cwd: '/repo',
+        cmd: 'printf bad',
+        status: 'completed',
+        exitCode: 1,
+        stdout: 'bad',
+        stderr: '',
+        stdoutTruncated: false,
+        stderrTruncated: false,
+      }).state,
+      'invalid',
+    );
   });
 
   it('rejects non-canonical nested output and contradictory current state', () => {
@@ -268,22 +288,28 @@ describe('normalizeShellToolResultContent', () => {
         redacted: false,
       },
     } as const;
-    assert.equal(normalizeShellToolResultContent({
-      ...base,
-      operation: {
-        kind: 'pty_control',
-        failed: false,
-        input: { bytes: 1, queued: true },
-      },
-    }).state, 'valid');
-    assert.equal(normalizeShellToolResultContent({
-      ...base,
-      operation: {
-        kind: 'pty_control',
-        failed: false,
-        input: { bytes: 1, applied: true },
-      },
-    }).state, 'invalid');
+    assert.equal(
+      normalizeShellToolResultContent({
+        ...base,
+        operation: {
+          kind: 'pty_control',
+          failed: false,
+          input: { bytes: 1, queued: true },
+        },
+      }).state,
+      'valid',
+    );
+    assert.equal(
+      normalizeShellToolResultContent({
+        ...base,
+        operation: {
+          kind: 'pty_control',
+          failed: false,
+          input: { bytes: 1, applied: true },
+        },
+      }).state,
+      'invalid',
+    );
   });
 });
 

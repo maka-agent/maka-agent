@@ -49,7 +49,14 @@ describe('TurnStatus contract', () => {
   it('derives latest turn state and keeps lineage one-way', () => {
     const turns = deriveTurnRecords([
       { type: 'user', id: 'u1', turnId: 't1', ts: 1, text: 'first' },
-      { type: 'turn_state', id: 's1', turnId: 't1', ts: 2, status: 'running', partialOutputRetained: false },
+      {
+        type: 'turn_state',
+        id: 's1',
+        turnId: 't1',
+        ts: 2,
+        status: 'running',
+        partialOutputRetained: false,
+      },
       { type: 'assistant', id: 'a1', turnId: 't1', ts: 3, text: 'partial', modelId: 'm' },
       {
         type: 'turn_state',

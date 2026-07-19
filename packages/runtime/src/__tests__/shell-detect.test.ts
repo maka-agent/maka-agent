@@ -9,7 +9,10 @@ const winEnv = (over: Record<string, string> = {}) => ({
   ...over,
 });
 
-const existsIn = (...paths: string[]) => (p: string) => paths.includes(p);
+const existsIn =
+  (...paths: string[]) =>
+  (p: string) =>
+    paths.includes(p);
 
 describe('detectShell', () => {
   test('on win32 picks pwsh from PATH ahead of everything else', () => {
@@ -64,8 +67,16 @@ describe('buildShellSpawnPlan', () => {
     );
     assert.equal(spawnPlan.file, 'C:\\Users\\u\\bin\\pwsh.exe');
     assert.equal(spawnPlan.useShellOption, false);
-    assert.deepEqual(spawnPlan.args.slice(0, 4), ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command']);
-    assert.ok(spawnPlan.args[4]!.startsWith('Get-ChildItem -Name\n'), 'command comes first, verbatim');
+    assert.deepEqual(spawnPlan.args.slice(0, 4), [
+      '-NoLogo',
+      '-NoProfile',
+      '-NonInteractive',
+      '-Command',
+    ]);
+    assert.ok(
+      spawnPlan.args[4]!.startsWith('Get-ChildItem -Name\n'),
+      'command comes first, verbatim',
+    );
   });
 
   test('appends an exit-code wrapper so native command exit codes survive -Command', () => {
@@ -79,9 +90,9 @@ describe('buildShellSpawnPlan', () => {
     );
     assert.equal(
       spawnPlan.args[4],
-      'npm test\n'
-      + '$__makaOk = $?\n'
-      + 'if (-not $__makaOk) { if ($LASTEXITCODE -is [int] -and $LASTEXITCODE -ne 0) { exit $LASTEXITCODE } else { exit 1 } }',
+      'npm test\n' +
+        '$__makaOk = $?\n' +
+        'if (-not $__makaOk) { if ($LASTEXITCODE -is [int] -and $LASTEXITCODE -ne 0) { exit $LASTEXITCODE } else { exit 1 } }',
     );
   });
 
@@ -106,11 +117,9 @@ describe('buildPtyShellSpawnPlan', () => {
       { file: '/bin/sh', args: ['-c', 'printf ready'] },
     );
     assert.deepEqual(
-      buildPtyShellSpawnPlan(
-        { kind: 'cmd', displayName: 'cmd.exe' },
-        'echo ready',
-        { ComSpec: 'C:\\Windows\\System32\\cmd.exe' },
-      ),
+      buildPtyShellSpawnPlan({ kind: 'cmd', displayName: 'cmd.exe' }, 'echo ready', {
+        ComSpec: 'C:\\Windows\\System32\\cmd.exe',
+      }),
       {
         file: 'C:\\Windows\\System32\\cmd.exe',
         args: ['/d', '/s', '/c', 'echo ready'],

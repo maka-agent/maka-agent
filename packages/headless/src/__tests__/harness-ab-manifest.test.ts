@@ -31,7 +31,10 @@ describe('harness A/B manifest', () => {
   });
 
   test('freezes one deterministic 30-task prefix inside the full task order', () => {
-    const taskIds = Array.from({ length: 89 }, (_, index) => `task-${String(index + 1).padStart(2, '0')}`);
+    const taskIds = Array.from(
+      { length: 89 },
+      (_, index) => `task-${String(index + 1).padStart(2, '0')}`,
+    );
     const input = manifestInput(taskIds);
 
     const manifest = buildHarnessAbRunManifest(input);
@@ -87,15 +90,18 @@ describe('harness A/B manifest', () => {
 
   test('records advisory Oracle annotations without changing frozen A/B selection', () => {
     const oracleEvidence = {
-      registryUrl: 'https://github.com/maka-agent/maka-agent/releases/download/oracle-evidence/snapshot.json',
+      registryUrl:
+        'https://github.com/maka-agent/maka-agent/releases/download/oracle-evidence/snapshot.json',
       expectedSnapshotFingerprint: `sha256:${'a'.repeat(64)}`,
       resolvedSnapshotFingerprint: `sha256:${'a'.repeat(64)}`,
-      annotations: [{
-        taskId: 'a',
-        state: 'passed' as const,
-        qualificationKey: `sha256:${'b'.repeat(64)}`,
-        evidenceFingerprint: `sha256:${'c'.repeat(64)}`,
-      }],
+      annotations: [
+        {
+          taskId: 'a',
+          state: 'passed' as const,
+          qualificationKey: `sha256:${'b'.repeat(64)}`,
+          evidenceFingerprint: `sha256:${'c'.repeat(64)}`,
+        },
+      ],
       warnings: [] as string[],
     };
     const passed = buildHarnessAbRunManifest({
@@ -114,10 +120,7 @@ describe('harness A/B manifest', () => {
     assert.deepEqual(failed.evaluationTaskIds, passed.evaluationTaskIds);
     assert.deepEqual(passed.metadata.oracleEvidence?.annotations, oracleEvidence.annotations);
     assert.notEqual(failed.fingerprint, passed.fingerprint);
-    assert.equal(
-      buildHarnessAbResumeFingerprint(failed),
-      buildHarnessAbResumeFingerprint(passed),
-    );
+    assert.equal(buildHarnessAbResumeFingerprint(failed), buildHarnessAbResumeFingerprint(passed));
   });
 
   test('rejects duplicate tasks and a pilot longer than the full run', () => {
@@ -132,17 +135,22 @@ describe('harness A/B manifest', () => {
   });
 
   test('rejects an arbitrary 89-task source that is not Terminal-Bench 2.1', () => {
-    assert.doesNotThrow(() => assertTerminalBench21TaskSet([...TERMINAL_BENCH_2_1_TASK_IDS].reverse()));
+    assert.doesNotThrow(() =>
+      assertTerminalBench21TaskSet([...TERMINAL_BENCH_2_1_TASK_IDS].reverse()),
+    );
     assert.throws(
-      () => assertTerminalBench21TaskSet(
-        Array.from({ length: 89 }, (_, index) => `task-${String(index + 1).padStart(2, '0')}`),
-      ),
+      () =>
+        assertTerminalBench21TaskSet(
+          Array.from({ length: 89 }, (_, index) => `task-${String(index + 1).padStart(2, '0')}`),
+        ),
       /Terminal-Bench 2\.1 task set mismatch.*missing: adaptive-rejection-sampler.*unexpected: task-01/,
     );
   });
 
   test('rejects task contents outside the frozen official revision', () => {
-    assert.doesNotThrow(() => assertTerminalBench21TaskTreeFingerprint(TERMINAL_BENCH_2_1_TASK_TREE_FINGERPRINT));
+    assert.doesNotThrow(() =>
+      assertTerminalBench21TaskTreeFingerprint(TERMINAL_BENCH_2_1_TASK_TREE_FINGERPRINT),
+    );
     assert.throws(
       () => assertTerminalBench21TaskTreeFingerprint(`sha256:${'0'.repeat(64)}`),
       /Terminal-Bench 2\.1 task tree fingerprint mismatch/,

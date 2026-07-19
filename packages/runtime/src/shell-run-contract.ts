@@ -104,17 +104,26 @@ export function validateWriteStdinInput(input: ShellRunWriteInput): void {
   }
   if (input.input !== undefined) {
     if (input.input.length === 0) throw new Error('WriteStdin input must not be empty');
-    if (!isWellFormedTerminalInput(input.input)) throw new Error('WriteStdin input must be well-formed Unicode');
+    if (!isWellFormedTerminalInput(input.input))
+      throw new Error('WriteStdin input must be well-formed Unicode');
     const bytes = Buffer.byteLength(input.input, 'utf8');
     if (bytes > MAX_WRITE_STDIN_INPUT_BYTES) {
       throw new Error(`WriteStdin input exceeds the ${MAX_WRITE_STDIN_INPUT_BYTES}-byte limit`);
     }
   }
   if (input.size) {
-    if (!Number.isInteger(input.size.cols) || input.size.cols < MIN_PTY_COLS || input.size.cols > MAX_PTY_COLS) {
+    if (
+      !Number.isInteger(input.size.cols) ||
+      input.size.cols < MIN_PTY_COLS ||
+      input.size.cols > MAX_PTY_COLS
+    ) {
       throw new Error(`WriteStdin cols must be between ${MIN_PTY_COLS} and ${MAX_PTY_COLS}`);
     }
-    if (!Number.isInteger(input.size.rows) || input.size.rows < MIN_PTY_ROWS || input.size.rows > MAX_PTY_ROWS) {
+    if (
+      !Number.isInteger(input.size.rows) ||
+      input.size.rows < MIN_PTY_ROWS ||
+      input.size.rows > MAX_PTY_ROWS
+    ) {
       throw new Error(`WriteStdin rows must be between ${MIN_PTY_ROWS} and ${MAX_PTY_ROWS}`);
     }
   }
@@ -152,24 +161,22 @@ export function parseShellRunResourceRef(ref: string): { shellRunId: string } | 
     return null;
   }
   if (
-    url.protocol !== 'maka:'
-    || url.hostname !== 'runtime'
-    || url.username
-    || url.password
-    || url.port
-    || url.search
-    || url.hash
-  ) return null;
+    url.protocol !== 'maka:' ||
+    url.hostname !== 'runtime' ||
+    url.username ||
+    url.password ||
+    url.port ||
+    url.search ||
+    url.hash
+  )
+    return null;
   const match = SHELL_RUN_RESOURCE_PATH_PATTERN.exec(url.pathname);
   if (!match) return null;
   const encodedId = match[1];
   if (!encodedId) return null;
   try {
     const shellRunId = decodeURIComponent(encodedId);
-    if (
-      !isShellRunId(shellRunId)
-      || ref !== shellRunResourceRef(shellRunId)
-    ) return null;
+    if (!isShellRunId(shellRunId) || ref !== shellRunResourceRef(shellRunId)) return null;
     return { shellRunId };
   } catch {
     return null;

@@ -44,6 +44,7 @@ import {
 } from '@maka/core/runtime-event';
 import { normalizeShellToolResultContent } from '@maka/core';
 import type { AttachmentRef } from '@maka/core/events';
+import type { ModelMessage } from 'ai';
 
 // ============================================================================
 // Output type
@@ -64,6 +65,12 @@ export interface ModelHistoryEntry {
 export interface TextModelMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
+  /**
+   * Structured steering identity (see steeringProviderOptions): a steering
+   * message keeps its ledger event id even in the text-only projection, so
+   * id-based dedupe against the live injection set holds on every base.
+   */
+  providerOptions?: NonNullable<ModelMessage['providerOptions']>;
 }
 
 export type RuntimeEventReplayFallbackGate =
@@ -77,10 +84,12 @@ export type RuntimeEventReplayDiagnosticCode =
   | 'unsupported_content'
   | 'system_runtime_fact_diagnostic_only'
   | 'terminal_fact_diagnostic_only'
+  | 'error_content_diagnostic_only'
   | 'empty_text_skipped'
   | 'unsigned_thinking_skipped'
   | 'signed_thinking_in_tool_turn_skipped'
   | 'unmatched_tool_result'
+  | 'unmatched_tool_call'
   | 'tool_id_mismatch';
 
 export interface RuntimeEventReplayDiagnostic {
@@ -91,11 +100,7 @@ export interface RuntimeEventReplayDiagnostic {
   detail?: Record<string, unknown>;
 }
 
-export type RuntimeEventReplaySemanticKind =
-  | 'text'
-  | 'thinking'
-  | 'tool_call'
-  | 'tool_result';
+export type RuntimeEventReplaySemanticKind = 'text' | 'thinking' | 'tool_call' | 'tool_result';
 
 export type RuntimeEventModelReplayItem =
   | {
@@ -106,6 +111,13 @@ export type RuntimeEventModelReplayItem =
       attachments?: AttachmentRef[];
       /** Assistant step id (model-role text only); groups a step's parts. */
       stepId?: string;
+      /**
+       * Set when this user text replays a steered mid-turn message. `content`
+       * is already envelope-wrapped; materializers MUST carry the structured
+       * steering marker (see steeringModelMessage) onto the ModelMessage so
+       * dedupe works on identity, never on text.
+       */
+      steering?: { eventId: string };
       eventId: string;
       ts: number;
     }
@@ -276,11 +288,14 @@ export function buildRuntimeEventModelReplayPlan(
   const includeSystemEvents = options.includeSystemEvents ?? false;
   const items: RuntimeEventModelReplayItem[] = [];
   const diagnostics: RuntimeEventReplayDiagnostic[] = [];
-  const callsById = new Map<string, {
-    name: string;
-    eventId: string;
-    item: Extract<RuntimeEventModelReplayItem, { kind: 'tool_call' }>;
-  }>();
+  const callsById = new Map<
+    string,
+    {
+      name: string;
+      eventId: string;
+      item: Extract<RuntimeEventModelReplayItem, { kind: 'tool_call' }>;
+    }
+  >();
 
   // Signed thinking in a tool turn is only replayable when the turn's tool calls
   // carry a step id (RuntimeEventRefs.stepId, stamped from tool_start): the
@@ -316,27 +331,33 @@ export function buildRuntimeEventModelReplayPlan(
 
   for (const event of events) {
     if (isPartialRuntimeEvent(event)) {
-      diagnostics.push(diagnostic(event, 'partial_skipped', 'partial RuntimeEvent skipped for model replay'));
+      diagnostics.push(
+        diagnostic(event, 'partial_skipped', 'partial RuntimeEvent skipped for model replay'),
+      );
       continue;
     }
 
     if (isTerminalRuntimeEvent(event)) {
-      diagnostics.push(diagnostic(
-        event,
-        'terminal_fact_diagnostic_only',
-        'terminal RuntimeEvent status is diagnostic-only for model replay',
-        { status: event.status },
-      ));
+      diagnostics.push(
+        diagnostic(
+          event,
+          'terminal_fact_diagnostic_only',
+          'terminal RuntimeEvent status is diagnostic-only for model replay',
+          { status: event.status },
+        ),
+      );
     }
 
     if (!event.content) {
       if (event.actions && !isTerminalRuntimeEvent(event)) {
-        diagnostics.push(diagnostic(
-          event,
-          'system_runtime_fact_diagnostic_only',
-          'RuntimeEvent actions are diagnostic-only for model replay',
-          { actionKeys: Object.keys(event.actions) },
-        ));
+        diagnostics.push(
+          diagnostic(
+            event,
+            'system_runtime_fact_diagnostic_only',
+            'RuntimeEvent actions are diagnostic-only for model replay',
+            { actionKeys: Object.keys(event.actions) },
+          ),
+        );
       }
       continue;
     }
@@ -351,28 +372,50 @@ export function buildRuntimeEventModelReplayPlan(
       // materializer pairs the step's parked reasoning with its tool calls by
       // stepId at flush time, so no text closer is needed.
       if (event.content.kind === 'text' && event.role === 'model') {
-        diagnostics.push(diagnostic(
-          event,
-          'empty_text_skipped',
-          'empty model text RuntimeEvent (thinking/tool-only step closer) skipped for model replay',
-        ));
+        diagnostics.push(
+          diagnostic(
+            event,
+            'empty_text_skipped',
+            'empty model text RuntimeEvent (thinking/tool-only step closer) skipped for model replay',
+          ),
+        );
         continue;
       }
-      diagnostics.push(diagnostic(
-        event,
-        'unsupported_content',
-        'RuntimeEvent content kind is not model-replayable',
-        { kind: event.content.kind },
-      ));
+      // Error content is a run/turn failure fact (a flow error event or a
+      // terminal recovery commit), not model conversation. It must stay
+      // diagnostic-only: `unsupported_content` is a BLOCKING diagnostic (see
+      // hasBlockingReplayDiagnostics), and one persisted failure would
+      // otherwise degrade every later turn of the session to the
+      // stored-message projection.
+      if (event.content.kind === 'error') {
+        diagnostics.push(
+          diagnostic(
+            event,
+            'error_content_diagnostic_only',
+            'error RuntimeEvent content is diagnostic-only for model replay',
+          ),
+        );
+        continue;
+      }
+      diagnostics.push(
+        diagnostic(
+          event,
+          'unsupported_content',
+          'RuntimeEvent content kind is not model-replayable',
+          { kind: event.content.kind },
+        ),
+      );
       continue;
     }
 
     if (event.role === 'system' && !includeSystemEvents) {
-      diagnostics.push(diagnostic(
-        event,
-        'system_runtime_fact_diagnostic_only',
-        'system RuntimeEvent content is diagnostic-only unless system replay is enabled',
-      ));
+      diagnostics.push(
+        diagnostic(
+          event,
+          'system_runtime_fact_diagnostic_only',
+          'system RuntimeEvent content is diagnostic-only unless system replay is enabled',
+        ),
+      );
       continue;
     }
 
@@ -380,15 +423,28 @@ export function buildRuntimeEventModelReplayPlan(
       case 'text': {
         const role = modelTextRole(event.role);
         if (!role) {
-          diagnostics.push(diagnostic(event, 'unsupported_role', 'text RuntimeEvent role is not model-replayable', {
-            role: event.role,
-          }));
+          diagnostics.push(
+            diagnostic(
+              event,
+              'unsupported_role',
+              'text RuntimeEvent role is not model-replayable',
+              {
+                role: event.role,
+              },
+            ),
+          );
           continue;
         }
+        const steeringReplay = event.content.steering === true && role === 'user';
         items.push({
           kind: 'text',
           role,
-          content: formatTextWithAttachmentRefs(event.content),
+          // A steered user event replays in its canonical provider form (the
+          // envelope); the raw text is a UI/transcript projection only.
+          content: steeringReplay
+            ? buildSteeringEnvelope(formatTextWithAttachmentRefs(event.content))
+            : formatTextWithAttachmentRefs(event.content),
+          ...(steeringReplay ? { steering: { eventId: event.id } } : {}),
           ...(event.content.attachments ? { attachments: event.content.attachments } : {}),
           // Model text carries its step id (the message id) so the materializer
           // can close a step and group its reasoning + tool calls.
@@ -402,9 +458,11 @@ export function buildRuntimeEventModelReplayPlan(
       }
       case 'thinking': {
         if (event.role !== 'model') {
-          diagnostics.push(diagnostic(event, 'unsupported_role', 'thinking RuntimeEvent must use model role', {
-            role: event.role,
-          }));
+          diagnostics.push(
+            diagnostic(event, 'unsupported_role', 'thinking RuntimeEvent must use model role', {
+              role: event.role,
+            }),
+          );
           continue;
         }
         if (!event.content.signature) {
@@ -415,11 +473,13 @@ export function buildRuntimeEventModelReplayPlan(
           // persists thinking for the UI, but must not drag the whole history
           // down to stored-message projection. The thinking stays in the
           // read-model; it just never re-enters the model request.
-          diagnostics.push(diagnostic(
-            event,
-            'unsigned_thinking_skipped',
-            'unsigned thinking RuntimeEvent skipped for model replay',
-          ));
+          diagnostics.push(
+            diagnostic(
+              event,
+              'unsigned_thinking_skipped',
+              'unsigned thinking RuntimeEvent skipped for model replay',
+            ),
+          );
           continue;
         }
         if (event.turnId && unpairedToolTurnIds.has(event.turnId)) {
@@ -429,11 +489,13 @@ export function buildRuntimeEventModelReplayPlan(
           // read-model for the UI; skip it from replay without downgrading the
           // whole history. Per-step history (paired tool calls) is not skipped:
           // the materializer merges each step's reasoning with its tool calls.
-          diagnostics.push(diagnostic(
-            event,
-            'signed_thinking_in_tool_turn_skipped',
-            'signed thinking RuntimeEvent skipped for model replay: its turn calls tools with no step id to pair the reasoning to a tool-use assistant message',
-          ));
+          diagnostics.push(
+            diagnostic(
+              event,
+              'signed_thinking_in_tool_turn_skipped',
+              'signed thinking RuntimeEvent skipped for model replay: its turn calls tools with no step id to pair the reasoning to a tool-use assistant message',
+            ),
+          );
           continue;
         }
         items.push({
@@ -448,9 +510,16 @@ export function buildRuntimeEventModelReplayPlan(
       }
       case 'function_call': {
         if (event.role !== 'model') {
-          diagnostics.push(diagnostic(event, 'unsupported_role', 'function_call RuntimeEvent must use model role', {
-            role: event.role,
-          }));
+          diagnostics.push(
+            diagnostic(
+              event,
+              'unsupported_role',
+              'function_call RuntimeEvent must use model role',
+              {
+                role: event.role,
+              },
+            ),
+          );
           continue;
         }
         const item: Extract<RuntimeEventModelReplayItem, { kind: 'tool_call' }> = {
@@ -468,9 +537,16 @@ export function buildRuntimeEventModelReplayPlan(
       }
       case 'function_response': {
         if (event.role !== 'tool') {
-          diagnostics.push(diagnostic(event, 'unsupported_role', 'function_response RuntimeEvent must use tool role', {
-            role: event.role,
-          }));
+          diagnostics.push(
+            diagnostic(
+              event,
+              'unsupported_role',
+              'function_response RuntimeEvent must use tool role',
+              {
+                role: event.role,
+              },
+            ),
+          );
           continue;
         }
         const normalizedShellResult = normalizeShellToolResultContent(event.content.result);
@@ -481,33 +557,50 @@ export function buildRuntimeEventModelReplayPlan(
             if (callIndex >= 0) items.splice(callIndex, 1);
             callsById.delete(event.content.id);
           }
-          diagnostics.push(diagnostic(
-            event,
-            'unsupported_content',
-            'function_response contains an invalid shell tool result',
-          ));
+          diagnostics.push(
+            diagnostic(
+              event,
+              'unsupported_content',
+              'function_response contains an invalid shell tool result',
+            ),
+          );
           continue;
         }
         const call = callsById.get(event.content.id);
         if (!call) {
-          diagnostics.push(diagnostic(event, 'unmatched_tool_result', 'function_response has no prior matching function_call', {
-            toolCallId: event.content.id,
-          }));
+          diagnostics.push(
+            diagnostic(
+              event,
+              'unmatched_tool_result',
+              'function_response has no prior matching function_call',
+              {
+                toolCallId: event.content.id,
+              },
+            ),
+          );
         } else if (call.name !== event.content.name) {
-          diagnostics.push(diagnostic(event, 'tool_id_mismatch', 'function_response name differs from matching function_call', {
-            toolCallId: event.content.id,
-            callName: call.name,
-            resultName: event.content.name,
-            callEventId: call.eventId,
-          }));
+          diagnostics.push(
+            diagnostic(
+              event,
+              'tool_id_mismatch',
+              'function_response name differs from matching function_call',
+              {
+                toolCallId: event.content.id,
+                callName: call.name,
+                resultName: event.content.name,
+                callEventId: call.eventId,
+              },
+            ),
+          );
         }
         items.push({
           kind: 'tool_result',
           toolCallId: event.content.id,
           toolName: event.content.name,
-          output: normalizedShellResult.state === 'valid'
-            ? normalizedShellResult.content
-            : event.content.result,
+          output:
+            normalizedShellResult.state === 'valid'
+              ? normalizedShellResult.content
+              : event.content.result,
           isError: event.content.isError === true,
           eventId: event.id,
           ts: event.ts,
@@ -516,28 +609,58 @@ export function buildRuntimeEventModelReplayPlan(
         break;
       }
       default:
-        diagnostics.push(diagnostic(
-          event,
-          'unsupported_content',
-          'RuntimeEvent content kind is not model-replayable',
-          { kind: (event.content as RuntimeEventContent).kind },
-        ));
+        diagnostics.push(
+          diagnostic(
+            event,
+            'unsupported_content',
+            'RuntimeEvent content kind is not model-replayable',
+            { kind: (event.content as RuntimeEventContent).kind },
+          ),
+        );
         break;
     }
   }
 
+  // A call whose result never landed (the app died during tool execution;
+  // recovery appends the terminal error but cannot invent the result) must not
+  // replay: a tool_use with no tool_result is a provider 400. Drop it — the
+  // deliberately non-blocking mirror of unmatched_tool_result — so consumers
+  // that read `items` directly (materializer, compact summarizer) stay valid.
+  for (const [toolCallId, call] of callsById) {
+    const index = items.indexOf(call.item);
+    if (index >= 0) items.splice(index, 1);
+    diagnostics.push({
+      code: 'unmatched_tool_call',
+      message: 'function_call has no matching function_response; dropped from model replay',
+      eventId: call.eventId,
+      detail: { toolCallId },
+    });
+  }
+
   const textMessages = items
-    .filter((item): item is Extract<RuntimeEventModelReplayItem, { kind: 'text' }> => item.kind === 'text')
-    .map((item) => ({ role: item.role, content: item.content }));
+    .filter(
+      (item): item is Extract<RuntimeEventModelReplayItem, { kind: 'text' }> =>
+        item.kind === 'text',
+    )
+    .map((item) =>
+      item.steering
+        ? {
+            role: item.role,
+            content: item.content,
+            providerOptions: steeringProviderOptions(item.steering.eventId),
+          }
+        : { role: item.role, content: item.content },
+    );
   const semanticKinds = [...new Set(items.map((item) => item.kind))];
   return {
     items,
     textMessages,
     semanticKinds,
     diagnostics,
-    hasProviderNativeSemantics: semanticKinds.includes('thinking')
-      || semanticKinds.includes('tool_call')
-      || semanticKinds.includes('tool_result'),
+    hasProviderNativeSemantics:
+      semanticKinds.includes('thinking') ||
+      semanticKinds.includes('tool_call') ||
+      semanticKinds.includes('tool_result'),
   };
 }
 
@@ -559,17 +682,24 @@ export function buildTextModelMessagesFromRuntimeEvents(
     if (entry.content.kind !== 'text') continue;
     if (entry.role === 'tool') continue;
     if (entry.role === 'system' && !options.includeSystemEvents) continue;
-    const role = entry.role === 'model'
-      ? 'assistant'
-      : entry.role === 'user'
-        ? 'user'
-        : entry.role === 'system'
-          ? 'system'
-          : undefined;
+    const role =
+      entry.role === 'model'
+        ? 'assistant'
+        : entry.role === 'user'
+          ? 'user'
+          : entry.role === 'system'
+            ? 'system'
+            : undefined;
     if (!role) continue;
+    const steering = entry.content.steering === true && role === 'user';
     out.push({
       role,
-      content: formatTextWithAttachmentRefs(entry.content),
+      content: steering
+        ? buildSteeringEnvelope(formatTextWithAttachmentRefs(entry.content))
+        : formatTextWithAttachmentRefs(entry.content),
+      // Keep the structured identity even in the text-only shape: dedupe
+      // against the live injection set works by ledger event id.
+      ...(steering ? { providerOptions: steeringProviderOptions(entry.eventId) } : {}),
     });
   }
   return out;
@@ -601,6 +731,101 @@ function diagnostic(
     turnId: event.turnId,
     ...(detail ? { detail } : {}),
   };
+}
+
+/**
+ * Wrap a steered user message so the model does not confuse a mid-turn
+ * interjection with a tool result (mirrors the grok-build steering envelope).
+ * This is THE canonical provider projection of a steering event: replay
+ * plans and the live injection both emit this exact form, so a steering
+ * message has one identity in every provider request — the envelope text —
+ * and dedupe never has to guess against bare user text.
+ */
+export function buildSteeringEnvelope(text: string): string {
+  return `The user sent a message while you were working:\n<user_query>\n${text}\n</user_query>`;
+}
+
+/**
+ * Structured steering identity on a provider message. Carried in a
+ * Maka-namespaced providerOptions entry — provider adapters only read their
+ * own namespace, so it never reaches a provider request body — keyed by the
+ * ledger event id. Identity, not text: user text can equal the envelope
+ * verbatim and must never be mistaken for (or cancel) a real steering
+ * message.
+ */
+const STEERING_PROVIDER_OPTIONS_NAMESPACE = 'maka';
+
+/** The structured steering marker for a provider message. */
+export function steeringProviderOptions(
+  eventId: string,
+): NonNullable<ModelMessage['providerOptions']> {
+  return { [STEERING_PROVIDER_OPTIONS_NAMESPACE]: { steeringEventId: eventId } };
+}
+
+/** The canonical injected/replayed form of one steered user message. */
+export function steeringModelMessage(eventId: string, text: string): ModelMessage {
+  return {
+    role: 'user',
+    content: buildSteeringEnvelope(text),
+    providerOptions: steeringProviderOptions(eventId),
+  };
+}
+
+/** The ledger event id of a steering-marked message, else undefined. */
+export function steeringEventIdOf(message: ModelMessage): string | undefined {
+  if (message.role !== 'user') return undefined;
+  const namespace = (message.providerOptions as Record<string, unknown> | undefined)?.[
+    STEERING_PROVIDER_OPTIONS_NAMESPACE
+  ];
+  if (!namespace || typeof namespace !== 'object') return undefined;
+  const eventId = (namespace as Record<string, unknown>).steeringEventId;
+  return typeof eventId === 'string' ? eventId : undefined;
+}
+
+/**
+ * The injected steering messages whose ledger event id is not already present
+ * in the request base. Ledger-derived bases (mid-turn capacity replacement,
+ * overflow rebuild, degraded-projection fallbacks) carry the same structured
+ * marker, so membership is exact — by id, never by text.
+ */
+export function steeringMessagesMissingFromBase(
+  injected: readonly ModelMessage[],
+  baseMessages: readonly ModelMessage[],
+): ModelMessage[] {
+  if (injected.length === 0) return [];
+  const present = new Set<string>();
+  for (const message of baseMessages) {
+    const eventId = steeringEventIdOf(message);
+    if (eventId !== undefined) present.add(eventId);
+  }
+  return injected.filter((message) => {
+    const eventId = steeringEventIdOf(message);
+    return eventId === undefined || !present.has(eventId);
+  });
+}
+
+/**
+ * The messages with THIS TURN'S injected steering removed (transport-retry
+ * base). Only the injected set may be stripped: the retry attempt's own
+ * prepareStep re-appends exactly that accumulator, while a historical,
+ * ledger-replayed steering message (same marker, different event id) is part
+ * of the base that nothing re-appends — stripping it would erase it from
+ * every post-retry request.
+ */
+export function stripSteeringMessages(
+  messages: readonly ModelMessage[],
+  injected: readonly ModelMessage[],
+): ModelMessage[] {
+  const ids = new Set<string>();
+  for (const message of injected) {
+    const eventId = steeringEventIdOf(message);
+    if (eventId !== undefined) ids.add(eventId);
+  }
+  if (ids.size === 0) return [...messages];
+  return messages.filter((message) => {
+    const eventId = steeringEventIdOf(message);
+    return eventId === undefined || !ids.has(eventId);
+  });
 }
 
 export function formatTextWithAttachmentRefs(

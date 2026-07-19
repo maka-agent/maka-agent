@@ -47,7 +47,11 @@ describe('AdditionalPermissionProfile validation', () => {
       { fileSystem: { entries: [{ path: '../outside', access: 'read', scope: 'exact' }] } },
       { fileSystem: { entries: [{ path: '/outside', access: 'deny', scope: 'exact' }] } },
       { fileSystem: { entries: [{ path: '/outside', access: 'read', scope: 'special' }] } },
-      { fileSystem: { entries: [{ path: '/outside', access: 'read', scope: 'exact', kind: 'path' }] } },
+      {
+        fileSystem: {
+          entries: [{ path: '/outside', access: 'read', scope: 'exact', kind: 'path' }],
+        },
+      },
       { network: { enabled: false } },
       { type: 'managed', network: { enabled: true } },
     ]) {
@@ -56,13 +60,15 @@ describe('AdditionalPermissionProfile validation', () => {
   });
 
   test('compacts covered and duplicate entries deterministically', () => {
-    expect(compactAdditionalFileSystemPermissions([
-      { path: '/outside/tree/file.txt', access: 'read', scope: 'exact' },
-      { path: '/outside/tree', access: 'read', scope: 'subtree' },
-      { path: '/outside/tree', access: 'read', scope: 'subtree' },
-      { path: '/outside/write.txt', access: 'read', scope: 'exact' },
-      { path: '/outside/write.txt', access: 'write', scope: 'exact' },
-    ])).toEqual([
+    expect(
+      compactAdditionalFileSystemPermissions([
+        { path: '/outside/tree/file.txt', access: 'read', scope: 'exact' },
+        { path: '/outside/tree', access: 'read', scope: 'subtree' },
+        { path: '/outside/tree', access: 'read', scope: 'subtree' },
+        { path: '/outside/write.txt', access: 'read', scope: 'exact' },
+        { path: '/outside/write.txt', access: 'write', scope: 'exact' },
+      ]),
+    ).toEqual([
       { path: '/outside/tree', access: 'read', scope: 'subtree' },
       { path: '/outside/write.txt', access: 'write', scope: 'exact' },
     ]);
@@ -70,32 +76,42 @@ describe('AdditionalPermissionProfile validation', () => {
 
   test('canonical serialization is stable across input order', () => {
     const first: AdditionalPermissionProfile = {
-      fileSystem: { entries: [
-        { path: '/b', access: 'read', scope: 'exact' },
-        { path: '/a', access: 'write', scope: 'subtree' },
-      ] },
+      fileSystem: {
+        entries: [
+          { path: '/b', access: 'read', scope: 'exact' },
+          { path: '/a', access: 'write', scope: 'subtree' },
+        ],
+      },
       network: { enabled: true },
     };
     const second: AdditionalPermissionProfile = {
       network: { enabled: true },
       fileSystem: { entries: [...first.fileSystem!.entries].reverse() },
     };
-    expect(serializeAdditionalPermissionProfile(first)).toBe(serializeAdditionalPermissionProfile(second));
+    expect(serializeAdditionalPermissionProfile(first)).toBe(
+      serializeAdditionalPermissionProfile(second),
+    );
   });
 });
 
 describe('Additional permission matching and effective profiles', () => {
   test('exact matches only one path while subtree includes descendants', () => {
     const profile: AdditionalPermissionProfile = {
-      fileSystem: { entries: [
-        { path: '/outside/exact.txt', access: 'read', scope: 'exact' },
-        { path: '/outside/tree', access: 'write', scope: 'subtree' },
-      ] },
+      fileSystem: {
+        entries: [
+          { path: '/outside/exact.txt', access: 'read', scope: 'exact' },
+          { path: '/outside/tree', access: 'write', scope: 'subtree' },
+        ],
+      },
     };
     expect(additionalPermissionAllowsPath(profile, '/outside/exact.txt', 'read')).toBe(true);
-    expect(additionalPermissionAllowsPath(profile, '/outside/exact.txt/sibling', 'read')).toBe(false);
+    expect(additionalPermissionAllowsPath(profile, '/outside/exact.txt/sibling', 'read')).toBe(
+      false,
+    );
     expect(additionalPermissionAllowsPath(profile, '/outside/tree/child.txt', 'write')).toBe(true);
-    expect(additionalPermissionAllowsPath(profile, '/outside/tree2/child.txt', 'write')).toBe(false);
+    expect(additionalPermissionAllowsPath(profile, '/outside/tree2/child.txt', 'write')).toBe(
+      false,
+    );
   });
 
   test('write permission implies read permission', () => {
@@ -118,7 +134,9 @@ describe('Additional permission matching and effective profiles', () => {
 
   test('explicit path grant overrides protected metadata default for its exact target', () => {
     const effective = applyAdditionalPermissionProfile(createWorkspaceWritePermissionProfile(), {
-      fileSystem: { entries: [{ path: '/workspace/project/.git/config', access: 'write', scope: 'exact' }] },
+      fileSystem: {
+        entries: [{ path: '/workspace/project/.git/config', access: 'write', scope: 'exact' }],
+      },
     });
     expect(canWritePath(effective, '/workspace/project/.git/config', CONTEXT)).toBe(true);
     expect(canReadPath(effective, '/workspace/project/.git/config', CONTEXT)).toBe(true);
@@ -136,7 +154,9 @@ describe('Additional permission matching and effective profiles', () => {
       network: { kind: 'restricted' },
     };
     const effective = applyAdditionalPermissionProfile(base, {
-      fileSystem: { entries: [{ path: '/outside/locked/file.txt', access: 'write', scope: 'exact' }] },
+      fileSystem: {
+        entries: [{ path: '/outside/locked/file.txt', access: 'write', scope: 'exact' }],
+      },
     });
     expect(canReadPath(effective, '/outside/locked/file.txt')).toBe(false);
     expect(canWritePath(effective, '/outside/locked/file.txt')).toBe(false);

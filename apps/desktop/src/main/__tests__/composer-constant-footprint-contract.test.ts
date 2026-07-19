@@ -143,7 +143,7 @@ describe('PR-COMPOSER-CONSTANT-FOOTPRINT-0 contract (issue #740)', () => {
     const stopBlock = source.match(/props\.streaming\s*\?\s*\(\s*<UiButton[\s\S]*?<\/UiButton>/);
     assert.ok(stopBlock, 'stop button block (streaming branch) not found');
     assert.match(stopBlock[0], /size="md"/);
-    assert.match(source, /variant="default"\s+size="icon"[\s\S]*aria-label=\{buttonCopy\.sendLabel\}/);
+    assert.match(source, /variant="default"\s+size="icon"[\s\S]*aria-label=\{copy\.sendLabel\}/);
   });
 
   it('negative cases: same-block duplicate, selector-list companion, compound .maka-composer.composer padding return, .maka-composer padding return, textarea min-h-* return, stop md return', () => {

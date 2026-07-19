@@ -19,6 +19,7 @@
 @import "./styles/module-pages.css";
 @import "./styles/field-focus.css";
 @import "./styles/settings/select.css";
+@import "./styles/segmented.css";
 @import "./styles/model-switcher.css";
 @import "./styles/chat-header.css";
 @import "./styles/task-ledger.css";

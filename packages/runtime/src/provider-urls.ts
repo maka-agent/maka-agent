@@ -29,7 +29,7 @@ export function googleV1BetaBaseUrl(baseUrl: string): string {
 
 /**
  * The model-list fetcher and the connection probe route through here; the chat
- * path uses `googleV1BetaBaseUrl` directly via `createGoogleGenerativeAI`.
+ * path uses `googleV1BetaBaseUrl` directly via `createGoogle`.
  */
 export function googleApiUrl(baseUrl: string, path: string, apiKey: string): string {
   const cleanPath = path.startsWith('/') ? path : `/${path}`;

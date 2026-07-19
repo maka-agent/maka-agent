@@ -1,5 +1,11 @@
 import { describe, test } from 'node:test';
-import type { AgentRunEvent, AgentRunHeader, AgentRunStore, RuntimeEvent, RuntimeEventStore } from '@maka/core';
+import type {
+  AgentRunEvent,
+  AgentRunHeader,
+  AgentRunStore,
+  RuntimeEvent,
+  RuntimeEventStore,
+} from '@maka/core';
 import { expect } from '../test-helpers.js';
 import { inspectAgentRunReadModel } from '../agent-run-inspect.js';
 
@@ -11,31 +17,49 @@ const ts = 1_800_000_000_000;
 describe('inspectAgentRunReadModel', () => {
   test('returns consistent diagnostics for a complete run', async () => {
     const runStore = new MemoryAgentRunStore();
-    await runStore.createRun(makeHeader({ status: 'completed', completedAt: ts + 10, updatedAt: ts + 10 }));
+    await runStore.createRun(
+      makeHeader({ status: 'completed', completedAt: ts + 10, updatedAt: ts + 10 }),
+    );
     await runStore.appendEvent(sessionId, runId, makeRunEvent({ type: 'run_started', ts: ts + 1 }));
-    await runStore.appendEvent(sessionId, runId, makeRunEvent({ type: 'run_completed', ts: ts + 10 }));
-    await runStore.appendRuntimeEvent(sessionId, runId, makeRuntimeEvent({
-      id: 'rt-user',
-      role: 'user',
-      author: 'user',
-      content: { kind: 'text', text: 'hello' },
-      ts: ts + 2,
-    }));
-    await runStore.appendRuntimeEvent(sessionId, runId, makeRuntimeEvent({
-      id: 'rt-assistant',
-      role: 'model',
-      author: 'agent',
-      content: { kind: 'text', text: 'hi' },
-      ts: ts + 3,
-    }));
-    await runStore.appendRuntimeEvent(sessionId, runId, makeRuntimeEvent({
-      id: 'rt-complete',
-      role: 'system',
-      author: 'system',
-      status: 'completed',
-      actions: { endInvocation: true },
-      ts: ts + 10,
-    }));
+    await runStore.appendEvent(
+      sessionId,
+      runId,
+      makeRunEvent({ type: 'run_completed', ts: ts + 10 }),
+    );
+    await runStore.appendRuntimeEvent(
+      sessionId,
+      runId,
+      makeRuntimeEvent({
+        id: 'rt-user',
+        role: 'user',
+        author: 'user',
+        content: { kind: 'text', text: 'hello' },
+        ts: ts + 2,
+      }),
+    );
+    await runStore.appendRuntimeEvent(
+      sessionId,
+      runId,
+      makeRuntimeEvent({
+        id: 'rt-assistant',
+        role: 'model',
+        author: 'agent',
+        content: { kind: 'text', text: 'hi' },
+        ts: ts + 3,
+      }),
+    );
+    await runStore.appendRuntimeEvent(
+      sessionId,
+      runId,
+      makeRuntimeEvent({
+        id: 'rt-complete',
+        role: 'system',
+        author: 'system',
+        status: 'completed',
+        actions: { endInvocation: true },
+        ts: ts + 10,
+      }),
+    );
 
     const inspected = await inspectAgentRunReadModel(runStore, runStore, { sessionId, runId });
 
@@ -47,53 +71,87 @@ describe('inspectAgentRunReadModel', () => {
     });
     expect(inspected.terminalRuntimeFact?.runStatus).toBe('completed');
     expect(inspected.operationalTerminalEvent?.type).toBe('run_completed');
-    expect(inspected.runtimeEvents.map((event) => event.id)).toEqual(['rt-user', 'rt-assistant', 'rt-complete']);
-    expect(inspected.projection?.messages.map((message) => message.type)).toEqual(['user', 'assistant', 'turn_state']);
-    expect(inspected.diagnostics.some((diagnostic) => diagnostic.code === 'status_consistency_mismatch')).toBe(false);
+    expect(inspected.runtimeEvents.map((event) => event.id)).toEqual([
+      'rt-user',
+      'rt-assistant',
+      'rt-complete',
+    ]);
+    expect(inspected.projection?.messages.map((message) => message.type)).toEqual([
+      'user',
+      'assistant',
+      'turn_state',
+    ]);
+    expect(
+      inspected.diagnostics.some((diagnostic) => diagnostic.code === 'status_consistency_mismatch'),
+    ).toBe(false);
   });
 
   test('reports missing and corrupt runtime-events without discarding operational facts', async () => {
     const missingRuntimeStore = new MemoryAgentRunStore();
     await missingRuntimeStore.createRun(makeHeader({ status: 'completed' }));
-    await missingRuntimeStore.appendEvent(sessionId, runId, makeRunEvent({ type: 'run_completed' }));
+    await missingRuntimeStore.appendEvent(
+      sessionId,
+      runId,
+      makeRunEvent({ type: 'run_completed' }),
+    );
 
-    const missing = await inspectAgentRunReadModel(missingRuntimeStore, missingRuntimeStore, { sessionId, runId });
+    const missing = await inspectAgentRunReadModel(missingRuntimeStore, missingRuntimeStore, {
+      sessionId,
+      runId,
+    });
 
     expect(missing.events.map((event) => event.type)).toEqual(['run_completed']);
     expect(missing.sourceHealth.runtimeLedger).toBe('missing');
     expect(missing.sourceHealth.operationalTerminalPresent).toBe(true);
     expect(missing.sourceHealth.runtimeTerminalPresent).toBe(false);
-    expect(missing.diagnostics.some((diagnostic) => diagnostic.code === 'missing_runtime_ledger')).toBe(true);
+    expect(
+      missing.diagnostics.some((diagnostic) => diagnostic.code === 'missing_runtime_ledger'),
+    ).toBe(true);
 
     const corruptRuntimeStore = new MemoryAgentRunStore({ failRuntimeEventReads: true });
     await corruptRuntimeStore.createRun(makeHeader({ status: 'completed' }));
-    await corruptRuntimeStore.appendEvent(sessionId, runId, makeRunEvent({ type: 'run_completed' }));
+    await corruptRuntimeStore.appendEvent(
+      sessionId,
+      runId,
+      makeRunEvent({ type: 'run_completed' }),
+    );
 
-    const corrupt = await inspectAgentRunReadModel(corruptRuntimeStore, corruptRuntimeStore, { sessionId, runId });
+    const corrupt = await inspectAgentRunReadModel(corruptRuntimeStore, corruptRuntimeStore, {
+      sessionId,
+      runId,
+    });
 
     expect(corrupt.events.map((event) => event.type)).toEqual(['run_completed']);
     expect(corrupt.sourceHealth.runtimeLedger).toBe('read_failed');
     expect(corrupt.sourceHealth.operationalTerminalPresent).toBe(true);
-    expect(corrupt.diagnostics.some((diagnostic) => diagnostic.code === 'runtime_ledger_read_failed')).toBe(true);
+    expect(
+      corrupt.diagnostics.some((diagnostic) => diagnostic.code === 'runtime_ledger_read_failed'),
+    ).toBe(true);
   });
 
   test('diagnoses status disagreement between header operational and RuntimeEvent facts', async () => {
     const runStore = new MemoryAgentRunStore();
     await runStore.createRun(makeHeader({ status: 'failed', failureClass: 'tool_failed' }));
     await runStore.appendEvent(sessionId, runId, makeRunEvent({ type: 'run_failed' }));
-    await runStore.appendRuntimeEvent(sessionId, runId, makeRuntimeEvent({
-      id: 'rt-complete',
-      role: 'system',
-      author: 'system',
-      status: 'completed',
-      actions: { endInvocation: true },
-    }));
+    await runStore.appendRuntimeEvent(
+      sessionId,
+      runId,
+      makeRuntimeEvent({
+        id: 'rt-complete',
+        role: 'system',
+        author: 'system',
+        status: 'completed',
+        actions: { endInvocation: true },
+      }),
+    );
 
     const inspected = await inspectAgentRunReadModel(runStore, runStore, { sessionId, runId });
 
     expect(inspected.sourceHealth.statusConsistency).toBe('inconsistent');
     expect(inspected.terminalRuntimeFact?.runStatus).toBe('completed');
-    expect(inspected.diagnostics.some((diagnostic) => diagnostic.code === 'status_consistency_mismatch')).toBe(true);
+    expect(
+      inspected.diagnostics.some((diagnostic) => diagnostic.code === 'status_consistency_mismatch'),
+    ).toBe(true);
   });
 });
 
@@ -109,7 +167,11 @@ class MemoryAgentRunStore implements AgentRunStore, RuntimeEventStore {
     return { ...header };
   }
 
-  async updateRun(sessionId: string, runId: string, patch: Partial<AgentRunHeader>): Promise<AgentRunHeader> {
+  async updateRun(
+    sessionId: string,
+    runId: string,
+    patch: Partial<AgentRunHeader>,
+  ): Promise<AgentRunHeader> {
     const current = await this.readRun(sessionId, runId);
     const next = { ...current, ...patch, sessionId, runId };
     this.headers.set(key(sessionId, runId), next);
@@ -140,7 +202,27 @@ class MemoryAgentRunStore implements AgentRunStore, RuntimeEventStore {
 
   async appendRuntimeEvent(sessionId: string, runId: string, event: RuntimeEvent): Promise<void> {
     const eventKey = key(sessionId, runId);
-    this.runtimeEvents.set(eventKey, [...(this.runtimeEvents.get(eventKey) ?? []), copyRuntimeEvent(event)]);
+    this.runtimeEvents.set(eventKey, [
+      ...(this.runtimeEvents.get(eventKey) ?? []),
+      copyRuntimeEvent(event),
+    ]);
+  }
+
+  async ensureTerminalRuntimeEventDurable(
+    sessionId: string,
+    runId: string,
+    event: RuntimeEvent,
+  ): Promise<void> {
+    const existing = (this.runtimeEvents.get(key(sessionId, runId)) ?? []).find(
+      (candidate) => candidate.id === event.id,
+    );
+    if (!existing) {
+      await this.appendRuntimeEvent(sessionId, runId, event);
+      return;
+    }
+    if (JSON.stringify(existing) !== JSON.stringify(event)) {
+      throw new Error(`RuntimeEvent ${event.id} does not match the durable ledger record`);
+    }
   }
 
   async readRuntimeEvents(sessionId: string, runId: string): Promise<RuntimeEvent[]> {
@@ -153,13 +235,16 @@ class MemoryAgentRunStore implements AgentRunStore, RuntimeEventStore {
     for (const [eventKey, events] of this.runtimeEvents.entries()) {
       const [eventSessionId, runId] = eventKey.split(':');
       if (eventSessionId !== sessionId || !runId) continue;
-      events.forEach((event, eventIndex) => ordered.push({ event: copyRuntimeEvent(event), runId, eventIndex }));
+      events.forEach((event, eventIndex) =>
+        ordered.push({ event: copyRuntimeEvent(event), runId, eventIndex }),
+      );
     }
-    ordered.sort((a, b) =>
-      a.event.ts - b.event.ts ||
-      a.runId.localeCompare(b.runId) ||
-      a.eventIndex - b.eventIndex ||
-      a.event.id.localeCompare(b.event.id)
+    ordered.sort(
+      (a, b) =>
+        a.event.ts - b.event.ts ||
+        a.runId.localeCompare(b.runId) ||
+        a.eventIndex - b.eventIndex ||
+        a.event.id.localeCompare(b.event.id),
     );
     return ordered.map((item) => item.event);
   }

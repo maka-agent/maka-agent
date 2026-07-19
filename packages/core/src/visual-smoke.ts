@@ -50,6 +50,7 @@ export type VisualSmokeScenario =
   | 'settings-usage'
   | 'settings-health'
   | 'module-skills'
+  | 'module-mcp'
   | 'module-daily-review'
   | 'workstation-statuses'
   | 'plan-reminders'
@@ -276,7 +277,7 @@ export interface VisualSmokeState {
    * to screenshot non-session sidebar content without adding a real
    * router path.
    */
-  sidebarSection?: 'sessions' | 'automations' | 'skills' | 'daily-review';
+  sidebarSection?: 'sessions' | 'automations' | 'skills' | 'mcp' | 'daily-review';
   /**
    * Fixture-only sidebar collapsed override. Screenshot runs use a
    * fresh userData dir, while the real app defaults to the collapsed

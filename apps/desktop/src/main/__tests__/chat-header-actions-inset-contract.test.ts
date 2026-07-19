@@ -72,7 +72,7 @@ describe('chat header actions inset contract', () => {
     );
   });
 
-  it('uses Electron titlebar safe-area env vars for native Windows overlay avoidance', async () => {
+  it('uses Electron titlebar horizontal safe-area env vars for native Windows overlay avoidance', async () => {
     const css = await readRendererContractCss();
     assert.doesNotMatch(
       css,
@@ -86,7 +86,6 @@ describe('chat header actions inset contract', () => {
     );
     assert.match(css, /--maka-titlebar-area-x:\s*env\(titlebar-area-x,\s*0px\)\s*;/);
     assert.match(css, /--maka-titlebar-area-width:\s*env\(titlebar-area-width,\s*100vw\)\s*;/);
-    assert.match(css, /--maka-titlebar-area-height:\s*env\(titlebar-area-height,\s*var\(--h-titlebar\)\)\s*;/);
     assert.match(
       css,
       /--maka-titlebar-overlay-right-width:\s*max\(\s*0px,\s*calc\(100vw - var\(--maka-titlebar-area-x\) - var\(--maka-titlebar-area-width\)\s*\)\s*\)\s*;/,

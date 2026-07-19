@@ -1,0 +1,136 @@
+/* About and data-portability settings. */
+.settingsAboutPage {
+  display: grid;
+  align-content: start;
+  gap: var(--space-4);
+}
+
+.settingsAboutHero {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-4);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.settingsAboutLogo {
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-surface);
+  background: oklch(from var(--brand-deep) l c h / 0.10);
+  color: var(--brand-deep);
+}
+
+.settingsAboutHeading {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2-5);
+  margin: 0 0 var(--space-1);
+}
+
+.settingsAboutHeading h2 {
+  margin: 0;
+  color: var(--foreground);
+  font-size: 1.4667em;
+  font-weight: var(--font-weight-bold);
+  letter-spacing: var(--tracking-normal);
+}
+
+.settingsAboutVersion {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-ui);
+  color: var(--foreground-secondary);
+  padding: var(--space-0-5) var(--space-2);
+  border-radius: var(--radius-pill);
+  background: oklch(from var(--foreground) l c h / 0.05);
+}
+
+.settingsAboutChannel {
+  font-size: var(--font-size-caption);
+  color: var(--brand-deep);
+  padding: var(--space-0-5) var(--space-2);
+  border-radius: var(--radius-pill);
+  background: oklch(from var(--brand-deep) l c h / 0.10);
+  font-weight: var(--font-weight-semibold);
+}
+
+.settingsAboutTagline {
+  margin: 0;
+  color: var(--foreground-secondary);
+  font-size: var(--font-size-ui);
+  line-height: var(--leading-normal);
+}
+
+.settingsAboutPrivacy {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  /* Detail audit: this card family (关于 privacy card + 数据 import/export)
+     wore --success green as SECTION EMPHASIS — a non-status use that read
+     as residual brand-green after the blue rebrand. Brand family instead. */
+  border: var(--border-width-hairline) solid oklch(from var(--brand-deep) l c h / 0.22);
+  border-radius: var(--radius-surface);
+  background: oklch(from var(--brand-deep) l c h / 0.04);
+}
+
+.settingsAboutPrivacy h3 {
+  margin: 0;
+  color: oklch(from var(--brand-deep) calc(l - 0.12) c h);
+  font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-bold);
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+}
+
+.settingsConfigCategoryList {
+  display: grid;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+
+.settingsConfigCategoryItem {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-start;
+}
+
+.settingsConfigCategoryItem small {
+  display: block;
+  color: var(--muted-foreground);
+}
+
+.settingsConfigCategoryItem small[data-tone="destructive"] {
+  margin-top: var(--space-1);
+  color: var(--destructive);
+}
+
+.settingsConfigStrategy {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2-5);
+}
+
+.settingsConfigStrategy > .settingsHelpText {
+  white-space: nowrap;
+}
+
+.settingsAboutPrivacy ul {
+  margin: 0;
+  padding: 0 0 0 var(--space-4);
+  display: grid;
+  gap: var(--space-1-5);
+  color: var(--foreground-secondary);
+  font-size: var(--font-size-ui);
+  line-height: var(--leading-normal);
+}
+
+.settingsAboutPrivacy li::marker {
+  color: var(--success);
+}

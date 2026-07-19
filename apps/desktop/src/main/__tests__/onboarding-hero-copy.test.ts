@@ -16,7 +16,13 @@ import { strict as assert } from 'node:assert';
 import { describe, it } from 'node:test';
 import { readFile } from 'node:fs/promises';
 import type { OnboardingState } from '@maka/core';
-import { getOnboardingHeroCopy, getOnboardingSetupSteps } from '../../renderer/onboarding-hero-copy.js';
+import {
+  getOnboardingHeroCopy as getLocalizedOnboardingHeroCopy,
+  getOnboardingSetupSteps as getLocalizedOnboardingSetupSteps,
+} from '../../renderer/onboarding-hero-copy.js';
+
+const getOnboardingHeroCopy = (state: OnboardingState) => getLocalizedOnboardingHeroCopy(state, 'zh');
+const getOnboardingSetupSteps = (state: OnboardingState) => getLocalizedOnboardingSetupSteps(state, 'zh');
 import { readRendererContractCss } from './contract-css-helpers.js';
 
 // Every OnboardingState.kind string. Any rendered field MUST NOT
@@ -123,6 +129,46 @@ describe('getOnboardingHeroCopy — per-variant mapping', () => {
       defaultModel: 'm',
     } as OnboardingState);
     assert.equal(copy, null);
+  });
+});
+
+describe('getOnboardingHeroCopy — bilingual catalog', () => {
+  const variants: OnboardingState[] = [
+    { kind: 'needs_connection' },
+    { kind: 'needs_default_connection' },
+    { kind: 'needs_connection_credentials', connectionSlug: 'anthropic-live' },
+    { kind: 'needs_default_model', connectionSlug: 'openai-live' },
+    { kind: 'ready_empty', defaultConnectionSlug: 'a', defaultModel: 'm' },
+    { kind: 'blocked', reason: 'all_connections_unhealthy' },
+  ];
+
+  it('renders every onboarding state and setup step in English without CJK', () => {
+    for (const state of variants) {
+      const hero = getLocalizedOnboardingHeroCopy(state, 'en');
+      assert.ok(hero);
+      assert.doesNotMatch(renderedFields(hero).join('\n'), /[\u3400-\u9fff]/, state.kind);
+      const steps = getLocalizedOnboardingSetupSteps(state, 'en');
+      if (steps) assert.doesNotMatch(JSON.stringify(steps), /[\u3400-\u9fff]/, state.kind);
+    }
+  });
+
+  it('keeps slugs byte-identical and never renders ready_with_history', () => {
+    const state = { kind: 'needs_connection_credentials', connectionSlug: 'anthropic-live' } as OnboardingState;
+    assert.equal(getLocalizedOnboardingHeroCopy(state, 'en')?.connectionSlug, 'anthropic-live');
+    assert.equal(
+      getLocalizedOnboardingHeroCopy(
+        { kind: 'ready_with_history', defaultConnectionSlug: 'a', defaultModel: 'm' } as OnboardingState,
+        'en',
+      ),
+      null,
+    );
+  });
+
+  it('uses the labeled English recovery CTA', () => {
+    assert.equal(
+      getLocalizedOnboardingHeroCopy({ kind: 'needs_connection' } as OnboardingState, 'en')?.cta.label,
+      'Open Settings · Models',
+    );
   });
 });
 
@@ -293,15 +339,13 @@ describe('getOnboardingSetupSteps — first-run AI setup guide', () => {
     const hero = await readFile(new URL('../../../src/renderer/OnboardingHero.tsx', import.meta.url), 'utf8');
     const styles = await readRendererContractCss();
 
-    assert.match(hero, /import \{ getOnboardingSetupSteps, type OnboardingSetupStep \} from '\.\/onboarding-hero-copy'/);
+    assert.match(hero, /import \{ getOnboardingHeroCopy, getOnboardingSetupSteps, type OnboardingSetupStep \} from '\.\/onboarding-hero-copy'/);
     assert.match(hero, /function SetupProgress\(props: \{ steps: readonly OnboardingSetupStep\[\] \}\)/);
-    assert.match(hero, /aria-label="配置 AI 进度"/);
-    assert.match(hero, /SETUP_STEP_STATUS_LABELS/);
-    assert.match(hero, /getOnboardingSetupSteps\(\{ kind: 'needs_connection' \}\)/);
-    assert.match(hero, /setupSteps=\{getOnboardingSetupSteps\(\{ kind: 'needs_default_connection' \}\)\}/);
-    assert.match(hero, /setupSteps=\{getOnboardingSetupSteps\(\{[\s\S]*kind: 'needs_connection_credentials'/);
-    assert.match(hero, /setupSteps=\{getOnboardingSetupSteps\(\{[\s\S]*kind: 'needs_default_model'/);
-    assert.match(hero, /setupSteps=\{getOnboardingSetupSteps\(\{[\s\S]*kind: 'blocked'/);
+    assert.match(hero, /aria-label=\{copy\.setupProgressLabel\}/);
+    assert.match(hero, /copy\.setupStatus\[step\.state\]/);
+    assert.match(hero, /getOnboardingSetupSteps\(\{ kind: 'needs_connection' \}, locale\)/);
+    assert.match(hero, /setupSteps=\{getOnboardingSetupSteps\(\{ kind: 'needs_default_connection' \}, locale\)\}/);
+    assert.equal((hero.match(/setupSteps=\{getOnboardingSetupSteps\(state, locale\)\}/g) ?? []).length, 3);
     assert.match(styles, /\.maka-onboarding-setup-steps\s*\{/);
     assert.match(styles, /\.maka-onboarding-setup-steps > li\[data-state="active"\]/);
     assert.match(styles, /@media \(max-width: 620px\)[\s\S]*\.maka-onboarding-setup-step-state/);
@@ -315,7 +359,7 @@ describe('getOnboardingSetupSteps — first-run AI setup guide', () => {
     assert.match(switchBlock, /case 'needs_default_connection':[\s\S]*onRefreshConnections=\{props\.onRefreshConnections \? runRefreshConnections : undefined\}/);
     assert.match(switchBlock, /case 'needs_default_connection':[\s\S]*refreshConnectionsPending=\{refreshConnectionsPending\}/);
     assert.match(defaultConnectionBlock, /onRefreshConnections\?: \(\) => void/);
-    assert.match(defaultConnectionBlock, /label: props\.refreshConnectionsPending === true \? '刷新中…' : '已经设好了？刷新检测'/);
+    assert.match(defaultConnectionBlock, /label: props\.refreshConnectionsPending === true \? copy\.refresh\.pending : copy\.refresh\.connection/);
     assert.match(defaultConnectionBlock, /disabled: props\.refreshConnectionsPending === true/);
     assert.match(defaultConnectionBlock, /busy: props\.refreshConnectionsPending === true/);
   });
@@ -324,9 +368,9 @@ describe('getOnboardingSetupSteps — first-run AI setup guide', () => {
     const hero = await readFile(new URL('../../../src/renderer/OnboardingHero.tsx', import.meta.url), 'utf8');
     const blockedBlock = hero.match(/function BlockedHero[\s\S]*?function ReadyEmptyHero/)?.[0] ?? '';
 
-    assert.match(blockedBlock, /title="当前没有通过验证的模型连接。"/);
-    assert.match(blockedBlock, /设置 · 账号/);
-    assert.match(blockedBlock, /primaryCta=\{\{ label: '打开设置 · 账号', onClick: \(\) => props\.onOpenSettings\('account'\) \}\}/);
+    assert.match(blockedBlock, /const hero = getOnboardingHeroCopy\(state, locale\)!/);
+    assert.match(blockedBlock, /title=\{hero\.title\}/);
+    assert.match(blockedBlock, /primaryCta=\{\{ label: hero\.cta\.label, onClick: \(\) => props\.onOpenSettings\(hero\.cta\.settingsSection\) \}\}/);
     assert.match(blockedBlock, /tone="destructive"/);
     assert.doesNotMatch(
       blockedBlock,
@@ -447,7 +491,7 @@ describe('OnboardingHero Quick Chat draft lifecycle', () => {
 
     assert.match(
       readyBlock,
-      /const importStatusText = pendingImportAction === null[\s\S]*\? '正在导入文件夹目录…'[\s\S]*: '正在导入文件内容…';/,
+      /const importStatusText = pendingImportAction === null[\s\S]*\? copy\.importFolderPending[\s\S]*: copy\.importFilesPending;/,
       'file/folder/drop/paste imports need visible pending copy, not only disabled controls',
     );
     assert.match(readyBlock, /data-pending=\{importStatusText \? 'true' : undefined\}/);

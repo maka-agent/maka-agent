@@ -56,15 +56,21 @@ export interface BuildCliSystemPromptInput {
   homeDir?: string;
 }
 
-export async function buildCliSystemPrompt(input: BuildCliSystemPromptInput): Promise<string | undefined> {
+export async function buildCliSystemPrompt(
+  input: BuildCliSystemPromptInput,
+): Promise<string | undefined> {
   const personalization = buildPersonalizationPromptFragment(input.settings.personalization);
   // personalization -> skills -> workspaceInstructions, matching the desktop app.
   const skillSource = resolveSkillDiscoveryPaths(input.cwd, input.workspaceRoot, input.homeDir);
-  const skills = await buildSkillsPromptFragment(skillSource, input.host, { contextWindow: input.modelContextWindow });
+  const skills = await buildSkillsPromptFragment(skillSource, input.host, {
+    contextWindow: input.modelContextWindow,
+  });
   const workspaceInstructions = input.settings.workspaceInstructions.enabled
     ? await buildWorkspaceInstructionsPromptFragment(input.cwd)
     : undefined;
-  const fragments = [personalization.text, skills, workspaceInstructions].filter((v): v is string => Boolean(v));
+  const fragments = [personalization.text, skills, workspaceInstructions].filter((v): v is string =>
+    Boolean(v),
+  );
   return fragments.length > 0 ? fragments.join('\n\n') : undefined;
 }
 
@@ -78,7 +84,10 @@ export async function buildCliTurnTailPrompt(input: {
   const fragments = [buildSessionEnvironmentPromptFragment({ cwd: input.cwd, projectGit })];
 
   if (input.sessionId && input.automationManager) {
-    const automationFragment = buildAutomationTailFragment(input.sessionId, input.automationManager);
+    const automationFragment = buildAutomationTailFragment(
+      input.sessionId,
+      input.automationManager,
+    );
     if (automationFragment) fragments.push(automationFragment);
   }
   if (input.sessionId && input.goalManager) {
@@ -91,30 +100,39 @@ export async function buildCliTurnTailPrompt(input: {
 
 function buildGoalTailFragment(sessionId: string, manager: GoalManager): string | undefined {
   const goal = manager.get(sessionId);
-  if (!goal || (goal.status !== 'active' && goal.status !== 'paused')) return undefined;
+  if (!goal || (goal.status !== 'active' && goal.status !== 'waiting' && goal.status !== 'paused'))
+    return undefined;
   const spent = Math.max(0, goal.tokensNow - goal.tokensAtStart);
   const lines = [
     'Active goal (autonomous execution; system evaluates progress each turn):',
     '<goal-execution>',
     `condition="${redactSecrets(goal.condition)}"`,
-    `status=${goal.status} turns=${goal.iterations}/${goal.maxIterations} no_progress=${goal.consecutiveNoProgress}/${goal.blockCap}`
-      + `${goal.tokenBudget ? ` tokens=${spent}/${goal.tokenBudget}` : ''}`,
-    ...(goal.lastReason ? [`last_evaluation="${redactSecrets(goal.lastReason)}"`] : []),
+    `status=${goal.status} turns=${goal.iterations}/${goal.maxIterations} no_progress=${goal.consecutiveNoProgress}/${goal.blockCap}` +
+      `${goal.tokenBudget ? ` tokens=${spent}/${goal.tokenBudget}` : ''}`,
+    ...(goal.lastReason ? [`last_reason="${redactSecrets(goal.lastReason)}"`] : []),
     '</goal-execution>',
   ];
   return lines.join('\n');
 }
 
-function buildAutomationTailFragment(sessionId: string, manager: AutomationManager): string | undefined {
-  const automations = manager.listForSession(sessionId).filter(a => a.status === 'active' || a.status === 'paused');
+function buildAutomationTailFragment(
+  sessionId: string,
+  manager: AutomationManager,
+): string | undefined {
+  const automations = manager
+    .listForSession(sessionId)
+    .filter((a) => a.status === 'active' || a.status === 'paused');
   if (automations.length === 0) return undefined;
   const lines = [
     'Active automations (use Automation tool with mode "list" for full details):',
     '<automations>',
-    ...automations.map(a => {
-      const schedule = a.schedule.type === 'cron' ? `cron "${a.schedule.expression}"`
-        : a.schedule.type === 'interval' ? `every ${a.schedule.seconds}s`
-        : `once`;
+    ...automations.map((a) => {
+      const schedule =
+        a.schedule.type === 'cron'
+          ? `cron "${a.schedule.expression}"`
+          : a.schedule.type === 'interval'
+            ? `every ${a.schedule.seconds}s`
+            : `once`;
       return `  ${a.status} id="${a.id}" name="${a.name}" kind=${a.kind} schedule=${schedule} fires=${a.fireCount}`;
     }),
     '</automations>',

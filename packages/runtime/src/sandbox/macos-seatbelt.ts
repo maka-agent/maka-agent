@@ -316,7 +316,10 @@ function resolveRoots(profile: PermissionProfile, pathContext: SandboxPathContex
     if (entry.access === 'write') {
       addUniqueResolvedRoots(writableRoots, roots);
       if (entry.kind === 'special' && entry.special === ':workspace_roots') {
-        addUniqueRoots(protectedWritableRoots, roots.map((root) => root.path));
+        addUniqueRoots(
+          protectedWritableRoots,
+          roots.map((root) => root.path),
+        );
       }
     }
   }
@@ -325,9 +328,10 @@ function resolveRoots(profile: PermissionProfile, pathContext: SandboxPathContex
     readableRoots,
     writableRoots,
     deniedRoots,
-    protectedWritableRoots: profile.fileSystem.protectedMetadata && writableRoots.length > 0
-      ? uniqueRoots([...protectedWritableRoots, ...pathContext.workspaceRoots])
-      : [],
+    protectedWritableRoots:
+      profile.fileSystem.protectedMetadata && writableRoots.length > 0
+        ? uniqueRoots([...protectedWritableRoots, ...pathContext.workspaceRoots])
+        : [],
     protectedMetadataNames: profile.fileSystem.protectedMetadata?.names ?? [],
     runtimeReadableRoots: uniqueRoots(pathContext.runtimeReadableRoots ?? []),
     executableRoots: uniqueRoots(pathContext.executableRoots ?? []),
@@ -381,10 +385,9 @@ function buildReadableRootsPolicy(roots: ResolvedRoots): string {
 
   const denyRequirements = deniedRootRequirements(roots.deniedRoots);
   const params = roots.readableRoots
-    .map((root, index) => accessRootClause(
-      seatbeltPathClause(root, `READABLE_ROOT_${index}`),
-      denyRequirements,
-    ))
+    .map((root, index) =>
+      accessRootClause(seatbeltPathClause(root, `READABLE_ROOT_${index}`), denyRequirements),
+    )
     .join('\n');
   return `(allow file-read*\n${params})`;
 }
@@ -415,16 +418,14 @@ function buildRuntimeRootsPolicy(roots: ResolvedRoots): string {
   return sections.join('\n\n');
 }
 
-function writableRootClause(
-  root: ResolvedRoot,
-  index: number,
-  roots: ResolvedRoots,
-): string {
+function writableRootClause(root: ResolvedRoot, index: number, roots: ResolvedRoots): string {
   const rootParam = seatbeltPathClause(root, `WRITABLE_ROOT_${index}`);
   const requirements = [...deniedRootRequirements(roots.deniedRoots)];
 
   if (roots.protectedWritableRoots.includes(root.path)) {
-    requirements.push(...roots.protectedMetadataNames.map((name) => protectedMetadataRequirement(root.path, name)));
+    requirements.push(
+      ...roots.protectedMetadataNames.map((name) => protectedMetadataRequirement(root.path, name)),
+    );
   }
 
   return accessRootClause(rootParam, requirements);
@@ -479,4 +480,7 @@ function buildNetworkPolicy(profile: PermissionProfile): string {
   return '(deny network*)';
 }
 
-type PermissionProfileManagedEntry = Extract<PermissionProfile, { type: 'managed' }>['fileSystem']['entries'][number];
+type PermissionProfileManagedEntry = Extract<
+  PermissionProfile,
+  { type: 'managed' }
+>['fileSystem']['entries'][number];

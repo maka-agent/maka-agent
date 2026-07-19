@@ -4,10 +4,7 @@ import { chmod, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
-import {
-  OPENCODE_TOOLCHAIN_FINGERPRINT,
-  OPENCODE_TOOLCHAIN_SPEC,
-} from '../opencode-toolchain.js';
+import { OPENCODE_TOOLCHAIN_FINGERPRINT, OPENCODE_TOOLCHAIN_SPEC } from '../opencode-toolchain.js';
 
 describe('OpenCode toolchain', () => {
   test('binds the fingerprint to the extracted binaries and rejects a self-signed cache', async () => {
@@ -31,22 +28,28 @@ describe('OpenCode toolchain', () => {
         'bin/node': sha256('pinned node\n'),
         'bin/opencode': sha256('pinned opencode\n'),
       };
-      await writeFile(join(root, 'manifest.json'), `${JSON.stringify({
-        schemaVersion: 1,
-        fingerprint: OPENCODE_TOOLCHAIN_FINGERPRINT,
-        spec: OPENCODE_TOOLCHAIN_SPEC,
-        files,
-      }, null, 2)}\n`);
+      await writeFile(
+        join(root, 'manifest.json'),
+        `${JSON.stringify(
+          {
+            schemaVersion: 1,
+            fingerprint: OPENCODE_TOOLCHAIN_FINGERPRINT,
+            spec: OPENCODE_TOOLCHAIN_SPEC,
+            files,
+          },
+          null,
+          2,
+        )}\n`,
+      );
       await writeFile(
         join(root, 'checksums.sha256'),
-        Object.entries(files).map(([path, hash]) => `${hash}  ${path}\n`).join(''),
+        Object.entries(files)
+          .map(([path, hash]) => `${hash}  ${path}\n`)
+          .join(''),
       );
 
       const { validatePreparedOpenCodeToolchain } = await import('../opencode-toolchain.js');
-      await assert.rejects(
-        validatePreparedOpenCodeToolchain(root),
-        /bin\/node SHA-256 mismatch/,
-      );
+      await assert.rejects(validatePreparedOpenCodeToolchain(root), /bin\/node SHA-256 mismatch/);
       assert.match(await readFile(join(root, 'manifest.json'), 'utf8'), /1\.17\.18/);
     } finally {
       await rm(root, { recursive: true, force: true });

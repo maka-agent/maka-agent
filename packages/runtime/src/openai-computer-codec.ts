@@ -57,11 +57,13 @@ export interface OpenAIComputerRequest {
   store: false;
 }
 
-const safetyCheckSchema = z.object({
-  id: z.string().min(1),
-  code: z.string().nullable().optional(),
-  message: z.string().nullable().optional(),
-}).strict();
+const safetyCheckSchema = z
+  .object({
+    id: z.string().min(1),
+    code: z.string().nullable().optional(),
+    message: z.string().nullable().optional(),
+  })
+  .strict();
 
 const commonCallFields = {
   type: z.literal('computer_call'),
@@ -71,15 +73,19 @@ const commonCallFields = {
   status: z.enum(['in_progress', 'completed', 'incomplete']),
 };
 
-const gaCallSchema = z.object({
-  ...commonCallFields,
-  actions: z.array(openAIComputerActionSchema).min(1),
-}).strict();
+const gaCallSchema = z
+  .object({
+    ...commonCallFields,
+    actions: z.array(openAIComputerActionSchema).min(1),
+  })
+  .strict();
 
-const previewCallSchema = z.object({
-  ...commonCallFields,
-  action: openAIComputerActionSchema,
-}).strict();
+const previewCallSchema = z
+  .object({
+    ...commonCallFields,
+    action: openAIComputerActionSchema,
+  })
+  .strict();
 
 function asRecord(value: unknown, label: string): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -99,15 +105,20 @@ export function decodeOpenAIComputerResponse(
   if (!Array.isArray(response.output)) {
     throw new Error('invalid_openai_computer_response: output must be an array');
   }
-  const status = z.enum(['completed', 'failed', 'incomplete', 'in_progress'])
+  const status = z
+    .enum(['completed', 'failed', 'incomplete', 'in_progress'])
     .parse(response.status ?? 'completed');
-  const error = response.error == null
-    ? null
-    : z.object({
-        type: z.string().optional(),
-        code: z.string().optional(),
-        message: z.string(),
-      }).passthrough().parse(response.error);
+  const error =
+    response.error == null
+      ? null
+      : z
+          .object({
+            type: z.string().optional(),
+            code: z.string().optional(),
+            message: z.string(),
+          })
+          .passthrough()
+          .parse(response.error);
 
   const calls = response.output
     .filter((item) => asRecord(item, 'output_item').type === 'computer_call')
@@ -152,7 +163,11 @@ export function createOpenAIComputerInitialRequest(input: {
   dialect: OpenAIComputerDialect;
   model: string;
   prompt: string;
-  display?: { widthPx: number; heightPx: number; environment: 'browser' | 'mac' | 'windows' | 'linux' };
+  display?: {
+    widthPx: number;
+    heightPx: number;
+    environment: 'browser' | 'mac' | 'windows' | 'linux';
+  };
 }): OpenAIComputerRequest {
   if (input.dialect === 'ga') {
     return {
@@ -170,12 +185,14 @@ export function createOpenAIComputerInitialRequest(input: {
   return {
     model: input.model,
     instructions: OPENAI_COMPUTER_INSTRUCTIONS,
-    tools: [{
-      type: 'computer_use_preview',
-      display_width: input.display.widthPx,
-      display_height: input.display.heightPx,
-      environment: input.display.environment,
-    }],
+    tools: [
+      {
+        type: 'computer_use_preview',
+        display_width: input.display.widthPx,
+        display_height: input.display.heightPx,
+        environment: input.display.environment,
+      },
+    ],
     input: input.prompt,
     truncation: 'auto',
     parallel_tool_calls: false,
@@ -190,7 +207,11 @@ export function createOpenAIComputerContinuationRequest(input: {
   callId: string;
   screenshot: OpenAIComputerScreenshot;
   acknowledgedSafetyChecks?: OpenAIComputerSafetyCheck[];
-  display?: { widthPx: number; heightPx: number; environment: 'browser' | 'mac' | 'windows' | 'linux' };
+  display?: {
+    widthPx: number;
+    heightPx: number;
+    environment: 'browser' | 'mac' | 'windows' | 'linux';
+  };
 }): OpenAIComputerRequest {
   const initial = createOpenAIComputerInitialRequest({
     dialect: input.dialect,

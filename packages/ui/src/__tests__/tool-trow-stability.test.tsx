@@ -12,7 +12,7 @@ function runningTool(id: string, name: string): ToolActivityItem {
 
 function renderToStaticMarkup(node: ReactNode): string {
   return renderReactToStaticMarkup(createElement(LocaleProvider, {
-    preference: 'zh',
+    locale: 'zh',
     children: node,
   }));
 }

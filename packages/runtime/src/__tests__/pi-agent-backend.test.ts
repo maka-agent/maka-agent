@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, test } from 'node:test';
 import type { BackendKind, SessionEvent, SessionHeader, StoredMessage } from '@maka/core';
+import { createSessionStore } from '@maka/storage';
 
 import { PermissionEngine } from '../permission-engine.js';
 import {
@@ -16,7 +20,9 @@ describe('PiAgentBackend skeleton', () => {
     const backend = new PiAgentBackend({
       sessionId: 'session-1',
       header: header({ permissionMode: 'execute' }),
-      appendMessage: async (message) => { messages.push(message); },
+      appendMessage: async (message) => {
+        messages.push(message);
+      },
       permissionEngine: new PermissionEngine({ newId: nextId('perm'), now: nextNow(1_000) }),
       transport: frames([
         { type: 'text_delta', text: 'hello ' },
@@ -32,22 +38,83 @@ describe('PiAgentBackend skeleton', () => {
 
     const events = await drain(backend.send({ turnId: 'turn-1', text: 'inspect', context: [] }));
 
-    assert.deepEqual(events.map((event) => event.type), [
-      'text_delta',
-      'tool_start',
-      'tool_output_delta',
-      'tool_result',
-      'text_complete',
-      'text_delta',
-      'text_complete',
-      'complete',
-    ]);
+    assert.deepEqual(
+      events.map((event) => event.type),
+      [
+        'text_delta',
+        'tool_start',
+        'tool_output_delta',
+        'tool_result',
+        'text_complete',
+        'text_delta',
+        'text_complete',
+        'complete',
+      ],
+    );
     assert.deepEqual(
       messages.filter((message) => message.type === 'assistant').map((message) => message.text),
       ['hello ', 'world'],
     );
-    assert.equal(messages.some((message) => message.type === 'tool_call' && message.toolName === 'Read'), true);
-    assert.equal(messages.some((message) => message.type === 'tool_result' && message.toolUseId === 'tool-1'), true);
+    assert.equal(
+      messages.some((message) => message.type === 'tool_call' && message.toolName === 'Read'),
+      true,
+    );
+    assert.equal(
+      messages.some((message) => message.type === 'tool_result' && message.toolUseId === 'tool-1'),
+      true,
+    );
+  });
+
+  test('normalizes noncanonical tool payloads before strict storage recovery', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-pi-canonical-'));
+    try {
+      const store = createSessionStore(root);
+      const session = await store.create({
+        cwd: root,
+        backend: 'pi-agent',
+        llmConnectionSlug: 'pi-agent',
+        model: 'pi-test',
+        permissionMode: 'execute',
+      });
+      const backend = new PiAgentBackend({
+        sessionId: session.id,
+        header: session,
+        appendMessage: (message) => store.appendMessage(session.id, message),
+        permissionEngine: new PermissionEngine({ newId: nextId('perm'), now: nextNow(1_250) }),
+        transport: frames([
+          { type: 'tool_start', toolUseId: 'tool-1', toolName: 'Read' },
+          { type: 'tool_result', toolUseId: 'tool-1' },
+          {
+            type: 'tool_start',
+            toolUseId: 'tool-2',
+            toolName: 'Weather',
+            args: { city: 'Singapore' },
+          },
+          {
+            type: 'tool_result',
+            toolUseId: 'tool-2',
+            content: { kind: 'weather', temperature: 20 },
+          },
+          { type: 'complete' },
+        ]),
+        newId: nextId('id'),
+        now: nextNow(2_250),
+      });
+
+      await drain(backend.send({ turnId: 'turn-1', text: 'inspect', context: [] }));
+
+      const messages = await store.readMessagesForRecovery(session.id);
+      const toolCalls = messages.filter((message) => message.type === 'tool_call');
+      const toolResults = messages.filter((message) => message.type === 'tool_result');
+      assert.equal(toolCalls[0]?.args, null);
+      assert.deepEqual(toolResults[0]?.content, { kind: 'json', value: null });
+      assert.deepEqual(toolResults[1]?.content, {
+        kind: 'json',
+        value: { kind: 'weather', temperature: 20 },
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   test('persists Pi text-tool-text as two stable assistant steps', async () => {
@@ -55,7 +122,9 @@ describe('PiAgentBackend skeleton', () => {
     const backend = new PiAgentBackend({
       sessionId: 'session-1',
       header: header({ permissionMode: 'execute' }),
-      appendMessage: async (message) => { messages.push(message); },
+      appendMessage: async (message) => {
+        messages.push(message);
+      },
       permissionEngine: new PermissionEngine({ newId: nextId('perm'), now: nextNow(1_500) }),
       transport: frames([
         { type: 'text_delta', text: 'before tool' },
@@ -73,10 +142,19 @@ describe('PiAgentBackend skeleton', () => {
     const toolCall = messages.find((message) => message.type === 'tool_call');
     const toolStart = events.find((event) => event.type === 'tool_start');
 
-    assert.deepEqual(assistants.map((message) => message.text), ['before tool', 'after tool']);
-    assert.deepEqual(messages.map((message) => message.type), ['assistant', 'tool_call', 'tool_result', 'assistant']);
+    assert.deepEqual(
+      assistants.map((message) => message.text),
+      ['before tool', 'after tool'],
+    );
+    assert.deepEqual(
+      messages.map((message) => message.type),
+      ['assistant', 'tool_call', 'tool_result', 'assistant'],
+    );
     assert.equal(toolCall?.type === 'tool_call' ? toolCall.stepId : undefined, assistants[0]?.id);
-    assert.equal(toolStart?.type === 'tool_start' ? toolStart.stepId : undefined, assistants[0]?.id);
+    assert.equal(
+      toolStart?.type === 'tool_start' ? toolStart.stepId : undefined,
+      assistants[0]?.id,
+    );
   });
 
   test('keeps sequential Pi tools in one step when no model text separates them', async () => {
@@ -84,7 +162,9 @@ describe('PiAgentBackend skeleton', () => {
     const backend = new PiAgentBackend({
       sessionId: 'session-1',
       header: header({ permissionMode: 'execute' }),
-      appendMessage: async (message) => { messages.push(message); },
+      appendMessage: async (message) => {
+        messages.push(message);
+      },
       permissionEngine: new PermissionEngine({ newId: nextId('perm'), now: nextNow(1_700) }),
       transport: frames([
         { type: 'tool_start', toolUseId: 'tool-1', toolName: 'Read', args: { path: 'a' } },
@@ -111,7 +191,9 @@ describe('PiAgentBackend skeleton', () => {
     const backend = new PiAgentBackend({
       sessionId: 'session-1',
       header: header({ permissionMode: 'execute' }),
-      appendMessage: async (message) => { messages.push(message); },
+      appendMessage: async (message) => {
+        messages.push(message);
+      },
       permissionEngine: new PermissionEngine({ newId: nextId('perm'), now: nextNow(1_900) }),
       transport: frames([
         { type: 'text_delta', messageId: 'provider-message-1', text: 'before' },
@@ -128,7 +210,10 @@ describe('PiAgentBackend skeleton', () => {
     await drain(backend.send({ turnId: 'turn-1', text: 'inspect', context: [] }));
     const assistants = messages.filter((message) => message.type === 'assistant');
 
-    assert.deepEqual(assistants.map((message) => message.text), ['before', 'after']);
+    assert.deepEqual(
+      assistants.map((message) => message.text),
+      ['before', 'after'],
+    );
     assert.notEqual(assistants[1]?.id, assistants[0]?.id);
   });
 
@@ -137,7 +222,9 @@ describe('PiAgentBackend skeleton', () => {
     const backend = new PiAgentBackend({
       sessionId: 'session-1',
       header: header({ permissionMode: 'execute' }),
-      appendMessage: async (message) => { messages.push(message); },
+      appendMessage: async (message) => {
+        messages.push(message);
+      },
       permissionEngine: new PermissionEngine({ newId: nextId('perm'), now: nextNow(2_500) }),
       transport: frames([
         {
@@ -156,8 +243,9 @@ describe('PiAgentBackend skeleton', () => {
     });
 
     const events = await drain(backend.send({ turnId: 'turn-1', text: 'inspect', context: [] }));
-    const usage = events.find((event): event is Extract<SessionEvent, { type: 'token_usage' }> =>
-      event.type === 'token_usage'
+    const usage = events.find(
+      (event): event is Extract<SessionEvent, { type: 'token_usage' }> =>
+        event.type === 'token_usage',
     );
 
     assert.equal(usage?.input, 10);
@@ -168,7 +256,10 @@ describe('PiAgentBackend skeleton', () => {
     assert.equal(usage?.cacheCreation, 3);
     assert.equal(usage?.total, 17);
     assert.equal(usage?.costUsd, 0.0012);
-    assert.equal(messages.some((message) => message.type === 'token_usage' && message.costUsd === 0.0012), true);
+    assert.equal(
+      messages.some((message) => message.type === 'token_usage' && message.costUsd === 0.0012),
+      true,
+    );
   });
 
   test('parks ACP permission requests until respondToPermission resolves them', async () => {
@@ -176,7 +267,9 @@ describe('PiAgentBackend skeleton', () => {
     const backend = new PiAgentBackend({
       sessionId: 'session-1',
       header: header({ permissionMode: 'ask' }),
-      appendMessage: async (message) => { messages.push(message); },
+      appendMessage: async (message) => {
+        messages.push(message);
+      },
       permissionEngine: new PermissionEngine({ newId: nextId('permission'), now: nextNow(3_000) }),
       transport: frames([
         {
@@ -193,7 +286,9 @@ describe('PiAgentBackend skeleton', () => {
       now: nextNow(4_000),
     });
 
-    const iterator = backend.send({ turnId: 'turn-1', text: 'delete temp files', context: [] })[Symbol.asyncIterator]();
+    const iterator = backend
+      .send({ turnId: 'turn-1', text: 'delete temp files', context: [] })
+      [Symbol.asyncIterator]();
     const first = await iterator.next();
     assert.equal(first.value?.type, 'permission_request');
     const requestId = first.value?.type === 'permission_request' ? first.value.requestId : '';
@@ -204,7 +299,10 @@ describe('PiAgentBackend skeleton', () => {
       sleep(10).then(() => 'parked'),
     ]);
     assert.equal(race, 'parked');
-    assert.equal(messages.some((message) => message.type === 'tool_result'), false);
+    assert.equal(
+      messages.some((message) => message.type === 'tool_result'),
+      false,
+    );
 
     await backend.respondToPermission({ requestId, decision: 'deny' });
     const second = await secondPromise;
@@ -251,7 +349,9 @@ describe('PiAgentBackend skeleton', () => {
       now: nextNow(4_200),
     });
 
-    const iterator = backend.send({ turnId: 'turn-1', text: 'run command', context: [] })[Symbol.asyncIterator]();
+    const iterator = backend
+      .send({ turnId: 'turn-1', text: 'run command', context: [] })
+      [Symbol.asyncIterator]();
     const permission = await iterator.next();
     assert.equal(permission.value?.type, 'permission_request');
     if (permission.value?.type !== 'permission_request') return;
@@ -262,7 +362,10 @@ describe('PiAgentBackend skeleton', () => {
     assert.equal((await iterator.next()).value?.type, 'permission_decision_ack');
     const toolStart = await iterator.next();
     assert.equal(toolStart.value?.type, 'tool_start');
-    assert.deepEqual(toolStart.value?.type === 'tool_start' ? toolStart.value.args : undefined, projectedArgs);
+    assert.deepEqual(
+      toolStart.value?.type === 'tool_start' ? toolStart.value.args : undefined,
+      projectedArgs,
+    );
     if (toolStart.value?.type === 'tool_start') mutatePiArgs(toolStart.value.args, 'event');
 
     while (!(await iterator.next()).done) {
@@ -278,9 +381,13 @@ describe('PiAgentBackend skeleton', () => {
     const approvedArgs = { command: 'printf approved' };
     const driftingArgs = { command: 'rm -rf workspace' };
     let signalAssistantAppend!: () => void;
-    const assistantAppendStarted = new Promise<void>((resolve) => { signalAssistantAppend = resolve; });
+    const assistantAppendStarted = new Promise<void>((resolve) => {
+      signalAssistantAppend = resolve;
+    });
     let releaseAssistantAppend!: () => void;
-    const assistantAppendReleased = new Promise<void>((resolve) => { releaseAssistantAppend = resolve; });
+    const assistantAppendReleased = new Promise<void>((resolve) => {
+      releaseAssistantAppend = resolve;
+    });
     const backend = new PiAgentBackend({
       sessionId: 'session-1',
       header: header({ permissionMode: 'ask' }),
@@ -306,7 +413,9 @@ describe('PiAgentBackend skeleton', () => {
       now: nextNow(4_275),
     });
 
-    const iterator = backend.send({ turnId: 'turn-1', text: 'run command', context: [] })[Symbol.asyncIterator]();
+    const iterator = backend
+      .send({ turnId: 'turn-1', text: 'run command', context: [] })
+      [Symbol.asyncIterator]();
     const permission = await iterator.next();
     assert.equal(permission.value?.type, 'permission_request');
     if (permission.value?.type !== 'permission_request') return;
@@ -321,7 +430,10 @@ describe('PiAgentBackend skeleton', () => {
 
     const error = await terminal;
     assert.equal(error.value?.type, 'error');
-    assert.equal(error.value?.type === 'error' ? error.value.reason : undefined, 'pi_agent_transport_error');
+    assert.equal(
+      error.value?.type === 'error' ? error.value.reason : undefined,
+      'pi_agent_transport_error',
+    );
     assert.equal((await iterator.next()).value?.type, 'complete');
   });
 
@@ -386,8 +498,13 @@ describe('PiAgentBackend skeleton', () => {
         const backend = new PiAgentBackend({
           sessionId: 'session-1',
           header: header({ permissionMode: 'ask' }),
-          appendMessage: async (message) => { messages.push(message); },
-          permissionEngine: new PermissionEngine({ newId: nextId('permission'), now: nextNow(4_300) }),
+          appendMessage: async (message) => {
+            messages.push(message);
+          },
+          permissionEngine: new PermissionEngine({
+            newId: nextId('permission'),
+            now: nextNow(4_300),
+          }),
           transport: frames([
             {
               type: 'permission_request',
@@ -402,18 +519,27 @@ describe('PiAgentBackend skeleton', () => {
               toolName: drift.later.toolName,
               args: drift.later.args,
             },
-            { type: 'tool_result', toolUseId: 'tool-1', content: { kind: 'text', text: 'executed' } },
+            {
+              type: 'tool_result',
+              toolUseId: 'tool-1',
+              content: { kind: 'text', text: 'executed' },
+            },
             { type: 'complete' },
           ]),
           newId: nextId('id'),
           now: nextNow(4_400),
         });
 
-        const iterator = backend.send({ turnId: 'turn-1', text: 'run command', context: [] })[Symbol.asyncIterator]();
+        const iterator = backend
+          .send({ turnId: 'turn-1', text: 'run command', context: [] })
+          [Symbol.asyncIterator]();
         const permission = await iterator.next();
         assert.equal(permission.value?.type, 'permission_request');
         if (permission.value?.type !== 'permission_request') return;
-        await backend.respondToPermission({ requestId: permission.value.requestId, decision: 'allow' });
+        await backend.respondToPermission({
+          requestId: permission.value.requestId,
+          decision: 'allow',
+        });
 
         const remaining: SessionEvent[] = [];
         for (;;) {
@@ -422,12 +548,14 @@ describe('PiAgentBackend skeleton', () => {
           remaining.push(next.value);
         }
 
-        assert.deepEqual(remaining.map((event) => event.type), [
-          'permission_decision_ack',
-          'error',
-          'complete',
-        ]);
-        assert.equal(remaining.some((event) => event.type === 'tool_start' || event.type === 'tool_result'), false);
+        assert.deepEqual(
+          remaining.map((event) => event.type),
+          ['permission_decision_ack', 'error', 'complete'],
+        );
+        assert.equal(
+          remaining.some((event) => event.type === 'tool_start' || event.type === 'tool_result'),
+          false,
+        );
         const storedCall = messages.find((message) => message.type === 'tool_call');
         assert.deepEqual(
           storedCall?.type === 'tool_call' ? storedCall.args : undefined,
@@ -450,7 +578,13 @@ describe('PiAgentBackend skeleton', () => {
       {
         name: 'user denial',
         permissionMode: 'ask' as const,
-        expectedTypes: ['permission_request', 'permission_decision_ack', 'tool_result', 'error', 'complete'],
+        expectedTypes: [
+          'permission_request',
+          'permission_decision_ack',
+          'tool_result',
+          'error',
+          'complete',
+        ],
       },
     ];
 
@@ -460,7 +594,10 @@ describe('PiAgentBackend skeleton', () => {
           sessionId: 'session-1',
           header: header({ permissionMode: scenario.permissionMode }),
           appendMessage: async () => {},
-          permissionEngine: new PermissionEngine({ newId: nextId('permission'), now: nextNow(4_500) }),
+          permissionEngine: new PermissionEngine({
+            newId: nextId('permission'),
+            now: nextNow(4_500),
+          }),
           transport: frames([
             {
               type: 'permission_request',
@@ -469,14 +606,21 @@ describe('PiAgentBackend skeleton', () => {
               args: { command: 'printf approved' },
               categoryHint: 'shell_unsafe',
             },
-            { type: 'tool_start', toolUseId: 'tool-1', toolName: 'Bash', args: { command: 'printf changed' } },
+            {
+              type: 'tool_start',
+              toolUseId: 'tool-1',
+              toolName: 'Bash',
+              args: { command: 'printf changed' },
+            },
             { type: 'complete' },
           ]),
           newId: nextId('id'),
           now: nextNow(4_600),
         });
 
-        const iterator = backend.send({ turnId: 'turn-1', text: 'run command', context: [] })[Symbol.asyncIterator]();
+        const iterator = backend
+          .send({ turnId: 'turn-1', text: 'run command', context: [] })
+          [Symbol.asyncIterator]();
         const events: SessionEvent[] = [];
         const first = await iterator.next();
         if (!first.done) events.push(first.value);
@@ -489,10 +633,19 @@ describe('PiAgentBackend skeleton', () => {
           events.push(next.value);
         }
 
-        assert.deepEqual(events.map((event) => event.type), scenario.expectedTypes);
-        assert.equal(events.some((event) => event.type === 'tool_start'), false);
+        assert.deepEqual(
+          events.map((event) => event.type),
+          scenario.expectedTypes,
+        );
+        assert.equal(
+          events.some((event) => event.type === 'tool_start'),
+          false,
+        );
         const error = events.find((event) => event.type === 'error');
-        assert.equal(error?.type === 'error' ? error.reason : undefined, 'pi_agent_transport_error');
+        assert.equal(
+          error?.type === 'error' ? error.reason : undefined,
+          'pi_agent_transport_error',
+        );
       });
     }
   });
@@ -502,7 +655,9 @@ describe('PiAgentBackend skeleton', () => {
     const backend = new PiAgentBackend({
       sessionId: 'session-1',
       header: header({ permissionMode: 'ask' }),
-      appendMessage: async (message) => { messages.push(message); },
+      appendMessage: async (message) => {
+        messages.push(message);
+      },
       permissionEngine: new PermissionEngine({ newId: nextId('permission'), now: nextNow(4_200) }),
       transport: frames([
         {
@@ -524,7 +679,9 @@ describe('PiAgentBackend skeleton', () => {
       now: nextNow(4_300),
     });
 
-    const iterator = backend.send({ turnId: 'turn-1', text: 'type', context: [] })[Symbol.asyncIterator]();
+    const iterator = backend
+      .send({ turnId: 'turn-1', text: 'type', context: [] })
+      [Symbol.asyncIterator]();
     const first = await iterator.next();
     assert.equal(first.value?.type, 'permission_request');
     if (first.value?.type !== 'permission_request') return;
@@ -538,10 +695,7 @@ describe('PiAgentBackend skeleton', () => {
       observationId: 'frame-1',
     });
     const toolCall = messages.find((message) => message.type === 'tool_call');
-    assert.deepEqual(
-      toolCall?.type === 'tool_call' ? toolCall.args : undefined,
-      first.value.args,
-    );
+    assert.deepEqual(toolCall?.type === 'tool_call' ? toolCall.args : undefined, first.value.args);
     assert.doesNotMatch(JSON.stringify(messages), /secret text|123|456/);
   });
 
@@ -550,7 +704,9 @@ describe('PiAgentBackend skeleton', () => {
     const backend = new PiAgentBackend({
       sessionId: 'session-1',
       header: header({ permissionMode: 'bypass' }),
-      appendMessage: async (message) => { messages.push(message); },
+      appendMessage: async (message) => {
+        messages.push(message);
+      },
       permissionEngine: new PermissionEngine({
         newId: nextId('permission'),
         now: nextNow(4_400),
@@ -594,10 +750,7 @@ describe('PiAgentBackend skeleton', () => {
     };
     assert.deepEqual(start?.type === 'tool_start' ? start.args : undefined, expected);
     const toolCall = messages.find((message) => message.type === 'tool_call');
-    assert.deepEqual(
-      toolCall?.type === 'tool_call' ? toolCall.args : undefined,
-      expected,
-    );
+    assert.deepEqual(toolCall?.type === 'tool_call' ? toolCall.args : undefined, expected);
     assert.doesNotMatch(JSON.stringify(events), /secret text|123|456/);
     assert.doesNotMatch(JSON.stringify(messages), /secret text|123|456/);
   });
@@ -607,7 +760,9 @@ describe('PiAgentBackend skeleton', () => {
     const backend = new PiAgentBackend({
       sessionId: 'session-1',
       header: header({ permissionMode: 'ask' }),
-      appendMessage: async (message) => { messages.push(message); },
+      appendMessage: async (message) => {
+        messages.push(message);
+      },
       permissionEngine: new PermissionEngine({ newId: nextId('permission'), now: nextNow(4_500) }),
       transport: frames([
         {
@@ -617,8 +772,18 @@ describe('PiAgentBackend skeleton', () => {
           args: { command: 'rm -rf tmp' },
           categoryHint: 'shell_unsafe',
         },
-        { type: 'tool_start', toolUseId: 'tool-1', toolName: 'Bash', args: { command: 'rm -rf tmp' } },
-        { type: 'tool_output_delta', toolUseId: 'tool-1', stream: 'stdout', chunk: 'deleted tmp\n' },
+        {
+          type: 'tool_start',
+          toolUseId: 'tool-1',
+          toolName: 'Bash',
+          args: { command: 'rm -rf tmp' },
+        },
+        {
+          type: 'tool_output_delta',
+          toolUseId: 'tool-1',
+          stream: 'stdout',
+          chunk: 'deleted tmp\n',
+        },
         { type: 'tool_result', toolUseId: 'tool-1', content: { kind: 'text', text: 'executed' } },
         { type: 'complete' },
       ]),
@@ -626,7 +791,9 @@ describe('PiAgentBackend skeleton', () => {
       now: nextNow(4_600),
     });
 
-    const iterator = backend.send({ turnId: 'turn-1', text: 'delete temp files', context: [] })[Symbol.asyncIterator]();
+    const iterator = backend
+      .send({ turnId: 'turn-1', text: 'delete temp files', context: [] })
+      [Symbol.asyncIterator]();
     const first = await iterator.next();
     assert.equal(first.value?.type, 'permission_request');
     const requestId = first.value?.type === 'permission_request' ? first.value.requestId : '';
@@ -639,7 +806,10 @@ describe('PiAgentBackend skeleton', () => {
       (await iterator.next()).value,
     ].filter(Boolean) as SessionEvent[];
 
-    assert.deepEqual(events.map((event) => event.type), ['permission_decision_ack', 'tool_result', 'complete']);
+    assert.deepEqual(
+      events.map((event) => event.type),
+      ['permission_decision_ack', 'tool_result', 'complete'],
+    );
     const toolResults = messages.filter((message) => message.type === 'tool_result');
     assert.equal(toolResults.length, 1);
     assert.equal(toolResults[0]?.type === 'tool_result' ? toolResults[0].isError : false, true);
@@ -664,14 +834,20 @@ describe('PiAgentBackend skeleton', () => {
             categoryHint: 'shell_unsafe',
           },
         ]),
-        stop: async (reason) => { stopReason = reason; },
-        dispose: async () => { disposed = true; },
+        stop: async (reason) => {
+          stopReason = reason;
+        },
+        dispose: async () => {
+          disposed = true;
+        },
       },
       newId: nextId('id'),
       now: nextNow(6_000),
     });
 
-    const iterator = backend.send({ turnId: 'turn-1', text: 'delete temp files', context: [] })[Symbol.asyncIterator]();
+    const iterator = backend
+      .send({ turnId: 'turn-1', text: 'delete temp files', context: [] })
+      [Symbol.asyncIterator]();
     const first = await iterator.next();
     assert.equal(first.value?.type, 'permission_request');
 
@@ -688,11 +864,15 @@ describe('PiAgentBackend skeleton', () => {
   test('persists partial Pi text before aborting an active stream', async () => {
     const messages: StoredMessage[] = [];
     let releaseTransport!: () => void;
-    const transportReleased = new Promise<void>((resolve) => { releaseTransport = resolve; });
+    const transportReleased = new Promise<void>((resolve) => {
+      releaseTransport = resolve;
+    });
     const backend = new PiAgentBackend({
       sessionId: 'session-1',
       header: header({ permissionMode: 'execute' }),
-      appendMessage: async (message) => { messages.push(message); },
+      appendMessage: async (message) => {
+        messages.push(message);
+      },
       permissionEngine: new PermissionEngine({ newId: nextId('permission'), now: nextNow(7_000) }),
       transport: {
         async *send() {
@@ -700,22 +880,28 @@ describe('PiAgentBackend skeleton', () => {
           await transportReleased;
           yield { type: 'complete' };
         },
-        stop: async () => { releaseTransport(); },
+        stop: async () => {
+          releaseTransport();
+        },
       },
       newId: nextId('id'),
       now: nextNow(8_000),
     });
 
-    const iterator = backend.send({ turnId: 'turn-1', text: 'answer', context: [] })[Symbol.asyncIterator]();
+    const iterator = backend
+      .send({ turnId: 'turn-1', text: 'answer', context: [] })
+      [Symbol.asyncIterator]();
     assert.equal((await iterator.next()).value?.type, 'text_delta');
 
     await backend.stop('user_stop');
-    const terminalEvents = [
-      (await iterator.next()).value,
-      (await iterator.next()).value,
-    ].filter(Boolean) as SessionEvent[];
+    const terminalEvents = [(await iterator.next()).value, (await iterator.next()).value].filter(
+      Boolean,
+    ) as SessionEvent[];
 
-    assert.deepEqual(terminalEvents.map((event) => event.type), ['abort', 'complete']);
+    assert.deepEqual(
+      terminalEvents.map((event) => event.type),
+      ['abort', 'complete'],
+    );
     assert.deepEqual(
       messages.filter((message) => message.type === 'assistant').map((message) => message.text),
       ['partial answer'],
@@ -727,7 +913,9 @@ describe('PiAgentBackend skeleton', () => {
     const backend = new PiAgentBackend({
       sessionId: 'session-1',
       header: header({ permissionMode: 'execute' }),
-      appendMessage: async (message) => { messages.push(message); },
+      appendMessage: async (message) => {
+        messages.push(message);
+      },
       permissionEngine: new PermissionEngine({ newId: nextId('permission'), now: nextNow(9_000) }),
       transport: frames([
         { type: 'text_delta', text: 'partial answer' },
@@ -739,7 +927,10 @@ describe('PiAgentBackend skeleton', () => {
 
     const events = await drain(backend.send({ turnId: 'turn-1', text: 'answer', context: [] }));
 
-    assert.deepEqual(events.map((event) => event.type), ['text_delta', 'error', 'complete']);
+    assert.deepEqual(
+      events.map((event) => event.type),
+      ['text_delta', 'error', 'complete'],
+    );
     assert.deepEqual(
       messages.filter((message) => message.type === 'assistant').map((message) => message.text),
       ['partial answer'],
@@ -751,7 +942,9 @@ describe('PiAgentBackend skeleton', () => {
     const backend = new PiAgentBackend({
       sessionId: 'session-1',
       header: header({ permissionMode: 'execute' }),
-      appendMessage: async (message) => { messages.push(message); },
+      appendMessage: async (message) => {
+        messages.push(message);
+      },
       permissionEngine: new PermissionEngine({ newId: nextId('permission'), now: nextNow(11_000) }),
       transport: {
         async *send() {
@@ -765,7 +958,10 @@ describe('PiAgentBackend skeleton', () => {
 
     const events = await drain(backend.send({ turnId: 'turn-1', text: 'answer', context: [] }));
 
-    assert.deepEqual(events.map((event) => event.type), ['text_delta', 'error', 'complete']);
+    assert.deepEqual(
+      events.map((event) => event.type),
+      ['text_delta', 'error', 'complete'],
+    );
     assert.deepEqual(
       messages.filter((message) => message.type === 'assistant').map((message) => message.text),
       ['partial answer'],
@@ -775,7 +971,12 @@ describe('PiAgentBackend skeleton', () => {
   test('frame guard ignores unknown ACP frames before they reach renderer event code', () => {
     assert.equal(normalizePiAgentFrame({ type: 'session/update', raw: true }), null);
     assert.deepEqual(
-      normalizePiAgentFrame({ type: 'tool_output_delta', toolUseId: 'tool-1', stream: 'nonsense', chunk: 'ok' }),
+      normalizePiAgentFrame({
+        type: 'tool_output_delta',
+        toolUseId: 'tool-1',
+        stream: 'nonsense',
+        chunk: 'ok',
+      }),
       { type: 'tool_output_delta', toolUseId: 'tool-1', stream: 'stdout', chunk: 'ok' },
     );
   });
@@ -803,6 +1004,7 @@ function header(overrides: Partial<SessionHeader> = {}): SessionHeader {
     createdAt: 1,
     lastUsedAt: 1,
     name: 'Pi test',
+    titleIsManual: true,
     isFlagged: false,
     labels: [],
     isArchived: false,

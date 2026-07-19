@@ -41,10 +41,7 @@ export function arrangeAutocompleteAboveEditor(
   );
   return {
     lines: [
-      ...Array.from(
-        { length: autocompleteSlotRows - sections.autocompleteLines.length },
-        () => '',
-      ),
+      ...Array.from({ length: autocompleteSlotRows - sections.autocompleteLines.length }, () => ''),
       ...sections.autocompleteLines,
       ...sections.editorLines,
     ],

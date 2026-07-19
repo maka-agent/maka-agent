@@ -76,26 +76,32 @@ describe('harness Oracle evidence registry', () => {
       entries: [...baseline.snapshot.entries].reverse(),
       provenance: { ...input.provenance, runId: '124' },
     });
-    assert.deepEqual(merged.entries.map((entry) => entry.taskId), ['a', 'b', 'c']);
+    assert.deepEqual(
+      merged.entries.map((entry) => entry.taskId),
+      ['a', 'b', 'c'],
+    );
     assert.throws(
-      () => buildHarnessOracleRegistrySnapshot({
-        tasks: tasks.map(({ task, identity }) => ({ taskId: task.id, identity })),
-        entries: baseline.snapshot.entries.slice(0, 2),
-        provenance: input.provenance,
-      }),
+      () =>
+        buildHarnessOracleRegistrySnapshot({
+          tasks: tasks.map(({ task, identity }) => ({ taskId: task.id, identity })),
+          entries: baseline.snapshot.entries.slice(0, 2),
+          provenance: input.provenance,
+        }),
       /exactly one matching entry per task/,
     );
     assert.throws(
-      () => buildHarnessOracleRegistrySnapshot({
-        tasks: tasks.map(({ task, identity }) => ({
-          taskId: task.id,
-          identity: task.id === 'b'
-            ? { ...identity, executionPolicyFingerprint: 'sha256:runtime-v2' }
-            : identity,
-        })),
-        entries: baseline.snapshot.entries,
-        provenance: input.provenance,
-      }),
+      () =>
+        buildHarnessOracleRegistrySnapshot({
+          tasks: tasks.map(({ task, identity }) => ({
+            taskId: task.id,
+            identity:
+              task.id === 'b'
+                ? { ...identity, executionPolicyFingerprint: 'sha256:runtime-v2' }
+                : identity,
+          })),
+          entries: baseline.snapshot.entries,
+          provenance: input.provenance,
+        }),
       /exactly one matching entry per task/,
     );
   });
@@ -117,13 +123,21 @@ describe('harness Oracle evidence registry', () => {
     const provenance = oracleExecutionProvenance('123');
     const baseline = await auditHarnessOracleRegistry({ tasks, provenance, runOracle });
 
-    const changedTasks = tasks.map((item) => item.task.id === 'b'
-      ? { ...item, identity: { ...item.identity, environmentFingerprint: 'sha256:environment-v2' } }
-      : item);
+    const changedTasks = tasks.map((item) =>
+      item.task.id === 'b'
+        ? {
+            ...item,
+            identity: { ...item.identity, environmentFingerprint: 'sha256:environment-v2' },
+          }
+        : item,
+    );
 
     const plan = planHarnessOracleRegistryAudit(changedTasks, baseline.snapshot);
     assert.deepEqual(plan.missingTaskIds, ['b']);
-    assert.deepEqual(plan.reusedEntries.map((entry) => entry.taskId), ['a']);
+    assert.deepEqual(
+      plan.reusedEntries.map((entry) => entry.taskId),
+      ['a'],
+    );
   });
 
   test('rejects registry entries outside the planned task set', async () => {
@@ -149,24 +163,27 @@ describe('harness Oracle evidence registry', () => {
     });
 
     assert.throws(
-      () => buildHarnessOracleRegistrySnapshot({
-        tasks: planned.map(({ task, identity }) => ({ taskId: task.id, identity })),
-        entries: [...baseline.snapshot.entries, ...extra.snapshot.entries],
-        provenance,
-      }),
+      () =>
+        buildHarnessOracleRegistrySnapshot({
+          tasks: planned.map(({ task, identity }) => ({ taskId: task.id, identity })),
+          entries: [...baseline.snapshot.entries, ...extra.snapshot.entries],
+          provenance,
+        }),
       /exactly one matching entry per task/,
     );
   });
 
   test('rejects a tampered snapshot before reusing its entries', async () => {
-    const tasks = [{
-      task: { id: 'a', path: '/tasks/a' },
-      identity: {
-        taskFingerprint: 'sha256:task-a',
-        executionPolicyFingerprint: 'sha256:verifier',
-        environmentFingerprint: 'sha256:environment',
+    const tasks = [
+      {
+        task: { id: 'a', path: '/tasks/a' },
+        identity: {
+          taskFingerprint: 'sha256:task-a',
+          executionPolicyFingerprint: 'sha256:verifier',
+          environmentFingerprint: 'sha256:environment',
+        },
       },
-    }];
+    ];
     const provenance = oracleExecutionProvenance('123');
     const baseline = await auditHarnessOracleRegistry({
       tasks,
@@ -204,25 +221,30 @@ describe('harness Oracle evidence registry', () => {
     });
 
     assert.deepEqual(calls, ['a', 'b', 'c']);
-    assert.deepEqual(audit.snapshot.entries.map(({ taskId, execution }) => ({ taskId, execution })), [
-      { taskId: 'a', execution: { status: 'completed' } },
-      { taskId: 'b', execution: { status: 'infra_failed' } },
-      { taskId: 'c', execution: { status: 'completed' } },
-    ]);
+    assert.deepEqual(
+      audit.snapshot.entries.map(({ taskId, execution }) => ({ taskId, execution })),
+      [
+        { taskId: 'a', execution: { status: 'completed' } },
+        { taskId: 'b', execution: { status: 'infra_failed' } },
+        { taskId: 'c', execution: { status: 'completed' } },
+      ],
+    );
     assert.equal(audit.snapshot.entries[1]?.oracle, null);
   });
 
   test('does not publish an infra entry for an unexpected audit implementation error', async () => {
     await assert.rejects(
       auditHarnessOracleRegistry({
-        tasks: [{
-          task: { id: 'a', path: '/tasks/a' },
-          identity: {
-            taskFingerprint: 'sha256:task-a',
-            executionPolicyFingerprint: 'sha256:verifier',
-            environmentFingerprint: 'sha256:environment',
+        tasks: [
+          {
+            task: { id: 'a', path: '/tasks/a' },
+            identity: {
+              taskFingerprint: 'sha256:task-a',
+              executionPolicyFingerprint: 'sha256:verifier',
+              environmentFingerprint: 'sha256:environment',
+            },
           },
-        }],
+        ],
         provenance: oracleExecutionProvenance('123'),
         runOracle: async () => {
           throw new Error('result parser bug');
@@ -234,16 +256,20 @@ describe('harness Oracle evidence registry', () => {
 
   test('records a typed execution timeout without treating it as an Oracle failure', async () => {
     const audit = await auditHarnessOracleRegistry({
-      tasks: [{
-        task: { id: 'a', path: '/tasks/a' },
-        identity: {
-          taskFingerprint: 'sha256:task-a',
-          executionPolicyFingerprint: 'sha256:verifier',
-          environmentFingerprint: 'sha256:environment',
+      tasks: [
+        {
+          task: { id: 'a', path: '/tasks/a' },
+          identity: {
+            taskFingerprint: 'sha256:task-a',
+            executionPolicyFingerprint: 'sha256:verifier',
+            environmentFingerprint: 'sha256:environment',
+          },
         },
-      }],
+      ],
       provenance: oracleExecutionProvenance('123'),
-      runOracle: async () => { throw new HarnessOracleAuditExecutionError('timed_out'); },
+      runOracle: async () => {
+        throw new HarnessOracleAuditExecutionError('timed_out');
+      },
     });
 
     assert.deepEqual(audit.snapshot.entries[0]?.execution, { status: 'timed_out' });
@@ -251,14 +277,16 @@ describe('harness Oracle evidence registry', () => {
   });
 
   test('rejects self-checksummed entries with impossible Oracle result semantics', async () => {
-    const tasks = [{
-      task: { id: 'a', path: '/tasks/a' },
-      identity: {
-        taskFingerprint: 'sha256:task-a',
-        executionPolicyFingerprint: 'sha256:verifier',
-        environmentFingerprint: 'sha256:environment',
+    const tasks = [
+      {
+        task: { id: 'a', path: '/tasks/a' },
+        identity: {
+          taskFingerprint: 'sha256:task-a',
+          executionPolicyFingerprint: 'sha256:verifier',
+          environmentFingerprint: 'sha256:environment',
+        },
       },
-    }];
+    ];
     const provenance = oracleExecutionProvenance('123');
     const baseline = await auditHarnessOracleRegistry({
       tasks,
@@ -277,7 +305,9 @@ describe('harness Oracle evidence registry', () => {
 
     const excessiveAttempts = structuredClone(baseline.snapshot);
     excessiveAttempts.entries[0]!.oracle!.attempts = 3;
-    excessiveAttempts.entries[0]!.fingerprint = fingerprintFixture(withoutFingerprint(excessiveAttempts.entries[0]!));
+    excessiveAttempts.entries[0]!.fingerprint = fingerprintFixture(
+      withoutFingerprint(excessiveAttempts.entries[0]!),
+    );
     excessiveAttempts.fingerprint = fingerprintFixture(withoutFingerprint(excessiveAttempts));
     assert.throws(
       () => planHarnessOracleRegistryAudit(tasks, excessiveAttempts),
@@ -304,33 +334,43 @@ describe('harness Oracle evidence registry', () => {
         return { outcome: 'passed', reward: 1, attempts: 1 };
       },
     });
-    const currentTasks = tasks.map((item) => item.task.id === 'stale'
-      ? { ...item, identity: { ...item.identity, executionPolicyFingerprint: 'sha256:runtime-v2' } }
-      : item);
+    const currentTasks = tasks.map((item) =>
+      item.task.id === 'stale'
+        ? {
+            ...item,
+            identity: { ...item.identity, executionPolicyFingerprint: 'sha256:runtime-v2' },
+          }
+        : item,
+    );
 
     const annotations = resolveHarnessOracleAnnotations(currentTasks, baseline.snapshot);
 
-    assert.deepEqual(annotations.map(({ taskId, state }) => ({ taskId, state })), [
-      { taskId: 'passed', state: 'passed' },
-      { taskId: 'failed', state: 'failed' },
-      { taskId: 'timed', state: 'timed_out' },
-      { taskId: 'infra', state: 'infra_failed' },
-      { taskId: 'stale', state: 'stale' },
-      { taskId: 'missing', state: 'missing' },
-    ]);
+    assert.deepEqual(
+      annotations.map(({ taskId, state }) => ({ taskId, state })),
+      [
+        { taskId: 'passed', state: 'passed' },
+        { taskId: 'failed', state: 'failed' },
+        { taskId: 'timed', state: 'timed_out' },
+        { taskId: 'infra', state: 'infra_failed' },
+        { taskId: 'stale', state: 'stale' },
+        { taskId: 'missing', state: 'missing' },
+      ],
+    );
     assert.equal('selectedTaskIds' in annotations, false);
   });
 
   test('downloads a pinned registry snapshot and rejects an unexpected fingerprint', async () => {
     const baseline = await auditHarnessOracleRegistry({
-      tasks: [{
-        task: { id: 'a', path: '/tasks/a' },
-        identity: {
-          taskFingerprint: 'sha256:task-a',
-          executionPolicyFingerprint: 'sha256:verifier',
-          environmentFingerprint: 'sha256:environment',
+      tasks: [
+        {
+          task: { id: 'a', path: '/tasks/a' },
+          identity: {
+            taskFingerprint: 'sha256:task-a',
+            executionPolicyFingerprint: 'sha256:verifier',
+            environmentFingerprint: 'sha256:environment',
+          },
         },
-      }],
+      ],
       provenance: oracleExecutionProvenance('123'),
       runOracle: async () => ({ outcome: 'passed', reward: 1, attempts: 1 }),
     });
@@ -346,7 +386,9 @@ describe('harness Oracle evidence registry', () => {
       fetch: fetchSnapshot,
     });
     assert.equal(loaded.fingerprint, baseline.snapshot.fingerprint);
-    assert.deepEqual(urls, ['https://github.com/maka-agent/maka-agent/releases/download/oracle-evidence/snapshot.json']);
+    assert.deepEqual(urls, [
+      'https://github.com/maka-agent/maka-agent/releases/download/oracle-evidence/snapshot.json',
+    ]);
 
     await assert.rejects(
       loadHarnessOracleRegistrySnapshot({
@@ -371,9 +413,15 @@ describe('harness Oracle evidence registry', () => {
     const original = buildHarnessOracleEnvironmentFingerprint(input);
     const changedDigest = buildHarnessOracleEnvironmentFingerprint({
       ...input,
-      baseImages: [input.baseImages[0]!, { ...input.baseImages[1]!, digest: `sha256:${'d'.repeat(64)}` }],
+      baseImages: [
+        input.baseImages[0]!,
+        { ...input.baseImages[1]!, digest: `sha256:${'d'.repeat(64)}` },
+      ],
     });
-    const changedPlatform = buildHarnessOracleEnvironmentFingerprint({ ...input, platform: 'linux/arm64' });
+    const changedPlatform = buildHarnessOracleEnvironmentFingerprint({
+      ...input,
+      platform: 'linux/arm64',
+    });
 
     assert.match(original, /^sha256:[a-f0-9]{64}$/);
     assert.notEqual(changedDigest, original);
@@ -385,19 +433,23 @@ describe('harness Oracle evidence registry', () => {
     try {
       const environment = join(root, 'environment');
       await mkdir(environment, { recursive: true });
-      await writeFile(join(environment, 'Dockerfile'), [
-        'FROM ubuntu:24.04 AS build',
-        'RUN true',
-        'FROM python:3.13-slim-bookworm',
-        'COPY --from=build /tmp/x /tmp/x',
-        'FROM ubuntu:24.04 AS duplicate',
-        '',
-      ].join('\n'), 'utf8');
-
-      assert.deepEqual(
-        await discoverHarnessOracleBaseImages({ id: 'a', path: root }),
-        ['python:3.13-slim-bookworm', 'ubuntu:24.04'],
+      await writeFile(
+        join(environment, 'Dockerfile'),
+        [
+          'FROM ubuntu:24.04 AS build',
+          'RUN true',
+          'FROM python:3.13-slim-bookworm',
+          'COPY --from=build /tmp/x /tmp/x',
+          'FROM ubuntu:24.04 AS duplicate',
+          '',
+        ].join('\n'),
+        'utf8',
       );
+
+      assert.deepEqual(await discoverHarnessOracleBaseImages({ id: 'a', path: root }), [
+        'python:3.13-slim-bookworm',
+        'ubuntu:24.04',
+      ]);
       const resolvedReferences: string[] = [];
       const [auditTask] = await buildHarnessOracleAuditTasks({
         tasks: [{ id: 'a', path: root }],
@@ -426,12 +478,11 @@ describe('harness Oracle evidence registry', () => {
     try {
       const taskRoot = join(root, 'source');
       await mkdir(join(taskRoot, 'environment'), { recursive: true });
-      await writeFile(join(taskRoot, 'environment', 'Dockerfile'), [
-        'FROM ubuntu:24.04 AS build',
-        'RUN true',
-        'FROM python:3.13-slim-bookworm',
-        '',
-      ].join('\n'), 'utf8');
+      await writeFile(
+        join(taskRoot, 'environment', 'Dockerfile'),
+        ['FROM ubuntu:24.04 AS build', 'RUN true', 'FROM python:3.13-slim-bookworm', ''].join('\n'),
+        'utf8',
+      );
 
       const pinned = await pinHarnessOracleTaskEnvironment(
         { id: 'task-a', path: taskRoot },
@@ -442,18 +493,19 @@ describe('harness Oracle evidence registry', () => {
         join(root, 'pinned'),
       );
 
-      assert.equal(await readFile(join(taskRoot, 'environment', 'Dockerfile'), 'utf8'), [
-        'FROM ubuntu:24.04 AS build',
-        'RUN true',
-        'FROM python:3.13-slim-bookworm',
-        '',
-      ].join('\n'));
-      assert.equal(await readFile(join(pinned.path, 'environment', 'Dockerfile'), 'utf8'), [
-        `FROM ubuntu:24.04@sha256:${'a'.repeat(64)} AS build`,
-        'RUN true',
-        `FROM python:3.13-slim-bookworm@sha256:${'b'.repeat(64)}`,
-        '',
-      ].join('\n'));
+      assert.equal(
+        await readFile(join(taskRoot, 'environment', 'Dockerfile'), 'utf8'),
+        ['FROM ubuntu:24.04 AS build', 'RUN true', 'FROM python:3.13-slim-bookworm', ''].join('\n'),
+      );
+      assert.equal(
+        await readFile(join(pinned.path, 'environment', 'Dockerfile'), 'utf8'),
+        [
+          `FROM ubuntu:24.04@sha256:${'a'.repeat(64)} AS build`,
+          'RUN true',
+          `FROM python:3.13-slim-bookworm@sha256:${'b'.repeat(64)}`,
+          '',
+        ].join('\n'),
+      );
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -489,7 +541,10 @@ function fingerprintFixture(value: unknown): string {
 function canonicalJsonFixture(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonicalJsonFixture).join(',')}]`;
   if (value && typeof value === 'object') {
-    return `{${Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => `${JSON.stringify(key)}:${canonicalJsonFixture(item)}`).join(',')}}`;
+    return `{${Object.entries(value)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, item]) => `${JSON.stringify(key)}:${canonicalJsonFixture(item)}`)
+      .join(',')}}`;
   }
   return JSON.stringify(value);
 }

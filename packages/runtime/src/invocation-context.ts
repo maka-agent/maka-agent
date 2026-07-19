@@ -13,6 +13,7 @@
  */
 
 import type { AttachmentRef } from '@maka/core/events';
+import type { SteeringLease } from '@maka/core/backend-types';
 import type { RuntimeEvent, RuntimeEventStatus } from '@maka/core/runtime-event';
 import type { StoredMessage } from '@maka/core/session';
 import type { RuntimeContinuationMetadata } from '@maka/core/backend-types';
@@ -27,7 +28,7 @@ import type { RuntimeContinuationMetadata } from '@maka/core/backend-types';
  * invocations like the ones in this node's test suite.
  */
 export const INVOCATION_SOURCES = ['desktop', 'bot', 'gateway', 'test'] as const;
-export type InvocationSource = typeof INVOCATION_SOURCES[number];
+export type InvocationSource = (typeof INVOCATION_SOURCES)[number];
 
 export function isInvocationSource(value: unknown): value is InvocationSource {
   return typeof value === 'string' && (INVOCATION_SOURCES as readonly string[]).includes(value);
@@ -89,6 +90,14 @@ export interface InvocationRequest {
   branch?: string;
   /** Lineage for retry/regenerate/branch projections. */
   lineage?: InvocationLineage;
+  /**
+   * Steering lease/ack/nack forwarded to a steppable flow/backend. Leases
+   * queued mid-turn user messages at each step boundary; see
+   * `BackendSendInput.pullSteering`.
+   */
+  pullSteering?: () => readonly SteeringLease[];
+  ackSteering?: (leaseIds: readonly string[]) => void;
+  nackSteering?: (leaseIds: readonly string[]) => void;
   /** Caller-owned abort signal; flows and tools SHOULD observe it. */
   abortSignal?: AbortSignal;
 }

@@ -1,4 +1,4 @@
-import { projectToolActivityArgs } from '@maka/core';
+import { projectAgentSwarmResult, projectToolActivityArgs } from '@maka/core';
 import type {
   SessionEvent,
   ToolActivityKind,
@@ -34,13 +34,11 @@ import { redactSecrets } from '@maka/core/redaction';
 
 import type { PermissionEngine } from './permission-engine.js';
 import type { AsyncEventQueue } from './async-queue.js';
-import {
-  recordToolArtifactsSafely,
-  type ToolArtifactRecorder,
-} from './tool-artifacts.js';
+import { recordToolArtifactsSafely, type ToolArtifactRecorder } from './tool-artifacts.js';
 import { createToolOutputDeltaEmitter } from './tool-output-delta.js';
 import { truncateToolOutput } from './tool-output.js';
 import { stableHash } from './request-shape.js';
+import { classifyError } from './provider-error-classification.js';
 import type { RunTraceLike } from './run-trace.js';
 import { TurnScopedAwaitRegistry } from './turn-scoped-await-registry.js';
 import {
@@ -50,19 +48,22 @@ import {
   type AdditionalPermissionPlanResult,
   type ToolExecutionPermissionContext,
 } from './additional-permissions.js';
-import {
-  ApprovalCoordinator,
-  type AutoApprovalReviewContext,
-} from './approval-reviewer.js';
+import { ApprovalCoordinator, type AutoApprovalReviewContext } from './approval-reviewer.js';
 import {
   SandboxEscalationError,
   type SandboxEscalationPlanResult,
   type SandboxEscalationPlannerContext,
 } from './sandbox-escalation.js';
+import { ChildAgentRunLimiter } from './child-agent-run-limiter.js';
 
 export type ToolModelOutputPart =
   | { type: 'text'; text: string }
-  | { type: 'image-data'; data: string; mediaType: string };
+  | {
+      type: 'file';
+      data: { type: 'data'; data: string | Uint8Array };
+      mediaType: string;
+      filename?: string;
+    };
 
 export interface ToolModelOutput {
   type: 'content';
@@ -95,11 +96,13 @@ export interface MakaTool<P = any, R = unknown> {
     context: Pick<MakaToolContext, 'sessionId' | 'turnId' | 'toolCallId'>,
   ) => unknown;
   /** Optional trusted platform sandbox availability for this tool. */
-  sandbox?: {
-    platformSandboxAvailable: boolean;
-  } | ((context: { permissionMode: PermissionMode; cwd: string; args: P }) => {
-    platformSandboxAvailable: boolean;
-  });
+  sandbox?:
+    | {
+        platformSandboxAvailable: boolean;
+      }
+    | ((context: { permissionMode: PermissionMode; cwd: string; args: P }) => {
+        platformSandboxAvailable: boolean;
+      });
   /** Trusted runtime planner for one-call permission expansion. */
   planAdditionalPermissions?: (
     args: P,
@@ -117,7 +120,7 @@ export interface MakaTool<P = any, R = unknown> {
     toolCallId: string;
     input: unknown;
     output: unknown;
-  }) => ToolModelOutput;
+  }) => ToolModelOutput | Promise<ToolModelOutput>;
 }
 
 export interface MakaToolContext {
@@ -130,19 +133,46 @@ export interface MakaToolContext {
   toolCallId: string;
   abortSignal: AbortSignal;
   emitOutput: (stream: ToolOutputStream, chunk: string) => void;
+  /** Diagnostic-only trace projection. It must never affect tool execution. */
+  emitRunTrace?: (
+    type: 'tool_started' | 'tool_completed' | 'tool_failed',
+    message: string,
+    data?: Record<string, unknown>,
+  ) => void;
+  /** Trusted expert-team identity supplied by RuntimeKernel/backend wiring. */
+  agentTeam?: AgentTeamExecutionContext;
   /** One-call grants already approved and consumed by ToolRuntime. */
   permissionContext?: ToolExecutionPermissionContext;
   spawnChildAgent?: (input: {
     spec: AgentSpec;
     prompt: string;
-    onReady?: (input: { turnId: string; agentId: string; agentName: string }) => void | Promise<void>;
+    onReady?: (input: {
+      turnId: string;
+      agentId: string;
+      agentName: string;
+    }) => void | Promise<void>;
+    onEvent?: (event: SessionEvent) => void;
   }) => Promise<unknown>;
   listChildAgents?: () => Promise<unknown>;
-  readChildAgentOutput?: (input: { runId?: string; turnId?: string; maxEvents?: number }) => Promise<unknown>;
+  readChildAgentOutput?: (input: {
+    runId?: string;
+    turnId?: string;
+    maxEvents?: number;
+  }) => Promise<unknown>;
   askUserQuestion?: (questions: UserQuestion[]) => Promise<UserQuestionResult>;
 }
 
-export type AppendMessageFn = (m: ToolCallMessage | ToolResultMessage | PermissionDecisionMessage) => Promise<void>;
+export interface AgentTeamExecutionContext {
+  role: 'lead' | 'member';
+  teamId: string;
+  agentId: string;
+  /** Lead AgentRun that owns this team execution. Required for members. */
+  parentRunId?: string;
+}
+
+export type AppendMessageFn = (
+  m: ToolCallMessage | ToolResultMessage | PermissionDecisionMessage,
+) => Promise<void>;
 export type ToolTelemetryRecorder = (record: ToolInvocationRecord) => void;
 
 /**
@@ -160,6 +190,7 @@ export interface ToolGating {
 
 export const TOOL_ERROR_RESULT_MAX_CHARS = 4000;
 export const MAX_ACTIVE_SUBAGENT_TOOLS_PER_TURN = 5;
+export const MAX_ACTIVE_CHILD_AGENT_RUNS_PER_TURN = 5;
 export const DEFAULT_PERMISSION_TIMEOUT_MS = 300_000;
 
 /**
@@ -173,7 +204,8 @@ export const DEFAULT_PERMISSION_TIMEOUT_MS = 300_000;
  */
 export const LOOP_GATE_IDENTICAL_THRESHOLD = 3;
 
-const SUBAGENT_TOOL_LIMIT_MESSAGE = '只读探索并发过多：同一轮最多 5 个子代理。请等待已有探索完成后再继续。';
+const SUBAGENT_TOOL_LIMIT_MESSAGE =
+  '只读探索并发过多：同一轮最多 5 个子代理。请等待已有探索完成后再继续。';
 
 export interface ToolRuntimeInput {
   sessionId: string;
@@ -186,6 +218,7 @@ export interface ToolRuntimeInput {
   now: () => number;
   getPermissionPauseTarget: () => { pause(): void; resume(): void } | null;
   getCurrentRunId?: () => string | undefined;
+  agentTeam?: AgentTeamExecutionContext;
   /**
    * Id of the assistant step currently streaming, stamped onto each tool call's
    * `tool_start` event so model replay can group a step's reasoning + tool calls
@@ -198,10 +231,19 @@ export interface ToolRuntimeInput {
     spec: AgentSpec;
     prompt: string;
     abortSignal: AbortSignal;
-    onReady?: (input: { turnId: string; agentId: string; agentName: string }) => void | Promise<void>;
+    onReady?: (input: {
+      turnId: string;
+      agentId: string;
+      agentName: string;
+    }) => void | Promise<void>;
+    onEvent?: (event: SessionEvent) => void;
   }) => Promise<unknown>;
   listChildAgents?: () => Promise<unknown>;
-  readChildAgentOutput?: (input: { runId?: string; turnId?: string; maxEvents?: number }) => Promise<unknown>;
+  readChildAgentOutput?: (input: {
+    runId?: string;
+    turnId?: string;
+    maxEvents?: number;
+  }) => Promise<unknown>;
   getRunTrace?: () => RunTraceLike | null;
   permissionTimeoutMs?: number;
   permissionRules?: readonly ToolPermissionRule[];
@@ -220,6 +262,7 @@ export class ToolRuntime {
     { toolUseId: string; questions: UserQuestion[] }
   >();
   private activeSubagentToolCount = 0;
+  private childAgentRunLimiter = new ChildAgentRunLimiter(MAX_ACTIVE_CHILD_AGENT_RUNS_PER_TURN);
   /**
    * Tool-availability gating for the execute boundary. Set by the backend each
    * turn from `ToolAvailabilityRuntime`. Undefined when gating is off (economy
@@ -252,7 +295,8 @@ export class ToolRuntime {
   endTurn(turnId: string, reason: 'completed' | 'aborted' = 'completed'): void {
     this.userQuestions.endTurn(
       turnId,
-      (requestId) => new Error(`Turn ${turnId} ${reason} before user question ${requestId} was answered`),
+      (requestId) =>
+        new Error(`Turn ${turnId} ${reason} before user question ${requestId} was answered`),
     );
     this.resetTurnState();
   }
@@ -261,12 +305,15 @@ export class ToolRuntime {
     if (!response || typeof response.requestId !== 'string' || !Array.isArray(response.answers)) {
       throw new Error('Invalid user question response');
     }
-    const pending = this.userQuestions.entries(turnId)
+    const pending = this.userQuestions
+      .entries(turnId)
       .find(([requestId]) => requestId === response.requestId)?.[1];
     if (!pending) return false;
     if (
-      response.answers.length !== pending.questions.length
-      || response.answers.some((answer) => answer !== null && (typeof answer !== 'string' || answer.length === 0))
+      response.answers.length !== pending.questions.length ||
+      response.answers.some(
+        (answer) => answer !== null && (typeof answer !== 'string' || answer.length === 0),
+      )
     ) {
       throw new Error('Invalid user question response');
     }
@@ -299,6 +346,11 @@ export class ToolRuntime {
   }
 
   resetTurnState(): void {
+    const priorChildAgentRunLimiter = this.childAgentRunLimiter;
+    this.childAgentRunLimiter = new ChildAgentRunLimiter(MAX_ACTIVE_CHILD_AGENT_RUNS_PER_TURN);
+    priorChildAgentRunLimiter.close(
+      new Error('Child agent run permit scope ended before capacity became available'),
+    );
     this.activeSubagentToolCount = 0;
     this.gating = undefined;
     this.lastFailedToolCallSignature = undefined;
@@ -372,18 +424,21 @@ export class ToolRuntime {
     let permissionArgsError: unknown;
     try {
       permissionArgs = tool.permissionArgs
-        ? snapshotToolArgs(tool.permissionArgs(structuredClone(executionArgs) as never, {
-            sessionId: this.input.sessionId,
-            turnId,
-            toolCallId: toolUseId,
-          }))
+        ? snapshotToolArgs(
+            tool.permissionArgs(structuredClone(executionArgs) as never, {
+              sessionId: this.input.sessionId,
+              turnId,
+              toolCallId: toolUseId,
+            }),
+          )
         : executionArgs;
     } catch (error) {
       permissionArgsError = error;
     }
-    const persistedArgs = tool.categoryHint === 'computer_use'
-      ? snapshotToolArgs(computerUseApprovalSummary(permissionArgs))
-      : permissionArgs;
+    const persistedArgs =
+      tool.categoryHint === 'computer_use'
+        ? snapshotToolArgs(computerUseApprovalSummary(permissionArgs))
+        : permissionArgs;
     const now = this.input.now();
     const toolIntent = describeToolIntent(tool, persistedArgs);
     const trace = this.input.getRunTrace?.() ?? null;
@@ -425,13 +480,15 @@ export class ToolRuntime {
       ...(tool.categoryHint !== undefined ? { categoryHint: tool.categoryHint } : {}),
     });
     const callSignature = `${tool.name} ${loopGateArgsKey(executionArgs, toolUseId)}`;
-    const computerSemanticSignature = tool.categoryHint === 'computer_use'
-      ? computerUseSemanticSignature(permissionArgs)
-      : undefined;
+    const computerSemanticSignature =
+      tool.categoryHint === 'computer_use'
+        ? computerUseSemanticSignature(permissionArgs)
+        : undefined;
     if (permissionArgsError !== undefined) {
-      const msg = tool.categoryHint === 'computer_use'
-        ? 'Computer Use arguments failed validation'
-        : formatSyntheticToolErrorText(permissionArgsError);
+      const msg =
+        tool.categoryHint === 'computer_use'
+          ? 'Computer Use arguments failed validation'
+          : formatSyntheticToolErrorText(permissionArgsError);
       await this.writeSyntheticToolResult(toolUseId, turnId, msg, queue);
       this.input.recordToolInvocation?.({
         sessionId: this.input.sessionId,
@@ -443,9 +500,10 @@ export class ToolRuntime {
         durationMs: 0,
         status: 'error',
         errorClass: 'InvalidArguments',
-        argsSummary: tool.categoryHint === 'computer_use'
-          ? summarizePersistedArgs(persistedArgs)
-          : summarizeArgs(tool.name, executionArgs),
+        argsSummary:
+          tool.categoryHint === 'computer_use'
+            ? summarizePersistedArgs(persistedArgs)
+            : summarizeArgs(tool.name, executionArgs),
         bytesIn: byteLength(persistedArgs),
         bytesOut: byteLength(msg),
         startedAt: now,
@@ -471,8 +529,8 @@ export class ToolRuntime {
     // is told to change its approach. The block itself records no outcome, so the
     // streak stays parked and every further identical repeat stays blocked.
     if (
-      computerSemanticSignature
-      && computerSemanticSignature === this.lastAmbiguousComputerSignature
+      computerSemanticSignature &&
+      computerSemanticSignature === this.lastAmbiguousComputerSignature
     ) {
       const reason = formatAmbiguousComputerLoopGateText();
       await this.writeSyntheticToolResult(toolUseId, turnId, reason, queue);
@@ -485,15 +543,15 @@ export class ToolRuntime {
       return this.errorReturn(reason);
     }
     if (
-      this.lastAmbiguousComputerSignature
-      && computerSemanticSignature
-      && computerSemanticSignature !== this.lastAmbiguousComputerSignature
+      this.lastAmbiguousComputerSignature &&
+      computerSemanticSignature &&
+      computerSemanticSignature !== this.lastAmbiguousComputerSignature
     ) {
       this.lastAmbiguousComputerSignature = undefined;
     }
     if (
-      callSignature === this.lastFailedToolCallSignature
-      && this.failedToolCallStreak >= LOOP_GATE_IDENTICAL_THRESHOLD - 1
+      callSignature === this.lastFailedToolCallSignature &&
+      this.failedToolCallStreak >= LOOP_GATE_IDENTICAL_THRESHOLD - 1
     ) {
       const reason = formatLoopGateText(tool.name);
       await this.writeSyntheticToolResult(toolUseId, turnId, reason, queue);
@@ -513,7 +571,11 @@ export class ToolRuntime {
     // before permission eval and before the real impl. This also closes the AI
     // SDK `activeTools` leak (vercel/ai#8653). The rejection is recoverable: the
     // model loads via `load_tools`, then retries next step.
-    if (this.gating && this.gating.gatedNames.has(tool.name) && !this.gating.activeNames().has(tool.name)) {
+    if (
+      this.gating &&
+      this.gating.gatedNames.has(tool.name) &&
+      !this.gating.activeNames().has(tool.name)
+    ) {
       const reason = formatDeferredNotLoadedText(tool.name);
       await this.writeSyntheticToolResult(toolUseId, turnId, reason, queue);
       trace?.emit('tool', 'tool_failed', 'Deferred tool used before load', {
@@ -594,12 +656,11 @@ export class ToolRuntime {
           args: executionArgs,
           ...(this.recentSandboxDenials.has(
             sandboxDenialKey(tool.name, this.input.header.cwd, executionArgs),
-          ) ? { recentSandboxDenial: true } : {}),
+          )
+            ? { recentSandboxDenial: true }
+            : {}),
         });
-        const planned = await tool.planSandboxEscalation(
-          executionArgs as never,
-          plannerContext,
-        );
+        const planned = await tool.planSandboxEscalation(executionArgs as never, plannerContext);
         if (!isSandboxEscalationPlanResult(planned)) {
           throw new SandboxEscalationError({
             stage: 'planning',
@@ -617,11 +678,16 @@ export class ToolRuntime {
       }
       if (escalationPlan.kind === 'block') {
         const reason = formatSyntheticToolErrorText(escalationPlan.message);
-        trace?.emit('permission', 'sandbox_escalation_failed', 'Sandbox escalation planning failed', {
-          toolUseId,
-          toolName: tool.name,
-          reason: escalationPlan.reason,
-        });
+        trace?.emit(
+          'permission',
+          'sandbox_escalation_failed',
+          'Sandbox escalation planning failed',
+          {
+            toolUseId,
+            toolName: tool.name,
+            reason: escalationPlan.reason,
+          },
+        );
         await this.writeSyntheticToolResult(toolUseId, turnId, reason, queue);
         this.recordLoopGateOutcome(callSignature, true);
         return this.errorReturn(reason);
@@ -629,7 +695,8 @@ export class ToolRuntime {
     }
 
     if (additionalPlan.kind === 'request' && escalationPlan.kind === 'request') {
-      const reason = 'A tool call cannot request additional permissions and unsandboxed execution together.';
+      const reason =
+        'A tool call cannot request additional permissions and unsandboxed execution together.';
       await this.writeSyntheticToolResult(toolUseId, turnId, reason, queue);
       this.recordLoopGateOutcome(callSignature, true);
       return this.errorReturn(reason);
@@ -640,14 +707,20 @@ export class ToolRuntime {
       autoReviewEscalationKey = `${turnId}\u0000${escalationPlan.proposal.commandHash}`;
       const priorAttempt = this.autoReviewEscalationAttempts.get(autoReviewEscalationKey);
       if (priorAttempt) {
-        const reason = priorAttempt === 'pending'
-          ? '相同的 sandbox 提权请求正在自动审批；为防止重复送审，本轮不会再次执行。'
-          : '相同的 sandbox 提权请求已在当前轮次中被自动审批拒绝；需要用户发送新的消息后才能重新申请。';
-        trace?.emit('permission', 'sandbox_escalation_failed', 'Repeated automatic escalation review blocked', {
-          toolUseId,
-          toolName: tool.name,
-          reason: 'sandbox_escalation_denied',
-        });
+        const reason =
+          priorAttempt === 'pending'
+            ? '相同的 sandbox 提权请求正在自动审批；为防止重复送审，本轮不会再次执行。'
+            : '相同的 sandbox 提权请求已在当前轮次中被自动审批拒绝；需要用户发送新的消息后才能重新申请。';
+        trace?.emit(
+          'permission',
+          'sandbox_escalation_failed',
+          'Repeated automatic escalation review blocked',
+          {
+            toolUseId,
+            toolName: tool.name,
+            reason: 'sandbox_escalation_denied',
+          },
+        );
         await this.writeSyntheticToolResult(toolUseId, turnId, reason, queue);
         this.recordLoopGateOutcome(callSignature, true);
         return this.errorReturn(reason);
@@ -656,36 +729,38 @@ export class ToolRuntime {
     }
 
     if (
-      tool.permissionRequired !== false
-      || (this.input.permissionRules?.length ?? 0) > 0
-      || additionalPlan.kind === 'request'
-      || escalationPlan.kind === 'request'
+      tool.permissionRequired !== false ||
+      (this.input.permissionRules?.length ?? 0) > 0 ||
+      additionalPlan.kind === 'request' ||
+      escalationPlan.kind === 'request'
     ) {
       const verdict = this.input.permissionEngine.evaluate({
         sessionId: this.input.sessionId,
         turnId,
         toolUseId,
         toolName: tool.name,
-        args: structuredClone(
-          additionalPlan.kind === 'request' ? executionArgs : permissionArgs,
-        ),
+        args: structuredClone(additionalPlan.kind === 'request' ? executionArgs : permissionArgs),
         ...(tool.categoryHint !== undefined ? { categoryHint: tool.categoryHint } : {}),
         ...(tool.executionFacts !== undefined ? { executionFacts: tool.executionFacts } : {}),
         permissionRequired: tool.permissionRequired !== false,
-        ...(this.input.permissionRules !== undefined ? { permissionRules: this.input.permissionRules } : {}),
-        ...(tool.sandbox !== undefined ? {
-          sandbox: typeof tool.sandbox === 'function'
-            ? tool.sandbox({
-              permissionMode: this.input.header.permissionMode,
-              cwd: this.input.header.cwd,
-              args: structuredClone(executionArgs),
-            })
-            : tool.sandbox,
-        } : {}),
+        ...(this.input.permissionRules !== undefined
+          ? { permissionRules: this.input.permissionRules }
+          : {}),
+        ...(tool.sandbox !== undefined
+          ? {
+              sandbox:
+                typeof tool.sandbox === 'function'
+                  ? tool.sandbox({
+                      permissionMode: this.input.header.permissionMode,
+                      cwd: this.input.header.cwd,
+                      args: structuredClone(executionArgs),
+                    })
+                  : tool.sandbox,
+            }
+          : {}),
         mode: this.input.header.permissionMode,
-        cwd: escalationPlan.kind === 'request'
-          ? escalationPlan.proposal.cwd
-          : this.input.header.cwd,
+        cwd:
+          escalationPlan.kind === 'request' ? escalationPlan.proposal.cwd : this.input.header.cwd,
         ...(additionalPlan.kind === 'request'
           ? { additionalPermissionProposal: additionalPlan.proposal }
           : {}),
@@ -731,9 +806,8 @@ export class ToolRuntime {
         const reviewContext: AutoApprovalReviewContext = {
           sessionId: this.input.sessionId,
           turnId,
-          cwd: escalationPlan.kind === 'request'
-            ? escalationPlan.proposal.cwd
-            : this.input.header.cwd,
+          cwd:
+            escalationPlan.kind === 'request' ? escalationPlan.proposal.cwd : this.input.header.cwd,
           permissionMode: this.input.header.permissionMode,
           ...this.input.getAutoApprovalReviewContext?.(),
         };
@@ -745,21 +819,22 @@ export class ToolRuntime {
           reviewer: this.input.header.permissionMode === 'execute' ? 'auto_review' : 'user',
           requestKind: verdict.event.kind,
         });
-        trace?.emit('permission', isEscalation
-          ? 'sandbox_escalation_requested'
-          : 'permission_requested', 'Permission requested', {
-          requestId: verdict.event.requestId,
-          toolUseId,
-          toolName: tool.name,
-          category: verdict.event.category,
-          requestKind: verdict.event.kind,
-        });
+        trace?.emit(
+          'permission',
+          isEscalation ? 'sandbox_escalation_requested' : 'permission_requested',
+          'Permission requested',
+          {
+            requestId: verdict.event.requestId,
+            toolUseId,
+            toolName: tool.name,
+            category: verdict.event.category,
+            requestKind: verdict.event.kind,
+          },
+        );
         let response: PermissionDecision;
         try {
-          response = await this.awaitPermissionDecision(
-            verdict,
-            turnId,
-            () => this.approvalCoordinator.resolve({
+          response = await this.awaitPermissionDecision(verdict, turnId, () =>
+            this.approvalCoordinator.resolve({
               mode: this.input.header.permissionMode,
               verdict,
               permissionEngine: this.input.permissionEngine,
@@ -779,19 +854,25 @@ export class ToolRuntime {
             toolUseId,
             toolName: tool.name,
             requestKind: verdict.event.kind ?? 'tool_permission',
-            reason: err instanceof AdditionalPermissionError
-              ? err.reason
-              : err instanceof SandboxEscalationError
+            reason:
+              err instanceof AdditionalPermissionError
                 ? err.reason
-                : reason,
+                : err instanceof SandboxEscalationError
+                  ? err.reason
+                  : reason,
           });
           if (isEscalation) {
-            trace?.emit('permission', 'sandbox_escalation_failed', 'Sandbox escalation flow failed', {
-              requestId: verdict.event.requestId,
-              toolUseId,
-              toolName: tool.name,
-              reason,
-            });
+            trace?.emit(
+              'permission',
+              'sandbox_escalation_failed',
+              'Sandbox escalation flow failed',
+              {
+                requestId: verdict.event.requestId,
+                toolUseId,
+                toolName: tool.name,
+                reason,
+              },
+            );
           }
           await this.writeSyntheticToolResult(toolUseId, turnId, reason, queue);
           trace?.emit('tool', 'tool_failed', 'Tool execution failed before implementation', {
@@ -812,7 +893,9 @@ export class ToolRuntime {
           toolUseId,
           toolName: tool.name,
           decision: response.decision,
-          ...(response.rememberForTurn !== undefined ? { rememberForTurn: response.rememberForTurn } : {}),
+          ...(response.rememberForTurn !== undefined
+            ? { rememberForTurn: response.rememberForTurn }
+            : {}),
           ...(response.reviewer !== undefined ? { reviewer: response.reviewer } : {}),
           ...(response.rationale !== undefined ? { rationale: response.rationale } : {}),
           ...(response.riskLevel !== undefined ? { riskLevel: response.riskLevel } : {}),
@@ -826,7 +909,9 @@ export class ToolRuntime {
           requestId: response.requestId,
           toolUseId,
           decision: response.decision,
-          ...(response.rememberForTurn !== undefined ? { rememberForTurn: response.rememberForTurn } : {}),
+          ...(response.rememberForTurn !== undefined
+            ? { rememberForTurn: response.rememberForTurn }
+            : {}),
           ...(response.reviewer !== undefined ? { reviewer: response.reviewer } : {}),
           ...(response.rationale !== undefined ? { rationale: response.rationale } : {}),
           ...(response.riskLevel !== undefined ? { riskLevel: response.riskLevel } : {}),
@@ -837,7 +922,9 @@ export class ToolRuntime {
           toolName: tool.name,
           decision: response.decision,
           requestKind: verdict.event.kind ?? 'tool_permission',
-          ...(response.rememberForTurn !== undefined ? { rememberForTurn: response.rememberForTurn } : {}),
+          ...(response.rememberForTurn !== undefined
+            ? { rememberForTurn: response.rememberForTurn }
+            : {}),
           ...(response.reviewer !== undefined ? { reviewer: response.reviewer } : {}),
           ...(response.riskLevel !== undefined ? { riskLevel: response.riskLevel } : {}),
         });
@@ -846,9 +933,10 @@ export class ToolRuntime {
           if (autoReviewEscalationKey && response.reviewer === 'auto_review') {
             this.autoReviewEscalationAttempts.set(autoReviewEscalationKey, 'denied');
           }
-          const reason = response.reviewer === 'auto_review'
-            ? `自动审批已拒绝权限请求${response.rationale ? `：${response.rationale}` : ''}`
-            : '用户已拒绝权限请求';
+          const reason =
+            response.reviewer === 'auto_review'
+              ? `自动审批已拒绝权限请求${response.rationale ? `：${response.rationale}` : ''}`
+              : '用户已拒绝权限请求';
           if (isEscalation) {
             trace?.emit('permission', 'sandbox_escalation_denied', 'Sandbox escalation denied', {
               requestId: response.requestId,
@@ -876,9 +964,8 @@ export class ToolRuntime {
             toolUseId,
             toolName: tool.name,
             reviewer: response.reviewer ?? 'user',
-            commandHash: verdict.event.kind === 'sandbox_escalation'
-              ? verdict.event.commandHash
-              : undefined,
+            commandHash:
+              verdict.event.kind === 'sandbox_escalation' ? verdict.event.commandHash : undefined,
           });
         }
       } else {
@@ -900,6 +987,7 @@ export class ToolRuntime {
         toolUseId,
         toolName: tool.name,
         errorClass: 'RuntimeLimit',
+        boundary: 'subagent_tool_admission',
       });
       await this.writeSyntheticToolResult(toolUseId, turnId, SUBAGENT_TOOL_LIMIT_MESSAGE, queue);
       this.recordLoopGateOutcome(callSignature, true);
@@ -930,14 +1018,20 @@ export class ToolRuntime {
         permissionContext = Object.freeze({ additionalGrant });
       } catch (error) {
         const reason = formatSyntheticToolErrorText(error);
-        trace?.emit('permission', 'permission_failed', 'Additional permission could not be applied', {
-          toolUseId,
-          toolName: tool.name,
-          requestKind: 'additional_permissions',
-          reason: error instanceof AdditionalPermissionError
-            ? error.reason
-            : 'invalid_additional_permissions',
-        });
+        trace?.emit(
+          'permission',
+          'permission_failed',
+          'Additional permission could not be applied',
+          {
+            toolUseId,
+            toolName: tool.name,
+            requestKind: 'additional_permissions',
+            reason:
+              error instanceof AdditionalPermissionError
+                ? error.reason
+                : 'invalid_additional_permissions',
+          },
+        );
         await this.writeSyntheticToolResult(toolUseId, turnId, reason, queue);
         this.recordLoopGateOutcome(callSignature, true);
         this.releaseSubagentSlot(tool);
@@ -973,13 +1067,17 @@ export class ToolRuntime {
         });
       } catch (error) {
         const reason = formatSyntheticToolErrorText(error);
-        trace?.emit('permission', 'sandbox_escalation_failed', 'Sandbox escalation could not be applied', {
-          toolUseId,
-          toolName: tool.name,
-          reason: error instanceof SandboxEscalationError
-            ? error.reason
-            : 'sandbox_escalation_failed',
-        });
+        trace?.emit(
+          'permission',
+          'sandbox_escalation_failed',
+          'Sandbox escalation could not be applied',
+          {
+            toolUseId,
+            toolName: tool.name,
+            reason:
+              error instanceof SandboxEscalationError ? error.reason : 'sandbox_escalation_failed',
+          },
+        );
         await this.writeSyntheticToolResult(toolUseId, turnId, reason, queue);
         this.recordLoopGateOutcome(callSignature, true);
         this.releaseSubagentSlot(tool);
@@ -1022,10 +1120,32 @@ export class ToolRuntime {
           toolCallId: toolUseId,
           abortSignal: ctx.abortSignal,
           emitOutput: output.emit,
+          ...(trace
+            ? {
+                emitRunTrace: (
+                  type: 'tool_started' | 'tool_completed' | 'tool_failed',
+                  message: string,
+                  data?: Record<string, unknown>,
+                ) =>
+                  trace.emit('tool', type, message, {
+                    toolUseId,
+                    toolName: tool.name,
+                    ...(data ?? {}),
+                  }),
+              }
+            : {}),
+          ...(this.input.agentTeam ? { agentTeam: this.input.agentTeam } : {}),
           ...(permissionContext ? { permissionContext } : {}),
           ...(this.input.listChildAgents ? { listChildAgents: this.input.listChildAgents } : {}),
-          ...(this.input.readChildAgentOutput ? { readChildAgentOutput: this.input.readChildAgentOutput } : {}),
-          ...(this.buildSpawnChildAgentContext(ctx.abortSignal)),
+          ...(this.input.readChildAgentOutput
+            ? { readChildAgentOutput: this.input.readChildAgentOutput }
+            : {}),
+          ...this.buildSpawnChildAgentContext({
+            abortSignal: ctx.abortSignal,
+            trace,
+            toolUseId,
+            toolName: tool.name,
+          }),
           askUserQuestion: (questions) => this.askUserQuestion(turnId, toolUseId, questions, queue),
         });
         output.flush();
@@ -1036,14 +1156,21 @@ export class ToolRuntime {
         if (hasSandboxDenial(content)) {
           const denialKey = sandboxDenialKey(tool.name, this.input.header.cwd, executionArgs);
           this.recentSandboxDenials.add(denialKey);
-          this.recentSandboxDenials.add(sandboxDenialKey('Bash', this.input.header.cwd, {
-            command: content.cmd,
-          }));
-          trace?.emit('sandbox', 'sandbox_denial_detected', 'Command likely failed because of sandbox enforcement', {
-            toolUseId,
-            toolName: tool.name,
-            commandHash: denialKey,
-          });
+          this.recentSandboxDenials.add(
+            sandboxDenialKey('Bash', this.input.header.cwd, {
+              command: content.cmd,
+            }),
+          );
+          trace?.emit(
+            'sandbox',
+            'sandbox_denial_detected',
+            'Command likely failed because of sandbox enforcement',
+            {
+              toolUseId,
+              toolName: tool.name,
+              commandHash: denialKey,
+            },
+          );
         }
         const resultMsg: ToolResultMessage = {
           type: 'tool_result',
@@ -1076,9 +1203,11 @@ export class ToolRuntime {
           modelId: this.input.modelId,
           durationMs,
           status: toolResultStatus,
-          argsSummary: tool.categoryHint === 'computer_use'
-            ? summarizePersistedArgs(persistedArgs)
-            : summarizeArgs(tool.name, executionArgs),
+          argsSummary:
+            tool.categoryHint === 'computer_use'
+              ? summarizePersistedArgs(persistedArgs)
+              : summarizeArgs(tool.name, executionArgs),
+          resultSummary: summarizeToolResultForTelemetry(content),
           bytesIn: byteLength(persistedArgs),
           bytesOut: byteLength(result),
           startedAt,
@@ -1088,6 +1217,7 @@ export class ToolRuntime {
           toolName: tool.name,
           durationMs,
           status: toolResultStatus,
+          resultSummary: summarizeToolResultForTelemetry(content),
         });
 
         void recordToolArtifactsSafely(
@@ -1125,16 +1255,26 @@ export class ToolRuntime {
       }
     } catch (err) {
       output.flush();
-      const terminalFailure = coerceTerminalFailure(tool, this.input.header.cwd, executionArgs, err);
+      const terminalFailure = coerceTerminalFailure(
+        tool,
+        this.input.header.cwd,
+        executionArgs,
+        err,
+      );
       if (terminalFailure) {
         if (terminalFailure.sandboxDenied) {
           const denialKey = sandboxDenialKey(tool.name, this.input.header.cwd, executionArgs);
           this.recentSandboxDenials.add(denialKey);
-          trace?.emit('sandbox', 'sandbox_denial_detected', 'Command likely failed because of sandbox enforcement', {
-            toolUseId,
-            toolName: tool.name,
-            commandHash: denialKey,
-          });
+          trace?.emit(
+            'sandbox',
+            'sandbox_denial_detected',
+            'Command likely failed because of sandbox enforcement',
+            {
+              toolUseId,
+              toolName: tool.name,
+              commandHash: denialKey,
+            },
+          );
         }
         const durationMs = Math.max(0, this.input.now() - startedAt);
         const resultMsg: ToolResultMessage = {
@@ -1168,9 +1308,11 @@ export class ToolRuntime {
           durationMs,
           status: 'error',
           errorClass: classifyError(err),
-          argsSummary: tool.categoryHint === 'computer_use'
-            ? summarizePersistedArgs(persistedArgs)
-            : summarizeArgs(tool.name, executionArgs),
+          argsSummary:
+            tool.categoryHint === 'computer_use'
+              ? summarizePersistedArgs(persistedArgs)
+              : summarizeArgs(tool.name, executionArgs),
+          resultSummary: summarizeToolResultForTelemetry(terminalFailure.content),
           bytesIn: byteLength(persistedArgs),
           bytesOut: byteLength(terminalFailure.content),
           startedAt,
@@ -1184,9 +1326,10 @@ export class ToolRuntime {
         });
         return this.errorReturn(terminalFailure.message);
       }
-      const msg = tool.categoryHint === 'computer_use'
-        ? `Computer Use failed: ${classifyError(err)}`
-        : formatSyntheticToolErrorText(err);
+      const msg =
+        tool.categoryHint === 'computer_use'
+          ? `Computer Use failed: ${classifyError(err)}`
+          : formatSyntheticToolErrorText(err);
       await this.writeSyntheticToolResult(toolUseId, turnId, msg, queue);
       this.input.recordToolInvocation?.({
         sessionId: this.input.sessionId,
@@ -1198,9 +1341,10 @@ export class ToolRuntime {
         durationMs: Math.max(0, this.input.now() - startedAt),
         status: 'error',
         errorClass: classifyError(err),
-        argsSummary: tool.categoryHint === 'computer_use'
-          ? summarizePersistedArgs(persistedArgs)
-          : summarizeArgs(tool.name, executionArgs),
+        argsSummary:
+          tool.categoryHint === 'computer_use'
+            ? summarizePersistedArgs(persistedArgs)
+            : summarizeArgs(tool.name, executionArgs),
         bytesIn: byteLength(persistedArgs),
         bytesOut: 0,
         startedAt,
@@ -1263,19 +1407,102 @@ export class ToolRuntime {
     return { error: message };
   }
 
-  private buildSpawnChildAgentContext(
-    abortSignal: AbortSignal,
-  ): Pick<MakaToolContext, 'spawnChildAgent'> {
+  private buildSpawnChildAgentContext(input: {
+    abortSignal: AbortSignal;
+    trace: RunTraceLike | null;
+    toolUseId: string;
+    toolName: string;
+  }): Pick<MakaToolContext, 'spawnChildAgent'> {
     const parentRunId = this.input.getCurrentRunId?.();
-    if (!parentRunId || !this.input.spawnChildAgent) return {};
+    const spawnChildAgent = this.input.spawnChildAgent;
+    if (!parentRunId || !spawnChildAgent) return {};
+    const limiter = this.childAgentRunLimiter;
     return {
-      spawnChildAgent: (input) => this.input.spawnChildAgent?.({
-        parentRunId,
-        spec: input.spec,
-        prompt: input.prompt,
-        abortSignal,
-        ...(input.onReady ? { onReady: input.onReady } : {}),
-      }) ?? Promise.reject(new Error('spawnChildAgent is unavailable')),
+      spawnChildAgent: async (spawnInput) => {
+        const waitingForPermit =
+          limiter.activeCount >= limiter.capacity || limiter.waitingCount > 0;
+        if (waitingForPermit) {
+          input.trace?.emit(
+            'tool',
+            'tool_started',
+            'Child run waiting for shared runtime capacity',
+            {
+              toolUseId: input.toolUseId,
+              toolName: input.toolName,
+              boundary: 'shared_child_run_permit',
+              stage: 'waiting',
+              activeChildRuns: limiter.activeCount,
+              waitingChildRuns: limiter.waitingCount + 1,
+              capacity: limiter.capacity,
+            },
+          );
+        }
+        let permit;
+        try {
+          permit = await limiter.acquire(input.abortSignal);
+        } catch (error) {
+          input.trace?.emit(
+            'tool',
+            'tool_failed',
+            'Child run did not acquire shared runtime capacity',
+            {
+              toolUseId: input.toolUseId,
+              toolName: input.toolName,
+              boundary: 'shared_child_run_permit',
+              stage: 'cancelled_while_waiting',
+              status: input.abortSignal.aborted ? 'aborted' : 'error',
+            },
+          );
+          throw error;
+        }
+        const childStartedAt = this.input.now();
+        input.trace?.emit('tool', 'tool_started', 'Child run execution started', {
+          toolUseId: input.toolUseId,
+          toolName: input.toolName,
+          boundary: 'child_run_execution',
+          stage: 'started',
+          waitedForPermit: waitingForPermit,
+          activeChildRuns: limiter.activeCount,
+          waitingChildRuns: limiter.waitingCount,
+          capacity: limiter.capacity,
+        });
+        try {
+          if (input.abortSignal.aborted) {
+            throw input.abortSignal.reason instanceof Error
+              ? input.abortSignal.reason
+              : new Error('Child agent run cancelled before it started');
+          }
+          const result = await spawnChildAgent({
+            parentRunId,
+            spec: spawnInput.spec,
+            prompt: spawnInput.prompt,
+            abortSignal: input.abortSignal,
+            ...(spawnInput.onReady ? { onReady: spawnInput.onReady } : {}),
+            ...(spawnInput.onEvent ? { onEvent: spawnInput.onEvent } : {}),
+          });
+          input.trace?.emit('tool', 'tool_completed', 'Child run execution completed', {
+            toolUseId: input.toolUseId,
+            toolName: input.toolName,
+            boundary: 'child_run_execution',
+            stage: 'completed',
+            status: 'success',
+            durationMs: Math.max(0, this.input.now() - childStartedAt),
+          });
+          return result;
+        } catch (error) {
+          input.trace?.emit('tool', 'tool_failed', 'Child run execution failed', {
+            toolUseId: input.toolUseId,
+            toolName: input.toolName,
+            boundary: 'child_run_execution',
+            stage: 'completed',
+            status: input.abortSignal.aborted ? 'aborted' : 'error',
+            durationMs: Math.max(0, this.input.now() - childStartedAt),
+          });
+          throw error;
+        } finally {
+          permit.release();
+        }
+      },
     };
   }
 
@@ -1338,11 +1565,12 @@ function computerUseSemanticSignature(args: unknown): string | undefined {
   if (!args || typeof args !== 'object' || Array.isArray(args)) return undefined;
   const record = args as Record<string, unknown>;
   if (
-    record.action !== 'click_element'
-    && record.action !== 'set_value'
-    && record.action !== 'select_text'
-    && record.action !== 'secondary_action'
-  ) return undefined;
+    record.action !== 'click_element' &&
+    record.action !== 'set_value' &&
+    record.action !== 'select_text' &&
+    record.action !== 'secondary_action'
+  )
+    return undefined;
   try {
     const elementIdentity = stableElementIdentity(record.element_identity);
     return stableHash({
@@ -1386,9 +1614,9 @@ export function formatLoopGateText(toolName: string): string {
 
 export function formatAmbiguousComputerLoopGateText(): string {
   return (
-    'Blocked: this Computer Use semantic target was already rejected as ambiguous '
-    + 'after a fresh observation. Do not retry the same element identity or guess '
-    + 'between duplicates; choose a uniquely identified target or stop.'
+    'Blocked: this Computer Use semantic target was already rejected as ambiguous ' +
+    'after a fresh observation. Do not retry the same element identity or guess ' +
+    'between duplicates; choose a uniquely identified target or stop.'
   );
 }
 
@@ -1397,278 +1625,6 @@ export function formatSyntheticToolErrorText(error: unknown): string {
   const redacted = redactSecrets(raw || 'Tool failed');
   if (redacted.length <= TOOL_ERROR_RESULT_MAX_CHARS) return redacted;
   return `${redacted.slice(0, TOOL_ERROR_RESULT_MAX_CHARS - 1)}…`;
-}
-
-/**
- * Structured provider error identifiers that mean the INPUT exceeded the
- * model's context window. These come from the provider's error JSON and are
- * the ONLY unconditional overflow evidence: free-text signals are vetoable.
- */
-const CONTEXT_OVERFLOW_PROVIDER_CODES: ReadonlySet<string> = new Set([
-  'context_length_exceeded', // OpenAI & OpenAI-compatible: error.code
-  'model_context_window_exceeded', // z.ai: error.code
-  'request_too_large', // Anthropic byte-size overflow (HTTP 413): error.type
-]);
-
-/**
- * A provider failure normalized into classification evidence. classifyError's
- * real input domain is NOT just Error instances: a request-level failure is
- * an AI SDK `APICallError` (provider JSON parsed in `data`, raw in
- * `responseBody`; no top-level `.code`), while an in-stream error part
- * carries the provider's parsed error VALUE — OpenAI Chat emits the inner
- * `{message, type?, code?}` object, OpenAI Responses the whole
- * `{type:'error', error:{type, code, message}}` chunk, Anthropic the inner
- * `{type, message}` object, and openai-compatible a bare message string.
- * Shapes read from the provider sources, never invented.
- */
-interface ProviderErrorEvidence {
-  /** Lowercased composite of the textual fields, for pattern evidence. */
-  text: string;
-  /** Explicit HTTP status from a field ('' when absent) — never a substring. */
-  statusCode: string;
-  /** Top-level code field as a string ('' when absent). */
-  code: string;
-  /** Structured provider identifiers (code/type), lowercased. */
-  structuredCodes: string[];
-}
-
-/** Collects `code`/`type` strings from a payload and from its `error` wrapper. */
-function collectStructuredCodes(payload: unknown, out: string[]): void {
-  const fromRecord = (record: unknown) => {
-    if (typeof record !== 'object' || record === null) return;
-    for (const key of ['code', 'type'] as const) {
-      const value = (record as Record<string, unknown>)[key];
-      if (typeof value === 'string' && value) out.push(value.toLowerCase());
-    }
-  };
-  fromRecord(payload);
-  if (typeof payload === 'object' && payload !== null) {
-    fromRecord((payload as { error?: unknown }).error);
-  }
-}
-
-function normalizeErrorEvidence(error: unknown): ProviderErrorEvidence | undefined {
-  if (error instanceof Error) {
-    const code = 'code' in error ? String((error as { code?: unknown }).code) : '';
-    const statusCode = 'statusCode' in error
-      ? String((error as { statusCode?: unknown }).statusCode)
-      : 'status' in error
-        ? String((error as { status?: unknown }).status)
-        : '';
-    const rawBody = (error as { responseBody?: unknown }).responseBody;
-    const body = typeof rawBody === 'string' ? rawBody : '';
-    const structuredCodes: string[] = [];
-    collectStructuredCodes((error as { data?: unknown }).data, structuredCodes);
-    if (structuredCodes.length === 0 && body) {
-      // The failed-response handler keeps the raw body even when the provider
-      // JSON failed the schema (which is exactly when `data` is absent).
-      try {
-        collectStructuredCodes(JSON.parse(body), structuredCodes);
-      } catch {
-        // Not JSON — no structured evidence.
-      }
-    }
-    return {
-      // The raw body joins the text evidence: when the provider JSON fails
-      // the error schema, `message` degrades to the statusText and the body
-      // is the ONLY carrier of the provider's wording (e.g. an
-      // OpenAI-compatible `{error: string}` overflow). Positives and vetoes
-      // both run over the same full text.
-      text: `${error.name} ${code} ${statusCode} ${error.message}${body ? ` ${body}` : ''}`.toLowerCase(),
-      statusCode,
-      code,
-      structuredCodes,
-    };
-  }
-  if (typeof error === 'string') {
-    const structuredCodes: string[] = [];
-    try {
-      collectStructuredCodes(JSON.parse(error), structuredCodes);
-    } catch {
-      // A plain message string — text evidence only.
-    }
-    return { text: error.toLowerCase(), statusCode: '', code: '', structuredCodes };
-  }
-  if (typeof error === 'object' && error !== null) {
-    const record = error as Record<string, unknown>;
-    const field = (key: string): string => {
-      const value = record[key];
-      return typeof value === 'string' || typeof value === 'number' ? String(value) : '';
-    };
-    const structuredCodes: string[] = [];
-    collectStructuredCodes(record, structuredCodes);
-    let text: string;
-    try {
-      // Serialize the whole value so message/code text is evidence no matter
-      // which of the known provider shapes carried it.
-      text = JSON.stringify(error).toLowerCase();
-    } catch {
-      text = String(error).toLowerCase();
-    }
-    return {
-      text,
-      statusCode: field('statusCode') || field('status'),
-      code: field('code'),
-      structuredCodes,
-    };
-  }
-  return undefined;
-}
-
-/**
- * Provider context-length overflow signatures. A request-level 400/413 whose
- * message matches one of these means the input exceeded the model's context
- * window — the reactive-recovery trigger (issue #882 PR 2). The set is ported
- * from pi's battle-tested table and covers the providers Maka ships in its
- * registry (Anthropic, OpenAI/-compatible, Google, xAI, Groq, OpenRouter,
- * Mistral, MiniMax, Kimi/Moonshot, Together, llama.cpp/LM Studio/Ollama, …).
- * Matched against the ORIGINAL error's composite fields (name, code, status,
- * message), never the generalized string. All of these are free-text evidence
- * and can be vetoed by NON_CONTEXT_OVERFLOW_PATTERNS: a capacity statement or
- * overflow phrase quoted inside a throttling/quota error must not trigger
- * recovery — only a structured provider code is unconditional.
- */
-const CONTEXT_OVERFLOW_PATTERNS: readonly RegExp[] = [
-  /prompt is too long/i, // Anthropic token overflow
-  /request_too_large/i, // Anthropic request byte-size overflow (HTTP 413)
-  /input is too long for requested model/i, // Amazon Bedrock
-  /exceeds the context window/i, // OpenAI (Completions & Responses)
-  /exceeds (?:the )?(?:model'?s )?maximum context length(?: of [\d,]+ tokens?|\s*\([\d,]+\))?/i, // OpenAI-compatible proxies (LiteLLM)
-  /input token count.*exceeds the maximum/i, // Google (Gemini)
-  /maximum prompt length is \d+/i, // xAI (Grok)
-  /reduce the length of the messages/i, // Groq
-  /maximum context length is \d+ tokens/i, // OpenRouter (most backends)
-  /exceeds (?:the )?maximum allowed input length of [\d,]+ tokens?/i, // OpenRouter/Poolside
-  /input \(\d+ tokens\) is longer than the model'?s context length \(\d+ tokens\)/i, // Together AI
-  // GitHub Copilot: "prompt token count of X exceeds the limit of Y". The INPUT
-  // subject is required — a bare "token count of N exceeds the limit of M" also
-  // matches output/completion caps, and a bare "exceeds the limit of N" matches
-  // file-size and other quota errors; neither is fixable by history compaction.
-  /(?:prompt|input|context|message)[^.]{0,80}token count of [\d,]+ exceeds the limit of [\d,]+/i,
-  /exceeds the available context size/i, // llama.cpp server
-  /greater than the context length/i, // LM Studio
-  /context window exceeds limit/i, // MiniMax
-  /exceeded model token limit/i, // Kimi For Coding
-  /too large for model with \d+ maximum context length/i, // Mistral
-  /prompt has [\d,]+ tokens?, but the configured context size is [\d,]+ tokens?/i, // DS4 server
-  /model_context_window_exceeded/i, // z.ai non-standard finish_reason surfaced as error text
-  /prompt too long; exceeded (?:max )?context length/i, // Ollama explicit overflow error
-  /context[_ ]length[_ ]exceeded/i, // OpenAI structured error code (also generic)
-  // Ambiguous token-limit wording that is an input overflow only when an
-  // input-like word is the subject. `request` is deliberately NOT in the
-  // subject list: it appears in generic prefixes ("Invalid request: ...")
-  // without saying anything about which side of the token budget overflowed.
-  /(?:prompt|input|context|message)[^.]{0,80}too many tokens/i,
-  /(?:prompt|input|context|message)[^.]{0,80}token limit exceeded/i,
-];
-
-/**
- * Wording that looks token-shaped but is NOT an input overflow: throttling /
- * quota / rate limiting, and complete OUTPUT-cap relations in every observed
- * permutation of role word (output/completion/max_tokens) and token
- * predicate — subject before predicate ("completion has too many tokens",
- * "max_tokens token limit exceeded"), predicate before subject ("too many
- * tokens were requested for the completion"), the count-of form ("output
- * token count of N exceeds"), the role word embedded inside the phrase
- * ("too many completion tokens were requested"), and the role-tokens-exceed
- * form ("Maximum completion tokens exceeded"). Noun phrases alone (e.g.
- * "completion token count") are not excluded: they also appear as usage
- * breakdowns inside genuine input-overflow messages, and "(prompt +
- * completion) exceed" combined-budget wording stays classifiable because the
- * role word is not adjacent to "tokens".
- */
-const NON_CONTEXT_OVERFLOW_PATTERNS: readonly RegExp[] = [
-  /rate limit/i,
-  /too many requests/i,
-  /throttl/i,
-  /quota/i,
-  /(?:output|completion|max_tokens)\b[^.]{0,60}(?:too many tokens|token limit exceeded)/i,
-  /(?:too many tokens|token limit exceeded)[^.]{0,60}\b(?:output|completion|max_tokens)/i,
-  /(?:output|completion)\s+token\s+(?:count|limit)[^.]{0,40}exceed/i,
-  /too many (?:output|completion|max_tokens)[^.]{0,20}tokens/i,
-  /\b(?:output|completion|max_tokens)\s+tokens?\b[^.]{0,20}exceed/i,
-];
-
-/**
- * Two-layer overflow detection on an error's raw text (the composite of its
- * original name/code/status/message). Triggering recovery requires positive
- * evidence of an INPUT overflow — the one class history compaction can fix:
- * 1. Vetoes first: throttling/quota wording and complete output-cap relations
- *    disqualify every free-text signal. Free text is never unconditional — a
- *    capacity statement quoted inside a throttle error is not an overflow.
- * 2. Positive overflow relations count only when nothing vetoed. Structured
- *    provider codes (the unconditional evidence) are classifyError's job,
- *    checked before this text layer ever runs.
- */
-export function isContextOverflowErrorText(text: string): boolean {
-  if (!text) return false;
-  if (NON_CONTEXT_OVERFLOW_PATTERNS.some((pattern) => pattern.test(text))) return false;
-  return CONTEXT_OVERFLOW_PATTERNS.some((pattern) => pattern.test(text));
-}
-
-/**
- * Classifies a provider error by DESCENDING evidence strength over the
- * normalized evidence (Error, string, or plain stream-error-part object):
- * abort → 402 → 429 → 401/403 (numeric fields, never substrings) → the
- * provider's structured overflow code → bare 413 (HTTP: request entity too
- * large — itself input-side evidence, Cerebras sends it with no body) →
- * vetoable free-text overflow relations → generic 5xx → weak word
- * heuristics. Specific overflow evidence outranks a generic 5xx because
- * proxies (LiteLLM) wrap provider overflows in 503s; the weak heuristics
- * rank last so "generate" can never become a rate limit.
- */
-export function classifyError(error: unknown): string {
-  const evidence = normalizeErrorEvidence(error);
-  if (!evidence) return 'Other';
-  const { text, statusCode, code, structuredCodes } = evidence;
-  if (text.includes('abort')) return 'Abort';
-  if (statusCode === '402' || code === '402') return 'ProviderBilling';
-  if (statusCode === '429' || code === '429') return 'RateLimit';
-  if (statusCode === '401' || statusCode === '403' || code === '401' || code === '403') return 'Auth';
-  // Structured provider evidence: the parsed error JSON's code/type is the
-  // only unconditional signal for a context overflow.
-  if (structuredCodes.some((c) => CONTEXT_OVERFLOW_PROVIDER_CODES.has(c))) return 'ContextLength';
-  if (statusCode === '413' || code === '413') return 'ContextLength';
-  // Free-text overflow relations on the composite text, veto-first inside.
-  if (isContextOverflowErrorText(text)) return 'ContextLength';
-  if (/^5\d\d$/.test(statusCode) || /^5\d\d$/.test(code)) return 'ProviderUnavailable';
-  // Weak word heuristics, last: they only catch errors that carried no
-  // stronger evidence for any other class. `rate` must be word-shaped
-  // ("generate"/"separate" are not rate limits) while still matching the
-  // rate_limit/RateLimitError identifier spellings.
-  if (/\brate\b|rate[_-]?limit/.test(text)) return 'RateLimit';
-  if (text.includes('auth')) return 'Auth';
-  if (text.includes('timeout')) return 'Timeout';
-  if (
-    text.includes('network')
-    || text.includes('fetch')
-    || /\btypeerror\b.*\bterminated\b/.test(text)
-  ) return 'Network';
-  return error instanceof Error ? (error.name || 'Other') : 'Other';
-}
-
-export function errorPresentationFromClass(errorClass: string): {
-  reason?: string;
-  message?: string;
-} {
-  switch (errorClass) {
-    case 'ContextLength':
-      return { reason: 'context_overflow', message: 'Context window exceeded' };
-    case 'Timeout':
-      return { reason: 'timeout', message: 'Request timed out' };
-    case 'Auth':
-      return { reason: 'auth', message: 'Authentication failed' };
-    case 'ProviderBilling':
-      return { reason: 'provider_billing', message: 'Provider billing required' };
-    case 'ProviderUnavailable':
-      return { reason: 'provider_unavailable', message: 'Provider returned an error' };
-    case 'RateLimit':
-      return { reason: 'rate_limit', message: 'Rate limit exceeded' };
-    case 'Network':
-      return { reason: 'network', message: 'Network error' };
-    default:
-      return {};
-  }
 }
 
 function coerceResultContent(raw: unknown): ToolResultContent {
@@ -1704,9 +1660,10 @@ function coerceTerminalFailure(
     sandboxType?: unknown;
   };
   if (typeof error.code !== 'number') return null;
-  const command = args && typeof args === 'object' && typeof (args as { command?: unknown }).command === 'string'
-    ? (args as { command: string }).command
-    : '';
+  const command =
+    args && typeof args === 'object' && typeof (args as { command?: unknown }).command === 'string'
+      ? (args as { command: string }).command
+      : '';
   const stdout = redactSecrets(String(error.stdout ?? ''));
   const stderr = redactSecrets(String(error.stderr ?? ''));
   const sandboxDenied = error.reason === 'sandbox_denial' && error.sandboxed === true;
@@ -1725,15 +1682,17 @@ function coerceTerminalFailure(
         stderrTruncated: error.stderrTruncated === true,
         redacted: stdout !== String(error.stdout ?? '') || stderr !== String(error.stderr ?? ''),
       },
-      ...(sandboxDenied ? {
-        sandboxDenial: {
-          likely: true,
-          ...(error.sandboxType === 'macos-seatbelt' || error.sandboxType === 'linux'
-            ? { backend: error.sandboxType }
-            : {}),
-          recovery: 'require_escalated',
-        },
-      } : {}),
+      ...(sandboxDenied
+        ? {
+            sandboxDenial: {
+              likely: true,
+              ...(error.sandboxType === 'macos-seatbelt' || error.sandboxType === 'linux'
+                ? { backend: error.sandboxType }
+                : {}),
+              recovery: 'require_escalated',
+            },
+          }
+        : {}),
     },
     // The in-turn result the model acts on is just this message (the structured
     // content above goes to session history). Without the actual output the
@@ -1768,14 +1727,17 @@ function buildTerminalFailureMessage(
 function hasSandboxDenial(
   content: ToolResultContent,
 ): content is Extract<ToolResultContent, { kind: 'terminal' } | { kind: 'shell_run' }> {
-  return (content.kind === 'terminal' || content.kind === 'shell_run')
-    && content.sandboxDenial?.likely === true;
+  return (
+    (content.kind === 'terminal' || content.kind === 'shell_run') &&
+    content.sandboxDenial?.likely === true
+  );
 }
 
 function sandboxDenialKey(toolName: string, cwd: string, args: unknown): string {
-  const command = args && typeof args === 'object' && typeof (args as { command?: unknown }).command === 'string'
-    ? (args as { command: string }).command
-    : '';
+  const command =
+    args && typeof args === 'object' && typeof (args as { command?: unknown }).command === 'string'
+      ? (args as { command: string }).command
+      : '';
   return `${toolName}\u0000${cwd}\u0000${command}`;
 }
 
@@ -1784,11 +1746,12 @@ function deriveToolResultStatus(
   raw?: unknown,
 ): ToolInvocationRecord['status'] {
   if (
-    raw
-    && typeof raw === 'object'
-    && typeof (raw as { error?: unknown }).error === 'string'
-    && (raw as { error: string }).error.length > 0
-  ) return 'error';
+    raw &&
+    typeof raw === 'object' &&
+    typeof (raw as { error?: unknown }).error === 'string' &&
+    (raw as { error: string }).error.length > 0
+  )
+    return 'error';
   if (content.kind === 'explore_agent' && content.ok === false) {
     return content.reason === 'aborted' ? 'aborted' : 'error';
   }
@@ -1796,6 +1759,9 @@ function deriveToolResultStatus(
     if (content.status === 'completed') return 'success';
     if (content.status === 'cancelled') return 'aborted';
     return 'error';
+  }
+  if (content.kind === 'agent_swarm') {
+    return content.status === 'cancelled' ? 'aborted' : 'success';
   }
   if (content.kind === 'rive_workflow' && content.ok === false) return 'error';
   if (content.kind === 'web_search_error') return 'error';
@@ -1811,22 +1777,54 @@ function deriveToolResultStatus(
     return 'error';
   }
   if (
-    content.kind === 'shell_run'
-    && content.operation?.kind === 'pty_control'
-    && content.operation.failed
-  ) return 'error';
+    content.kind === 'shell_run' &&
+    content.operation?.kind === 'pty_control' &&
+    content.operation.failed
+  )
+    return 'error';
   // All other structured results are successful tool executions. That includes
   // ShellRun observations: their embedded process status stays model-visible,
   // but reading or returning the observation itself succeeded.
   return 'success';
 }
 
+function summarizeToolResultForTelemetry(
+  content: ToolResultContent,
+): NonNullable<ToolInvocationRecord['resultSummary']> {
+  if (content.kind === 'agent_swarm') {
+    const projection = projectAgentSwarmResult(content);
+    return {
+      kind: content.kind,
+      status: projection.status,
+      itemCount: projection.itemCount,
+      startedItemCount: projection.startedItemCount,
+      completedItemCount: projection.completedItemCount,
+      failedItemCount: projection.failedItemCount,
+      cancelledItemCount: projection.cancelledItemCount,
+      artifactCount: projection.artifactCount,
+    };
+  }
+  if (content.kind === 'terminal' || content.kind === 'shell_run' || content.kind === 'subagent') {
+    return { kind: content.kind, status: content.status };
+  }
+  if (content.kind === 'explore_agent') {
+    return {
+      kind: content.kind,
+      status: content.terminalStatus ?? (content.ok ? 'completed' : 'failed'),
+    };
+  }
+  if (content.kind === 'rive_workflow') {
+    return { kind: content.kind, status: content.state ?? (content.ok ? 'completed' : 'failed') };
+  }
+  return { kind: content.kind };
+}
+
 function isAmbiguousComputerFailure(raw: unknown): boolean {
   return Boolean(
-    raw
-    && typeof raw === 'object'
-    && (raw as { error?: unknown }).error === 'stale_frame'
-    && (raw as { failureClass?: unknown }).failureClass === 'ambiguous_target',
+    raw &&
+      typeof raw === 'object' &&
+      (raw as { error?: unknown }).error === 'stale_frame' &&
+      (raw as { failureClass?: unknown }).failureClass === 'ambiguous_target',
   );
 }
 
@@ -1854,18 +1852,18 @@ function describeToolIntent(tool: MakaTool, args: unknown): string | undefined {
   return `只读探索：${capped}`;
 }
 
-function isAdditionalPermissionPlanResult(
-  value: unknown,
-): value is AdditionalPermissionPlanResult {
+function isAdditionalPermissionPlanResult(value: unknown): value is AdditionalPermissionPlanResult {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const result = value as Record<string, unknown>;
   if (result.kind === 'not_required') return true;
   if (result.kind === 'request') {
     return Boolean(result.proposal && typeof result.proposal === 'object');
   }
-  return result.kind === 'block'
-    && typeof result.reason === 'string'
-    && typeof result.message === 'string';
+  return (
+    result.kind === 'block' &&
+    typeof result.reason === 'string' &&
+    typeof result.message === 'string'
+  );
 }
 
 function isSandboxEscalationPlanResult(value: unknown): value is SandboxEscalationPlanResult {
@@ -1875,9 +1873,11 @@ function isSandboxEscalationPlanResult(value: unknown): value is SandboxEscalati
   if (result.kind === 'request') {
     return Boolean(result.proposal && typeof result.proposal === 'object');
   }
-  return result.kind === 'block'
-    && typeof result.reason === 'string'
-    && typeof result.message === 'string';
+  return (
+    result.kind === 'block' &&
+    typeof result.reason === 'string' &&
+    typeof result.message === 'string'
+  );
 }
 
 function byteLength(value: unknown): number {

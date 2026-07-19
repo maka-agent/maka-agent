@@ -20,12 +20,7 @@
         "scripts/dev.mjs",
         "scripts/browser-observe-act-smoke.mjs"
       ],
-      "project": [
-        "src/**/*.{ts,tsx}",
-        "e2e/**/*.ts",
-        "stories/**/*.{ts,tsx}",
-        "scripts/**/*.mjs"
-      ],
+      "project": ["src/**/*.{ts,tsx}", "e2e/**/*.ts", "stories/**/*.{ts,tsx}", "scripts/**/*.mjs"],
       "ignoreDependencies": [
         "overlayscrollbars",
         "@fontsource-variable/geist",
@@ -45,10 +40,7 @@
         "src/**/*.test.tsx",
         "stories/**/*.@(ts|tsx)"
       ],
-      "project": [
-        "src/**/*.{ts,tsx}",
-        "stories/**/*.{ts,tsx}"
-      ],
+      "project": ["src/**/*.{ts,tsx}", "stories/**/*.{ts,tsx}"],
       "ignoreDependencies": ["@storybook/react-vite", "storybook"]
     }
   }

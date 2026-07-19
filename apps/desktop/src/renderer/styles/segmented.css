@@ -1,0 +1,64 @@
+/* Segmented — chrome for the shared `Segmented` primitive (@maka/ui,
+   Base UI ToggleGroup). One home for every consumer: the sidebar
+   view-mode toggle (按状态 / 按项目), the daily-review range tabs
+   (今日 / 本周 / 本月), and the usage + appearance settings pages.
+   Moved out of settings/bot.css, which cross-surface consumers could
+   only reach by cascade accident under a settings-scoped name. */
+
+.maka-segmented {
+  justify-self: start;
+  width: fit-content;
+  display: inline-flex;
+  align-items: center;
+  /* Narrow containers wrap whole options to the next row; labels never
+     break inside a button (nowrap below). Keeps every option reachable
+     and 22px tall at any width. */
+  flex-wrap: wrap;
+  gap: var(--space-0-5);
+  border-radius: var(--radius-pill);
+  background: var(--foreground-5);
+  padding: var(--space-0-5);
+}
+
+.maka-segmented button {
+  min-height: 22px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--foreground-secondary);
+  padding: 0 var(--space-2);
+  white-space: nowrap;
+  /* ui tier, not caption: this is an interactive control, and per the
+     #546 type scale controls sit on the 13px chrome tier. The caption
+     size was a leftover from the recipe's settings-page origin. */
+  font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-medium);
+  transition:
+    background-color var(--duration-quick) var(--ease-out-strong),
+    color var(--duration-quick) var(--ease-out-strong),
+    box-shadow var(--duration-quick) var(--ease-out-strong);
+}
+
+.maka-segmented button:enabled:hover:not([data-pressed]) {
+  background: var(--state-hover-bg);
+  color: var(--foreground);
+}
+
+.maka-segmented button:enabled:active:not([data-pressed]) {
+  background: var(--foreground-8);
+}
+
+.maka-segmented button:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.maka-segmented button[data-pressed] {
+  background: var(--background);
+  color: var(--foreground);
+  box-shadow: 0 1px 2px oklch(from var(--foreground) l c h / 0.08);
+}
+
+.maka-segmented button:disabled {
+  opacity: var(--opacity-disabled);
+}

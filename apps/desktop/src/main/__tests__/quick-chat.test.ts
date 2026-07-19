@@ -5,14 +5,19 @@
  *  - non-ready OnboardingState → `setup_required`, NO session created
  *  - empty / whitespace prompt → create-and-open only; NO send
  *  - non-empty prompt → walks send path; first message id returned
- *  - send / create failure → `send_failed` with generalized Chinese
- *    message (no raw enum leak)
+ *  - workspace failures preserve their recovery semantics; other send/create
+ *    failures become `send_failed` with generalized Chinese copy
  */
 
 import { strict as assert } from 'node:assert';
 import { describe, it } from 'node:test';
 import type { OnboardingState, SessionSummary } from '@maka/core';
 import { handleQuickChatStart, type QuickChatDeps } from '../quick-chat.js';
+import { SESSION_WORKSPACE_UNAVAILABLE_CODE } from '../project-context-root.js';
+
+function workspaceUnavailableError(): Error {
+  return new Error(`${SESSION_WORKSPACE_UNAVAILABLE_CODE}: unavailable`);
+}
 
 function fakeSession(overrides: Partial<SessionSummary> = {}): SessionSummary {
   return {
@@ -190,7 +195,33 @@ describe('handleQuickChatStart — non-empty prompt (send path)', () => {
   });
 });
 
-describe('handleQuickChatStart — error paths (send_failed)', () => {
+describe('handleQuickChatStart — error paths', () => {
+  it('preserves an unavailable workspace as a domain result during creation', async () => {
+    const deps = makeDeps({
+      createSession: async () => {
+        throw workspaceUnavailableError();
+      },
+    });
+
+    const result = await handleQuickChatStart({ prompt: 'hi' }, deps);
+
+    assert.deepEqual(result, { ok: false, reason: 'workspace_unavailable' });
+    assert.deepEqual(deps.spy.emitCalls, []);
+  });
+
+  it('preserves an unavailable workspace as a domain result before first send', async () => {
+    const deps = makeDeps({
+      ensureCanSend: async () => {
+        throw workspaceUnavailableError();
+      },
+    });
+
+    const result = await handleQuickChatStart({ prompt: 'hi' }, deps);
+
+    assert.deepEqual(result, { ok: false, reason: 'workspace_unavailable' });
+    assert.deepEqual(deps.spy.sendCalls, []);
+  });
+
   it('createSession failure → send_failed with generalized Chinese message', async () => {
     const deps = makeDeps({
       createSession: async () => {

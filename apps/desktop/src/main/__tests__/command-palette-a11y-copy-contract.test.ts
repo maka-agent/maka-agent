@@ -39,7 +39,7 @@ describe('Command palette accessibility and visible copy', () => {
     assert.match(src, /<Autocomplete\.Input/, 'Palette input must be Autocomplete.Input');
     assert.match(
       src,
-      /<Autocomplete\.List className="maka-palette-list" id="maka-palette-list" aria-label="命令面板结果">/,
+      /<Autocomplete\.List className="maka-palette-list" id="maka-palette-list" aria-label=\{copy\.resultsLabel\}>/,
       'Palette results must render as Autocomplete.List (listbox) with an accessible name',
     );
     assert.match(
@@ -81,7 +81,7 @@ describe('Command palette accessibility and visible copy', () => {
     );
     assert.match(
       src,
-      /<InputGroup[\s\S]*className="maka-palette-input-wrap"[\s\S]*aria-label="命令面板搜索"[\s\S]*onMouseDown=\{\(event\) => \{[\s\S]*inputRef\.current\?\.focus\(\);[\s\S]*<InputGroupInput[\s\S]*aria-label="搜索命令、设置项或会话"/,
+      /<InputGroup[\s\S]*className="maka-palette-input-wrap"[\s\S]*aria-label=\{copy\.searchLabel\}[\s\S]*onMouseDown=\{\(event\) => \{[\s\S]*inputRef\.current\?\.focus\(\);[\s\S]*<InputGroupInput[\s\S]*aria-label=\{copy\.placeholder\}/,
       'CommandPalette input shell must be shared primitive InputGroup with an accessible input label and whole-shell click focus',
     );
     assert.match(
@@ -136,7 +136,7 @@ describe('Command palette accessibility and visible copy', () => {
     );
     assert.match(
       src,
-      /<div className="maka-palette-header">[\s\S]*?<InputGroup[\s\S]*?<\/InputGroup>[\s\S]*?<Button[\s\S]*?aria-label="关闭命令面板"[\s\S]*?onClick=\{props\.onClose\}[\s\S]*?<X aria-hidden="true" \/>[\s\S]*?<\/Button>[\s\S]*?<\/div>/,
+      /<div className="maka-palette-header">[\s\S]*?<InputGroup[\s\S]*?<\/InputGroup>[\s\S]*?<Button[\s\S]*?aria-label=\{copy\.closeLabel\}[\s\S]*?onClick=\{props\.onClose\}[\s\S]*?<X aria-hidden="true" \/>[\s\S]*?<\/Button>[\s\S]*?<\/div>/,
       'the close button must be a sibling immediately to the right of the input group',
     );
     assert.match(headerStyle, /grid-template-columns:\s*minmax\(0, 1fr\) var\(--h-control-md\);/);
@@ -208,14 +208,18 @@ describe('Command palette accessibility and visible copy', () => {
     assert.match(screenshotDriver, /'command-palette-open'/, 'screenshot driver must capture command-palette-open');
   });
 
-  it('keeps the primary command hints in Chinese product copy', async () => {
-    const src = await readRepo('apps/desktop/src/renderer/command-palette.tsx');
-    assert.match(src, /label: '新建对话',[^\n]*\n\s*hint: '开始新的会话',/);
-    assert.doesNotMatch(src, /hint: 'New chat'/, 'visible command palette hints must not leak English fallback copy');
+  it('sources primary command hints from the locale catalog', async () => {
+    const src = await readRepo('apps/desktop/src/renderer/command-palette-commands.ts');
+    const catalog = await readRepo('apps/desktop/src/renderer/locales/shell-copy.ts');
+    assert.match(src, /const copy = getShellCopy\(args\.locale\)\.commandPalette/);
+    assert.doesNotMatch(src, /label: '新建对话'/, 'visible command copy belongs in the typed locale catalog');
+    assert.match(catalog, /label: '新建对话',[\s\S]*?hint: '开始新的会话'/);
+    assert.match(catalog, /label: 'New conversation',[\s\S]*?hint: 'Start a new conversation'/);
   });
 
   it('gates command execution so Enter/click cannot run the same palette action twice', async () => {
     const src = await readRepo('apps/desktop/src/renderer/command-palette.tsx');
+    const commandsSrc = await readRepo('apps/desktop/src/renderer/command-palette-commands.ts');
     const mainSrc = await readRendererShellCombinedSource();
     const commandTypes = await readRepo('apps/desktop/src/renderer/command-palette-types.ts');
     // #520 PR8: onInputKeyDown is gone (Autocomplete owns ArrowUp/Down/Enter),
@@ -233,7 +237,7 @@ describe('Command palette accessibility and visible copy', () => {
       'CommandPalette commit() must synchronously drop duplicate activations, await async actions, and close from finally',
     );
     assert.doesNotMatch(
-      src,
+      commandsSrc,
       /run: \(\) => void args\./,
       'buildCommandList must return host callback promises instead of voiding them before commit() can await',
     );
@@ -266,28 +270,26 @@ describe('Command palette accessibility and visible copy', () => {
 
   it('scrubs thrown command action failures before toast', async () => {
     const main = await readRendererShellCombinedSource();
-    const commandPaletteBlock = main.match(/return buildCommandList\(\{[\s\S]*?\n\s*\}\);/)?.[0] ?? '';
-    const helperBlock = main.match(/function commandPaletteActionErrorMessage\(error: unknown, fallback: string\): string \{[\s\S]*?\n\}/)?.[0] ?? '';
-    const connectionTestHelperBlock = main.match(/function commandPaletteConnectionTestFailureMessage\(result: ConnectionTestResult\): string \{[\s\S]*?\n\}/)?.[0] ?? '';
-    const connectionTestFallbackBlock = main.match(/function commandPaletteConnectionTestFailureFallback\(result: ConnectionTestResult\): string \{[\s\S]*?\n\}/)?.[0] ?? '';
+    const commandPaletteBlock = main.match(/export function buildAppShellCommandList[\s\S]*?^\}/m)?.[0] ?? '';
+    const helperBlock = main.match(/function commandPaletteActionErrorMessage\(error: unknown, fallback: string, locale: UiLocale\): string \{[\s\S]*?\n\}/)?.[0] ?? '';
+    const connectionTestHelperBlock = main.match(/function commandPaletteConnectionTestFailureMessage\(result: ConnectionTestResult, locale: UiLocale\): string \{[\s\S]*?\n\}/)?.[0] ?? '';
+    const connectionTestFallbackBlock = main.match(/function commandPaletteConnectionTestFailureFallback\(result: ConnectionTestResult, locale: UiLocale\): string \{[\s\S]*?\n\}/)?.[0] ?? '';
 
-    assert.match(helperBlock, /generalizedErrorMessageChinese\(error, fallback\)/);
+    assert.match(helperBlock, /localizedErrorMessage\(error, fallback, locale\)/);
     assert.match(
       connectionTestHelperBlock,
-      /generalizedErrorMessageChinese\(new Error\(result\.errorMessage\), fallback\)/,
+      /localizedErrorMessage\(new Error\(result\.errorMessage\), fallback, locale\)/,
       'Command palette connection-test failures must classify/redact raw provider messages before toast',
     );
-    assert.match(connectionTestFallbackBlock, /statusCode === 429[\s\S]*触发速率限制/);
-    assert.match(connectionTestFallbackBlock, /errorClass === 'auth'[\s\S]*鉴权失败/);
-    assert.match(connectionTestFallbackBlock, /errorClass === 'network'[\s\S]*网络错误/);
-    assert.match(commandPaletteBlock, /toastApi\.error\(`连接测试失败 · \$\{name\}`, commandPaletteConnectionTestFailureMessage\(result\)\)/);
-    assert.match(commandPaletteBlock, /commandPaletteActionErrorMessage\(err, '导出当前对话失败，请稍后重试。'\)/);
-    assert.match(commandPaletteBlock, /commandPaletteActionErrorMessage\(err, '连接测试暂时不可用，请稍后重试。'\)/);
-    assert.match(commandPaletteBlock, /commandPaletteActionErrorMessage\(err, '默认模型暂时无法切换，请稍后重试。'\)/);
-    assert.match(commandPaletteBlock, /commandPaletteActionErrorMessage\(err, '无法打开 MEMORY\.md，请稍后重试。'\)/);
-    assert.match(commandPaletteBlock, /commandPaletteActionErrorMessage\(err, '无法打开项目指引，请稍后重试。'\)/);
-    assert.match(commandPaletteBlock, /commandPaletteActionErrorMessage\(err, '剪贴板不可用或被系统拒绝'\)/);
-    assert.match(commandPaletteBlock, /commandPaletteActionErrorMessage\(err, '网络代理测试暂时不可用，请稍后重试。'\)/);
+    assert.match(connectionTestFallbackBlock, /statusCode === 429[\s\S]*return copy\.rateLimit/);
+    assert.match(connectionTestFallbackBlock, /errorClass === 'auth'[\s\S]*return copy\.auth/);
+    assert.match(connectionTestFallbackBlock, /errorClass === 'network'[\s\S]*return copy\.network/);
+    assert.match(commandPaletteBlock, /commandPaletteConnectionTestFailureMessage\(result, options\.uiLocale\)/);
+    assert.match(commandPaletteBlock, /commandPaletteActionErrorMessage\(err, copy\.exportFallback, options\.uiLocale\)/);
+    assert.match(commandPaletteBlock, /commandPaletteActionErrorMessage\(err, copy\.connectionUnavailable, options\.uiLocale\)/);
+    assert.match(commandPaletteBlock, /commandPaletteActionErrorMessage\(err, copy\.setDefaultFallback, options\.uiLocale\)/);
+    assert.match(commandPaletteBlock, /commandPaletteActionErrorMessage\(err, copy\.memoryOpenFallback, options\.uiLocale\)/);
+    assert.match(commandPaletteBlock, /commandPaletteActionErrorMessage\(err, copy\.instructionsOpenFallback, options\.uiLocale\)/);
     assert.doesNotMatch(
       commandPaletteBlock,
       /(?:err|error) instanceof Error \? (?:err|error)\.message : (?:String\((?:err|error)\)|'导出当前对话失败'|'路径无效'|'剪贴板不可用'|'网络代理测试异常')/,

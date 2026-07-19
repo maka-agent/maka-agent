@@ -2,11 +2,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import type { Readable } from 'node:stream';
 
 import type { ShellSpawnPlan } from './shell-detect.js';
-import {
-  buildSpawnStdio,
-  writeChildFdInputs,
-  type ChildFdInput,
-} from './child-fd-input.js';
+import { buildSpawnStdio, writeChildFdInputs, type ChildFdInput } from './child-fd-input.js';
 
 export interface PipeProcessExit {
   exitCode: number | null;

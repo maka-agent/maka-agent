@@ -53,11 +53,7 @@ const toolCall = (id: string, name: string, args: unknown = {}): ToolCallMessage
   args,
 });
 
-const toolResult = (
-  toolUseId: string,
-  isError: boolean,
-  text: string,
-): ToolResultMessage => ({
+const toolResult = (toolUseId: string, isError: boolean, text: string): ToolResultMessage => ({
   type: 'tool_result',
   id: `r-${toolUseId}`,
   turnId,
@@ -157,8 +153,12 @@ describe('materializeSession', () => {
         status: 'cancelled',
         exitCode: 130,
         output: {
-          mode: 'pipes', stdout: '', stderr: '',
-          stdoutTruncated: false, stderrTruncated: false, redacted: false,
+          mode: 'pipes',
+          stdout: '',
+          stderr: '',
+          stdoutTruncated: false,
+          stderrTruncated: false,
+          redacted: false,
         },
       },
     };
@@ -198,16 +198,17 @@ describe('materializeSession', () => {
         exitCode: 130,
         revision: 2,
         output: {
-          mode: 'pipes', stdout: '', stderr: '',
-          stdoutTruncated: false, stderrTruncated: false, redacted: false,
+          mode: 'pipes',
+          stdout: '',
+          stderr: '',
+          stdoutTruncated: false,
+          stderrTruncated: false,
+          redacted: false,
         },
         operation: { kind: 'stop', applied: true },
       },
     };
-    const vm = materializeSession([
-      toolCall('t-stop', 'StopBackgroundTask'),
-      observed,
-    ]);
+    const vm = materializeSession([toolCall('t-stop', 'StopBackgroundTask'), observed]);
     const item = vm.items[0];
     if (item?.kind !== 'tool') throw new Error('wrong kind');
     expect(item.item.status).toBe('completed');
@@ -274,7 +275,8 @@ describe('applyAppendedMessage', () => {
 
     const reloadedItem = reloaded.items[0];
     const appendedItem = appended.items[0];
-    if (reloadedItem?.kind !== 'tool' || appendedItem?.kind !== 'tool') throw new Error('wrong kind');
+    if (reloadedItem?.kind !== 'tool' || appendedItem?.kind !== 'tool')
+      throw new Error('wrong kind');
     expect(reloadedItem.item.activityKind).toBe('command');
     expect(appendedItem.item.activityKind).toBe('command');
   });

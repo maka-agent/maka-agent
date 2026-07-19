@@ -7,7 +7,7 @@ export const OS_PERMISSION_IDS = [
   'notifications',
   'automation',
 ] as const;
-export type OsPermissionId = typeof OS_PERMISSION_IDS[number];
+export type OsPermissionId = (typeof OS_PERMISSION_IDS)[number];
 
 export const OS_PERMISSION_STATES = [
   'unsupported',
@@ -16,7 +16,7 @@ export const OS_PERMISSION_STATES = [
   'denied',
   'granted',
 ] as const;
-export type OsPermissionState = typeof OS_PERMISSION_STATES[number];
+export type OsPermissionState = (typeof OS_PERMISSION_STATES)[number];
 
 export const FEATURE_ENABLEMENT_STATES = [
   'not_available',
@@ -24,7 +24,7 @@ export const FEATURE_ENABLEMENT_STATES = [
   'disabled',
   'enabled',
 ] as const;
-export type FeatureEnablementState = typeof FEATURE_ENABLEMENT_STATES[number];
+export type FeatureEnablementState = (typeof FEATURE_ENABLEMENT_STATES)[number];
 
 export const ACTION_APPROVAL_STATES = [
   'not_required',
@@ -34,14 +34,10 @@ export const ACTION_APPROVAL_STATES = [
   'approved',
   'denied',
 ] as const;
-export type ActionApprovalState = typeof ACTION_APPROVAL_STATES[number];
+export type ActionApprovalState = (typeof ACTION_APPROVAL_STATES)[number];
 
-export const CAPABILITY_CONFIGURATION_STATES = [
-  'not_required',
-  'missing',
-  'present',
-] as const;
-export type CapabilityConfigurationState = typeof CAPABILITY_CONFIGURATION_STATES[number];
+export const CAPABILITY_CONFIGURATION_STATES = ['not_required', 'missing', 'present'] as const;
+export type CapabilityConfigurationState = (typeof CAPABILITY_CONFIGURATION_STATES)[number];
 
 export const MEMORY_ACCEPTANCE_STATES = [
   'not_applicable',
@@ -49,15 +45,10 @@ export const MEMORY_ACCEPTANCE_STATES = [
   'draft_required',
   'accepted',
 ] as const;
-export type MemoryAcceptanceState = typeof MEMORY_ACCEPTANCE_STATES[number];
+export type MemoryAcceptanceState = (typeof MEMORY_ACCEPTANCE_STATES)[number];
 
-export const RUNTIME_PROBE_STATES = [
-  'not_available',
-  'not_run',
-  'healthy',
-  'degraded',
-] as const;
-export type RuntimeProbeState = typeof RUNTIME_PROBE_STATES[number];
+export const RUNTIME_PROBE_STATES = ['not_available', 'not_run', 'healthy', 'degraded'] as const;
+export type RuntimeProbeState = (typeof RUNTIME_PROBE_STATES)[number];
 
 export const CAPABILITY_READINESS_STATES = [
   'not_configured',
@@ -66,7 +57,7 @@ export const CAPABILITY_READINESS_STATES = [
   'degraded',
   'paused',
 ] as const;
-export type CapabilityReadinessState = typeof CAPABILITY_READINESS_STATES[number];
+export type CapabilityReadinessState = (typeof CAPABILITY_READINESS_STATES)[number];
 
 export type CapabilityId =
   | 'computer_use'
@@ -162,26 +153,36 @@ export function isOsPermissionState(value: unknown): value is OsPermissionState 
 }
 
 export function isCapabilityReadinessState(value: unknown): value is CapabilityReadinessState {
-  return typeof value === 'string' && (CAPABILITY_READINESS_STATES as readonly string[]).includes(value);
+  return (
+    typeof value === 'string' && (CAPABILITY_READINESS_STATES as readonly string[]).includes(value)
+  );
 }
 
-export function deriveCapabilityReadiness(input: DeriveCapabilityReadinessInput): CapabilityReadinessState {
+export function deriveCapabilityReadiness(
+  input: DeriveCapabilityReadinessInput,
+): CapabilityReadinessState {
   if (input.feature.state === 'disabled') return 'paused';
   if (input.feature.state === 'not_available') return 'not_configured';
   if (input.configuration.state === 'missing') return 'not_configured';
 
   const required = input.osPermissions.filter((permission) => permission.required);
-  if (required.some((permission) => permission.status === 'denied' || permission.status === 'unsupported')) {
+  if (
+    required.some(
+      (permission) => permission.status === 'denied' || permission.status === 'unsupported',
+    )
+  ) {
     return 'denied';
   }
-  if (required.some((permission) => permission.status === 'not_determined' || permission.status === 'unknown')) {
+  if (
+    required.some(
+      (permission) => permission.status === 'not_determined' || permission.status === 'unknown',
+    )
+  ) {
     return 'not_configured';
   }
 
-  if (
-    input.runtimeProbe.state === 'degraded'
-    || input.runtimeProbe.state === 'not_available'
-  ) return 'degraded';
+  if (input.runtimeProbe.state === 'degraded' || input.runtimeProbe.state === 'not_available')
+    return 'degraded';
   if (input.feature.state === 'partial') return 'not_configured';
   return 'enabled';
 }

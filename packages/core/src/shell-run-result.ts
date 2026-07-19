@@ -2,8 +2,10 @@ import type {
   ShellRunSnapshotResult,
   ShellRunStateResult,
   ShellRunUpdate,
+  SandboxDenialRecovery,
   ToolResultContent,
 } from './events.js';
+import { defineObjectShape, hasExactShape } from './record-schema.js';
 import {
   isShellOutput,
   isShellRunStatus,
@@ -15,6 +17,10 @@ import {
 export type ShellRunToolResult = Extract<ToolResultContent, { kind: 'shell_run' }>;
 type TerminalToolResult = Extract<ToolResultContent, { kind: 'terminal' }>;
 type ShellToolResult = TerminalToolResult | ShellRunToolResult;
+type ShellRunToolResultRecord = Omit<ShellRunToolResult, 'output' | 'operation'> & {
+  output?: ShellOutput;
+  operation?: ShellRunToolResult extends { operation?: infer Operation } ? Operation : never;
+};
 
 /** Bounds observer updates retained while a durable ShellRun view is hydrating. */
 export const SHELL_RUN_UPDATE_BUFFER_MAX_ENTRIES = 256;
@@ -77,33 +83,28 @@ export type ShellToolResultNormalization =
   | { state: 'invalid' }
   | { state: 'valid'; content: ShellToolResult };
 
-const CURRENT_TERMINAL_RESULT_KEYS = new Set([
-  'kind',
-  'cwd',
-  'cmd',
-  'status',
-  'exitCode',
-  'failureMessage',
-  'output',
-]);
+const CURRENT_TERMINAL_RESULT_SHAPE = defineObjectShape<TerminalToolResult>()(
+  ['kind', 'cwd', 'cmd', 'status', 'output'],
+  ['exitCode', 'failureMessage', 'sandboxDenial'],
+);
 
-const CURRENT_SHELL_RUN_RESULT_KEYS = new Set([
-  'kind',
-  'ref',
-  'mode',
-  'status',
-  'cwd',
-  'cmd',
-  'startedAt',
-  'updatedAt',
-  'completedAt',
-  'exitCode',
-  'failureMessage',
-  'revision',
-  'timeoutMs',
-  'output',
-  'operation',
-]);
+const CURRENT_SHELL_RUN_RESULT_SHAPE = defineObjectShape<ShellRunToolResultRecord>()(
+  ['kind', 'ref', 'mode', 'status', 'cwd', 'cmd', 'startedAt', 'updatedAt', 'revision'],
+  [
+    'completedAt',
+    'exitCode',
+    'failureMessage',
+    'timeoutMs',
+    'output',
+    'operation',
+    'sandboxDenial',
+  ],
+);
+
+const SANDBOX_DENIAL_SHAPE = defineObjectShape<SandboxDenialRecovery>()(
+  ['likely', 'recovery'],
+  ['backend'],
+);
 
 const STOP_OPERATION_KEYS = new Set(['kind', 'applied']);
 const PTY_CONTROL_OPERATION_KEYS = new Set(['kind', 'failed', 'input', 'resize']);
@@ -155,32 +156,39 @@ const LEGACY_SHELL_RUN_RESULT_KEYS = new Set([
 
 /** Validate current shell results and normalize only the exact preceding shape. */
 export function normalizeShellToolResultContent(value: unknown): ShellToolResultNormalization {
+  const canonical = decodeCanonicalShellToolResultContent(value);
+  if (canonical.state !== 'invalid') return canonical;
+  if (!isRecord(value)) return canonical;
+  const legacy =
+    value.kind === 'terminal'
+      ? (normalizeLegacyTerminalResult(value) ?? normalizePreStatusTerminalResult(value))
+      : normalizeLegacyShellRunResult(value);
+  return legacy ? { state: 'valid', content: legacy } : { state: 'invalid' };
+}
+
+export function decodeCanonicalShellToolResultContent(
+  value: unknown,
+): ShellToolResultNormalization {
   if (!isRecord(value) || (value.kind !== 'terminal' && value.kind !== 'shell_run')) {
     return { state: 'not_shell' };
   }
-  const current = value.kind === 'terminal'
-    ? currentTerminalResult(value)
-    : currentShellRunResult(value);
-  if (current) return { state: 'valid', content: current };
-  const legacy = value.kind === 'terminal'
-    ? normalizeLegacyTerminalResult(value) ?? normalizePreStatusTerminalResult(value)
-    : normalizeLegacyShellRunResult(value);
-  return legacy
-    ? { state: 'valid', content: legacy }
-    : { state: 'invalid' };
+  const current =
+    value.kind === 'terminal' ? currentTerminalResult(value) : currentShellRunResult(value);
+  return current ? { state: 'valid', content: current } : { state: 'invalid' };
 }
 
 function normalizePreStatusTerminalResult(
   value: Record<string, unknown>,
 ): Extract<ToolResultContent, { kind: 'terminal' }> | undefined {
   if (
-    !hasOnlyKeys(value, PRE_STATUS_TERMINAL_RESULT_KEYS)
-    || typeof value.cwd !== 'string'
-    || typeof value.cmd !== 'string'
-    || value.exitCode !== 0
-    || typeof value.stdout !== 'string'
-    || typeof value.stderr !== 'string'
-  ) return undefined;
+    !hasOnlyKeys(value, PRE_STATUS_TERMINAL_RESULT_KEYS) ||
+    typeof value.cwd !== 'string' ||
+    typeof value.cmd !== 'string' ||
+    value.exitCode !== 0 ||
+    typeof value.stdout !== 'string' ||
+    typeof value.stderr !== 'string'
+  )
+    return undefined;
 
   return {
     kind: 'terminal',
@@ -205,15 +213,17 @@ function hasLegacyTruncationMarker(value: string): boolean {
 
 function currentTerminalResult(value: Record<string, unknown>): TerminalToolResult | undefined {
   if (
-    !hasOnlyKeys(value, CURRENT_TERMINAL_RESULT_KEYS)
-    || typeof value.cwd !== 'string'
-    || typeof value.cmd !== 'string'
-    || !isLegacyTerminalStatus(value.status)
-    || !isOptionalFiniteNumber(value.exitCode)
-    || !isOptionalString(value.failureMessage)
-    || !isShellOutput(value.output)
-    || !isValidTerminalState(value)
-  ) return undefined;
+    !hasExactShape(value, CURRENT_TERMINAL_RESULT_SHAPE) ||
+    typeof value.cwd !== 'string' ||
+    typeof value.cmd !== 'string' ||
+    !isLegacyTerminalStatus(value.status) ||
+    !isOptionalFiniteNumber(value.exitCode) ||
+    !isOptionalString(value.failureMessage) ||
+    !isOptionalSandboxDenial(value.sandboxDenial) ||
+    !isShellOutput(value.output) ||
+    !isValidTerminalState(value)
+  )
+    return undefined;
   return value as TerminalToolResult;
 }
 
@@ -222,10 +232,12 @@ function isValidTerminalState(value: Record<string, unknown>): boolean {
     case 'completed':
       return value.exitCode === 0 && value.failureMessage === undefined;
     case 'failed':
-      return (isFiniteNumber(value.exitCode) && value.exitCode !== 0)
-        || (value.exitCode === undefined
-          && typeof value.failureMessage === 'string'
-          && value.failureMessage.length > 0);
+      return (
+        (isFiniteNumber(value.exitCode) && value.exitCode !== 0) ||
+        (value.exitCode === undefined &&
+          typeof value.failureMessage === 'string' &&
+          value.failureMessage.length > 0)
+      );
     case 'timed_out':
       return value.exitCode === 124;
     case 'cancelled':
@@ -237,24 +249,26 @@ function isValidTerminalState(value: Record<string, unknown>): boolean {
 
 function currentShellRunResult(value: Record<string, unknown>): ShellRunToolResult | undefined {
   if (
-    !hasOnlyKeys(value, CURRENT_SHELL_RUN_RESULT_KEYS)
-    || typeof value.ref !== 'string'
-    || (value.mode !== 'pipes' && value.mode !== 'pty')
-    || !isShellRunStatus(value.status)
-    || typeof value.cwd !== 'string'
-    || typeof value.cmd !== 'string'
-    || !isFiniteNumber(value.startedAt)
-    || !isFiniteNumber(value.updatedAt)
-    || !isPositiveInteger(value.revision)
-    || !isOptionalFiniteNumber(value.completedAt)
-    || !isOptionalFiniteNumber(value.exitCode)
-    || !isOptionalFiniteNumber(value.timeoutMs)
-    || !isOptionalString(value.failureMessage)
-    || (value.output !== undefined
-      && (!isShellOutput(value.output) || value.output.mode !== value.mode))
-    || !isCurrentShellRunOperation(value.operation, value.mode, value.output !== undefined)
-    || !isValidShellRunState(value)
-  ) return undefined;
+    !hasExactShape(value, CURRENT_SHELL_RUN_RESULT_SHAPE) ||
+    typeof value.ref !== 'string' ||
+    (value.mode !== 'pipes' && value.mode !== 'pty') ||
+    !isShellRunStatus(value.status) ||
+    typeof value.cwd !== 'string' ||
+    typeof value.cmd !== 'string' ||
+    !isFiniteNumber(value.startedAt) ||
+    !isFiniteNumber(value.updatedAt) ||
+    !isPositiveInteger(value.revision) ||
+    !isOptionalFiniteNumber(value.completedAt) ||
+    !isOptionalFiniteNumber(value.exitCode) ||
+    !isOptionalFiniteNumber(value.timeoutMs) ||
+    !isOptionalString(value.failureMessage) ||
+    !isOptionalSandboxDenial(value.sandboxDenial) ||
+    (value.output !== undefined &&
+      (!isShellOutput(value.output) || value.output.mode !== value.mode)) ||
+    !isCurrentShellRunOperation(value.operation, value.mode, value.output !== undefined) ||
+    !isValidShellRunState(value)
+  )
+    return undefined;
   return value as ShellRunToolResult;
 }
 
@@ -262,17 +276,18 @@ function normalizeLegacyTerminalResult(
   value: Record<string, unknown>,
 ): Extract<ToolResultContent, { kind: 'terminal' }> | undefined {
   if (
-    !hasOnlyKeys(value, LEGACY_TERMINAL_RESULT_KEYS)
-    || typeof value.cwd !== 'string'
-    || typeof value.cmd !== 'string'
-    || !isLegacyTerminalStatus(value.status)
-    || !isFiniteNumber(value.exitCode)
-    || typeof value.stdout !== 'string'
-    || typeof value.stderr !== 'string'
-    || typeof value.stdoutTruncated !== 'boolean'
-    || typeof value.stderrTruncated !== 'boolean'
-    || !isValidTerminalState(value)
-  ) return undefined;
+    !hasOnlyKeys(value, LEGACY_TERMINAL_RESULT_KEYS) ||
+    typeof value.cwd !== 'string' ||
+    typeof value.cmd !== 'string' ||
+    !isLegacyTerminalStatus(value.status) ||
+    !isFiniteNumber(value.exitCode) ||
+    typeof value.stdout !== 'string' ||
+    typeof value.stderr !== 'string' ||
+    typeof value.stdoutTruncated !== 'boolean' ||
+    typeof value.stderrTruncated !== 'boolean' ||
+    !isValidTerminalState(value)
+  )
+    return undefined;
 
   return {
     kind: 'terminal',
@@ -284,35 +299,39 @@ function normalizeLegacyTerminalResult(
   };
 }
 
-function normalizeLegacyShellRunResult(value: Record<string, unknown>): ShellRunToolResult | undefined {
+function normalizeLegacyShellRunResult(
+  value: Record<string, unknown>,
+): ShellRunToolResult | undefined {
   if (
-    !hasOnlyKeys(value, LEGACY_SHELL_RUN_RESULT_KEYS)
-    || typeof value.ref !== 'string'
-    || !isShellRunStatus(value.status)
-    || typeof value.cwd !== 'string'
-    || typeof value.cmd !== 'string'
-    || !isFiniteNumber(value.startedAt)
-    || !isFiniteNumber(value.updatedAt)
-    || typeof value.stdout !== 'string'
-    || typeof value.stderr !== 'string'
-    || typeof value.stdoutTruncated !== 'boolean'
-    || typeof value.stderrTruncated !== 'boolean'
-    || !isOptionalFiniteNumber(value.completedAt)
-    || !isOptionalFiniteNumber(value.exitCode)
-    || !isOptionalFiniteNumber(value.timeoutMs)
-    || !isOptionalFiniteNumber(value.observedAt)
-    || !isOptionalString(value.failureMessage)
-    || !isOptionalString(value.orphanedReason)
-    || !isOptionalBoolean(value.cancelled)
-    || !isOptionalOutputStream(value.latestOutputStream)
-    || !isValidLegacyShellRunState(value)
-  ) return undefined;
+    !hasOnlyKeys(value, LEGACY_SHELL_RUN_RESULT_KEYS) ||
+    typeof value.ref !== 'string' ||
+    !isShellRunStatus(value.status) ||
+    typeof value.cwd !== 'string' ||
+    typeof value.cmd !== 'string' ||
+    !isFiniteNumber(value.startedAt) ||
+    !isFiniteNumber(value.updatedAt) ||
+    typeof value.stdout !== 'string' ||
+    typeof value.stderr !== 'string' ||
+    typeof value.stdoutTruncated !== 'boolean' ||
+    typeof value.stderrTruncated !== 'boolean' ||
+    !isOptionalFiniteNumber(value.completedAt) ||
+    !isOptionalFiniteNumber(value.exitCode) ||
+    !isOptionalFiniteNumber(value.timeoutMs) ||
+    !isOptionalFiniteNumber(value.observedAt) ||
+    !isOptionalString(value.failureMessage) ||
+    !isOptionalString(value.orphanedReason) ||
+    !isOptionalBoolean(value.cancelled) ||
+    !isOptionalOutputStream(value.latestOutputStream) ||
+    !isValidLegacyShellRunState(value)
+  )
+    return undefined;
 
-  const failureMessage = typeof value.failureMessage === 'string'
-    ? value.failureMessage
-    : value.status === 'orphaned'
-      ? value.orphanedReason as string
-      : undefined;
+  const failureMessage =
+    typeof value.failureMessage === 'string'
+      ? value.failureMessage
+      : value.status === 'orphaned'
+        ? (value.orphanedReason as string)
+        : undefined;
   return {
     kind: 'shell_run',
     ref: value.ref,
@@ -349,74 +368,88 @@ function legacyPipeOutput(value: Record<string, unknown>): Extract<ShellOutput, 
 function isLegacyTerminalStatus(
   value: unknown,
 ): value is Exclude<ShellRunStatus, 'running' | 'orphaned'> {
-  return value === 'completed' || value === 'failed' || value === 'timed_out' || value === 'cancelled';
+  return (
+    value === 'completed' || value === 'failed' || value === 'timed_out' || value === 'cancelled'
+  );
 }
 
-function isCurrentShellRunOperation(
-  value: unknown,
-  mode: unknown,
-  hasOutput: boolean,
-): boolean {
+function isCurrentShellRunOperation(value: unknown, mode: unknown, hasOutput: boolean): boolean {
   if (value === undefined) return true;
   if (!hasOutput || !isRecord(value)) return false;
   if (value.kind === 'stop') {
     return hasOnlyKeys(value, STOP_OPERATION_KEYS) && typeof value.applied === 'boolean';
   }
   if (
-    value.kind !== 'pty_control'
-    || mode !== 'pty'
-    || !hasOnlyKeys(value, PTY_CONTROL_OPERATION_KEYS)
-    || typeof value.failed !== 'boolean'
-    || (value.input === undefined && value.resize === undefined)
-  ) return false;
+    value.kind !== 'pty_control' ||
+    mode !== 'pty' ||
+    !hasOnlyKeys(value, PTY_CONTROL_OPERATION_KEYS) ||
+    typeof value.failed !== 'boolean' ||
+    (value.input === undefined && value.resize === undefined)
+  )
+    return false;
   if (
-    value.input !== undefined
-    && (!isRecord(value.input)
-      || !hasOnlyKeys(value.input, PTY_CONTROL_INPUT_KEYS)
-      || !isNonNegativeInteger(value.input.bytes)
-      || typeof value.input.queued !== 'boolean')
-  ) return false;
-  return value.resize === undefined
-    || (isRecord(value.resize)
-      && hasOnlyKeys(value.resize, PTY_CONTROL_RESIZE_KEYS)
-      && isPositiveInteger(value.resize.cols)
-      && isPositiveInteger(value.resize.rows)
-      && typeof value.resize.applied === 'boolean'
-      && typeof value.resize.changed === 'boolean');
+    value.input !== undefined &&
+    (!isRecord(value.input) ||
+      !hasOnlyKeys(value.input, PTY_CONTROL_INPUT_KEYS) ||
+      !isNonNegativeInteger(value.input.bytes) ||
+      typeof value.input.queued !== 'boolean')
+  )
+    return false;
+  return (
+    value.resize === undefined ||
+    (isRecord(value.resize) &&
+      hasOnlyKeys(value.resize, PTY_CONTROL_RESIZE_KEYS) &&
+      isPositiveInteger(value.resize.cols) &&
+      isPositiveInteger(value.resize.rows) &&
+      typeof value.resize.applied === 'boolean' &&
+      typeof value.resize.changed === 'boolean')
+  );
 }
 
 export function isValidLegacyShellRunState(value: Record<string, unknown>): boolean {
   switch (value.status) {
     case 'running':
-      return value.completedAt === undefined
-        && value.exitCode === undefined
-        && value.failureMessage === undefined
-        && value.observedAt === undefined
-        && value.orphanedReason === undefined;
+      return (
+        value.completedAt === undefined &&
+        value.exitCode === undefined &&
+        value.failureMessage === undefined &&
+        value.observedAt === undefined &&
+        value.orphanedReason === undefined
+      );
     case 'completed':
-      return isFiniteNumber(value.completedAt)
-        && value.exitCode === 0
-        && value.failureMessage === undefined
-        && value.orphanedReason === undefined;
+      return (
+        isFiniteNumber(value.completedAt) &&
+        value.exitCode === 0 &&
+        value.failureMessage === undefined &&
+        value.orphanedReason === undefined
+      );
     case 'failed':
-      return isFiniteNumber(value.completedAt)
-        && isFiniteNumber(value.exitCode)
-        && value.exitCode !== 0
-        && value.orphanedReason === undefined;
+      return (
+        isFiniteNumber(value.completedAt) &&
+        isFiniteNumber(value.exitCode) &&
+        value.exitCode !== 0 &&
+        value.orphanedReason === undefined
+      );
     case 'timed_out':
-      return isFiniteNumber(value.completedAt)
-        && value.exitCode === 124
-        && value.orphanedReason === undefined;
+      return (
+        isFiniteNumber(value.completedAt) &&
+        value.exitCode === 124 &&
+        value.orphanedReason === undefined
+      );
     case 'cancelled':
-      return isFiniteNumber(value.completedAt)
-        && value.exitCode === 130
-        && value.orphanedReason === undefined;
+      return (
+        isFiniteNumber(value.completedAt) &&
+        value.exitCode === 130 &&
+        value.orphanedReason === undefined
+      );
     case 'orphaned':
-      return isFiniteNumber(value.completedAt)
-        && value.exitCode === undefined
-        && value.failureMessage === undefined
-        && typeof value.orphanedReason === 'string'
-        && value.orphanedReason.length > 0;
+      return (
+        isFiniteNumber(value.completedAt) &&
+        value.exitCode === undefined &&
+        value.failureMessage === undefined &&
+        typeof value.orphanedReason === 'string' &&
+        value.orphanedReason.length > 0
+      );
     default:
       return false;
   }
@@ -450,6 +483,19 @@ function isOptionalString(value: unknown): boolean {
   return value === undefined || typeof value === 'string';
 }
 
+function isOptionalSandboxDenial(value: unknown): boolean {
+  return (
+    value === undefined ||
+    (isRecord(value) &&
+      hasExactShape(value, SANDBOX_DENIAL_SHAPE) &&
+      value.likely === true &&
+      (value.backend === undefined ||
+        value.backend === 'macos-seatbelt' ||
+        value.backend === 'linux') &&
+      value.recovery === 'require_escalated')
+  );
+}
+
 function isOptionalBoolean(value: unknown): boolean {
   return value === undefined || typeof value === 'boolean';
 }
@@ -462,9 +508,7 @@ function isOptionalOutputStream(value: unknown): boolean {
   return value === undefined || isOutputStream(value);
 }
 
-export interface ShellRunStateMerge<
-  Result extends ShellRunStateResult = ShellRunStateResult,
-> {
+export interface ShellRunStateMerge<Result extends ShellRunStateResult = ShellRunStateResult> {
   result: Result;
   changed: boolean;
   invariantViolation?: 'ref_mismatch' | 'same_revision_conflict';
@@ -566,9 +610,15 @@ export function mergeShellRunUpdate(
   report?: ShellRunMergeDiagnosticReporter,
 ): ShellRunUpdateMerge {
   if (!current) return { update: candidate, changed: true };
-  const merged = mergeShellRunStateWithDiagnostics(current.result, candidate.result, context, report);
-  const candidateMetadataIsCurrent = current.result.ref === candidate.result.ref
-    && candidate.result.revision >= current.result.revision;
+  const merged = mergeShellRunStateWithDiagnostics(
+    current.result,
+    candidate.result,
+    context,
+    report,
+  );
+  const candidateMetadataIsCurrent =
+    current.result.ref === candidate.result.ref &&
+    candidate.result.revision >= current.result.revision;
   const metadata = candidateMetadataIsCurrent ? candidate : current;
   const update = { ...metadata, result: merged.result };
   return {
@@ -583,12 +633,14 @@ export function projectShellRunUpdateForSession(
   source: ShellRunUpdate,
 ): ShellRunUpdate[] {
   if (source.sessionId === sessionId) return [source];
-  return current.flatMap((view) => view.sessionId === sessionId
-    && view.ownership.kind === 'source_owned'
-    && view.ownership.ownerSessionId === source.sessionId
-    && view.result.ref === source.result.ref
-    ? [{ ...view, result: source.result }]
-    : []);
+  return current.flatMap((view) =>
+    view.sessionId === sessionId &&
+    view.ownership.kind === 'source_owned' &&
+    view.ownership.ownerSessionId === source.sessionId &&
+    view.result.ref === source.result.ref
+      ? [{ ...view, result: source.result }]
+      : [],
+  );
 }
 
 function reportShellRunMergeDiagnostic(diagnostic: ShellRunMergeDiagnostic): void {
@@ -596,10 +648,12 @@ function reportShellRunMergeDiagnostic(diagnostic: ShellRunMergeDiagnostic): voi
 }
 
 function shellRunUpdateMetadataEqual(left: ShellRunUpdate, right: ShellRunUpdate): boolean {
-  return left.sessionId === right.sessionId
-    && left.sourceTurnId === right.sourceTurnId
-    && left.sourceToolCallId === right.sourceToolCallId
-    && shellRunOwnershipEqual(left.ownership, right.ownership);
+  return (
+    left.sessionId === right.sessionId &&
+    left.sourceTurnId === right.sourceTurnId &&
+    left.sourceToolCallId === right.sourceToolCallId &&
+    shellRunOwnershipEqual(left.ownership, right.ownership)
+  );
 }
 
 function shellRunOwnershipEqual(
@@ -609,49 +663,58 @@ function shellRunOwnershipEqual(
   if (left.kind !== right.kind) return false;
   if (left.kind === 'local' && right.kind === 'local') return true;
   if (left.kind === 'source_owned' && right.kind === 'source_owned') {
-    return left.sourceSessionId === right.sourceSessionId
-      && left.ownerSessionId === right.ownerSessionId;
+    return (
+      left.sourceSessionId === right.sourceSessionId && left.ownerSessionId === right.ownerSessionId
+    );
   }
-  return left.kind === 'source_unavailable'
-    && right.kind === 'source_unavailable'
-    && left.sourceSessionId === right.sourceSessionId;
+  return (
+    left.kind === 'source_unavailable' &&
+    right.kind === 'source_unavailable' &&
+    left.sourceSessionId === right.sourceSessionId
+  );
 }
 
 function sameMetadata(left: ShellRunStateResult, right: ShellRunStateResult): boolean {
-  return left.mode === right.mode
-    && left.status === right.status
-    && left.cwd === right.cwd
-    && left.cmd === right.cmd
-    && left.startedAt === right.startedAt
-    && left.updatedAt === right.updatedAt
-    && left.completedAt === right.completedAt
-    && left.timeoutMs === right.timeoutMs
-    && left.exitCode === right.exitCode
-    && left.failureMessage === right.failureMessage
-    && left.revision === right.revision;
+  return (
+    left.mode === right.mode &&
+    left.status === right.status &&
+    left.cwd === right.cwd &&
+    left.cmd === right.cmd &&
+    left.startedAt === right.startedAt &&
+    left.updatedAt === right.updatedAt &&
+    left.completedAt === right.completedAt &&
+    left.timeoutMs === right.timeoutMs &&
+    left.exitCode === right.exitCode &&
+    left.failureMessage === right.failureMessage &&
+    left.revision === right.revision
+  );
 }
 
 function shellOutputEqual(left: ShellOutput | undefined, right: ShellOutput | undefined): boolean {
   if (left === undefined || right === undefined) return left === right;
   if (left.mode !== right.mode) return false;
   if (left.mode === 'pipes' && right.mode === 'pipes') {
-    return left.stdout === right.stdout
-      && left.stderr === right.stderr
-      && left.latestStream === right.latestStream
-      && left.stdoutTruncated === right.stdoutTruncated
-      && left.stderrTruncated === right.stderrTruncated
-      && left.redacted === right.redacted;
+    return (
+      left.stdout === right.stdout &&
+      left.stderr === right.stderr &&
+      left.latestStream === right.latestStream &&
+      left.stdoutTruncated === right.stdoutTruncated &&
+      left.stderrTruncated === right.stderrTruncated &&
+      left.redacted === right.redacted
+    );
   }
   if (left.mode !== 'pty' || right.mode !== 'pty') return false;
-  return left.screen === right.screen
-    && left.scrollback === right.scrollback
-    && left.lastAlternateScreen === right.lastAlternateScreen
-    && left.cols === right.cols
-    && left.rows === right.rows
-    && left.cursor.x === right.cursor.x
-    && left.cursor.y === right.cursor.y
-    && left.cursor.visible === right.cursor.visible
-    && left.alternateScreen === right.alternateScreen
-    && left.truncated === right.truncated
-    && left.redacted === right.redacted;
+  return (
+    left.screen === right.screen &&
+    left.scrollback === right.scrollback &&
+    left.lastAlternateScreen === right.lastAlternateScreen &&
+    left.cols === right.cols &&
+    left.rows === right.rows &&
+    left.cursor.x === right.cursor.x &&
+    left.cursor.y === right.cursor.y &&
+    left.cursor.visible === right.cursor.visible &&
+    left.alternateScreen === right.alternateScreen &&
+    left.truncated === right.truncated &&
+    left.redacted === right.redacted
+  );
 }

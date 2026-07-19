@@ -35,7 +35,10 @@ export interface SynthesisCacheArtifactStore {
     now?: number;
   }): Promise<ArtifactRecord>;
   list(sessionId: string, options?: { includeDeleted?: boolean }): Promise<ArtifactRecord[]>;
-  readText(artifactId: string, options?: { maxBytes?: number }): Promise<{ ok: true; text: string } | { ok: false; reason: string }>;
+  readText(
+    artifactId: string,
+    options?: { maxBytes?: number },
+  ): Promise<{ ok: true; text: string } | { ok: false; reason: string }>;
 }
 
 export interface PersistSynthesisCacheBlocksDeps {
@@ -56,7 +59,9 @@ export async function persistSynthesisCacheBlocksToArtifacts(
     retrievedArchiveRefs: input.source.retrievedArchiveRefs,
     archiveRetrievalMode: input.source.archiveRetrievalMode,
     limits: input.limits,
-    ...(input.requestShapeHashBefore ? { requestShapeHashBefore: input.requestShapeHashBefore } : {}),
+    ...(input.requestShapeHashBefore
+      ? { requestShapeHashBefore: input.requestShapeHashBefore }
+      : {}),
     ...(input.requestShapeHashAfter ? { requestShapeHashAfter: input.requestShapeHashAfter } : {}),
     now,
   });
@@ -153,10 +158,12 @@ export async function loadSynthesisCacheBlocksFromArtifacts(
 }
 
 function hasSessionId(value: unknown): value is { sessionId: string } {
-  return !!value
-    && typeof value === 'object'
-    && 'sessionId' in value
-    && typeof (value as { sessionId?: unknown }).sessionId === 'string';
+  return (
+    !!value &&
+    typeof value === 'object' &&
+    'sessionId' in value &&
+    typeof (value as { sessionId?: unknown }).sessionId === 'string'
+  );
 }
 
 function incrementSynthesisCacheCount(counts: Record<string, number>, reason: string): void {

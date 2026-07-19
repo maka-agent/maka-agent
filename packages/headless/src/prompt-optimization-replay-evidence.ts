@@ -12,7 +12,10 @@ import {
   matchesRun,
   type PromptOptimizationReplayState,
 } from './prompt-optimization-replay-state.js';
-import { replayControllerSweep, replayRequiredControllerSweep } from './prompt-optimization-replay-sweeps.js';
+import {
+  replayControllerSweep,
+  replayRequiredControllerSweep,
+} from './prompt-optimization-replay-sweeps.js';
 import { validateRsiControllerAttribution } from './rsi-controller-attribution.js';
 
 export interface ReplayedPromptDecisionRound {
@@ -59,8 +62,8 @@ export function assertReplayedDecisionMatchesResult(
     metrics: decision.metrics,
   };
   if (
-    !isDeepStrictEqual(persistedDecision, replayedDecision)
-    && !isLegacyRewardHackReportOnlyMismatch(persistedDecision, replayedDecision)
+    !isDeepStrictEqual(persistedDecision, replayedDecision) &&
+    !isLegacyRewardHackReportOnlyMismatch(persistedDecision, replayedDecision)
   ) {
     throw new Error(`RSI WAL replay decision mismatch for ${decision.roundId}`);
   }
@@ -72,9 +75,11 @@ function isLegacyRewardHackReportOnlyMismatch(
 ): boolean {
   const { rewardHackScan: persistedScan, ...persistedWithoutScan } = persistedDecision;
   const { rewardHackScan: replayedScan, ...replayedWithoutScan } = replayedDecision;
-  return isDeepStrictEqual(persistedWithoutScan, replayedWithoutScan)
-    && isVerifierPatternQuarantine(persistedScan)
-    && isCleanRewardHackScan(replayedScan);
+  return (
+    isDeepStrictEqual(persistedWithoutScan, replayedWithoutScan) &&
+    isVerifierPatternQuarantine(persistedScan) &&
+    isCleanRewardHackScan(replayedScan)
+  );
 }
 
 function isVerifierPatternQuarantine(scan: unknown): boolean {
@@ -178,8 +183,9 @@ function replayDecisionAttribution(input: {
   if (decisionIndex < 0) {
     throw new Error(`RSI WAL replay missing decision event for ${input.roundId}`);
   }
-  const preDecisionAttribution = input.events.slice(0, decisionIndex).find((event) =>
-    attributionMatchesRound(event, input.runId, input.roundId));
+  const preDecisionAttribution = input.events
+    .slice(0, decisionIndex)
+    .find((event) => attributionMatchesRound(event, input.runId, input.roundId));
   if (preDecisionAttribution) {
     throw new Error(`RSI WAL replay found RSI attribution before decision for ${input.roundId}`);
   }
@@ -196,7 +202,9 @@ function replayDecisionAttribution(input: {
     attribution = event;
   }
   if (!attribution) {
-    throw new Error(`RSI WAL replay missing post-decision RSI attribution evidence for ${input.roundId}`);
+    throw new Error(
+      `RSI WAL replay missing post-decision RSI attribution evidence for ${input.roundId}`,
+    );
   }
   const attributionValidation = validateRsiControllerAttribution({
     attribution,
@@ -215,9 +223,11 @@ function attributionMatchesRound(
   runId: string,
   roundId: string,
 ): event is RsiControllerAttributionEvent {
-  return event.type === 'rsi_controller_attribution'
-    && event.runId === runId
-    && event.roundId === roundId;
+  return (
+    event.type === 'rsi_controller_attribution' &&
+    event.runId === runId &&
+    event.roundId === roundId
+  );
 }
 
 function assertAttributionMatchesCandidate(

@@ -156,16 +156,14 @@ export function normalizeOpenAiCodexConnection(connection: LlmConnection): LlmCo
   const safeModels = (connection.models ?? []).filter(
     (entry) => entry.id && !CODEX_SUBSCRIPTION_UNSUPPORTED_CHATGPT_MODELS.has(entry.id),
   );
-  const models = safeModels.length
-    ? safeModels
-    : fallbackModels.map((id) => ({ id }));
+  const models = safeModels.length ? safeModels : fallbackModels.map((id) => ({ id }));
   const enabledModelIds = new Set(models.map((entry) => entry.id));
   const defaultModel =
     connection.defaultModel &&
     !CODEX_SUBSCRIPTION_UNSUPPORTED_CHATGPT_MODELS.has(connection.defaultModel) &&
     enabledModelIds.has(connection.defaultModel)
       ? connection.defaultModel
-      : models[0]?.id ?? fallbackModels[0] ?? connection.defaultModel;
+      : (models[0]?.id ?? fallbackModels[0] ?? connection.defaultModel);
   if (models === connection.models && defaultModel === connection.defaultModel) return connection;
   return { ...connection, defaultModel, models };
 }

@@ -30,7 +30,8 @@ describe('semantic compact', () => {
         minSavingsTokens: 1,
         minSavingsRatio: 0,
       },
-      requestShapeHashForMessages: (stepMessages) => `shape:${stepMessages.length}:${JSON.stringify(stepMessages).length}`,
+      requestShapeHashForMessages: (stepMessages) =>
+        `shape:${stepMessages.length}:${JSON.stringify(stepMessages).length}`,
       summarizer: (request) => {
         requestSeen = request;
         assert.equal('tools' in request, false);
@@ -71,14 +72,27 @@ describe('semantic compact', () => {
     assert.equal(result.block?.acceptance.decision, 'accepted');
     assert.ok((result.block?.estimatedTokensSavedSigned ?? 0) > 0);
     assert.deepEqual(result.block?.preservedTail.toolCallIds, ['tool-recent']);
-    assert.equal(result.messages.some((message) =>
-      message.role === 'assistant' && JSON.stringify(message.content).includes('maka_semantic_compact_block')
-    ), true);
-    assert.deepEqual(result.messages[0], messages[0], 'the exact current-user head anchor must stay first');
+    assert.equal(
+      result.messages.some(
+        (message) =>
+          message.role === 'assistant' &&
+          JSON.stringify(message.content).includes('maka_semantic_compact_block'),
+      ),
+      true,
+    );
+    assert.deepEqual(
+      result.messages[0],
+      messages[0],
+      'the exact current-user head anchor must stay first',
+    );
     assert.equal(result.messages.filter((message) => message.role === 'user').length, 1);
-    assert.equal(result.messages.some((message) =>
-      message.role === 'tool' && JSON.stringify(message.content).includes('recent-result')
-    ), true);
+    assert.equal(
+      result.messages.some(
+        (message) =>
+          message.role === 'tool' && JSON.stringify(message.content).includes('recent-result'),
+      ),
+      true,
+    );
 
     const decisions = result.diagnosticPatch.compactionDecisions ?? [];
     assert.equal(decisions[0]?.boundaryKind, 'semanticCompact');
@@ -178,7 +192,10 @@ describe('semantic compact', () => {
 
     assert.equal(result.decision, 'unchanged');
     assert.equal(result.reason, 'private_verifier_surface');
-    assert.equal(result.diagnosticPatch.compactionDecisions?.[0]?.reason, 'private_verifier_surface');
+    assert.equal(
+      result.diagnosticPatch.compactionDecisions?.[0]?.reason,
+      'private_verifier_surface',
+    );
     assert.equal(result.block, undefined);
     assert.equal(result.diagnosticPatch.compactionDecisions?.[0]?.compactCallTotalTokens, 7);
   });
@@ -224,7 +241,10 @@ describe('semantic compact', () => {
       emptyAction.diagnosticPatch.compactionDecisions?.[0]?.reason,
       'summary_missing_action_in_progress',
     );
-    assert.match(renderSemanticCompactBlock(emptyAction.block!), /bounded text fallback|continuation_notes/);
+    assert.match(
+      renderSemanticCompactBlock(emptyAction.block!),
+      /bounded text fallback|continuation_notes/,
+    );
   });
 
   test('rejects an unbounded non-structured fallback without a complete sentence or line', async () => {
@@ -266,7 +286,9 @@ describe('semantic compact', () => {
         text: semanticSummary({
           finding: 'Continue after compact with complete continuity state.',
           actionInProgress: 'Resume with the preserved recent tool result.',
-          partialWorkProduct: ['Earlier output showed a large build log that does not need to remain verbatim.'],
+          partialWorkProduct: [
+            'Earlier output showed a large build log that does not need to remain verbatim.',
+          ],
         }),
       }),
     });
@@ -316,7 +338,10 @@ describe('semantic compact', () => {
     assert.equal(result.decision, 'replaced');
     assert.equal(result.block?.acceptance.decision, 'accepted');
     assert.equal(result.block?.acceptance.reason, 'below_min_net_savings_tokens');
-    assert.equal(result.diagnosticPatch.compactionDecisions?.[0]?.reason, 'below_min_net_savings_tokens');
+    assert.equal(
+      result.diagnosticPatch.compactionDecisions?.[0]?.reason,
+      'below_min_net_savings_tokens',
+    );
     assert.ok((result.block?.estimatedNetTokensSavedSigned ?? 0) < 0);
   });
 
@@ -369,7 +394,12 @@ describe('semantic compact', () => {
       controllerState,
       summarizer: () => {
         calls += 1;
-        return { text: semanticSummary({ finding: 'Should not run.', actionInProgress: 'Should not run.' }) };
+        return {
+          text: semanticSummary({
+            finding: 'Should not run.',
+            actionInProgress: 'Should not run.',
+          }),
+        };
       },
     });
     assert.equal(cooled.decision, 'replaced');
@@ -386,7 +416,9 @@ describe('semantic compact', () => {
       controllerState,
       summarizer: () => {
         calls += 1;
-        return { text: semanticSummary({ finding: 'Runs after cooldown.', actionInProgress: 'Continue.' }) };
+        return {
+          text: semanticSummary({ finding: 'Runs after cooldown.', actionInProgress: 'Continue.' }),
+        };
       },
     });
     assert.notEqual(resumed.reason, 'semantic_compact_cooldown');
@@ -440,7 +472,12 @@ describe('semantic compact', () => {
       controllerState,
       summarizer: () => {
         calls += 1;
-        return { text: semanticSummary({ finding: 'Should not run.', actionInProgress: 'Should not run.' }) };
+        return {
+          text: semanticSummary({
+            finding: 'Should not run.',
+            actionInProgress: 'Should not run.',
+          }),
+        };
       },
     });
     assert.equal(cooled.decision, 'unchanged');
@@ -494,20 +531,41 @@ describe('semantic compact', () => {
         role: 'assistant',
         content: [
           { type: 'text', text: 'Let me re-read the files before writing the VM. '.repeat(80) },
-          { type: 'tool-call', toolCallId: 'earlier-read', toolName: 'Bash', input: { command: 'ls' } },
+          {
+            type: 'tool-call',
+            toolCallId: 'earlier-read',
+            toolName: 'Bash',
+            input: { command: 'ls' },
+          },
         ],
       },
       {
         role: 'tool',
-        content: [{ type: 'tool-result', toolCallId: 'earlier-read', toolName: 'Bash', result: 'files' }],
+        content: [
+          { type: 'tool-result', toolCallId: 'earlier-read', toolName: 'Bash', result: 'files' },
+        ],
       },
       {
         role: 'assistant',
-        content: [{ type: 'tool-call', toolCallId: 'recent-write', toolName: 'Bash', input: { command: 'pwd' } }],
+        content: [
+          {
+            type: 'tool-call',
+            toolCallId: 'recent-write',
+            toolName: 'Bash',
+            input: { command: 'pwd' },
+          },
+        ],
       },
       {
         role: 'tool',
-        content: [{ type: 'tool-result', toolCallId: 'recent-write', toolName: 'Bash', result: 'workspace ready' }],
+        content: [
+          {
+            type: 'tool-result',
+            toolCallId: 'recent-write',
+            toolName: 'Bash',
+            result: 'workspace ready',
+          },
+        ],
       },
     ] as ModelMessage[];
     let requestSeen: SemanticCompactSummaryRequest | undefined;
@@ -534,16 +592,21 @@ describe('semantic compact', () => {
     assert.doesNotMatch(JSON.stringify(requestSeen.messages.at(-1)), /restoration_cards/);
     assert.equal(result.block?.stateCards, undefined);
 
-    result.block!.stateCards = [{
-      kind: 'vm',
-      text: 'Let me re-read the files before writing the VM.',
-      sourceIds: ['legacy-provider-source'],
-    }];
+    result.block!.stateCards = [
+      {
+        kind: 'vm',
+        text: 'Let me re-read the files before writing the VM.',
+        sourceIds: ['legacy-provider-source'],
+      },
+    ];
     const rendered = renderSemanticCompactBlock(result.block!);
     assert.doesNotMatch(rendered, /Let me re-read/);
     assert.doesNotMatch(rendered, /restoration_state_cards/);
     assert.match(rendered, /action_in_progress: Write \/app\/vm\.js now\./);
-    assert.doesNotMatch(rendered, /current_objective|user_constraints|operational_state|next_action/);
+    assert.doesNotMatch(
+      rendered,
+      /current_objective|user_constraints|operational_state|next_action/,
+    );
   });
 
   test('preserves prior replay and the exact multimodal current-user head anchor', async () => {
@@ -562,20 +625,41 @@ describe('semantic compact', () => {
         role: 'assistant',
         content: [
           { type: 'reasoning', text: 'completed reasoning '.repeat(600) },
-          { type: 'tool-call', toolCallId: 'anchor-earlier', toolName: 'Bash', input: { command: 'ls' } },
+          {
+            type: 'tool-call',
+            toolCallId: 'anchor-earlier',
+            toolName: 'Bash',
+            input: { command: 'ls' },
+          },
         ],
       },
       {
         role: 'tool',
-        content: [{ type: 'tool-result', toolCallId: 'anchor-earlier', toolName: 'Bash', result: 'files' }],
+        content: [
+          { type: 'tool-result', toolCallId: 'anchor-earlier', toolName: 'Bash', result: 'files' },
+        ],
       },
       {
         role: 'assistant',
-        content: [{ type: 'tool-call', toolCallId: 'anchor-recent', toolName: 'Bash', input: { command: 'pwd' } }],
+        content: [
+          {
+            type: 'tool-call',
+            toolCallId: 'anchor-recent',
+            toolName: 'Bash',
+            input: { command: 'pwd' },
+          },
+        ],
       },
       {
         role: 'tool',
-        content: [{ type: 'tool-result', toolCallId: 'anchor-recent', toolName: 'Bash', result: 'workspace ready' }],
+        content: [
+          {
+            type: 'tool-result',
+            toolCallId: 'anchor-recent',
+            toolName: 'Bash',
+            result: 'workspace ready',
+          },
+        ],
       },
     ] as unknown as ModelMessage[];
     const headAnchor = buildActiveCompactionHeadAnchor(messages, 2, 1);
@@ -588,7 +672,10 @@ describe('semantic compact', () => {
       charsPerToken: 1,
       policy: attentionTestPolicy(),
       summarizer: () => ({
-        text: semanticSummary({ finding: 'Fix the current task exactly.', actionInProgress: 'Continue.' }),
+        text: semanticSummary({
+          finding: 'Fix the current task exactly.',
+          actionInProgress: 'Continue.',
+        }),
       }),
     });
 
@@ -599,8 +686,14 @@ describe('semantic compact', () => {
     assert.equal(result.block?.version, 2);
     const boundary = semanticCompactBlockToCompactionBoundary(result.block!);
     assert.equal(boundary.predecessorBoundaryId, undefined);
-    assert.deepEqual(boundary.preservedAnchor?.headProviderMessageSourceIds, result.block?.headAnchor?.sourceIds);
-    assert.equal(result.block?.coverage.providerMessageSourceIds.some((id) => id.startsWith('provider:2:')), false);
+    assert.deepEqual(
+      boundary.preservedAnchor?.headProviderMessageSourceIds,
+      result.block?.headAnchor?.sourceIds,
+    );
+    assert.equal(
+      result.block?.coverage.providerMessageSourceIds.some((id) => id.startsWith('provider:2:')),
+      false,
+    );
   });
 
   test('keeps an incomplete multi-tool episode in the exact tail', async () => {
@@ -610,23 +703,42 @@ describe('semantic compact', () => {
         role: 'assistant',
         content: [
           { type: 'reasoning', text: 'earlier completed reasoning '.repeat(500) },
-          { type: 'tool-call', toolCallId: 'call-earlier', toolName: 'Bash', input: { command: 'earlier' } },
+          {
+            type: 'tool-call',
+            toolCallId: 'call-earlier',
+            toolName: 'Bash',
+            input: { command: 'earlier' },
+          },
         ],
       },
       {
         role: 'tool',
-        content: [{ type: 'tool-result', toolCallId: 'call-earlier', toolName: 'Bash', result: 'earlier-done' }],
+        content: [
+          {
+            type: 'tool-result',
+            toolCallId: 'call-earlier',
+            toolName: 'Bash',
+            result: 'earlier-done',
+          },
+        ],
       },
       {
         role: 'assistant',
         content: [
           { type: 'reasoning', text: 'completed reasoning '.repeat(500) },
-          { type: 'tool-call', toolCallId: 'call-complete', toolName: 'Bash', input: { command: 'done' } },
+          {
+            type: 'tool-call',
+            toolCallId: 'call-complete',
+            toolName: 'Bash',
+            input: { command: 'done' },
+          },
         ],
       },
       {
         role: 'tool',
-        content: [{ type: 'tool-result', toolCallId: 'call-complete', toolName: 'Bash', result: 'done' }],
+        content: [
+          { type: 'tool-result', toolCallId: 'call-complete', toolName: 'Bash', result: 'done' },
+        ],
       },
       { role: 'assistant', content: [{ type: 'reasoning', text: 'open episode reasoning' }] },
       {
@@ -638,7 +750,9 @@ describe('semantic compact', () => {
       },
       {
         role: 'tool',
-        content: [{ type: 'tool-result', toolCallId: 'call-a', toolName: 'Bash', result: 'done-a' }],
+        content: [
+          { type: 'tool-result', toolCallId: 'call-a', toolName: 'Bash', result: 'done-a' },
+        ],
       },
     ] as unknown as ModelMessage[];
     const result = await rewriteSemanticCompactInMessages({
@@ -649,12 +763,18 @@ describe('semantic compact', () => {
       stepNumber: 2,
       charsPerToken: 1,
       policy: attentionTestPolicy(),
-      summarizer: () => ({ text: semanticSummary({ finding: 'Current task', actionInProgress: 'Finish tools.' }) }),
+      summarizer: () => ({
+        text: semanticSummary({ finding: 'Current task', actionInProgress: 'Finish tools.' }),
+      }),
     });
 
     assert.equal(result.decision, 'replaced');
     assert.deepEqual(result.messages.slice(-5), messages.slice(-5));
-    assert.deepEqual(result.block?.preservedTail.toolCallIds, ['call-a', 'call-b', 'call-complete']);
+    assert.deepEqual(result.block?.preservedTail.toolCallIds, [
+      'call-a',
+      'call-b',
+      'call-complete',
+    ]);
     assert.doesNotMatch(renderSemanticCompactBlock(result.block!), /open episode reasoning/);
   });
 
@@ -666,20 +786,36 @@ describe('semantic compact', () => {
         role: 'assistant',
         content: [
           { type: 'text', text: 'small completed step' },
-          { type: 'tool-call', toolCallId: 'threshold-earlier', toolName: 'Bash', input: { command: 'true' } },
+          {
+            type: 'tool-call',
+            toolCallId: 'threshold-earlier',
+            toolName: 'Bash',
+            input: { command: 'true' },
+          },
         ],
       },
       {
         role: 'tool',
-        content: [{ type: 'tool-result', toolCallId: 'threshold-earlier', toolName: 'Bash', result: 'ok' }],
+        content: [
+          { type: 'tool-result', toolCallId: 'threshold-earlier', toolName: 'Bash', result: 'ok' },
+        ],
       },
       {
         role: 'assistant',
-        content: [{ type: 'tool-call', toolCallId: 'threshold-recent', toolName: 'Bash', input: { command: 'pwd' } }],
+        content: [
+          {
+            type: 'tool-call',
+            toolCallId: 'threshold-recent',
+            toolName: 'Bash',
+            input: { command: 'pwd' },
+          },
+        ],
       },
       {
         role: 'tool',
-        content: [{ type: 'tool-result', toolCallId: 'threshold-recent', toolName: 'Bash', result: 'ok' }],
+        content: [
+          { type: 'tool-result', toolCallId: 'threshold-recent', toolName: 'Bash', result: 'ok' },
+        ],
       },
     ] as ModelMessage[];
     const result = await rewriteSemanticCompactInMessages({
@@ -715,20 +851,41 @@ describe('semantic compact', () => {
         role: 'assistant',
         content: [
           { type: 'text', text: 'older completed work '.repeat(2_000) },
-          { type: 'tool-call', toolCallId: 'water-earlier', toolName: 'Bash', input: { command: 'true' } },
+          {
+            type: 'tool-call',
+            toolCallId: 'water-earlier',
+            toolName: 'Bash',
+            input: { command: 'true' },
+          },
         ],
       },
       {
         role: 'tool',
-        content: [{ type: 'tool-result', toolCallId: 'water-earlier', toolName: 'Bash', result: 'ok' }],
+        content: [
+          { type: 'tool-result', toolCallId: 'water-earlier', toolName: 'Bash', result: 'ok' },
+        ],
       },
       {
         role: 'assistant',
-        content: [{ type: 'tool-call', toolCallId: 'water-recent', toolName: 'Bash', input: { command: 'pwd' } }],
+        content: [
+          {
+            type: 'tool-call',
+            toolCallId: 'water-recent',
+            toolName: 'Bash',
+            input: { command: 'pwd' },
+          },
+        ],
       },
       {
         role: 'tool',
-        content: [{ type: 'tool-result', toolCallId: 'water-recent', toolName: 'Bash', result: 'workspace' }],
+        content: [
+          {
+            type: 'tool-result',
+            toolCallId: 'water-recent',
+            toolName: 'Bash',
+            result: 'workspace',
+          },
+        ],
       },
     ] as unknown as ModelMessage[];
     const result = await rewriteSemanticCompactInMessages({
@@ -768,20 +925,41 @@ describe('semantic compact', () => {
         role: 'assistant',
         content: [
           { type: 'text', text: 'first completed history '.repeat(500) },
-          { type: 'tool-call', toolCallId: 'roll-earlier-1', toolName: 'Bash', input: { command: 'ls' } },
+          {
+            type: 'tool-call',
+            toolCallId: 'roll-earlier-1',
+            toolName: 'Bash',
+            input: { command: 'ls' },
+          },
         ],
       },
       {
         role: 'tool',
-        content: [{ type: 'tool-result', toolCallId: 'roll-earlier-1', toolName: 'Bash', result: 'files' }],
+        content: [
+          { type: 'tool-result', toolCallId: 'roll-earlier-1', toolName: 'Bash', result: 'files' },
+        ],
       },
       {
         role: 'assistant',
-        content: [{ type: 'tool-call', toolCallId: 'roll-recent-1', toolName: 'Bash', input: { command: 'pwd' } }],
+        content: [
+          {
+            type: 'tool-call',
+            toolCallId: 'roll-recent-1',
+            toolName: 'Bash',
+            input: { command: 'pwd' },
+          },
+        ],
       },
       {
         role: 'tool',
-        content: [{ type: 'tool-result', toolCallId: 'roll-recent-1', toolName: 'Bash', result: 'workspace ready' }],
+        content: [
+          {
+            type: 'tool-result',
+            toolCallId: 'roll-recent-1',
+            toolName: 'Bash',
+            result: 'workspace ready',
+          },
+        ],
       },
     ] as unknown as ModelMessage[];
     const headAnchor = buildActiveCompactionHeadAnchor(original, 0, 1);
@@ -793,17 +971,24 @@ describe('semantic compact', () => {
       stepNumber: 2,
       charsPerToken: 1,
       policy: attentionTestPolicy(),
-      summarizer: () => ({ text: semanticSummary({ finding: 'Exact task instruction', actionInProgress: 'Second step.' }) }),
+      summarizer: () => ({
+        text: semanticSummary({
+          finding: 'Exact task instruction',
+          actionInProgress: 'Second step.',
+        }),
+      }),
     });
     assert.equal(first.decision, 'replaced');
 
-    first.block!.stateCards = [{
-      kind: 'process',
-      text: 'Let me re-read every source file before writing the VM.',
-      sourceIds: ['legacy-source'],
-    }];
+    first.block!.stateCards = [
+      {
+        kind: 'process',
+        text: 'Let me re-read every source file before writing the VM.',
+        sourceIds: ['legacy-source'],
+      },
+    ];
     const legacyProjection = first.messages.find((message) =>
-      JSON.stringify(message.content).includes('<maka_semantic_compact_block')
+      JSON.stringify(message.content).includes('<maka_semantic_compact_block'),
     );
     assert.ok(legacyProjection);
     legacyProjection.content = `${String(legacyProjection.content)}\nrestoration_state_cards:\n- Let me re-read every source file before writing the VM.`;
@@ -814,20 +999,36 @@ describe('semantic compact', () => {
         role: 'assistant',
         content: [
           { type: 'text', text: 'second completed history '.repeat(500) },
-          { type: 'tool-call', toolCallId: 'roll-earlier-2', toolName: 'Bash', input: { command: 'git diff' } },
+          {
+            type: 'tool-call',
+            toolCallId: 'roll-earlier-2',
+            toolName: 'Bash',
+            input: { command: 'git diff' },
+          },
         ],
       } as ModelMessage,
       {
         role: 'tool',
-        content: [{ type: 'tool-result', toolCallId: 'roll-earlier-2', toolName: 'Bash', result: 'diff' }],
+        content: [
+          { type: 'tool-result', toolCallId: 'roll-earlier-2', toolName: 'Bash', result: 'diff' },
+        ],
       } as unknown as ModelMessage,
       {
         role: 'assistant',
-        content: [{ type: 'tool-call', toolCallId: 'roll-recent-2', toolName: 'Bash', input: { command: 'git status' } }],
+        content: [
+          {
+            type: 'tool-call',
+            toolCallId: 'roll-recent-2',
+            toolName: 'Bash',
+            input: { command: 'git status' },
+          },
+        ],
       } as ModelMessage,
       {
         role: 'tool',
-        content: [{ type: 'tool-result', toolCallId: 'roll-recent-2', toolName: 'Bash', result: 'clean' }],
+        content: [
+          { type: 'tool-result', toolCallId: 'roll-recent-2', toolName: 'Bash', result: 'clean' },
+        ],
       } as unknown as ModelMessage,
     ];
     const second = await rewriteSemanticCompactInMessages({
@@ -844,16 +1045,21 @@ describe('semantic compact', () => {
         assert.match(renderedRequest, new RegExp(first.block!.blockId));
         assert.doesNotMatch(renderedRequest, /restoration_state_cards/);
         assert.doesNotMatch(renderedRequest, /Let me re-read every source file/);
-        return { text: semanticSummary({ finding: 'Exact task instruction', actionInProgress: 'Finish.' }) };
+        return {
+          text: semanticSummary({ finding: 'Exact task instruction', actionInProgress: 'Finish.' }),
+        };
       },
     });
 
     assert.equal(second.decision, 'replaced');
     assert.equal(second.block?.predecessorBlockId, first.block?.blockId);
     assert.notEqual(second.block?.cumulativeCoverageDigest, first.block?.cumulativeCoverageDigest);
-    assert.equal(second.messages.filter((message) =>
-      JSON.stringify(message.content).includes('<maka_semantic_compact_block')
-    ).length, 1);
+    assert.equal(
+      second.messages.filter((message) =>
+        JSON.stringify(message.content).includes('<maka_semantic_compact_block'),
+      ).length,
+      1,
+    );
     assert.deepEqual(second.messages[0], original[0]);
   });
 
@@ -868,7 +1074,10 @@ describe('semantic compact', () => {
       charsPerToken: 1,
       policy: attentionTestPolicy(),
     } as const;
-    const empty = await rewriteSemanticCompactInMessages({ ...input, summarizer: () => ({ text: '' }) });
+    const empty = await rewriteSemanticCompactInMessages({
+      ...input,
+      summarizer: () => ({ text: '' }),
+    });
     const truncated = await rewriteSemanticCompactInMessages({
       ...input,
       summarizer: () => ({ text: '{"action_in_progress":"partial', finishReason: 'max_tokens' }),
@@ -896,7 +1105,10 @@ describe('semantic compact', () => {
         text: semanticSummary({
           finding: 'Keep the objective focused. '.repeat(40),
           actionInProgress: 'Continue with the next exact action. '.repeat(40),
-          partialWorkProduct: Array.from({ length: 8 }, (_, index) => `command-${index} ${'output '.repeat(80)}`),
+          partialWorkProduct: Array.from(
+            { length: 8 },
+            (_, index) => `command-${index} ${'output '.repeat(80)}`,
+          ),
         }),
       }),
     });
@@ -912,7 +1124,9 @@ describe('semantic compact', () => {
       stepNumber: 2,
       charsPerToken: 4,
       policy: { ...attentionTestPolicy(), maxAcceptedProjectionEstimatedTokens: 768 },
-      summarizer: () => ({ text: 'The build is configured and the service is running. '.repeat(400) }),
+      summarizer: () => ({
+        text: 'The build is configured and the service is running. '.repeat(400),
+      }),
     });
     assert.equal(fallback.decision, 'replaced');
     assert.equal(fallback.block?.projection?.format, 'bounded_text_fallback');
@@ -936,23 +1150,57 @@ function attentionTestPolicy() {
 
 function semanticFixtureMessages(): ModelMessage[] {
   return [
-    { role: 'user', content: 'Please fix the build and keep the service running. '.repeat(80) } as ModelMessage,
-    { role: 'assistant', content: 'I ran configure and saw a linker failure. '.repeat(80) } as ModelMessage,
+    {
+      role: 'user',
+      content: 'Please fix the build and keep the service running. '.repeat(80),
+    } as ModelMessage,
     {
       role: 'assistant',
-      content: [{ type: 'tool-call', toolCallId: 'tool-old', toolName: 'Bash', input: { command: 'make test' } }],
+      content: 'I ran configure and saw a linker failure. '.repeat(80),
+    } as ModelMessage,
+    {
+      role: 'assistant',
+      content: [
+        {
+          type: 'tool-call',
+          toolCallId: 'tool-old',
+          toolName: 'Bash',
+          input: { command: 'make test' },
+        },
+      ],
     } as ModelMessage,
     {
       role: 'tool',
-      content: [{ type: 'tool-result', toolCallId: 'tool-old', toolName: 'Bash', result: { body: 'OLD_BUILD_LOG '.repeat(800) } }],
+      content: [
+        {
+          type: 'tool-result',
+          toolCallId: 'tool-old',
+          toolName: 'Bash',
+          result: { body: 'OLD_BUILD_LOG '.repeat(800) },
+        },
+      ],
     } as unknown as ModelMessage,
     {
       role: 'assistant',
-      content: [{ type: 'tool-call', toolCallId: 'tool-recent', toolName: 'Bash', input: { command: 'ps aux' } }],
+      content: [
+        {
+          type: 'tool-call',
+          toolCallId: 'tool-recent',
+          toolName: 'Bash',
+          input: { command: 'ps aux' },
+        },
+      ],
     } as ModelMessage,
     {
       role: 'tool',
-      content: [{ type: 'tool-result', toolCallId: 'tool-recent', toolName: 'Bash', result: { body: 'recent-result service still running' } }],
+      content: [
+        {
+          type: 'tool-result',
+          toolCallId: 'tool-recent',
+          toolName: 'Bash',
+          result: { body: 'recent-result service still running' },
+        },
+      ],
     } as unknown as ModelMessage,
   ];
 }

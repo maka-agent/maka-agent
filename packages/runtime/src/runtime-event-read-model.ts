@@ -76,12 +76,15 @@ interface ProjectionState {
   headers: Map<string, AgentRunHeader>;
   diagnostics: RuntimeEventReadModelDiagnostic[];
   toolNameByUseId: Map<string, string>;
-  permissionRequestById: Map<string, {
-    requestId: string;
-    toolUseId: string;
-    toolName: string;
-    hint?: string;
-  }>;
+  permissionRequestById: Map<
+    string,
+    {
+      requestId: string;
+      toolUseId: string;
+      toolName: string;
+      hint?: string;
+    }
+  >;
   /**
    * Thinking awaiting its assistant text row, keyed by the step message id
    * (function of the event's providerEventId / storedMessageId — the same id the
@@ -138,7 +141,12 @@ export function projectRuntimeEventsToStoredMessages(
           break;
         case 'error':
           if (!isTerminalRuntimeEvent(event)) {
-            diagnostic(state, event, 'unsupported_event', 'non-terminal error content has no safe legacy read-model row');
+            diagnostic(
+              state,
+              event,
+              'unsupported_event',
+              'non-terminal error content has no safe legacy read-model row',
+            );
           }
           break;
       }
@@ -175,16 +183,31 @@ export function projectRuntimeEventsToStoredMessages(
     }
 
     if (event.actions?.tokenUsage?.contextRemaining !== undefined) {
-      diagnostic(state, event, 'context_remaining_unsupported', 'token usage contextRemaining is diagnostic-only in StoredMessage');
+      diagnostic(
+        state,
+        event,
+        'context_remaining_unsupported',
+        'token usage contextRemaining is diagnostic-only in StoredMessage',
+      );
     }
 
     if (!projected) {
-      diagnostic(state, event, 'unsupported_event', 'RuntimeEvent shape is not supported by the legacy read-model projection');
+      diagnostic(
+        state,
+        event,
+        'unsupported_event',
+        'RuntimeEvent shape is not supported by the legacy read-model projection',
+      );
     }
   }
 
   for (const pending of state.thinkingByMessageId.values()) {
-    diagnostic(state, pending.event, 'unsupported_event', 'thinking content has no assistant text row with a matching message id');
+    diagnostic(
+      state,
+      pending.event,
+      'unsupported_event',
+      'thinking content has no assistant text row with a matching message id',
+    );
   }
 
   return { messages, diagnostics: state.diagnostics };
@@ -193,7 +216,9 @@ export function projectRuntimeEventsToStoredMessages(
 export function projectRuntimeEventsToStoredMessagesWithArchiveStatuses(
   events: readonly RuntimeEvent[],
   options: ProjectRuntimeEventsToStoredMessagesOptions & {
-    archiveStatuses: readonly ArchivedToolResultReadModelStatus[] | Readonly<Record<string, ArchivedToolResultReadModelStatus['status']>>;
+    archiveStatuses:
+      | readonly ArchivedToolResultReadModelStatus[]
+      | Readonly<Record<string, ArchivedToolResultReadModelStatus['status']>>;
   },
 ): RuntimeEventReadModelProjection {
   return projectRuntimeEventsToStoredMessages(
@@ -204,7 +229,9 @@ export function projectRuntimeEventsToStoredMessagesWithArchiveStatuses(
 
 export function applyArchivedToolResultReadModelStatuses(
   events: readonly RuntimeEvent[],
-  archiveStatuses: readonly ArchivedToolResultReadModelStatus[] | Readonly<Record<string, ArchivedToolResultReadModelStatus['status']>>,
+  archiveStatuses:
+    | readonly ArchivedToolResultReadModelStatus[]
+    | Readonly<Record<string, ArchivedToolResultReadModelStatus['status']>>,
 ): RuntimeEvent[] {
   const statuses = normalizeArchiveStatuses(archiveStatuses);
   if (statuses.size === 0) return [...events];
@@ -274,50 +301,58 @@ export function classifyRuntimeEventTerminalFact(
 ): RuntimeEventTerminalFactResult {
   const diagnostics: RuntimeEventReadModelDiagnostic[] = [];
   if (events.length === 0) {
-    diagnostics.push(readModelDiagnostic(
-      'incomplete_event',
-      'runtime ledger has no readable RuntimeEvents',
-      { runId: header.runId, turnId: header.turnId },
-    ));
+    diagnostics.push(
+      readModelDiagnostic('incomplete_event', 'runtime ledger has no readable RuntimeEvents', {
+        runId: header.runId,
+        turnId: header.turnId,
+      }),
+    );
     return { diagnostics };
   }
 
-  const terminalSignals = events.filter((event) =>
-    !isPartialRuntimeEvent(event) &&
-    event.sessionId === header.sessionId &&
-    event.runId === header.runId &&
-    event.turnId === header.turnId &&
-    isTerminalRuntimeEvent(event)
+  const terminalSignals = events.filter(
+    (event) =>
+      !isPartialRuntimeEvent(event) &&
+      event.sessionId === header.sessionId &&
+      event.runId === header.runId &&
+      event.turnId === header.turnId &&
+      isTerminalRuntimeEvent(event),
   );
 
   if (terminalSignals.length === 0) {
-    diagnostics.push(readModelDiagnostic(
-      'incomplete_event',
-      'runtime ledger has no matching terminal RuntimeEvent',
-      { runId: header.runId, turnId: header.turnId },
-    ));
+    diagnostics.push(
+      readModelDiagnostic(
+        'incomplete_event',
+        'runtime ledger has no matching terminal RuntimeEvent',
+        { runId: header.runId, turnId: header.turnId },
+      ),
+    );
     return { diagnostics };
   }
   if (terminalSignals.length > 1) {
-    diagnostics.push(readModelDiagnostic(
-      'incomplete_event',
-      'runtime ledger has multiple matching terminal RuntimeEvents',
-      {
-        runId: header.runId,
-        turnId: header.turnId,
-        eventIds: terminalSignals.map((event) => event.id),
-      },
-    ));
+    diagnostics.push(
+      readModelDiagnostic(
+        'incomplete_event',
+        'runtime ledger has multiple matching terminal RuntimeEvents',
+        {
+          runId: header.runId,
+          turnId: header.turnId,
+          eventIds: terminalSignals.map((event) => event.id),
+        },
+      ),
+    );
     return { diagnostics };
   }
 
   const terminalEvent = terminalSignals[0]!;
   if (!isTerminalRuntimeEventStatus(terminalEvent.status)) {
-    diagnostics.push(readModelDiagnostic(
-      'incomplete_event',
-      'terminal RuntimeEvent requires a terminal status for recovery',
-      terminalEvent,
-    ));
+    diagnostics.push(
+      readModelDiagnostic(
+        'incomplete_event',
+        'terminal RuntimeEvent requires a terminal status for recovery',
+        terminalEvent,
+      ),
+    );
     return { diagnostics };
   }
 
@@ -336,11 +371,13 @@ export function classifyRuntimeEventTerminalFact(
   if (terminalEvent.status === 'failed') {
     const failureClass = failureClassFromRuntimeEvent(terminalEvent, header);
     if (!failureClass) {
-      diagnostics.push(readModelDiagnostic(
-        'incomplete_event',
-        'failed terminal RuntimeEvent requires a stable failure class',
-        terminalEvent,
-      ));
+      diagnostics.push(
+        readModelDiagnostic(
+          'incomplete_event',
+          'failed terminal RuntimeEvent requires a stable failure class',
+          terminalEvent,
+        ),
+      );
       return { diagnostics };
     }
     const fact: RuntimeEventTerminalFact = {
@@ -357,11 +394,13 @@ export function classifyRuntimeEventTerminalFact(
 
   const abortSource = abortSourceFromRuntime(terminalEvent, header);
   if (!abortSource) {
-    diagnostics.push(readModelDiagnostic(
-      'incomplete_event',
-      'aborted terminal RuntimeEvent requires an abort source',
-      terminalEvent,
-    ));
+    diagnostics.push(
+      readModelDiagnostic(
+        'incomplete_event',
+        'aborted terminal RuntimeEvent requires an abort source',
+        terminalEvent,
+      ),
+    );
     return { diagnostics };
   }
   const fact: RuntimeEventTerminalFact = {
@@ -389,6 +428,9 @@ function projectText(
       turnId: event.turnId,
       ts: event.ts,
       text: event.content.text,
+      ...(event.content.displayText !== undefined
+        ? { displayText: event.content.displayText }
+        : {}),
       ...(event.content.attachments !== undefined && event.content.attachments.length > 0
         ? { attachments: event.content.attachments }
         : {}),
@@ -399,7 +441,12 @@ function projectText(
   if (event.role === 'model') {
     const header = state.headers.get(event.runId);
     if (!header?.modelId) {
-      diagnostic(state, event, 'incomplete_event', 'model text RuntimeEvent requires AgentRunHeader.modelId');
+      diagnostic(
+        state,
+        event,
+        'incomplete_event',
+        'model text RuntimeEvent requires AgentRunHeader.modelId',
+      );
       return false;
     }
     const assistantId = stableMessageId(event, state, 'assistant');
@@ -417,7 +464,12 @@ function projectText(
     return true;
   }
 
-  diagnostic(state, event, 'unsupported_event', `text content with role ${event.role} is not projected`);
+  diagnostic(
+    state,
+    event,
+    'unsupported_event',
+    `text content with role ${event.role} is not projected`,
+  );
   return false;
 }
 
@@ -450,7 +502,9 @@ function recordStepContentOrder(event: RuntimeEvent, state: ProjectionState): vo
 }
 
 function normalizeArchiveStatuses(
-  archiveStatuses: readonly ArchivedToolResultReadModelStatus[] | Readonly<Record<string, ArchivedToolResultReadModelStatus['status']>>,
+  archiveStatuses:
+    | readonly ArchivedToolResultReadModelStatus[]
+    | Readonly<Record<string, ArchivedToolResultReadModelStatus['status']>>,
 ): Map<string, ArchivedToolResultReadModelStatus['status']> {
   const map = new Map<string, ArchivedToolResultReadModelStatus['status']>();
   if (Array.isArray(archiveStatuses)) {
@@ -494,14 +548,25 @@ function projectFunctionCall(
   if (event.content?.kind !== 'function_call') return false;
   const toolUseId = toolUseIdFor(event);
   if (!toolUseId) {
-    diagnostic(state, event, 'incomplete_event', 'function_call RuntimeEvent requires content.id or refs.toolCallId');
+    diagnostic(
+      state,
+      event,
+      'incomplete_event',
+      'function_call RuntimeEvent requires content.id or refs.toolCallId',
+    );
     return false;
   }
   if (event.content.id !== toolUseId) {
-    diagnostic(state, event, 'tool_use_id_mismatch', 'function_call content.id differs from refs.toolCallId', {
-      contentId: event.content.id,
-      refToolCallId: event.refs?.toolCallId,
-    });
+    diagnostic(
+      state,
+      event,
+      'tool_use_id_mismatch',
+      'function_call content.id differs from refs.toolCallId',
+      {
+        contentId: event.content.id,
+        refToolCallId: event.refs?.toolCallId,
+      },
+    );
   }
   state.toolNameByUseId.set(toolUseId, event.content.name);
   messages.push({
@@ -536,14 +601,25 @@ function projectFunctionResponse(
   if (event.content?.kind !== 'function_response') return false;
   const toolUseId = toolUseIdFor(event);
   if (!toolUseId) {
-    diagnostic(state, event, 'incomplete_event', 'function_response RuntimeEvent requires content.id or refs.toolCallId');
+    diagnostic(
+      state,
+      event,
+      'incomplete_event',
+      'function_response RuntimeEvent requires content.id or refs.toolCallId',
+    );
     return false;
   }
   if (event.content.id !== toolUseId) {
-    diagnostic(state, event, 'tool_use_id_mismatch', 'function_response content.id differs from refs.toolCallId', {
-      contentId: event.content.id,
-      refToolCallId: event.refs?.toolCallId,
-    });
+    diagnostic(
+      state,
+      event,
+      'tool_use_id_mismatch',
+      'function_response content.id differs from refs.toolCallId',
+      {
+        contentId: event.content.id,
+        refToolCallId: event.refs?.toolCallId,
+      },
+    );
   }
   const archivedPlaceholder = isArchivedToolResultPlaceholder(event.content.result)
     ? event.content.result
@@ -552,22 +628,42 @@ function projectFunctionResponse(
     ? { state: 'not_shell' as const }
     : normalizeShellToolResultContent(event.content.result);
   if (normalizedShellResult.state === 'invalid') {
-    diagnostic(state, event, 'incomplete_event', 'function_response contains an invalid shell tool result');
+    diagnostic(
+      state,
+      event,
+      'incomplete_event',
+      'function_response contains an invalid shell tool result',
+    );
     return false;
   }
-  if (!archivedPlaceholder && normalizedShellResult.state === 'not_shell' && !isToolResultContent(event.content.result)) {
-    diagnostic(state, event, 'incomplete_event', 'function_response result is not a supported ToolResultContent');
+  if (
+    !archivedPlaceholder &&
+    normalizedShellResult.state === 'not_shell' &&
+    !isToolResultContent(event.content.result)
+  ) {
+    diagnostic(
+      state,
+      event,
+      'incomplete_event',
+      'function_response result is not a supported ToolResultContent',
+    );
     return false;
   }
   if (archivedPlaceholder) {
-    diagnostic(state, event, 'archived_tool_result_placeholder', 'function_response result is archived and not loaded in read model', {
-      artifactId: archivedPlaceholder.artifactId,
-      runtimeEventId: archivedPlaceholder.runtimeEventId,
-      toolCallId: archivedPlaceholder.toolCallId,
-      toolName: archivedPlaceholder.toolName,
-      reason: archivedPlaceholder.reason,
-      rewriteVersion: archivedPlaceholder.rewriteVersion,
-    });
+    diagnostic(
+      state,
+      event,
+      'archived_tool_result_placeholder',
+      'function_response result is archived and not loaded in read model',
+      {
+        artifactId: archivedPlaceholder.artifactId,
+        runtimeEventId: archivedPlaceholder.runtimeEventId,
+        toolCallId: archivedPlaceholder.toolCallId,
+        toolName: archivedPlaceholder.toolName,
+        reason: archivedPlaceholder.reason,
+        rewriteVersion: archivedPlaceholder.rewriteVersion,
+      },
+    );
   }
   if (event.content.name) state.toolNameByUseId.set(toolUseId, event.content.name);
   const resultContent: ToolResultContent = archivedPlaceholder
@@ -586,7 +682,7 @@ function projectFunctionResponse(
       }
     : normalizedShellResult.state === 'valid'
       ? normalizedShellResult.content
-      : event.content.result as ToolResultContent;
+      : (event.content.result as ToolResultContent);
   messages.push({
     type: 'tool_result',
     id: stableMessageId(event, state, 'tool_result'),
@@ -612,12 +708,22 @@ function projectPermissionDecision(
   const request = state.permissionRequestById.get(decision.requestId);
   const toolUseId = event.refs?.toolCallId ?? request?.toolUseId;
   if (!toolUseId) {
-    diagnostic(state, event, 'incomplete_event', 'permission decision requires refs.toolCallId or a paired permission request');
+    diagnostic(
+      state,
+      event,
+      'incomplete_event',
+      'permission decision requires refs.toolCallId or a paired permission request',
+    );
     return false;
   }
   const toolName = request?.toolName ?? state.toolNameByUseId.get(toolUseId);
   if (!toolName) {
-    diagnostic(state, event, 'incomplete_event', 'permission decision requires a paired permission request or tool call for toolName');
+    diagnostic(
+      state,
+      event,
+      'incomplete_event',
+      'permission decision requires a paired permission request or tool call for toolName',
+    );
     return false;
   }
   messages.push({
@@ -628,7 +734,9 @@ function projectPermissionDecision(
     toolUseId,
     toolName,
     decision: decision.decision,
-    ...(decision.rememberForTurn !== undefined ? { rememberForTurn: decision.rememberForTurn } : {}),
+    ...(decision.rememberForTurn !== undefined
+      ? { rememberForTurn: decision.rememberForTurn }
+      : {}),
     ...(request?.hint !== undefined ? { hint: request.hint } : {}),
   });
   return true;
@@ -650,7 +758,9 @@ function projectTokenUsage(
     output: usage.output,
     ...(usage.cacheHitInput !== undefined ? { cacheHitInput: usage.cacheHitInput } : {}),
     ...(usage.cacheMissInput !== undefined ? { cacheMissInput: usage.cacheMissInput } : {}),
-    ...(usage.cacheMissInputSource !== undefined ? { cacheMissInputSource: usage.cacheMissInputSource } : {}),
+    ...(usage.cacheMissInputSource !== undefined
+      ? { cacheMissInputSource: usage.cacheMissInputSource }
+      : {}),
     ...(usage.cacheWriteInput !== undefined ? { cacheWriteInput: usage.cacheWriteInput } : {}),
     ...(usage.reasoning !== undefined ? { reasoning: usage.reasoning } : {}),
     ...(usage.total !== undefined ? { total: usage.total } : {}),
@@ -661,7 +771,9 @@ function projectTokenUsage(
     ...(usage.costUsd !== undefined ? { costUsd: usage.costUsd } : {}),
     ...(usage.systemPromptHash !== undefined ? { systemPromptHash: usage.systemPromptHash } : {}),
     ...(usage.prefixHash !== undefined ? { prefixHash: usage.prefixHash } : {}),
-    ...(usage.prefixChangeReason !== undefined ? { prefixChangeReason: usage.prefixChangeReason } : {}),
+    ...(usage.prefixChangeReason !== undefined
+      ? { prefixChangeReason: usage.prefixChangeReason }
+      : {}),
     ...(usage.requestShapeHash !== undefined ? { requestShapeHash: usage.requestShapeHash } : {}),
     ...(usage.requestShapeChangeReason !== undefined
       ? { requestShapeChangeReason: usage.requestShapeChangeReason }
@@ -679,19 +791,32 @@ function projectTerminalTurnState(
 ): boolean {
   const header = state.headers.get(event.runId);
   if (!header) {
-    diagnostic(state, event, 'incomplete_event', 'terminal RuntimeEvent requires an AgentRunHeader');
+    diagnostic(
+      state,
+      event,
+      'incomplete_event',
+      'terminal RuntimeEvent requires an AgentRunHeader',
+    );
     return false;
   }
   const status = turnStatusFor(event.status, header.status);
   if (!status) {
-    diagnostic(state, event, 'incomplete_event', 'terminal RuntimeEvent status cannot be mapped to a legacy TurnStatus');
+    diagnostic(
+      state,
+      event,
+      'incomplete_event',
+      'terminal RuntimeEvent status cannot be mapped to a legacy TurnStatus',
+    );
     return false;
   }
   const abortSource = status === 'aborted' ? abortSourceFromRuntime(event, header) : undefined;
-  const failureClass = status === 'failed' ? failureClassFromRuntimeEvent(event, header) : undefined;
-  const partialOutputRetained = messages.some((message) =>
-    message.turnId === event.turnId &&
-    ((message.type === 'assistant' && message.text.trim().length > 0) || message.type === 'tool_result')
+  const failureClass =
+    status === 'failed' ? failureClassFromRuntimeEvent(event, header) : undefined;
+  const partialOutputRetained = messages.some(
+    (message) =>
+      message.turnId === event.turnId &&
+      ((message.type === 'assistant' && message.text.trim().length > 0) ||
+        message.type === 'tool_result'),
   );
   messages.push({
     type: 'turn_state',
@@ -701,7 +826,9 @@ function projectTerminalTurnState(
     status,
     ...(header.parentTurnId ? { parentTurnId: header.parentTurnId } : {}),
     ...(header.retriedFromTurnId ? { retriedFromTurnId: header.retriedFromTurnId } : {}),
-    ...(header.regeneratedFromTurnId ? { regeneratedFromTurnId: header.regeneratedFromTurnId } : {}),
+    ...(header.regeneratedFromTurnId
+      ? { regeneratedFromTurnId: header.regeneratedFromTurnId }
+      : {}),
     ...(header.branchOfTurnId ? { branchOfTurnId: header.branchOfTurnId } : {}),
     ...(header.parentSessionId ? { parentSessionId: header.parentSessionId } : {}),
     ...(status === 'aborted' ? { abortedAt: event.ts } : {}),
@@ -719,10 +846,20 @@ function projectTerminalTurnState(
     });
   }
   if (status === 'failed' && !failureClass) {
-    diagnostic(state, event, 'incomplete_event', 'failed terminal event did not carry an exact AgentRunHeader.failureClass');
+    diagnostic(
+      state,
+      event,
+      'incomplete_event',
+      'failed terminal event did not carry an exact AgentRunHeader.failureClass',
+    );
   }
   if (status === 'aborted' && !abortSource) {
-    diagnostic(state, event, 'incomplete_event', 'abortSource is not present in RuntimeEvent or AgentRunHeader metadata');
+    diagnostic(
+      state,
+      event,
+      'incomplete_event',
+      'abortSource is not present in RuntimeEvent or AgentRunHeader metadata',
+    );
   }
   return true;
 }
@@ -761,27 +898,32 @@ function attachThinkingToAssistant(
 }
 
 function thinkingMessageId(event: RuntimeEvent): string {
-  return event.refs?.providerEventId
-    ?? event.refs?.storedMessageId
-    ?? event.id;
+  return event.refs?.providerEventId ?? event.refs?.storedMessageId ?? event.id;
 }
 
 function abortSourceFromRuntime(event: RuntimeEvent, header: AgentRunHeader): string | undefined {
-  return stringStateDelta(event, 'abortSource')
-    ?? stringStateDelta(event, 'source')
-    ?? stringRecordValue(event.refs, 'abortSource')
-    ?? stringRecordValue(event.refs, 'source')
-    ?? stringRecordValue(header as unknown as Record<string, unknown>, 'abortSource');
+  return (
+    stringStateDelta(event, 'abortSource') ??
+    stringStateDelta(event, 'source') ??
+    stringRecordValue(event.refs, 'abortSource') ??
+    stringRecordValue(event.refs, 'source') ??
+    stringRecordValue(header as unknown as Record<string, unknown>, 'abortSource')
+  );
 }
 
-function failureClassFromRuntimeEvent(event: RuntimeEvent, header: AgentRunHeader): string | undefined {
-  return stringStateDelta(event, 'failureClass')
-    ?? stringStateDelta(event, 'errorClass')
-    ?? stringStateDelta(event, 'reason')
-    ?? stringStateDelta(event, 'code')
-    ?? (event.content?.kind === 'error' ? nonEmptyString(event.content.reason) : undefined)
-    ?? (event.content?.kind === 'error' ? nonEmptyString(event.content.code) : undefined)
-    ?? header.failureClass;
+function failureClassFromRuntimeEvent(
+  event: RuntimeEvent,
+  header: AgentRunHeader,
+): string | undefined {
+  return (
+    stringStateDelta(event, 'failureClass') ??
+    stringStateDelta(event, 'errorClass') ??
+    stringStateDelta(event, 'reason') ??
+    stringStateDelta(event, 'code') ??
+    (event.content?.kind === 'error' ? nonEmptyString(event.content.reason) : undefined) ??
+    (event.content?.kind === 'error' ? nonEmptyString(event.content.code) : undefined) ??
+    header.failureClass
+  );
 }
 
 function stringRecordValue(value: unknown, key: string): string | undefined {
@@ -800,13 +942,13 @@ function stableMessageId(
   kind: StoredMessage['type'],
   contentId?: string,
 ): string {
-  const stable = event.refs?.storedMessageId
-    ?? event.refs?.providerEventId
-    ?? contentId
-    ?? event.id;
+  const stable =
+    event.refs?.storedMessageId ?? event.refs?.providerEventId ?? contentId ?? event.id;
   if (stable) return stable;
   const generated = `rtproj:${event.id}:${kind}`;
-  diagnostic(state, event, 'generated_id', 'projection used a deterministic generated id', { id: generated });
+  diagnostic(state, event, 'generated_id', 'projection used a deterministic generated id', {
+    id: generated,
+  });
   return generated;
 }
 
@@ -857,21 +999,24 @@ function numberStateDelta(event: RuntimeEvent, key: string): number | undefined 
 function isToolResultContent(value: unknown): value is ToolResultContent {
   if (!value || typeof value !== 'object') return false;
   const kind = (value as { kind?: unknown }).kind;
-  return kind === 'text'
-    || kind === 'json'
-    || kind === 'file_diff'
-    || kind === 'file_write'
-    || kind === 'terminal'
-    || kind === 'shell_run'
-    || kind === 'image'
-    || kind === 'archived_tool_result'
-    || kind === 'summary'
-    || kind === 'web_search'
-    || kind === 'web_search_error'
-    || kind === 'office_document'
-    || kind === 'explore_agent'
-    || kind === 'subagent'
-    || kind === 'rive_workflow';
+  return (
+    kind === 'text' ||
+    kind === 'json' ||
+    kind === 'file_diff' ||
+    kind === 'file_write' ||
+    kind === 'terminal' ||
+    kind === 'shell_run' ||
+    kind === 'image' ||
+    kind === 'archived_tool_result' ||
+    kind === 'summary' ||
+    kind === 'web_search' ||
+    kind === 'web_search_error' ||
+    kind === 'office_document' ||
+    kind === 'explore_agent' ||
+    kind === 'subagent' ||
+    kind === 'agent_swarm' ||
+    kind === 'rive_workflow'
+  );
 }
 
 function diagnostic(
@@ -959,6 +1104,7 @@ function semanticMessage(message: StoredMessage): unknown {
         type: message.type,
         turnId: message.turnId,
         text: message.text,
+        displayText: message.displayText,
         attachments: message.attachments ?? [],
       };
     case 'assistant':

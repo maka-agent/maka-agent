@@ -25,7 +25,9 @@ export interface CompiledPermissionProfile {
   network: NetworkSandboxPolicy;
 }
 
-export function compilePermissionProfile(input: CompilePermissionProfileInput): CompiledPermissionProfile {
+export function compilePermissionProfile(
+  input: CompilePermissionProfileInput,
+): CompiledPermissionProfile {
   const workspaceRoots = input.workspaceRoots ?? [input.cwd];
 
   switch (input.mode) {

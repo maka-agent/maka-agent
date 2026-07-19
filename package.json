@@ -7,7 +7,9 @@
   "workspaces": [
     "packages/core",
     "packages/storage",
+    "packages/mcp",
     "packages/runtime",
+    "packages/runtime-host",
     "packages/computer-use",
     "packages/headless",
     "packages/cli",
@@ -16,14 +18,17 @@
   ],
   "scripts": {
     "lint": "biome lint .",
+    "format": "biome format --write .",
+    "format:check": "biome format .",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "npm run test:scripts && npm --workspace @maka/core test && npm --workspace @maka/storage test && npm --workspace @maka/runtime test && npm --workspace @maka/computer-use test && npm --workspace @maka/headless test && npm --workspace maka-agent test && npm --workspace @maka/ui test && npm --workspace @maka/desktop test",
-    "test:dist": "npm run test:scripts && npm exec -w @maka/core -- node --test \"dist/**/*.test.js\" && npm exec -w @maka/storage -- node --test \"dist/**/*.test.js\" && npm exec -w @maka/runtime -- node --test \"dist/**/*.test.js\" && npm exec -w @maka/computer-use -- node --test \"dist/**/*.test.js\" && npm exec -w @maka/headless -- node ../../scripts/run-headless-tests.mjs && npm exec -w maka-agent -- node --test \"dist/**/*.test.js\" && npm exec -w @maka/ui -- node --test \"dist/**/*.test.js\" && npm --workspace @maka/desktop run test:dist",
-    "test:scripts": "node --test scripts/run-headless-tests.test.mjs scripts/sync-model-metadata.test.mjs scripts/cua-driver-provenance.test.mjs scripts/cu-e2e-fixture.test.mjs scripts/cu-e2e-scenarios.test.mjs scripts/cu-provider-matrix.test.mjs scripts/cu-report-sanitize.test.mjs scripts/cu-real-model-launcher.test.mjs scripts/cu-real-ax-model-e2e-contract.test.mjs scripts/cu-synthetic-model-scenario-contract.test.mjs scripts/cu-real-function-model-e2e-contract.test.mjs scripts/cu-real-anthropic-model-e2e-contract.test.mjs scripts/cu-real-runtime-model-e2e-contract.test.mjs",
+    "test": "npm run clean && npm run build:test && npm run test:scripts && node scripts/run-workspace-tests-parallel.mjs",
+    "test:dist": "npm run test:scripts && node scripts/run-workspace-tests-parallel.mjs --serial",
+    "test:fast": "npm run build:test && npm run test:scripts && node scripts/run-workspace-tests-parallel.mjs",
+    "test:scripts": "node --test scripts/run-headless-tests.test.mjs scripts/run-workspace-tests-parallel.test.mjs scripts/sync-model-metadata.test.mjs scripts/cua-driver-provenance.test.mjs scripts/cu-e2e-fixture.test.mjs scripts/cu-e2e-scenarios.test.mjs scripts/cu-provider-matrix.test.mjs scripts/cu-report-sanitize.test.mjs scripts/cu-real-model-launcher.test.mjs scripts/cu-real-ax-model-e2e-contract.test.mjs scripts/cu-synthetic-model-scenario-contract.test.mjs scripts/cu-real-function-model-e2e-contract.test.mjs scripts/cu-real-anthropic-model-e2e-contract.test.mjs scripts/cu-real-runtime-model-e2e-contract.test.mjs",
     "dev": "npm --workspace @maka/desktop run dev:hmr --",
     "dev:full": "npm run build && npm --workspace @maka/desktop run start",
-    "build": "npm --workspace @maka/core run build && npm --workspace @maka/storage run build && npm --workspace @maka/runtime run build && npm --workspace @maka/computer-use run build && npm --workspace @maka/headless run build && npm --workspace maka-agent run build && npm --workspace @maka/ui run build && npm --workspace @maka/desktop run build",
-    "build:test": "npm --workspace @maka/core run build && npm --workspace @maka/storage run build && npm --workspace @maka/runtime run build && npm --workspace @maka/computer-use run build && npm --workspace @maka/headless run build && npm --workspace maka-agent run build && npm --workspace @maka/ui run build && npm --workspace @maka/desktop run build:test",
+    "build": "npm --workspace @maka/core run build && npm --workspace @maka/storage run build && npm --workspace @maka/mcp run build && npm --workspace @maka/runtime run build && npm --workspace @maka/runtime-host run build && npm --workspace @maka/computer-use run build && npm --workspace @maka/headless run build && npm --workspace maka-agent run build && npm --workspace @maka/ui run build && npm --workspace @maka/desktop run build",
+    "build:test": "npm --workspace @maka/core run build && npm --workspace @maka/storage run build && npm --workspace @maka/mcp run build && npm --workspace @maka/runtime run build && npm --workspace @maka/runtime-host run build && npm --workspace @maka/computer-use run build && npm --workspace @maka/headless run build && npm --workspace maka-agent run build && npm --workspace @maka/ui run build && npm --workspace @maka/desktop run build:test",
     "clean": "node scripts/clean-build.mjs",
     "rebuild": "npm run clean && npm run build",
     "check:stale": "node scripts/check-stale-dist.mjs",
@@ -57,10 +62,9 @@
     "@biomejs/biome": "2.5.4",
     "@types/node": "^25.0.0",
     "knip": "^6.26.0",
-    "typescript": "^5.9.3"
+    "typescript": "^7.0.2"
   },
   "allowScripts": {
-    "electron@39.8.10": true,
     "esbuild@0.27.7": true,
     "@jackwener/opencli@1.8.4": true,
     "node-pty@1.2.0-beta.14": true

@@ -9,7 +9,15 @@ describe('testBotChannel copy', () => {
     // BotProvider now has a credential or local-bridge probe. None of
     // them should return the "当前不支持凭据测试" placeholder copy when
     // given empty credentials — they all surface product-specific errors.
-    const providers: BotProvider[] = ['telegram', 'discord', 'feishu', 'wecom', 'wechat', 'dingtalk', 'qq'];
+    const providers: BotProvider[] = [
+      'telegram',
+      'discord',
+      'feishu',
+      'wecom',
+      'wechat',
+      'dingtalk',
+      'qq',
+    ];
 
     for (const provider of providers) {
       const result = await testBotChannel(provider, createDefaultBotChannel(provider));
@@ -43,7 +51,10 @@ describe('testBotChannel copy', () => {
     });
     assert.equal(result.ok, false);
     assert.match(result.error ?? '', /127\.0\.0\.1|localhost/);
-    assert.doesNotMatch(`${result.error ?? ''} ${result.hint ?? ''}`, /当前不支持凭据测试|planned|not implemented|scaffold/i);
+    assert.doesNotMatch(
+      `${result.error ?? ''} ${result.hint ?? ''}`,
+      /当前不支持凭据测试|planned|not implemented|scaffold/i,
+    );
   });
 
   test('qq rejects empty credentials with product copy (not a generic "Bot token required")', async () => {

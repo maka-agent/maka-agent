@@ -9,31 +9,39 @@ import { normalizeVerifier, runVerifier } from '../verifier.js';
 describe('command verifiers', () => {
   test('rejects cwd values outside the workspace', () => {
     for (const cwd of ['../outside', '/tmp/outside', 'C:\\outside']) {
-      assert.throws(() => normalizeVerifier({
-        id: 'command-task',
-        instruction: 'solve',
-        workspaceDir: '/tmp/example',
-        verifier: {
-          kind: 'command',
-          command: 'true',
-          cwd,
-          protectedPaths: [],
-        },
-      }), /command verifier cwd must be a workspace-relative path/);
+      assert.throws(
+        () =>
+          normalizeVerifier({
+            id: 'command-task',
+            instruction: 'solve',
+            workspaceDir: '/tmp/example',
+            verifier: {
+              kind: 'command',
+              command: 'true',
+              cwd,
+              protectedPaths: [],
+            },
+          }),
+        /command verifier cwd must be a workspace-relative path/,
+      );
     }
   });
 
   test('rejects protectedPaths with Windows drive paths on POSIX hosts', () => {
-    assert.throws(() => normalizeVerifier({
-      id: 'command-task',
-      instruction: 'solve',
-      workspaceDir: '/tmp/example',
-      verifier: {
-        kind: 'command',
-        command: 'true',
-        protectedPaths: ['C:\\outside'],
-      },
-    }), /protectedPaths entry must be a workspace-relative path/);
+    assert.throws(
+      () =>
+        normalizeVerifier({
+          id: 'command-task',
+          instruction: 'solve',
+          workspaceDir: '/tmp/example',
+          verifier: {
+            kind: 'command',
+            command: 'true',
+            protectedPaths: ['C:\\outside'],
+          },
+        }),
+      /protectedPaths entry must be a workspace-relative path/,
+    );
   });
 
   test('runs command verifier from a legal workspace-relative cwd', async () => {
@@ -140,24 +148,32 @@ describe('benchmark verifiers', () => {
   });
 
   test('requires protectedPaths for local Terminal-Bench testCommand mode', () => {
-    assert.throws(() => normalizeVerifier({
-      id: 'tb-task',
-      instruction: 'solve',
-      workspaceDir: '/tmp/example',
-      verifier: {
-        kind: 'terminal_bench',
-        adapter: 'terminal-bench',
-        instanceId: 'local-task',
-        testCommand: 'true',
-      },
-    }), /protectedPaths/);
+    assert.throws(
+      () =>
+        normalizeVerifier({
+          id: 'tb-task',
+          instruction: 'solve',
+          workspaceDir: '/tmp/example',
+          verifier: {
+            kind: 'terminal_bench',
+            adapter: 'terminal-bench',
+            instanceId: 'local-task',
+            testCommand: 'true',
+          },
+        }),
+      /protectedPaths/,
+    );
   });
 
   test('keeps missing non-command adapters explicit and unsupported', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'maka-tbench-verifier-'));
     try {
       const result = await runVerifier({
-        verifier: { kind: 'terminal_bench', adapter: 'terminal-bench', instanceId: 'needs-real-adapter' },
+        verifier: {
+          kind: 'terminal_bench',
+          adapter: 'terminal-bench',
+          instanceId: 'needs-real-adapter',
+        },
         taskRunId: 'run-1',
         ts: 100,
         id: 'verifier-unsupported',

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import { MockLanguageModelV3 } from 'ai/test';
+import { MockLanguageModelV4 } from 'ai/test';
 
 import { ModelAdapter } from '../model-adapter.js';
 
@@ -19,16 +19,20 @@ describe('ModelAdapter.startStream onError', () => {
   // streamText's default onError is `console.error(error)`, which dumps the
   // raw error object (stack + request bodies) straight onto the terminal,
   // bypassing the TUI transcript. Stream failures already reach the user via
-  // the fullStream `error` chunk → ErrorEvent path, so nothing may leak to
+  // the stream `error` chunk → ErrorEvent path, so nothing may leak to
   // console.error.
   test('a provider stream failure never reaches console.error', async () => {
     const logged: unknown[] = [];
     const original = console.error;
-    console.error = (...args: unknown[]) => { logged.push(args); };
+    console.error = (...args: unknown[]) => {
+      logged.push(args);
+    };
     try {
-      const model = new MockLanguageModelV3({
+      const model = new MockLanguageModelV4({
         doStream: async () => {
-          throw new Error('Client network socket disconnected before secure TLS connection was established');
+          throw new Error(
+            'Client network socket disconnected before secure TLS connection was established',
+          );
         },
       });
       const result = await newAdapter().startStream({
@@ -40,7 +44,7 @@ describe('ModelAdapter.startStream onError', () => {
         abortSignal: new AbortController().signal,
         repairToolCall: async () => null,
       });
-      for await (const chunk of result.fullStream) {
+      for await (const chunk of result.stream) {
         if ((chunk as { type?: unknown }).type === 'error') break;
       }
       // Let any post-chunk callback settle before asserting.
@@ -48,6 +52,10 @@ describe('ModelAdapter.startStream onError', () => {
     } finally {
       console.error = original;
     }
-    assert.deepEqual(logged, [], 'stream errors must surface via the error chunk, not console.error');
+    assert.deepEqual(
+      logged,
+      [],
+      'stream errors must surface via the error chunk, not console.error',
+    );
   });
 });

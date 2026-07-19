@@ -45,10 +45,10 @@ function grant(overrides: Partial<TaskPermissionGrant> = {}): TaskPermissionGran
 
 describe('permission grant helpers', () => {
   test('normalizes and hashes args with stable recursive key ordering', () => {
-    assert.deepEqual(
-      normalizePermissionArgs({ z: 1, a: { d: true, b: ['x', { y: 2, x: 1 }] } }),
-      { a: { b: ['x', { x: 1, y: 2 }], d: true }, z: 1 },
-    );
+    assert.deepEqual(normalizePermissionArgs({ z: 1, a: { d: true, b: ['x', { y: 2, x: 1 }] } }), {
+      a: { b: ['x', { x: 1, y: 2 }], d: true },
+      z: 1,
+    });
     assert.equal(
       hashNormalizedArgs({ b: 2, a: { d: 4, c: 3 } }),
       hashNormalizedArgs({ a: { c: 3, d: 4 }, b: 2 }),
@@ -58,17 +58,41 @@ describe('permission grant helpers', () => {
   test('matches only narrow unexpired allow grants', () => {
     assert.equal(matchPermissionGrant(request, [grant()], 150)?.grantId, 'grant-1');
     assert.equal(matchPermissionGrant(request, [grant({ decision: 'deny' })], 150), undefined);
-    assert.equal(matchPermissionGrant(request, [grant({ taskRunId: 'other-run' })], 150), undefined);
-    assert.equal(matchPermissionGrant(request, [grant({ attemptId: 'other-attempt' })], 150), undefined);
-    assert.equal(matchPermissionGrant(request, [grant({ toolCallId: 'other-tool-call' })], 150), undefined);
+    assert.equal(
+      matchPermissionGrant(request, [grant({ taskRunId: 'other-run' })], 150),
+      undefined,
+    );
+    assert.equal(
+      matchPermissionGrant(request, [grant({ attemptId: 'other-attempt' })], 150),
+      undefined,
+    );
+    assert.equal(
+      matchPermissionGrant(request, [grant({ toolCallId: 'other-tool-call' })], 150),
+      undefined,
+    );
     assert.equal(matchPermissionGrant(request, [grant({ toolName: 'Edit' })], 150), undefined);
-    assert.equal(matchPermissionGrant(request, [grant({ normalizedArgsHash: hashNormalizedArgs({ command: 'whoami' }) })], 150), undefined);
-    assert.equal(matchPermissionGrant(request, [grant({ resourceScope: { kind: 'tool', value: 'Bash', mode: 'execute' } })], 150), undefined);
+    assert.equal(
+      matchPermissionGrant(
+        request,
+        [grant({ normalizedArgsHash: hashNormalizedArgs({ command: 'whoami' }) })],
+        150,
+      ),
+      undefined,
+    );
+    assert.equal(
+      matchPermissionGrant(
+        request,
+        [grant({ resourceScope: { kind: 'tool', value: 'Bash', mode: 'execute' } })],
+        150,
+      ),
+      undefined,
+    );
     assert.equal(matchPermissionGrant(request, [grant({ expiresAt: 149 })], 150), undefined);
   });
 
   test('summarizes command resource scope without embedding raw command text', () => {
-    const secretCommand = 'curl -H "Authorization: Bearer SECRET_TOKEN_123456" https://example.test';
+    const secretCommand =
+      'curl -H "Authorization: Bearer SECRET_TOKEN_123456" https://example.test';
     const scope = commandResourceScope(secretCommand);
 
     assert.equal(scope.kind, 'command');
@@ -81,6 +105,9 @@ describe('permission grant helpers', () => {
   });
 
   test('allows short-lived cross-attempt grants only when attemptId is omitted', () => {
-    assert.equal(matchPermissionGrant(request, [grant({ attemptId: undefined })], 150)?.grantId, 'grant-1');
+    assert.equal(
+      matchPermissionGrant(request, [grant({ attemptId: undefined })], 150)?.grantId,
+      'grant-1',
+    );
   });
 });

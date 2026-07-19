@@ -113,23 +113,22 @@ describe('chat tool-card migration contract (#332 PR3b)', () => {
 
   it('keeps the computed-style fixture covering every production tool status', async () => {
     // The zero-visual proof is only as complete as the statuses it renders. The
-    // truth source is tool-activity.tsx's `STATUS_LABEL` (a `Record` over the full
-    // `ToolActivityItem['status']` union — its keys ARE every production status).
-    // The harness must render a card for each: a new status that escapes the
-    // fixture would have NO diffed row, so its tint could drift unseen (the
-    // `pending` gap this guard was added to close). No card-level exclusions —
-    // even `running` renders a card; only its animated DOT id is left out of IDS.
+    // truth source is the locale-aware object returned by `toolStatusLabel`.
+    // Its keys cover the full `ToolActivityItem['status']` union. The harness
+    // must render a card for each: a new status that
+    // escapes the fixture would have NO diffed row, so its tint could drift
+    // unseen (the `pending` gap this guard was added to close). No card-level
+    // exclusions — even `running` renders a card; only its animated DOT id is
+    // left out of IDS.
     const componentsSrc = await readFile(
-      resolve(REPO_ROOT, 'packages', 'ui', 'src', 'tool-activity.tsx'),
+      resolve(REPO_ROOT, 'packages', 'ui', 'src', 'tool-activity', 'result-projection.ts'),
       'utf8',
     );
-    // Anchor on the FULL `ToolActivityItem` signature — a bare `const STATUS_LABEL`
-    // prefix-matches the unrelated session-status `STATUS_LABEL_BY_STATUS` map.
-    const labelStart = componentsSrc.indexOf("const STATUS_LABEL: Record<ToolActivityItem['status']");
-    assert.ok(labelStart !== -1, 'failed to locate the tool STATUS_LABEL declaration in tool-activity.tsx');
-    const labelBlock = componentsSrc.slice(labelStart, componentsSrc.indexOf('};', labelStart));
+    const labelBlock = componentsSrc.match(
+      /export function toolStatusLabel[\s\S]*?return \{([\s\S]*?)\}\[item\.status\];/,
+    )?.[1] ?? '';
     const statuses = [...labelBlock.matchAll(/^\s*(\w+):/gm)].map((m) => m[1]);
-    assert.ok(statuses.length >= 5, 'failed to parse STATUS_LABEL keys from tool-activity.tsx');
+    assert.ok(statuses.length >= 5, 'failed to parse toolStatusLabel keys from tool-activity/result-projection.ts');
 
     const harnessSrc = await readFile(
       resolve(REPO_ROOT, 'scripts', 'check-chat-marker-computed-style.mjs'),

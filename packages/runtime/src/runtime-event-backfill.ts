@@ -54,7 +54,8 @@ export function backfillRuntimeEventsFromStoredMessages(
 ): RuntimeEventBackfillResult {
   const newId = input.newId ?? (() => createRuntimeEventId('rt-backfill'));
   const now = input.now ?? (() => Date.now());
-  const invocationId = input.invocationId ?? `backfill-${input.run.runId}`;
+  const invocationId =
+    input.run.invocationId ?? input.invocationId ?? `backfill-${input.run.runId}`;
   const diagnostics: RuntimeEventBackfillDiagnostic[] = [];
   const events: RuntimeEvent[] = [];
   const turnMessages = input.messages
@@ -89,6 +90,7 @@ export function backfillRuntimeEventsFromStoredMessages(
           content: {
             kind: 'text',
             text: message.text,
+            ...(message.displayText !== undefined ? { displayText: message.displayText } : {}),
             ...(message.attachments !== undefined && message.attachments.length > 0
               ? { attachments: message.attachments }
               : {}),
@@ -117,7 +119,9 @@ export function backfillRuntimeEventsFromStoredMessages(
             content: {
               kind: 'thinking',
               text: message.thinking.text,
-              ...(message.thinking.signature !== undefined ? { signature: message.thinking.signature } : {}),
+              ...(message.thinking.signature !== undefined
+                ? { signature: message.thinking.signature }
+                : {}),
             },
             actions: { stateDelta: recoveryState(now, message) },
             refs: { storedMessageId: message.id },
@@ -161,7 +165,8 @@ export function backfillRuntimeEventsFromStoredMessages(
         if (!call) {
           diagnostics.push({
             code: 'skipped_unmatched_tool_result',
-            message: 'tool_result requires an earlier same-turn tool_call to recover RuntimeEvent function_response',
+            message:
+              'tool_result requires an earlier same-turn tool_call to recover RuntimeEvent function_response',
             detail: {
               messageId: message.id,
               toolUseId: message.toolUseId,
@@ -199,7 +204,8 @@ export function backfillRuntimeEventsFromStoredMessages(
         if (!call) {
           diagnostics.push({
             code: 'skipped_unmatched_permission_decision',
-            message: 'permission_decision requires an earlier same-turn tool_call to recover RuntimeEvent permissionDecision',
+            message:
+              'permission_decision requires an earlier same-turn tool_call to recover RuntimeEvent permissionDecision',
             detail: {
               messageId: message.id,
               toolUseId: message.toolUseId,
@@ -219,7 +225,9 @@ export function backfillRuntimeEventsFromStoredMessages(
             permissionDecision: {
               requestId: message.id,
               decision: message.decision,
-              ...(message.rememberForTurn !== undefined ? { rememberForTurn: message.rememberForTurn } : {}),
+              ...(message.rememberForTurn !== undefined
+                ? { rememberForTurn: message.rememberForTurn }
+                : {}),
             },
           },
           refs: { storedMessageId: message.id, toolCallId: call.id },
@@ -247,7 +255,8 @@ export function backfillRuntimeEventsFromStoredMessages(
       case 'system_note':
         diagnostics.push({
           code: 'skipped_high_risk_message',
-          message: 'system_note is not recovered into a run ledger because session-level notes may not belong to this run',
+          message:
+            'system_note is not recovered into a run ledger because session-level notes may not belong to this run',
           detail: {
             messageId: message.id,
             kind: message.kind,
@@ -312,7 +321,8 @@ function terminalRuntimeEvent(input: {
     return {
       diagnostic: {
         code: 'skipped_unsafe_terminal_state',
-        message: 'terminal RuntimeEvent was not recovered because legacy terminal evidence is incomplete',
+        message:
+          'terminal RuntimeEvent was not recovered because legacy terminal evidence is incomplete',
         detail: {
           runId: input.run.runId,
           turnId: input.run.turnId,
@@ -323,10 +333,14 @@ function terminalRuntimeEvent(input: {
     };
   }
   const ts = turnState?.ts ?? input.run.completedAt ?? input.run.updatedAt;
-  const failureClass = status === 'failed' ? turnState?.errorClass ?? input.run.failureClass : undefined;
-  const abortSource = status === 'aborted'
-    ? turnState?.abortSource ?? input.run.abortSource ?? (turnState?.status === 'aborted' ? 'unknown' : undefined)
-    : undefined;
+  const failureClass =
+    status === 'failed' ? (turnState?.errorClass ?? input.run.failureClass) : undefined;
+  const abortSource =
+    status === 'aborted'
+      ? (turnState?.abortSource ??
+        input.run.abortSource ??
+        (turnState?.status === 'aborted' ? 'unknown' : undefined))
+      : undefined;
   return {
     event: {
       id: input.newId(),
@@ -359,9 +373,14 @@ function terminalStatus(
   const legacyStatus = turnState?.status;
   if (legacyStatus === 'completed' || run.status === 'completed') return 'completed';
   if (legacyStatus === 'failed' && run.status === 'failed') return 'failed';
-  if ((legacyStatus === 'failed' || run.status === 'failed') && (run.failureClass || turnState?.errorClass)) return 'failed';
+  if (
+    (legacyStatus === 'failed' || run.status === 'failed') &&
+    (run.failureClass || turnState?.errorClass)
+  )
+    return 'failed';
   if (legacyStatus === 'aborted' && run.status === 'cancelled') return 'aborted';
-  if ((legacyStatus === 'aborted' || run.status === 'cancelled') && turnState?.abortSource) return 'aborted';
+  if ((legacyStatus === 'aborted' || run.status === 'cancelled') && turnState?.abortSource)
+    return 'aborted';
   return undefined;
 }
 
@@ -380,25 +399,37 @@ function safePriorToolCall(
   return call.ts <= message.ts ? call : undefined;
 }
 
-function tokenUsageFromMessage(message: TokenUsageMessage): NonNullable<RuntimeEvent['actions']>['tokenUsage'] {
+function tokenUsageFromMessage(
+  message: TokenUsageMessage,
+): NonNullable<RuntimeEvent['actions']>['tokenUsage'] {
   return {
     input: message.input,
     output: message.output,
     ...(message.cacheHitInput !== undefined ? { cacheHitInput: message.cacheHitInput } : {}),
     ...(message.cacheMissInput !== undefined ? { cacheMissInput: message.cacheMissInput } : {}),
     ...(message.cacheWriteInput !== undefined ? { cacheWriteInput: message.cacheWriteInput } : {}),
-    ...(message.cacheMissInputSource !== undefined ? { cacheMissInputSource: message.cacheMissInputSource } : {}),
+    ...(message.cacheMissInputSource !== undefined
+      ? { cacheMissInputSource: message.cacheMissInputSource }
+      : {}),
     ...(message.reasoning !== undefined ? { reasoning: message.reasoning } : {}),
     ...(message.total !== undefined ? { total: message.total } : {}),
     ...(message.rawFinishReason !== undefined ? { rawFinishReason: message.rawFinishReason } : {}),
     ...(message.cacheRead !== undefined ? { cacheRead: message.cacheRead } : {}),
     ...(message.cacheCreation !== undefined ? { cacheCreation: message.cacheCreation } : {}),
     ...(message.costUsd !== undefined ? { costUsd: message.costUsd } : {}),
-    ...(message.systemPromptHash !== undefined ? { systemPromptHash: message.systemPromptHash } : {}),
+    ...(message.systemPromptHash !== undefined
+      ? { systemPromptHash: message.systemPromptHash }
+      : {}),
     ...(message.prefixHash !== undefined ? { prefixHash: message.prefixHash } : {}),
-    ...(message.prefixChangeReason !== undefined ? { prefixChangeReason: message.prefixChangeReason } : {}),
-    ...(message.requestShapeHash !== undefined ? { requestShapeHash: message.requestShapeHash } : {}),
-    ...(message.requestShapeChangeReason !== undefined ? { requestShapeChangeReason: message.requestShapeChangeReason } : {}),
+    ...(message.prefixChangeReason !== undefined
+      ? { prefixChangeReason: message.prefixChangeReason }
+      : {}),
+    ...(message.requestShapeHash !== undefined
+      ? { requestShapeHash: message.requestShapeHash }
+      : {}),
+    ...(message.requestShapeChangeReason !== undefined
+      ? { requestShapeChangeReason: message.requestShapeChangeReason }
+      : {}),
     ...(message.promptSegments !== undefined ? { promptSegments: message.promptSegments } : {}),
     ...(message.contextBudget !== undefined ? { contextBudget: message.contextBudget } : {}),
   };

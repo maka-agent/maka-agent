@@ -15,6 +15,7 @@ import {
   resolveAgentDefinition,
   type ExpertTeamDefinition,
 } from '../expert-catalog.js';
+import { AGENT_TEAM_CHILD_TOOL_NAMES } from '../agent-team-tool-names.js';
 
 const CODE_REVIEW = getExpertTeam('code-review');
 
@@ -63,7 +64,7 @@ describe('materialization inherits + narrows the archetype', () => {
     const archetype = getBuiltinAgentDefinition('local-read')!;
     const member = CODE_REVIEW!.members[0]!;
     const def = materializeExpertAgentDefinition(CODE_REVIEW!, member);
-    assert.deepEqual(def.tools, [...archetype.tools]);
+    assert.deepEqual(def.tools, [...archetype.tools, ...AGENT_TEAM_CHILD_TOOL_NAMES]);
     assert.equal(def.permissionMode, archetype.permissionMode);
     assert.deepEqual(def.categoryPolicy, archetype.categoryPolicy);
     assert.equal(def.profile, archetype.profile);
@@ -75,7 +76,8 @@ describe('materialization inherits + narrows the archetype', () => {
     const def = materializeExpertAgentDefinition(CODE_REVIEW!, member);
     assert.ok(def.systemPrompt.startsWith(archetype.systemPrompt));
     assert.match(def.systemPrompt, /member of the "Code Review Team"/);
-    assert.match(def.systemPrompt, /star topology/);
+    assert.match(def.systemPrompt, /team_task_list/);
+    assert.match(def.systemPrompt, /team_message/);
   });
 
   test('allows narrowing tools to a subset of the archetype', () => {
@@ -96,7 +98,7 @@ describe('materialization inherits + narrows the archetype', () => {
       ],
     };
     const def = materializeExpertAgentDefinition(team, team.members[0]!);
-    assert.deepEqual(def.tools, ['Read']);
+    assert.deepEqual(def.tools, ['Read', ...AGENT_TEAM_CHILD_TOOL_NAMES]);
   });
 
   test('rejects widening tools beyond the archetype', () => {

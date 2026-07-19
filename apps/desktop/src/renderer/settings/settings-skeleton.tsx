@@ -31,8 +31,9 @@ export function SettingsSkeletonStack({
 }
 
 export function SettingsSkeleton() {
+  const copy = getSettingsSharedCopy(useUiLocale());
   return (
-    <div className="settingsLoadingSkeleton" aria-busy="true" aria-label="正在加载设置">
+    <div className="settingsLoadingSkeleton" aria-busy="true" aria-label={copy.loading}>
       <div className="maka-skeleton-stack">
         <div className="maka-skeleton maka-skeleton-line" data-size="lg" style={{ width: '38%' }} />
         <div className="maka-skeleton maka-skeleton-card" />
@@ -44,3 +45,5 @@ export function SettingsSkeleton() {
     </div>
   );
 }
+import { useUiLocale } from '@maka/ui';
+import { getSettingsSharedCopy } from '../locales/settings-shared-copy.js';

@@ -36,6 +36,16 @@ const sourcePaths = [
   'use-shell-connections.ts',
   'use-shell-chat-model.ts',
   'use-shell-live-turn.ts',
+  'use-shell-expert-teams.ts',
+  'use-shell-memory-pill.ts',
+  'use-shell-layout.ts',
+  'use-settings-modal.ts',
+  'onboarding-empty-state.tsx',
+  'chat-message-surface.tsx',
+  'chat-composer-region.tsx',
+  'chat-workbar.tsx',
+  'use-shell-appearance.ts',
+  'use-shell-search.ts',
   'app-shell-visual-smoke.ts',
   'cached-theme-bootstrap.ts',
   'chat-model-selection.ts',
@@ -44,6 +54,7 @@ const sourcePaths = [
   'model-connection-errors.ts',
   'nav-selection.ts',
   'session-list-layout.ts',
+  'locales/shell-copy.ts',
 ] as const;
 
 export type RendererShellSourcePath = typeof sourcePaths[number];

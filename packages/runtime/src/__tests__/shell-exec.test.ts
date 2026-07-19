@@ -6,7 +6,11 @@ import { join } from 'node:path';
 import { killWindowsTree } from '../process-tree-terminator.js';
 import { runShellWithBoundedTail } from '../shell-exec.js';
 
-const base = (over: Record<string, unknown> = {}) => ({ cwd: process.cwd(), timeoutMs: 30_000, ...over });
+const base = (over: Record<string, unknown> = {}) => ({
+  cwd: process.cwd(),
+  timeoutMs: 30_000,
+  ...over,
+});
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function readWhenAvailable(path: string, timeoutMs = 5_000): Promise<string> {
@@ -51,7 +55,13 @@ describe('runShellWithBoundedTail', () => {
   test('returns full small output and exit 0 without throwing', async () => {
     const r = await runShellWithBoundedTail("printf 'hello\\nworld\\n'", base());
     assert.deepEqual(
-      { exitCode: r.exitCode, stdout: r.stdout, stderr: r.stderr, timedOut: r.timedOut, aborted: r.aborted },
+      {
+        exitCode: r.exitCode,
+        stdout: r.stdout,
+        stderr: r.stderr,
+        timedOut: r.timedOut,
+        aborted: r.aborted,
+      },
       { exitCode: 0, stdout: 'hello\nworld\n', stderr: '', timedOut: false, aborted: false },
     );
   });
@@ -93,7 +103,11 @@ describe('runShellWithBoundedTail', () => {
     try {
       const r = await runShellWithBoundedTail(
         cmd,
-        base({ timeoutMs: 100, killGraceMs: 150, emitOutput: (_s: string, c: string) => emits.push(c) }),
+        base({
+          timeoutMs: 100,
+          killGraceMs: 150,
+          emitOutput: (_s: string, c: string) => emits.push(c),
+        }),
       );
       assert.equal(r.timedOut, true);
       assert.equal(r.exitCode, 124);
@@ -117,7 +131,9 @@ describe('runShellWithBoundedTail', () => {
     const parentFile = join(dir, 'parent.cjs');
     const runtime = JSON.stringify(process.execPath);
     const childScript = 'setInterval(() => {}, 1000)';
-    await fs.writeFile(parentFile, `
+    await fs.writeFile(
+      parentFile,
+      `
       const { spawn } = require('node:child_process');
       const { writeFileSync } = require('node:fs');
       const child = spawn(process.execPath, ['-e', ${JSON.stringify(childScript)}], {
@@ -127,14 +143,18 @@ describe('runShellWithBoundedTail', () => {
       child.unref();
       writeFileSync(${JSON.stringify(pidFile)}, String(child.pid));
       setInterval(() => {}, 1000);
-    `);
+    `,
+    );
     const cmd = `${runtime} ${JSON.stringify(parentFile)}`;
     const abort = new AbortController();
-    const running = runShellWithBoundedTail(cmd, base({
-      timeoutMs: 10_000,
-      killGraceMs: 150,
-      abortSignal: abort.signal,
-    }));
+    const running = runShellWithBoundedTail(
+      cmd,
+      base({
+        timeoutMs: 10_000,
+        killGraceMs: 150,
+        abortSignal: abort.signal,
+      }),
+    );
     try {
       const childPid = Number((await readWhenAvailable(pidFile)).trim());
       assert.ok(Number.isInteger(childPid) && childPid > 0, 'detached descendant recorded its pid');
@@ -154,7 +174,10 @@ describe('runShellWithBoundedTail', () => {
     // One 500-char line with no newline, cap 50: BashTailBuffer drops it whole
     // (no safe truncation boundary), so without a marker the result would look
     // like the command produced nothing.
-    const r = await runShellWithBoundedTail("head -c 500 /dev/zero | tr '\\0' x", base({ maxRetainedChars: 50 }));
+    const r = await runShellWithBoundedTail(
+      "head -c 500 /dev/zero | tr '\\0' x",
+      base({ maxRetainedChars: 50 }),
+    );
     assert.equal(r.exitCode, 0);
     assert.ok(!r.stdout.includes('xxxx'), 'dropped content is not leaked');
     assert.ok(r.stdout.includes('omitted for safety'), 'a recoverable safety marker is present');
@@ -169,15 +192,21 @@ describe('runShellWithBoundedTail', () => {
     // "shell" receives the flags plus the command as argv and echoes them back.
     // If the command were still run via shell:true, stdout would be plain
     // 'wired-marker' with no flags.
-    const r = await runShellWithBoundedTail('echo wired-marker', base({
-      shell: { kind: 'pwsh', displayName: 'PowerShell 7 (pwsh)', exe: '/bin/echo' },
-    }));
+    const r = await runShellWithBoundedTail(
+      'echo wired-marker',
+      base({
+        shell: { kind: 'pwsh', displayName: 'PowerShell 7 (pwsh)', exe: '/bin/echo' },
+      }),
+    );
     assert.equal(r.exitCode, 0);
     assert.ok(
       r.stdout.startsWith('-NoLogo -NoProfile -NonInteractive -Command echo wired-marker\n'),
       `flags then verbatim command, got: ${r.stdout}`,
     );
-    assert.ok(r.stdout.includes('exit $LASTEXITCODE'), 'exit-code wrapper is part of the command argument');
+    assert.ok(
+      r.stdout.includes('exit $LASTEXITCODE'),
+      'exit-code wrapper is part of the command argument',
+    );
   });
 
   test('a native command exit code survives the PowerShell -Command path (requires pwsh)', async (t) => {
@@ -249,5 +278,4 @@ describe('runShellWithBoundedTail', () => {
     // ordering needed before a caller may fall back to killing only the root.
     assert.equal(await killWindowsTree(999_999), false);
   });
-
 });

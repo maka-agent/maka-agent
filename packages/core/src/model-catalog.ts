@@ -8,11 +8,7 @@ import { PROVIDER_DEFAULTS } from './llm-connections.js';
 import type { PricingConfig } from './usage-stats/types.js';
 import { curatedCatalogFallbackModelsForProvider, lookupModelMetadata } from './model-metadata.js';
 
-export type ModelCapabilitySource =
-  | 'provider_api'
-  | 'static_catalog'
-  | 'user_override'
-  | 'unknown';
+export type ModelCapabilitySource = 'provider_api' | 'static_catalog' | 'user_override' | 'unknown';
 
 export type ModelUnavailableReason =
   | 'none'
@@ -127,12 +123,16 @@ export function buildModelCatalogEntries(input: BuildModelCatalogInput): ModelCa
   const normalizedDefaultModel = input.defaultModel?.trim();
   const recommendedRanks = recommendedRanksForProvider(input.providerType, input.fallbackModels);
   const source = liveModels
-    ? modelSource === 'fetched' ? 'provider_api' : 'static_catalog'
+    ? modelSource === 'fetched'
+      ? 'provider_api'
+      : 'static_catalog'
     : 'static_catalog';
-  const rawModels = liveModels ?? (input.fallbackModels ?? []).map((id) => ({
-    id,
-    ...displayNameForKnownModel(input.providerType, id),
-  }));
+  const rawModels =
+    liveModels ??
+    (input.fallbackModels ?? []).map((id) => ({
+      id,
+      ...displayNameForKnownModel(input.providerType, id),
+    }));
   const savedChoiceSources = savedChoiceSourcesById(input.savedModelIds);
   const seen = new Set<string>();
   const entries = rawModels
@@ -142,23 +142,53 @@ export function buildModelCatalogEntries(input: BuildModelCatalogInput): ModelCa
       seen.add(id);
       return true;
     })
-    .map((model) => makeEntry(input, model, source, modelSource, savedChoiceSources, normalizedDefaultModel, recommendedRanks));
+    .map((model) =>
+      makeEntry(
+        input,
+        model,
+        source,
+        modelSource,
+        savedChoiceSources,
+        normalizedDefaultModel,
+        recommendedRanks,
+      ),
+    );
 
   if (normalizedDefaultModel && !seen.has(normalizedDefaultModel)) {
-    entries.unshift(makeMissingDefaultEntry(input, normalizedDefaultModel, modelSource, savedChoiceSources, normalizedDefaultModel, recommendedRanks));
+    entries.unshift(
+      makeMissingDefaultEntry(
+        input,
+        normalizedDefaultModel,
+        modelSource,
+        savedChoiceSources,
+        normalizedDefaultModel,
+        recommendedRanks,
+      ),
+    );
     seen.add(normalizedDefaultModel);
   }
 
   for (const id of savedChoiceSources.keys()) {
     if (seen.has(id)) continue;
     seen.add(id);
-    entries.push(makeMissingUserChoiceEntry(input, id, modelSource, savedChoiceSources, normalizedDefaultModel, recommendedRanks));
+    entries.push(
+      makeMissingUserChoiceEntry(
+        input,
+        id,
+        modelSource,
+        savedChoiceSources,
+        normalizedDefaultModel,
+        recommendedRanks,
+      ),
+    );
   }
 
   return entries;
 }
 
-export function buildConnectionModelCatalogEntries(input: BuildConnectionModelCatalogInput): ModelCatalogEntry[] {
+export function buildConnectionModelCatalogEntries(
+  input: BuildConnectionModelCatalogInput,
+): ModelCatalogEntry[] {
   const { connection } = input;
   const defaults = PROVIDER_DEFAULTS[connection.providerType];
   // Unknown providerType (legacy seed, or a connection persisted on a branch
@@ -184,14 +214,16 @@ export function buildConnectionModelCatalogEntries(input: BuildConnectionModelCa
   });
 }
 
-export function validateChatDefaultModel(input: BuildModelCatalogInput): {
-  ok: true;
-  entry: ModelCatalogEntry;
-} | {
-  ok: false;
-  reason: Exclude<ModelUnavailableReason, 'none' | 'stale'>;
-  entry?: ModelCatalogEntry;
-} {
+export function validateChatDefaultModel(input: BuildModelCatalogInput):
+  | {
+      ok: true;
+      entry: ModelCatalogEntry;
+    }
+  | {
+      ok: false;
+      reason: Exclude<ModelUnavailableReason, 'none' | 'stale'>;
+      entry?: ModelCatalogEntry;
+    } {
   const defaultModel = input.defaultModel?.trim();
   if (!defaultModel) {
     return { ok: false, reason: 'not_in_live_list' };
@@ -201,9 +233,10 @@ export function validateChatDefaultModel(input: BuildModelCatalogInput): {
     return { ok: false, reason: 'not_in_live_list' };
   }
   if (entry.canUseAsChatDefault) return { ok: true, entry };
-  const reason = entry.unavailableReason === 'stale' || entry.unavailableReason === 'none'
-    ? 'unsupported_for_chat'
-    : entry.unavailableReason;
+  const reason =
+    entry.unavailableReason === 'stale' || entry.unavailableReason === 'none'
+      ? 'unsupported_for_chat'
+      : entry.unavailableReason;
   return { ok: false, reason, entry };
 }
 
@@ -233,7 +266,11 @@ function makeEntry(
     providerType: input.providerType,
     ...(input.connectionSlug ? { connectionSlug: input.connectionSlug } : {}),
     source,
-    capabilitySource: normalizedModel.capabilities ? source : metadata.capabilities ? 'static_catalog' : 'unknown',
+    capabilitySource: normalizedModel.capabilities
+      ? source
+      : metadata.capabilities
+        ? 'static_catalog'
+        : 'unknown',
     unavailableReason,
     availability: availabilityOf(unavailableReason),
     canUseAsChatDefault: canUseUnavailableReasonAsDefault(unavailableReason),
@@ -249,7 +286,13 @@ function makeEntry(
       modelSource,
       ...(input.modelsFetchedAt ? { modelsFetchedAt: input.modelsFetchedAt } : {}),
       ...(pricing ? { pricingModelKey: `${input.providerType}:${normalizedModel.id}` } : {}),
-      sources: provenanceSources(input, normalizedModel.id, source, savedChoiceSources, normalizedDefaultModel),
+      sources: provenanceSources(
+        input,
+        normalizedModel.id,
+        source,
+        savedChoiceSources,
+        normalizedDefaultModel,
+      ),
     },
   };
 }
@@ -296,7 +339,9 @@ function makeMissingDefaultEntry(
     ...(recommendedRank ? { recommendedRank } : {}),
     ...(metadata.docsUrl ? { docsUrl: metadata.docsUrl } : {}),
     ...(metadata.contextWindow !== undefined ? { contextWindow: metadata.contextWindow } : {}),
-    ...(metadata.maxOutputTokens !== undefined ? { maxOutputTokens: metadata.maxOutputTokens } : {}),
+    ...(metadata.maxOutputTokens !== undefined
+      ? { maxOutputTokens: metadata.maxOutputTokens }
+      : {}),
     provenance: {
       modelSource,
       ...(input.modelsFetchedAt ? { modelsFetchedAt: input.modelsFetchedAt } : {}),
@@ -332,7 +377,9 @@ function makeMissingUserChoiceEntry(
     ...(recommendedRank ? { recommendedRank } : {}),
     ...(metadata.docsUrl ? { docsUrl: metadata.docsUrl } : {}),
     ...(metadata.contextWindow !== undefined ? { contextWindow: metadata.contextWindow } : {}),
-    ...(metadata.maxOutputTokens !== undefined ? { maxOutputTokens: metadata.maxOutputTokens } : {}),
+    ...(metadata.maxOutputTokens !== undefined
+      ? { maxOutputTokens: metadata.maxOutputTokens }
+      : {}),
     provenance: {
       modelSource,
       ...(input.modelsFetchedAt ? { modelsFetchedAt: input.modelsFetchedAt } : {}),
@@ -342,13 +389,19 @@ function makeMissingUserChoiceEntry(
   };
 }
 
-function displayNameForModel(providerType: ProviderType, model: ModelInfo): { displayName?: string } {
+function displayNameForModel(
+  providerType: ProviderType,
+  model: ModelInfo,
+): { displayName?: string } {
   const displayName = model.displayName?.trim();
   if (displayName && displayName !== model.id) return { displayName };
   return displayNameForKnownModel(providerType, model.id);
 }
 
-function displayNameForKnownModel(providerType: ProviderType, id: string): { displayName?: string } {
+function displayNameForKnownModel(
+  providerType: ProviderType,
+  id: string,
+): { displayName?: string } {
   const displayName = lookupModelMetadata(providerType, id).displayName;
   return displayName ? { displayName } : {};
 }
@@ -432,7 +485,9 @@ function missingEntryUnavailableReason(
   return modelSource === 'fetched' || input.models ? 'not_in_live_list' : 'none';
 }
 
-function isStale(input: Pick<BuildModelCatalogInput, 'modelSource' | 'modelsFetchedAt' | 'now' | 'staleAfterMs'>): boolean {
+function isStale(
+  input: Pick<BuildModelCatalogInput, 'modelSource' | 'modelsFetchedAt' | 'now' | 'staleAfterMs'>,
+): boolean {
   if (input.modelSource !== 'fetched' || input.modelsFetchedAt === undefined) return false;
   const now = input.now ?? Date.now();
   const staleAfterMs = input.staleAfterMs ?? DEFAULT_STALE_AFTER_MS;
@@ -443,10 +498,12 @@ export function isModelExplicitlyUnsupportedForChat(model: ModelInfo): boolean {
   const caps = model.capabilities;
   if (!caps) return false;
   if (caps.chat === false) return true;
-  return caps.imageGeneration === true &&
+  return (
+    caps.imageGeneration === true &&
     caps.chat !== true &&
     caps.reasoning !== true &&
-    caps.functionCalling !== true;
+    caps.functionCalling !== true
+  );
 }
 
 function normalizeCapabilities(caps: ModelInfo['capabilities']): KnownModelCapabilities {
@@ -495,8 +552,12 @@ function findPricing(input: BuildModelCatalogInput, id: string): ModelCatalogPri
     return {
       inputUsdPer1M: item.inputUsdPer1M,
       outputUsdPer1M: item.outputUsdPer1M,
-      ...(item.cacheReadUsdPer1M !== undefined ? { cacheReadUsdPer1M: item.cacheReadUsdPer1M } : {}),
-      ...(item.cacheWriteUsdPer1M !== undefined ? { cacheWriteUsdPer1M: item.cacheWriteUsdPer1M } : {}),
+      ...(item.cacheReadUsdPer1M !== undefined
+        ? { cacheReadUsdPer1M: item.cacheReadUsdPer1M }
+        : {}),
+      ...(item.cacheWriteUsdPer1M !== undefined
+        ? { cacheWriteUsdPer1M: item.cacheWriteUsdPer1M }
+        : {}),
       source: input.pricingSource ?? 'builtin',
     };
   }

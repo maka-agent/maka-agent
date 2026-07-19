@@ -63,7 +63,12 @@ function classifyMatrixFailure(error: unknown): string {
   const text = message.toLowerCase();
   if (text.includes('unsupported_adapter')) return 'unsupported_adapter';
   if (text.includes('isolated executor')) return 'isolation_required';
-  if (text.includes('protectedpaths') || text.includes('verifier') || text.includes('verification') || text.includes('fixture')) {
+  if (
+    text.includes('protectedpaths') ||
+    text.includes('verifier') ||
+    text.includes('verification') ||
+    text.includes('fixture')
+  ) {
     return 'invalid_setup';
   }
   return 'setup_failed';

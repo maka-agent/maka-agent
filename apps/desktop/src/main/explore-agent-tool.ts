@@ -1,7 +1,7 @@
 import { lstat, readdir, readFile, realpath, stat } from 'node:fs/promises';
-import { basename, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { basename, extname, join, resolve } from 'node:path';
 import { z } from 'zod';
-import type { MakaTool } from '@maka/runtime';
+import { isPathInside, toRelative, type MakaTool } from '@maka/runtime';
 
 export const EXPLORE_AGENT_TOOL_NAME = 'ExploreAgent';
 
@@ -266,12 +266,12 @@ export async function runReadOnlyExplore(input: {
       return abortFailure(objective, roots, queryTerms, ignoredPaths, stoppingCondition, progress, startedAt);
     }
     const resolved = resolve(workspaceRoot, root);
-    if (!isInside(workspaceRoot, resolved)) {
+    if (!isPathInside(workspaceRoot, resolved)) {
       return failure('invalid_root', objective, roots, queryTerms, ignoredPaths, stoppingCondition, `root 必须位于会话工作目录内：${root}`, progress, startedAt);
     }
     try {
       const actual = await realpath(resolved);
-      if (!isInside(workspaceRoot, actual)) {
+      if (!isPathInside(workspaceRoot, actual)) {
         return failure('invalid_root', objective, roots, queryTerms, ignoredPaths, stoppingCondition, `root 不能穿过符号链接离开工作目录：${root}`, progress, startedAt);
       }
       const rootStat = await stat(actual);
@@ -637,7 +637,7 @@ async function listTextFiles(
         return;
       }
       const child = join(abs, entry.name);
-      if (!isInside(workspaceRoot, child)) {
+      if (!isPathInside(workspaceRoot, child)) {
         skipped++;
         continue;
       }
@@ -957,16 +957,6 @@ function capSnippet(line: string): string {
 
 function looksBinary(text: string): boolean {
   return text.includes('\u0000');
-}
-
-function isInside(root: string, target: string): boolean {
-  const rel = relative(root, target);
-  return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
-}
-
-function toRelative(root: string, target: string): string {
-  const rel = relative(root, target);
-  return rel === '' ? '.' : rel.split(sep).join('/');
 }
 
 function failure(

@@ -12,7 +12,10 @@ import {
 
 describe('session event stream health contract', () => {
   it('uses a closed status enum for visible stream health', () => {
-    assert.deepEqual([...SESSION_EVENT_STREAM_STATUSES], ['connected', 'stale', 'recovered', 'closed']);
+    assert.deepEqual(
+      [...SESSION_EVENT_STREAM_STATUSES],
+      ['connected', 'stale', 'recovered', 'closed'],
+    );
     assert.equal(isSessionEventStreamStatus('stale'), true);
     assert.equal(isSessionEventStreamStatus('pending'), false);
   });
@@ -25,7 +28,10 @@ describe('session event stream health contract', () => {
   });
 
   it('uses the newest known observation as the staleness anchor', () => {
-    assert.equal(newestSessionStreamObservation({ subscribedAt: 10, lastEventAt: 20, lastChangedAt: 15 }), 20);
+    assert.equal(
+      newestSessionStreamObservation({ subscribedAt: 10, lastEventAt: 20, lastChangedAt: 15 }),
+      20,
+    );
     assert.equal(newestSessionStreamObservation({ subscribedAt: 10, lastChangedAt: 25 }), 25);
     assert.equal(newestSessionStreamObservation({ subscribedAt: 10 }), 10);
   });

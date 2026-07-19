@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import { createDefaultBotChannel } from '@maka/core/settings';
-import { BaseBotAdapter, botReadinessFromSettings, botSettingsRequireRestart } from '../base-adapter.js';
+import {
+  BaseBotAdapter,
+  botReadinessFromSettings,
+  botSettingsRequireRestart,
+} from '../base-adapter.js';
 import type { BotIncomingMessage, BotStatus } from '../types.js';
 
 class TestAdapter extends BaseBotAdapter {
@@ -75,11 +79,18 @@ describe('BaseBotAdapter', () => {
     const base = createDefaultBotChannel('telegram');
     assert.equal(botSettingsRequireRestart(base, { ...base }), false);
     assert.equal(botSettingsRequireRestart(base, { ...base, token: 'new-token' }), true);
-    assert.equal(botSettingsRequireRestart(base, { ...base, domain: 'https://bot.example.test' }), true);
+    assert.equal(
+      botSettingsRequireRestart(base, { ...base, domain: 'https://bot.example.test' }),
+      true,
+    );
 
     const adapter = new TestAdapter('telegram', { ...base, enabled: true, token: 'old-token' });
-    assert.deepEqual(adapter.updateSettings({ ...base, enabled: true, token: 'old-token' }), { needsRestart: false });
-    assert.deepEqual(adapter.updateSettings({ ...base, enabled: true, token: 'new-token' }), { needsRestart: true });
+    assert.deepEqual(adapter.updateSettings({ ...base, enabled: true, token: 'old-token' }), {
+      needsRestart: false,
+    });
+    assert.deepEqual(adapter.updateSettings({ ...base, enabled: true, token: 'new-token' }), {
+      needsRestart: true,
+    });
     assert.equal(adapter.getStatus().readiness, 'configured');
   });
 
@@ -118,10 +129,25 @@ describe('BaseBotAdapter', () => {
 
   test('derives readiness only from current credential facts', () => {
     assert.equal(botReadinessFromSettings(createDefaultBotChannel('telegram')), 'scaffolded');
-    assert.equal(botReadinessFromSettings({ ...createDefaultBotChannel('telegram'), enabled: true }), 'scaffolded');
-    assert.equal(botReadinessFromSettings({ ...createDefaultBotChannel('telegram'), enabled: true, token: 'token' }), 'configured');
     assert.equal(
-      botReadinessFromSettings({ ...createDefaultBotChannel('feishu'), enabled: true, appId: 'app', appSecret: 'secret' }),
+      botReadinessFromSettings({ ...createDefaultBotChannel('telegram'), enabled: true }),
+      'scaffolded',
+    );
+    assert.equal(
+      botReadinessFromSettings({
+        ...createDefaultBotChannel('telegram'),
+        enabled: true,
+        token: 'token',
+      }),
+      'configured',
+    );
+    assert.equal(
+      botReadinessFromSettings({
+        ...createDefaultBotChannel('feishu'),
+        enabled: true,
+        appId: 'app',
+        appSecret: 'secret',
+      }),
       'configured',
     );
   });

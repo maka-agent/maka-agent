@@ -1,8 +1,7 @@
 import { StrictMode, useEffect } from 'react';
 import { ToastProvider } from '@maka/ui';
 import { AppShell } from './app-shell';
-import { ErrorBoundary } from './error-boundary';
-import type { OnboardingSnapshot } from '../global';
+import type { OnboardingSnapshot } from '../preload/bridge-contract.js';
 
 export function App({
   initialOnboardingSnapshot = null,
@@ -36,11 +35,9 @@ export function App({
   }, []);
   return (
     <StrictMode>
-      <ErrorBoundary>
         <ToastProvider>
           <AppShell initialOnboardingSnapshot={initialOnboardingSnapshot} />
         </ToastProvider>
-      </ErrorBoundary>
     </StrictMode>
   );
 }

@@ -1,4 +1,4 @@
-import type { StoredMessage } from '@maka/core';
+import type { StoredMessage, UiLocale } from '@maka/core';
 import {
   deriveTurnLineageMap,
   formatTurnDuration,
@@ -21,6 +21,7 @@ export function deriveAppShellTurnViewModel(input: {
   activeId: string | undefined;
   messages: StoredMessage[];
   pendingTurnActions: ReadonlySet<string>;
+  uiLocale: UiLocale;
   pendingKeyOf(sessionId: string, turnId: string, actionId: TurnFooterActionMeta['id']): string;
 }): AppShellTurnViewModel {
   const turnsForLineage = materializeTurns(input.messages);
@@ -46,6 +47,7 @@ export function deriveAppShellTurnViewModel(input: {
     const metaSummary = metaParts.length > 0 ? metaParts.join(' · ') : undefined;
     footer[turn.turnId] = deriveTurnFooterActions({
       status: turn.status,
+      locale: input.uiLocale,
       hasContent: Boolean(turn.assistant?.text && turn.assistant.text.trim().length > 0),
       // Match the badge lineage rule (regenerate ?? legacy retry) so a turn
       // that already has a parallel answer hints at it in the tooltip too.
@@ -57,13 +59,13 @@ export function deriveAppShellTurnViewModel(input: {
     });
 
     if (turn.status === 'failed') {
-      failedLabels[turn.turnId] = describeTurnErrorClass(turn.errorClass);
+      failedLabels[turn.turnId] = describeTurnErrorClass(turn.errorClass, input.uiLocale);
       failedRecoveryLabels[turn.turnId] = deriveFailedTurnRecovery({
         errorClass: turn.errorClass,
         partialOutputRetained: turn.partialOutputRetained,
         toolActivityCount: turn.tools.length,
         erroredToolCount: turn.tools.filter((tool) => tool.status === 'errored').length,
-      }).label;
+      }, input.uiLocale).label;
     }
 
     const turnBadges = deriveTurnLineageBadges({
@@ -73,6 +75,7 @@ export function deriveAppShellTurnViewModel(input: {
       retriedToTurnId: lineageEntry?.retriedToTurnId,
       regeneratedToTurnId: lineageEntry?.regeneratedToTurnId,
       existsTurn: (id) => turnsById.has(id),
+      locale: input.uiLocale,
     });
     if (turnBadges.length > 0) badges[turn.turnId] = turnBadges;
   }

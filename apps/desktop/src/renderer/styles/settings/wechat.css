@@ -1,0 +1,84 @@
+/* WeChat QR login dialog. */
+.settingsWechatQrModal {
+  width: min(360px, calc(100vw - 40px));
+  display: grid;
+  gap: var(--space-4);
+  border: var(--border-width-hairline) solid color-mix(in srgb, var(--brand-wechat) 18%, var(--border));
+  border-radius: var(--radius-modal);
+  background: var(--background);
+  box-shadow:
+    0 24px 58px oklch(from var(--foreground) l c h / 0.18),
+    0 8px 18px oklch(from var(--foreground) l c h / 0.10);
+  padding: var(--space-4);
+}
+
+.settingsWechatQrCaption {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: var(--font-size-ui);
+  line-height: var(--leading-normal);
+}
+
+.settingsWechatQrBody {
+  display: grid;
+  place-items: center;
+  gap: var(--space-3);
+  text-align: center;
+}
+
+.settingsWechatQrFrame {
+  width: 224px;
+  height: 224px;
+  display: grid;
+  place-items: center;
+  border: var(--border-width-hairline) solid color-mix(in srgb, var(--brand-wechat) 20%, var(--border));
+  border-radius: var(--radius-surface);
+  background: white;
+  padding: var(--space-3);
+}
+
+.settingsWechatQrFrame img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+
+.settingsWechatQrState {
+  width: 100%;
+  min-height: 180px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: var(--space-2-5);
+  border: var(--border-width-hairline) dashed var(--border);
+  border-radius: var(--radius-surface);
+  background: var(--foreground-3);
+  color: var(--foreground-secondary);
+  padding: var(--space-4);
+  font-size: var(--font-size-ui);
+  line-height: var(--leading-normal);
+}
+
+.settingsWechatQrState strong {
+  color: inherit;
+  font-weight: var(--font-weight-semibold);
+}
+
+.settingsWechatQrState[data-tone="success"] {
+  border-color: oklch(from var(--success) l c h / 0.24);
+  background: oklch(from var(--success) l c h / 0.08);
+  color: var(--success-text);
+}
+
+.settingsWechatQrState[data-tone="warning"] {
+  border-color: oklch(from var(--info) l c h / 0.26);
+  background: oklch(from var(--info) l c h / 0.09);
+  color: var(--info-text);
+}
+
+.settingsWechatQrState[data-tone="error"] {
+  border-color: oklch(from var(--destructive) l c h / 0.24);
+  background: oklch(from var(--destructive) l c h / 0.08);
+  color: var(--destructive-text);
+}

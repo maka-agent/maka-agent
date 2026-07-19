@@ -26,9 +26,13 @@ export interface ToolArtifactRecorderInput extends ToolArtifactDerivationInput {
   candidates: ToolArtifactCandidate[];
 }
 
-export type ToolArtifactRecorder = (input: ToolArtifactRecorderInput) => Promise<ArtifactRecord[] | void> | ArtifactRecord[] | void;
+export type ToolArtifactRecorder = (
+  input: ToolArtifactRecorderInput,
+) => Promise<ArtifactRecord[] | void> | ArtifactRecord[] | void;
 
-export function deriveToolArtifactCandidates(input: ToolArtifactDerivationInput): ToolArtifactCandidate[] {
+export function deriveToolArtifactCandidates(
+  input: ToolArtifactDerivationInput,
+): ToolArtifactCandidate[] {
   const args = objectRecord(input.args);
   const result = objectRecord(input.result);
   switch (input.toolName) {
@@ -58,19 +62,25 @@ export async function recordToolArtifactsSafely(
   }
 }
 
-function deriveWriteArtifacts(args: Record<string, unknown> | null, result: Record<string, unknown> | null, cwd: string): ToolArtifactCandidate[] {
+function deriveWriteArtifacts(
+  args: Record<string, unknown> | null,
+  result: Record<string, unknown> | null,
+  cwd: string,
+): ToolArtifactCandidate[] {
   const resultPath = typeof result?.path === 'string' ? result.path : undefined;
   const argPath = typeof args?.path === 'string' ? args.path : undefined;
   const path = resultPath ?? (argPath ? resolve(cwd, argPath) : undefined);
   if (!path) return [];
-  return [{
-    kind: kindForPath(path),
-    name: basename(path),
-    mimeType: mimeForPath(path),
-    source: 'tool_result',
-    summary: 'Write tool output',
-    sourcePath: path,
-  }];
+  return [
+    {
+      kind: kindForPath(path),
+      name: basename(path),
+      mimeType: mimeForPath(path),
+      source: 'tool_result',
+      summary: 'Write tool output',
+      sourcePath: path,
+    },
+  ];
 }
 
 function deriveEditArtifacts(args: Record<string, unknown> | null): ToolArtifactCandidate[] {
@@ -78,30 +88,37 @@ function deriveEditArtifacts(args: Record<string, unknown> | null): ToolArtifact
   const oldString = typeof args?.old_string === 'string' ? args.old_string : null;
   const newString = typeof args?.new_string === 'string' ? args.new_string : null;
   if (!path || oldString === null || newString === null) return [];
-  return [{
-    kind: 'diff',
-    name: `${basename(path)}.diff`,
-    mimeType: 'text/x-diff',
-    source: 'tool_result',
-    summary: 'Edit tool diff',
-    content: editDiff(path, oldString, newString),
-  }];
+  return [
+    {
+      kind: 'diff',
+      name: `${basename(path)}.diff`,
+      mimeType: 'text/x-diff',
+      source: 'tool_result',
+      summary: 'Edit tool diff',
+      content: editDiff(path, oldString, newString),
+    },
+  ];
 }
 
-function deriveBashArtifacts(args: Record<string, unknown> | null, cwd: string): ToolArtifactCandidate[] {
+function deriveBashArtifacts(
+  args: Record<string, unknown> | null,
+  cwd: string,
+): ToolArtifactCandidate[] {
   const command = typeof args?.command === 'string' ? args.command : null;
   if (!command) return [];
   const redirectedPath = extractStdoutRedirectPath(command);
   if (!redirectedPath) return [];
   const path = isAbsolute(redirectedPath) ? redirectedPath : resolve(cwd, redirectedPath);
-  return [{
-    kind: kindForPath(path),
-    name: basename(path),
-    mimeType: mimeForPath(path),
-    source: 'tool_result',
-    summary: 'Bash redirect output',
-    sourcePath: path,
-  }];
+  return [
+    {
+      kind: kindForPath(path),
+      name: basename(path),
+      mimeType: mimeForPath(path),
+      source: 'tool_result',
+      summary: 'Bash redirect output',
+      sourcePath: path,
+    },
+  ];
 }
 
 export function extractStdoutRedirectPath(command: string): string | null {
@@ -166,7 +183,9 @@ function previousNonWhitespace(command: string, start: number): string | null {
 }
 
 function objectRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
 }
 
 function kindForPath(path: string): ArtifactKind {

@@ -1,7 +1,4 @@
-import {
-  refreshRunningShellRunElapsed,
-  type MakaPiTranscriptState,
-} from './pi-transcript.js';
+import { refreshRunningShellRunElapsed, type MakaPiTranscriptState } from './pi-transcript.js';
 
 type CancelInterval = () => void;
 type ScheduleInterval = (callback: () => void, intervalMs: number) => CancelInterval;

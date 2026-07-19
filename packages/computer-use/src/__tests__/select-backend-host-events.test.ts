@@ -7,11 +7,7 @@ import { selectComputerUseBackend } from '../select-backend.js';
 test('service invalidation producer advances Runtime to reobserve', async () => {
   if (process.platform !== 'darwin') return;
   let invalidate:
-    | ((input: {
-        sessionId: string;
-        reason: 'child_exit';
-        outcomeUnknown: boolean;
-      }) => void)
+    | ((input: { sessionId: string; reason: 'child_exit'; outcomeUnknown: boolean }) => void)
     | undefined;
   const backend: CuDispatchBackend = {
     async preflight() {
@@ -39,31 +35,28 @@ test('service invalidation producer advances Runtime to reobserve', async () => 
     },
   });
   const [tool] = selected.tools;
-  await tool.impl({
-    action: 'observe',
-    app: 'Fixture',
-    include_screenshot: false,
-  } as never, {
-    sessionId: 'session-1',
-    turnId: 'turn-1',
-    toolCallId: 'observe',
-    cwd: '/tmp',
-    abortSignal: new AbortController().signal,
-    emitOutput() {},
-  });
-  assert.equal(
-    selected.tools.sessionEvents.snapshot('session-1').status,
-    'active',
+  await tool.impl(
+    {
+      action: 'observe',
+      app: 'Fixture',
+      include_screenshot: false,
+    } as never,
+    {
+      sessionId: 'session-1',
+      turnId: 'turn-1',
+      toolCallId: 'observe',
+      cwd: '/tmp',
+      abortSignal: new AbortController().signal,
+      emitOutput() {},
+    },
   );
+  assert.equal(selected.tools.sessionEvents.snapshot('session-1').status, 'active');
   invalidate?.({
     sessionId: 'session-1',
     reason: 'child_exit',
     outcomeUnknown: false,
   });
-  assert.equal(
-    selected.tools.sessionEvents.snapshot('session-1').status,
-    'reobserve_required',
-  );
+  assert.equal(selected.tools.sessionEvents.snapshot('session-1').status, 'reobserve_required');
 });
 
 test('physical input policy is passed to the selected backend', () => {

@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
 import { exec as childExec } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { chmod, mkdir, mkdtemp, readFile, stat, symlink, writeFile } from 'node:fs/promises';
 import { describe, test } from 'node:test';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import {
+  AGENT_SWARM_TOOL_NAME,
   buildChildAgentTools,
   LOAD_TOOLS_NAME,
   ToolAvailabilityRuntime,
@@ -16,7 +18,11 @@ import {
   TASK_LEDGER_EXPERIMENT_TODO_TOOL_NAMES,
 } from '../task-ledger-experiment.js';
 import { createInMemoryTaskRunStore } from '../task-run-store.js';
-import { buildIsolatedBashTool, buildIsolatedHeadlessToolAvailability, buildIsolatedHeadlessTools } from '../tools.js';
+import {
+  buildIsolatedBashTool,
+  buildIsolatedHeadlessToolAvailability,
+  buildIsolatedHeadlessTools,
+} from '../tools.js';
 import type { IsolatedToolExecutor } from '../isolation.js';
 
 const execAsync = promisify(childExec);
@@ -44,7 +50,9 @@ describe('isolated headless tools', () => {
       },
     );
 
-    assert.deepEqual(calls, [{ command: 'npm test', cwd: '/workspace', timeoutMs: 12_000, boundedTail: true }]);
+    assert.deepEqual(calls, [
+      { command: 'npm test', cwd: '/workspace', timeoutMs: 12_000, boundedTail: true },
+    ]);
     assert.deepEqual(emitted, [
       { stream: 'stdout', chunk: 'out\n' },
       { stream: 'stderr', chunk: 'err\n' },
@@ -98,10 +106,7 @@ describe('isolated headless tools', () => {
       },
     });
 
-    await bash.impl(
-      { command: 'long build' },
-      toolCtx('/workspace'),
-    );
+    await bash.impl({ command: 'long build' }, toolCtx('/workspace'));
 
     assert.deepEqual(calls, [{ command: 'long build', cwd: '/workspace', boundedTail: true }]);
   });
@@ -115,7 +120,7 @@ describe('isolated headless tools', () => {
       },
     });
 
-    const result = await bash.impl(
+    const result = (await bash.impl(
       { command: 'noisy' },
       {
         sessionId: 's',
@@ -125,7 +130,7 @@ describe('isolated headless tools', () => {
         abortSignal: new AbortController().signal,
         emitOutput: (stream, chunk) => emitted.push({ stream, chunk }),
       },
-    ) as { output: { stdout: string } };
+    )) as { output: { stdout: string } };
 
     // emitOutput surfaces whatever the executor RETURNS to history (there is no
     // live per-chunk channel across the executor boundary — see the Harbor tests
@@ -140,14 +145,19 @@ describe('isolated headless tools', () => {
   test('Bash preserves retained-tail truncation flags from the isolated executor', async () => {
     const bash = buildIsolatedBashTool({
       async exec() {
-        return { exitCode: 0, stdout: 'tail', stderr: '', stdoutTruncated: true, stderrTruncated: false };
+        return {
+          exitCode: 0,
+          stdout: 'tail',
+          stderr: '',
+          stdoutTruncated: true,
+          stderrTruncated: false,
+        };
       },
     });
 
-    const result = await bash.impl(
-      { command: 'noisy' },
-      toolCtx('/workspace'),
-    ) as { output: { stdoutTruncated: boolean; stderrTruncated: boolean } };
+    const result = (await bash.impl({ command: 'noisy' }, toolCtx('/workspace'))) as {
+      output: { stdoutTruncated: boolean; stderrTruncated: boolean };
+    };
 
     assert.equal(result.output.stdoutTruncated, true);
     assert.equal(result.output.stderrTruncated, false);
@@ -163,7 +173,7 @@ describe('isolated headless tools', () => {
       },
     });
 
-    const result = await bash.impl(
+    const result = (await bash.impl(
       { command: 'rm -f *.gcda *.gcno *.gcov' },
       {
         sessionId: 's',
@@ -173,14 +183,16 @@ describe('isolated headless tools', () => {
         abortSignal: new AbortController().signal,
         emitOutput: (stream, chunk) => emitted.push({ stream, chunk }),
       },
-    ) as { exitCode: number; output: { stdout: string; stderr: string } };
+    )) as { exitCode: number; output: { stdout: string; stderr: string } };
 
-    assert.deepEqual(calls, [{
-      command: 'rm -f *.gcda *.gcno *.gcov',
-      cwd: '/workspace',
-      timeoutMs: 120_000,
-      boundedTail: true,
-    }]);
+    assert.deepEqual(calls, [
+      {
+        command: 'rm -f *.gcda *.gcno *.gcov',
+        cwd: '/workspace',
+        timeoutMs: 120_000,
+        boundedTail: true,
+      },
+    ]);
     assert.equal(result.exitCode, 0);
     assert.equal(result.output.stdout, 'cleaned\n');
     assert.equal(result.output.stderr, '');
@@ -238,6 +250,7 @@ describe('isolated headless tools', () => {
     assert.ok(names.includes('Read'));
     assert.ok(names.includes('Write'));
     assert.ok(names.includes('agent_spawn'));
+    assert.ok(names.includes(AGENT_SWARM_TOOL_NAME));
     assert.ok(names.includes('agent_list'));
     assert.ok(names.includes('agent_output'));
     assert.ok(!names.includes('inventory_submit'));
@@ -246,20 +259,28 @@ describe('isolated headless tools', () => {
     assert.ok(!names.includes('self_check_submit'));
     assert.ok(!names.some((name) => name.startsWith('task_')));
     assert.equal(names.filter((name) => name === 'Bash').length, 1);
-    assert.deepEqual(buildChildAgentTools(tools).map((tool) => tool.name), ['Read', 'Glob', 'Grep']);
-    assert.ok(!buildChildAgentTools(tools).some((tool) => ['Bash', 'Write', 'Edit'].includes(tool.name)));
+    assert.deepEqual(
+      buildChildAgentTools(tools).map((tool) => tool.name),
+      ['Read', 'Glob', 'Grep'],
+    );
+    assert.ok(
+      !buildChildAgentTools(tools).some((tool) => ['Bash', 'Write', 'Edit'].includes(tool.name)),
+    );
   });
 
   test('task experiment tools are included only when a task ledger store is enabled', () => {
-    const tools = buildIsolatedHeadlessTools({
-      async exec() {
-        return { exitCode: 0, stdout: '', stderr: '' };
+    const tools = buildIsolatedHeadlessTools(
+      {
+        async exec() {
+          return { exitCode: 0, stdout: '', stderr: '' };
+        },
       },
-    }, {
-      taskLedgerExperiment: {
-        store: createInMemoryTaskLedgerExperimentStore({ now: () => 1, newId: () => 'task-1' }),
+      {
+        taskLedgerExperiment: {
+          store: createInMemoryTaskLedgerExperimentStore({ now: () => 1, newId: () => 'task-1' }),
+        },
       },
-    });
+    );
 
     const names = tools.map((tool) => tool.name);
     for (const taskToolName of TASK_LEDGER_EXPERIMENT_TODO_TOOL_NAMES) {
@@ -269,81 +290,84 @@ describe('isolated headless tools', () => {
   });
 
   test('progress and self-check tools are included only when heavy-task recorders are enabled', () => {
-    const tools = buildIsolatedHeadlessTools({
-      async exec() {
-        return { exitCode: 0, stdout: '', stderr: '' };
-      },
-    }, {
-      heavyTaskProgress: {
-        async recordInventory(input) {
-          return {
-            schemaVersion: 1,
-            inventoryId: 'inventory-1',
-            taskRunId: 'run-1',
-            ts: 1,
-            summary: input.summary,
-            items: input.items,
-            source: { kind: 'model_tool', toolCallId: 'tool-1' },
-          };
-        },
-        async recordTodos(input) {
-          return {
-            schemaVersion: 1,
-            todoSetId: 'todos-1',
-            taskRunId: 'run-1',
-            ts: 1,
-            items: input.items,
-            source: { kind: 'model_tool', toolCallId: 'tool-1' },
-          };
+    const tools = buildIsolatedHeadlessTools(
+      {
+        async exec() {
+          return { exitCode: 0, stdout: '', stderr: '' };
         },
       },
-      heavyTaskSelfCheck: {
-        async recordSelfCheckPlan(input) {
-          return {
-            accepted: true,
-            plan: {
+      {
+        heavyTaskProgress: {
+          async recordInventory(input) {
+            return {
               schemaVersion: 1,
-              planId: 'plan-1',
+              inventoryId: 'inventory-1',
               taskRunId: 'run-1',
               ts: 1,
-              finalArtifacts: input.finalArtifacts,
-              selfCheckScratch: input.selfCheckScratch,
-              workspaceGuardPlan: input.workspaceGuardPlan,
-              publicReason: input.publicReason,
-              guard: {
-                status: 'accepted',
-                checkedAt: 1,
-                categories: [],
-                publicReason: 'Accepted as public, task-derived advisory self-check plan.',
-              },
+              summary: input.summary,
+              items: input.items,
               source: { kind: 'model_tool', toolCallId: 'tool-1' },
-            },
-          };
-        },
-        async recordSelfCheck(input) {
-          return {
-            accepted: true,
-            selfCheck: {
+            };
+          },
+          async recordTodos(input) {
+            return {
               schemaVersion: 1,
-              selfCheckId: 'self-check-1',
+              todoSetId: 'todos-1',
               taskRunId: 'run-1',
               ts: 1,
-              status: input.status,
-              publicReason: input.publicReason,
-              commandEvidence: input.commandEvidence ?? [],
-              artifactEvidence: input.artifactEvidence ?? [],
-              guard: {
-                status: 'accepted',
-                checkedAt: 1,
-                categories: [],
-                publicReason: 'Accepted as public, task-derived advisory self-check evidence.',
-              },
+              items: input.items,
               source: { kind: 'model_tool', toolCallId: 'tool-1' },
-            },
-          };
+            };
+          },
+        },
+        heavyTaskSelfCheck: {
+          async recordSelfCheckPlan(input) {
+            return {
+              accepted: true,
+              plan: {
+                schemaVersion: 1,
+                planId: 'plan-1',
+                taskRunId: 'run-1',
+                ts: 1,
+                finalArtifacts: input.finalArtifacts,
+                selfCheckScratch: input.selfCheckScratch,
+                workspaceGuardPlan: input.workspaceGuardPlan,
+                publicReason: input.publicReason,
+                guard: {
+                  status: 'accepted',
+                  checkedAt: 1,
+                  categories: [],
+                  publicReason: 'Accepted as public, task-derived advisory self-check plan.',
+                },
+                source: { kind: 'model_tool', toolCallId: 'tool-1' },
+              },
+            };
+          },
+          async recordSelfCheck(input) {
+            return {
+              accepted: true,
+              selfCheck: {
+                schemaVersion: 1,
+                selfCheckId: 'self-check-1',
+                taskRunId: 'run-1',
+                ts: 1,
+                status: input.status,
+                publicReason: input.publicReason,
+                commandEvidence: input.commandEvidence ?? [],
+                artifactEvidence: input.artifactEvidence ?? [],
+                guard: {
+                  status: 'accepted',
+                  checkedAt: 1,
+                  categories: [],
+                  publicReason: 'Accepted as public, task-derived advisory self-check evidence.',
+                },
+                source: { kind: 'model_tool', toolCallId: 'tool-1' },
+              },
+            };
+          },
         },
       },
-    });
+    );
 
     const names = tools.map((tool) => tool.name);
     assert.ok(names.includes('inventory_submit'));
@@ -380,21 +404,39 @@ describe('isolated headless tools', () => {
       },
     });
 
-    assert.deepEqual(await tool(tools, 'Write').impl({ path: join(cwd, 'target.txt'), content: 'external\n' }, toolCtx(cwd)), {
-      ok: true,
-      path: 'target.txt',
-      bytes: 9,
-    });
-    assert.deepEqual(await tool(tools, 'Glob').impl({ pattern: `${cwd}/*.txt`, cwd: join(cwd, 'src') }, toolCtx(cwd)), {
-      files: ['container.txt'],
-    });
-    assert.deepEqual(await tool(tools, 'Grep').impl({
-      pattern: 'needle',
-      path: join(cwd, 'src'),
-      glob: `${cwd}/*.txt`,
-    }, toolCtx(cwd)), {
-      matches: ['container.txt:1:needle'],
-    });
+    assert.deepEqual(
+      await tool(tools, 'Write').impl(
+        { path: join(cwd, 'target.txt'), content: 'external\n' },
+        toolCtx(cwd),
+      ),
+      {
+        ok: true,
+        path: 'target.txt',
+        bytes: 9,
+      },
+    );
+    assert.deepEqual(
+      await tool(tools, 'Glob').impl(
+        { pattern: `${cwd}/*.txt`, cwd: join(cwd, 'src') },
+        toolCtx(cwd),
+      ),
+      {
+        files: ['container.txt'],
+      },
+    );
+    assert.deepEqual(
+      await tool(tools, 'Grep').impl(
+        {
+          pattern: 'needle',
+          path: join(cwd, 'src'),
+          glob: `${cwd}/*.txt`,
+        },
+        toolCtx(cwd),
+      ),
+      {
+        matches: ['container.txt:1:needle'],
+      },
+    );
 
     assert.equal(await readFile(join(cwd, 'target.txt'), 'utf8'), 'host\n');
     assert.deepEqual(calls, [
@@ -415,7 +457,11 @@ describe('isolated headless tools', () => {
     const executor: IsolatedToolExecutor = {
       async exec(input) {
         try {
-          const { stdout, stderr } = await execAsync(input.command, { cwd: input.cwd, env: process.env, maxBuffer: 4 * 1024 * 1024 });
+          const { stdout, stderr } = await execAsync(input.command, {
+            cwd: input.cwd,
+            env: process.env,
+            maxBuffer: 4 * 1024 * 1024,
+          });
           return { exitCode: 0, stdout, stderr };
         } catch (error: any) {
           return {
@@ -426,11 +472,19 @@ describe('isolated headless tools', () => {
         }
       },
     };
-    (executor as { readFile?: () => Promise<{ content: string }> }).readFile = async () => ({ content: 'RAW-NATIVE-BYPASS\n' });
+    (executor as { readFile?: () => Promise<{ content: string }> }).readFile = async () => ({
+      content: 'RAW-NATIVE-BYPASS\n',
+    });
     const tools = buildIsolatedHeadlessTools(executor);
 
-    const r = (await tool(tools, 'Read').impl({ path: join(cwd, 'f.txt') }, toolCtx(cwd))) as { content: string };
-    assert.equal(r.content, '     1\talpha\n     2\tbeta\n', 'formatted via READ_SCRIPT, not the raw native readFile');
+    const r = (await tool(tools, 'Read').impl({ path: join(cwd, 'f.txt') }, toolCtx(cwd))) as {
+      content: string;
+    };
+    assert.equal(
+      r.content,
+      '     1\talpha\n     2\tbeta\n',
+      'formatted via READ_SCRIPT, not the raw native readFile',
+    );
     assert.ok(!r.content.includes('RAW-NATIVE-BYPASS'), 'the native readFile result is never used');
   });
 
@@ -445,7 +499,10 @@ describe('isolated headless tools', () => {
     const tools = buildIsolatedHeadlessTools({
       async exec(input) {
         try {
-          const { stdout, stderr } = await execAsync(input.command, { cwd: input.cwd, maxBuffer: 1024 * 1024 });
+          const { stdout, stderr } = await execAsync(input.command, {
+            cwd: input.cwd,
+            maxBuffer: 1024 * 1024,
+          });
           return { exitCode: 0, stdout, stderr };
         } catch (error: any) {
           return {
@@ -455,9 +512,18 @@ describe('isolated headless tools', () => {
           };
         }
       },
-      async writeFile(input) { nativeCalls.push('writeFile'); return { ok: true, path: input.path, bytes: 0 }; },
-      async globFiles() { nativeCalls.push('globFiles'); return { files: [] }; },
-      async grepFiles() { nativeCalls.push('grepFiles'); return { matches: [] }; },
+      async writeFile(input) {
+        nativeCalls.push('writeFile');
+        return { ok: true, path: input.path, bytes: 0 };
+      },
+      async globFiles() {
+        nativeCalls.push('globFiles');
+        return { files: [] };
+      },
+      async grepFiles() {
+        nativeCalls.push('grepFiles');
+        return { matches: [] };
+      },
     });
 
     // The fuzzy match works and returns the shared-replacer metadata
@@ -465,13 +531,119 @@ describe('isolated headless tools', () => {
     // not a native shortcut — and no native file op was consulted for Edit.
     assert.deepEqual(
       await tool(tools, 'Edit').impl(
-        { path: 'src/f.ts', old_string: 'function f() {\n  return 1;\n}', new_string: 'function f() {\n    return 2;\n}' },
+        {
+          path: 'src/f.ts',
+          old_string: 'function f() {\n  return 1;\n}',
+          new_string: 'function f() {\n    return 2;\n}',
+        },
         toolCtx(cwd),
       ),
-      { ok: true, path: 'src/f.ts', replacements: 1, matchedVia: 'line-trimmed', startLine: 1, endLine: 3 },
+      {
+        ok: true,
+        path: 'src/f.ts',
+        replacements: 1,
+        matchedVia: 'line-trimmed',
+        startLine: 1,
+        endLine: 3,
+      },
     );
     assert.equal(await readFile(file, 'utf8'), 'function f() {\n    return 2;\n}\n');
     assert.deepEqual(nativeCalls, []);
+  });
+
+  test('Edit rejects unframed file bytes mixed with executor stdout noise before writing', async () => {
+    const source = Buffer.from('alpha marker', 'utf8');
+    let execCalls = 0;
+    const tools = buildIsolatedHeadlessTools({
+      async exec() {
+        execCalls += 1;
+        if (execCalls === 1) {
+          return {
+            exitCode: 0,
+            stdout: `${source.toString('base64')}\n[1]+ Done env MAKA_HARBOR_COMMAND_SCOPE=test\n`,
+            stderr: '',
+          };
+        }
+        return { exitCode: 0, stdout: '', stderr: '' };
+      },
+    });
+
+    await assert.rejects(
+      async () =>
+        await tool(tools, 'Edit').impl(
+          { path: 'data.txt', old_string: 'alpha', new_string: 'beta' },
+          toolCtx('/workspace'),
+        ),
+      /Edit read transport integrity check failed/,
+    );
+    assert.equal(execCalls, 1, 'a rejected read must not reach the write command');
+  });
+
+  test('Edit rejects ambiguous or corrupted read frames before writing', async (t) => {
+    const source = Buffer.from('alpha', 'utf8');
+    const valid = editReadFrame(source);
+    const cases = [
+      { name: 'output before the frame', stdout: `job started\n${valid}` },
+      {
+        name: 'output after the frame',
+        stdout: `${valid}[1]+ Done env MAKA_HARBOR_COMMAND_SCOPE=test\n`,
+      },
+      { name: 'duplicate frame', stdout: `${valid}${valid}` },
+      { name: 'truncated frame', stdout: valid.replace('MAKA_EDIT_BYTES_END\n', '') },
+      {
+        name: 'unsupported frame version',
+        stdout: valid.replace('MAKA_EDIT_BYTES_V1', 'MAKA_EDIT_BYTES_V2'),
+      },
+      { name: 'non-canonical Base64', stdout: valid.replace('YWxwaGE=', 'YWxwaGE') },
+      { name: 'byte length mismatch', stdout: valid.replace('length=5', 'length=6') },
+      { name: 'SHA-256 mismatch', stdout: valid.replace(/sha256=./, 'sha256=0') },
+    ];
+
+    for (const scenario of cases) {
+      await t.test(scenario.name, async () => {
+        let execCalls = 0;
+        const tools = buildIsolatedHeadlessTools({
+          async exec() {
+            execCalls += 1;
+            return execCalls === 1
+              ? { exitCode: 0, stdout: scenario.stdout, stderr: '' }
+              : { exitCode: 0, stdout: '', stderr: '' };
+          },
+        });
+
+        await assert.rejects(
+          async () =>
+            await tool(tools, 'Edit').impl(
+              { path: 'data.txt', old_string: 'alpha', new_string: 'beta' },
+              toolCtx('/workspace'),
+            ),
+          /Edit read transport integrity check failed/,
+        );
+        assert.equal(execCalls, 1, 'a rejected frame must not reach the write command');
+      });
+    }
+  });
+
+  test('Edit rejects a successful write result when the stored bytes do not match', async () => {
+    const source = Buffer.from('alpha marker', 'utf8');
+    let execCalls = 0;
+    const tools = buildIsolatedHeadlessTools({
+      async exec() {
+        execCalls += 1;
+        if (execCalls === 2) return { exitCode: 0, stdout: '', stderr: '' };
+        return { exitCode: 0, stdout: editReadFrame(source), stderr: '' };
+      },
+    });
+
+    await assert.rejects(
+      async () =>
+        await tool(tools, 'Edit').impl(
+          { path: 'data.txt', old_string: 'alpha', new_string: 'beta' },
+          toolCtx('/workspace'),
+        ),
+      /Edit post-write verification failed/,
+    );
+    assert.equal(execCalls, 3, 'Edit must read the stored bytes after the write reports success');
   });
 
   test('enabled heavy-task evidence recorder captures Bash, Read, Grep, Write, and Edit results', async () => {
@@ -484,39 +656,59 @@ describe('isolated headless tools', () => {
       now: () => 100 + id,
       newId: () => `id-${++id}`,
     });
-    const tools = buildIsolatedHeadlessTools({
-      async exec(input) {
-        if (input.command.includes('Edit path') && input.command.includes('base64 < "$target"')) {
-          return { exitCode: 0, stdout: `${Buffer.from('old payload', 'utf8').toString('base64')}\n`, stderr: '' };
-        }
-        if (input.command.includes('Edit path')) {
-          return { exitCode: 0, stdout: '', stderr: '' };
-        }
-        // Read now runs through READ_SCRIPT (no native fast path); the script
-        // carries the distinctive 'Read path' label, so stub its content here.
-        if (input.command.includes('Read path')) {
-          return { exitCode: 0, stdout: `read src/file.ts\n${'r'.repeat(5_000)}`, stderr: '' };
-        }
-        return { exitCode: 2, stdout: `large stdout\n${'x'.repeat(5_000)}`, stderr: 'short stderr\n' };
+    let editBytes = Buffer.from('old payload', 'utf8');
+    const tools = buildIsolatedHeadlessTools(
+      {
+        async exec(input) {
+          if (input.command.includes('Edit path') && input.command.includes('base64 < "$target"')) {
+            return { exitCode: 0, stdout: editReadFrame(editBytes), stderr: '' };
+          }
+          if (input.command.includes('Edit path')) {
+            editBytes = Buffer.from('new payload', 'utf8');
+            return { exitCode: 0, stdout: '', stderr: '' };
+          }
+          // Read now runs through READ_SCRIPT (no native fast path); the script
+          // carries the distinctive 'Read path' label, so stub its content here.
+          if (input.command.includes('Read path')) {
+            return { exitCode: 0, stdout: `read src/file.ts\n${'r'.repeat(5_000)}`, stderr: '' };
+          }
+          return {
+            exitCode: 2,
+            stdout: `large stdout\n${'x'.repeat(5_000)}`,
+            stderr: 'short stderr\n',
+          };
+        },
+        async writeFile(input) {
+          return { ok: true, path: input.path, bytes: Buffer.byteLength(input.content, 'utf8') };
+        },
+        async grepFiles() {
+          return { matches: ['src/file.ts:1:needle'] };
+        },
       },
-      async writeFile(input) {
-        return { ok: true, path: input.path, bytes: Buffer.byteLength(input.content, 'utf8') };
-      },
-      async grepFiles() {
-        return { matches: ['src/file.ts:1:needle'] };
-      },
-    }, { heavyTaskEvidence: recorder });
+      { heavyTaskEvidence: recorder },
+    );
     const ctx = { ...toolCtx('/workspace'), runId: 'agent-run-1' };
 
     await tool(tools, 'Bash').impl({ command: 'npm test' }, ctx);
     await tool(tools, 'Read').impl({ path: 'src/file.ts', limit: 10 }, ctx);
     await tool(tools, 'Grep').impl({ pattern: 'needle', path: 'src' }, ctx);
-    await tool(tools, 'Write').impl({ path: 'src/out.txt', content: 'write payload must be omitted' }, ctx);
-    await tool(tools, 'Edit').impl({ path: 'src/out.txt', old_string: 'old payload', new_string: 'new payload' }, ctx);
+    await tool(tools, 'Write').impl(
+      { path: 'src/out.txt', content: 'write payload must be omitted' },
+      ctx,
+    );
+    await tool(tools, 'Edit').impl(
+      { path: 'src/out.txt', old_string: 'old payload', new_string: 'new payload' },
+      ctx,
+    );
 
     const projection = await store.project('run-evidence');
-    assert.deepEqual(projection.heavyTaskEvidence.map((item) => item.tool?.name), ['Bash', 'Read', 'Grep', 'Write', 'Edit']);
-    assert.ok(projection.heavyTaskEvidence.every((item) => item.source.agentRunId === 'agent-run-1'));
+    assert.deepEqual(
+      projection.heavyTaskEvidence.map((item) => item.tool?.name),
+      ['Bash', 'Read', 'Grep', 'Write', 'Edit'],
+    );
+    assert.ok(
+      projection.heavyTaskEvidence.every((item) => item.source.agentRunId === 'agent-run-1'),
+    );
     assert.equal(projection.latestHeavyTaskEvidence?.tool?.name, 'Edit');
     assert.equal(projection.heavyTaskEvidence[0]?.tool?.outputs[0]?.truncated, true);
     const serialized = JSON.stringify(projection.heavyTaskEvidence);
@@ -550,20 +742,35 @@ describe('isolated headless tools', () => {
       },
     });
 
-    assert.deepEqual(await tool(tools, 'Write').impl({ path: absoluteFile, content: 'hello\nneedle\n' }, toolCtx(cwd)), {
-      ok: true,
-      path: 'src/file.txt',
-      bytes: 13,
-    });
-    assert.deepEqual(await tool(tools, 'Read').impl({ path: absoluteFile, offset: 1, limit: 1 }, toolCtx(cwd)), {
-      content: '     2\tneedle\n', // cat -n: absolute line number + tab + content
-    });
+    assert.deepEqual(
+      await tool(tools, 'Write').impl(
+        { path: absoluteFile, content: 'hello\nneedle\n' },
+        toolCtx(cwd),
+      ),
+      {
+        ok: true,
+        path: 'src/file.txt',
+        bytes: 13,
+      },
+    );
+    assert.deepEqual(
+      await tool(tools, 'Read').impl({ path: absoluteFile, offset: 1, limit: 1 }, toolCtx(cwd)),
+      {
+        content: '     2\tneedle\n', // cat -n: absolute line number + tab + content
+      },
+    );
     assert.deepEqual(await tool(tools, 'Glob').impl({ pattern: absoluteGlob }, toolCtx(cwd)), {
       files: ['src/file.txt'],
     });
-    assert.deepEqual(await tool(tools, 'Grep').impl({ pattern: 'needle', path: absoluteSrc, glob: absoluteGlob }, toolCtx(cwd)), {
-      matches: ['src/file.txt:2:needle'],
-    });
+    assert.deepEqual(
+      await tool(tools, 'Grep').impl(
+        { pattern: 'needle', path: absoluteSrc, glob: absoluteGlob },
+        toolCtx(cwd),
+      ),
+      {
+        matches: ['src/file.txt:2:needle'],
+      },
+    );
     assert.equal(await readFile(join(cwd, 'src/file.txt'), 'utf8'), 'hello\nneedle\n');
     // Read/Write/Glob/Grep stay POSIX-sh scripts that must work with only base
     // coreutils on PATH (here pinned to /usr/bin:/bin).
@@ -589,20 +796,25 @@ describe('isolated headless tools', () => {
     await symlink('real.txt', join(cwd, 'link.txt')); // file symlink -> excluded (parity with find -type f)
     await writeFile(join(cwd, 'sub', 'deep.txt'), '', 'utf8');
 
-    const mkTools = (env: NodeJS.ProcessEnv) => buildIsolatedHeadlessTools({
-      async exec(input) {
-        try {
-          const { stdout, stderr } = await execAsync(input.command, { cwd: input.cwd, env, maxBuffer: 1024 * 1024 });
-          return { exitCode: 0, stdout, stderr };
-        } catch (error: any) {
-          return {
-            exitCode: typeof error?.code === 'number' ? error.code : 1,
-            stdout: typeof error?.stdout === 'string' ? error.stdout : '',
-            stderr: typeof error?.stderr === 'string' ? error.stderr : String(error),
-          };
-        }
-      },
-    });
+    const mkTools = (env: NodeJS.ProcessEnv) =>
+      buildIsolatedHeadlessTools({
+        async exec(input) {
+          try {
+            const { stdout, stderr } = await execAsync(input.command, {
+              cwd: input.cwd,
+              env,
+              maxBuffer: 1024 * 1024,
+            });
+            return { exitCode: 0, stdout, stderr };
+          } catch (error: any) {
+            return {
+              exitCode: typeof error?.code === 'number' ? error.code : 1,
+              stdout: typeof error?.stdout === 'string' ? error.stdout : '',
+              stderr: typeof error?.stderr === 'string' ? error.stderr : String(error),
+            };
+          }
+        },
+      });
     const rgTools = mkTools(process.env); // rg on PATH -> rg --files branch
     // Guarantee the find branch: a PATH with the coreutils GLOB_SCRIPT needs but
     // NOT rg. A fixed '/usr/bin:/bin' would not do it — on some Linux CI rg lives
@@ -616,7 +828,11 @@ describe('isolated headless tools', () => {
     const findTools = mkTools({ ...process.env, PATH: noRgBin }); // no rg -> find branch
 
     const glob = async (tools: ReturnType<typeof buildIsolatedHeadlessTools>) =>
-      ((await tool(tools, 'Glob').impl({ pattern: '*.txt' }, toolCtx(cwd))) as { files: string[] }).files.slice().sort();
+      (
+        (await tool(tools, 'Glob').impl({ pattern: '*.txt' }, toolCtx(cwd))) as { files: string[] }
+      ).files
+        .slice()
+        .sort();
 
     const rgFiles = await glob(rgTools);
     const findFiles = await glob(findTools);
@@ -632,7 +848,11 @@ describe('isolated headless tools', () => {
       await writeFile(join(cwd, 'many', `f${String(i).padStart(3, '0')}.txt`), '', 'utf8');
     }
     const globRaw = async (tools: ReturnType<typeof buildIsolatedHeadlessTools>) =>
-      ((await tool(tools, 'Glob').impl({ pattern: 'many/*.txt' }, toolCtx(cwd))) as { files: string[] }).files;
+      (
+        (await tool(tools, 'Glob').impl({ pattern: 'many/*.txt' }, toolCtx(cwd))) as {
+          files: string[];
+        }
+      ).files;
     const rgMany = await globRaw(rgTools);
     const findMany = await globRaw(findTools);
     assert.equal(rgMany.length, 200, 'capped at 200');
@@ -667,7 +887,11 @@ describe('isolated headless tools', () => {
     // shadows the real one; the script must not swallow the failure into an empty
     // result — it surfaces the error (mirrors the Grep rg branch).
     const binDir = await mkdtemp(join(tmpdir(), 'maka-headless-fakerg-'));
-    await writeFile(join(binDir, 'rg'), '#!/bin/sh\necho "rg: simulated failure" >&2\nexit 2\n', 'utf8');
+    await writeFile(
+      join(binDir, 'rg'),
+      '#!/bin/sh\necho "rg: simulated failure" >&2\nexit 2\n',
+      'utf8',
+    );
     await chmod(join(binDir, 'rg'), 0o755);
     const tools = buildIsolatedHeadlessTools({
       async exec(input) {
@@ -730,7 +954,9 @@ describe('isolated headless tools', () => {
       },
     });
 
-    const r = (await tool(tools, 'Glob').impl({ pattern: '*.txt' }, toolCtx(cwd))) as { files: string[] };
+    const r = (await tool(tools, 'Glob').impl({ pattern: '*.txt' }, toolCtx(cwd))) as {
+      files: string[];
+    };
     assert.equal(r.files.length, 200, 'capped at 200');
     assert.equal(r.files[0], 'a.txt', 'sorted ascending despite reverse-order rg output');
     assert.equal(r.files[1], 'f001.txt');
@@ -744,12 +970,20 @@ describe('isolated headless tools', () => {
 
   test('Read (command path) numbers lines, caps by default, and guards binaries', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'maka-headless-read-'));
-    await writeFile(join(cwd, 'big.txt'), Array.from({ length: 2500 }, (_, i) => `line${i + 1}`).join('\n') + '\n', 'utf8');
+    await writeFile(
+      join(cwd, 'big.txt'),
+      Array.from({ length: 2500 }, (_, i) => `line${i + 1}`).join('\n') + '\n',
+      'utf8',
+    );
     await writeFile(join(cwd, 'data.bin'), Buffer.from([0, 1, 2, 0, 65, 66])); // 6 bytes, contains NUL
     const tools = buildIsolatedHeadlessTools({
       async exec(input) {
         try {
-          const { stdout, stderr } = await execAsync(input.command, { cwd: input.cwd, env: process.env, maxBuffer: 4 * 1024 * 1024 });
+          const { stdout, stderr } = await execAsync(input.command, {
+            cwd: input.cwd,
+            env: process.env,
+            maxBuffer: 4 * 1024 * 1024,
+          });
           return { exitCode: 0, stdout, stderr };
         } catch (error: any) {
           return {
@@ -762,24 +996,34 @@ describe('isolated headless tools', () => {
     });
 
     // Default read: cat -n numbering from line 1, capped at 2000 with a continuation hint.
-    const def = (await tool(tools, 'Read').impl({ path: join(cwd, 'big.txt') }, toolCtx(cwd))) as { content: string };
+    const def = (await tool(tools, 'Read').impl({ path: join(cwd, 'big.txt') }, toolCtx(cwd))) as {
+      content: string;
+    };
     assert.ok(def.content.startsWith('     1\tline1\n'), 'numbers from line 1');
     assert.ok(def.content.includes('  2000\tline2000\n'), 'shows up to the 2000-line cap');
     assert.ok(!def.content.includes('line2001'), 'does not exceed the cap');
     assert.ok(def.content.includes('truncated at line 2000'), 'hints how to continue');
 
     // Offset keeps absolute line numbers; reading the tail shows no hint.
-    const tail = (await tool(tools, 'Read').impl({ path: join(cwd, 'big.txt'), offset: 2498, limit: 2 }, toolCtx(cwd))) as { content: string };
+    const tail = (await tool(tools, 'Read').impl(
+      { path: join(cwd, 'big.txt'), offset: 2498, limit: 2 },
+      toolCtx(cwd),
+    )) as { content: string };
     assert.equal(tail.content, '  2499\tline2499\n  2500\tline2500\n');
 
     // Binary guard.
-    const bin = (await tool(tools, 'Read').impl({ path: join(cwd, 'data.bin') }, toolCtx(cwd))) as { content: string };
+    const bin = (await tool(tools, 'Read').impl({ path: join(cwd, 'data.bin') }, toolCtx(cwd))) as {
+      content: string;
+    };
     assert.equal(bin.content, '[binary file: 6 bytes, contents omitted]');
 
     // Binary guard must hold when an invalid high byte precedes the NUL: in a
     // UTF-8 locale BSD/macOS tr would otherwise abort and misclassify it as text.
     await writeFile(join(cwd, 'highbyte.bin'), Buffer.from([0xff, 0x00, 0x41]));
-    const highBin = (await tool(tools, 'Read').impl({ path: join(cwd, 'highbyte.bin') }, toolCtx(cwd))) as { content: string };
+    const highBin = (await tool(tools, 'Read').impl(
+      { path: join(cwd, 'highbyte.bin') },
+      toolCtx(cwd),
+    )) as { content: string };
     assert.equal(highBin.content, '[binary file: 3 bytes, contents omitted]');
   });
 
@@ -789,7 +1033,11 @@ describe('isolated headless tools', () => {
     const tools = buildIsolatedHeadlessTools({
       async exec(input) {
         try {
-          const { stdout, stderr } = await execAsync(input.command, { cwd: input.cwd, env: process.env, maxBuffer: 4 * 1024 * 1024 });
+          const { stdout, stderr } = await execAsync(input.command, {
+            cwd: input.cwd,
+            env: process.env,
+            maxBuffer: 4 * 1024 * 1024,
+          });
           return { exitCode: 0, stdout, stderr };
         } catch (error: any) {
           return {
@@ -801,10 +1049,16 @@ describe('isolated headless tools', () => {
       },
     });
 
-    const r = (await tool(tools, 'Read').impl({ path: join(cwd, 'long.txt') }, toolCtx(cwd))) as { content: string };
+    const r = (await tool(tools, 'Read').impl({ path: join(cwd, 'long.txt') }, toolCtx(cwd))) as {
+      content: string;
+    };
     assert.ok(r.content.startsWith('     1\t'), 'line-number prefix present');
     assert.ok(r.content.includes('... [line truncated]'), 'clip marker present');
-    assert.equal(r.content.match(/X/g)?.length, 2000, 'only the first 2000 bytes kept, clipped tail dropped');
+    assert.equal(
+      r.content.match(/X/g)?.length,
+      2000,
+      'only the first 2000 bytes kept, clipped tail dropped',
+    );
   });
 
   test('Grep prefers ripgrep when on PATH and skips binary files', async (t) => {
@@ -820,7 +1074,10 @@ describe('isolated headless tools', () => {
     // A binary file that contains the needle: ripgrep detects the NUL bytes and
     // skips it, where the find/awk fallback would match its bytes. A clean
     // result therefore proves the ripgrep path ran.
-    await writeFile(join(cwd, 'src', 'data.bin'), Buffer.concat([Buffer.from([0, 1, 2, 0]), Buffer.from('needle\n')]));
+    await writeFile(
+      join(cwd, 'src', 'data.bin'),
+      Buffer.concat([Buffer.from([0, 1, 2, 0]), Buffer.from('needle\n')]),
+    );
     const tools = buildIsolatedHeadlessTools({
       async exec(input) {
         try {
@@ -845,7 +1102,10 @@ describe('isolated headless tools', () => {
     });
     // Single-file search must still carry the path prefix (rg --with-filename).
     assert.deepEqual(
-      await tool(tools, 'Grep').impl({ pattern: 'needle', path: join(cwd, 'src', 'file.txt') }, toolCtx(cwd)),
+      await tool(tools, 'Grep').impl(
+        { pattern: 'needle', path: join(cwd, 'src', 'file.txt') },
+        toolCtx(cwd),
+      ),
       { matches: ['src/file.txt:2:needle'] },
     );
   });
@@ -888,8 +1148,13 @@ describe('isolated headless tools', () => {
       },
     });
 
-    const result = (await tool(tools, 'Grep').impl({ pattern: 'needle' }, toolCtx(cwd))) as { matches: string[] };
-    assert.ok(result.matches.includes('src/file.txt:2:needle'), 'the in-workspace match is still returned');
+    const result = (await tool(tools, 'Grep').impl({ pattern: 'needle' }, toolCtx(cwd))) as {
+      matches: string[];
+    };
+    assert.ok(
+      result.matches.includes('src/file.txt:2:needle'),
+      'the in-workspace match is still returned',
+    );
     assert.ok(
       !result.matches.some((m) => m.includes('evil.txt')),
       'the symlink out of the workspace is not followed despite RIPGREP_CONFIG_PATH=--follow',
@@ -926,8 +1191,15 @@ describe('isolated headless tools', () => {
       },
     });
 
-    const result = (await tool(tools, 'Grep').impl({ pattern: 'needle', glob: '{a,c}.txt' }, toolCtx(cwd))) as { matches: string[] };
-    assert.deepEqual(result.matches, ['{a,c}.txt:1:needle'], 'glob uses the literal fallback dialect, not rg brace-expansion');
+    const result = (await tool(tools, 'Grep').impl(
+      { pattern: 'needle', glob: '{a,c}.txt' },
+      toolCtx(cwd),
+    )) as { matches: string[] };
+    assert.deepEqual(
+      result.matches,
+      ['{a,c}.txt:1:needle'],
+      'glob uses the literal fallback dialect, not rg brace-expansion',
+    );
   });
 
   test('the ripgrep Grep branch pins its safety flags and never re-grows --glob (non-skippable safety net)', async () => {
@@ -964,7 +1236,10 @@ describe('isolated headless tools', () => {
           return { exitCode: 127, stdout: '', stderr: 'node: not found' };
         }
         try {
-          const { stdout, stderr } = await execAsync(input.command, { cwd: input.cwd, maxBuffer: 1024 * 1024 });
+          const { stdout, stderr } = await execAsync(input.command, {
+            cwd: input.cwd,
+            maxBuffer: 1024 * 1024,
+          });
           return { exitCode: 0, stdout, stderr };
         } catch (error: any) {
           return {
@@ -979,17 +1254,38 @@ describe('isolated headless tools', () => {
     // Fuzzy: indentation drift is forgiven, and the matched span/strategy is reported.
     assert.deepEqual(
       await tool(tools, 'Edit').impl(
-        { path: 'src/f.ts', old_string: 'function f() {\n  return 1;\n}', new_string: 'function f() {\n    return 2;\n}' },
+        {
+          path: 'src/f.ts',
+          old_string: 'function f() {\n  return 1;\n}',
+          new_string: 'function f() {\n    return 2;\n}',
+        },
         toolCtx(cwd),
       ),
-      { ok: true, path: 'src/f.ts', replacements: 1, matchedVia: 'line-trimmed', startLine: 1, endLine: 3 },
+      {
+        ok: true,
+        path: 'src/f.ts',
+        replacements: 1,
+        matchedVia: 'line-trimmed',
+        startLine: 1,
+        endLine: 3,
+      },
     );
     assert.equal(await readFile(file, 'utf8'), 'function f() {\n    return 2;\n}\n');
 
     // Exact match still works and reports matchedVia: 'exact'.
     assert.deepEqual(
-      await tool(tools, 'Edit').impl({ path: 'src/f.ts', old_string: 'return 2;', new_string: 'return 3;' }, toolCtx(cwd)),
-      { ok: true, path: 'src/f.ts', replacements: 1, matchedVia: 'exact', startLine: 2, endLine: 2 },
+      await tool(tools, 'Edit').impl(
+        { path: 'src/f.ts', old_string: 'return 2;', new_string: 'return 3;' },
+        toolCtx(cwd),
+      ),
+      {
+        ok: true,
+        path: 'src/f.ts',
+        replacements: 1,
+        matchedVia: 'exact',
+        startLine: 2,
+        endLine: 2,
+      },
     );
     assert.equal(await readFile(file, 'utf8'), 'function f() {\n    return 3;\n}\n');
     assert.equal((await stat(file)).mode & 0o777, 0o600); // mode preserved across the tmp+rename
@@ -999,7 +1295,11 @@ describe('isolated headless tools', () => {
     await writeFile(join(outside, 'secret.txt'), 'secret\n', 'utf8');
     await symlink(join(outside, 'secret.txt'), join(cwd, 'src', 'link.txt'));
     await assert.rejects(
-      async () => await tool(tools, 'Edit').impl({ path: 'src/link.txt', old_string: 'secret', new_string: 'edited' }, toolCtx(cwd)),
+      async () =>
+        await tool(tools, 'Edit').impl(
+          { path: 'src/link.txt', old_string: 'secret', new_string: 'edited' },
+          toolCtx(cwd),
+        ),
       /inside workspace/,
     );
     assert.equal(await readFile(join(outside, 'secret.txt'), 'utf8'), 'secret\n');
@@ -1014,11 +1314,17 @@ describe('isolated headless tools', () => {
     const file = join(cwd, 'src', 'b.bin');
     // Lone 0xff / 0xfe are invalid UTF-8; decoding as utf8 would replace them with
     // U+FFFD and corrupt the file. The edit path must keep them byte-for-byte.
-    await writeFile(file, Buffer.concat([Buffer.from([0xff]), Buffer.from('ABC', 'utf8'), Buffer.from([0xfe])]));
+    await writeFile(
+      file,
+      Buffer.concat([Buffer.from([0xff]), Buffer.from('ABC', 'utf8'), Buffer.from([0xfe])]),
+    );
     const tools = buildIsolatedHeadlessTools({
       async exec(input) {
         try {
-          const { stdout, stderr } = await execAsync(input.command, { cwd: input.cwd, maxBuffer: 1024 * 1024 });
+          const { stdout, stderr } = await execAsync(input.command, {
+            cwd: input.cwd,
+            maxBuffer: 1024 * 1024,
+          });
           return { exitCode: 0, stdout, stderr };
         } catch (error: any) {
           return {
@@ -1041,7 +1347,11 @@ describe('isolated headless tools', () => {
     // A non-exact (fuzzy) edit on a binary file is refused, not guessed — and the
     // file is left untouched.
     await assert.rejects(
-      async () => await tool(tools, 'Edit').impl({ path: 'src/b.bin', old_string: 'X Y Z', new_string: 'Q' }, toolCtx(cwd)),
+      async () =>
+        await tool(tools, 'Edit').impl(
+          { path: 'src/b.bin', old_string: 'X Y Z', new_string: 'Q' },
+          toolCtx(cwd),
+        ),
       /looks binary/,
     );
     assert.deepEqual([...(await readFile(file))], [0xff, 0x58, 0x59, 0x5a, 0xfe]);
@@ -1057,9 +1367,14 @@ describe('isolated headless tools', () => {
     const tools = execBackedTools();
     // Fire all edits concurrently. Each rewrites the whole file, so without the
     // per-path lock the last rename would clobber the others and most edits vanish.
-    const results = await Promise.all(markers.map((m, i) =>
-      tool(tools, 'Edit').impl({ path: file, old_string: m, new_string: `done-${String(i).padStart(2, '0')}` }, toolCtx(cwd)),
-    ));
+    const results = await Promise.all(
+      markers.map((m, i) =>
+        tool(tools, 'Edit').impl(
+          { path: file, old_string: m, new_string: `done-${String(i).padStart(2, '0')}` },
+          toolCtx(cwd),
+        ),
+      ),
+    );
     assert.ok(results.every((r: any) => r.ok === true && r.replacements === 1));
     const expected = `${Array.from({ length: n }, (_, i) => `done-${String(i).padStart(2, '0')}`).join('\n')}\n`;
     assert.equal(await readFile(file, 'utf8'), expected, 'every concurrent edit landed');
@@ -1075,15 +1390,25 @@ describe('isolated headless tools', () => {
     // Alternate the spelling of the same file. Without lexical key normalization
     // 'data.txt' and './data.txt' hash to different mutex keys, so the two groups
     // run concurrently and clobber each other; normalization collapses them.
-    const results = await Promise.all(markers.map((m, i) =>
-      tool(tools, 'Edit').impl(
-        { path: i % 2 === 0 ? 'data.txt' : './data.txt', old_string: m, new_string: `done-${String(i).padStart(2, '0')}` },
-        toolCtx(cwd),
+    const results = await Promise.all(
+      markers.map((m, i) =>
+        tool(tools, 'Edit').impl(
+          {
+            path: i % 2 === 0 ? 'data.txt' : './data.txt',
+            old_string: m,
+            new_string: `done-${String(i).padStart(2, '0')}`,
+          },
+          toolCtx(cwd),
+        ),
       ),
-    ));
+    );
     assert.ok(results.every((r: any) => r.ok === true));
     const expected = `${Array.from({ length: n }, (_, i) => `done-${String(i).padStart(2, '0')}`).join('\n')}\n`;
-    assert.equal(await readFile(file, 'utf8'), expected, 'every edit landed despite mixed path spellings');
+    assert.equal(
+      await readFile(file, 'utf8'),
+      expected,
+      'every edit landed despite mixed path spellings',
+    );
   });
 
   test('a Write and an Edit on the same file serialize — they never overlap at the executor boundary', async () => {
@@ -1096,6 +1421,7 @@ describe('isolated headless tools', () => {
     // setImmediate yields force an overlap window when serialization is absent.
     let active = 0;
     let maxActive = 0;
+    let editBytes = Buffer.from('alpha marker', 'utf8');
     const tools = buildIsolatedHeadlessTools({
       async exec(input) {
         active += 1;
@@ -1104,14 +1430,18 @@ describe('isolated headless tools', () => {
         await new Promise((r) => setImmediate(r));
         active -= 1;
         if (input.command.includes('base64 < "$target"')) {
-          return { exitCode: 0, stdout: `${Buffer.from('alpha marker', 'utf8').toString('base64')}\n`, stderr: '' };
+          return { exitCode: 0, stdout: editReadFrame(editBytes), stderr: '' };
         }
+        if (input.command.includes('Edit path')) editBytes = Buffer.from('beta marker', 'utf8');
         return { exitCode: 0, stdout: '', stderr: '' };
       },
     });
     await Promise.all([
       tool(tools, 'Write').impl({ path: 'data.txt', content: 'WRITTEN\n' }, toolCtx(cwd)),
-      tool(tools, 'Edit').impl({ path: 'data.txt', old_string: 'alpha marker', new_string: 'beta marker' }, toolCtx(cwd)),
+      tool(tools, 'Edit').impl(
+        { path: 'data.txt', old_string: 'alpha marker', new_string: 'beta marker' },
+        toolCtx(cwd),
+      ),
     ]);
     assert.equal(maxActive, 1, 'Write and Edit on one path must not run concurrently');
   });
@@ -1142,13 +1472,23 @@ describe('isolated headless tools', () => {
     });
 
     await assert.rejects(
-      async () => await tool(tools, 'Write').impl({ path: 'src/link.txt', content: 'overwrite\n' }, toolCtx(cwd)),
+      async () =>
+        await tool(tools, 'Write').impl(
+          { path: 'src/link.txt', content: 'overwrite\n' },
+          toolCtx(cwd),
+        ),
       /inside workspace/,
     );
-    await assert.rejects(async () => await tool(tools, 'Read').impl({ path: 'src/link.txt' }, toolCtx(cwd)), /inside workspace/);
-    assert.deepEqual(await tool(tools, 'Grep').impl({ pattern: 'outside', glob: '**/*.txt' }, toolCtx(cwd)), {
-      matches: [],
-    });
+    await assert.rejects(
+      async () => await tool(tools, 'Read').impl({ path: 'src/link.txt' }, toolCtx(cwd)),
+      /inside workspace/,
+    );
+    assert.deepEqual(
+      await tool(tools, 'Grep').impl({ pattern: 'outside', glob: '**/*.txt' }, toolCtx(cwd)),
+      {
+        matches: [],
+      },
+    );
     assert.equal(await readFile(join(outside, 'secret.txt'), 'utf8'), 'outside needle\n');
   });
 
@@ -1162,14 +1502,30 @@ describe('isolated headless tools', () => {
     });
     const ctx = toolCtx('/workspace');
 
-    await assert.rejects(async () => await tool(tools, 'Read').impl({ path: '/etc/passwd' }, ctx), /inside the isolated workspace/);
-    await assert.rejects(async () => await tool(tools, 'Write').impl({ path: '../x', content: '' }, ctx), /inside the isolated workspace/);
     await assert.rejects(
-      async () => await tool(tools, 'Edit').impl({ path: 'nested/../../x', old_string: 'a', new_string: 'b' }, ctx),
+      async () => await tool(tools, 'Read').impl({ path: '/etc/passwd' }, ctx),
       /inside the isolated workspace/,
     );
-    await assert.rejects(async () => await tool(tools, 'Glob').impl({ pattern: '/tmp/*.txt' }, ctx), /inside the isolated workspace/);
-    await assert.rejects(async () => await tool(tools, 'Grep').impl({ pattern: 'x', glob: '../*.txt' }, ctx), /inside the isolated workspace/);
+    await assert.rejects(
+      async () => await tool(tools, 'Write').impl({ path: '../x', content: '' }, ctx),
+      /inside the isolated workspace/,
+    );
+    await assert.rejects(
+      async () =>
+        await tool(tools, 'Edit').impl(
+          { path: 'nested/../../x', old_string: 'a', new_string: 'b' },
+          ctx,
+        ),
+      /inside the isolated workspace/,
+    );
+    await assert.rejects(
+      async () => await tool(tools, 'Glob').impl({ pattern: '/tmp/*.txt' }, ctx),
+      /inside the isolated workspace/,
+    );
+    await assert.rejects(
+      async () => await tool(tools, 'Grep').impl({ pattern: 'x', glob: '../*.txt' }, ctx),
+      /inside the isolated workspace/,
+    );
     assert.equal(calls, 0);
   });
 
@@ -1179,16 +1535,18 @@ describe('isolated headless tools', () => {
         return { exitCode: 0, stdout: '', stderr: '' };
       },
     });
-    const plan = new ToolAvailabilityRuntime(
-      tools,
-      buildIsolatedHeadlessToolAvailability(),
-      { name: 'invalid', description: 'invalid', parameters: {}, impl: () => ({}) },
-    ).prepare([]);
+    const plan = new ToolAvailabilityRuntime(tools, buildIsolatedHeadlessToolAvailability(), {
+      name: 'invalid',
+      description: 'invalid',
+      parameters: {},
+      impl: () => ({}),
+    }).prepare([]);
 
     assert.ok(plan.activeTools.includes('Bash'));
     assert.ok(plan.activeTools.includes('Read'));
     assert.ok(plan.activeTools.includes(LOAD_TOOLS_NAME));
     assert.ok(!plan.activeTools.includes('agent_spawn'));
+    assert.ok(!plan.activeTools.includes(AGENT_SWARM_TOOL_NAME));
     assert.ok(!plan.activeTools.includes('agent_list'));
     assert.ok(!plan.activeTools.includes('agent_output'));
 
@@ -1196,6 +1554,7 @@ describe('isolated headless tools', () => {
       steps: [{ toolCalls: [{ toolName: LOAD_TOOLS_NAME, input: { group: 'agent' } }] }],
     }).activeTools;
     assert.ok(loaded.includes('agent_spawn'));
+    assert.ok(loaded.includes(AGENT_SWARM_TOOL_NAME));
     assert.ok(loaded.includes('agent_list'));
     assert.ok(loaded.includes('agent_output'));
   });
@@ -1207,23 +1566,27 @@ describe('isolated headless tools', () => {
       },
     });
     const childTools = buildChildAgentTools(parentTools);
-    const plan = new ToolAvailabilityRuntime(
-      childTools,
-      buildIsolatedHeadlessToolAvailability(),
-      { name: 'invalid', description: 'invalid', parameters: {}, impl: () => ({}) },
-    ).prepare([]);
+    const plan = new ToolAvailabilityRuntime(childTools, buildIsolatedHeadlessToolAvailability(), {
+      name: 'invalid',
+      description: 'invalid',
+      parameters: {},
+      impl: () => ({}),
+    }).prepare([]);
 
     assert.deepEqual([...plan.activeTools].sort(), ['Glob', 'Grep', 'Read']);
     assert.equal(plan.prepareStep, undefined);
     assert.ok(!plan.activeTools.includes(LOAD_TOOLS_NAME));
     assert.ok(!plan.activeTools.includes('agent_spawn'));
+    assert.ok(!plan.activeTools.includes(AGENT_SWARM_TOOL_NAME));
   });
 
   test('README real-backend sketch preserves child tool overrides', async () => {
     const readme = await readFile(new URL('../../README.md', import.meta.url), 'utf8');
 
     assert.ok(
-      readme.includes('tools: [...(ctx.tools ?? buildIsolatedHeadlessTools(context.toolExecutor!))],'),
+      readme.includes(
+        'tools: [...(ctx.tools ?? buildIsolatedHeadlessTools(context.toolExecutor!))],',
+      ),
     );
   });
 });
@@ -1232,7 +1595,11 @@ function execBackedTools(env: NodeJS.ProcessEnv = process.env) {
   return buildIsolatedHeadlessTools({
     async exec(input) {
       try {
-        const { stdout, stderr } = await execAsync(input.command, { cwd: input.cwd, env, maxBuffer: 1024 * 1024 });
+        const { stdout, stderr } = await execAsync(input.command, {
+          cwd: input.cwd,
+          env,
+          maxBuffer: 1024 * 1024,
+        });
         return { exitCode: 0, stdout, stderr };
       } catch (error: any) {
         return {
@@ -1260,4 +1627,9 @@ function toolCtx(cwd: string) {
     abortSignal: new AbortController().signal,
     emitOutput: () => {},
   };
+}
+
+function editReadFrame(content: Buffer): string {
+  const digest = createHash('sha256').update(content).digest('hex');
+  return `MAKA_EDIT_BYTES_V1 length=${content.length} sha256=${digest}\n${content.toString('base64')}\nMAKA_EDIT_BYTES_END\n`;
 }

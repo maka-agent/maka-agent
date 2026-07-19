@@ -8,7 +8,7 @@ import { spawn } from 'node:child_process';
 import { describe, test } from 'node:test';
 
 import type { RuntimeEvent } from '@maka/core/runtime-event';
-import { createRuntimeEventStore } from '@maka/storage';
+import { createAgentRunStore, createRuntimeEventStore } from '@maka/storage';
 
 import {
   RUNTIME_RESUME_FAILPOINTS,
@@ -22,7 +22,9 @@ if (process.env[CRASH_CHILD_ENV] === '1') {
   await runCrashChild();
 } else {
   describe('runtime resume phase 0 process crash harness', () => {
-    test('reopens every fully committed P0-P11 ledger prefix after SIGKILL', { timeout: 60_000 }, async () => {
+    test('reopens every fully committed P0-P11 ledger prefix after SIGKILL', {
+      timeout: 60_000,
+    }, async () => {
       const root = await mkdtemp(join(tmpdir(), 'maka-runtime-resume-crash-'));
       try {
         for (const failpoint of RUNTIME_RESUME_FAILPOINTS) {
@@ -31,7 +33,28 @@ if (process.env[CRASH_CHILD_ENV] === '1') {
           const runId = `run-${failpoint.id}`;
           const markerPath = join(workspaceRoot, 'child-finally-ran');
           const allEvents = ledgerEvents(sessionId, runId);
-          const committedEvents = allEvents.slice(0, committedEventCount(failpoint.committedPrefix));
+          const committedEvents = allEvents.slice(
+            0,
+            committedEventCount(failpoint.committedPrefix),
+          );
+
+          // Production creates the run header before any RuntimeEvent append. Keep the
+          // crash boundary focused on the child event writer while preserving the
+          // storage identity contract used when the ledger is reopened.
+          await createAgentRunStore(workspaceRoot).createRun({
+            runId,
+            invocationId: `invocation-${runId}`,
+            sessionId,
+            turnId: `turn-${runId}`,
+            status: 'running',
+            backendKind: 'fake',
+            llmConnectionSlug: 'fake',
+            modelId: 'fake-model',
+            cwd: workspaceRoot,
+            permissionMode: 'ask',
+            createdAt: 1,
+            updatedAt: 1,
+          });
 
           await crashWriterAfterCommit({
             workspaceRoot,
@@ -41,7 +64,11 @@ if (process.env[CRASH_CHILD_ENV] === '1') {
             events: committedEvents,
           });
 
-          assert.equal(await pathExists(markerPath), false, `${failpoint.id} unexpectedly ran finally`);
+          assert.equal(
+            await pathExists(markerPath),
+            false,
+            `${failpoint.id} unexpectedly ran finally`,
+          );
           const reopened = createRuntimeEventStore(workspaceRoot);
           const recoveredEvents = await reopened.readRuntimeEvents(sessionId, runId);
           assert.deepEqual(
@@ -106,7 +133,9 @@ async function crashWriterAfterCommit(input: {
       MAKA_RUNTIME_RESUME_SESSION: input.sessionId,
       MAKA_RUNTIME_RESUME_RUN: input.runId,
       MAKA_RUNTIME_RESUME_FINALLY_MARKER: input.markerPath,
-      MAKA_RUNTIME_RESUME_EVENTS: Buffer.from(JSON.stringify(input.events), 'utf8').toString('base64'),
+      MAKA_RUNTIME_RESUME_EVENTS: Buffer.from(JSON.stringify(input.events), 'utf8').toString(
+        'base64',
+      ),
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -134,7 +163,10 @@ async function crashWriterAfterCommit(input: {
 
   assert.equal(child.kill('SIGKILL'), true);
   const [exitCode, signal] = await exited;
-  assert.ok(exitCode !== 0 || signal !== null, 'crash child exited successfully instead of being killed');
+  assert.ok(
+    exitCode !== 0 || signal !== null,
+    'crash child exited successfully instead of being killed',
+  );
 }
 
 function ledgerEvents(sessionId: string, runId: string): RuntimeEvent[] {
@@ -161,7 +193,12 @@ function ledgerEvents(sessionId: string, runId: string): RuntimeEvent[] {
       partial: false,
       author: 'agent',
       role: 'model',
-      content: { kind: 'function_call', id: 'tool-1', name: 'Bash', args: { command: 'touch marker' } },
+      content: {
+        kind: 'function_call',
+        id: 'tool-1',
+        name: 'Bash',
+        args: { command: 'touch marker' },
+      },
     },
     {
       ...identity,
@@ -187,10 +224,14 @@ function ledgerEvents(sessionId: string, runId: string): RuntimeEvent[] {
 
 function committedEventCount(prefix: RuntimeResumeCommittedPrefix): number {
   switch (prefix) {
-    case 'before_function_call': return 1;
-    case 'after_function_call': return 2;
-    case 'after_function_response': return 3;
-    case 'after_terminal_event': return 4;
+    case 'before_function_call':
+      return 1;
+    case 'after_function_call':
+      return 2;
+    case 'after_function_response':
+      return 3;
+    case 'after_terminal_event':
+      return 4;
   }
 }
 
@@ -202,7 +243,10 @@ function assertResumePlanForPrefix(
     assert.equal(plan.disposition, 'blocked');
     assert.equal(plan.operations[0]?.status, 'indeterminate');
     assert.deepEqual(plan.rejectionReasons, ['dangling_tool_state']);
-    assert.deepEqual(plan.replayRuntimeEvents.map((event) => event.id), ['user']);
+    assert.deepEqual(
+      plan.replayRuntimeEvents.map((event) => event.id),
+      ['user'],
+    );
     return;
   }
 
@@ -210,7 +254,10 @@ function assertResumePlanForPrefix(
   assert.deepEqual(plan.rejectionReasons, []);
   if (prefix === 'before_function_call') {
     assert.deepEqual(plan.operations, []);
-    assert.deepEqual(plan.replayRuntimeEvents.map((event) => event.id), ['user']);
+    assert.deepEqual(
+      plan.replayRuntimeEvents.map((event) => event.id),
+      ['user'],
+    );
     return;
   }
   assert.equal(plan.operations[0]?.status, 'succeeded');

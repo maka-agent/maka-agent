@@ -14,12 +14,17 @@
 
 import assert from 'node:assert/strict';
 import type { LlmConnection } from '@maka/core';
-import { generateText, stepCountIs, streamText, tool } from 'ai';
+import { generateText, isStepCount, streamText, tool } from 'ai';
 import { z } from 'zod';
 import { fetchProviderModels } from '../model-fetcher.js';
 import { getAIModel } from '../model-factory.js';
 import { buildSubscriptionModelFetch } from '../subscription-model-fetch.js';
-import { readBody, respondJson, respondOpenAIStream, startJsonServer } from './conformance-harness.js';
+import {
+  readBody,
+  respondJson,
+  respondOpenAIStream,
+  startJsonServer,
+} from './conformance-harness.js';
 
 export interface ProviderContractOverrideBinding {
   /** Plan override keys (`${providerType}:${dimension}`) this executable owns. */
@@ -32,22 +37,30 @@ export interface ProviderContractOverrideBinding {
 export const PROVIDER_CONTRACT_OVERRIDE_BINDINGS: readonly ProviderContractOverrideBinding[] = [
   {
     keys: ['github-copilot:discovery'],
-    title: 'GitHub Copilot discovers only account-enabled tool models and preserves each exact endpoint wire',
+    title:
+      'GitHub Copilot discovers only account-enabled tool models and preserves each exact endpoint wire',
     run: runGitHubCopilotDiscovery,
   },
   {
-    keys: ['github-copilot:exact-model-id', 'github-copilot:tool-loop', 'github-copilot:reasoning-replay'],
-    title: 'GitHub Copilot discovers the account model and completes a reasoning tool loop on its exact wire',
+    keys: [
+      'github-copilot:exact-model-id',
+      'github-copilot:tool-loop',
+      'github-copilot:reasoning-replay',
+    ],
+    title:
+      'GitHub Copilot discovers the account model and completes a reasoning tool loop on its exact wire',
     run: runGitHubCopilotWire,
   },
   {
     keys: ['fireworks-ai:discovery'],
-    title: 'Fireworks discovers exact serverless model paths and completes a two-stage tool-call loop',
+    title:
+      'Fireworks discovers exact serverless model paths and completes a two-stage tool-call loop',
     run: runFireworksDiscovery,
   },
   {
     keys: ['ollama:discovery'],
-    title: 'Ollama preserves exact local model ids (complex ids and cloud aliases) through /api/tags discovery and a no-secret tool-call loop',
+    title:
+      'Ollama preserves exact local model ids (complex ids and cloud aliases) through /api/tags discovery and a no-secret tool-call loop',
     run: runOllamaDiscovery,
   },
   {
@@ -77,24 +90,36 @@ async function runGitHubCopilotDiscovery(): Promise<void> {
         copilotModel('gpt-5.4', ['/responses']),
         copilotModel('claude-sonnet-4.6', ['/v1/messages']),
         copilotModel('gemini-3.1-pro-preview', ['/chat/completions']),
-        { ...copilotModel('disabled-by-policy', ['/chat/completions']), policy: { state: 'disabled' } },
-        { ...copilotModel('hidden-from-picker', ['/chat/completions']), model_picker_enabled: false },
-        { ...copilotModel('no-tools', ['/chat/completions']), capabilities: { supports: { tool_calls: false } } },
+        {
+          ...copilotModel('disabled-by-policy', ['/chat/completions']),
+          policy: { state: 'disabled' },
+        },
+        {
+          ...copilotModel('hidden-from-picker', ['/chat/completions']),
+          model_picker_enabled: false,
+        },
+        {
+          ...copilotModel('no-tools', ['/chat/completions']),
+          capabilities: { supports: { tool_calls: false } },
+        },
         copilotModel('unsupported-wire', ['/embeddings']),
       ],
     });
   });
 
-  const models = await fetchProviderModels({
-    slug: 'github-copilot',
-    name: 'GitHub Copilot',
-    providerType: 'github-copilot',
-    baseUrl: server.url,
-    defaultModel: 'gpt-5.4',
-    enabled: true,
-    createdAt: 1,
-    updatedAt: 1,
-  }, 'github-account-token');
+  const models = await fetchProviderModels(
+    {
+      slug: 'github-copilot',
+      name: 'GitHub Copilot',
+      providerType: 'github-copilot',
+      baseUrl: server.url,
+      defaultModel: 'gpt-5.4',
+      enabled: true,
+      createdAt: 1,
+      updatedAt: 1,
+    },
+    'github-account-token',
+  );
 
   assert.deepEqual(models, [
     {
@@ -153,17 +178,19 @@ async function runGitHubCopilotWire(): Promise<void> {
     assert.equal(request.headers.authorization, 'Bearer github-account-token');
     if (request.method === 'GET' && request.url === '/models') {
       respondJson(response, 200, {
-        data: [{
-          id: modelId,
-          name: 'Gemini 3.1 Pro Preview',
-          model_picker_enabled: true,
-          supported_endpoints: ['/chat/completions'],
-          policy: { state: 'enabled' },
-          capabilities: {
-            limits: { max_prompt_tokens: 400_000, max_output_tokens: 64_000 },
-            supports: { tool_calls: true, reasoning_effort: ['low', 'medium', 'high'] },
+        data: [
+          {
+            id: modelId,
+            name: 'Gemini 3.1 Pro Preview',
+            model_picker_enabled: true,
+            supported_endpoints: ['/chat/completions'],
+            policy: { state: 'enabled' },
+            capabilities: {
+              limits: { max_prompt_tokens: 400_000, max_output_tokens: 64_000 },
+              supports: { tool_calls: true, reasoning_effort: ['low', 'medium', 'high'] },
+            },
           },
-        }],
+        ],
       });
       return;
     }
@@ -179,20 +206,24 @@ async function runGitHubCopilotWire(): Promise<void> {
         object: 'chat.completion',
         created: 1,
         model: modelId,
-        choices: [{
-          index: 0,
-          message: {
-            role: 'assistant',
-            content: null,
-            reasoning_content: 'I should use the echo tool.',
-            tool_calls: [{
-              id: 'call-copilot-echo',
-              type: 'function',
-              function: { name: 'echo', arguments: '{"text":"hello"}' },
-            }],
+        choices: [
+          {
+            index: 0,
+            message: {
+              role: 'assistant',
+              content: null,
+              reasoning_content: 'I should use the echo tool.',
+              tool_calls: [
+                {
+                  id: 'call-copilot-echo',
+                  type: 'function',
+                  function: { name: 'echo', arguments: '{"text":"hello"}' },
+                },
+              ],
+            },
+            finish_reason: 'tool_calls',
           },
-          finish_reason: 'tool_calls',
-        }],
+        ],
         usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
       });
       return;
@@ -202,11 +233,13 @@ async function runGitHubCopilotWire(): Promise<void> {
       object: 'chat.completion',
       created: 2,
       model: modelId,
-      choices: [{
-        index: 0,
-        message: { role: 'assistant', content: 'Echoed hello.' },
-        finish_reason: 'stop',
-      }],
+      choices: [
+        {
+          index: 0,
+          message: { role: 'assistant', content: 'Echoed hello.' },
+          finish_reason: 'stop',
+        },
+      ],
       usage: { prompt_tokens: 12, completion_tokens: 3, total_tokens: 15 },
     });
   });
@@ -238,7 +271,7 @@ async function runGitHubCopilotWire(): Promise<void> {
       fetch: modelFetch,
     }),
     prompt: 'Call echo with hello.',
-    stopWhen: stepCountIs(2),
+    stopWhen: isStepCount(2),
     tools: {
       echo: tool({
         description: 'Echo text',
@@ -248,7 +281,10 @@ async function runGitHubCopilotWire(): Promise<void> {
     },
   });
 
-  assert.deepEqual(models.map((model) => [model.id, model.apiProtocol]), [[modelId, 'openai-chat']]);
+  assert.deepEqual(
+    models.map((model) => [model.id, model.apiProtocol]),
+    [[modelId, 'openai-chat']],
+  );
   assert.deepEqual(initiators, ['user', 'agent']);
   assert.equal(requestBodies[0]?.model, modelId);
   assert.equal(result.steps[0]?.reasoningText, 'I should use the echo tool.');
@@ -293,66 +329,78 @@ async function runFireworksDiscovery(): Promise<void> {
       });
       return;
     }
-    if (request.method === 'GET' && request.url === '/v1/accounts?pageSize=200&pageToken=accounts-next') {
+    if (
+      request.method === 'GET' &&
+      request.url === '/v1/accounts?pageSize=200&pageToken=accounts-next'
+    ) {
       respondJson(response, 200, { accounts: [{ name: 'accounts/team' }] });
       return;
     }
     if (
-      request.method === 'GET'
-      && request.url === '/v1/accounts/acme/models?filter=supports_serverless%3Dtrue&pageSize=200'
+      request.method === 'GET' &&
+      request.url === '/v1/accounts/acme/models?filter=supports_serverless%3Dtrue&pageSize=200'
     ) {
       respondJson(response, 200, {
-        models: [{
-          name: 'accounts/acme/models/custom-agent',
-          displayName: 'Custom Agent',
-          supportsTools: true,
-          supportsServerless: true,
-        }],
+        models: [
+          {
+            name: 'accounts/acme/models/custom-agent',
+            displayName: 'Custom Agent',
+            supportsTools: true,
+            supportsServerless: true,
+          },
+        ],
         nextPageToken: 'models-next',
       });
       return;
     }
     if (
-      request.method === 'GET'
-      && request.url === '/v1/accounts/acme/models?filter=supports_serverless%3Dtrue&pageSize=200&pageToken=models-next'
+      request.method === 'GET' &&
+      request.url ===
+        '/v1/accounts/acme/models?filter=supports_serverless%3Dtrue&pageSize=200&pageToken=models-next'
     ) {
       respondJson(response, 200, {
-        models: [{
-          name: 'accounts/acme/models/custom-agent-v2',
-          displayName: 'Custom Agent V2',
-          supportsTools: true,
-          supportsServerless: true,
-        }],
+        models: [
+          {
+            name: 'accounts/acme/models/custom-agent-v2',
+            displayName: 'Custom Agent V2',
+            supportsTools: true,
+            supportsServerless: true,
+          },
+        ],
       });
       return;
     }
     if (
-      request.method === 'GET'
-      && request.url === '/v1/accounts/team/models?filter=supports_serverless%3Dtrue&pageSize=200'
+      request.method === 'GET' &&
+      request.url === '/v1/accounts/team/models?filter=supports_serverless%3Dtrue&pageSize=200'
     ) {
       respondJson(response, 200, {
-        models: [{
-          name: 'accounts/team/models/team-agent',
-          displayName: 'Team Agent',
-          supportsTools: true,
-          supportsServerless: true,
-        }],
+        models: [
+          {
+            name: 'accounts/team/models/team-agent',
+            displayName: 'Team Agent',
+            supportsTools: true,
+            supportsServerless: true,
+          },
+        ],
       });
       return;
     }
     if (
-      request.method === 'GET'
-      && request.url === '/v1/accounts/fireworks/models?filter=supports_serverless%3Dtrue&pageSize=200'
+      request.method === 'GET' &&
+      request.url === '/v1/accounts/fireworks/models?filter=supports_serverless%3Dtrue&pageSize=200'
     ) {
       respondJson(response, 200, {
-        models: [{
-          name: modelId,
-          displayName: 'Kimi K2.6',
-          contextLength: 262_000,
-          supportsImageInput: true,
-          supportsTools: true,
-          supportsServerless: true,
-        }],
+        models: [
+          {
+            name: modelId,
+            displayName: 'Kimi K2.6',
+            contextLength: 262_000,
+            supportsImageInput: true,
+            supportsTools: true,
+            supportsServerless: true,
+          },
+        ],
       });
       return;
     }
@@ -366,19 +414,23 @@ async function runFireworksDiscovery(): Promise<void> {
         object: 'chat.completion',
         created: 1,
         model: modelId,
-        choices: [{
-          index: 0,
-          message: {
-            role: 'assistant',
-            content: null,
-            tool_calls: [{
-              id: 'call_echo',
-              type: 'function',
-              function: { name: 'echo', arguments: '{"text":"hello"}' },
-            }],
+        choices: [
+          {
+            index: 0,
+            message: {
+              role: 'assistant',
+              content: null,
+              tool_calls: [
+                {
+                  id: 'call_echo',
+                  type: 'function',
+                  function: { name: 'echo', arguments: '{"text":"hello"}' },
+                },
+              ],
+            },
+            finish_reason: 'tool_calls',
           },
-          finish_reason: 'tool_calls',
-        }],
+        ],
         usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
       });
       return;
@@ -389,11 +441,13 @@ async function runFireworksDiscovery(): Promise<void> {
       object: 'chat.completion',
       created: 2,
       model: modelId,
-      choices: [{
-        index: 0,
-        message: { role: 'assistant', content: 'Echoed hello.' },
-        finish_reason: 'stop',
-      }],
+      choices: [
+        {
+          index: 0,
+          message: { role: 'assistant', content: 'Echoed hello.' },
+          finish_reason: 'stop',
+        },
+      ],
       usage: { prompt_tokens: 12, completion_tokens: 3, total_tokens: 15 },
     });
   });
@@ -436,7 +490,7 @@ async function runFireworksDiscovery(): Promise<void> {
   const result = await generateText({
     model: getAIModel({ connection, apiKey: 'fireworks-test-key', modelId }),
     prompt: 'Call echo with hello.',
-    stopWhen: stepCountIs(2),
+    stopWhen: isStepCount(2),
     tools: {
       echo: tool({
         description: 'Echo text',
@@ -446,9 +500,14 @@ async function runFireworksDiscovery(): Promise<void> {
     },
   });
 
-  assert.deepEqual(requestBodies.map((body) => body.model), [modelId, modelId]);
   assert.deepEqual(
-    (requestBodies[1].messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
+    requestBodies.map((body) => body.model),
+    [modelId, modelId],
+  );
+  assert.deepEqual(
+    (requestBodies[1].messages as Array<{ role: string; content: string }>).find(
+      ({ role }) => role === 'tool',
+    ),
     { role: 'tool', content: '{"echoed":"hello"}', tool_call_id: 'call_echo' },
   );
   assert.equal(result.text, 'Echoed hello.');
@@ -487,19 +546,23 @@ async function assertOllamaModelContract(
         object: 'chat.completion',
         created: 1,
         model: modelId,
-        choices: [{
-          index: 0,
-          message: {
-            role: 'assistant',
-            content: null,
-            tool_calls: [{
-              id: 'call_echo',
-              type: 'function',
-              function: { name: 'echo', arguments: '{"text":"hello"}' },
-            }],
+        choices: [
+          {
+            index: 0,
+            message: {
+              role: 'assistant',
+              content: null,
+              tool_calls: [
+                {
+                  id: 'call_echo',
+                  type: 'function',
+                  function: { name: 'echo', arguments: '{"text":"hello"}' },
+                },
+              ],
+            },
+            finish_reason: 'tool_calls',
           },
-          finish_reason: 'tool_calls',
-        }],
+        ],
         usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
       });
       return;
@@ -509,11 +572,13 @@ async function assertOllamaModelContract(
       object: 'chat.completion',
       created: 2,
       model: modelId,
-      choices: [{
-        index: 0,
-        message: { role: 'assistant', content: 'Echoed hello.' },
-        finish_reason: 'stop',
-      }],
+      choices: [
+        {
+          index: 0,
+          message: { role: 'assistant', content: 'Echoed hello.' },
+          finish_reason: 'stop',
+        },
+      ],
       usage: { prompt_tokens: 12, completion_tokens: 3, total_tokens: 15 },
     });
   });
@@ -528,7 +593,10 @@ async function assertOllamaModelContract(
     updatedAt: 1,
   };
 
-  assert.deepEqual(await fetchProviderModels(connection, ''), discoveredModelIds.map((id) => ({ id })));
+  assert.deepEqual(
+    await fetchProviderModels(connection, ''),
+    discoveredModelIds.map((id) => ({ id })),
+  );
 
   const result = await generateText({
     model: getAIModel({ connection, apiKey: '', modelId }),
@@ -540,14 +608,19 @@ async function assertOllamaModelContract(
         execute: async ({ text }) => ({ text }),
       }),
     },
-    stopWhen: stepCountIs(2),
+    stopWhen: isStepCount(2),
   });
 
   assert.equal(result.text, 'Echoed hello.');
   assert.equal(requestBodies.length, 2);
-  assert.deepEqual(requestBodies.map((body) => body.model), [modelId, modelId]);
   assert.deepEqual(
-    (requestBodies[0].tools as Array<{ function: { name: string } }>).map((entry) => entry.function.name),
+    requestBodies.map((body) => body.model),
+    [modelId, modelId],
+  );
+  assert.deepEqual(
+    (requestBodies[0].tools as Array<{ function: { name: string } }>).map(
+      (entry) => entry.function.name,
+    ),
     ['echo'],
   );
   const secondMessages = requestBodies[1]?.messages as Array<{ role: string; content: string }>;
@@ -571,7 +644,12 @@ async function runCohereDiscovery(): Promise<void> {
         respondJson(response, 200, {
           models: [
             { name: modelId, is_deprecated: false, endpoints: ['chat'], context_length: 128_000 },
-            { name: 'retired-command', is_deprecated: true, endpoints: ['chat'], context_length: 4_000 },
+            {
+              name: 'retired-command',
+              is_deprecated: true,
+              endpoints: ['chat'],
+              context_length: 4_000,
+            },
           ],
           next_page_token: 'page-2',
         });
@@ -579,12 +657,14 @@ async function runCohereDiscovery(): Promise<void> {
       }
       assert.equal(url.searchParams.get('page_token'), 'page-2');
       respondJson(response, 200, {
-        models: [{
-          name: 'command-a-reasoning-08-2025',
-          is_deprecated: false,
-          endpoints: ['chat'],
-          context_length: 256_000,
-        }],
+        models: [
+          {
+            name: 'command-a-reasoning-08-2025',
+            is_deprecated: false,
+            endpoints: ['chat'],
+            context_length: 256_000,
+          },
+        ],
         next_page_token: '',
       });
       return;
@@ -602,11 +682,13 @@ async function runCohereDiscovery(): Promise<void> {
           role: 'assistant',
           content: [],
           tool_plan: 'Call echo.',
-          tool_calls: [{
-            id: 'call_echo',
-            type: 'function',
-            function: { name: 'echo', arguments: '{"text":"hello"}' },
-          }],
+          tool_calls: [
+            {
+              id: 'call_echo',
+              type: 'function',
+              function: { name: 'echo', arguments: '{"text":"hello"}' },
+            },
+          ],
         },
         usage: {
           billed_units: { input_tokens: 8, output_tokens: 4 },
@@ -650,7 +732,7 @@ async function runCohereDiscovery(): Promise<void> {
   const result = await generateText({
     model: getAIModel({ connection, apiKey: 'cohere-test-key', modelId: models[0]!.id }),
     prompt: 'Call echo with hello.',
-    stopWhen: stepCountIs(2),
+    stopWhen: isStepCount(2),
     tools: {
       echo: tool({
         description: 'Echo text',
@@ -661,25 +743,38 @@ async function runCohereDiscovery(): Promise<void> {
   });
 
   assert.equal(requestBodies.length, 2);
-  assert.deepEqual(requestBodies.map((body) => body.model), [modelId, modelId]);
   assert.deepEqual(
-    (requestBodies[0].tools as Array<{ function: { name: string } }>).map((entry) => entry.function.name),
+    requestBodies.map((body) => body.model),
+    [modelId, modelId],
+  );
+  assert.deepEqual(
+    (requestBodies[0].tools as Array<{ function: { name: string } }>).map(
+      (entry) => entry.function.name,
+    ),
     ['echo'],
   );
   const secondMessages = requestBodies[1]?.messages as Array<Record<string, unknown>>;
-  assert.deepEqual(secondMessages.find(({ role }) => role === 'assistant'), {
-    role: 'assistant',
-    tool_calls: [{
-      id: 'call_echo',
-      type: 'function',
-      function: { name: 'echo', arguments: '{"text":"hello"}' },
-    }],
-  });
-  assert.deepEqual(secondMessages.find(({ role }) => role === 'tool'), {
-    role: 'tool',
-    content: '{"echoed":"hello"}',
-    tool_call_id: 'call_echo',
-  });
+  assert.deepEqual(
+    secondMessages.find(({ role }) => role === 'assistant'),
+    {
+      role: 'assistant',
+      tool_calls: [
+        {
+          id: 'call_echo',
+          type: 'function',
+          function: { name: 'echo', arguments: '{"text":"hello"}' },
+        },
+      ],
+    },
+  );
+  assert.deepEqual(
+    secondMessages.find(({ role }) => role === 'tool'),
+    {
+      role: 'tool',
+      content: '{"echoed":"hello"}',
+      tool_call_id: 'call_echo',
+    },
+  );
   assert.equal(result.steps[0]?.toolCalls[0]?.toolName, 'echo');
   assert.deepEqual(result.steps[0]?.toolResults[0]?.output, { echoed: 'hello' });
   assert.equal(result.text, 'Echoed hello.');
@@ -687,62 +782,76 @@ async function runCohereDiscovery(): Promise<void> {
 
 async function runZenMuxSignedReasoningReplay(): Promise<void> {
   const modelId = 'moonshotai/kimi-k2.5';
-  const reasoningDetails = [{
-    type: 'reasoning.text',
-    text: 'Use echo.',
-    signature: 'deterministic-stream-signature',
-    format: 'anthropic-claude-v1',
-  }];
+  const reasoningDetails = [
+    {
+      type: 'reasoning.text',
+      text: 'Use echo.',
+      signature: 'deterministic-stream-signature',
+      format: 'anthropic-claude-v1',
+    },
+  ];
   const requestBodies: Array<Record<string, unknown>> = [];
   const server = await startJsonServer(async (request, response) => {
     const body = JSON.parse(await readBody(request)) as Record<string, unknown>;
     requestBodies.push(body);
     assert.equal(body.stream, true);
     if (requestBodies.length === 1) {
-      respondOpenAIStream(response, [{
-        id: 'chatcmpl-zenmux-stream-tool',
-        object: 'chat.completion.chunk',
-        created: 1,
-        model: modelId,
-        choices: [{
-          index: 0,
-          delta: {
-            role: 'assistant',
-            reasoning: 'Use echo.',
-            reasoning_details: reasoningDetails,
-            tool_calls: [{
+      respondOpenAIStream(response, [
+        {
+          id: 'chatcmpl-zenmux-stream-tool',
+          object: 'chat.completion.chunk',
+          created: 1,
+          model: modelId,
+          choices: [
+            {
               index: 0,
-              id: 'call_zenmux_stream_echo',
-              type: 'function',
-              function: { name: 'echo', arguments: '{"text":"hello"}' },
-            }],
-          },
-          finish_reason: null,
-        }],
-      }, {
-        id: 'chatcmpl-zenmux-stream-tool',
-        object: 'chat.completion.chunk',
-        created: 1,
-        model: modelId,
-        choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }],
-        usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
-      }]);
+              delta: {
+                role: 'assistant',
+                reasoning: 'Use echo.',
+                reasoning_details: reasoningDetails,
+                tool_calls: [
+                  {
+                    index: 0,
+                    id: 'call_zenmux_stream_echo',
+                    type: 'function',
+                    function: { name: 'echo', arguments: '{"text":"hello"}' },
+                  },
+                ],
+              },
+              finish_reason: null,
+            },
+          ],
+        },
+        {
+          id: 'chatcmpl-zenmux-stream-tool',
+          object: 'chat.completion.chunk',
+          created: 1,
+          model: modelId,
+          choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }],
+          usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
+        },
+      ]);
       return;
     }
-    respondOpenAIStream(response, [{
-      id: 'chatcmpl-zenmux-stream-final',
-      object: 'chat.completion.chunk',
-      created: 2,
-      model: modelId,
-      choices: [{ index: 0, delta: { role: 'assistant', content: 'Echoed hello.' }, finish_reason: null }],
-    }, {
-      id: 'chatcmpl-zenmux-stream-final',
-      object: 'chat.completion.chunk',
-      created: 2,
-      model: modelId,
-      choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
-      usage: { prompt_tokens: 14, completion_tokens: 3, total_tokens: 17 },
-    }]);
+    respondOpenAIStream(response, [
+      {
+        id: 'chatcmpl-zenmux-stream-final',
+        object: 'chat.completion.chunk',
+        created: 2,
+        model: modelId,
+        choices: [
+          { index: 0, delta: { role: 'assistant', content: 'Echoed hello.' }, finish_reason: null },
+        ],
+      },
+      {
+        id: 'chatcmpl-zenmux-stream-final',
+        object: 'chat.completion.chunk',
+        created: 2,
+        model: modelId,
+        choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 14, completion_tokens: 3, total_tokens: 17 },
+      },
+    ]);
   });
   const connection: LlmConnection = {
     slug: 'zenmux',
@@ -758,7 +867,7 @@ async function runZenMuxSignedReasoningReplay(): Promise<void> {
   const result = streamText({
     model: getAIModel({ connection, apiKey: 'zenmux-test-key', modelId }),
     prompt: 'Call echo with hello.',
-    stopWhen: stepCountIs(2),
+    stopWhen: isStepCount(2),
     tools: {
       echo: tool({
         description: 'Echo text',
@@ -771,17 +880,21 @@ async function runZenMuxSignedReasoningReplay(): Promise<void> {
   assert.equal(await result.text, 'Echoed hello.');
   assert.equal(requestBodies.length, 2);
   assert.deepEqual(
-    (requestBodies[1].messages as Array<Record<string, unknown>>).find(({ role }) => role === 'assistant'),
+    (requestBodies[1].messages as Array<Record<string, unknown>>).find(
+      ({ role }) => role === 'assistant',
+    ),
     {
       role: 'assistant',
       content: null,
       reasoning: 'Use echo.',
       reasoning_details: reasoningDetails,
-      tool_calls: [{
-        id: 'call_zenmux_stream_echo',
-        type: 'function',
-        function: { name: 'echo', arguments: '{"text":"hello"}' },
-      }],
+      tool_calls: [
+        {
+          id: 'call_zenmux_stream_echo',
+          type: 'function',
+          function: { name: 'echo', arguments: '{"text":"hello"}' },
+        },
+      ],
     },
   );
 }

@@ -43,7 +43,7 @@ export const TOOL_ACTIVITY_KINDS = [
   'browser',
   'tool',
 ] as const;
-export type ToolActivityKind = typeof TOOL_ACTIVITY_KINDS[number];
+export type ToolActivityKind = (typeof TOOL_ACTIVITY_KINDS)[number];
 type TerminalToolResultStatus = Exclude<ShellRunTerminalStatus, 'orphaned'>;
 
 // ============================================================================
@@ -90,6 +90,8 @@ export type SessionEvent =
   | UserQuestionRequestEvent
   | PlanSubmittedEvent
   | TokenUsageEvent
+  | SteeringMessageEvent
+  | QueueUpdateEvent
   | ErrorEvent
   | CompleteEvent
   | AbortEvent;
@@ -139,7 +141,7 @@ export interface ToolStartEvent extends BaseEvent {
   stepId?: string;
 }
 
-export type ToolOutputStream = typeof TOOL_OUTPUT_STREAMS[number];
+export type ToolOutputStream = (typeof TOOL_OUTPUT_STREAMS)[number];
 
 /**
  * Live output side-channel for long-running tools.
@@ -198,15 +200,11 @@ export interface SandboxDenialRecovery {
   recovery: 'require_escalated';
 }
 
-export type ShellRunCompactResult = ShellRunResultMetadata & (
-  | { mode: 'pipes'; output?: never }
-  | { mode: 'pty'; output?: never }
-);
+export type ShellRunCompactResult = ShellRunResultMetadata &
+  ({ mode: 'pipes'; output?: never } | { mode: 'pty'; output?: never });
 
-export type ShellRunSnapshotResult = ShellRunResultMetadata & (
-  | { mode: 'pipes'; output: PipeShellOutput }
-  | { mode: 'pty'; output: PtyShellOutput }
-);
+export type ShellRunSnapshotResult = ShellRunResultMetadata &
+  ({ mode: 'pipes'; output: PipeShellOutput } | { mode: 'pty'; output: PtyShellOutput });
 
 export type ShellRunStateResult = ShellRunCompactResult | ShellRunSnapshotResult;
 
@@ -214,11 +212,12 @@ type ShellRunStopOperation = Extract<ShellRunOperation, { kind: 'stop' }>;
 type ShellRunPtyControlOperation = Extract<ShellRunOperation, { kind: 'pty_control' }>;
 type ShellRunToolResultContent =
   | (ShellRunCompactResult & { operation?: never })
-  | (ShellRunSnapshotResult & (
-      | { operation?: never }
-      | { operation: ShellRunStopOperation }
-      | { mode: 'pty'; output: PtyShellOutput; operation: ShellRunPtyControlOperation }
-    ));
+  | (ShellRunSnapshotResult &
+      (
+        | { operation?: never }
+        | { operation: ShellRunStopOperation }
+        | { mode: 'pty'; output: PtyShellOutput; operation: ShellRunPtyControlOperation }
+      ));
 
 export type ToolResultContent =
   | { kind: 'text'; text: string }
@@ -304,7 +303,9 @@ export type ToolResultContent =
       queries: string[];
       ignoredPaths?: string[];
       stoppingCondition?: string;
-      limitReasons?: ReadonlyArray<'candidate_budget' | 'file_budget' | 'match_budget' | 'byte_budget'>;
+      limitReasons?: ReadonlyArray<
+        'candidate_budget' | 'file_budget' | 'match_budget' | 'byte_budget'
+      >;
       filesDiscovered?: number;
       filesInspected: number;
       filesSkipped: number;
@@ -345,6 +346,30 @@ export type ToolResultContent =
       durationMs?: number;
       eventCount?: number;
       failureClass?: string;
+    }
+  | {
+      kind: 'agent_swarm';
+      status: 'completed' | 'partial' | 'cancelled';
+      items: ReadonlyArray<{
+        itemId: string;
+        index: number;
+        profile: string;
+        started: boolean;
+        agentId?: string;
+        agentName?: string;
+        turnId?: string;
+        runId?: string;
+        status: 'completed' | 'failed' | 'cancelled';
+        summary: string;
+        artifactIds: readonly string[];
+        startedAt?: number;
+        completedAt?: number;
+        durationMs?: number;
+        failureClass?: string;
+      }>;
+      startedAt: number;
+      completedAt: number;
+      durationMs: number;
     }
   | {
       kind: 'rive_workflow';
@@ -408,16 +433,14 @@ export interface PermissionRequestEvent extends BaseEvent, PermissionRequest {
   type: 'permission_request';
 }
 
-export interface AdditionalPermissionRequestEvent
-  extends BaseEvent, AdditionalPermissionRequest {
+export interface AdditionalPermissionRequestEvent extends BaseEvent, AdditionalPermissionRequest {
   type: 'permission_request';
   /** Additional-permission prompts deliberately do not expose raw tool arguments. */
   args: undefined;
   rememberForTurnAllowed?: false;
 }
 
-export interface SandboxEscalationRequestEvent
-  extends BaseEvent, SandboxEscalationRequest {
+export interface SandboxEscalationRequestEvent extends BaseEvent, SandboxEscalationRequest {
   type: 'permission_request';
   /** Escalation prompts expose only bounded command and justification fields. */
   args: undefined;
@@ -491,6 +514,37 @@ export interface TokenUsageEvent extends BaseEvent {
   requestShapeChangeReason?: PrefixChangeReason;
   promptSegments?: PromptSegmentEstimate[];
   contextBudget?: ContextBudgetDiagnostic;
+}
+
+/**
+ * A user message injected into a running turn at a step boundary (steering).
+ * The runtime persists it as a user event in the ledger and echoes it through
+ * the stream so the transcript renders the interjection in place. `text` is the
+ * raw user text; the backend wraps it in a steering envelope for the model.
+ */
+export interface SteeringMessageEvent extends BaseEvent {
+  type: 'steering_message';
+  messageId: string;
+  text: string;
+}
+
+/**
+ * Result of enqueuing a steering / followup message. `fallback` means there was
+ * no active run to attach to (the turn just ended) and the caller should open a
+ * fresh turn with the text instead, so a message is never silently dropped.
+ * Queue contents travel on ONE path only: the `queue_update` event.
+ */
+export type QueueEnqueueOutcome = { kind: 'queued' } | { kind: 'fallback' };
+
+/**
+ * Authoritative queue snapshot pushed into the active turn's event stream
+ * whenever either pending queue changes (enqueue, step-boundary consumption, or
+ * interrupt clear). UI observers mirror it; the runtime owns the source of truth.
+ */
+export interface QueueUpdateEvent extends BaseEvent {
+  type: 'queue_update';
+  steering: string[];
+  followup: string[];
 }
 
 export interface ErrorEvent extends BaseEvent {

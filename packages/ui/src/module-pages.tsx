@@ -70,6 +70,8 @@ export function SkillsPage(props: {
 export function AutomationsPage(props: {
   skills?: SkillEntry[];
   reminders?: PlanReminder[];
+  keepSystemAwake?: boolean;
+  onKeepSystemAwakeChange?: (next: boolean) => Promise<void>;
   onRefresh?: () => void | Promise<void>;
   onCreate?(input: PlanReminderDraftInput): boolean | Promise<boolean> | void | Promise<void>;
   onUpdate?(id: string, patch: PlanReminderUpdatePatch): boolean | Promise<boolean> | void | Promise<void>;
@@ -101,18 +103,24 @@ export function DailyReviewPage(props: {
 }) {
   return (
     <main className="maka-main detailPane maka-module-main agents-chat-panel" data-module="daily-review" aria-label="每日回顾">
-      <header className="maka-module-main-header">
-        <div>
-          <h2>每日回顾</h2>
-          <p>自动汇总本机对话，生成摘要、遗漏提醒与深度分析；可在设置中开启定时执行。</p>
-        </div>
-      </header>
       {props.bridge ? (
+        // The PageHeader (title + subtitle + the 生成 actions) now lives INSIDE
+        // the panel so the generation buttons can ride the header's actions slot
+        // with the panel's run state. The bridge-less fallback keeps its own
+        // static header below.
         <Suspense fallback={<ModulePanelFallback message="正在加载每日回顾…" />}>
           <DailyReviewPanel {...props} bridge={props.bridge} />
         </Suspense>
       ) : (
-        <EmptyState Icon={CalendarDays} title="等待连接每日回顾数据" body="桌面端数据桥当前未连接。" />
+        <>
+          <header className="maka-module-main-header">
+            <div>
+              <h2>每日回顾</h2>
+              <p>自动汇总本机对话，生成摘要、遗漏提醒与深度分析；可在设置中开启定时执行。</p>
+            </div>
+          </header>
+          <EmptyState Icon={CalendarDays} title="等待连接每日回顾数据" body="桌面端数据桥当前未连接。" />
+        </>
       )}
     </main>
   );

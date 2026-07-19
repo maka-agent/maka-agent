@@ -3,6 +3,8 @@ import { AttachmentKindIcon } from './attachment-kinds.js';
 import { formatBytes } from './tool-activity/preview-utils.js';
 import { cn } from './utils.js';
 import type { AttachmentRef } from '@maka/core';
+import { useUiLocale } from './locale-context.js';
+import { getConversationCopy } from './conversation-copy.js';
 
 /**
  * File attachment card shown inside the composer (removable) and inside a
@@ -19,6 +21,7 @@ export function AttachmentFileCard(props: {
   onRemove?: () => void;
   className?: string;
 }) {
+  const copy = getConversationCopy(useUiLocale()).messages;
   return (
     <div
       className={cn(
@@ -42,7 +45,7 @@ export function AttachmentFileCard(props: {
           type="button"
           onClick={props.onRemove}
           className="ml-1 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-[var(--foreground-alpha-10)] hover:text-foreground transition"
-          aria-label={`移除 ${props.name}`}
+          aria-label={copy.removeAttachmentAriaLabel(props.name)}
         >
           <X className="h-3.5 w-3.5" />
         </button>

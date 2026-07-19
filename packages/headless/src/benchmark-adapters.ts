@@ -39,10 +39,14 @@ export interface BenchmarkVerifierOutput {
 export interface BenchmarkAdapter {
   readonly name: string;
   taskFromInstance?(input: BenchmarkInstanceRef): Promise<Task> | Task;
-  runVerifier(input: BenchmarkVerifierInput): Promise<BenchmarkVerifierOutput> | BenchmarkVerifierOutput;
+  runVerifier(
+    input: BenchmarkVerifierInput,
+  ): Promise<BenchmarkVerifierOutput> | BenchmarkVerifierOutput;
 }
 
-export type BenchmarkAdapterRegistry = Record<string, BenchmarkAdapter> | Map<string, BenchmarkAdapter>;
+export type BenchmarkAdapterRegistry =
+  | Record<string, BenchmarkAdapter>
+  | Map<string, BenchmarkAdapter>;
 
 export function resolveBenchmarkAdapter(
   registry: BenchmarkAdapterRegistry | undefined,

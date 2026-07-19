@@ -28,6 +28,9 @@ const sourcePaths = [
   'general-settings-page.tsx',
   'open-gateway-settings-page.tsx',
   'bot-chat-settings-page.tsx',
+  'bot-chat-shared.tsx',
+  'bot-chat-overview.tsx',
+  'bot-chat-detail.tsx',
   'bot-wechat-login.tsx',
   'usage-settings-page.tsx',
   'settings-metric-card.tsx',
@@ -35,6 +38,9 @@ const sourcePaths = [
   'permission-center-page.tsx',
   'health-center-page.tsx',
   'settings-rows.tsx',
+  '../locales/settings-navigation-copy.ts',
+  '../locales/settings-preferences-copy.ts',
+  '../locales/settings-shared-copy.ts',
 ] as const;
 
 export const SETTINGS_SOURCE_REPO_PATHS: readonly string[] = sourcePaths.map(

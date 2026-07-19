@@ -1,10 +1,6 @@
 import { describe, test } from 'node:test';
 import { expect } from '../../test-helpers.js';
-import {
-  SENSITIVE_PLACEHOLDER,
-  applySensitivePatch,
-  maskSensitive,
-} from '../network-settings.js';
+import { SENSITIVE_PLACEHOLDER, applySensitivePatch, maskSensitive } from '../network-settings.js';
 
 describe('applySensitivePatch', () => {
   test('handles plaintext, placeholder, empty string, and undefined', () => {

@@ -112,7 +112,7 @@ describe('Settings form accessibility labels', () => {
 
     assert.match(settings, /SettingsSelect,/);
     assert.match(settingsSelect, /SelectItem,[\s\S]*SelectPopup,[\s\S]*SelectPortal,[\s\S]*SelectPositioner,[\s\S]*SelectRoot,[\s\S]*SelectTrigger,[\s\S]*SelectValue,/);
-    assert.match(passwordInput, /import \{ Button, Input, useMountedRef, useToast \} from '@maka\/ui';/);
+    assert.match(passwordInput, /import \{[^}]*\bButton\b[^}]*\bInput\b[^}]*\buseMountedRef\b[^}]*\buseToast\b[^}]*\buseUiLocale\b[^}]*\} from '@maka\/ui';/);
     // ProvidersPanel sources its UI from the shared @maka/ui primitives;
     // tolerant of single- vs multi-line import formatting.
     const providersPanelUiImports = providersPanel.match(/import \{[^}]*\} from '@maka\/ui';/g)?.join('\n') ?? '';
@@ -182,27 +182,32 @@ describe('Settings form accessibility labels', () => {
     const passwordInput = await readRepo('apps/desktop/src/renderer/settings/password-input.tsx');
 
     assert.match(passwordInput, /const toast = useToast\(\)/);
-    assert.match(passwordInput, /const copyingRef = useRef\(false\)/);
+    assert.match(passwordInput, /const copyGuard = useActionGuard<'copy'>\(\)/);
     assert.match(passwordInput, /const mountedRef = useMountedRef\(\)/);
     assert.match(passwordInput, /const copyFeedbackTimerRef = useRef<number \| null>\(null\)/);
     assert.match(
       passwordInput,
-      /return \(\) => \{[\s\S]*copyingRef\.current = false;[\s\S]*window\.clearTimeout\(copyFeedbackTimerRef\.current\);/,
-      'PasswordInput must clear pending copy-feedback timers and invalidate clipboard state when it unmounts',
+      /return \(\) => \{[\s\S]*if \(copyFeedbackTimerRef\.current !== null\) \{[\s\S]*window\.clearTimeout\(copyFeedbackTimerRef\.current\);[\s\S]*copyFeedbackTimerRef\.current = null;/,
+      'PasswordInput must clear pending copy-feedback timers when it unmounts (duplicate-copy release is owned by useActionGuard)',
     );
     assert.match(
       passwordInput,
       /function showCopiedFeedback\(\) \{[\s\S]*window\.clearTimeout\(copyFeedbackTimerRef\.current\);[\s\S]*setJustCopied\(true\);[\s\S]*copyFeedbackTimerRef\.current = window\.setTimeout\(\(\) => \{[\s\S]*if \(mountedRef\.current\) setJustCopied\(false\);/,
       'PasswordInput must replace stale success timers so repeated copies do not clear fresh success feedback early',
     );
-    assert.match(passwordInput, /if \(copyingRef\.current\) return;/);
+    assert.match(passwordInput, /if \(!copyGuard\.begin\('copy'\)\) return;/);
     assert.match(passwordInput, /setCopying\(true\)/);
     assert.match(passwordInput, /if \(mountedRef\.current\) showCopiedFeedback\(\)/);
-    assert.match(passwordInput, /if \(mountedRef\.current\) toast\.error\('复制失败', '剪贴板不可用或被系统拒绝。'\)/);
-    assert.match(passwordInput, /if \(mountedRef\.current\) setCopying\(false\)/);
+    assert.match(passwordInput, /if \(mountedRef\.current\) toast\.error\(copy\.copyFailed, copy\.clipboardUnavailable\)/);
+    assert.match(passwordInput, /copyGuard\.finish\(\);[\s\S]*if \(mountedRef\.current\) setCopying\(false\)/);
     assert.match(passwordInput, /disabled=\{copying\}/);
-    assert.match(passwordInput, /aria-label=\{copying \? '复制中' : justCopied \? '已复制' : '复制'\}/);
-    assert.match(passwordInput, /toast\.error\('复制失败', '剪贴板不可用或被系统拒绝。'\)/);
+    assert.match(passwordInput, /aria-label=\{copying \? copy\.copying : justCopied \? copy\.copied : copy\.copy\}/);
+    assert.match(passwordInput, /toast\.error\(copy\.copyFailed, copy\.clipboardUnavailable\)/);
+    assert.doesNotMatch(
+      passwordInput,
+      /const copyingRef = useRef\(false\)/,
+      'PasswordInput must not keep a private copy guard after routing through useActionGuard',
+    );
     assert.doesNotMatch(
       passwordInput,
       /clipboard unavailable; silent|catch \{\s*\/\*/,
@@ -246,7 +251,14 @@ describe('Settings form accessibility labels', () => {
       'MEMORY.md 内容',
     ]) {
       assert.ok(
-        settings.includes(`aria-label="${label}"`) || settings.includes(`ariaLabel="${label}"`),
+        // #1042: bot credential fields moved into a field-descriptor table,
+        // so their accessible names sit in `ariaLabel: '…'` entries rather
+        // than inline JSX attributes.
+        settings.includes(`aria-label="${label}"`) ||
+          settings.includes(`ariaLabel="${label}"`) ||
+        settings.includes(`ariaLabel: '${label}'`) ||
+          (label === '代理服务器地址' && settings.includes('aria-label={copy.proxyServerAddress}') && settings.includes("proxyServerAddress: '代理服务器地址'")) ||
+          (label === '代理端口' && settings.includes('aria-label={copy.proxyPort}') && settings.includes("proxyPort: '代理端口'")),
         `SettingsModal must label ${label}`,
       );
     }
@@ -265,10 +277,10 @@ describe('Settings form accessibility labels', () => {
     const settings = await readSettingsCombinedSource();
     const settingsSurface = settings.match(/function SettingsSurface\([\s\S]*?function SettingsPage/)?.[0] ?? '';
 
-    assert.match(settingsSurface, /<nav aria-label="设置分组">/);
+    assert.match(settingsSurface, /<nav aria-label=\{copy\.navigationLabel\}>/);
     assert.match(
       settingsSurface,
-      /<div key=\{group\} className="settingsNavGroup" role="group" aria-label=\{group\}>/,
+      /<div key=\{group\} className="settingsNavGroup" role="group" aria-label=\{label\}>/,
       'Settings sidebar groups must expose the visible group title to assistive tech',
     );
     assert.doesNotMatch(
@@ -289,6 +301,34 @@ describe('Settings form accessibility labels', () => {
       /inset\s+\d+px\s+0\s+0\s+var\(--accent\)|border-left|border-inline-start/,
       'Settings active nav item must not draw the left green accent rail',
     );
+  });
+
+  // PR settings-rows-convergence: styles/settings/rows.css is the single
+  // style home for the settings row primitives, and both row kinds share
+  // one typography + padding contract. Before the convergence,
+  // .settingsFormRow titles rendered 15px while adjacent .settingsRow
+  // titles on the SAME page rendered 13px with tighter padding. These
+  // pins match the COMMA-GROUPED shared rules, so both a value drift and
+  // a fork back into per-kind sibling rules fail.
+  it('keeps both settings row kinds on the converged typography and padding contract', async () => {
+    const styles = await readRendererContractCss();
+    const settingsRow = styles.match(/\.settingsRow\s*\{[\s\S]*?\n\}/)?.[0] ?? '';
+    const settingsFormRow = styles.match(/\.settingsFormRow\s*\{[\s\S]*?\n\}/)?.[0] ?? '';
+    const rowTitle = styles.match(/\.settingsRow strong,\s*\.settingsFormRow strong\s*\{[\s\S]*?\n\}/)?.[0] ?? '';
+    const fieldLabel = styles.match(/\.settingsField span,\s*\.settingsFormGrid label span\s*\{[\s\S]*?\n\}/)?.[0] ?? '';
+    const hint = styles.match(/\.settingsRow small,\s*\.settingsFormRow small,\s*\.settingsField small\s*\{[\s\S]*?\n\}/)?.[0] ?? '';
+
+    for (const [name, block] of [['.settingsRow', settingsRow], ['.settingsFormRow', settingsFormRow]] as const) {
+      assert.ok(block, `${name} base rule must exist in the aggregated renderer CSS (rows.css import reachable)`);
+      assert.match(block, /padding:\s*var\(--space-5\)\s+var\(--space-6\);/, `${name} must keep the shared space-5/space-6 row padding`);
+    }
+    assert.ok(rowTitle, 'row titles must stay on ONE comma-grouped rule for both row kinds');
+    assert.match(rowTitle, /font-size:\s*var\(--font-size-heading\);/, 'row titles sit on the heading tier for both row kinds');
+    assert.match(rowTitle, /font-weight:\s*var\(--font-weight-medium\);/, 'row titles are medium weight');
+    assert.ok(fieldLabel, 'field labels must stay on ONE comma-grouped rule');
+    assert.match(fieldLabel, /font-size:\s*var\(--font-size-ui\);/, 'field labels sit one tier BELOW row titles (ui, not heading)');
+    assert.ok(hint, 'hints must stay on ONE comma-grouped rule across row kinds and fields');
+    assert.match(hint, /font-size:\s*var\(--font-size-base\);/, 'hints sit on the body tier');
   });
 
   // Alignment-governance round (maintainer report: 每日回顾 switches sat

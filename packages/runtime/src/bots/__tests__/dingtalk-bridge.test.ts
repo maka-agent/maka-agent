@@ -84,17 +84,14 @@ describe('pickDingTalkSendRoute', () => {
 
 describe('classifyDingTalkSendResponse', () => {
   it('returns ok with processQueryKey when present', () => {
-    assert.deepEqual(
-      classifyDingTalkSendResponse(200, { processQueryKey: 'pk-1' }),
-      { kind: 'ok', messageId: 'pk-1' },
-    );
+    assert.deepEqual(classifyDingTalkSendResponse(200, { processQueryKey: 'pk-1' }), {
+      kind: 'ok',
+      messageId: 'pk-1',
+    });
   });
 
   it('returns ok with null id when 2xx response has no processQueryKey', () => {
-    assert.deepEqual(
-      classifyDingTalkSendResponse(200, {}),
-      { kind: 'ok', messageId: null },
-    );
+    assert.deepEqual(classifyDingTalkSendResponse(200, {}), { kind: 'ok', messageId: null });
   });
 
   it('returns fatal when errcode is non-zero even on 200 OK', () => {
@@ -102,10 +99,10 @@ describe('classifyDingTalkSendResponse', () => {
       classifyDingTalkSendResponse(200, { errcode: 80001, errmsg: 'token invalid' }),
       { kind: 'fatal', description: 'token invalid' },
     );
-    assert.deepEqual(
-      classifyDingTalkSendResponse(200, { errcode: 99999 }),
-      { kind: 'fatal', description: 'errcode 99999' },
-    );
+    assert.deepEqual(classifyDingTalkSendResponse(200, { errcode: 99999 }), {
+      kind: 'fatal',
+      description: 'errcode 99999',
+    });
   });
 
   it('returns retry on 429', () => {
@@ -114,14 +111,14 @@ describe('classifyDingTalkSendResponse', () => {
   });
 
   it('returns fatal on other 4xx / 5xx', () => {
-    assert.deepEqual(
-      classifyDingTalkSendResponse(403, { errmsg: 'Forbidden' }),
-      { kind: 'fatal', description: 'Forbidden' },
-    );
-    assert.deepEqual(
-      classifyDingTalkSendResponse(502, null),
-      { kind: 'fatal', description: 'HTTP 502' },
-    );
+    assert.deepEqual(classifyDingTalkSendResponse(403, { errmsg: 'Forbidden' }), {
+      kind: 'fatal',
+      description: 'Forbidden',
+    });
+    assert.deepEqual(classifyDingTalkSendResponse(502, null), {
+      kind: 'fatal',
+      description: 'HTTP 502',
+    });
   });
 });
 
@@ -163,31 +160,13 @@ describe('dingTalkPayloadToEvent', () => {
   });
 
   it('drops payloads with no text content', () => {
-    assert.equal(
-      dingTalkPayloadToEvent(
-        { senderId: 'u', conversationId: 'c', text: {} },
-        1,
-      ),
-      null,
-    );
-    assert.equal(
-      dingTalkPayloadToEvent(
-        { senderId: 'u', conversationId: 'c' },
-        1,
-      ),
-      null,
-    );
+    assert.equal(dingTalkPayloadToEvent({ senderId: 'u', conversationId: 'c', text: {} }, 1), null);
+    assert.equal(dingTalkPayloadToEvent({ senderId: 'u', conversationId: 'c' }, 1), null);
   });
 
   it('drops payloads missing sender or conversation', () => {
-    assert.equal(
-      dingTalkPayloadToEvent({ conversationId: 'c', text: { content: 'x' } }, 1),
-      null,
-    );
-    assert.equal(
-      dingTalkPayloadToEvent({ senderId: 'u', text: { content: 'x' } }, 1),
-      null,
-    );
+    assert.equal(dingTalkPayloadToEvent({ conversationId: 'c', text: { content: 'x' } }, 1), null);
+    assert.equal(dingTalkPayloadToEvent({ senderId: 'u', text: { content: 'x' } }, 1), null);
   });
 
   it('falls back to senderId when senderNick is absent', () => {

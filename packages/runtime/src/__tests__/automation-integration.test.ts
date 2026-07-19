@@ -51,31 +51,46 @@ function createIntegrationSetup() {
       return id;
     },
     clearTimeout: (timer) => {
-      const idx = timers.findIndex(t => t.id === timer);
+      const idx = timers.findIndex((t) => t.id === timer);
       if (idx >= 0) timers.splice(idx, 1);
     },
     now: () => time,
-    onStateChange: () => { changes.push(time); },
+    onStateChange: () => {
+      changes.push(time);
+    },
   });
 
   const tool = buildAutomationTool({
     automationManager: manager,
-    onAutomationChange: () => { changes.push(time); },
+    onAutomationChange: () => {
+      changes.push(time);
+    },
     cronEnabled: true,
   });
 
-  function advanceTime(ms: number) { time += ms; }
+  function advanceTime(ms: number) {
+    time += ms;
+  }
   async function runTick() {
     const timer = timers.shift();
     if (timer) timer.fn();
     for (let i = 0; i < 5; i++) await Promise.resolve();
-    await new Promise(r => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
   }
 
   return {
-    manager, scheduler, tool, injectedTurns, freshRuns, timers, changes,
-    advanceTime, runTick,
-    setCanFire: (v: boolean) => { canFireResult = v; },
+    manager,
+    scheduler,
+    tool,
+    injectedTurns,
+    freshRuns,
+    timers,
+    changes,
+    advanceTime,
+    runTick,
+    setCanFire: (v: boolean) => {
+      canFireResult = v;
+    },
     ctx: createContext,
   };
 }
@@ -86,13 +101,16 @@ describe('Automation integration: heartbeat fires on schedule', () => {
     const ctx = t.ctx();
 
     // Create via tool
-    const result = await t.tool.impl({
-      mode: 'create',
-      kind: 'heartbeat',
-      name: 'deploy check',
-      prompt: 'check deploy status',
-      schedule: { type: 'interval', seconds: 30 },
-    }, ctx) as string;
+    const result = (await t.tool.impl(
+      {
+        mode: 'create',
+        kind: 'heartbeat',
+        name: 'deploy check',
+        prompt: 'check deploy status',
+        schedule: { type: 'interval', seconds: 30 },
+      },
+      ctx,
+    )) as string;
 
     assert.ok(result.includes('Automation created'));
     assert.ok(result.includes('deploy check'));
@@ -115,37 +133,54 @@ describe('Automation integration: durable flag', () => {
     const ctx = t.ctx();
 
     // Cron is durable by default (app-global, survives restart).
-    const cron = await t.tool.impl({
-      mode: 'create',
-      kind: 'cron',
-      name: 'persistent check',
-      prompt: 'check it',
-      schedule: { type: 'cron', expression: '*/5 * * * *' },
-    }, ctx) as string;
+    const cron = (await t.tool.impl(
+      {
+        mode: 'create',
+        kind: 'cron',
+        name: 'persistent check',
+        prompt: 'check it',
+        schedule: { type: 'cron', expression: '*/5 * * * *' },
+      },
+      ctx,
+    )) as string;
     assert.ok(cron.includes('durable'));
-    assert.equal(t.manager.listForSession(SESSION_ID).find(a => a.name === 'persistent check')?.durable, true);
+    assert.equal(
+      t.manager.listForSession(SESSION_ID).find((a) => a.name === 'persistent check')?.durable,
+      true,
+    );
 
     // durable is a cron-only concept: a heartbeat stays session-bound even when
     // durable:true is requested (a durable heartbeat would be a post-restart zombie).
-    await t.tool.impl({
-      mode: 'create',
-      kind: 'heartbeat',
-      name: 'session poll',
-      prompt: 'poll',
-      schedule: { type: 'interval', seconds: 60 },
-      durable: true,
-    }, ctx) as string;
-    assert.ok(!t.manager.listForSession(SESSION_ID).find(a => a.name === 'session poll')?.durable);
+    (await t.tool.impl(
+      {
+        mode: 'create',
+        kind: 'heartbeat',
+        name: 'session poll',
+        prompt: 'poll',
+        schedule: { type: 'interval', seconds: 60 },
+        durable: true,
+      },
+      ctx,
+    )) as string;
+    assert.ok(
+      !t.manager.listForSession(SESSION_ID).find((a) => a.name === 'session poll')?.durable,
+    );
   });
 
   test('onAutomationChange fires on create/delete', async () => {
     const t = createIntegrationSetup();
     const ctx = t.ctx();
 
-    await t.tool.impl({
-      mode: 'create', kind: 'heartbeat', name: 'a', prompt: 'p',
-      schedule: { type: 'interval', seconds: 60 },
-    }, ctx);
+    await t.tool.impl(
+      {
+        mode: 'create',
+        kind: 'heartbeat',
+        name: 'a',
+        prompt: 'p',
+        schedule: { type: 'interval', seconds: 60 },
+      },
+      ctx,
+    );
     assert.equal(t.changes.length, 1);
 
     const automations = t.manager.listForSession(SESSION_ID);
@@ -160,16 +195,22 @@ describe('Automation integration: pause/resume/delete via tool', () => {
     const ctx = t.ctx();
 
     // Create
-    await t.tool.impl({
-      mode: 'create', kind: 'heartbeat', name: 'lifecycle test', prompt: 'p',
-      schedule: { type: 'interval', seconds: 60 },
-    }, ctx);
+    await t.tool.impl(
+      {
+        mode: 'create',
+        kind: 'heartbeat',
+        name: 'lifecycle test',
+        prompt: 'p',
+        schedule: { type: 'interval', seconds: 60 },
+      },
+      ctx,
+    );
 
     const auto = t.manager.listForSession(SESSION_ID)[0];
     assert.equal(auto.status, 'active');
 
     // Pause
-    const pauseResult = await t.tool.impl({ mode: 'pause', id: auto.id }, ctx) as string;
+    const pauseResult = (await t.tool.impl({ mode: 'pause', id: auto.id }, ctx)) as string;
     assert.ok(pauseResult.includes('paused'));
     assert.equal(t.manager.get(auto.id)?.status, 'paused');
 
@@ -180,12 +221,12 @@ describe('Automation integration: pause/resume/delete via tool', () => {
     assert.equal(t.injectedTurns.length, 0);
 
     // Resume
-    const resumeResult = await t.tool.impl({ mode: 'resume', id: auto.id }, ctx) as string;
+    const resumeResult = (await t.tool.impl({ mode: 'resume', id: auto.id }, ctx)) as string;
     assert.ok(resumeResult.includes('resumed'));
     assert.equal(t.manager.get(auto.id)?.status, 'active');
 
     // Delete
-    const deleteResult = await t.tool.impl({ mode: 'delete', id: auto.id }, ctx) as string;
+    const deleteResult = (await t.tool.impl({ mode: 'delete', id: auto.id }, ctx)) as string;
     assert.ok(deleteResult.includes('deleted'));
     assert.equal(t.manager.get(auto.id), undefined);
   });
@@ -196,16 +237,28 @@ describe('Automation integration: turn-tail shows active automations', () => {
     const t = createIntegrationSetup();
     const ctx = t.ctx();
 
-    await t.tool.impl({
-      mode: 'create', kind: 'heartbeat', name: 'monitor deploy', prompt: 'check',
-      schedule: { type: 'interval', seconds: 30 },
-    }, ctx);
-    await t.tool.impl({
-      mode: 'create', kind: 'heartbeat', name: 'monitor ci', prompt: 'check ci',
-      schedule: { type: 'cron', expression: '*/5 * * * *' },
-    }, ctx);
+    await t.tool.impl(
+      {
+        mode: 'create',
+        kind: 'heartbeat',
+        name: 'monitor deploy',
+        prompt: 'check',
+        schedule: { type: 'interval', seconds: 30 },
+      },
+      ctx,
+    );
+    await t.tool.impl(
+      {
+        mode: 'create',
+        kind: 'heartbeat',
+        name: 'monitor ci',
+        prompt: 'check ci',
+        schedule: { type: 'cron', expression: '*/5 * * * *' },
+      },
+      ctx,
+    );
 
-    const listResult = await t.tool.impl({ mode: 'list' }, ctx) as string;
+    const listResult = (await t.tool.impl({ mode: 'list' }, ctx)) as string;
     assert.ok(listResult.includes('monitor deploy'));
     assert.ok(listResult.includes('monitor ci'));
     assert.ok(listResult.includes('ACTIVE'));
@@ -217,10 +270,16 @@ describe('Automation integration: expired automations do not fire', () => {
     const t = createIntegrationSetup();
     const ctx = t.ctx();
 
-    await t.tool.impl({
-      mode: 'create', kind: 'heartbeat', name: 'short-lived', prompt: 'p',
-      schedule: { type: 'interval', seconds: 3600 },
-    }, ctx);
+    await t.tool.impl(
+      {
+        mode: 'create',
+        kind: 'heartbeat',
+        name: 'short-lived',
+        prompt: 'p',
+        schedule: { type: 'interval', seconds: 3600 },
+      },
+      ctx,
+    );
 
     const auto = t.manager.listForSession(SESSION_ID)[0];
     // Manually set expiry to 10s from now for testing
@@ -241,11 +300,17 @@ describe('Automation integration: max_fires cap', () => {
     const t = createIntegrationSetup();
     const ctx = t.ctx();
 
-    await t.tool.impl({
-      mode: 'create', kind: 'heartbeat', name: 'limited', prompt: 'p',
-      schedule: { type: 'interval', seconds: 10 },
-      max_fires: 3,
-    }, ctx);
+    await t.tool.impl(
+      {
+        mode: 'create',
+        kind: 'heartbeat',
+        name: 'limited',
+        prompt: 'p',
+        schedule: { type: 'interval', seconds: 10 },
+        max_fires: 3,
+      },
+      ctx,
+    );
 
     const auto = t.manager.listForSession(SESSION_ID)[0];
     t.scheduler.start();
@@ -278,10 +343,16 @@ describe('Automation integration: consecutive failure auto-pause', () => {
     const t = createIntegrationSetup();
     const ctx = t.ctx();
 
-    await t.tool.impl({
-      mode: 'create', kind: 'heartbeat', name: 'fragile', prompt: 'p',
-      schedule: { type: 'interval', seconds: 10 },
-    }, ctx);
+    await t.tool.impl(
+      {
+        mode: 'create',
+        kind: 'heartbeat',
+        name: 'fragile',
+        prompt: 'p',
+        schedule: { type: 'interval', seconds: 10 },
+      },
+      ctx,
+    );
 
     const auto = t.manager.listForSession(SESSION_ID)[0];
 
@@ -308,10 +379,16 @@ describe('Automation integration: cron kind fires via createFreshRun', () => {
     const t = createIntegrationSetup();
     const ctx = t.ctx();
 
-    await t.tool.impl({
-      mode: 'create', kind: 'cron', name: 'daily review', prompt: 'review PRs',
-      schedule: { type: 'interval', seconds: 30 },
-    }, ctx);
+    await t.tool.impl(
+      {
+        mode: 'create',
+        kind: 'cron',
+        name: 'daily review',
+        prompt: 'review PRs',
+        schedule: { type: 'interval', seconds: 30 },
+      },
+      ctx,
+    );
 
     t.advanceTime(31000);
     t.scheduler.start();
@@ -325,10 +402,16 @@ describe('Automation integration: cron kind fires via createFreshRun', () => {
   test('cron fire records lastRunId and stays active for a recurring schedule', async () => {
     const t = createIntegrationSetup();
     const ctx = t.ctx();
-    await t.tool.impl({
-      mode: 'create', kind: 'cron', name: 'hourly', prompt: 'audit',
-      schedule: { type: 'interval', seconds: 30 },
-    }, ctx);
+    await t.tool.impl(
+      {
+        mode: 'create',
+        kind: 'cron',
+        name: 'hourly',
+        prompt: 'audit',
+        schedule: { type: 'interval', seconds: 30 },
+      },
+      ctx,
+    );
     const auto = t.manager.listForSession(SESSION_ID)[0];
 
     t.advanceTime(31000);
@@ -346,8 +429,13 @@ describe('Automation integration: cron gating by host capability', () => {
   test('cronEnabled:false rejects the cron kind at the schema', () => {
     const mgr = new AutomationManager({ generateId: () => 'g', now: () => 1 });
     const heartbeatOnly = buildAutomationTool({ automationManager: mgr, cronEnabled: false });
-    const parsed = (heartbeatOnly.parameters as { safeParse: (v: unknown) => { success: boolean } }).safeParse({
-      mode: 'create', kind: 'cron', name: 'x', prompt: 'p',
+    const parsed = (
+      heartbeatOnly.parameters as { safeParse: (v: unknown) => { success: boolean } }
+    ).safeParse({
+      mode: 'create',
+      kind: 'cron',
+      name: 'x',
+      prompt: 'p',
       schedule: { type: 'interval', seconds: 30 },
     });
     assert.equal(parsed.success, false); // cron not offered on this host
@@ -356,8 +444,13 @@ describe('Automation integration: cron gating by host capability', () => {
   test('cronEnabled:true accepts the cron kind', () => {
     const mgr = new AutomationManager({ generateId: () => 'g', now: () => 1 });
     const withCron = buildAutomationTool({ automationManager: mgr, cronEnabled: true });
-    const parsed = (withCron.parameters as { safeParse: (v: unknown) => { success: boolean } }).safeParse({
-      mode: 'create', kind: 'cron', name: 'x', prompt: 'p',
+    const parsed = (
+      withCron.parameters as { safeParse: (v: unknown) => { success: boolean } }
+    ).safeParse({
+      mode: 'create',
+      kind: 'cron',
+      name: 'x',
+      prompt: 'p',
       schedule: { type: 'interval', seconds: 30 },
     });
     assert.equal(parsed.success, true);
@@ -366,8 +459,13 @@ describe('Automation integration: cron gating by host capability', () => {
   test('heartbeat is accepted regardless of cronEnabled', () => {
     const mgr = new AutomationManager({ generateId: () => 'g', now: () => 1 });
     const heartbeatOnly = buildAutomationTool({ automationManager: mgr, cronEnabled: false });
-    const parsed = (heartbeatOnly.parameters as { safeParse: (v: unknown) => { success: boolean } }).safeParse({
-      mode: 'create', kind: 'heartbeat', name: 'x', prompt: 'p',
+    const parsed = (
+      heartbeatOnly.parameters as { safeParse: (v: unknown) => { success: boolean } }
+    ).safeParse({
+      mode: 'create',
+      kind: 'heartbeat',
+      name: 'x',
+      prompt: 'p',
       schedule: { type: 'interval', seconds: 30 },
     });
     assert.equal(parsed.success, true);

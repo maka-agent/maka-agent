@@ -11,11 +11,13 @@
 
 import type { OnboardingState, SessionSummary } from '@maka/core';
 import { generalizedErrorMessageChinese } from '@maka/core';
+import { isSessionWorkspaceUnavailableError } from './project-context-root.js';
 
 export type ExpertTeamStartResult =
   | { ok: true; sessionId: string }
   | { ok: false; reason: 'unknown_team'; teamId: string }
   | { ok: false; reason: 'setup_required'; state: OnboardingState }
+  | { ok: false; reason: 'workspace_unavailable' }
   | { ok: false; reason: 'send_failed'; message: string };
 
 export interface ExpertTeamStartDeps {
@@ -71,6 +73,9 @@ export async function handleExpertTeamStart(
     });
     deps.emitCreated(session.id);
   } catch (error) {
+    if (isSessionWorkspaceUnavailableError(error)) {
+      return { ok: false, reason: 'workspace_unavailable' };
+    }
     return {
       ok: false,
       reason: 'send_failed',
@@ -88,6 +93,9 @@ export async function handleExpertTeamStart(
     await deps.sendFirstMessage(session.id, trimmed);
     return { ok: true, sessionId: session.id };
   } catch (error) {
+    if (isSessionWorkspaceUnavailableError(error)) {
+      return { ok: false, reason: 'workspace_unavailable' };
+    }
     return {
       ok: false,
       reason: 'send_failed',

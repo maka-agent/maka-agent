@@ -11,7 +11,11 @@ import type { AutomationDefinition } from './automation-state.js';
  * of a heartbeat is to start a turn in place of the user. 'done' is also in
  * (firing into a completed session is the durable-cron case).
  */
-export const HEARTBEAT_IDLE_STATUSES: ReadonlySet<string> = new Set(['active', 'done', 'waiting_for_user']);
+export const HEARTBEAT_IDLE_STATUSES: ReadonlySet<string> = new Set([
+  'active',
+  'done',
+  'waiting_for_user',
+]);
 
 /** Minimal session-header shape the fire gate reads. */
 export interface CanFireSessionHeader {

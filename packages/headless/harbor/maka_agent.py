@@ -7,6 +7,7 @@ import concurrent.futures
 import contextlib
 import json
 import os
+import re
 import secrets
 import shlex
 import threading
@@ -22,11 +23,14 @@ from harbor.models.trajectories import Agent, FinalMetrics, Step, Trajectory
 from harbor.models.trial.paths import EnvironmentPaths
 from harbor.utils.trajectory_utils import format_trajectory_json
 
+from process_scope import (
+    COMMAND_SCOPE_ENV as _COMMAND_SCOPE_ENV,
+    COMMAND_SCOPE_ROOT as _COMMAND_SCOPE_ROOT,
+    scoped_command as _scoped_command,
+    scoped_command_cleanup_command as _scoped_command_cleanup_command,
+    scoped_process_cleanup_command as _scoped_process_cleanup_command,
+)
 from trial_pricing import estimate_cost, pricing_from_env
-
-
-_COMMAND_SCOPE_ENV = "MAKA_HARBOR_COMMAND_SCOPE"
-_COMMAND_SCOPE_ROOT = "/tmp/maka-harbor-command-scopes"
 
 # Default wall-clock budget for a single bridged tool command when the client
 # does not request its own timeout. Matches the in-container executor floor
@@ -76,6 +80,15 @@ def _host_node_process_env(cell_env: dict[str, str]) -> dict[str, str]:
     return env
 
 
+# 2^53 - 1, matches JS Number.MAX_SAFE_INTEGER so the TS host and this adapter
+# agree on the upper bound for MAKA_CELL_TIMEOUT_SEC; an over-long digit string
+# is malformed, not a giant timeout.
+_MAX_SAFE_INTEGER = 9007199254740991
+# ASCII decimal positive integer literal only; [0-9] (not \d) rejects Unicode
+# digits on both sides. Matches the TS host's lenientPositiveIntEnv.
+_POSITIVE_INT_RE = re.compile(r"[1-9][0-9]*")
+
+
 class MakaAgent(BaseInstalledAgent):
     """Run Maka inside the Harbor task container and expose the shared cell output."""
 
@@ -83,6 +96,7 @@ class MakaAgent(BaseInstalledAgent):
 
     _RUN_LOG_FILENAME = "maka-run.log"
     _CELL_OUTPUT_FILENAME = "maka-cell-output.json"
+    _CELL_USAGE_CHECKPOINT_FILENAME = "maka-cell-usage-checkpoint.json"
 
     CLI_FLAGS = [
         CliFlag(
@@ -264,15 +278,28 @@ class MakaAgent(BaseInstalledAgent):
     def _cell_timeout_sec(self) -> int:
         """Wall-clock budget for the in-container cell. A hard-coded value turns
         slow-but-healthy tasks into infra failures, so the operator can raise it
-        via MAKA_CELL_TIMEOUT_SEC; a malformed value falls back to the default."""
+        via MAKA_CELL_TIMEOUT_SEC; a malformed value falls back to the default.
+
+        Accepted syntax is an ASCII decimal positive integer literal (no sign,
+        no leading zero, no exponent/decimal form, no Unicode digits), and the
+        value is capped at 2^53 - 1 (JS Number.MAX_SAFE_INTEGER). This matches
+        the TS host's lenientPositiveIntEnv so both sides agree on exactly which
+        strings are valid: "1e3", "1.0", "+1800", "01800", "1٢", and over-long
+        digit strings all fall back to the default.
+        """
         raw = self._get_env("MAKA_CELL_TIMEOUT_SEC")
         if not raw:
             return self._DEFAULT_CELL_TIMEOUT_SEC
-        try:
-            value = int(raw)
-        except (TypeError, ValueError):
+        stripped = raw.strip()
+        if _POSITIVE_INT_RE.fullmatch(stripped) is None:
             return self._DEFAULT_CELL_TIMEOUT_SEC
-        return value if value > 0 else self._DEFAULT_CELL_TIMEOUT_SEC
+        try:
+            value = int(stripped)
+        except ValueError:
+            # CPython caps integer-string conversion length; an over-long value
+            # is malformed, not a giant timeout.
+            return self._DEFAULT_CELL_TIMEOUT_SEC
+        return value if value <= _MAX_SAFE_INTEGER else self._DEFAULT_CELL_TIMEOUT_SEC
 
     def _cell_settlement_grace_sec(self) -> int:
         raw = self._get_env("MAKA_CELL_SETTLEMENT_GRACE_SEC")
@@ -331,7 +358,13 @@ class MakaAgent(BaseInstalledAgent):
                 raise
             run_log_path.write_bytes(stdout + stderr)
             if process.returncode == 124:
-                raise RuntimeError(f"Maka host cell exceeded {self._cell_timeout_sec()}s")
+                # run-host-cell uses 124 only after it has settled the runtime at
+                # the soft deadline and persisted maka-cell-output.json. Freeze the
+                # task before grading by reclaiming every process started through
+                # this cell, including background commands that already returned
+                # to the model but can still mutate packages or workspace files.
+                executor.mark_reclaim_scoped_processes()
+                return
             if process.returncode != 0:
                 message = (stderr or stdout).decode("utf-8", errors="replace").strip()
                 raise RuntimeError(f"Maka host cell exited {process.returncode}: {message}")
@@ -434,6 +467,20 @@ class MakaAgent(BaseInstalledAgent):
                 raise RuntimeError(f"Maka cell output must be a JSON object: {output_path}")
             self.logger.debug("Maka cell output %s was not a JSON object", output_path)
             return None
+        deadline_settlement = output.get("deadlineSettlement")
+        if (
+            not isinstance(output.get("tokenSummary"), dict)
+            and isinstance(deadline_settlement, dict)
+            and deadline_settlement.get("source") == "benchmark.deadline"
+        ):
+            checkpoint_path = self.logs_dir / self._CELL_USAGE_CHECKPOINT_FILENAME
+            try:
+                checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+                if isinstance(checkpoint, dict):
+                    output["tokenSummary"] = checkpoint
+                    output_path.write_text(f"{json.dumps(output, indent=2)}\n", encoding="utf-8")
+            except (OSError, json.JSONDecodeError) as exc:
+                self.logger.debug("Could not hydrate Maka deadline usage from %s: %s", checkpoint_path, exc)
         return output
 
     def _apply_cell_output(self, context: AgentContext, output: dict[str, Any] | None = None) -> None:
@@ -659,7 +706,7 @@ class MakaAgent(BaseInstalledAgent):
             # instead of preserving them as if the run had completed. A clean exit
             # (return code 0) still preserves verifier-visible services.
             if proc is not None and proc.returncode != 0:
-                executor.mark_infra_failure()
+                executor.mark_reclaim_scoped_processes()
 
         parsed = self._parse_node_result(stdout)
         assert proc is not None
@@ -868,9 +915,11 @@ class _ToolExecutorServer:
         self._server: ThreadingHTTPServer | None = None
         self._thread: threading.Thread | None = None
         self._futures: set[concurrent.futures.Future[Any]] = set()
+        self._future_command_ids: dict[concurrent.futures.Future[Any], str] = {}
         self._futures_lock = threading.Lock()
         self._accepting_requests = False
-        self._infra_failure = False
+        self._reclaim_scoped_processes = False
+        self._command_cleanup_error: BaseException | None = None
         self.token = secrets.token_urlsafe(32)
         self.command_scope = secrets.token_urlsafe(24)
         self.url = ""
@@ -895,42 +944,42 @@ class _ToolExecutorServer:
         self._thread.start()
         return self
 
-    def mark_infra_failure(self) -> None:
-        """Record that the run failed for infrastructure reasons so teardown
-        reclaims scoped background processes even when the `async with` block
-        exits without raising. A non-zero runner subprocess is such a failure:
-        leaving its orphaned background services alive would masquerade as a
-        successful completion to the verifier."""
-        self._infra_failure = True
+    def mark_reclaim_scoped_processes(self) -> None:
+        """Make teardown stop active scoped commands before returning.
+
+        Callers use this after a settled deadline or a non-zero runner exit,
+        where waiting for a bridged command to finish would either overrun the
+        outer benchmark timeout or leave an orphan that can affect grading.
+        """
+        self._reclaim_scoped_processes = True
 
     async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
         stop_error: BaseException | None = None
         cleanup_error: BaseException | None = None
-        reclaim = exc_type is not None or self._infra_failure
+        reclaim_scope = exc_type is not None or self._reclaim_scoped_processes
         try:
-            cleanup_error = await self._stop_server(
-                reclaim_scoped_processes=reclaim
-            )
+            cleanup_error = await self._stop_server(reclaim_scoped_processes=reclaim_scope)
         except BaseException as error:
             stop_error = error
-        if stop_error is not None and not reclaim:
+        if stop_error is not None and not reclaim_scope:
             cleanup_error = await self._cleanup_all_scoped_processes()
+        with self._futures_lock:
+            command_cleanup_error = self._command_cleanup_error
         if stop_error is not None:
             raise stop_error
         if cleanup_error is not None:
             raise cleanup_error
+        if command_cleanup_error is not None:
+            raise command_cleanup_error
 
-    async def _stop_server(
-        self, *, reclaim_scoped_processes: bool
-    ) -> BaseException | None:
+    async def _stop_server(self, *, reclaim_scoped_processes: bool) -> BaseException | None:
         with self._futures_lock:
             self._accepting_requests = False
             futures = list(self._futures)
-        cleanup_error = (
-            await self._drain_futures_with_cleanup(futures)
-            if reclaim_scoped_processes
-            else await self._drain_futures(futures)
-        )
+        if reclaim_scoped_processes:
+            cleanup_error = await self._drain_futures_with_cleanup(futures)
+        else:
+            cleanup_error = await self._drain_futures(futures)
         if self._server is not None:
             await asyncio.to_thread(self._server.shutdown)
             await asyncio.to_thread(self._server.server_close)
@@ -948,10 +997,11 @@ class _ToolExecutorServer:
             )
 
     async def _drain_futures_with_cleanup(
-        self, futures: list[concurrent.futures.Future[Any]]
+        self,
+        futures: list[concurrent.futures.Future[Any]],
     ) -> BaseException | None:
         while any(not future.done() for future in futures):
-            cleanup_error = await self._cleanup_all_scoped_processes()
+            cleanup_error = await self._cleanup_processes(None)
             if cleanup_error is not None:
                 for future in futures:
                     future.cancel()
@@ -959,27 +1009,38 @@ class _ToolExecutorServer:
                 return cleanup_error
             await asyncio.sleep(0.2)
         await self._drain_futures(futures)
-        return await self._cleanup_all_scoped_processes()
+        return await self._cleanup_processes(None)
 
-    async def _cleanup_all_scoped_processes(self) -> BaseException | None:
+    async def _cleanup_processes(
+        self, command_ids: list[str] | None
+    ) -> BaseException | None:
         first_error: BaseException | None = None
         try:
-            await self._cleanup_scoped_processes(signal="TERM")
+            await self._cleanup_processes_with_signal(command_ids, "TERM")
         except BaseException as error:
             first_error = error
         await asyncio.sleep(0.2)
         try:
-            await self._cleanup_scoped_processes(signal="KILL")
+            await self._cleanup_processes_with_signal(command_ids, "KILL")
         except BaseException as error:
             if first_error is None:
                 first_error = error
         return first_error
 
-    async def _cleanup_scoped_processes(self, signal: str) -> None:
-        await self._agent.exec_as_agent(
-            self._environment,
-            command=_scoped_process_cleanup_command(self.command_scope, signal),
+    async def _cleanup_all_scoped_processes(self) -> BaseException | None:
+        return await self._cleanup_processes(None)
+
+    async def _cleanup_processes_with_signal(
+        self, command_ids: list[str] | None, signal: str
+    ) -> None:
+        command = (
+            _scoped_process_cleanup_command(self.command_scope, signal)
+            if command_ids is None
+            else _scoped_command_cleanup_command(
+                self.command_scope, command_ids, signal
+            )
         )
+        await self._agent.exec_as_agent(self._environment, command=command)
 
     def _handle_post(self, handler: BaseHTTPRequestHandler) -> None:
         if handler.path != "/exec":
@@ -988,6 +1049,8 @@ class _ToolExecutorServer:
         if handler.headers.get("authorization") != f"Bearer {self.token}":
             _write_http(handler, 401, {"error": "unauthorized"})
             return
+        command_id: str | None = None
+        future: concurrent.futures.Future[Any] | None = None
         try:
             length = int(handler.headers.get("content-length") or "0")
             payload = json.loads(handler.rfile.read(length).decode("utf-8"))
@@ -997,6 +1060,7 @@ class _ToolExecutorServer:
             cwd = payload.get("cwd")
             timeout_ms = payload.get("timeoutMs")
             timeout_sec = _timeout_sec(timeout_ms) or _BRIDGE_DEFAULT_TIMEOUT_SEC
+            command_id = secrets.token_urlsafe(12)
             assert self._loop is not None
             with self._futures_lock:
                 if not self._accepting_requests:
@@ -1010,7 +1074,7 @@ class _ToolExecutorServer:
                         command=_scoped_command(
                             command,
                             self.command_scope,
-                            secrets.token_urlsafe(12),
+                            command_id,
                         ),
                         cwd=cwd if isinstance(cwd, str) and cwd else None,
                         timeout_sec=timeout_sec,
@@ -1018,6 +1082,7 @@ class _ToolExecutorServer:
                     self._loop,
                 )
                 self._futures.add(future)
+                self._future_command_ids[future] = command_id
             future.add_done_callback(self._discard_future)
             result = future.result(timeout=timeout_sec + 30)
             return_code = _exec_exit_code(result)
@@ -1028,47 +1093,29 @@ class _ToolExecutorServer:
                 "stderr": _exec_stderr(result),
             })
         except Exception as exc:  # noqa: BLE001 - RPC boundary returns tool failure text.
+            if command_id is not None and future is not None:
+                cleanup_error = self._cleanup_failed_command(command_id)
+                if cleanup_error is not None:
+                    with self._futures_lock:
+                        if self._command_cleanup_error is None:
+                            self._command_cleanup_error = cleanup_error
             _write_http(handler, 500, {"error": str(exc)})
+
+    def _cleanup_failed_command(self, command_id: str) -> BaseException | None:
+        assert self._loop is not None
+        cleanup = asyncio.run_coroutine_threadsafe(
+            self._cleanup_processes([command_id]),
+            self._loop,
+        )
+        try:
+            return cleanup.result(timeout=30)
+        except BaseException as error:
+            return error
 
     def _discard_future(self, future: concurrent.futures.Future[Any]) -> None:
         with self._futures_lock:
             self._futures.discard(future)
-
-
-def _scoped_command(command: str, scope: str, command_id: str) -> str:
-    scope_dir = shlex.quote(f"{_COMMAND_SCOPE_ROOT}/{scope}")
-    pgid_path = shlex.quote(f"{_COMMAND_SCOPE_ROOT}/{scope}/{command_id}.pgid")
-    return (
-        f"mkdir -p -- {scope_dir}; set -m; "
-        f"env {_COMMAND_SCOPE_ENV}={shlex.quote(scope)} bash -lc {shlex.quote(command)} & "
-        "command_pid=$!; "
-        f"printf '%s\\n' \"$command_pid\" > {pgid_path}; "
-        "wait \"$command_pid\"; command_status=$?; "
-        f"kill -0 -- \"-$command_pid\" 2>/dev/null || rm -f -- {pgid_path}; "
-        "exit \"$command_status\""
-    )
-
-
-def _scoped_process_cleanup_command(scope: str, signal: str) -> str:
-    if signal not in ("TERM", "KILL"):
-        raise ValueError(f"unsupported cleanup signal: {signal}")
-    marker = shlex.quote(f"{_COMMAND_SCOPE_ENV}={scope}")
-    scope_dir = shlex.quote(f"{_COMMAND_SCOPE_ROOT}/{scope}")
-    return (
-        f"for pgid_file in {scope_dir}/*.pgid; do "
-        "[ -r \"$pgid_file\" ] || continue; "
-        "pgid=$(cat -- \"$pgid_file\"); "
-        "case $pgid in ''|*[!0-9]*) continue;; esac; "
-        f"kill -{signal} -- \"-$pgid\" 2>/dev/null || true; "
-        "done; "
-        "for env_file in /proc/[0-9]*/environ; do "
-        "[ -r \"$env_file\" ] || continue; "
-        f"if tr '\\000' '\\n' < \"$env_file\" | grep -Fqx -- {marker}; then "
-        "pid=${env_file#/proc/}; pid=${pid%/environ}; "
-        f"kill -{signal} \"$pid\" 2>/dev/null || true; "
-        "fi; done"
-        + (f"; rm -rf -- {scope_dir}" if signal == "KILL" else "")
-    )
+            self._future_command_ids.pop(future, None)
 
 
 def _write_http(handler: BaseHTTPRequestHandler, status: int, payload: dict[str, Any]) -> None:

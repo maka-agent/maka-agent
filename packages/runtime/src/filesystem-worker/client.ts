@@ -118,13 +118,24 @@ export class FilesystemWorkerClient {
     const requestId = this.newId();
     if (input.abortSignal?.aborted) throw clientError('aborted', 'launch', requestId);
     const canonicalCwd = await realpath(input.cwd).catch(() => {
-      throw clientError('invalid_operation', 'validation', requestId, 'Session cwd is unavailable.');
+      throw clientError(
+        'invalid_operation',
+        'validation',
+        requestId,
+        'Session cwd is unavailable.',
+      );
     });
     if (input.additionalGrant) {
-      if (input.additionalGrant.permissionsHash !== hashAdditionalPermissionProfile(input.additionalGrant.profile)) {
+      if (
+        input.additionalGrant.permissionsHash !==
+        hashAdditionalPermissionProfile(input.additionalGrant.profile)
+      ) {
         throw clientError('invalid_request', 'validation', requestId);
       }
-      await revalidateAdditionalPermissionGrant({ grant: input.additionalGrant, cwd: canonicalCwd });
+      await revalidateAdditionalPermissionGrant({
+        grant: input.additionalGrant,
+        cwd: canonicalCwd,
+      });
     }
 
     const parsedOperation = FilesystemWorkerOperationSchema.safeParse({
@@ -156,9 +167,10 @@ export class FilesystemWorkerClient {
       tmpdir: await canonicalPath(tmpdir()),
       slashTmp: await canonicalPath('/tmp'),
     };
-    const allowed = access === 'write'
-      ? canWritePath(effectiveProfile, target.enforcementPath, pathContext)
-      : canReadPath(effectiveProfile, target.enforcementPath, pathContext);
+    const allowed =
+      access === 'write'
+        ? canWritePath(effectiveProfile, target.enforcementPath, pathContext)
+        : canReadPath(effectiveProfile, target.enforcementPath, pathContext);
     if (!allowed) throw clientError('path_denied', 'validation', requestId);
 
     const operationPermission = {
@@ -227,7 +239,12 @@ export class FilesystemWorkerClient {
     if (processResult.aborted) throw clientError('aborted', 'launch', requestId);
     if (processResult.responseOverflow) throw clientError('response_overflow', 'launch', requestId);
     if (processResult.exitCode !== 0) {
-      throw clientError('worker_crashed', 'launch', requestId, processResult.stderrTail || undefined);
+      throw clientError(
+        'worker_crashed',
+        'launch',
+        requestId,
+        processResult.stderrTail || undefined,
+      );
     }
 
     let response: ReturnType<typeof parseFilesystemWorkerResponse>;
@@ -236,7 +253,8 @@ export class FilesystemWorkerClient {
     } catch {
       throw clientError('invalid_response', 'protocol', requestId);
     }
-    if (response.requestId !== requestId) throw clientError('response_id_mismatch', 'protocol', requestId);
+    if (response.requestId !== requestId)
+      throw clientError('response_id_mismatch', 'protocol', requestId);
     if (!response.ok) {
       throw clientError(
         response.error.code,
@@ -246,7 +264,10 @@ export class FilesystemWorkerClient {
         response.error.code === 'not_found' || response.error.code === 'edit_conflict',
       );
     }
-    if (response.result.kind !== operation.kind) {
+    if (
+      response.result.kind !== operation.kind &&
+      !(operation.kind === 'read' && response.result.kind === 'read_image')
+    ) {
       throw clientError('response_kind_mismatch', 'protocol', requestId);
     }
     return response.result;
@@ -257,11 +278,13 @@ function deriveWorkerProfile(
   profile: PermissionProfile,
   operationPermission: {
     readonly fileSystem: {
-      readonly entries: readonly [{
-        readonly path: string;
-        readonly access: 'read' | 'write';
-        readonly scope: 'exact' | 'subtree';
-      }];
+      readonly entries: readonly [
+        {
+          readonly path: string;
+          readonly access: 'read' | 'write';
+          readonly scope: 'exact' | 'subtree';
+        },
+      ];
     };
   },
 ): PermissionProfile {

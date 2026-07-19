@@ -9,7 +9,14 @@ import type {
   ToolAvailabilityDiagnostic,
 } from '@maka/core/usage-stats/types';
 
-export type RunTracePhase = 'turn' | 'model' | 'tool' | 'permission' | 'sandbox' | 'abort' | 'usage';
+export type RunTracePhase =
+  | 'turn'
+  | 'model'
+  | 'tool'
+  | 'permission'
+  | 'sandbox'
+  | 'abort'
+  | 'usage';
 
 export type RunTraceEventType =
   | 'turn_started'
@@ -170,7 +177,9 @@ export class RunTrace {
       outputTokens: usage.outputTokens,
       cacheHitInputTokens: usage.cacheHitInputTokens,
       cacheMissInputTokens: usage.cacheMissInputTokens,
-      ...(usage.cacheMissInputSource !== undefined ? { cacheMissInputSource: usage.cacheMissInputSource } : {}),
+      ...(usage.cacheMissInputSource !== undefined
+        ? { cacheMissInputSource: usage.cacheMissInputSource }
+        : {}),
       cachedInputTokens: usage.cachedInputTokens,
       cacheWriteInputTokens: usage.cacheWriteInputTokens,
       reasoningTokens: usage.reasoningTokens,
@@ -179,12 +188,16 @@ export class RunTrace {
       ...(usage.costUsd !== undefined ? { costUsd: usage.costUsd } : {}),
       ...(usage.systemPromptHash !== undefined ? { systemPromptHash: usage.systemPromptHash } : {}),
       ...(usage.prefixHash !== undefined ? { prefixHash: usage.prefixHash } : {}),
-      ...(usage.prefixChangeReason !== undefined ? { prefixChangeReason: usage.prefixChangeReason } : {}),
+      ...(usage.prefixChangeReason !== undefined
+        ? { prefixChangeReason: usage.prefixChangeReason }
+        : {}),
       ...(usage.requestShapeHash !== undefined ? { requestShapeHash: usage.requestShapeHash } : {}),
       ...(usage.requestShapeChangeReason !== undefined
         ? { requestShapeChangeReason: usage.requestShapeChangeReason }
         : {}),
-      ...(usage.toolSchemaChangeReason !== undefined ? { toolSchemaChangeReason: usage.toolSchemaChangeReason } : {}),
+      ...(usage.toolSchemaChangeReason !== undefined
+        ? { toolSchemaChangeReason: usage.toolSchemaChangeReason }
+        : {}),
       ...(usage.toolAvailability !== undefined ? { toolAvailability: usage.toolAvailability } : {}),
     });
   }
@@ -210,9 +223,10 @@ export function explainError(error: unknown): string {
 function diagnoseError(error: unknown): Record<string, unknown> {
   const rawMessage = rawErrorMessage(error);
   const redactedMessage = redactSecrets(rawMessage);
-  const stack = error instanceof Error && typeof error.stack === 'string'
-    ? redactSecrets(error.stack)
-    : undefined;
+  const stack =
+    error instanceof Error && typeof error.stack === 'string'
+      ? redactSecrets(error.stack)
+      : undefined;
   const message = truncate(redactedMessage, REDACTED_ERROR_MESSAGE_MAX_CHARS);
 
   return {
@@ -253,7 +267,5 @@ function sha256(value: string): string {
 }
 
 function sanitizeTraceData(data: Record<string, unknown>): Record<string, unknown> {
-  return Object.fromEntries(
-    Object.entries(data).filter(([, value]) => value !== undefined),
-  );
+  return Object.fromEntries(Object.entries(data).filter(([, value]) => value !== undefined));
 }

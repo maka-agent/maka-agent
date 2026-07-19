@@ -53,8 +53,9 @@ export type ProviderContractWire =
 
 /** Runtime-adapter kinds whose request wire is provider-specific (auth, headers,
  * per-model protocol) and therefore cannot be generated from the declaration. */
-export const SUBSCRIPTION_WIRE_ADAPTER_KINDS: ReadonlySet<ProviderRuntimeAdapter['kind']> =
-  new Set(['claude-subscription', 'openai-codex', 'github-copilot']);
+export const SUBSCRIPTION_WIRE_ADAPTER_KINDS: ReadonlySet<ProviderRuntimeAdapter['kind']> = new Set(
+  ['claude-subscription', 'openai-codex', 'github-copilot'],
+);
 
 /** Derived expectation for a generated `discovery` cell. */
 export interface ProviderContractDiscoveryPlan {
@@ -183,7 +184,8 @@ function wireForProtocol(protocol: ProviderDefaults['protocol']): ProviderContra
 function sampleModelIdFor(providerType: ProviderType, def: ProviderDefaults): string {
   const usesDefaultWire = (id: string): boolean => {
     if (lookupModelProviderOverride(providerType, id)) return false;
-    if (def.runtimeAdapter.kind === 'openai' && openAiAdapterApiProtocol(id) === 'openai-responses') return false;
+    if (def.runtimeAdapter.kind === 'openai' && openAiAdapterApiProtocol(id) === 'openai-responses')
+      return false;
     return true;
   };
   return def.fallbackModels.find(usesDefaultWire) ?? SYNTHETIC_SAMPLE_MODEL_ID;
@@ -213,7 +215,10 @@ const EDGE_WIRE_SAMPLE_MODEL_IDS: Partial<Record<ProviderType, readonly string[]
  * (e.g. OpenAI Responses) must be owned by a named override instead of an edge
  * declaration; declaring one here is a plan-construction error.
  */
-function edgeWireSamplesFor(providerType: ProviderType, def: ProviderDefaults): ProviderContractEdgeWireSample[] {
+function edgeWireSamplesFor(
+  providerType: ProviderType,
+  def: ProviderDefaults,
+): ProviderContractEdgeWireSample[] {
   return (EDGE_WIRE_SAMPLE_MODEL_IDS[providerType] ?? []).map((modelId) => {
     const override = lookupModelProviderOverride(providerType, modelId);
     if (override) {
@@ -226,15 +231,18 @@ function edgeWireSamplesFor(providerType: ProviderType, def: ProviderDefaults): 
           return { modelId, wire: 'openai-chat' as const };
         default:
           throw new Error(
-            `edge wire sample ${providerType}/${modelId} resolves to ${override.npm}, which has no `
-            + 'generated wire; own it with a named override binding instead of an edge declaration',
+            `edge wire sample ${providerType}/${modelId} resolves to ${override.npm}, which has no ` +
+              'generated wire; own it with a named override binding instead of an edge declaration',
           );
       }
     }
-    if (def.runtimeAdapter.kind === 'openai' && openAiAdapterApiProtocol(modelId) === 'openai-responses') {
+    if (
+      def.runtimeAdapter.kind === 'openai' &&
+      openAiAdapterApiProtocol(modelId) === 'openai-responses'
+    ) {
       throw new Error(
-        `edge wire sample ${providerType}/${modelId} routes to the OpenAI Responses wire, which has no `
-        + 'generated executor; own it with a named override binding instead of an edge declaration',
+        `edge wire sample ${providerType}/${modelId} routes to the OpenAI Responses wire, which has no ` +
+          'generated executor; own it with a named override binding instead of an edge declaration',
       );
     }
     return { modelId, wire: wireForProtocol(def.protocol) };
@@ -286,14 +294,17 @@ function discoveryCell(providerType: ProviderType, def: ProviderDefaults): Provi
         dimension: 'discovery',
         discovery: {
           protocol: def.protocol,
-          auth: discovery.auth === 'none' || def.authKind === 'none'
-            ? 'none'
-            : def.authKind === 'optional_api_key'
-              ? 'optional'
-              : 'default',
+          auth:
+            discovery.auth === 'none' || def.authKind === 'none'
+              ? 'none'
+              : def.authKind === 'optional_api_key'
+                ? 'optional'
+                : 'default',
           ...(discovery.path !== undefined ? { path: discovery.path } : {}),
           ...(discovery.query !== undefined ? { query: discovery.query } : {}),
-          ...(discovery.responseShape !== undefined ? { responseShape: discovery.responseShape } : {}),
+          ...(discovery.responseShape !== undefined
+            ? { responseShape: discovery.responseShape }
+            : {}),
           ...(discovery.filter !== undefined ? { filter: discovery.filter } : {}),
         },
       };
@@ -316,7 +327,10 @@ function wireDimensionCell(
   return { state: 'generated', dimension, wire: wireForProtocol(def.protocol) };
 }
 
-function reasoningReplayCell(providerType: ProviderType, def: ProviderDefaults): ProviderContractCell {
+function reasoningReplayCell(
+  providerType: ProviderType,
+  def: ProviderDefaults,
+): ProviderContractCell {
   const adapter = def.runtimeAdapter;
   if (SUBSCRIPTION_WIRE_ADAPTER_KINDS.has(adapter.kind)) {
     return {
@@ -332,7 +346,8 @@ function reasoningReplayCell(providerType: ProviderType, def: ProviderDefaults):
         state: 'override',
         dimension: 'reasoning-replay',
         overrideKey: overrideKeyFor(providerType, 'reasoning-replay'),
-        contract: 'Signed reasoning_details are replayed byte-for-byte (ZenMux), beyond a plain field rename',
+        contract:
+          'Signed reasoning_details are replayed byte-for-byte (ZenMux), beyond a plain field rename',
       };
     }
     return {

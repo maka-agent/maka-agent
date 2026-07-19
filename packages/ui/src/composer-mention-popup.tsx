@@ -18,6 +18,8 @@
 
 import { FileText, Sparkles } from './icons.js';
 import { cn } from './utils.js';
+import { useUiLocale } from './locale-context.js';
+import { getConversationCopy } from './conversation-copy.js';
 
 export interface MentionFileItem {
   type: 'file';
@@ -49,7 +51,8 @@ export function ComposerMentionPopup(props: {
   onHover(index: number): void;
 }) {
   const { trigger, items, activeIndex, loading, listboxId } = props;
-  const emptyLabel = trigger === '@' ? '未找到文件' : '暂无技能';
+  const copy = getConversationCopy(useUiLocale()).mentions;
+  const emptyLabel = trigger === '@' ? copy.noFiles : copy.noSkills;
 
   return (
     <div
@@ -59,10 +62,10 @@ export function ComposerMentionPopup(props: {
       )}
       role="listbox"
       id={listboxId}
-      aria-label={trigger === '@' ? '工作区文件' : '技能'}
+      aria-label={trigger === '@' ? copy.filesAriaLabel : copy.skillsAriaLabel}
     >
       {loading ? (
-        <div className="maka-composer-mention-status">加载中…</div>
+        <div className="maka-composer-mention-status">{copy.loading}</div>
       ) : items.length === 0 ? (
         <div className="maka-composer-mention-status">{emptyLabel}</div>
       ) : (

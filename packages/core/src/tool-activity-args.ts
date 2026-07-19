@@ -48,11 +48,12 @@ function escapeTerminalTextForInspection(input: string): string {
         break;
       default: {
         const codePoint = char.codePointAt(0) ?? 0;
-        escaped += codePoint < 0x20
-          || (codePoint >= 0xd800 && codePoint <= 0xdfff)
-          || isInvisibleCodePoint(codePoint)
-          ? `\\u{${codePoint.toString(16).toUpperCase().padStart(4, '0')}}`
-          : char;
+        escaped +=
+          codePoint < 0x20 ||
+          (codePoint >= 0xd800 && codePoint <= 0xdfff) ||
+          isInvisibleCodePoint(codePoint)
+            ? `\\u{${codePoint.toString(16).toUpperCase().padStart(4, '0')}}`
+            : char;
       }
     }
   }
@@ -115,11 +116,11 @@ export function readWriteStdinInputPreview(args: unknown): WriteStdinInputPrevie
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
   const preview = value as Record<string, unknown>;
   if (
-    typeof preview.text !== 'string'
-    || !Number.isSafeInteger(preview.bytes)
-    || (preview.bytes as number) < 0
-    || typeof preview.truncated !== 'boolean'
-    || !isSafeProjectedInputText(preview.text)
+    typeof preview.text !== 'string' ||
+    !Number.isSafeInteger(preview.bytes) ||
+    (preview.bytes as number) < 0 ||
+    typeof preview.truncated !== 'boolean' ||
+    !isSafeProjectedInputText(preview.text)
   ) {
     return undefined;
   }
@@ -132,9 +133,11 @@ export function readWriteStdinInputPreview(args: unknown): WriteStdinInputPrevie
 
 function isSafeProjectedInputText(text: string): boolean {
   const chars = Array.from(text);
-  return chars.length <= WRITE_STDIN_INPUT_PREVIEW_MAX_CHARS
-    && redactSecrets(text) === text
-    && chars.every((char) => terminalInputCharDisplay(char) === char);
+  return (
+    chars.length <= WRITE_STDIN_INPUT_PREVIEW_MAX_CHARS &&
+    redactSecrets(text) === text &&
+    chars.every((char) => terminalInputCharDisplay(char) === char)
+  );
 }
 
 export function projectToolActivityArgs(toolName: string, args: unknown): unknown {
@@ -154,11 +157,13 @@ export function projectToolActivityArgs(toolName: string, args: unknown): unknow
   return summary;
 }
 
-function readWriteStdinArgs(args: unknown): {
-  ref?: string;
-  input?: string;
-  size?: { cols: number; rows: number };
-} | undefined {
+function readWriteStdinArgs(args: unknown):
+  | {
+      ref?: string;
+      input?: string;
+      size?: { cols: number; rows: number };
+    }
+  | undefined {
   if (!args || typeof args !== 'object' || Array.isArray(args)) return undefined;
   const value = args as Record<string, unknown>;
   const parsed: {

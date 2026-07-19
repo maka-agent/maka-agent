@@ -8,7 +8,9 @@ import {
 
 describe('redactSecrets', () => {
   test('masks bearer tokens and provider key prefixes', () => {
-    const text = redactSecrets('Authorization: Bearer sk-live-secret-token-value and ghp_abcdefghijklmnopqrstuvwxyz');
+    const text = redactSecrets(
+      'Authorization: Bearer sk-live-secret-token-value and ghp_abcdefghijklmnopqrstuvwxyz',
+    );
 
     assert.equal(text.includes('sk-live-secret-token-value'), false);
     assert.equal(text.includes('ghp_abcdefghijklmnopqrstuvwxyz'), false);
@@ -16,7 +18,9 @@ describe('redactSecrets', () => {
   });
 
   test('masks only sensitive URL query values', () => {
-    const text = redactSecrets('https://api.example.test/models?model=x&api_key=secret-value&timeout=30');
+    const text = redactSecrets(
+      'https://api.example.test/models?model=x&api_key=secret-value&timeout=30',
+    );
 
     assert.match(text, /https:\/\/api\.example\.test\/models\?model=x/);
     assert.match(text, /api_key=\[redacted\]/);
@@ -25,15 +29,17 @@ describe('redactSecrets', () => {
   });
 
   test('masks quoted sensitive object keys in serialized JSON', () => {
-    const text = redactSecrets(JSON.stringify({
-      authorization: 'Bearer opaque-session-value',
-      apiKey: 'plain-provider-key',
-      password: 'correct-horse-battery-staple',
-      nested: {
-        accessToken: 'nested-token-value',
-      },
-      keep: 'visible',
-    }));
+    const text = redactSecrets(
+      JSON.stringify({
+        authorization: 'Bearer opaque-session-value',
+        apiKey: 'plain-provider-key',
+        password: 'correct-horse-battery-staple',
+        nested: {
+          accessToken: 'nested-token-value',
+        },
+        keep: 'visible',
+      }),
+    );
 
     assert.match(text, /"authorization":"\[redacted\]"/);
     assert.match(text, /"apiKey":"\[redacted\]"/);
@@ -47,12 +53,14 @@ describe('redactSecrets', () => {
   });
 
   test('masks escaped and non-string sensitive JSON values structurally', () => {
-    const text = redactSecrets(JSON.stringify({
-      password: 'abc"def\\ghi',
-      token: 12345,
-      secret: { raw: 'object value should not leak' },
-      keep: 'visible',
-    }));
+    const text = redactSecrets(
+      JSON.stringify({
+        password: 'abc"def\\ghi',
+        token: 12345,
+        secret: { raw: 'object value should not leak' },
+        keep: 'visible',
+      }),
+    );
 
     assert.match(text, /"password":"\[redacted\]"/);
     assert.match(text, /"token":"\[redacted\]"/);
@@ -66,13 +74,23 @@ describe('redactSecrets', () => {
 
 describe('generalizedErrorMessage', () => {
   test('returns generic classes instead of raw redacted provider errors', () => {
-    assert.equal(generalizedErrorMessage(new Error('401 Authorization: Bearer sk-live-secret-token-value')), 'Authentication failed');
-    assert.equal(generalizedErrorMessage(new Error('fetch failed ECONNREFUSED token=secret')), 'Network error');
+    assert.equal(
+      generalizedErrorMessage(new Error('401 Authorization: Bearer sk-live-secret-token-value')),
+      'Authentication failed',
+    );
+    assert.equal(
+      generalizedErrorMessage(new Error('fetch failed ECONNREFUSED token=secret')),
+      'Network error',
+    );
   });
 
   test('classifies status and rate-limit messages before redacted secret content', () => {
-    const auth = generalizedErrorMessage(new Error('403 {"error":"bad key","api_key":"sk-live-secret-token-value"}'));
-    const rateLimit = generalizedErrorMessage(new Error('429 Authorization: Bearer sk-live-secret-token-value'));
+    const auth = generalizedErrorMessage(
+      new Error('403 {"error":"bad key","api_key":"sk-live-secret-token-value"}'),
+    );
+    const rateLimit = generalizedErrorMessage(
+      new Error('429 Authorization: Bearer sk-live-secret-token-value'),
+    );
 
     assert.equal(auth, 'Authentication failed');
     assert.equal(rateLimit, 'Rate limit exceeded');
@@ -104,11 +122,7 @@ describe('generalizedErrorMessageChinese (PR110b)', () => {
   });
 
   test('401 / 403 / auth → 鉴权失败', () => {
-    for (const raw of [
-      '401 Unauthorized',
-      'HTTP 403 forbidden',
-      'Authentication failed',
-    ]) {
+    for (const raw of ['401 Unauthorized', 'HTTP 403 forbidden', 'Authentication failed']) {
       const msg = generalizedErrorMessageChinese(new Error(raw));
       assert.equal(msg, '鉴权失败', `raw=${raw}`);
     }

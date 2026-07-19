@@ -137,47 +137,58 @@ class FileTelemetryRepo implements TelemetryRepo {
     const { from, to } = resolveRange(query.range);
     const rows = this.filteredUsageRows(query, from, to)
       .sort((a, b) => b.ts - a.ts)
-      .map((row) => ({
-        id: row.id,
-        ts: row.ts,
-        ...(row.callKind ? { callKind: row.callKind } : {}),
-        ...(row.callId ? { callId: row.callId } : {}),
-        ...(row.connectionSlug ? { connectionSlug: row.connectionSlug } : {}),
-        providerId: row.providerId,
-        modelId: row.modelId,
-        inputTokens: row.inputTokens,
-        outputTokens: row.outputTokens,
-        cacheMissTokens: row.cacheMissInputTokens,
-        cacheReadTokens: row.cacheHitInputTokens,
-        cacheWriteTokens: row.cacheWriteInputTokens,
-        ...(row.cacheMissInputSource ? { cacheMissInputSource: row.cacheMissInputSource } : {}),
-        reasoningTokens: row.reasoningTokens,
-        totalTokens: row.totalTokens,
-        costUsd: row.costUsd,
-        latencyMs: row.latencyMs,
-        status: row.status,
-        ...(row.errorClass ? { errorClass: row.errorClass } : {}),
-        ...(row.sessionId ? { sessionId: row.sessionId } : {}),
-        ...(row.turnId ? { turnId: row.turnId } : {}),
-        ...(row.systemPromptHash ? { systemPromptHash: row.systemPromptHash } : {}),
-        ...(row.prefixHash ? { prefixHash: row.prefixHash } : {}),
-        ...(row.prefixChangeReason ? { prefixChangeReason: row.prefixChangeReason } : {}),
-        ...(row.requestShapeHash ? { requestShapeHash: row.requestShapeHash } : {}),
-        ...(row.requestShapeChangeReason ? { requestShapeChangeReason: row.requestShapeChangeReason } : {}),
-        ...(row.toolSchemaChangeReason ? { toolSchemaChangeReason: row.toolSchemaChangeReason } : {}),
-        ...(row.toolAvailability ? { toolAvailability: row.toolAvailability } : {}),
-        ...(row.promptSegments ? { promptSegments: row.promptSegments } : {}),
-        ...(row.contextBudget ? { contextBudget: row.contextBudget } : {}),
-      } satisfies UsageLogRow));
+      .map(
+        (row) =>
+          ({
+            id: row.id,
+            ts: row.ts,
+            ...(row.callKind ? { callKind: row.callKind } : {}),
+            ...(row.callId ? { callId: row.callId } : {}),
+            ...(row.connectionSlug ? { connectionSlug: row.connectionSlug } : {}),
+            providerId: row.providerId,
+            modelId: row.modelId,
+            inputTokens: row.inputTokens,
+            outputTokens: row.outputTokens,
+            cacheMissTokens: row.cacheMissInputTokens,
+            cacheReadTokens: row.cacheHitInputTokens,
+            cacheWriteTokens: row.cacheWriteInputTokens,
+            ...(row.cacheMissInputSource ? { cacheMissInputSource: row.cacheMissInputSource } : {}),
+            reasoningTokens: row.reasoningTokens,
+            totalTokens: row.totalTokens,
+            costUsd: row.costUsd,
+            latencyMs: row.latencyMs,
+            status: row.status,
+            ...(row.errorClass ? { errorClass: row.errorClass } : {}),
+            ...(row.sessionId ? { sessionId: row.sessionId } : {}),
+            ...(row.turnId ? { turnId: row.turnId } : {}),
+            ...(row.systemPromptHash ? { systemPromptHash: row.systemPromptHash } : {}),
+            ...(row.prefixHash ? { prefixHash: row.prefixHash } : {}),
+            ...(row.prefixChangeReason ? { prefixChangeReason: row.prefixChangeReason } : {}),
+            ...(row.requestShapeHash ? { requestShapeHash: row.requestShapeHash } : {}),
+            ...(row.requestShapeChangeReason
+              ? { requestShapeChangeReason: row.requestShapeChangeReason }
+              : {}),
+            ...(row.toolSchemaChangeReason
+              ? { toolSchemaChangeReason: row.toolSchemaChangeReason }
+              : {}),
+            ...(row.toolAvailability ? { toolAvailability: row.toolAvailability } : {}),
+            ...(row.promptSegments ? { promptSegments: row.promptSegments } : {}),
+            ...(row.contextBudget ? { contextBudget: row.contextBudget } : {}),
+          }) satisfies UsageLogRow,
+      );
     return { rows: rows.slice(offset, offset + limit), total: rows.length };
   }
 
   latestLlmRuntimeProbe(connectionSlug: string, modelId?: string): UsageLogRow | undefined {
-    return this.logs({
-      range: 'all',
-      connectionSlug,
-      ...(modelId ? { modelId } : {}),
-    }, 0, 1).rows[0];
+    return this.logs(
+      {
+        range: 'all',
+        connectionSlug,
+        ...(modelId ? { modelId } : {}),
+      },
+      0,
+      1,
+    ).rows[0];
   }
 
   listPricingOverrides(): PricingConfig[] {
@@ -193,7 +204,9 @@ class FileTelemetryRepo implements TelemetryRepo {
   }
 
   async deletePricing(modelKey: string): Promise<void> {
-    this.file.pricingOverrides = this.file.pricingOverrides.filter((item) => item.modelKey !== modelKey);
+    this.file.pricingOverrides = this.file.pricingOverrides.filter(
+      (item) => item.modelKey !== modelKey,
+    );
     await this.enqueueWrite();
   }
 
@@ -208,7 +221,11 @@ class FileTelemetryRepo implements TelemetryRepo {
     });
   }
 
-  private filteredToolRows(query: UsageQuery, from: number, to: number): PersistedToolInvocationRecord[] {
+  private filteredToolRows(
+    query: UsageQuery,
+    from: number,
+    to: number,
+  ): PersistedToolInvocationRecord[] {
     return this.file.toolInvocations.filter((row) => {
       if (row.ts < from || row.ts > to) return false;
       if (query.toolName && row.toolName !== query.toolName) return false;
@@ -218,7 +235,10 @@ class FileTelemetryRepo implements TelemetryRepo {
   }
 
   private enqueueWrite(): Promise<void> {
-    const next = this.queue.then(() => this.write(), () => this.write());
+    const next = this.queue.then(
+      () => this.write(),
+      () => this.write(),
+    );
     this.queue = next.catch(() => {});
     return next;
   }
@@ -241,9 +261,7 @@ function normalizeFile(input: unknown): TelemetryFile {
   }
   const value = input as Partial<TelemetryFile>;
   const hasKnownSection =
-    'usageRecords' in value ||
-    'toolInvocations' in value ||
-    'pricingOverrides' in value;
+    'usageRecords' in value || 'toolInvocations' in value || 'pricingOverrides' in value;
   if (!hasKnownSection) {
     throw new Error('Invalid telemetry file: expected known telemetry sections');
   }
@@ -268,13 +286,11 @@ function normalizeLlmCallRecord(input: unknown): PersistedLlmCallRecord {
   const inputTokens = finiteNumber(row.inputTokens) ?? 0;
   const outputTokens = finiteNumber(row.outputTokens) ?? 0;
   const cacheHitInputTokens =
-    finiteNumber(row.cacheHitInputTokens)
-    ?? finiteNumber(row.cachedInputTokens)
-    ?? 0;
+    finiteNumber(row.cacheHitInputTokens) ?? finiteNumber(row.cachedInputTokens) ?? 0;
   const cacheWriteInputTokens = finiteNumber(row.cacheWriteInputTokens) ?? 0;
   const cacheMissInputTokens =
-    finiteNumber(row.cacheMissInputTokens)
-    ?? Math.max(0, inputTokens - cacheHitInputTokens - cacheWriteInputTokens);
+    finiteNumber(row.cacheMissInputTokens) ??
+    Math.max(0, inputTokens - cacheHitInputTokens - cacheWriteInputTokens);
   const reasoningTokens = finiteNumber(row.reasoningTokens) ?? 0;
   return {
     ...row,
@@ -293,7 +309,10 @@ function normalizeLlmCallRecord(input: unknown): PersistedLlmCallRecord {
     latencyMs: finiteNumber(row.latencyMs) ?? 0,
     status: row.status === 'error' || row.status === 'aborted' ? row.status : 'success',
     startedAt: finiteNumber(row.startedAt) ?? finiteNumber(row.ts) ?? 0,
-    date: typeof row.date === 'string' ? row.date : new Date(finiteNumber(row.ts) ?? 0).toISOString().slice(0, 10),
+    date:
+      typeof row.date === 'string'
+        ? row.date
+        : new Date(finiteNumber(row.ts) ?? 0).toISOString().slice(0, 10),
     ts: finiteNumber(row.ts) ?? 0,
   };
 }
@@ -306,20 +325,29 @@ export function resolveRange(range: UsageQuery['range']): { from: number; to: nu
   if (typeof range === 'object') return range;
   const now = Date.now();
   switch (range) {
-    case '24h': return { from: now - 24 * 60 * 60 * 1000, to: now };
-    case '7d': return { from: now - 7 * 24 * 60 * 60 * 1000, to: now };
-    case '30d': return { from: now - 30 * 24 * 60 * 60 * 1000, to: now };
-    case 'all': return { from: 0, to: now };
+    case '24h':
+      return { from: now - 24 * 60 * 60 * 1000, to: now };
+    case '7d':
+      return { from: now - 7 * 24 * 60 * 60 * 1000, to: now };
+    case '30d':
+      return { from: now - 30 * 24 * 60 * 60 * 1000, to: now };
+    case 'all':
+      return { from: 0, to: now };
   }
 }
 
 function bucketKey(row: PersistedLlmCallRecord, groupBy: UsageGroupBy): string {
   switch (groupBy) {
-    case 'provider': return row.providerId;
-    case 'model': return `${row.providerId}:${row.modelId}`;
-    case 'day': return row.date;
-    case 'hour': return String(Math.floor(row.ts / (60 * 60 * 1000)));
-    case 'tool': return '';
+    case 'provider':
+      return row.providerId;
+    case 'model':
+      return `${row.providerId}:${row.modelId}`;
+    case 'day':
+      return row.date;
+    case 'hour':
+      return String(Math.floor(row.ts / (60 * 60 * 1000)));
+    case 'tool':
+      return '';
   }
 }
 
@@ -366,7 +394,9 @@ function toolBuckets(rows: PersistedToolInvocationRecord[]): UsageBucket[] {
         reasoningTokens: 0,
         totalTokens: inputBytes + outputBytes,
         costUsd: 0,
-        avgLatencyMs: groupRows.length ? Math.round(sum(groupRows.map((row) => row.durationMs)) / groupRows.length) : 0,
+        avgLatencyMs: groupRows.length
+          ? Math.round(sum(groupRows.map((row) => row.durationMs)) / groupRows.length)
+          : 0,
         errorRate: groupRows.length ? errorCount / groupRows.length : 0,
       } satisfies UsageBucket;
     })

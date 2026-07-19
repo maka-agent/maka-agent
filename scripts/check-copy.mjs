@@ -36,7 +36,8 @@ const STRING_SEGMENT = /(['"`])((?:(?!\1)[^\\]|\\.)*)\1/g;
 async function collect(dir) {
   const out = [];
   for (const entry of await readdir(dir, { withFileTypes: true })) {
-    if (entry.name === 'node_modules' || entry.name === 'dist' || entry.name === '__tests__') continue;
+    if (entry.name === 'node_modules' || entry.name === 'dist' || entry.name === '__tests__')
+      continue;
     const full = join(dir, entry.name);
     if (entry.isDirectory()) out.push(...(await collect(full)));
     else if (/\.(tsx|ts)$/.test(entry.name) && !entry.name.endsWith('.test.ts')) out.push(full);
@@ -57,10 +58,14 @@ for (const root of SCAN_ROOTS) {
         const text = match[2];
         if (!CJK.test(text)) continue;
         if (PRESSURE_WORDS.test(text)) {
-          violations.push(`  [pressure-word] ${rel}:${index + 1}\n    ${line.trim().slice(0, 120)}`);
+          violations.push(
+            `  [pressure-word] ${rel}:${index + 1}\n    ${line.trim().slice(0, 120)}`,
+          );
         }
         if (text.includes('...')) {
-          violations.push(`  [ascii-ellipsis] ${rel}:${index + 1}\n    ${line.trim().slice(0, 120)}`);
+          violations.push(
+            `  [ascii-ellipsis] ${rel}:${index + 1}\n    ${line.trim().slice(0, 120)}`,
+          );
         }
       }
     });

@@ -14,10 +14,8 @@ export function MetricCard(props: { title: string; value: string; detail?: strin
   );
 }
 
-// `Segmented` moved to `packages/ui/src/primitives/settings-segmented.tsx`
-// as `SettingsSegmented` (Base UI `ToggleGroup`-backed). Imported above
-// aliased as `Segmented` so the 3 call sites in this file are
-// byte-identical. PR yuejing/settings-segmented-primitive
+// `Segmented` lives in `packages/ui/src/primitives/segmented.tsx`
+// (Base UI `ToggleGroup`-backed). PR yuejing/settings-segmented-primitive
 // (WAWQAQ msg `f1461d30` 用库的应该用库).
 
 /**

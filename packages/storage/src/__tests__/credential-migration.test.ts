@@ -3,7 +3,10 @@ import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
-import { migrateLegacyCredentialFile, type LegacyCredentialDecryptor } from '../credential-store.js';
+import {
+  migrateLegacyCredentialFile,
+  type LegacyCredentialDecryptor,
+} from '../credential-store.js';
 
 // Behavioral tests over real temp files for the one-time migration. The
 // decryptor is injected (the crypto is the caller's concern), so these run
@@ -137,7 +140,10 @@ describe('migrateLegacyCredentialFile', () => {
         const original = `{ "values": { "x:apiKey": ${badValue} } }`;
         await writeFile(path, original, 'utf8');
 
-        await assert.rejects(migrateLegacyCredentialFile(path, fakeDecryptor(true)), /not a string/);
+        await assert.rejects(
+          migrateLegacyCredentialFile(path, fakeDecryptor(true)),
+          /not a string/,
+        );
         assert.equal(await readFile(path, 'utf8'), original); // byte-for-byte untouched
       });
     }

@@ -58,12 +58,14 @@ function executeSyntheticComputerAction(state, args) {
       requireExactKeys(args, ['action']);
       return {
         kind: 'apps',
-        apps: [{
-          app_id: 'pid:42',
-          pid: 42,
-          name: 'Codex CUA Lab',
-          windows: [{ window_id: 7, title: 'Codex CUA Lab' }],
-        }],
+        apps: [
+          {
+            app_id: 'pid:42',
+            pid: 42,
+            name: 'Codex CUA Lab',
+            windows: [{ window_id: 7, title: 'Codex CUA Lab' }],
+          },
+        ],
       };
     case 'observe':
       requireExactKeys(args, ['action', 'app', 'window_id', 'include_screenshot']);
@@ -74,9 +76,9 @@ function executeSyntheticComputerAction(state, args) {
     case 'set_value':
       requireExactKeys(args, ['action', 'observation_id', 'element_id', 'value']);
       if (
-        args.observation_id !== state.activeObservationId
-        || args.element_id !== 'field-1'
-        || args.value !== 'model-e2e'
+        args.observation_id !== state.activeObservationId ||
+        args.element_id !== 'field-1' ||
+        args.value !== 'model-e2e'
       ) {
         throw new Error(`invalid semantic mutation: ${JSON.stringify(args)}`);
       }
@@ -94,10 +96,7 @@ function executeSyntheticComputerAction(state, args) {
       };
     case 'click_element':
       requireExactKeys(args, ['action', 'observation_id', 'element_id']);
-      if (
-        args.observation_id !== state.activeObservationId
-        || args.element_id !== 'field-1'
-      ) {
+      if (args.observation_id !== state.activeObservationId || args.element_id !== 'field-1') {
         throw new Error(`invalid semantic click: ${JSON.stringify(args)}`);
       }
       state.activeObservationId = undefined;
@@ -125,12 +124,14 @@ function observation(state) {
     app: 'pid:42',
     pid: 42,
     window_id: 7,
-    elements: [{
-      element_id: 'field-1',
-      role: 'AXTextField',
-      label: 'CUA Lab Set Value Field',
-      value: state.value,
-    }],
+    elements: [
+      {
+        element_id: 'field-1',
+        role: 'AXTextField',
+        label: 'CUA Lab Set Value Field',
+        value: state.value,
+      },
+    ],
   };
 }
 

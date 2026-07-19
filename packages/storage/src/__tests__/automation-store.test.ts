@@ -106,7 +106,11 @@ describe('AutomationStore', () => {
 
   test('loadAll FAILS LOUD on an unrecognized version/shape', async () => {
     const { writeFile } = await import('node:fs/promises');
-    await writeFile(join(TEST_DIR, 'automations.json'), JSON.stringify({ version: 99, automations: [] }), 'utf8');
+    await writeFile(
+      join(TEST_DIR, 'automations.json'),
+      JSON.stringify({ version: 99, automations: [] }),
+      'utf8',
+    );
 
     const store = createAutomationStore<TestRecord>(TEST_DIR);
     await assert.rejects(() => store.loadAll(), /unrecognized shape or version/);

@@ -14,7 +14,9 @@ const NO_ABORT = new AbortController().signal;
 const TEMPORARY_WORKSPACES = new Set<string>();
 
 after(async () => {
-  await Promise.all([...TEMPORARY_WORKSPACES].map((path) => rm(path, { recursive: true, force: true })));
+  await Promise.all(
+    [...TEMPORARY_WORKSPACES].map((path) => rm(path, { recursive: true, force: true })),
+  );
 });
 
 describe('ShellRunProcessManager', () => {
@@ -22,10 +24,12 @@ describe('ShellRunProcessManager', () => {
     const cwd = await workspace();
     const store = createShellRunStore(cwd);
     const manager = createManager(store);
-    const result = await manager.runForegroundBash(shellInput({
-      cwd,
-      command: 'printf "hello"; printf "warning" >&2',
-    }));
+    const result = await manager.runForegroundBash(
+      shellInput({
+        cwd,
+        command: 'printf "hello"; printf "warning" >&2',
+      }),
+    );
 
     assert.equal(result.kind, 'terminal');
     assert.equal(result.status, 'completed');
@@ -46,31 +50,39 @@ describe('ShellRunProcessManager', () => {
 
   test('uses the existing explicit PowerShell pipe plan unchanged', async () => {
     const manager = await createTestManager();
-    const result = await manager.runForegroundBash(shellInput({
-      cwd: await workspace(),
-      command: 'echo wired-marker',
-      shell: { kind: 'pwsh', displayName: 'PowerShell 7 (pwsh)', exe: '/bin/echo' },
-    }));
+    const result = await manager.runForegroundBash(
+      shellInput({
+        cwd: await workspace(),
+        command: 'echo wired-marker',
+        shell: { kind: 'pwsh', displayName: 'PowerShell 7 (pwsh)', exe: '/bin/echo' },
+      }),
+    );
 
     assert.equal(result.kind, 'terminal');
     assert.equal(result.output.mode, 'pipes');
     if (result.output.mode !== 'pipes') throw new Error('expected pipes output');
-    assert.ok(result.output.stdout.startsWith('-NoLogo -NoProfile -NonInteractive -Command echo wired-marker\n'));
+    assert.ok(
+      result.output.stdout.startsWith(
+        '-NoLogo -NoProfile -NonInteractive -Command echo wired-marker\n',
+      ),
+    );
     assert.ok(result.output.stdout.includes('exit $LASTEXITCODE'));
   });
 
   test('runs explicit argv and supplies inherited fd payloads on the pipe path', async () => {
     const manager = await createTestManager();
-    const result = await manager.runForegroundBash(shellInput({
-      cwd: await workspace(),
-      command: 'sandbox display command',
-      argv: [
-        process.execPath,
-        '-e',
-        'process.stdout.write(require("node:fs").readFileSync(3, "utf8"))',
-      ],
-      fdInputs: [{ fd: 3, data: Buffer.from('seccomp-payload') }],
-    }));
+    const result = await manager.runForegroundBash(
+      shellInput({
+        cwd: await workspace(),
+        command: 'sandbox display command',
+        argv: [
+          process.execPath,
+          '-e',
+          'process.stdout.write(require("node:fs").readFileSync(3, "utf8"))',
+        ],
+        fdInputs: [{ fd: 3, data: Buffer.from('seccomp-payload') }],
+      }),
+    );
 
     assert.equal(result.kind, 'terminal');
     assert.equal(result.status, 'completed');
@@ -84,11 +96,13 @@ describe('ShellRunProcessManager', () => {
     const store = createShellRunStore(await workspace());
     const manager = createManager(store);
     const abort = new AbortController();
-    const running = manager.runForegroundBash(shellInput({
-      cwd,
-      command: waitForeverCommand(),
-      abortSignal: abort.signal,
-    }));
+    const running = manager.runForegroundBash(
+      shellInput({
+        cwd,
+        command: waitForeverCommand(),
+        abortSignal: abort.signal,
+      }),
+    );
 
     await waitUntil(async () => {
       try {
@@ -114,23 +128,28 @@ describe('ShellRunProcessManager', () => {
     const updates: ShellRunUpdate[] = [];
     const store = createShellRunStore(await workspace());
     const manager = createManager(store, (update) => updates.push(update));
-    const initial = await manager.runBackgroundBash(shellInput({
-      cwd: await workspace(),
-      command: 'printf "start"; sleep 0.4; printf "done"',
-    }));
+    const initial = await manager.runBackgroundBash(
+      shellInput({
+        cwd: await workspace(),
+        command: 'printf "start"; sleep 0.4; printf "done"',
+      }),
+    );
 
     assert.equal(initial.kind, 'shell_run');
     assert.equal(initial.mode, 'pipes');
     assert.equal(initial.output, undefined);
     assert.equal((await store.readShellRun('session-1', 'shell-run-1')).timeoutMs, undefined);
-    await waitForShellRun(manager, initial.ref, (result) => (
-      result.output?.mode === 'pipes' && result.output.stdout === 'start'
-    ));
-    const runningUpdate = updates.find((update) => (
-      update.result.status === 'running'
-      && update.result.output?.mode === 'pipes'
-      && update.result.output.stdout === 'start'
-    ));
+    await waitForShellRun(
+      manager,
+      initial.ref,
+      (result) => result.output?.mode === 'pipes' && result.output.stdout === 'start',
+    );
+    const runningUpdate = updates.find(
+      (update) =>
+        update.result.status === 'running' &&
+        update.result.output?.mode === 'pipes' &&
+        update.result.output.stdout === 'start',
+    );
     assert.ok(runningUpdate);
     const running = await manager.readRuntimeResource('session-1', initial.ref, NO_ABORT);
     assertShellRun(running);
@@ -151,21 +170,26 @@ describe('ShellRunProcessManager', () => {
 
   test('applies only explicit background timeouts and enforces their upper bound', async () => {
     const manager = await createTestManager();
-    const initial = await manager.runBackgroundBash(shellInput({
-      cwd: await workspace(),
-      command: waitForeverCommand(),
-      timeoutMs: 50,
-    }));
+    const initial = await manager.runBackgroundBash(
+      shellInput({
+        cwd: await workspace(),
+        command: waitForeverCommand(),
+        timeoutMs: 50,
+      }),
+    );
 
     const timedOut = await waitForTerminalShellRun(manager, initial.ref);
     assert.equal(timedOut.status, 'timed_out');
     assert.equal(timedOut.exitCode, 124);
     await assert.rejects(
-      () => manager.runBackgroundBash(shellInput({
-        cwd: process.cwd(),
-        command: 'true',
-        timeoutMs: 86_400_001,
-      })),
+      () =>
+        manager.runBackgroundBash(
+          shellInput({
+            cwd: process.cwd(),
+            command: 'true',
+            timeoutMs: 86_400_001,
+          }),
+        ),
       /Background Bash timeout/,
     );
   });
@@ -173,12 +197,14 @@ describe('ShellRunProcessManager', () => {
   test('aborting foreground Bash terminates the process without leaking a ref', async () => {
     const abort = new AbortController();
     const manager = await createTestManager();
-    const result = await manager.runForegroundBash(shellInput({
-      cwd: await workspace(),
-      command: 'printf "start"; sleep 5',
-      abortSignal: abort.signal,
-      emitOutput: () => abort.abort(),
-    }));
+    const result = await manager.runForegroundBash(
+      shellInput({
+        cwd: await workspace(),
+        command: 'printf "start"; sleep 5',
+        abortSignal: abort.signal,
+        emitOutput: () => abort.abort(),
+      }),
+    );
 
     assert.equal(result.kind, 'terminal');
     assert.equal(result.status, 'cancelled');
@@ -190,28 +216,35 @@ describe('ShellRunProcessManager', () => {
     const cwd = await workspace();
     const sessionManager = await createTestManager();
     const sessionStart = assert.rejects(
-      sessionManager.runBackgroundBash(shellInput({
-        cwd,
-        command: waitForeverCommand(),
-        pty: true,
-      })),
+      sessionManager.runBackgroundBash(
+        shellInput({
+          cwd,
+          command: waitForeverCommand(),
+          pty: true,
+        }),
+      ),
       /session lifecycle changed/,
     );
 
     await sessionManager.terminateSession('session-1');
     await sessionStart;
     await assert.rejects(
-      () => sessionManager.runBackgroundBash(shellInput({
-        cwd,
-        command: nodeCommand("process.stdout.write('blocked')"),
-      })),
+      () =>
+        sessionManager.runBackgroundBash(
+          shellInput({
+            cwd,
+            command: nodeCommand("process.stdout.write('blocked')"),
+          }),
+        ),
       /session lifecycle changed/,
     );
     sessionManager.resumeSession('session-1');
-    const resumed = await sessionManager.runForegroundBash(shellInput({
-      cwd,
-      command: nodeCommand("process.stdout.write('RESUMED')"),
-    }));
+    const resumed = await sessionManager.runForegroundBash(
+      shellInput({
+        cwd,
+        command: nodeCommand("process.stdout.write('RESUMED')"),
+      }),
+    );
     assert.equal(resumed.kind, 'terminal');
     if (resumed.kind !== 'terminal') throw new Error('expected terminal result');
     assert.equal(resumed.output.mode, 'pipes');
@@ -220,20 +253,25 @@ describe('ShellRunProcessManager', () => {
 
     const runtimeManager = await createTestManager();
     const runtimeStart = assert.rejects(
-      runtimeManager.runBackgroundBash(shellInput({
-        cwd,
-        command: waitForeverCommand(),
-        pty: true,
-      })),
+      runtimeManager.runBackgroundBash(
+        shellInput({
+          cwd,
+          command: waitForeverCommand(),
+          pty: true,
+        }),
+      ),
       /shell runtime is shutting down/,
     );
     await runtimeManager.terminateAll();
     await runtimeStart;
     await assert.rejects(
-      () => runtimeManager.runBackgroundBash(shellInput({
-        cwd,
-        command: nodeCommand("process.stdout.write('blocked')"),
-      })),
+      () =>
+        runtimeManager.runBackgroundBash(
+          shellInput({
+            cwd,
+            command: nodeCommand("process.stdout.write('blocked')"),
+          }),
+        ),
       /shell runtime is shutting down/,
     );
     assert.equal(sessionManager.liveCount(), 0);
@@ -248,18 +286,23 @@ describe('ShellRunProcessManager', () => {
 
     manager.rollbackSessionClose(first);
     await assert.rejects(
-      () => manager.runBackgroundBash(shellInput({
-        cwd,
-        command: nodeCommand("process.stdout.write('blocked')"),
-      })),
+      () =>
+        manager.runBackgroundBash(
+          shellInput({
+            cwd,
+            command: nodeCommand("process.stdout.write('blocked')"),
+          }),
+        ),
       /session lifecycle changed/,
     );
 
     manager.rollbackSessionClose(second);
-    const reopened = await manager.runForegroundBash(shellInput({
-      cwd,
-      command: nodeCommand("process.stdout.write('REOPENED')"),
-    }));
+    const reopened = await manager.runForegroundBash(
+      shellInput({
+        cwd,
+        command: nodeCommand("process.stdout.write('REOPENED')"),
+      }),
+    );
     assert.equal(reopened.kind, 'terminal');
     if (reopened.kind !== 'terminal') throw new Error('expected terminal result');
     assert.equal(reopened.output.mode, 'pipes');
@@ -268,18 +311,23 @@ describe('ShellRunProcessManager', () => {
 
     const committed = await manager.terminateSession('session-1');
     manager.resumeSession('session-1');
-    const admittedDuringReopen = await manager.runBackgroundBash(shellInput({
-      cwd,
-      command: waitForeverCommand(),
-    }));
+    const admittedDuringReopen = await manager.runBackgroundBash(
+      shellInput({
+        cwd,
+        command: waitForeverCommand(),
+      }),
+    );
     assert.equal(admittedDuringReopen.kind, 'shell_run');
     await manager.commitSessionClose(committed);
     assert.equal(manager.liveCount(), 0);
     await assert.rejects(
-      () => manager.runBackgroundBash(shellInput({
-        cwd,
-        command: nodeCommand("process.stdout.write('blocked')"),
-      })),
+      () =>
+        manager.runBackgroundBash(
+          shellInput({
+            cwd,
+            command: nodeCommand("process.stdout.write('blocked')"),
+          }),
+        ),
       /session lifecycle changed/,
     );
     manager.resumeSession('session-1');
@@ -287,10 +335,12 @@ describe('ShellRunProcessManager', () => {
 
   test('gives exactly one concurrent StopBackgroundTask call termination ownership', async () => {
     const manager = await createTestManager();
-    const initial = await manager.runBackgroundBash(shellInput({
-      cwd: await workspace(),
-      command: 'printf "ready"; sleep 5',
-    }));
+    const initial = await manager.runBackgroundBash(
+      shellInput({
+        cwd: await workspace(),
+        command: 'printf "ready"; sleep 5',
+      }),
+    );
     assert.equal(initial.kind, 'shell_run');
 
     const [left, right] = await Promise.all([
@@ -311,14 +361,18 @@ describe('ShellRunProcessManager', () => {
   });
 
   test('ignores a Stop abort that occurs after another admitted Stop commits termination', {
-    skip: process.platform === 'win32' ? 'Windows termination has no asynchronous POSIX snapshot window' : false,
+    skip:
+      process.platform === 'win32'
+        ? 'Windows termination has no asynchronous POSIX snapshot window'
+        : false,
   }, async () => {
     const cwd = await workspace();
     const committedPath = join(cwd, 'termination-committed');
     const manager = await createTestManager();
-    const initial = await manager.runBackgroundBash(shellInput({
-      cwd,
-      command: `exec ${nodeCommand(`
+    const initial = await manager.runBackgroundBash(
+      shellInput({
+        cwd,
+        command: `exec ${nodeCommand(`
         const { writeFileSync } = require('node:fs');
         process.once('SIGTERM', () => {
           writeFileSync(${JSON.stringify(committedPath)}, 'committed');
@@ -327,9 +381,10 @@ describe('ShellRunProcessManager', () => {
         process.stdout.write('READY\\n');
         setInterval(() => {}, 1000);
       `)}`,
-      pty: true,
-      timeoutMs: 5_000,
-    }));
+        pty: true,
+        timeoutMs: 5_000,
+      }),
+    );
     assert.equal(initial.kind, 'shell_run');
     await waitForPtyText(manager, initial.ref, /READY/);
 
@@ -358,23 +413,26 @@ describe('ShellRunProcessManager', () => {
 
   test('closes PTY control admission synchronously when Stop is admitted', async () => {
     const manager = await createTestManager();
-    const initial = await manager.runBackgroundBash(shellInput({
-      cwd: await workspace(),
-      command: waitForeverCommand('READY\n'),
-      pty: true,
-      timeoutMs: 5_000,
-    }));
+    const initial = await manager.runBackgroundBash(
+      shellInput({
+        cwd: await workspace(),
+        command: waitForeverCommand('READY\n'),
+        pty: true,
+        timeoutMs: 5_000,
+      }),
+    );
     assert.equal(initial.kind, 'shell_run');
     await waitForPtyText(manager, initial.ref, /READY/);
 
     const stopping = manager.stopBackgroundTask('session-1', initial.ref, NO_ABORT);
     await assert.rejects(
-      () => manager.writeStdin({
-        sessionId: 'session-1',
-        ref: initial.ref,
-        input: 'late input',
-        abortSignal: NO_ABORT,
-      }),
+      () =>
+        manager.writeStdin({
+          sessionId: 'session-1',
+          ref: initial.ref,
+          input: 'late input',
+          abortSignal: NO_ABORT,
+        }),
       /stopping and no longer accepts input/,
     );
     const stopped = await stopping;
@@ -384,12 +442,14 @@ describe('ShellRunProcessManager', () => {
 
   test('reopens PTY control only after every pre-commit Stop has aborted', async () => {
     const manager = await createTestManager();
-    const initial = await manager.runBackgroundBash(shellInput({
-      cwd: await workspace(),
-      command: rawLineReaderCommand({ prompt: 'READY\n', label: 'VALUE:', lines: 1 }),
-      pty: true,
-      timeoutMs: 5_000,
-    }));
+    const initial = await manager.runBackgroundBash(
+      shellInput({
+        cwd: await workspace(),
+        command: rawLineReaderCommand({ prompt: 'READY\n', label: 'VALUE:', lines: 1 }),
+        pty: true,
+        timeoutMs: 5_000,
+      }),
+    );
     assert.equal(initial.kind, 'shell_run');
     await waitForPtyText(manager, initial.ref, /READY/);
 
@@ -435,14 +495,18 @@ describe('ShellRunProcessManager', () => {
   });
 
   test('keeps a pipe task alive when Stop aborts during process-tree preparation', {
-    skip: process.platform === 'win32' ? 'Windows termination does not take a POSIX process snapshot' : false,
+    skip:
+      process.platform === 'win32'
+        ? 'Windows termination does not take a POSIX process snapshot'
+        : false,
   }, async () => {
     const cwd = await workspace();
     const childPidPath = join(cwd, 'child.pid');
     const manager = await createTestManager();
-    const initial = await manager.runBackgroundBash(shellInput({
-      cwd,
-      command: nodeCommand(`
+    const initial = await manager.runBackgroundBash(
+      shellInput({
+        cwd,
+        command: nodeCommand(`
         const { spawn } = require('node:child_process');
         const { writeFileSync } = require('node:fs');
         const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
@@ -454,8 +518,9 @@ describe('ShellRunProcessManager', () => {
         process.stdout.write('READY\\n');
         setInterval(() => {}, 1000);
       `),
-      timeoutMs: 5_000,
-    }));
+        timeoutMs: 5_000,
+      }),
+    );
     assert.equal(initial.kind, 'shell_run');
     await waitUntil(async () => {
       try {
@@ -488,15 +553,20 @@ describe('ShellRunProcessManager', () => {
   });
 
   test('keeps a PTY task controllable when Stop aborts during process-tree preparation', {
-    skip: process.platform === 'win32' ? 'Windows termination does not take a POSIX process snapshot' : false,
+    skip:
+      process.platform === 'win32'
+        ? 'Windows termination does not take a POSIX process snapshot'
+        : false,
   }, async () => {
     const manager = await createTestManager();
-    const initial = await manager.runBackgroundBash(shellInput({
-      cwd: await workspace(),
-      command: rawLineReaderCommand({ prompt: 'READY\n', label: 'VALUE:', lines: 1 }),
-      pty: true,
-      timeoutMs: 5_000,
-    }));
+    const initial = await manager.runBackgroundBash(
+      shellInput({
+        cwd: await workspace(),
+        command: rawLineReaderCommand({ prompt: 'READY\n', label: 'VALUE:', lines: 1 }),
+        pty: true,
+        timeoutMs: 5_000,
+      }),
+    );
     assert.equal(initial.kind, 'shell_run');
     await waitForPtyText(manager, initial.ref, /READY/);
 
@@ -560,27 +630,30 @@ describe('ShellRunProcessManager', () => {
     for (const ref of refs) {
       await assert.rejects(
         () => manager.readRuntimeResource('session-1', ref, NO_ABORT),
-        (error: unknown) => error instanceof Error
-          && (error as NodeJS.ErrnoException).code === 'ENOENT'
-          && error.message === 'Runtime background task not found in this session',
+        (error: unknown) =>
+          error instanceof Error &&
+          (error as NodeJS.ErrnoException).code === 'ENOENT' &&
+          error.message === 'Runtime background task not found in this session',
       );
     }
 
     await assert.rejects(
-      () => manager.readRuntimeResource(
-        'session-1',
-        'maka://runtime/background-tasks/%2Funsafe',
-        NO_ABORT,
-      ),
+      () =>
+        manager.readRuntimeResource(
+          'session-1',
+          'maka://runtime/background-tasks/%2Funsafe',
+          NO_ABORT,
+        ),
       /Unsupported runtime resource ref/,
     );
   });
 
   test('runs with real TTY stdin/stdout at 80x24 and preserves the shell exit code', async () => {
     const manager = await createTestManager();
-    const initial = await manager.runBackgroundBash(shellInput({
-      cwd: await workspace(),
-      command: nodeCommand(`
+    const initial = await manager.runBackgroundBash(
+      shellInput({
+        cwd: await workspace(),
+        command: nodeCommand(`
         const stdin = process.stdin.isTTY ? 'tty' : 'notty';
         const stdout = process.stdout.isTTY ? 'tty' : 'notty';
         process.stdout.write(
@@ -588,8 +661,9 @@ describe('ShellRunProcessManager', () => {
           () => process.exit(23),
         );
       `),
-      pty: true,
-    }));
+        pty: true,
+      }),
+    );
     const result = await waitForTerminalShellRun(manager, initial.ref);
 
     assertShellRunSnapshot(result);
@@ -605,12 +679,14 @@ describe('ShellRunProcessManager', () => {
 
   test('writes Unicode exactly, adds no newline, and treats carriage return as Enter', async () => {
     const manager = await createTestManager();
-    const initial = await manager.runBackgroundBash(shellInput({
-      cwd: await workspace(),
-      command: rawLineReaderCommand({ prompt: 'name? ', label: '\nhello:', lines: 1 }),
-      pty: true,
-      timeoutMs: 5_000,
-    }));
+    const initial = await manager.runBackgroundBash(
+      shellInput({
+        cwd: await workspace(),
+        command: rawLineReaderCommand({ prompt: 'name? ', label: '\nhello:', lines: 1 }),
+        pty: true,
+        timeoutMs: 5_000,
+      }),
+    );
     assert.equal(initial.kind, 'shell_run');
     assert.equal(initial.mode, 'pty');
     await waitForPtyText(manager, initial.ref, /name\?/);
@@ -651,12 +727,14 @@ describe('ShellRunProcessManager', () => {
 
   test('rejects malformed PTY controls before commit without poisoning later input', async () => {
     const manager = await createTestManager();
-    const initial = await manager.runBackgroundBash(shellInput({
-      cwd: await workspace(),
-      command: rawLineReaderCommand({ prompt: 'READY\n', label: 'VALUE:', lines: 1 }),
-      pty: true,
-      timeoutMs: 5_000,
-    }));
+    const initial = await manager.runBackgroundBash(
+      shellInput({
+        cwd: await workspace(),
+        command: rawLineReaderCommand({ prompt: 'READY\n', label: 'VALUE:', lines: 1 }),
+        pty: true,
+        timeoutMs: 5_000,
+      }),
+    );
     assert.equal(initial.kind, 'shell_run');
     await waitForPtyText(manager, initial.ref, /READY/);
     const base = {
@@ -698,12 +776,14 @@ describe('ShellRunProcessManager', () => {
 
   test('delivers Ctrl-C and Ctrl-D as terminal control characters', async () => {
     const manager = await createTestManager();
-    const interrupted = await manager.runBackgroundBash(shellInput({
-      cwd: await workspace(),
-      command: controlCharacterCommand('\u0003', 'INT-SEEN'),
-      pty: true,
-      timeoutMs: 5_000,
-    }));
+    const interrupted = await manager.runBackgroundBash(
+      shellInput({
+        cwd: await workspace(),
+        command: controlCharacterCommand('\u0003', 'INT-SEEN'),
+        pty: true,
+        timeoutMs: 5_000,
+      }),
+    );
     assert.equal(interrupted.kind, 'shell_run');
     await waitForPtyText(manager, interrupted.ref, /READY/);
 
@@ -714,7 +794,9 @@ describe('ShellRunProcessManager', () => {
       abortSignal: NO_ABORT,
     });
     assert.deepEqual(ctrlCControl.operation, {
-      kind: 'pty_control', failed: false, input: { bytes: 1, queued: true },
+      kind: 'pty_control',
+      failed: false,
+      input: { bytes: 1, queued: true },
     });
     const ctrlC = await waitForTerminalShellRun(manager, interrupted.ref);
     assertShellRunSnapshot(ctrlC);
@@ -723,12 +805,14 @@ describe('ShellRunProcessManager', () => {
     if (ctrlC.output.mode !== 'pty') throw new Error('expected pty output');
     assert.match(terminalText(ctrlC.output), /INT-SEEN/);
 
-    const awaitingEof = await manager.runBackgroundBash(shellInput({
-      cwd: await workspace(),
-      command: controlCharacterCommand('\u0004', 'EOF-SEEN'),
-      pty: true,
-      timeoutMs: 5_000,
-    }));
+    const awaitingEof = await manager.runBackgroundBash(
+      shellInput({
+        cwd: await workspace(),
+        command: controlCharacterCommand('\u0004', 'EOF-SEEN'),
+        pty: true,
+        timeoutMs: 5_000,
+      }),
+    );
     assert.equal(awaitingEof.kind, 'shell_run');
     await waitForPtyText(manager, awaitingEof.ref, /READY/);
 
@@ -739,7 +823,9 @@ describe('ShellRunProcessManager', () => {
       abortSignal: NO_ABORT,
     });
     assert.deepEqual(ctrlDControl.operation, {
-      kind: 'pty_control', failed: false, input: { bytes: 1, queued: true },
+      kind: 'pty_control',
+      failed: false,
+      input: { bytes: 1, queued: true },
     });
     const ctrlD = await waitForTerminalShellRun(manager, awaitingEof.ref);
     assertShellRunSnapshot(ctrlD);
@@ -751,12 +837,14 @@ describe('ShellRunProcessManager', () => {
 
   test('keeps concurrent PTY controls FIFO without an output-observation wait', async () => {
     const manager = await createTestManager();
-    const initial = await manager.runBackgroundBash(shellInput({
-      cwd: await workspace(),
-      command: rawLineReaderCommand({ prompt: 'READY\n', label: 'SEEN:', lines: 3 }),
-      pty: true,
-      timeoutMs: 5_000,
-    }));
+    const initial = await manager.runBackgroundBash(
+      shellInput({
+        cwd: await workspace(),
+        command: rawLineReaderCommand({ prompt: 'READY\n', label: 'SEEN:', lines: 3 }),
+        pty: true,
+        timeoutMs: 5_000,
+      }),
+    );
     assert.equal(initial.kind, 'shell_run');
     await waitForPtyText(manager, initial.ref, /READY/);
 
@@ -786,17 +874,20 @@ describe('ShellRunProcessManager', () => {
       controls.map((result) => result.operation),
       [
         {
-          kind: 'pty_control', failed: false,
+          kind: 'pty_control',
+          failed: false,
           input: { bytes: 4, queued: true },
           resize: { cols: 81, rows: 25, applied: true, changed: true },
         },
         {
-          kind: 'pty_control', failed: false,
+          kind: 'pty_control',
+          failed: false,
           input: { bytes: 4, queued: true },
           resize: { cols: 82, rows: 26, applied: true, changed: true },
         },
         {
-          kind: 'pty_control', failed: false,
+          kind: 'pty_control',
+          failed: false,
           input: { bytes: 6, queued: true },
           resize: { cols: 83, rows: 27, applied: true, changed: true },
         },
@@ -807,10 +898,14 @@ describe('ShellRunProcessManager', () => {
       return control;
     });
     assert.deepEqual(
-      snapshots.map((control) => control.output.mode === 'pty'
-        ? [control.output.cols, control.output.rows]
-        : undefined),
-      [[81, 25], [82, 26], [83, 27]],
+      snapshots.map((control) =>
+        control.output.mode === 'pty' ? [control.output.cols, control.output.rows] : undefined,
+      ),
+      [
+        [81, 25],
+        [82, 26],
+        [83, 27],
+      ],
     );
     assert.ok(snapshots[0]!.revision < snapshots[1]!.revision);
     assert.ok(snapshots[1]!.revision < snapshots[2]!.revision);
@@ -826,15 +921,17 @@ describe('ShellRunProcessManager', () => {
     const updates: ShellRunUpdate[] = [];
     const store = createShellRunStore(await workspace());
     const manager = createManager(store, (update) => updates.push(update));
-    const initial = await manager.runBackgroundBash(shellInput({
-      cwd: await workspace(),
-      command: nodeCommand(`
+    const initial = await manager.runBackgroundBash(
+      shellInput({
+        cwd: await workspace(),
+        command: nodeCommand(`
         process.stdout.write('READY\\n');
         setInterval(() => {}, 1000);
       `),
-      pty: true,
-      timeoutMs: 5_000,
-    }));
+        pty: true,
+        timeoutMs: 5_000,
+      }),
+    );
     assert.equal(initial.kind, 'shell_run');
 
     try {
@@ -861,22 +958,26 @@ describe('ShellRunProcessManager', () => {
       assert.equal(secondControl.output.mode, 'pty');
       assert.equal(observed.output.mode, 'pty');
       if (
-        firstControl.output.mode !== 'pty'
-        || secondControl.output.mode !== 'pty'
-        || observed.output.mode !== 'pty'
-      ) throw new Error('expected pty output');
+        firstControl.output.mode !== 'pty' ||
+        secondControl.output.mode !== 'pty' ||
+        observed.output.mode !== 'pty'
+      )
+        throw new Error('expected pty output');
       assert.deepEqual([firstControl.output.cols, firstControl.output.rows], [81, 25]);
       assert.deepEqual([secondControl.output.cols, secondControl.output.rows], [82, 26]);
       assert.deepEqual([observed.output.cols, observed.output.rows], [82, 26]);
       assert.ok(firstControl.revision < secondControl.revision);
       assert.equal(secondControl.revision, observed.revision);
 
-      const controlSizes = updates.flatMap(({ result }) => (
+      const controlSizes = updates.flatMap(({ result }) =>
         result.output?.mode === 'pty' && result.output.cols >= 81
           ? [[result.output.cols, result.output.rows]]
-          : []
-      ));
-      assert.deepEqual(controlSizes, [[81, 25], [82, 26]]);
+          : [],
+      );
+      assert.deepEqual(controlSizes, [
+        [81, 25],
+        [82, 26],
+      ]);
       const durable = await store.readShellRun('session-1', 'shell-run-1');
       assert.equal(durable.output.mode, 'pty');
       if (durable.output.mode !== 'pty') throw new Error('expected durable pty output');
@@ -893,9 +994,10 @@ describe('ShellRunProcessManager', () => {
     const sizeBeforeExit = join(cwd, 'size-before-exit');
     const store = createShellRunStore(await workspace());
     const manager = createManager(store);
-    const initial = await manager.runBackgroundBash(shellInput({
-      cwd,
-      command: nodeCommand(`
+    const initial = await manager.runBackgroundBash(
+      shellInput({
+        cwd,
+        command: nodeCommand(`
         const { readFileSync, writeFileSync } = require('node:fs');
         process.stdin.setRawMode?.(true);
         process.stdin.resume();
@@ -937,9 +1039,10 @@ describe('ShellRunProcessManager', () => {
           'READY:' + process.stdout.columns + 'x' + process.stdout.rows + '\\n',
         );
       `),
-      pty: true,
-      timeoutMs: 15_000,
-    }));
+        pty: true,
+        timeoutMs: 15_000,
+      }),
+    );
     assert.equal(initial.kind, 'shell_run');
 
     try {
@@ -951,12 +1054,13 @@ describe('ShellRunProcessManager', () => {
         abortSignal: NO_ABORT,
       });
       assert.deepEqual(prime.operation, {
-        kind: 'pty_control', failed: false,
+        kind: 'pty_control',
+        failed: false,
         input: { bytes: 5, queued: true },
       });
       await waitUntil(async () => {
         try {
-          return await readFile(dsrSeen, 'utf8') === '1b5b306e';
+          return (await readFile(dsrSeen, 'utf8')) === '1b5b306e';
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
           throw error;
@@ -977,7 +1081,8 @@ describe('ShellRunProcessManager', () => {
       assert.equal(control.status, 'completed');
       assert.equal(control.exitCode, 0);
       assert.deepEqual(control.operation, {
-        kind: 'pty_control', failed: false,
+        kind: 'pty_control',
+        failed: false,
         resize: { cols: 81, rows: 25, applied: false, changed: false },
       });
       assert.equal(control.output.mode, 'pty');
@@ -997,30 +1102,33 @@ describe('ShellRunProcessManager', () => {
 
   test('rejects WriteStdin aborted before commit without stopping the PTY', async () => {
     const manager = await createTestManager();
-    const initial = await manager.runBackgroundBash(shellInput({
-      cwd: await workspace(),
-      command: nodeCommand(`
+    const initial = await manager.runBackgroundBash(
+      shellInput({
+        cwd: await workspace(),
+        command: nodeCommand(`
         process.stdin.setRawMode?.(true);
         process.stdin.setEncoding('utf8');
         process.stdout.write('READY\\n');
         process.stdin.once('data', (chunk) => process.stdout.write('SEEN:' + chunk + '\\n'));
         setInterval(() => {}, 1000);
       `),
-      pty: true,
-      timeoutMs: 5_000,
-    }));
+        pty: true,
+        timeoutMs: 5_000,
+      }),
+    );
     assert.equal(initial.kind, 'shell_run');
     await waitForPtyText(manager, initial.ref, /READY/);
 
     const abortedBeforeCommit = new AbortController();
     abortedBeforeCommit.abort();
     await assert.rejects(
-      () => manager.writeStdin({
-        sessionId: 'session-1',
-        ref: initial.ref,
-        input: 'discarded',
-        abortSignal: abortedBeforeCommit.signal,
-      }),
+      () =>
+        manager.writeStdin({
+          sessionId: 'session-1',
+          ref: initial.ref,
+          input: 'discarded',
+          abortSignal: abortedBeforeCommit.signal,
+        }),
       /aborted before the control operation was committed/,
     );
 
@@ -1033,9 +1141,10 @@ describe('ShellRunProcessManager', () => {
     const dirtyWritten = join(cwd, 'dirty-written');
     const store = createShellRunStore(await workspace());
     const manager = createManager(store, undefined, { flushIntervalMs: 1_000 });
-    const initial = await manager.runBackgroundBash(shellInput({
-      cwd,
-      command: nodeCommand(`
+    const initial = await manager.runBackgroundBash(
+      shellInput({
+        cwd,
+        command: nodeCommand(`
         const { writeFileSync } = require('node:fs');
         process.stdin.setRawMode?.(true);
         process.stdin.resume();
@@ -1055,9 +1164,10 @@ describe('ShellRunProcessManager', () => {
         });
         setInterval(() => {}, 1000);
       `),
-      pty: true,
-      timeoutMs: 5_000,
-    }));
+        pty: true,
+        timeoutMs: 5_000,
+      }),
+    );
     assert.equal(initial.kind, 'shell_run');
 
     try {
@@ -1071,7 +1181,7 @@ describe('ShellRunProcessManager', () => {
       });
       await waitUntil(async () => {
         try {
-          return await readFile(dirtyWritten, 'utf8') === 'written';
+          return (await readFile(dirtyWritten, 'utf8')) === 'written';
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
           throw error;
@@ -1095,9 +1205,11 @@ describe('ShellRunProcessManager', () => {
 
       await waitUntil(async () => {
         const durable = await store.readShellRun('session-1', 'shell-run-1');
-        return durable.revision > beforeDirty.revision
-          && durable.output.mode === 'pty'
-          && /DIRTY/.test(terminalText(durable.output));
+        return (
+          durable.revision > beforeDirty.revision &&
+          durable.output.mode === 'pty' &&
+          /DIRTY/.test(terminalText(durable.output))
+        );
       });
     } finally {
       await manager.stopBackgroundTask('session-1', initial.ref, NO_ABORT);
@@ -1106,9 +1218,10 @@ describe('ShellRunProcessManager', () => {
 
   test('linearizes native resize, collector resize, input, and snapshot on a real PTY', async () => {
     const manager = await createTestManager();
-    const initial = await manager.runBackgroundBash(shellInput({
-      cwd: await workspace(),
-      command: nodeCommand(`
+    const initial = await manager.runBackgroundBash(
+      shellInput({
+        cwd: await workspace(),
+        command: nodeCommand(`
         process.stdin.setRawMode?.(true);
         process.stdin.resume();
         process.stdout.write('ready\\n');
@@ -1116,9 +1229,10 @@ describe('ShellRunProcessManager', () => {
           process.stdout.write(process.stdout.rows + ' ' + process.stdout.columns + '\\n', () => process.exit(0));
         }, 20));
       `),
-      pty: true,
-      timeoutMs: 5_000,
-    }));
+        pty: true,
+        timeoutMs: 5_000,
+      }),
+    );
     assert.equal(initial.kind, 'shell_run');
     await waitForPtyText(manager, initial.ref, /ready/i);
 
@@ -1160,11 +1274,13 @@ describe('ShellRunProcessManager', () => {
 
   test('uses Unicode 11 cell widths for CJK, combining marks, and emoji', async () => {
     const manager = await createTestManager();
-    const initial = await manager.runBackgroundBash(shellInput({
-      cwd: await workspace(),
-      command: nodeCommand("process.stdout.write('A\\u754ce\\u0301\\u{1F642}')"),
-      pty: true,
-    }));
+    const initial = await manager.runBackgroundBash(
+      shellInput({
+        cwd: await workspace(),
+        command: nodeCommand("process.stdout.write('A\\u754ce\\u0301\\u{1F642}')"),
+        pty: true,
+      }),
+    );
     const result = await waitForTerminalShellRun(manager, initial.ref);
 
     assertShellRunSnapshot(result);
@@ -1176,12 +1292,15 @@ describe('ShellRunProcessManager', () => {
 
   test('joins soft-wrapped scrollback into logical lines', async () => {
     const manager = await createTestManager();
-    const script = "for (let i = 0; i < 30; i += 1) process.stdout.write(String(i).padStart(2, '0') + ':' + 'x'.repeat(90) + '\\n');";
-    const initial = await manager.runBackgroundBash(shellInput({
-      cwd: await workspace(),
-      command: nodeCommand(script),
-      pty: true,
-    }));
+    const script =
+      "for (let i = 0; i < 30; i += 1) process.stdout.write(String(i).padStart(2, '0') + ':' + 'x'.repeat(90) + '\\n');";
+    const initial = await manager.runBackgroundBash(
+      shellInput({
+        cwd: await workspace(),
+        command: nodeCommand(script),
+        pty: true,
+      }),
+    );
     const result = await waitForTerminalShellRun(manager, initial.ref);
 
     assertShellRunSnapshot(result);
@@ -1192,12 +1311,16 @@ describe('ShellRunProcessManager', () => {
 
   test('drains the final frame after parser backpressure and drops an evicted wrapped prefix', async () => {
     const manager = await createTestManager();
-    const initial = await manager.runBackgroundBash(shellInput({
-      cwd: await workspace(),
-      command: nodeCommand("process.stdout.write('x'.repeat(1536 * 1024)); process.stdout.write('\\nFINAL-DRAIN\\n');"),
-      pty: true,
-      timeoutMs: 15_000,
-    }));
+    const initial = await manager.runBackgroundBash(
+      shellInput({
+        cwd: await workspace(),
+        command: nodeCommand(
+          "process.stdout.write('x'.repeat(1536 * 1024)); process.stdout.write('\\nFINAL-DRAIN\\n');",
+        ),
+        pty: true,
+        timeoutMs: 15_000,
+      }),
+    );
     const result = await waitForTerminalShellRun(manager, initial.ref, 15_000);
 
     assertShellRunSnapshot(result);
@@ -1211,9 +1334,10 @@ describe('ShellRunProcessManager', () => {
 
   test('returns the redrawn screen rather than stale pre-clear text', async () => {
     const manager = await createTestManager();
-    const initial = await manager.runBackgroundBash(shellInput({
-      cwd: await workspace(),
-      command: nodeCommand(`
+    const initial = await manager.runBackgroundBash(
+      shellInput({
+        cwd: await workspace(),
+        command: nodeCommand(`
         process.stdin.setRawMode?.(true);
         process.stdin.resume();
         process.stdout.write('stale-screen');
@@ -1221,9 +1345,10 @@ describe('ShellRunProcessManager', () => {
           process.stdout.write('\\u001b[2J\\u001b[HABCDE\\rXY\\u001b[K\\n', () => process.exit(0));
         });
       `),
-      pty: true,
-      timeoutMs: 5_000,
-    }));
+        pty: true,
+        timeoutMs: 5_000,
+      }),
+    );
     assert.equal(initial.kind, 'shell_run');
     await waitForPtyText(manager, initial.ref, /stale-screen/);
     const control = await manager.writeStdin({
@@ -1233,7 +1358,9 @@ describe('ShellRunProcessManager', () => {
       abortSignal: NO_ABORT,
     });
     assert.deepEqual(control.operation, {
-      kind: 'pty_control', failed: false, input: { bytes: 1, queued: true },
+      kind: 'pty_control',
+      failed: false,
+      input: { bytes: 1, queued: true },
     });
     const result = await waitForTerminalShellRun(manager, initial.ref);
     assertShellRunSnapshot(result);
@@ -1245,11 +1372,15 @@ describe('ShellRunProcessManager', () => {
 
   test('captures only the latest alternate-screen epoch when a real PTY program leaves it', async () => {
     const manager = await createTestManager();
-    const initial = await manager.runBackgroundBash(shellInput({
-      cwd: await workspace(),
-      command: nodeCommand("process.stdout.write('\\u001b[?1049hOLD-ALT\\u001b[?1049l\\u001b[?1049hNEW-ALT\\u001b[?1049lNORMAL-FRAME\\n')"),
-      pty: true,
-    }));
+    const initial = await manager.runBackgroundBash(
+      shellInput({
+        cwd: await workspace(),
+        command: nodeCommand(
+          "process.stdout.write('\\u001b[?1049hOLD-ALT\\u001b[?1049l\\u001b[?1049hNEW-ALT\\u001b[?1049lNORMAL-FRAME\\n')",
+        ),
+        pty: true,
+      }),
+    );
     const result = await waitForTerminalShellRun(manager, initial.ref);
     assertShellRunSnapshot(result);
     assert.equal(result.output.mode, 'pty');
@@ -1261,11 +1392,15 @@ describe('ShellRunProcessManager', () => {
 
   test('consumes terminal side channels while preserving visible hyperlink text', async () => {
     const manager = await createTestManager();
-    const initial = await manager.runBackgroundBash(shellInput({
-      cwd: await workspace(),
-      command: nodeCommand("process.stdout.write('\\u001b]0;HIDDEN-TITLE-0\\u0007\\u001b]1;HIDDEN-TITLE-1\\u0007\\u001b]2;HIDDEN-TITLE-2\\u0007\\u001b]7;file:///HIDDEN-CWD\\u0007\\u001b]52;c;Q0xJUEJPQVJE\\u0007\\u001b]8;;https://hidden.example\\u0007VISIBLE-LINK\\u001b]8;;\\u0007\\u001b]9;HIDDEN-NOTICE-9\\u0007\\u001b]777;HIDDEN-NOTICE-777\\u0007\\u0007\\n')"),
-      pty: true,
-    }));
+    const initial = await manager.runBackgroundBash(
+      shellInput({
+        cwd: await workspace(),
+        command: nodeCommand(
+          "process.stdout.write('\\u001b]0;HIDDEN-TITLE-0\\u0007\\u001b]1;HIDDEN-TITLE-1\\u0007\\u001b]2;HIDDEN-TITLE-2\\u0007\\u001b]7;file:///HIDDEN-CWD\\u0007\\u001b]52;c;Q0xJUEJPQVJE\\u0007\\u001b]8;;https://hidden.example\\u0007VISIBLE-LINK\\u001b]8;;\\u0007\\u001b]9;HIDDEN-NOTICE-9\\u0007\\u001b]777;HIDDEN-NOTICE-777\\u0007\\u0007\\n')",
+        ),
+        pty: true,
+      }),
+    );
     const result = await waitForTerminalShellRun(manager, initial.ref);
     assertShellRunSnapshot(result);
     assert.equal(result.output.mode, 'pty');
@@ -1277,9 +1412,10 @@ describe('ShellRunProcessManager', () => {
 
   test('writes xterm protocol replies back to the real PTY synchronously', async () => {
     const manager = await createTestManager();
-    const initial = await manager.runBackgroundBash(shellInput({
-      cwd: await workspace(),
-      command: nodeCommand(`
+    const initial = await manager.runBackgroundBash(
+      shellInput({
+        cwd: await workspace(),
+        command: nodeCommand(`
         process.stdin.setRawMode?.(true);
         let reply = Buffer.alloc(0);
         process.stdin.on('data', (chunk) => {
@@ -1290,9 +1426,10 @@ describe('ShellRunProcessManager', () => {
         });
         process.stdout.write('\\u001b[5n');
       `),
-      pty: true,
-      timeoutMs: 5_000,
-    }));
+        pty: true,
+        timeoutMs: 5_000,
+      }),
+    );
     const result = await waitForTerminalShellRun(manager, initial.ref);
     assertShellRunSnapshot(result);
     assert.equal(result.output.mode, 'pty');
@@ -1303,18 +1440,20 @@ describe('ShellRunProcessManager', () => {
   test('fails closed before terminal protocol replies can form an unbounded native write queue', async () => {
     const manager = await createTestManager();
     const queries = Math.floor(PTY_PROTOCOL_REPLY_MAX_BYTES / 4) + 1;
-    const initial = await manager.runBackgroundBash(shellInput({
-      cwd: await workspace(),
-      command: nodeCommand(`
+    const initial = await manager.runBackgroundBash(
+      shellInput({
+        cwd: await workspace(),
+        command: nodeCommand(`
         process.stdin.setRawMode?.(true);
         process.stdin.pause();
         const query = '\\u001b[5n'.repeat(${queries});
         process.stdout.write(query);
         setInterval(() => {}, 1000);
       `),
-      pty: true,
-      timeoutMs: 10_000,
-    }));
+        pty: true,
+        timeoutMs: 10_000,
+      }),
+    );
     const result = await waitForTerminalShellRun(manager, initial.ref, 10_000);
     assertShellRunSnapshot(result);
     assert.equal(result.status, 'failed');
@@ -1326,14 +1465,16 @@ describe('ShellRunProcessManager', () => {
   test('redacts a secret across a soft wrap and the scrollback/screen boundary', async () => {
     const secret = 'ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ';
     const manager = await createTestManager();
-    const initial = await manager.runBackgroundBash(shellInput({
-      cwd: await workspace(),
-      command: nodeCommand(`
+    const initial = await manager.runBackgroundBash(
+      shellInput({
+        cwd: await workspace(),
+        command: nodeCommand(`
         process.stdout.write(${JSON.stringify(`${'x'.repeat(73)} ${secret}\n`)});
         for (let line = 1; line <= 22; line += 1) process.stdout.write('line-' + line + '\\n');
       `),
-      pty: true,
-    }));
+        pty: true,
+      }),
+    );
     const result = await waitForTerminalShellRun(manager, initial.ref);
     assertShellRunSnapshot(result);
     assert.equal(result.output.mode, 'pty');
@@ -1348,9 +1489,10 @@ describe('ShellRunProcessManager', () => {
     const cwd = await workspace();
     const childPidPath = join(cwd, 'child.pid');
     const manager = await createTestManager();
-    const result = await manager.runBackgroundBash(shellInput({
-      cwd,
-      command: nodeCommand(`
+    const result = await manager.runBackgroundBash(
+      shellInput({
+        cwd,
+        command: nodeCommand(`
         const { spawn } = require('node:child_process');
         const { writeFileSync } = require('node:fs');
         const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
@@ -1362,9 +1504,10 @@ describe('ShellRunProcessManager', () => {
         process.stdout.write('READY\\n');
         setInterval(() => {}, 1000);
       `),
-      pty: true,
-      timeoutMs: 5_000,
-    }));
+        pty: true,
+        timeoutMs: 5_000,
+      }),
+    );
 
     assert.equal(result.kind, 'shell_run');
     await waitUntil(async () => {
@@ -1388,28 +1531,39 @@ describe('ShellRunProcessManager', () => {
   });
 
   test('keeps the first committed lifecycle cause across Stop and timeout races', {
-    skip: process.platform === 'win32' ? 'Windows tree termination has no graceful SIGTERM phase' : false,
+    skip:
+      process.platform === 'win32'
+        ? 'Windows tree termination has no graceful SIGTERM phase'
+        : false,
   }, async () => {
     const cancelledManager = await createTestManager(undefined, { killGraceMs: 500 });
-    const cancelledRun = await cancelledManager.runBackgroundBash(shellInput({
-      cwd: await workspace(),
-      command: 'trap "" TERM; printf "READY\\n"; while :; do sleep 1; done',
-      pty: true,
-      timeoutMs: 350,
-    }));
+    const cancelledRun = await cancelledManager.runBackgroundBash(
+      shellInput({
+        cwd: await workspace(),
+        command: 'trap "" TERM; printf "READY\\n"; while :; do sleep 1; done',
+        pty: true,
+        timeoutMs: 350,
+      }),
+    );
     assert.equal(cancelledRun.kind, 'shell_run');
-    const cancelled = await cancelledManager.stopBackgroundTask('session-1', cancelledRun.ref, NO_ABORT);
+    const cancelled = await cancelledManager.stopBackgroundTask(
+      'session-1',
+      cancelledRun.ref,
+      NO_ABORT,
+    );
     assertShellRun(cancelled);
     assert.equal(cancelled.status, 'cancelled');
     assert.deepEqual(cancelled.operation, { kind: 'stop', applied: true });
 
     const timedOutManager = await createTestManager(undefined, { killGraceMs: 500 });
-    const timedOutRun = await timedOutManager.runBackgroundBash(shellInput({
-      cwd: await workspace(),
-      command: 'trap "" TERM; stty -echo; printf "READY\\n"; while :; do sleep 1; done',
-      pty: true,
-      timeoutMs: 350,
-    }));
+    const timedOutRun = await timedOutManager.runBackgroundBash(
+      shellInput({
+        cwd: await workspace(),
+        command: 'trap "" TERM; stty -echo; printf "READY\\n"; while :; do sleep 1; done',
+        pty: true,
+        timeoutMs: 350,
+      }),
+    );
     assert.equal(timedOutRun.kind, 'shell_run');
     await waitUntil(async () => {
       try {
@@ -1425,7 +1579,11 @@ describe('ShellRunProcessManager', () => {
         throw error;
       }
     });
-    const timedOut = await timedOutManager.stopBackgroundTask('session-1', timedOutRun.ref, NO_ABORT);
+    const timedOut = await timedOutManager.stopBackgroundTask(
+      'session-1',
+      timedOutRun.ref,
+      NO_ABORT,
+    );
     assertShellRun(timedOut);
     assert.equal(timedOut.status, 'timed_out');
     assert.deepEqual(timedOut.operation, { kind: 'stop', applied: false });
@@ -1439,47 +1597,59 @@ describe('ShellRunProcessManager', () => {
     const store = createShellRunStore(storageRoot);
     const manager = createManager(store, undefined, { maxLiveShellRuns: 2, maxLivePtyRuns: 1 });
     try {
-      await assert.rejects(
-        () => manager.runBackgroundBash(shellInput({
-          cwd,
-          command: waitForeverCommand('STARTED\n'),
-          pty: true,
-        })),
+      await assert.rejects(() =>
+        manager.runBackgroundBash(
+          shellInput({
+            cwd,
+            command: waitForeverCommand('STARTED\n'),
+            pty: true,
+          }),
+        ),
       );
       assert.equal(manager.liveCount(), 0);
       assert.equal(manager.livePtyCount(), 0);
       await rm(sessionsPath, { force: true });
       assert.deepEqual(await store.listSessionShellRuns('session-1'), []);
 
-      const ptyRun = await manager.runBackgroundBash(shellInput({
-        cwd,
-        command: waitForeverCommand('PTY-READY\n'),
-        pty: true,
-        timeoutMs: 10_000,
-      }));
+      const ptyRun = await manager.runBackgroundBash(
+        shellInput({
+          cwd,
+          command: waitForeverCommand('PTY-READY\n'),
+          pty: true,
+          timeoutMs: 10_000,
+        }),
+      );
       assert.equal(ptyRun.kind, 'shell_run');
       await assert.rejects(
-        () => manager.runBackgroundBash(shellInput({
-          cwd,
-          command: waitForeverCommand(),
-          pty: true,
-        })),
+        () =>
+          manager.runBackgroundBash(
+            shellInput({
+              cwd,
+              command: waitForeverCommand(),
+              pty: true,
+            }),
+          ),
         /Live PTY capacity is full \(1\)/,
       );
 
-      const pipeRun = await manager.runBackgroundBash(shellInput({
-        cwd,
-        command: waitForeverCommand('PIPE-READY\n'),
-        timeoutMs: 10_000,
-      }));
+      const pipeRun = await manager.runBackgroundBash(
+        shellInput({
+          cwd,
+          command: waitForeverCommand('PIPE-READY\n'),
+          timeoutMs: 10_000,
+        }),
+      );
       assert.equal(pipeRun.kind, 'shell_run');
       assert.equal(manager.liveCount(), 2);
       assert.equal(manager.livePtyCount(), 1);
       await assert.rejects(
-        () => manager.runBackgroundBash(shellInput({
-          cwd,
-          command: waitForeverCommand(),
-        })),
+        () =>
+          manager.runBackgroundBash(
+            shellInput({
+              cwd,
+              command: waitForeverCommand(),
+            }),
+          ),
         /Live background task capacity is full \(2\)/,
       );
 
@@ -1493,16 +1663,23 @@ describe('ShellRunProcessManager', () => {
   });
 
   test('keeps SIGTERM final output and escalates an ignored SIGTERM without leaking slots', {
-    skip: process.platform === 'win32' ? 'Windows tree termination has no graceful SIGTERM phase' : false,
+    skip:
+      process.platform === 'win32'
+        ? 'Windows tree termination has no graceful SIGTERM phase'
+        : false,
   }, async () => {
     const graceful = await createTestManager();
-    const gracefulRun = await graceful.runBackgroundBash(shellInput({
-      cwd: await workspace(),
-      command: 'trap \'printf "\\nFINAL-SENTINEL\\n"; exit 0\' TERM; printf "ready\\n"; while :; do sleep 1; done',
-      pty: true,
-      timeoutMs: 5_000,
-    }));
+    const gracefulRun = await graceful.runBackgroundBash(
+      shellInput({
+        cwd: await workspace(),
+        command:
+          'trap \'printf "\\nFINAL-SENTINEL\\n"; exit 0\' TERM; printf "ready\\n"; while :; do sleep 1; done',
+        pty: true,
+        timeoutMs: 5_000,
+      }),
+    );
     assert.equal(gracefulRun.kind, 'shell_run');
+    await waitForPtyText(graceful, gracefulRun.ref, /ready/);
     const stopped = await graceful.stopBackgroundTask('session-1', gracefulRun.ref, NO_ABORT);
     assertShellRun(stopped);
     assert.equal(stopped.output?.mode, 'pty');
@@ -1511,13 +1688,16 @@ describe('ShellRunProcessManager', () => {
     assert.equal(graceful.liveCount(), 0);
 
     const forced = await createTestManager();
-    const forcedRun = await forced.runBackgroundBash(shellInput({
-      cwd: await workspace(),
-      command: 'trap "" TERM; printf "ready\\n"; while :; do sleep 1; done',
-      pty: true,
-      timeoutMs: 5_000,
-    }));
+    const forcedRun = await forced.runBackgroundBash(
+      shellInput({
+        cwd: await workspace(),
+        command: 'trap "" TERM; printf "ready\\n"; while :; do sleep 1; done',
+        pty: true,
+        timeoutMs: 5_000,
+      }),
+    );
     assert.equal(forcedRun.kind, 'shell_run');
+    await waitForPtyText(forced, forcedRun.ref, /ready/);
     const forcedStop = await forced.stopBackgroundTask('session-1', forcedRun.ref, NO_ABORT);
     assertShellRun(forcedStop);
     assert.equal(forcedStop.status, 'cancelled');
@@ -1624,9 +1804,12 @@ function assertShellRun(
   assert.equal(content.kind, 'shell_run');
 }
 
-function assertShellRunSnapshot(
-  content: ToolResultContent,
-): asserts content is Extract<ToolResultContent, { kind: 'shell_run' }> & { output: ShellRunRecord['output'] } {
+function assertShellRunSnapshot(content: ToolResultContent): asserts content is Extract<
+  ToolResultContent,
+  { kind: 'shell_run' }
+> & {
+  output: ShellRunRecord['output'];
+} {
   assertShellRun(content);
   assert.ok(content.output);
 }
@@ -1662,9 +1845,12 @@ function waitForPtyText(
   pattern: RegExp,
   timeoutMs = 3_000,
 ): Promise<ShellRunResult> {
-  return waitForShellRun(manager, ref, (result) => (
-    result.output?.mode === 'pty' && pattern.test(terminalText(result.output))
-  ), timeoutMs);
+  return waitForShellRun(
+    manager,
+    ref,
+    (result) => result.output?.mode === 'pty' && pattern.test(terminalText(result.output)),
+    timeoutMs,
+  );
 }
 
 function terminalText(output: Extract<ShellRunRecord['output'], { mode: 'pty' }>): string {
@@ -1677,7 +1863,10 @@ async function workspace(): Promise<string> {
   return path;
 }
 
-async function waitUntil(predicate: () => boolean | Promise<boolean>, timeoutMs = 3_000): Promise<void> {
+async function waitUntil(
+  predicate: () => boolean | Promise<boolean>,
+  timeoutMs = 3_000,
+): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (!(await predicate())) {
     if (Date.now() >= deadline) throw new Error('Timed out waiting for ShellRun state');

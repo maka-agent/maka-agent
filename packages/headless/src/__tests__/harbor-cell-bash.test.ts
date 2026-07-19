@@ -34,7 +34,10 @@ describe('Harbor local executor Bash (real spawn, >10MB)', () => {
 
     assert.equal(result.exitCode, 0); // ran to completion — not killed by maxBuffer
     assert.ok(result.output.stdout.includes('TAIL_SENTINEL'), 'true tail retained');
-    assert.ok(!result.output.stdout.includes('HEAD_SENTINEL'), 'head dropped — it is a tail, not the head');
+    assert.ok(
+      !result.output.stdout.includes('HEAD_SENTINEL'),
+      'head dropped — it is a tail, not the head',
+    );
     assert.ok(result.output.stdout.includes('truncated'), 'model-budget truncation marker present');
   });
 

@@ -33,10 +33,7 @@ import {
   type ToolExecutionFacts,
   type ToolPermissionRule,
 } from '@maka/core/permission';
-import type {
-  AnyPermissionRequestEvent,
-  PermissionDecisionAckEvent,
-} from '@maka/core/events';
+import type { AnyPermissionRequestEvent, PermissionDecisionAckEvent } from '@maka/core/events';
 import {
   DEFAULT_ADDITIONAL_PERMISSION_GRANT_TTL_MS,
   AdditionalPermissionError,
@@ -180,27 +177,24 @@ export class PermissionEngine {
   endTurn(turnId: string, reason: 'completed' | 'aborted' = 'completed'): void {
     const state = this.turns.get(turnId);
     if (!state) return;
-    this.parked.endTurn(
-      turnId,
-      (requestId, parked) => {
-        const message = `Turn ${turnId} ${reason} before permission request ${requestId} was answered`;
-        return parked.additionalProposal
-          ? new AdditionalPermissionError({
+    this.parked.endTurn(turnId, (requestId, parked) => {
+      const message = `Turn ${turnId} ${reason} before permission request ${requestId} was answered`;
+      return parked.additionalProposal
+        ? new AdditionalPermissionError({
+            stage: 'approval',
+            reason: 'additional_permission_aborted',
+            message,
+            recoverable: true,
+          })
+        : parked.sandboxEscalationProposal
+          ? new SandboxEscalationError({
               stage: 'approval',
-              reason: 'additional_permission_aborted',
+              reason: 'sandbox_escalation_aborted',
               message,
               recoverable: true,
             })
-          : parked.sandboxEscalationProposal
-            ? new SandboxEscalationError({
-                stage: 'approval',
-                reason: 'sandbox_escalation_aborted',
-                message,
-                recoverable: true,
-              })
-            : new Error(message);
-      },
-    );
+          : new Error(message);
+    });
     this.turns.delete(turnId);
   }
 
@@ -245,11 +239,7 @@ export class PermissionEngine {
         },
       };
     }
-    if (
-      ruleDecision === undefined
-      && input.permissionRequired === false
-      && !hasOneShotProposal
-    ) {
+    if (ruleDecision === undefined && input.permissionRequired === false && !hasOneShotProposal) {
       return { kind: 'allow', category };
     }
 
@@ -284,9 +274,10 @@ export class PermissionEngine {
         return {
           kind: 'block',
           category: pre.category,
-          reason: error instanceof AdditionalPermissionError
-            ? error.message
-            : 'Additional permission proposal validation failed.',
+          reason:
+            error instanceof AdditionalPermissionError
+              ? error.message
+              : 'Additional permission proposal validation failed.',
         };
       }
       if (input.mode === 'explore') {
@@ -319,9 +310,10 @@ export class PermissionEngine {
         return {
           kind: 'block',
           category: pre.category,
-          reason: error instanceof SandboxEscalationError
-            ? error.message
-            : 'Sandbox escalation proposal validation failed.',
+          reason:
+            error instanceof SandboxEscalationError
+              ? error.message
+              : 'Sandbox escalation proposal validation failed.',
         };
       }
       if (input.mode === 'explore') {
@@ -341,8 +333,9 @@ export class PermissionEngine {
       }
     }
 
-    const baseExplicitlyAllowed = ruleDecision === 'allow'
-      || (ruleDecision === undefined && input.permissionRequired === false);
+    const baseExplicitlyAllowed =
+      ruleDecision === 'allow' ||
+      (ruleDecision === undefined && input.permissionRequired === false);
     const baseAllowed = baseExplicitlyAllowed || pre.proceed;
 
     if (!baseExplicitlyAllowed && pre.blockReason !== undefined) {
@@ -413,20 +406,20 @@ export class PermissionEngine {
             ...(input.hint !== undefined ? { hint: input.hint } : {}),
           }
         : {
-          type: 'permission_request',
-          kind: 'tool_permission',
-          id: this.deps.newId(),
-          turnId: input.turnId,
-          ts: this.deps.now(),
-          requestId,
-          toolUseId: input.toolUseId,
-          toolName: pre.partialRequest!.toolName,
-          category: pre.partialRequest!.category,
-          reason: pre.partialRequest!.reason,
-          args: pre.partialRequest!.args,
-          rememberForTurnAllowed: pre.partialRequest!.rememberForTurnAllowed,
-          ...(input.hint !== undefined ? { hint: input.hint } : {}),
-        };
+            type: 'permission_request',
+            kind: 'tool_permission',
+            id: this.deps.newId(),
+            turnId: input.turnId,
+            ts: this.deps.now(),
+            requestId,
+            toolUseId: input.toolUseId,
+            toolName: pre.partialRequest!.toolName,
+            category: pre.partialRequest!.category,
+            reason: pre.partialRequest!.reason,
+            args: pre.partialRequest!.args,
+            rememberForTurnAllowed: pre.partialRequest!.rememberForTurnAllowed,
+            ...(input.hint !== undefined ? { hint: input.hint } : {}),
+          };
 
     const parked = this.parked.park(input.turnId, requestId, {
       sessionId: input.sessionId,
@@ -464,33 +457,41 @@ export class PermissionEngine {
       typeof response.requestId !== 'string' ||
       (response.decision !== 'allow' && response.decision !== 'deny') ||
       (response.rememberForTurn !== undefined && typeof response.rememberForTurn !== 'boolean') ||
-      (response.reviewer !== undefined && response.reviewer !== 'user' && response.reviewer !== 'auto_review') ||
+      (response.reviewer !== undefined &&
+        response.reviewer !== 'user' &&
+        response.reviewer !== 'auto_review') ||
       (response.rationale !== undefined && typeof response.rationale !== 'string') ||
-      (response.riskLevel !== undefined && !['low', 'medium', 'high', 'critical'].includes(response.riskLevel))
+      (response.riskLevel !== undefined &&
+        !['low', 'medium', 'high', 'critical'].includes(response.riskLevel))
     ) {
       throw new Error('Invalid permission response');
     }
     const state = this.turns.get(turnId);
     if (!state) return null;
-    const parked = this.parked.entries(turnId).find(([requestId]) => requestId === response.requestId)?.[1];
+    const parked = this.parked
+      .entries(turnId)
+      .find(([requestId]) => requestId === response.requestId)?.[1];
     if (!parked) return null;
 
-    if ((parked.additionalProposal || parked.sandboxEscalationProposal) && response.rememberForTurn !== undefined) {
+    if (
+      (parked.additionalProposal || parked.sandboxEscalationProposal) &&
+      response.rememberForTurn !== undefined
+    ) {
       throw new Error('One-shot permission responses cannot use rememberForTurn');
     }
 
     if (
-      response.decision === 'allow'
-      && response.rememberForTurn
-      && !parked.rememberForTurnAllowed
+      response.decision === 'allow' &&
+      response.rememberForTurn &&
+      !parked.rememberForTurnAllowed
     ) {
       throw new Error('This permission request cannot be remembered for the turn');
     }
 
     if (
-      response.decision === 'allow'
-      && response.rememberForTurn
-      && parked.rememberForTurnAllowed
+      response.decision === 'allow' &&
+      response.rememberForTurn &&
+      parked.rememberForTurnAllowed
     ) {
       state.remembered.add(parked.scopeKey);
       // The user allowed this scope for the whole turn, so other requests
@@ -501,11 +502,15 @@ export class PermissionEngine {
       // selected explicitly, so the snapshot must not auto-resolve it.
       for (const [otherId, other] of this.parked.entries(turnId)) {
         if (
-          otherId !== response.requestId
-          && other.rememberForTurnAllowed
-          && other.scopeKey === parked.scopeKey
+          otherId !== response.requestId &&
+          other.rememberForTurnAllowed &&
+          other.scopeKey === parked.scopeKey
         ) {
-          this.parked.resolve(turnId, otherId, { requestId: otherId, decision: 'allow', rememberForTurn: true });
+          this.parked.resolve(turnId, otherId, {
+            requestId: otherId,
+            decision: 'allow',
+            rememberForTurn: true,
+          });
         }
       }
     }
@@ -559,17 +564,18 @@ export class PermissionEngine {
       });
     }
 
-    const resolvedResponse: PermissionResponse = parked.additionalProposal || parked.sandboxEscalationProposal
-      ? {
-          requestId: response.requestId,
-          decision: response.decision,
-          ...(response.reviewer !== undefined ? { reviewer: response.reviewer } : {}),
-          ...(response.rationale !== undefined ? { rationale: response.rationale } : {}),
-          ...(response.riskLevel !== undefined ? { riskLevel: response.riskLevel } : {}),
-        }
-      : parked.rememberForTurnAllowed
-        ? response
-        : { ...response, rememberForTurn: false };
+    const resolvedResponse: PermissionResponse =
+      parked.additionalProposal || parked.sandboxEscalationProposal
+        ? {
+            requestId: response.requestId,
+            decision: response.decision,
+            ...(response.reviewer !== undefined ? { reviewer: response.reviewer } : {}),
+            ...(response.rationale !== undefined ? { rationale: response.rationale } : {}),
+            ...(response.riskLevel !== undefined ? { riskLevel: response.riskLevel } : {}),
+          }
+        : parked.rememberForTurnAllowed
+          ? response
+          : { ...response, rememberForTurn: false };
     this.parked.resolve(turnId, response.requestId, resolvedResponse);
     return { category: parked.category, toolUseId: parked.toolUseId };
   }
@@ -579,7 +585,11 @@ export class PermissionEngine {
    * Used by runtime-level permission timeouts so late UI responses do not
    * resolve a tool call that has already failed closed.
    */
-  expireRequest(turnId: string, requestId: string, reason: string): { category: ToolCategory; toolUseId: string } | null {
+  expireRequest(
+    turnId: string,
+    requestId: string,
+    reason: string,
+  ): { category: ToolCategory; toolUseId: string } | null {
     const metadata = this.parked.entries(turnId).find(([id]) => id === requestId)?.[1];
     if (!metadata) return null;
     const error = metadata.additionalProposal
@@ -633,11 +643,11 @@ export class PermissionEngine {
       });
     }
     if (
-      grant.sessionId !== input.sessionId
-      || grant.turnId !== input.turnId
-      || grant.toolUseId !== input.toolUseId
-      || grant.toolName !== input.toolName
-      || grant.intentHash !== input.intentHash
+      grant.sessionId !== input.sessionId ||
+      grant.turnId !== input.turnId ||
+      grant.toolUseId !== input.toolUseId ||
+      grant.toolName !== input.toolName ||
+      grant.intentHash !== input.intentHash
     ) {
       throw new AdditionalPermissionError({
         stage: 'consume',
@@ -676,11 +686,11 @@ export class PermissionEngine {
       });
     }
     if (
-      grant.sessionId !== input.sessionId
-      || grant.turnId !== input.turnId
-      || grant.toolUseId !== input.toolUseId
-      || grant.toolName !== input.toolName
-      || grant.intentHash !== input.intentHash
+      grant.sessionId !== input.sessionId ||
+      grant.turnId !== input.turnId ||
+      grant.toolUseId !== input.toolUseId ||
+      grant.toolName !== input.toolName ||
+      grant.intentHash !== input.intentHash
     ) {
       throw new SandboxEscalationError({
         stage: 'consume',
@@ -724,17 +734,12 @@ function snapshotPermissionArgs(value: unknown): unknown {
   return snapshotPermissionValue(value, new WeakSet<object>());
 }
 
-function snapshotPermissionValue(
-  value: unknown,
-  seen: WeakSet<object>,
-): unknown {
+function snapshotPermissionValue(value: unknown, seen: WeakSet<object>): unknown {
   if (value === null || typeof value !== 'object') return value;
   if (seen.has(value)) throw new Error('Permission arguments must not contain cycles');
   seen.add(value);
   if (Array.isArray(value)) {
-    return Object.freeze(
-      value.map((entry) => snapshotPermissionValue(entry, seen)),
-    );
+    return Object.freeze(value.map((entry) => snapshotPermissionValue(entry, seen)));
   }
   const output: Record<string, unknown> = {};
   for (const key of Object.keys(value)) {

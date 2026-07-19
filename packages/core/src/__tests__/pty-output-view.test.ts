@@ -11,9 +11,17 @@ import {
 
 describe('PTY human output projection', () => {
   it('uses the active view and only falls back to the last alternate frame when empty', () => {
-    assert.equal(ptyHumanTerminalText(output({ scrollback: 'old', screen: 'now', lastAlternateScreen: 'alt' })), 'old\nnow');
+    assert.equal(
+      ptyHumanTerminalText(
+        output({ scrollback: 'old', screen: 'now', lastAlternateScreen: 'alt' }),
+      ),
+      'old\nnow',
+    );
     assert.equal(ptyHumanTerminalText(output({ lastAlternateScreen: 'alt' })), 'alt');
-    assert.equal(ptyHumanTerminalText(output({ alternateScreen: true, screen: 'full', scrollback: 'old' })), 'full');
+    assert.equal(
+      ptyHumanTerminalText(output({ alternateScreen: true, screen: 'full', scrollback: 'old' })),
+      'full',
+    );
   });
 
   it('keeps three head and three tail screen rows without an in-band marker', () => {

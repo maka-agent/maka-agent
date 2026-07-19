@@ -58,7 +58,10 @@ export function detectLinuxSandboxCapability(
     windowsHide: true,
   });
   const helpText = `${help.stdout ?? ''}\n${help.stderr ?? ''}`;
-  if (help.status !== 0 || LINUX_BWRAP_REQUIRED_OPTIONS.some((option) => !helpText.includes(option))) {
+  if (
+    help.status !== 0 ||
+    LINUX_BWRAP_REQUIRED_OPTIONS.some((option) => !helpText.includes(option))
+  ) {
     return {
       available: false,
       reason: 'probe-failed',
@@ -73,7 +76,8 @@ export function detectLinuxSandboxCapability(
     windowsHide: true,
   });
   if (probe.status !== 0) {
-    const detail = probe.error?.message || probe.stderr.trim() || `exit ${probe.status ?? 'unknown'}`;
+    const detail =
+      probe.error?.message || probe.stderr.trim() || `exit ${probe.status ?? 'unknown'}`;
     return { available: false, reason: 'probe-failed', bwrapPath, detail };
   }
   return { available: true, bwrapPath };

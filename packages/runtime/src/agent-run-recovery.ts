@@ -8,10 +8,17 @@ export interface AgentRunRecoveryDecision {
   failureClass?: string;
   abortSource?: string;
   diagnostic?: Record<string, unknown>;
-  lineage: Partial<Pick<
-    UserMessageInput,
-    'parentRunId' | 'parentTurnId' | 'retriedFromTurnId' | 'regeneratedFromTurnId' | 'branchOfTurnId' | 'parentSessionId'
-  >>;
+  lineage: Partial<
+    Pick<
+      UserMessageInput,
+      | 'parentRunId'
+      | 'parentTurnId'
+      | 'retriedFromTurnId'
+      | 'regeneratedFromTurnId'
+      | 'branchOfTurnId'
+      | 'parentSessionId'
+    >
+  >;
 }
 
 export function classifyAgentRunRecovery(
@@ -25,7 +32,11 @@ export function classifyAgentRunRecovery(
   const lastEventType = lastEvent?.type;
 
   if (lastEventType === 'model_stream_completed' && !hasTerminalRunEvent(events)) {
-    return failedDecision(header, 'app_restarted', diagnostic('model_stream_completed_without_runtime_terminal', lastEventType, hasCorruptEvent));
+    return failedDecision(
+      header,
+      'app_restarted',
+      diagnostic('model_stream_completed_without_runtime_terminal', lastEventType, hasCorruptEvent),
+    );
   }
 
   if (
@@ -33,7 +44,11 @@ export function classifyAgentRunRecovery(
     lastEventType === 'permission_requested' ||
     lastEventType === 'permission_failed'
   ) {
-    return failedDecision(header, 'app_restarted', diagnostic('stale_permission_wait', lastEventType, hasCorruptEvent));
+    return failedDecision(
+      header,
+      'app_restarted',
+      diagnostic('stale_permission_wait', lastEventType, hasCorruptEvent),
+    );
   }
 
   if (lastEventType === 'tool_started') {
@@ -55,10 +70,18 @@ export function classifyAgentRunRecovery(
     lastEventType === 'model_stream_started' ||
     lastEventType === 'run_status_changed'
   ) {
-    return failedDecision(header, 'app_restarted', diagnostic('run_interrupted', lastEventType, hasCorruptEvent));
+    return failedDecision(
+      header,
+      'app_restarted',
+      diagnostic('run_interrupted', lastEventType, hasCorruptEvent),
+    );
   }
 
-  return failedDecision(header, 'app_restarted', diagnostic('non_terminal_run_recovered', lastEventType, hasCorruptEvent));
+  return failedDecision(
+    header,
+    'app_restarted',
+    diagnostic('non_terminal_run_recovered', lastEventType, hasCorruptEvent),
+  );
 }
 
 function failedDecision(
@@ -81,10 +104,11 @@ function isTerminalRunStatus(status: AgentRunHeader['status']): boolean {
 }
 
 function hasTerminalRunEvent(events: readonly AgentRunEvent[]): boolean {
-  return events.some((event) =>
-    event.type === 'run_completed' ||
-    event.type === 'run_failed' ||
-    event.type === 'run_cancelled',
+  return events.some(
+    (event) =>
+      event.type === 'run_completed' ||
+      event.type === 'run_failed' ||
+      event.type === 'run_cancelled',
   );
 }
 
@@ -112,12 +136,24 @@ function diagnostic(
 
 function headerLineage(
   header: AgentRunHeader,
-): Partial<Pick<UserMessageInput, 'parentRunId' | 'parentTurnId' | 'retriedFromTurnId' | 'regeneratedFromTurnId' | 'branchOfTurnId' | 'parentSessionId'>> {
+): Partial<
+  Pick<
+    UserMessageInput,
+    | 'parentRunId'
+    | 'parentTurnId'
+    | 'retriedFromTurnId'
+    | 'regeneratedFromTurnId'
+    | 'branchOfTurnId'
+    | 'parentSessionId'
+  >
+> {
   return {
     ...(header.parentRunId ? { parentRunId: header.parentRunId } : {}),
     ...(header.parentTurnId ? { parentTurnId: header.parentTurnId } : {}),
     ...(header.retriedFromTurnId ? { retriedFromTurnId: header.retriedFromTurnId } : {}),
-    ...(header.regeneratedFromTurnId ? { regeneratedFromTurnId: header.regeneratedFromTurnId } : {}),
+    ...(header.regeneratedFromTurnId
+      ? { regeneratedFromTurnId: header.regeneratedFromTurnId }
+      : {}),
     ...(header.branchOfTurnId ? { branchOfTurnId: header.branchOfTurnId } : {}),
     ...(header.parentSessionId ? { parentSessionId: header.parentSessionId } : {}),
   };

@@ -4,8 +4,11 @@
  * Responsibilities:
  *   1. PKCE authorize URL generation + pending state (G-X1).
  *   2. Paste-code parsing + state validation (G-X2).
- *   3. Token exchange + refresh + persistence via safeStorage with
- *      explicit mode 0o600 (G-X1 + kenji hard gates).
+ *   3. Token exchange + refresh + persistence via the shared
+ *      CredentialStore (workspace credentials.json) — the single
+ *      cross-surface token authority (#1125). Refresh goes through
+ *      the runtime's provider refresher so desktop and pure-Node
+ *      surfaces share one refresh implementation.
  *   4. Usage quota fetch (caches with QUOTA_CACHE_TTL_MS).
  *   5. Logout: clears in-memory + deletes token file.
  *   6. Account state snapshot for renderer (no token-shaped fields).
@@ -20,7 +23,7 @@
  *   - PKCE state matched with constant-time equality (G-X1).
  */
 
-import { safeStorage, shell } from 'electron';
+import { shell } from 'electron';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -42,12 +45,15 @@ import {
   type SubscriptionActionResult,
 } from '@maka/core';
 import {
-  serializeOAuthSubscriptionTokens,
+  refreshAndPersistOAuthSubscriptionTokens,
+  resolveAndPersistOAuthSubscriptionTokens,
+  type OAuthSubscriptionRefreshAndPersistOutcome,
 } from '@maka/runtime';
-import type { CredentialStore } from '@maka/storage';
 import {
-  tryDeleteSharedOAuthToken,
-  trySaveSharedOAuthToken,
+  deleteSharedOAuthTokens,
+  loadSharedOAuthTokens,
+  saveSharedOAuthTokens,
+  type SharedOAuthCredentialStore,
 } from './shared-credential-bridge.js';
 
 // =============================================================
@@ -79,12 +85,13 @@ export const CLAUDE_SUBSCRIPTION_PRODUCT_VERSION = '2.1.153';
 const OAUTH_USER_AGENT = `claude-cli/${CLAUDE_SUBSCRIPTION_PRODUCT_VERSION} (external, cli)`;
 
 // =============================================================
-// Token storage — encrypted via safeStorage, mode 0o600.
+// Token storage — shared CredentialStore (workspace
+// credentials.json), the cross-surface authority (#1125).
 // =============================================================
 
 /**
- * Tokens persisted to disk. INTERNAL TO THIS MODULE — never crosses
- * the IPC boundary. The renderer only sees the public
+ * Tokens persisted to the shared store. INTERNAL TO THIS MODULE —
+ * never crosses the IPC boundary. The renderer only sees the public
  * `SubscriptionAccountState` shape, which omits these fields.
  *
  * Field names use snake_case to match Anthropic's token response;
@@ -160,18 +167,21 @@ export interface ClaudeSubscriptionServiceDeps {
   now?: () => number;
   /** fetch implementation. Defaults to global fetch (Node 18+). */
   fetchFn?: typeof fetch;
-  /** Shared workspace credential store used as a one-way export for pure-Node callers such as the CLI. */
-  credentialStore?: Pick<CredentialStore, 'setSecret' | 'deleteSecret'>;
+  /** Shared workspace credential store — the authoritative token store for every surface (#1125). */
+  credentialStore: SharedOAuthCredentialStore;
 }
 
 export class ClaudeSubscriptionService {
-  private readonly tokenFilePath: string;
+  /** Pre-#1125 safeStorage-encrypted token file. Never written or read
+   *  anymore; unlinked on logout in case the startup import could not
+   *  run (e.g. keychain unavailable) so logout still means "no
+   *  credential survives anywhere". */
+  private readonly legacyTokenFilePath: string;
   private readonly deviceIdFilePath: string;
   private readonly now: () => number;
   private readonly fetchFn: typeof fetch;
-  private readonly credentialStore?: Pick<CredentialStore, 'setSecret' | 'deleteSecret'>;
+  private readonly credentialStore: SharedOAuthCredentialStore;
 
-  private cachedTokens: PersistedTokens | null = null;
   private cachedQuota: QuotaSnapshot | null = null;
   private cachedProfile: SubscriptionAccountProfile | null = null;
   private pending: Map<string, PendingAuthorization> = new Map();
@@ -185,7 +195,7 @@ export class ClaudeSubscriptionService {
   private refreshing = false;
 
   constructor(deps: ClaudeSubscriptionServiceDeps) {
-    this.tokenFilePath = join(deps.userDataDir, '.claude_subscription_token');
+    this.legacyTokenFilePath = join(deps.userDataDir, '.claude_subscription_token');
     this.deviceIdFilePath = join(deps.userDataDir, '.claude_subscription_device_id');
     this.now = deps.now ?? (() => Date.now());
     this.fetchFn = deps.fetchFn ?? (globalThis.fetch as typeof fetch);
@@ -318,8 +328,15 @@ export class ClaudeSubscriptionService {
 
     try {
       const tokens = await this.exchangeCodeForTokens(parsed.code, verifier, parsed.state);
-      await this.saveTokens(tokens);
-      this.cachedTokens = tokens;
+      // Storage failures are not exchange failures: the one-time code
+      // was consumed successfully, so tell the user to fix the store
+      // instead of implying the code was bad.
+      try {
+        await this.saveTokens(tokens);
+      } catch {
+        this.authorizing = false;
+        return { ok: false, reason: 'storage_failed', message: this.lastStorageFailedMessage ?? '写入共享凭据失败，请检查 credentials.json 权限后重试。' };
+      }
       this.pending.delete(authRequestId);
       this.authorizing = false;
       // Kick a profile fetch in the background; failure is non-fatal
@@ -367,7 +384,12 @@ export class ClaudeSubscriptionService {
     return {
       provider: 'claude-subscription',
       runtimeState,
-      profile: this.cachedProfile ?? { accountUuid: tokens.account_uuid },
+      // The cached profile is only valid for the account the shared
+      // store currently holds — another surface may have re-logged in
+      // with a different account since the profile was fetched.
+      profile: this.cachedProfile?.accountUuid === tokens.account_uuid
+        ? this.cachedProfile
+        : { accountUuid: tokens.account_uuid },
       quota: this.cachedQuota ?? undefined,
       errorMessage: this.errorForState(runtimeState),
     };
@@ -381,21 +403,18 @@ export class ClaudeSubscriptionService {
    * "重新登录".
    */
   async refreshTokens(): Promise<SubscriptionActionResult> {
-    const tokens = await this.loadTokens();
-    if (!tokens) return { ok: false, reason: 'refresh_failed', message: '当前未登录。' };
     this.refreshing = true;
     try {
-      const next = await this.requestRefresh(tokens.refresh_token, tokens.account_uuid);
-      await this.saveTokens(next);
-      this.cachedTokens = next;
-      this.lastRefreshFailedMessage = null;
+      const result = await refreshAndPersistOAuthSubscriptionTokens({
+        providerType: 'claude-subscription',
+        slug: 'claude-subscription',
+        credentialStore: this.credentialStore,
+        now: this.now,
+        fetchFn: this.fetchFn,
+      });
+      return this.applyRefreshOutcome(result);
+    } finally {
       this.refreshing = false;
-      return { ok: true };
-    } catch (err) {
-      this.refreshing = false;
-      const message = err instanceof Error ? err.message : '刷新失败，请重新登录。';
-      this.lastRefreshFailedMessage = message;
-      return { ok: false, reason: 'refresh_failed', message };
     }
   }
 
@@ -458,13 +477,13 @@ export class ClaudeSubscriptionService {
    * the claude.ai account-side UI.
    *
    * What this method DOES:
-   *   - Delete token file (ENOENT is treated as success — already gone).
-   *   - Clear `cachedTokens`, `cachedProfile`, `cachedQuota`.
+   *   - Delete the shared-store token (the authority) and any legacy
+   *     safeStorage token file the startup import could not process.
+   *   - Clear `cachedProfile`, `cachedQuota`.
    *   - Clear in-flight pending authorizations.
    *   - Clear runtime diagnostic flags.
    */
   async logout(): Promise<SubscriptionActionResult> {
-    this.cachedTokens = null;
     this.cachedQuota = null;
     this.cachedProfile = null;
     this.lastRefreshFailedMessage = null;
@@ -473,22 +492,22 @@ export class ClaudeSubscriptionService {
     this.lastStorageFailedMessage = null;
     this.pending.clear();
     this.authorizing = false;
-    let localDeleteFailed = false;
+    let legacyDeleteFailed = false;
     try {
-      await fs.unlink(this.tokenFilePath);
+      await fs.unlink(this.legacyTokenFilePath);
     } catch (err) {
       // ENOENT is fine; anything else is suspicious but not fatal.
       const code = (err as NodeJS.ErrnoException).code;
       if (code !== 'ENOENT') {
-        localDeleteFailed = true;
+        legacyDeleteFailed = true;
       }
     }
-    const sharedDeleted = await tryDeleteSharedOAuthToken({
-      credentialStore: this.credentialStore,
-      slug: 'claude-subscription',
-    });
-    if (localDeleteFailed) return { ok: false, reason: 'storage_failed', message: '删除本地凭据失败，请手动清理。' };
-    if (!sharedDeleted) return { ok: false, reason: 'storage_failed', message: '删除共享凭据失败，请手动清理。' };
+    try {
+      await deleteSharedOAuthTokens(this.credentialStore, 'claude-subscription');
+    } catch {
+      return { ok: false, reason: 'storage_failed', message: '删除共享凭据失败，请手动清理。' };
+    }
+    if (legacyDeleteFailed) return { ok: false, reason: 'storage_failed', message: '删除本地遗留凭据失败，请手动清理。' };
     return { ok: true };
   }
 
@@ -500,15 +519,23 @@ export class ClaudeSubscriptionService {
    * Used by the future subscription send-path (PR-OAUTH-SUBSCRIPTION-1).
    */
   async getAccessTokenInternal(): Promise<string | null> {
-    const tokens = await this.loadTokens();
-    if (!tokens) return null;
-    if (tokens.expires_at - this.now() <= TOKEN_REFRESH_SKEW_MS) {
-      const refreshed = await this.refreshTokens();
-      if (!refreshed.ok) return null;
-      const next = await this.loadTokens();
-      return next?.access_token ?? null;
+    this.refreshing = true;
+    try {
+      const result = await resolveAndPersistOAuthSubscriptionTokens({
+        providerType: 'claude-subscription',
+        slug: 'claude-subscription',
+        credentialStore: this.credentialStore,
+        now: this.now,
+        fetchFn: this.fetchFn,
+      });
+      if (result.outcome === 'current') return result.tokens.access_token;
+      const action = this.applyRefreshOutcome(result);
+      return action.ok && (result.outcome === 'refreshed' || result.outcome === 'superseded')
+        ? result.tokens.access_token
+        : null;
+    } finally {
+      this.refreshing = false;
     }
-    return tokens.access_token;
   }
 
   /**
@@ -530,6 +557,26 @@ export class ClaudeSubscriptionService {
   // -----------------------------------------------------------
   // INTERNALS
   // -----------------------------------------------------------
+
+  private applyRefreshOutcome(result: OAuthSubscriptionRefreshAndPersistOutcome): SubscriptionActionResult {
+    if (result.outcome === 'refreshed' || result.outcome === 'superseded') {
+      this.lastRefreshFailedMessage = null;
+      this.lastStorageFailedMessage = null;
+      return { ok: true };
+    }
+    if (result.outcome === 'storage-failed') {
+      const message = '访问 Claude OAuth 共享凭据失败，请检查 credentials.json 权限后重试。';
+      this.lastRefreshFailedMessage = null;
+      this.lastStorageFailedMessage = message;
+      return { ok: false, reason: 'storage_failed', message };
+    }
+    this.lastStorageFailedMessage = null;
+    const message = result.outcome === 'logged-out'
+      ? '登录状态已变更，本次刷新结果已丢弃。'
+      : result.error instanceof Error ? result.error.message : '刷新失败，请重新登录。';
+    this.lastRefreshFailedMessage = message;
+    return { ok: false, reason: 'refresh_failed', message };
+  }
 
   private deriveRuntimeState(
     tokens: PersistedTokens,
@@ -612,93 +659,48 @@ export class ClaudeSubscriptionService {
     };
   }
 
-  private async requestRefresh(refreshToken: string, prevAccountUuid: string): Promise<PersistedTokens> {
-    const response = await this.fetchFn(CLAUDE_TOKEN_ENDPOINT, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'User-Agent': OAUTH_USER_AGENT,
-      },
-      body: JSON.stringify({
-        grant_type: 'refresh_token',
-        refresh_token: refreshToken,
-        client_id: CLAUDE_CLIENT_ID,
-      }),
-    });
-    if (!response.ok) throw new Error(`Token refresh failed (${response.status}).`);
-    const payload = (await response.json()) as {
-      access_token: string;
-      refresh_token: string;
-      expires_in: number;
-      token_type: string;
-      scope: string;
-      account?: { uuid?: string };
-    };
-    return {
-      access_token: payload.access_token,
-      refresh_token: payload.refresh_token,
-      expires_at: this.now() + 1000 * payload.expires_in,
-      token_type: payload.token_type,
-      scope: payload.scope,
-      account_uuid: payload.account?.uuid ?? prevAccountUuid,
-    };
-  }
-
   private async saveTokens(tokens: PersistedTokens): Promise<void> {
-    const serialized = JSON.stringify(tokens);
-    const dir = dirname(this.tokenFilePath);
-    await fs.mkdir(dir, { recursive: true });
-    if (!safeStorage.isEncryptionAvailable()) {
-      throw new Error('safeStorage encryption is unavailable.');
+    try {
+      await saveSharedOAuthTokens(this.credentialStore, 'claude-subscription', tokens);
+    } catch (err) {
+      // Fail closed: a token we cannot persist for every surface is a
+      // storage failure, not a partial success.
+      this.lastStorageFailedMessage = '写入 Claude OAuth 共享凭据失败，请检查 credentials.json 权限后重试。';
+      throw err;
     }
-    const buffer = safeStorage.encryptString(serialized);
-    await fs.writeFile(this.tokenFilePath, buffer, { mode: 0o600 });
-    // Re-apply mode explicitly in case the existing file had a
-    // different mode (writeFile only sets it on create).
-    await fs.chmod(this.tokenFilePath, 0o600);
-    await this.trySaveSharedTokens(tokens);
     this.lastStorageFailedMessage = null;
   }
 
+  /**
+   * Always reads the shared store — no in-memory copy. Pure-Node
+   * surfaces refresh and rewrite the same entry, so caching here could
+   * hold a rotated-out refresh token.
+   */
   private async loadTokens(): Promise<PersistedTokens | null> {
-    if (this.cachedTokens) return this.cachedTokens;
-    let buffer: Buffer;
+    let result: Awaited<ReturnType<typeof loadSharedOAuthTokens>>;
     try {
-      buffer = await fs.readFile(this.tokenFilePath);
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code !== 'ENOENT') {
-        this.lastStorageFailedMessage = '读取 Claude OAuth 本地凭据失败，请检查文件权限或重新登录。';
-      }
-      return null;
-    }
-    if (!safeStorage.isEncryptionAvailable()) {
-      this.lastStorageFailedMessage = '系统 safeStorage 当前不可用，无法读取 Claude OAuth 本地凭据。';
-      return null;
-    }
-    try {
-      const decoded = safeStorage.decryptString(buffer);
-      const parsed = JSON.parse(decoded) as PersistedTokens;
-      this.cachedTokens = parsed;
-      this.lastStorageFailedMessage = null;
-      await this.trySaveSharedTokens(parsed);
-      return parsed;
+      result = await loadSharedOAuthTokens(this.credentialStore, 'claude-subscription');
     } catch {
-      // Token file exists but is unreadable (keychain rolled, file
-      // corrupted, JSON shape drifted). Delete it so the next
-      // login attempt doesn't observe a stuck-corrupt state.
-      this.lastStorageFailedMessage = 'Claude OAuth 本地凭据无法解密，已清理损坏文件，请重新登录。';
-      try { await fs.unlink(this.tokenFilePath); } catch { /* best-effort */ }
+      this.lastStorageFailedMessage = '读取 Claude OAuth 共享凭据失败，请检查 credentials.json 或重新登录。';
       return null;
     }
-  }
-
-  private async trySaveSharedTokens(tokens: PersistedTokens): Promise<void> {
-    await trySaveSharedOAuthToken({
-      credentialStore: this.credentialStore,
-      slug: 'claude-subscription',
-      value: serializeOAuthSubscriptionTokens(tokens),
-    });
+    if (result.status === 'corrupt') {
+      // Entry exists but is not a token payload; it is kept as-is
+      // (reads never destroy secrets) and a fresh login overwrites it.
+      this.lastStorageFailedMessage = 'Claude OAuth 共享凭据无法解析，请重新登录。';
+      return null;
+    }
+    if (result.status === 'missing') return null;
+    this.lastStorageFailedMessage = null;
+    const tokens = result.tokens;
+    return {
+      access_token: tokens.access_token,
+      refresh_token: tokens.refresh_token,
+      expires_at: tokens.expires_at,
+      token_type: tokens.token_type ?? 'Bearer',
+      scope: tokens.scope ?? '',
+      account_uuid: tokens.account_uuid ?? '',
+    };
   }
 
   private async refreshProfile(): Promise<void> {
@@ -717,7 +719,7 @@ export class ClaudeSubscriptionService {
       };
       if (data.account) {
         this.cachedProfile = {
-          accountUuid: data.account.uuid ?? (this.cachedTokens?.account_uuid ?? ''),
+          accountUuid: data.account.uuid ?? ((await this.loadTokens())?.account_uuid ?? ''),
           email: data.account.email ?? data.account.email_address,
           displayName: data.account.display_name,
         };

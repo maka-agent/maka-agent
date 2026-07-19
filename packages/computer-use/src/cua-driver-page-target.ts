@@ -64,14 +64,7 @@ export const CUA_INSPECT_PREPARED_ELEMENT_SCRIPT = `(() => {
   return JSON.stringify(globalThis.__makaComputerUseReadElement(element));
 })()`;
 
-const TEXT_INPUT_TYPES = [
-  'email',
-  'number',
-  'search',
-  'tel',
-  'text',
-  'url',
-] as const;
+const TEXT_INPUT_TYPES = ['email', 'number', 'search', 'tel', 'text', 'url'] as const;
 
 export async function resolveCuaPageTextTarget(
   input: {
@@ -99,14 +92,13 @@ export async function resolveCuaPageTextTarget(
   if (targets.length === 0) return undefined;
 
   const title = input.windowTitle?.trim();
-  const titleMatches = title
-    ? targets.filter((target) => target.title.trim() === title)
-    : [];
-  const target = titleMatches.length === 1
-    ? titleMatches[0]
-    : titleMatches.length === 0 && targets.length === 1
-      ? targets[0]
-      : undefined;
+  const titleMatches = title ? targets.filter((target) => target.title.trim() === title) : [];
+  const target =
+    titleMatches.length === 1
+      ? titleMatches[0]
+      : titleMatches.length === 0 && targets.length === 1
+        ? targets[0]
+        : undefined;
   if (!target || target.url.length === 0) return undefined;
 
   const sameUrl = targets.filter(
@@ -125,15 +117,10 @@ export async function resolveCuaPageTextTarget(
 function pageTargetId(webSocketDebuggerUrl: string): string {
   const marker = '/devtools/page/';
   const index = webSocketDebuggerUrl.lastIndexOf(marker);
-  return index >= 0
-    ? webSocketDebuggerUrl.slice(index + marker.length)
-    : webSocketDebuggerUrl;
+  return index >= 0 ? webSocketDebuggerUrl.slice(index + marker.length) : webSocketDebuggerUrl;
 }
 
-function uniqueUrlHint(
-  target: CuaCdpPageTarget,
-  targets: readonly CuaCdpPageTarget[],
-): string {
+function uniqueUrlHint(target: CuaCdpPageTarget, targets: readonly CuaCdpPageTarget[]): string {
   try {
     const hash = new URL(target.url).hash;
     if (hash && targets.filter((candidate) => candidate.url.includes(hash)).length === 1) {
@@ -183,15 +170,9 @@ export function buildCuaPrepareElementAtScreenPointScript(screenPoint: CuPoint):
   })()`;
 }
 
-export function buildCuaSemanticPointerActionScript(
-  action: CuaSemanticPointerAction,
-): string {
-  const start = action.type === 'left_click_drag'
-    ? action.startScreenPoint
-    : action.screenPoint;
-  const end = action.type === 'left_click_drag'
-    ? action.endScreenPoint
-    : action.screenPoint;
+export function buildCuaSemanticPointerActionScript(action: CuaSemanticPointerAction): string {
+  const start = action.type === 'left_click_drag' ? action.startScreenPoint : action.screenPoint;
+  const end = action.type === 'left_click_drag' ? action.endScreenPoint : action.screenPoint;
   return `(async () => {
     const actionType = ${JSON.stringify(action.type)};
     const textInputTypes = new Set(${JSON.stringify(TEXT_INPUT_TYPES)});
@@ -432,13 +413,19 @@ export function parseCuaSemanticPointerResult(
       ...(typeof result.tagName === 'string' ? { tagName: result.tagName } : {}),
       ...(typeof result.inputType === 'string' ? { inputType: result.inputType } : {}),
       ...(typeof result.clickEvents === 'number' ? { clickEvents: result.clickEvents } : {}),
-      ...(typeof result.doubleClickEvents === 'number' ? { doubleClickEvents: result.doubleClickEvents } : {}),
-      ...(typeof result.contextMenuEvents === 'number' ? { contextMenuEvents: result.contextMenuEvents } : {}),
+      ...(typeof result.doubleClickEvents === 'number'
+        ? { doubleClickEvents: result.doubleClickEvents }
+        : {}),
+      ...(typeof result.contextMenuEvents === 'number'
+        ? { contextMenuEvents: result.contextMenuEvents }
+        : {}),
       ...(typeof result.inputEvents === 'number' ? { inputEvents: result.inputEvents } : {}),
       ...(typeof result.changeEvents === 'number' ? { changeEvents: result.changeEvents } : {}),
       ...(typeof result.mutations === 'number' ? { mutations: result.mutations } : {}),
       ...(typeof result.checked === 'boolean' ? { checked: result.checked } : {}),
-      ...(typeof result.defaultPrevented === 'boolean' ? { defaultPrevented: result.defaultPrevented } : {}),
+      ...(typeof result.defaultPrevented === 'boolean'
+        ? { defaultPrevented: result.defaultPrevented }
+        : {}),
       ...(typeof result.value === 'string' ? { value: result.value } : {}),
       ...(typeof result.reason === 'string' ? { reason: result.reason } : {}),
     };
@@ -458,10 +445,7 @@ export function parseCuaFocusedPageElement(
   }
 }
 
-async function listProcessListeningPorts(
-  pid: number,
-  signal: AbortSignal,
-): Promise<number[]> {
+async function listProcessListeningPorts(pid: number, signal: AbortSignal): Promise<number[]> {
   const stdout = await new Promise<string>((resolve, reject) => {
     execFile(
       '/usr/sbin/lsof',
@@ -473,25 +457,23 @@ async function listProcessListeningPorts(
       },
     );
   }).catch(() => '');
-  const ports = stdout
-    .split('\n')
-    .flatMap((line) => {
-      if (!line.startsWith('n')) return [];
-      const match = line.match(/:(\d+)$/);
-      const port = match ? Number(match[1]) : 0;
-      return Number.isInteger(port) && port > 0 && port <= 65_535 ? [port] : [];
-    });
+  const ports = stdout.split('\n').flatMap((line) => {
+    if (!line.startsWith('n')) return [];
+    const match = line.match(/:(\d+)$/);
+    const port = match ? Number(match[1]) : 0;
+    return Number.isInteger(port) && port > 0 && port <= 65_535 ? [port] : [];
+  });
   return [...new Set(ports)];
 }
 
-async function fetchCdpPageTargets(
-  port: number,
-  signal: AbortSignal,
-): Promise<CuaCdpPageTarget[]> {
+async function fetchCdpPageTargets(port: number, signal: AbortSignal): Promise<CuaCdpPageTarget[]> {
   const controller = new AbortController();
   const onAbort = () => controller.abort(signal.reason);
   signal.addEventListener('abort', onAbort, { once: true });
-  const timer = setTimeout(() => controller.abort(new Error('CDP target discovery timed out')), 800);
+  const timer = setTimeout(
+    () => controller.abort(new Error('CDP target discovery timed out')),
+    800,
+  );
   try {
     const response = await fetch(`http://127.0.0.1:${port}/json`, {
       signal: controller.signal,
@@ -503,17 +485,20 @@ async function fetchCdpPageTargets(
       if (!entry || typeof entry !== 'object') return [];
       const target = entry as Record<string, unknown>;
       if (
-        target.type !== 'page'
-        || typeof target.url !== 'string'
-        || typeof target.title !== 'string'
-        || typeof target.webSocketDebuggerUrl !== 'string'
-      ) return [];
-      return [{
-        port,
-        title: target.title,
-        url: target.url,
-        webSocketDebuggerUrl: target.webSocketDebuggerUrl,
-      }];
+        target.type !== 'page' ||
+        typeof target.url !== 'string' ||
+        typeof target.title !== 'string' ||
+        typeof target.webSocketDebuggerUrl !== 'string'
+      )
+        return [];
+      return [
+        {
+          port,
+          title: target.title,
+          url: target.url,
+          webSocketDebuggerUrl: target.webSocketDebuggerUrl,
+        },
+      ];
     });
   } finally {
     clearTimeout(timer);

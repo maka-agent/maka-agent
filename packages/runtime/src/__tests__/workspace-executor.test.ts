@@ -1,5 +1,6 @@
 import { describe, test } from 'node:test';
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import assert from 'node:assert/strict';
+import { mkdir, mkdtemp, readFile, truncate, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect } from '../test-helpers.js';
@@ -24,8 +25,12 @@ describe('LocalWorkspaceExecutor exec', () => {
       stdout: 'from-cwd',
       stderr: 'err-data',
     });
-    expect(events.some((event) => event.stream === 'stdout' && event.chunk.includes('from-cwd'))).toBe(true);
-    expect(events.some((event) => event.stream === 'stderr' && event.chunk.includes('err-data'))).toBe(true);
+    expect(
+      events.some((event) => event.stream === 'stdout' && event.chunk.includes('from-cwd')),
+    ).toBe(true);
+    expect(
+      events.some((event) => event.stream === 'stderr' && event.chunk.includes('err-data')),
+    ).toBe(true);
   });
 
   test('reports non-zero exit without throwing so tools can preserve their own error contract', async () => {
@@ -53,7 +58,12 @@ describe('LocalWorkspaceExecutor exec', () => {
 
     const result = await executor.exec({
       command: 'ignored display command',
-      argv: [process.execPath, '-e', 'process.stdout.write(process.argv[1])', 'literal $HOME && ok'],
+      argv: [
+        process.execPath,
+        '-e',
+        'process.stdout.write(process.argv[1])',
+        'literal $HOME && ok',
+      ],
       cwd,
       timeoutMs: 5_000,
     });
@@ -102,6 +112,58 @@ describe('LocalWorkspaceExecutor exec', () => {
 });
 
 describe('LocalWorkspaceExecutor file operations', () => {
+  test('reads PNG, JPEG, GIF, and WebP images by magic bytes', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'maka-workspace-images-'));
+    const executor = new LocalWorkspaceExecutor();
+    const fixtures = [
+      ['image.PNG', [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 'image/png'],
+      ['image.jpg', [0xff, 0xd8, 0xff], 'image/jpeg'],
+      ['image.jpeg', [...Buffer.from('GIF89a')], 'image/gif'],
+      ['image.webp', [...Buffer.from('RIFF0000WEBP')], 'image/webp'],
+    ] as const;
+
+    for (const [name, bytes, mimeType] of fixtures) {
+      const file = join(cwd, name);
+      await writeFile(file, Uint8Array.from(bytes));
+      const result = await executor.readFile({ cwd, path: file });
+      if (!('bytes' in result)) throw new Error('expected image result');
+      expect(result.mimeType).toBe(mimeType);
+      expect([...result.bytes]).toEqual([...bytes]);
+    }
+  });
+
+  test('ignores text windows when reading an image', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'maka-workspace-images-'));
+    const executor = new LocalWorkspaceExecutor();
+    const file = join(cwd, 'image.png');
+    const bytes = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    await writeFile(file, bytes);
+
+    const result = await executor.readFile({ cwd, path: file, offset: 1, limit: 1 });
+
+    if (!('bytes' in result)) throw new Error('expected image result');
+    expect([...result.bytes]).toEqual([...bytes]);
+  });
+
+  test('rejects extension-only and over-limit image files', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'maka-workspace-images-'));
+    const executor = new LocalWorkspaceExecutor();
+    const fake = join(cwd, 'fake.png');
+    const huge = join(cwd, 'huge.webp');
+    await writeFile(fake, 'not an image');
+    await writeFile(huge, 'RIFF0000WEBP');
+    await truncate(huge, 5 * 1024 * 1024 + 1);
+
+    await assert.rejects(
+      executor.readFile({ cwd, path: fake }),
+      /^Error: Image content is not a supported PNG, JPEG, GIF, or WebP file\.$/,
+    );
+    await assert.rejects(
+      executor.readFile({ cwd, path: huge }),
+      /exceeds the 5MB model input limit/,
+    );
+  });
+
   test('reads and writes text files by absolute path', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'maka-workspace-files-'));
     const executor = new LocalWorkspaceExecutor();

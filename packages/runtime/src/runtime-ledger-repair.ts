@@ -34,7 +34,10 @@ export class RuntimeLedgerRepair {
     return this.repairRunTerminalFact(sessionId, run);
   }
 
-  private async repairRunTerminalFact(sessionId: string, staleRun: AgentRunHeader): Promise<boolean> {
+  private async repairRunTerminalFact(
+    sessionId: string,
+    staleRun: AgentRunHeader,
+  ): Promise<boolean> {
     return this.withRepairQueue(sessionId, staleRun.runId, async () => {
       const run = await this.deps.runStore.readRun(sessionId, staleRun.runId).catch(() => staleRun);
       if (!isTerminalRunStatus(run.status)) return false;
@@ -58,7 +61,9 @@ export class RuntimeLedgerRepair {
         newId: this.deps.newId,
         now: this.deps.now,
       }).events;
-      const recoveredTerminal = recovered.find((event) => isMatchingTerminalRuntimeEvent(run, event));
+      const recoveredTerminal = recovered.find((event) =>
+        isMatchingTerminalRuntimeEvent(run, event),
+      );
       const legacyTerminal = latestTurnState(messages, run.turnId);
       const canTrustRecoveredTerminal = recoveredTerminal
         ? isTrustworthyRecoveredTerminal(run, legacyTerminal, recoveredTerminal)
@@ -66,28 +71,34 @@ export class RuntimeLedgerRepair {
       const recoveredEventsToPersist = canTrustRecoveredTerminal
         ? recovered
         : recovered.filter((event) => !isMatchingTerminalRuntimeEvent(run, event));
-      const eventsToAppend = missingRecoveredRuntimeEvents(run, runtimeEvents, recoveredEventsToPersist);
-      if (recoveredTerminal && canTrustRecoveredTerminal) {
-        for (const event of eventsToAppend) {
-          await this.deps.runtimeEventStore.appendRuntimeEvent(sessionId, run.runId, event);
-        }
-        return await this.repairRunHeaderFromExistingTerminal(sessionId, run, messages, legacyTerminal, recoveredTerminal) ||
-          eventsToAppend.length > 0;
-      }
-
+      const eventsToAppend = missingRecoveredRuntimeEvents(
+        run,
+        runtimeEvents,
+        recoveredEventsToPersist,
+      );
       for (const event of eventsToAppend) {
         await this.deps.runtimeEventStore.appendRuntimeEvent(sessionId, run.runId, event);
       }
 
       const existingTerminal = [...runtimeEvents, ...eventsToAppend].find((event) =>
-        isMatchingTerminalRuntimeEvent(run, event)
+        isMatchingTerminalRuntimeEvent(run, event),
       );
       if (existingTerminal) {
-        return await this.repairRunHeaderFromExistingTerminal(sessionId, run, messages, legacyTerminal, existingTerminal) ||
-          eventsToAppend.length > 0;
+        return (
+          (await this.repairRunHeaderFromExistingTerminal(
+            sessionId,
+            run,
+            messages,
+            legacyTerminal,
+            existingTerminal,
+          )) || eventsToAppend.length > 0
+        );
       }
 
-      await this.repairMissingTerminalAsFailed(sessionId, run, messages, [...runtimeEvents, ...eventsToAppend]);
+      await this.repairMissingTerminalAsFailed(sessionId, run, messages, [
+        ...runtimeEvents,
+        ...eventsToAppend,
+      ]);
       return true;
     });
   }
@@ -102,15 +113,24 @@ export class RuntimeLedgerRepair {
     const status = terminalRunStatusFromEvent(run, terminal);
     if (!status) return false;
     const ts = run.completedAt ?? terminal.ts ?? run.updatedAt ?? this.deps.now();
-    const failureClass = status === 'failed'
-      ? failureClassFromExistingTerminal(terminal) ?? (turnState?.status === 'failed' ? turnState.errorClass : undefined) ?? 'missing_terminal_event'
-      : undefined;
-    const abortSource = status === 'cancelled'
-      ? abortSourceFromExistingTerminal(terminal) ?? (turnState?.status === 'aborted' ? turnState.abortSource : undefined) ?? 'unknown'
-      : undefined;
-    const existingEvents = await this.deps.runStore.readEvents(sessionId, run.runId).catch(() => []);
+    const failureClass =
+      status === 'failed'
+        ? (failureClassFromExistingTerminal(terminal) ??
+          (turnState?.status === 'failed' ? turnState.errorClass : undefined) ??
+          'missing_terminal_event')
+        : undefined;
+    const abortSource =
+      status === 'cancelled'
+        ? (abortSourceFromExistingTerminal(terminal) ??
+          (turnState?.status === 'aborted' ? turnState.abortSource : undefined) ??
+          'unknown')
+        : undefined;
+    const existingEvents = await this.deps.runStore
+      .readEvents(sessionId, run.runId)
+      .catch(() => []);
     await commitTerminalRunWithRuntimeFact({
       runStore: this.deps.runStore,
+      runtimeEventStore: this.deps.runtimeEventStore,
       newId: this.deps.newId,
       sessionId,
       runId: run.runId,
@@ -118,7 +138,6 @@ export class RuntimeLedgerRepair {
       status,
       ts,
       terminalEvent: terminal,
-      terminalEventAlreadyPersisted: true,
       ...(failureClass ? { failureClass } : {}),
       ...(abortSource ? { abortSource } : {}),
       runEventData: {
@@ -129,18 +148,24 @@ export class RuntimeLedgerRepair {
       },
       existingEvents,
     });
-    await this.appendTerminalTurnStateIfNeeded(sessionId, messages, {
-      runId: run.runId,
-      turnId: run.turnId,
-      status,
-      ...(failureClass ? { failureClass } : {}),
-      diagnostic: { recoveryReason: 'runtime_event_terminal_fact', runtimeEventId: terminal.id },
-      lineage: headerLineage(run),
-    }, terminalTurnStatus(status), {
-      ts,
-      ...(failureClass ? { errorClass: failureClass } : {}),
-      ...(abortSource ? { abortSource } : {}),
-    }).catch(() => {});
+    await this.appendTerminalTurnStateIfNeeded(
+      sessionId,
+      messages,
+      {
+        runId: run.runId,
+        turnId: run.turnId,
+        status,
+        ...(failureClass ? { failureClass } : {}),
+        diagnostic: { recoveryReason: 'runtime_event_terminal_fact', runtimeEventId: terminal.id },
+        lineage: headerLineage(run),
+      },
+      terminalTurnStatus(status),
+      {
+        ts,
+        ...(failureClass ? { errorClass: failureClass } : {}),
+        ...(abortSource ? { abortSource } : {}),
+      },
+    ).catch(() => {});
     return true;
   }
 
@@ -152,7 +177,10 @@ export class RuntimeLedgerRepair {
     const key = `${sessionId}:${runId}`;
     const previous = this.queues.get(key) ?? Promise.resolve();
     const current = previous.then(operation, operation);
-    const cleanup = current.then(() => undefined, () => undefined);
+    const cleanup = current.then(
+      () => undefined,
+      () => undefined,
+    );
     this.queues.set(key, cleanup);
     try {
       return await current;
@@ -181,7 +209,9 @@ export class RuntimeLedgerRepair {
       recoveryReason: failureClass,
       message: 'terminal run header had no terminal RuntimeEvent',
     });
-    const existingEvents = await this.deps.runStore.readEvents(sessionId, run.runId).catch(() => []);
+    const existingEvents = await this.deps.runStore
+      .readEvents(sessionId, run.runId)
+      .catch(() => []);
     await commitTerminalRunWithRuntimeFact({
       runStore: this.deps.runStore,
       runtimeEventStore: this.deps.runtimeEventStore,
@@ -196,14 +226,20 @@ export class RuntimeLedgerRepair {
       runEventData: { recovered: true, recoveryReason: failureClass },
       existingEvents,
     });
-    await this.appendTerminalTurnStateIfNeeded(sessionId, messages, {
-      runId: run.runId,
-      turnId: run.turnId,
-      status: 'failed',
-      failureClass,
-      diagnostic: { recoveryReason: failureClass },
-      lineage: headerLineage(run),
-    }, 'failed', { ts, errorClass: failureClass }).catch(() => {});
+    await this.appendTerminalTurnStateIfNeeded(
+      sessionId,
+      messages,
+      {
+        runId: run.runId,
+        turnId: run.turnId,
+        status: 'failed',
+        failureClass,
+        diagnostic: { recoveryReason: failureClass },
+        lineage: headerLineage(run),
+      },
+      'failed',
+      { ts, errorClass: failureClass },
+    ).catch(() => {});
   }
 
   private async appendTerminalTurnStateIfNeeded(
@@ -243,7 +279,8 @@ export function firstRuntimeRepairRunId(
       diagnostic.message === 'terminal run has no terminal RuntimeEvent' ||
       diagnostic.message === 'terminal run header does not match RuntimeEvent terminal fact' ||
       diagnostic.message === 'failed terminal RuntimeEvent requires a stable failure class' ||
-      diagnostic.message === 'failed terminal event did not carry an exact AgentRunHeader.failureClass' ||
+      diagnostic.message ===
+        'failed terminal event did not carry an exact AgentRunHeader.failureClass' ||
       diagnostic.message === 'aborted terminal RuntimeEvent requires an abort source' ||
       diagnostic.message === 'abortSource is not present in RuntimeEvent or AgentRunHeader metadata'
     ) {
@@ -274,7 +311,8 @@ function terminalRunStatusFromEvent(
   if (event.status === 'completed') return 'completed';
   if (event.status === 'failed') return 'failed';
   if (event.status === 'aborted' || event.status === 'cancelled') return 'cancelled';
-  if (run.status === 'completed' || run.status === 'failed' || run.status === 'cancelled') return run.status;
+  if (run.status === 'completed' || run.status === 'failed' || run.status === 'cancelled')
+    return run.status;
   return undefined;
 }
 
@@ -284,11 +322,14 @@ function terminalTurnStatus(status: 'completed' | 'failed' | 'cancelled'): TurnR
 }
 
 function isMatchingTerminalRuntimeEvent(run: AgentRunHeader, event: RuntimeEvent): boolean {
-  return !event.partial &&
+  return (
+    !event.partial &&
     event.sessionId === run.sessionId &&
     event.runId === run.runId &&
     event.turnId === run.turnId &&
-    isTerminalRuntimeEvent(event);
+    (run.invocationId === undefined || event.invocationId === run.invocationId) &&
+    isTerminalRuntimeEvent(event)
+  );
 }
 
 function missingRecoveredRuntimeEvents(
@@ -297,9 +338,7 @@ function missingRecoveredRuntimeEvents(
   recovered: readonly RuntimeEvent[],
 ): RuntimeEvent[] {
   const recoveredEventKeys = new Set(
-    existing
-      .map(recoveredEventKey)
-      .filter((key): key is string => key !== undefined),
+    existing.map(recoveredEventKey).filter((key): key is string => key !== undefined),
   );
   const hasTerminal = existing.some((event) => isMatchingTerminalRuntimeEvent(run, event));
   const matchedExistingEventIndexes = new Set<number>();
@@ -313,8 +352,9 @@ function missingRecoveredRuntimeEvents(
     if (!eventKey) continue;
     if (recoveredEventKeys.has(eventKey)) continue;
     recoveredEventKeys.add(eventKey);
-    const existingIndex = existing.findIndex((candidate, index) =>
-      !matchedExistingEventIndexes.has(index) && isSameRecoveredRuntimeEvent(candidate, event)
+    const existingIndex = existing.findIndex(
+      (candidate, index) =>
+        !matchedExistingEventIndexes.has(index) && isSameRecoveredRuntimeEvent(candidate, event),
     );
     if (existingIndex >= 0) {
       matchedExistingEventIndexes.add(existingIndex);
@@ -341,19 +381,23 @@ function recoveredEventKey(event: RuntimeEvent): string | undefined {
 }
 
 function failureClassFromExistingTerminal(event: RuntimeEvent): string | undefined {
-  return stringStateDelta(event, 'failureClass')
-    ?? stringStateDelta(event, 'errorClass')
-    ?? stringStateDelta(event, 'reason')
-    ?? stringStateDelta(event, 'code')
-    ?? (event.content?.kind === 'error' ? nonEmptyString(event.content.reason) : undefined)
-    ?? (event.content?.kind === 'error' ? nonEmptyString(event.content.code) : undefined);
+  return (
+    stringStateDelta(event, 'failureClass') ??
+    stringStateDelta(event, 'errorClass') ??
+    stringStateDelta(event, 'reason') ??
+    stringStateDelta(event, 'code') ??
+    (event.content?.kind === 'error' ? nonEmptyString(event.content.reason) : undefined) ??
+    (event.content?.kind === 'error' ? nonEmptyString(event.content.code) : undefined)
+  );
 }
 
 function abortSourceFromExistingTerminal(event: RuntimeEvent): string | undefined {
-  return stringStateDelta(event, 'abortSource')
-    ?? stringStateDelta(event, 'source')
-    ?? stringRecordValue(event.refs, 'abortSource')
-    ?? stringRecordValue(event.refs, 'source');
+  return (
+    stringStateDelta(event, 'abortSource') ??
+    stringStateDelta(event, 'source') ??
+    stringRecordValue(event.refs, 'abortSource') ??
+    stringRecordValue(event.refs, 'source')
+  );
 }
 
 function stringStateDelta(event: RuntimeEvent, key: string): string | undefined {
@@ -372,7 +416,8 @@ function nonEmptyString(value: unknown): string | undefined {
 }
 
 function isSameRecoveredRuntimeEvent(existing: RuntimeEvent, recovered: RuntimeEvent): boolean {
-  return !existing.partial &&
+  return (
+    !existing.partial &&
     existing.sessionId === recovered.sessionId &&
     existing.runId === recovered.runId &&
     existing.turnId === recovered.turnId &&
@@ -380,8 +425,11 @@ function isSameRecoveredRuntimeEvent(existing: RuntimeEvent, recovered: RuntimeE
     existing.author === recovered.author &&
     existing.status === recovered.status &&
     JSON.stringify(existing.content) === JSON.stringify(recovered.content) &&
-    JSON.stringify(existing.actions?.tokenUsage) === JSON.stringify(recovered.actions?.tokenUsage) &&
-    JSON.stringify(existing.actions?.permissionDecision) === JSON.stringify(recovered.actions?.permissionDecision);
+    JSON.stringify(existing.actions?.tokenUsage) ===
+      JSON.stringify(recovered.actions?.tokenUsage) &&
+    JSON.stringify(existing.actions?.permissionDecision) ===
+      JSON.stringify(recovered.actions?.permissionDecision)
+  );
 }
 
 function isTrustworthyRecoveredTerminal(
@@ -394,13 +442,14 @@ function isTrustworthyRecoveredTerminal(
     return run.status === 'completed' && turnState.status === 'completed';
   }
   if (terminal.status === 'failed') {
-    return run.status === 'failed' &&
+    return (
+      run.status === 'failed' &&
       turnState.status === 'failed' &&
-      (!run.failureClass || !turnState.errorClass || turnState.errorClass === run.failureClass);
+      (!run.failureClass || !turnState.errorClass || turnState.errorClass === run.failureClass)
+    );
   }
   if (terminal.status === 'aborted' || terminal.status === 'cancelled') {
-    return run.status === 'cancelled' &&
-      turnState.status === 'aborted';
+    return run.status === 'cancelled' && turnState.status === 'aborted';
   }
   return false;
 }
@@ -421,7 +470,9 @@ function headerLineage(header: AgentRunHeader): AgentRunLineage {
     ...(header.parentRunId ? { parentRunId: header.parentRunId } : {}),
     ...(header.parentTurnId ? { parentTurnId: header.parentTurnId } : {}),
     ...(header.retriedFromTurnId ? { retriedFromTurnId: header.retriedFromTurnId } : {}),
-    ...(header.regeneratedFromTurnId ? { regeneratedFromTurnId: header.regeneratedFromTurnId } : {}),
+    ...(header.regeneratedFromTurnId
+      ? { regeneratedFromTurnId: header.regeneratedFromTurnId }
+      : {}),
     ...(header.branchOfTurnId ? { branchOfTurnId: header.branchOfTurnId } : {}),
     ...(header.parentSessionId ? { parentSessionId: header.parentSessionId } : {}),
   };

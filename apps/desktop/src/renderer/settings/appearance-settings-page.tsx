@@ -8,14 +8,9 @@ import type {
   UiLocalePreference,
   UpdateAppSettingsResult,
 } from '@maka/core';
-import { ChoiceCard, ChoiceCardGroup, Input, SettingsSegmented as Segmented, Textarea, useMountedRef, useToast } from '@maka/ui';
+import { ChoiceCard, ChoiceCardGroup, Input, Segmented, Textarea, useMountedRef, useToast, useUiLocale } from '@maka/ui';
 import { settingsActionErrorMessage } from './settings-error-copy';
-
-const THEME_OPTIONS: Array<{ value: ThemePreference; label: string; help: string }> = [
-  { value: 'light', label: '浅色', help: '始终使用浅色界面。' },
-  { value: 'dark', label: '深色', help: '始终使用深色界面。' },
-  { value: 'auto', label: '跟随系统', help: '匹配 macOS 当前浅色或深色偏好。' },
-];
+import { getSettingsPreferencesCopy } from '../locales/settings-preferences-copy.js';
 
 export function AppearanceSettingsPage(props: {
   themePref: ThemePreference;
@@ -56,6 +51,8 @@ export function PersonalizationSettingsPage(props: {
   settings: AppSettings;
   onUpdate(patch: Parameters<typeof window.maka.settings.update>[0]): Promise<UpdateAppSettingsResult>;
 }) {
+  const locale = useUiLocale();
+  const copy = getSettingsPreferencesCopy(locale).personalization;
   // Persist the tone textarea this long after the user stops typing; blur
   // flushes immediately regardless.
   const TONE_AUTOSAVE_DEBOUNCE_MS = 800;
@@ -65,11 +62,11 @@ export function PersonalizationSettingsPage(props: {
   const [uiLocale, setUiLocale] = useState<UiLocalePreference>(value.uiLocale);
   const toast = useToast();
   const personalizationMountedRef = useMountedRef();
-  // Last-write-wins persist queue, mirrored on NetworkProxySection below:
-  // a monotonic ticket disambiguates overlapping in-flight saves so a stale
-  // response can't clobber a newer one, and a pending-count keeps the sync
-  // effect from resetting local state mid-edit.
+  // The shared ticket limits stale failure feedback. Locale reconciliation
+  // has separate ownership because a later display-name or tone save must not
+  // suppress rollback of a failed language preference.
   const persistTicketRef = useRef(0);
+  const localePersistTicketRef = useRef(0);
   const persistPendingCountRef = useRef(0);
   // Debounce timer for the tone textarea; flushed immediately on blur.
   const toneDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -79,6 +76,7 @@ export function PersonalizationSettingsPage(props: {
       // Invalidate any in-flight save's late UI write, and drop the pending
       // debounced flush so it can't fire after the panel closes.
       persistTicketRef.current += 1;
+      localePersistTicketRef.current += 1;
       if (toneDebounceRef.current) {
         clearTimeout(toneDebounceRef.current);
         toneDebounceRef.current = null;
@@ -104,22 +102,25 @@ export function PersonalizationSettingsPage(props: {
     setUiLocale(value.uiLocale);
   }, [value.displayName, value.assistantTone, value.uiLocale]);
 
-  // Shared persist path for every personalization field. Newest write wins:
-  // each call bumps the ticket, and only the response whose ticket is still
-  // current is allowed to apply side effects (locale) — a slow earlier save
-  // resolving after a newer one is discarded.
+  // Shared persist path for every personalization field. Locale has its own
+  // last-write-wins lane so unrelated saves cannot steal rollback ownership.
   async function persistPersonalization(patch: Partial<PersonalizationSettings>) {
     const ticket = ++persistTicketRef.current;
+    const localeTicket = patch.uiLocale === undefined ? null : ++localePersistTicketRef.current;
     persistPendingCountRef.current += 1;
     try {
       const result = await props.onUpdate({ personalization: patch });
-      if (!personalizationMountedRef.current || ticket !== persistTicketRef.current) return;
-      if (patch.uiLocale !== undefined) {
+      if (!personalizationMountedRef.current) return;
+      if (localeTicket !== null && localeTicket === localePersistTicketRef.current) {
         setUiLocale(result.settings.personalization.uiLocale);
       }
     } catch (error) {
-      if (personalizationMountedRef.current && ticket === persistTicketRef.current) {
-        toast.error('保存失败', settingsActionErrorMessage(error));
+      if (!personalizationMountedRef.current) return;
+      if (localeTicket !== null && localeTicket === localePersistTicketRef.current) {
+        setUiLocale(value.uiLocale);
+      }
+      if (ticket === persistTicketRef.current) {
+        toast.error(copy.saveFailed, settingsActionErrorMessage(error, locale));
       }
     } finally {
       persistPendingCountRef.current = Math.max(0, persistPendingCountRef.current - 1);
@@ -164,19 +165,19 @@ export function PersonalizationSettingsPage(props: {
       <SettingsRows>
         <div className="settingsFormRow">
           <div>
-            <strong>显示名称</strong>
-            <small>Maka 在聊天里会以这个名字称呼你。留空就用默认的「你」。</small>
+            <strong>{copy.displayName}</strong>
+            <small>{copy.displayNameHelp}</small>
           </div>
           <Input
             type="text"
             value={displayName}
             onChange={(event) => setDisplayName(event.currentTarget.value)}
             onBlur={(event) => flushDisplayName(event.currentTarget.value)}
-            placeholder="例如：JK"
+            placeholder={copy.displayNamePlaceholder}
             maxLength={60}
             autoComplete="off"
             spellCheck={false}
-            aria-label="显示名称"
+            aria-label={copy.displayName}
           />
         </div>
 
@@ -188,28 +189,21 @@ export function PersonalizationSettingsPage(props: {
         */}
         <div className="settingsFormRow">
           <div>
-            <strong>界面语言</strong>
-            <small>选择 Maka 界面的显示语言。切换后立即生效，重启后保持。</small>
+            <strong>{copy.interfaceLanguage}</strong>
+            <small>{copy.interfaceLanguageHelp}</small>
           </div>
           <Segmented
             value={uiLocale}
-            options={[
-              ['auto', '跟随系统'],
-              ['zh', '中文'],
-              ['en', 'English'],
-            ]}
+            options={copy.localeOptions}
             onChange={(next) => persistLocale(next as UiLocalePreference)}
-            ariaLabel="界面语言"
+            ariaLabel={copy.interfaceLanguage}
           />
         </div>
 
         <div className="settingsFormRow" data-orient="vertical">
           <div>
-            <strong>助手语气偏好</strong>
-            <small>
-              最多 500 字，只影响回答的语气和风格。权限确认与安全规则不受它影响——
-              写"跳过确认"这类指令不会生效。改动会自动保存，下一次发送对话时模型会拿到新偏好。
-            </small>
+            <strong>{copy.assistantTone}</strong>
+            <small>{copy.assistantToneHelp}</small>
           </div>
           <Textarea
             value={assistantTone}
@@ -218,11 +212,11 @@ export function PersonalizationSettingsPage(props: {
               scheduleToneSave(event.currentTarget.value);
             }}
             onBlur={(event) => flushTone(event.currentTarget.value)}
-            placeholder="一句话告诉助手期望的语气，比如：技术严谨 / 偏简洁 / 不要 emoji / 多反问。"
+            placeholder={copy.assistantTonePlaceholder}
             rows={4}
             maxLength={500}
             spellCheck={false}
-            aria-label="助手语气偏好"
+            aria-label={copy.assistantTone}
             className="min-h-21 w-full"
           />
         </div>
@@ -275,34 +269,6 @@ function ThemePreviewPane(props: { mode: 'light' | 'dark' }) {
 // PR-THEME-PRODUCT-PALETTES-0: user-facing labels + short description
 // for each palette. Kept inline (not in i18n strings) so the picker
 // label and accessibility text live next to the palette token.
-const PALETTE_LABEL: Record<ThemePalette, string> = {
-  'default': '默认',
-  'onedark': 'One Dark',
-  'catppuccin-mocha': 'Catppuccin Mocha',
-  'tokyo-night': 'Tokyo Night',
-  'nord': 'Nord',
-  'coral': '珊瑚',
-  'azure': '湖蓝',
-  'forest': '森林',
-  'dusk': '暮光',
-  'sand': '沙金',
-  'mono': '极简灰',
-};
-
-const PALETTE_HELP: Record<ThemePalette, string> = {
-  'default': 'Maka 品牌蓝强调色',
-  'onedark': '编辑器经典深色',
-  'catppuccin-mocha': '紫调柔和深色',
-  'tokyo-night': '深蓝主题',
-  'nord': '北欧冷色',
-  'coral': '暖粉 / 珊瑚强调色',
-  'azure': '湖蓝强调色，干净冷静',
-  'forest': '深苔绿 + 暖蜂蜜强调色，自然感',
-  'dusk': '深紫罗兰 + 冷调画布，黄昏感',
-  'sand': '琥珀沙金 + 暖奶白，复古暖调',
-  'mono': '纯灰阶，无彩色干扰',
-};
-
 /**
  * PR-PALETTE-PICKER-GROUPS-0: 11 palettes need grouping so the
  * picker scans cleanly. `default` + the 4 community editor themes
@@ -310,9 +276,9 @@ const PALETTE_HELP: Record<ThemePalette, string> = {
  * 产品色调. Order within each group is preserved for stable
  * keyboard navigation.
  */
-const PALETTE_GROUPS: ReadonlyArray<{ id: string; label: string; palettes: ReadonlyArray<ThemePalette> }> = [
-  { id: 'editor', label: '编辑器主题', palettes: ['default', 'onedark', 'catppuccin-mocha', 'tokyo-night', 'nord'] },
-  { id: 'product', label: '产品色调', palettes: ['coral', 'azure', 'forest', 'dusk', 'sand', 'mono'] },
+const PALETTE_GROUPS: ReadonlyArray<{ id: 'editor' | 'product'; palettes: ReadonlyArray<ThemePalette> }> = [
+  { id: 'editor', palettes: ['default', 'onedark', 'catppuccin-mocha', 'tokyo-night', 'nord'] },
+  { id: 'product', palettes: ['coral', 'azure', 'forest', 'dusk', 'sand', 'mono'] },
 ];
 
 function ThemeSettingsPage(props: {
@@ -323,6 +289,8 @@ function ThemeSettingsPage(props: {
   onThemeChange(pref: ThemePreference): void;
   onThemePaletteChange(palette: ThemePalette): void;
 }) {
+  const locale = useUiLocale();
+  const copy = getSettingsPreferencesCopy(locale).appearance;
   const toast = useToast();
   const themePageMountedRef = useMountedRef();
   const themePersistTicketRef = useRef(0);
@@ -339,7 +307,7 @@ function ThemeSettingsPage(props: {
       await props.onUpdate({ appearance: patch });
     } catch (error) {
       if (themePageMountedRef.current && ticket === themePersistTicketRef.current) {
-        toast.error('保存外观设置失败', settingsActionErrorMessage(error));
+        toast.error(copy.saveFailed, settingsActionErrorMessage(error, locale));
       }
     }
   }
@@ -367,14 +335,14 @@ function ThemeSettingsPage(props: {
 
   return (
     <div className="settingsStructuredPage">
-      <h3 className="settingsSubheading">主题</h3>
+      <h3 className="settingsSubheading">{copy.theme}</h3>
       <ChoiceCardGroup
         className="settingsThemeOptions settingsThemeOptionsPreview"
-        aria-label="主题"
+        aria-label={copy.theme}
         value={props.themePref}
         onValueChange={(next) => void setTheme(next as typeof props.themePref)}
       >
-        {THEME_OPTIONS.map((option) => (
+        {(Object.entries(copy.themeOptions) as Array<[ThemePreference, { label: string; help: string }]>).map(([value, option]) => (
           // Base UI Radio.Root via ChoiceCard primitive (Round C,
           // PR round-c-choice-card-primitive). Keyboard arrow nav,
           // focus management, and `data-checked` are owned by the
@@ -382,11 +350,11 @@ function ThemeSettingsPage(props: {
           // CSS so the regression test that catches `<Button>` shrinking
           // the card to a 36px black pill is no longer needed.
           <ChoiceCard
-            key={option.value}
-            value={option.value}
+            key={value}
+            value={value}
             className="settingsThemeOption settingsThemeOptionPreview"
           >
-            <ThemePreviewMock variant={option.value} />
+            <ThemePreviewMock variant={value} />
             <span className="settingsThemeLabel">
               <strong>{option.label}</strong>
               <small>{option.help}</small>
@@ -395,7 +363,7 @@ function ThemeSettingsPage(props: {
         ))}
       </ChoiceCardGroup>
 
-      <h3 className="settingsSubheading">调色板</h3>
+      <h3 className="settingsSubheading">{copy.palette}</h3>
       {/* PR-PALETTE-PICKER-GROUPS-0: 11 palettes in a flat grid is
           cramped. Split into 编辑器主题 (default + 4 community editor
           themes) and 产品色调 (6 product accents) so the picker is
@@ -403,10 +371,10 @@ function ThemeSettingsPage(props: {
           arrow-key navigation stays scoped. */}
       {PALETTE_GROUPS.map((group) => (
         <div key={group.id} className="settingsPaletteGroup">
-          <h4 className="settingsPaletteGroupHeading">{group.label}</h4>
+          <h4 className="settingsPaletteGroupHeading">{copy.paletteGroups[group.id]}</h4>
           <ChoiceCardGroup
             className="settingsThemeOptions settingsPaletteOptions"
-            aria-label={group.label}
+            aria-label={copy.paletteGroups[group.id]}
             value={currentPalette}
             onValueChange={(next) => void setPalette(next as ThemePalette)}
           >
@@ -419,8 +387,8 @@ function ThemeSettingsPage(props: {
               >
                 <span className={`settingsPaletteSwatch settingsPaletteSwatch-${palette}`} aria-hidden="true" />
                 <span className="settingsThemeLabel">
-                  <strong>{PALETTE_LABEL[palette]}</strong>
-                  <small>{PALETTE_HELP[palette]}</small>
+                  <strong>{copy.paletteLabels[palette]}</strong>
+                  <small>{copy.paletteHelp[palette]}</small>
                 </span>
               </ChoiceCard>
             ))}
@@ -429,7 +397,7 @@ function ThemeSettingsPage(props: {
       ))}
 
       <p className="settingsHelpText">
-        切换会立即生效，并保存在本地外观设置里下次启动延续。
+        {copy.persistenceHelp}
       </p>
     </div>
   );

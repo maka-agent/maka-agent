@@ -1,0 +1,848 @@
+import assert from 'node:assert/strict';
+import { describe, test } from 'node:test';
+import type { LlmConnection, SessionEvent, SessionHeader, ToolInvocationRecord } from '@maka/core';
+import {
+  AGENT_SWARM_DEFAULT_CONCURRENCY,
+  AGENT_SWARM_MAX_CONCURRENCY,
+  AGENT_SWARM_MAX_ITEMS,
+  AGENT_SWARM_TOOL_NAME,
+  buildAgentSwarmTool,
+  type AgentSwarmToolInput,
+  type AgentSwarmToolResult,
+} from '../agent-swarm-tools.js';
+import {
+  AGENT_WORKSPACE_SAME_WORKSPACE,
+  AGENT_WORKSPACE_WORKTREE,
+  AGENT_WRITE_BACK_PATCH,
+  AGENT_WRITE_BACK_SUMMARY,
+  IMPLEMENTATION_AGENT_PROFILE,
+  LOCAL_READ_AGENT_PROFILE,
+} from '../agent-catalog.js';
+import { buildChildAgentTools, AGENT_TOOL_NAMES } from '../subagent-tools.js';
+import type { SpawnChildAgentResult } from '../session-manager.js';
+import { PermissionEngine } from '../permission-engine.js';
+import type { RunTraceLike } from '../run-trace.js';
+import {
+  MAX_ACTIVE_CHILD_AGENT_RUNS_PER_TURN,
+  ToolRuntime,
+  type MakaTool,
+  type MakaToolContext,
+} from '../tool-runtime.js';
+
+describe('AgentSwarm adapter', () => {
+  test('declares a bounded schema and joins the deferred parent Agent group', () => {
+    const tool = buildAgentSwarmTool();
+    const schema = tool.parameters as {
+      safeParse(input: unknown): {
+        success: boolean;
+        data?: AgentSwarmToolInput;
+      };
+    };
+
+    assert.equal(tool.name, AGENT_SWARM_TOOL_NAME);
+    assert.equal(tool.permissionRequired, true);
+    assert.equal(tool.categoryHint, 'subagent');
+    assert.equal(([...AGENT_TOOL_NAMES] as string[]).includes(AGENT_SWARM_TOOL_NAME), true);
+    assert.deepEqual(
+      schema.safeParse({
+        items: [
+          {
+            item_id: 'auth',
+            profile: LOCAL_READ_AGENT_PROFILE,
+            task: 'Inspect auth.',
+          },
+        ],
+      }).data,
+      {
+        items: [
+          {
+            item_id: 'auth',
+            profile: LOCAL_READ_AGENT_PROFILE,
+            task: 'Inspect auth.',
+          },
+        ],
+        max_concurrency: AGENT_SWARM_DEFAULT_CONCURRENCY,
+      },
+    );
+    assert.equal(
+      schema.safeParse({
+        items: Array.from({ length: AGENT_SWARM_MAX_ITEMS + 1 }, (_, index) => swarmItem(index)),
+      }).success,
+      false,
+    );
+    assert.equal(
+      schema.safeParse({
+        items: [swarmItem(0), swarmItem(0)],
+      }).success,
+      false,
+    );
+    assert.equal(
+      schema.safeParse({
+        items: [swarmItem(0)],
+        max_concurrency: AGENT_SWARM_MAX_CONCURRENCY + 1,
+      }).success,
+      false,
+    );
+    assert.equal(
+      schema.safeParse({
+        items: [
+          {
+            ...swarmItem(0),
+            write_back: AGENT_WRITE_BACK_PATCH,
+          },
+        ],
+      }).success,
+      false,
+    );
+    assert.equal(
+      schema.safeParse({
+        items: [
+          {
+            ...swarmItem(0),
+            isolation: AGENT_WORKSPACE_WORKTREE,
+          },
+        ],
+      }).success,
+      false,
+    );
+  });
+
+  test('preflights the complete batch before starting any child', async () => {
+    const tool = buildAgentSwarmTool();
+    let starts = 0;
+
+    await assert.rejects(
+      Promise.resolve(
+        tool.impl(
+          {
+            items: [
+              swarmItem(0),
+              {
+                item_id: 'implementation',
+                profile: IMPLEMENTATION_AGENT_PROFILE,
+                task: 'Edit the repository.',
+                write_back: AGENT_WRITE_BACK_PATCH,
+                isolation: AGENT_WORKSPACE_WORKTREE,
+              },
+            ],
+          },
+          context({
+            spawnChildAgent: async () => {
+              starts += 1;
+              return childResult(0);
+            },
+          }),
+        ),
+      ),
+      /worktree child executor/,
+    );
+    assert.equal(starts, 0);
+  });
+
+  test('fails at the tool boundary when child spawning is unavailable', async () => {
+    const tool = buildAgentSwarmTool();
+
+    await assert.rejects(
+      Promise.resolve(tool.impl({ items: [swarmItem(0)] }, context())),
+      /spawnChildAgent capability is unavailable/,
+    );
+  });
+
+  test('preserves input order and successful refs across partial failure', async () => {
+    const clock = sequence([100, 180]);
+    const tool = buildAgentSwarmTool({ now: clock });
+    const gates = Array.from({ length: 3 }, () => deferred<SpawnChildAgentResult>());
+    const started: number[] = [];
+    const completionOrder: number[] = [];
+    const traceEvents: TestTraceEvent[] = [];
+    const pending = (async () =>
+      await tool.impl(
+        {
+          items: [swarmItem(0), swarmItem(1), swarmItem(2)],
+          max_concurrency: 3,
+        },
+        context({
+          emitRunTrace: (type, message, data) => {
+            traceEvents.push({ type, message, data });
+          },
+          spawnChildAgent: async (input) => {
+            const index = Number(input.prompt.slice('task-'.length));
+            started.push(index);
+            await input.onReady?.({
+              turnId: `turn-${index}`,
+              agentId: input.spec.id,
+              agentName: input.spec.name,
+            });
+            const result = await gates[index]!.promise;
+            completionOrder.push(index);
+            return result;
+          },
+        }),
+      ))();
+
+    await waitFor(() => started.length === 3);
+    gates[2]!.resolve(childResult(2));
+    await waitFor(() => completionOrder.length === 1);
+    gates[0]!.resolve(childResult(0));
+    await waitFor(() => completionOrder.length === 2);
+    gates[1]!.resolve(childResult(1, 'failed'));
+
+    const result = await pending;
+    assert.deepEqual(completionOrder, [2, 0, 1]);
+    assert.equal(result.status, 'partial');
+    assert.deepEqual(
+      result.items.map((item) => ({
+        itemId: item.itemId,
+        index: item.index,
+        runId: item.runId,
+        status: item.status,
+        summary: item.summary,
+      })),
+      [
+        {
+          itemId: 'item-0',
+          index: 0,
+          runId: 'run-0',
+          status: 'completed',
+          summary: 'summary-0',
+        },
+        {
+          itemId: 'item-1',
+          index: 1,
+          runId: 'run-1',
+          status: 'failed',
+          summary: 'summary-1',
+        },
+        {
+          itemId: 'item-2',
+          index: 2,
+          runId: 'run-2',
+          status: 'completed',
+          summary: 'summary-2',
+        },
+      ],
+    );
+    assert.deepEqual(
+      result.items.map((item) => item.artifactIds),
+      [['artifact-0'], ['artifact-1'], ['artifact-2']],
+    );
+    assert.deepEqual(
+      {
+        startedAt: result.startedAt,
+        completedAt: result.completedAt,
+        durationMs: result.durationMs,
+      },
+      { startedAt: 100, completedAt: 180, durationMs: 80 },
+    );
+    assert.deepEqual(
+      traceEvents
+        .filter((event) => event.data?.swarmStage === 'item_completed')
+        .map((event) => ({
+          index: Number(event.data?.index),
+          status: event.data?.status,
+        }))
+        .sort((left, right) => left.index - right.index)
+        .map((event) => event.status),
+      ['completed', 'failed', 'completed'],
+    );
+    assert.deepEqual(
+      traceEvents.find((event) => event.data?.swarmStage === 'batch_completed')?.data,
+      {
+        swarmStage: 'batch_completed',
+        status: 'partial',
+        itemCount: 3,
+        startedItemCount: 3,
+        completedItemCount: 2,
+        failedItemCount: 1,
+        cancelledItemCount: 0,
+        artifactCount: 3,
+        durationMs: 80,
+      },
+    );
+  });
+
+  test('isolates a thrown child startup while retaining successful siblings', async () => {
+    const tool = buildAgentSwarmTool();
+    const result = await tool.impl(
+      {
+        items: [swarmItem(0), swarmItem(1), swarmItem(2)],
+        max_concurrency: 2,
+      },
+      context({
+        spawnChildAgent: async (input) => {
+          const index = Number(input.prompt.slice('task-'.length));
+          if (index === 1) throw new Error('provider startup failed');
+          await input.onReady?.({
+            turnId: `turn-${index}`,
+            agentId: input.spec.id,
+            agentName: input.spec.name,
+          });
+          return childResult(index);
+        },
+      }),
+    );
+
+    assert.equal(result.status, 'partial');
+    assert.deepEqual(
+      result.items.map((item) => item.status),
+      ['completed', 'failed', 'completed'],
+    );
+    assert.equal(result.items[1]?.started, false);
+    assert.match(result.items[1]?.summary ?? '', /provider startup failed/);
+    assert.equal(result.items[1]?.failureClass, 'Error');
+  });
+
+  test('distinguishes active cancellation from items that never started', async () => {
+    const controller = new AbortController();
+    const tool = buildAgentSwarmTool();
+    const started: number[] = [];
+    const traceEvents: TestTraceEvent[] = [];
+    const pending = invokeAgentSwarm(
+      tool,
+      {
+        items: [swarmItem(0), swarmItem(1), swarmItem(2), swarmItem(3)],
+        max_concurrency: 2,
+      },
+      context({
+        abortSignal: controller.signal,
+        emitRunTrace: (type, message, data) => {
+          traceEvents.push({ type, message, data });
+        },
+        spawnChildAgent: async (input) => {
+          const index = Number(input.prompt.slice('task-'.length));
+          started.push(index);
+          await input.onReady?.({
+            turnId: `turn-${index}`,
+            agentId: input.spec.id,
+            agentName: input.spec.name,
+          });
+          await onceAborted(controller.signal);
+          return childResult(index, 'cancelled');
+        },
+      }),
+    );
+
+    await waitFor(() => started.length === 2);
+    controller.abort(new Error('parent cancelled'));
+    const result = await withTimeout(pending, 'cancelled AgentSwarm did not join active children');
+
+    assert.equal(result.status, 'cancelled');
+    assert.deepEqual(started, [0, 1]);
+    assert.deepEqual(
+      result.items.map((item) => ({
+        started: item.started,
+        turnId: item.turnId,
+        runId: item.runId,
+        status: item.status,
+      })),
+      [
+        {
+          started: true,
+          turnId: 'turn-0',
+          runId: 'run-0',
+          status: 'cancelled',
+        },
+        {
+          started: true,
+          turnId: 'turn-1',
+          runId: 'run-1',
+          status: 'cancelled',
+        },
+        {
+          started: false,
+          turnId: undefined,
+          runId: undefined,
+          status: 'cancelled',
+        },
+        {
+          started: false,
+          turnId: undefined,
+          runId: undefined,
+          status: 'cancelled',
+        },
+      ],
+    );
+    assert.equal(traceEvents.filter((event) => event.data?.swarmStage === 'item_queued').length, 2);
+    const batchTrace = traceEvents.find(
+      (event) => event.data?.swarmStage === 'batch_completed',
+    )?.data;
+    assert.equal(batchTrace?.status, 'cancelled');
+    assert.equal(batchTrace?.itemCount, 4);
+    assert.equal(batchTrace?.startedItemCount, 2);
+    assert.equal(batchTrace?.completedItemCount, 0);
+    assert.equal(batchTrace?.failedItemCount, 0);
+    assert.equal(batchTrace?.cancelledItemCount, 4);
+    assert.equal(batchTrace?.artifactCount, 2);
+    assert.equal(typeof batchTrace?.durationMs, 'number');
+  });
+
+  test('composes local width with the shared child-run permit pool', async () => {
+    const active = new Set<string>();
+    const started: string[] = [];
+    const releases = new Map<string, () => void>();
+    const traceEvents: TestTraceEvent[] = [];
+    let maxActive = 0;
+    const runtime = buildRuntime(
+      async (input) => {
+        started.push(input.prompt);
+        active.add(input.prompt);
+        maxActive = Math.max(maxActive, active.size);
+        await input.onReady?.({
+          turnId: `turn-${input.prompt}`,
+          agentId: input.spec.id,
+          agentName: input.spec.name,
+        });
+        return await new Promise((resolve) => {
+          releases.set(input.prompt, () => {
+            active.delete(input.prompt);
+            resolve(childResultForPrompt(input.prompt));
+          });
+        });
+      },
+      { traceEvents },
+    );
+    const single = executeTool(runtime, singleChildProbeTool(), {}, new AbortController());
+    await waitFor(() => started.length === 1);
+
+    const swarm = executeTool(
+      runtime,
+      {
+        ...buildAgentSwarmTool(),
+        permissionRequired: false,
+      },
+      {
+        items: Array.from({ length: 5 }, (_, index) => swarmItem(index)),
+        max_concurrency: 5,
+      },
+      new AbortController(),
+    );
+    await waitFor(() => started.length === MAX_ACTIVE_CHILD_AGENT_RUNS_PER_TURN);
+
+    assert.equal(maxActive, MAX_ACTIVE_CHILD_AGENT_RUNS_PER_TURN);
+    assert.equal(
+      started.filter((prompt) => prompt.startsWith('task-')).length,
+      MAX_ACTIVE_CHILD_AGENT_RUNS_PER_TURN - 1,
+    );
+
+    releases.get('single')?.();
+    await waitFor(() => started.length === 6);
+    assert.equal(maxActive, MAX_ACTIVE_CHILD_AGENT_RUNS_PER_TURN);
+
+    for (const release of releases.values()) release();
+    await Promise.all([single, swarm]);
+    assert.equal(active.size, 0);
+    assert.ok(
+      traceEvents.some(
+        (event) =>
+          event.data?.boundary === 'shared_child_run_permit' && event.data?.stage === 'waiting',
+      ),
+    );
+    assert.ok(
+      traceEvents.some(
+        (event) =>
+          event.data?.boundary === 'child_run_execution' && event.data?.stage === 'started',
+      ),
+    );
+    assert.ok(traceEvents.some((event) => event.data?.swarmStage === 'batch_completed'));
+  });
+
+  test('traces subagent admission rejection separately from child-run capacity', async () => {
+    const traceEvents: TestTraceEvent[] = [];
+    const releases: Array<() => void> = [];
+    let starts = 0;
+    const runtime = buildRuntime(
+      async () => {
+        starts += 1;
+        const index = starts;
+        return await new Promise((resolve) => {
+          releases.push(() => resolve(childResult(index)));
+        });
+      },
+      { traceEvents },
+    );
+    const tool = singleChildProbeTool();
+    const pending = Array.from({ length: MAX_ACTIVE_CHILD_AGENT_RUNS_PER_TURN + 1 }, (_, index) =>
+      executeTool(runtime, tool, {}, new AbortController(), [], `tool-admission-${index}`),
+    );
+
+    await waitFor(() => starts === MAX_ACTIVE_CHILD_AGENT_RUNS_PER_TURN);
+    assert.deepEqual(await pending.at(-1), {
+      error: '只读探索并发过多：同一轮最多 5 个子代理。请等待已有探索完成后再继续。',
+    });
+    assert.ok(
+      traceEvents.some(
+        (event) =>
+          event.data?.boundary === 'subagent_tool_admission' &&
+          event.data?.errorClass === 'RuntimeLimit',
+      ),
+    );
+    for (const release of releases) release();
+    await Promise.all(pending.slice(0, -1));
+  });
+
+  test('persists partial as settled and cancellation as interrupted', async () => {
+    const events: SessionEvent[] = [];
+    const telemetry: ToolInvocationRecord[] = [];
+    const runtime = buildRuntime(
+      async (input) => {
+        const index = Number(input.prompt.slice('task-'.length));
+        return childResult(index, index === 1 ? 'failed' : 'completed');
+      },
+      {
+        recordToolInvocation: (record) => telemetry.push(record),
+      },
+    );
+    const swarmTool = {
+      ...buildAgentSwarmTool(),
+      permissionRequired: false,
+    };
+    await executeTool(
+      runtime,
+      swarmTool,
+      {
+        items: [swarmItem(0), swarmItem(1)],
+        max_concurrency: 2,
+      },
+      new AbortController(),
+      events,
+      'tool-partial',
+    );
+
+    const cancelledController = new AbortController();
+    cancelledController.abort(new Error('stop before start'));
+    await executeTool(
+      runtime,
+      swarmTool,
+      { items: [swarmItem(2)] },
+      cancelledController,
+      events,
+      'tool-cancelled',
+    );
+
+    assert.equal(
+      events.find(
+        (event): event is Extract<SessionEvent, { type: 'tool_result' }> =>
+          event.type === 'tool_result' && event.toolUseId === 'tool-partial',
+      )?.isError,
+      false,
+    );
+    assert.equal(
+      events.find(
+        (event): event is Extract<SessionEvent, { type: 'tool_result' }> =>
+          event.type === 'tool_result' && event.toolUseId === 'tool-cancelled',
+      )?.isError,
+      true,
+    );
+    assert.deepEqual(
+      telemetry.find((record) => record.toolCallId === 'tool-partial')?.resultSummary,
+      {
+        kind: 'agent_swarm',
+        status: 'partial',
+        itemCount: 2,
+        startedItemCount: 2,
+        completedItemCount: 1,
+        failedItemCount: 1,
+        cancelledItemCount: 0,
+        artifactCount: 2,
+      },
+    );
+    assert.equal(
+      telemetry.find((record) => record.toolCallId === 'tool-cancelled')?.resultSummary?.status,
+      'cancelled',
+    );
+  });
+
+  test('one denied parent permission starts zero children', async () => {
+    const events: SessionEvent[] = [];
+    let starts = 0;
+    const permissionEngine = new PermissionEngine({
+      newId: nextId(),
+      now: () => 1,
+    });
+    const runtime = buildRuntime(
+      async () => {
+        starts += 1;
+        return childResult(0);
+      },
+      { permissionEngine, permissionMode: 'ask' },
+    );
+    const pending = executeTool(
+      runtime,
+      buildAgentSwarmTool(),
+      { items: [swarmItem(0), swarmItem(1)] },
+      new AbortController(),
+      events,
+      'tool-denied',
+    );
+
+    await waitFor(() => events.some((event) => event.type === 'permission_request'));
+    const requests = events.filter(
+      (event): event is Extract<SessionEvent, { type: 'permission_request' }> =>
+        event.type === 'permission_request',
+    );
+    assert.equal(requests.length, 1);
+    permissionEngine.recordResponse('turn-1', {
+      requestId: requests[0]!.requestId,
+      decision: 'deny',
+    });
+
+    assert.deepEqual(await pending, { error: '用户已拒绝权限请求' });
+    assert.equal(starts, 0);
+  });
+
+  test('child tool construction excludes agent_swarm', () => {
+    const tools = buildChildAgentTools([
+      ...['Read', 'Glob', 'Grep', 'WebSearch'].map((name) => ({
+        name,
+        description: name,
+        parameters: {},
+        permissionRequired: false,
+        categoryHint: 'read' as const,
+        impl: async () => ({}),
+      })),
+      buildAgentSwarmTool(),
+    ]);
+
+    assert.equal(
+      tools.some((tool) => tool.name === AGENT_SWARM_TOOL_NAME),
+      false,
+    );
+  });
+});
+
+function swarmItem(index: number): AgentSwarmToolInput['items'][number] {
+  return {
+    item_id: `item-${index}`,
+    profile: LOCAL_READ_AGENT_PROFILE,
+    task: `task-${index}`,
+    write_back: AGENT_WRITE_BACK_SUMMARY,
+    isolation: AGENT_WORKSPACE_SAME_WORKSPACE,
+  };
+}
+
+function childResult(
+  index: number,
+  status: SpawnChildAgentResult['status'] = 'completed',
+): SpawnChildAgentResult {
+  return {
+    agentId: 'local-read',
+    agentName: 'Local Read',
+    turnId: `turn-${index}`,
+    runId: `run-${index}`,
+    status,
+    permissionMode: 'explore',
+    summary: `summary-${index}`,
+    artifactIds: [`artifact-${index}`],
+    startedAt: index * 10,
+    completedAt: index * 10 + 5,
+    durationMs: 5,
+    eventCount: 1,
+    ...(status === 'failed' ? { failureClass: 'ChildFailed' } : {}),
+  };
+}
+
+function childResultForPrompt(prompt: string): SpawnChildAgentResult {
+  const index = prompt === 'single' ? 99 : Number(prompt.slice('task-'.length));
+  return childResult(index);
+}
+
+function context(overrides: Partial<MakaToolContext> = {}): MakaToolContext {
+  return {
+    sessionId: 'session-1',
+    turnId: 'parent-turn',
+    cwd: '/tmp',
+    toolCallId: 'tool-swarm',
+    abortSignal: new AbortController().signal,
+    emitOutput: () => {},
+    ...overrides,
+  };
+}
+
+async function invokeAgentSwarm(
+  tool: ReturnType<typeof buildAgentSwarmTool>,
+  input: AgentSwarmToolInput,
+  ctx: MakaToolContext,
+): Promise<AgentSwarmToolResult> {
+  return await tool.impl(input, ctx);
+}
+
+function singleChildProbeTool(): MakaTool {
+  return {
+    name: 'single_child_probe',
+    description: 'test-only single child probe',
+    parameters: {},
+    permissionRequired: false,
+    categoryHint: 'subagent',
+    impl: async (_input, ctx) => {
+      if (!ctx.spawnChildAgent) throw new Error('missing spawn capability');
+      return await ctx.spawnChildAgent({
+        spec: {
+          id: 'local-read',
+          name: 'Local Read',
+          systemPrompt: 'Test.',
+        },
+        prompt: 'single',
+      });
+    },
+  };
+}
+
+function buildRuntime(
+  spawnChildAgent: NonNullable<ConstructorParameters<typeof ToolRuntime>[0]['spawnChildAgent']>,
+  options: {
+    permissionEngine?: PermissionEngine;
+    permissionMode?: SessionHeader['permissionMode'];
+    traceEvents?: TestTraceEvent[];
+    recordToolInvocation?: ConstructorParameters<typeof ToolRuntime>[0]['recordToolInvocation'];
+  } = {},
+): ToolRuntime {
+  const permissionEngine =
+    options.permissionEngine ??
+    new PermissionEngine({
+      newId: nextId(),
+      now: () => 1,
+    });
+  permissionEngine.beginTurn('turn-1');
+  return new ToolRuntime({
+    sessionId: 'session-1',
+    header: testHeader(options.permissionMode),
+    connection: testConnection(),
+    modelId: 'mock-model',
+    appendMessage: async () => {},
+    permissionEngine,
+    newId: nextId(),
+    now: () => 1,
+    getPermissionPauseTarget: () => null,
+    getCurrentRunId: () => 'parent-run',
+    spawnChildAgent,
+    ...(options.traceEvents ? { getRunTrace: () => testTrace(options.traceEvents!) } : {}),
+    ...(options.recordToolInvocation ? { recordToolInvocation: options.recordToolInvocation } : {}),
+  });
+}
+
+interface TestTraceEvent {
+  type: string;
+  message: string;
+  data?: Record<string, unknown>;
+}
+
+function testTrace(events: TestTraceEvent[]): RunTraceLike {
+  return {
+    emit: (_phase, type, message, data) => {
+      events.push({ type, message, data });
+    },
+  };
+}
+
+async function executeTool(
+  runtime: ToolRuntime,
+  tool: MakaTool,
+  input: unknown,
+  controller: AbortController,
+  events: SessionEvent[] = [],
+  toolCallId = 'tool-test',
+): Promise<unknown> {
+  return await runtime.wrapToolExecute(tool, 'turn-1', {
+    push: (event) => events.push(event),
+  })(input, {
+    toolCallId,
+    abortSignal: controller.signal,
+  });
+}
+
+function testHeader(permissionMode: SessionHeader['permissionMode'] = 'execute'): SessionHeader {
+  return {
+    id: 'session-1',
+    workspaceRoot: '/tmp',
+    cwd: '/tmp',
+    createdAt: 1,
+    lastUsedAt: 1,
+    name: 'Test',
+    titleIsManual: true,
+    isFlagged: false,
+    labels: [],
+    isArchived: false,
+    status: 'active',
+    statusUpdatedAt: 1,
+    hasUnread: false,
+    backend: 'ai-sdk',
+    llmConnectionSlug: 'anthropic-main',
+    connectionLocked: true,
+    model: 'mock-model',
+    permissionMode,
+    schemaVersion: 1,
+  };
+}
+
+function testConnection(): LlmConnection {
+  return {
+    slug: 'anthropic-main',
+    name: 'Anthropic',
+    providerType: 'anthropic',
+    defaultModel: 'mock-model',
+    enabled: true,
+    createdAt: 1,
+    updatedAt: 1,
+  };
+}
+
+function nextId(): () => string {
+  let id = 0;
+  return () => `id-${++id}`;
+}
+
+interface Deferred<Value> {
+  readonly promise: Promise<Value>;
+  resolve(value: Value): void;
+}
+
+function deferred<Value>(): Deferred<Value> {
+  let resolvePromise: ((value: Value) => void) | undefined;
+  const promise = new Promise<Value>((resolve) => {
+    resolvePromise = resolve;
+  });
+  return {
+    promise,
+    resolve: (value) => resolvePromise!(value),
+  };
+}
+
+function sequence(values: readonly number[]): () => number {
+  let index = 0;
+  return () => values[Math.min(index++, values.length - 1)]!;
+}
+
+async function onceAborted(signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return;
+  await new Promise<void>((resolve) => {
+    signal.addEventListener('abort', () => resolve(), { once: true });
+  });
+}
+
+async function waitFor(predicate: () => boolean, timeoutMs = 1_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() >= deadline) {
+      throw new Error('Timed out waiting for condition');
+    }
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+}
+
+async function withTimeout<Value>(
+  promise: Promise<Value>,
+  message: string,
+  timeoutMs = 1_000,
+): Promise<Value> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}

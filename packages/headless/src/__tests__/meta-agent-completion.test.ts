@@ -54,7 +54,8 @@ describe('createAiSdkMetaAgentCompletion', () => {
   test('cleans fenced JSON so parseMetaAgentResult accepts it', async () => {
     const complete = createAiSdkMetaAgentCompletion({
       ...base,
-      generate: async () => `\`\`\`json\n${JSON.stringify({ systemPrompt: 'NEW PROMPT', summary: 'tightened rules', candidateRationale })}\n\`\`\``,
+      generate: async () =>
+        `\`\`\`json\n${JSON.stringify({ systemPrompt: 'NEW PROMPT', summary: 'tightened rules', candidateRationale })}\n\`\`\``,
     });
     const raw = await complete({ prompt: 'render' });
     assert.deepEqual(parseMetaAgentResult(raw), {
@@ -87,7 +88,11 @@ describe('createAiSdkMetaAgent', () => {
       ...base,
       generate: async ({ prompt }) => {
         assert.match(prompt, /Current System Prompt/);
-        return JSON.stringify({ systemPrompt: 'IMPROVED', summary: 'removed redundant step', candidateRationale });
+        return JSON.stringify({
+          systemPrompt: 'IMPROVED',
+          summary: 'removed redundant step',
+          candidateRationale,
+        });
       },
     });
     const result = await agent({

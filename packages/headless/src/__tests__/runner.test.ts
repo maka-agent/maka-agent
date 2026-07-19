@@ -19,8 +19,9 @@ import type { HeadlessBackendContext } from '../isolation.js';
 import { runExperiment } from '../runner.js';
 
 const registerFakeBackend = (registry: BackendRegistry): void => {
-  registry.register('fake', (ctx) =>
-    new FakeBackend({ sessionId: ctx.sessionId, header: ctx.header, store: ctx.store }),
+  registry.register(
+    'fake',
+    (ctx) => new FakeBackend({ sessionId: ctx.sessionId, header: ctx.header, store: ctx.store }),
   );
 };
 
@@ -28,14 +29,17 @@ function registerTestPiAgentBackend(
   registry: BackendRegistry,
   transportFactory: (input: { header: SessionHeader; store: SessionStore }) => PiAgentTransport,
 ): void {
-  registry.register('pi-agent', (ctx) =>
-    new PiAgentBackend({
-      sessionId: ctx.sessionId,
-      header: ctx.header,
-      appendMessage: ctx.appendMessage ?? ((message) => ctx.store.appendMessage(ctx.sessionId, message)),
-      permissionEngine: new PermissionEngine({ newId: () => 'perm-id', now: () => 123 }),
-      transport: transportFactory({ header: ctx.header, store: ctx.store }),
-    }),
+  registry.register(
+    'pi-agent',
+    (ctx) =>
+      new PiAgentBackend({
+        sessionId: ctx.sessionId,
+        header: ctx.header,
+        appendMessage:
+          ctx.appendMessage ?? ((message) => ctx.store.appendMessage(ctx.sessionId, message)),
+        permissionEngine: new PermissionEngine({ newId: () => 'perm-id', now: () => 123 }),
+        transport: transportFactory({ header: ctx.header, store: ctx.store }),
+      }),
   );
 }
 
@@ -47,7 +51,9 @@ function registerTestPiAgentBackend(
 class TamperBackend implements AgentBackend {
   readonly kind: BackendKind = 'fake';
   readonly sessionId: string;
-  constructor(private readonly ctx: { sessionId: string; header: SessionHeader; store: SessionStore }) {
+  constructor(
+    private readonly ctx: { sessionId: string; header: SessionHeader; store: SessionStore },
+  ) {
     this.sessionId = ctx.sessionId;
   }
   async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
@@ -74,8 +80,9 @@ class TamperBackend implements AgentBackend {
 }
 
 const registerTamperBackend = (registry: BackendRegistry): void => {
-  registry.register('fake', (ctx) =>
-    new TamperBackend({ sessionId: ctx.sessionId, header: ctx.header, store: ctx.store }),
+  registry.register(
+    'fake',
+    (ctx) => new TamperBackend({ sessionId: ctx.sessionId, header: ctx.header, store: ctx.store }),
   );
 };
 
@@ -88,13 +95,23 @@ const registerTamperBackend = (registry: BackendRegistry): void => {
 class FailingBackend implements AgentBackend {
   readonly kind: BackendKind = 'fake';
   readonly sessionId: string;
-  constructor(private readonly ctx: { sessionId: string; header: SessionHeader; store: SessionStore }) {
+  constructor(
+    private readonly ctx: { sessionId: string; header: SessionHeader; store: SessionStore },
+  ) {
     this.sessionId = ctx.sessionId;
   }
   async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
     const { turnId } = input;
     const ts = Date.now();
-    yield { type: 'error', id: 'fail-err', turnId, ts, recoverable: false, reason: 'backend_failed', message: 'backend blew up' };
+    yield {
+      type: 'error',
+      id: 'fail-err',
+      turnId,
+      ts,
+      recoverable: false,
+      reason: 'backend_failed',
+      message: 'backend blew up',
+    };
     yield { type: 'complete', id: 'fail-c', turnId, ts, stopReason: 'error' };
   }
   async stop(): Promise<void> {}
@@ -103,15 +120,18 @@ class FailingBackend implements AgentBackend {
 }
 
 const registerFailingBackend = (registry: BackendRegistry): void => {
-  registry.register('fake', (ctx) =>
-    new FailingBackend({ sessionId: ctx.sessionId, header: ctx.header, store: ctx.store }),
+  registry.register(
+    'fake',
+    (ctx) => new FailingBackend({ sessionId: ctx.sessionId, header: ctx.header, store: ctx.store }),
   );
 };
 
 class IsolatedRealBackend implements AgentBackend {
   readonly kind: BackendKind = 'ai-sdk';
   readonly sessionId: string;
-  constructor(private readonly ctx: { sessionId: string; header: SessionHeader; store: SessionStore }) {
+  constructor(
+    private readonly ctx: { sessionId: string; header: SessionHeader; store: SessionStore },
+  ) {
     this.sessionId = ctx.sessionId;
   }
   async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
@@ -127,7 +147,14 @@ class IsolatedRealBackend implements AgentBackend {
       text: 'solved inside explicit isolation',
       modelId: this.ctx.header.model,
     });
-    yield { type: 'text_complete', id: 'isolated-real-tc', turnId, ts, messageId, text: 'solved inside explicit isolation' };
+    yield {
+      type: 'text_complete',
+      id: 'isolated-real-tc',
+      turnId,
+      ts,
+      messageId,
+      text: 'solved inside explicit isolation',
+    };
     yield { type: 'complete', id: 'isolated-real-c', turnId, ts, stopReason: 'end_turn' };
   }
   async stop(): Promise<void> {}
@@ -135,11 +162,16 @@ class IsolatedRealBackend implements AgentBackend {
   async dispose(): Promise<void> {}
 }
 
-const registerIsolatedRealBackend = (seen: HeadlessBackendContext[]): NonNullable<Parameters<typeof runExperiment>[2]['registerBackends']> =>
+const registerIsolatedRealBackend =
+  (
+    seen: HeadlessBackendContext[],
+  ): NonNullable<Parameters<typeof runExperiment>[2]['registerBackends']> =>
   (registry, context) => {
     seen.push(context);
-    registry.register('ai-sdk', (ctx) =>
-      new IsolatedRealBackend({ sessionId: ctx.sessionId, header: ctx.header, store: ctx.store }),
+    registry.register(
+      'ai-sdk',
+      (ctx) =>
+        new IsolatedRealBackend({ sessionId: ctx.sessionId, header: ctx.header, store: ctx.store }),
     );
   };
 
@@ -182,7 +214,9 @@ async function fileExistsRecursive(root: string, name: string): Promise<boolean>
   return false;
 }
 
-async function withDirs<T>(fn: (fixtureDir: string, storageRoot: string) => Promise<T>): Promise<T> {
+async function withDirs<T>(
+  fn: (fixtureDir: string, storageRoot: string) => Promise<T>,
+): Promise<T> {
   const fixtureDir = await mkdtemp(join(tmpdir(), 'maka-headless-fx-'));
   const storageRoot = await mkdtemp(join(tmpdir(), 'maka-headless-store-'));
   try {
@@ -284,7 +318,6 @@ describe('clean-room grading (a config cannot rewrite its own test to pass)', ()
       assert.notEqual(result.exitCode, 0);
     });
   });
-
 });
 
 describe('fail-closed (a model-backed backend does not run without isolation)', () => {
@@ -341,6 +374,10 @@ describe('fail-closed (a model-backed backend does not run without isolation)', 
       assert.equal(contexts[0]?.realBackendIsolation?.label, 'unit-test isolated backend');
       assert.equal(contexts[0]?.config.id, 'real-cfg');
       assert.equal(contexts[0]?.task.id, 'real-task');
+      assert.equal(typeof contexts[0]?.spawnChildAgent, 'function');
+      assert.equal(typeof contexts[0]?.listChildAgents, 'function');
+      assert.equal(typeof contexts[0]?.readChildAgentOutput, 'function');
+      assert.ok(Array.isArray((await contexts[0]!.listChildAgents!(result.sessionId)).definitions));
     });
   });
 
@@ -361,24 +398,24 @@ describe('fail-closed (a model-backed backend does not run without isolation)', 
         registerBackends: (registry, context) => {
           seen.push(context);
           registerTestPiAgentBackend(registry, ({ header }) => ({
-              async *send(sendInput) {
-                assert.equal(header.cwd, context.workspaceDir);
-                assert.equal(sendInput.text, 'solve the fixture');
-                yield {
-                  type: 'tool_start',
-                  toolUseId: 'tool-1',
-                  toolName: 'Bash',
-                  args: { command: 'touch solved.txt' },
-                };
-                await writeFile(join(header.cwd, 'solved.txt'), 'ok\n', 'utf8');
-                yield {
-                  type: 'tool_result',
-                  toolUseId: 'tool-1',
-                  content: { kind: 'text', text: 'created solved.txt' },
-                };
-                yield { type: 'text_complete', text: 'done' };
-                yield { type: 'complete' };
-              },
+            async *send(sendInput) {
+              assert.equal(header.cwd, context.workspaceDir);
+              assert.equal(sendInput.text, 'solve the fixture');
+              yield {
+                type: 'tool_start',
+                toolUseId: 'tool-1',
+                toolName: 'Bash',
+                args: { command: 'touch solved.txt' },
+              };
+              await writeFile(join(header.cwd, 'solved.txt'), 'ok\n', 'utf8');
+              yield {
+                type: 'tool_result',
+                toolUseId: 'tool-1',
+                content: { kind: 'text', text: 'created solved.txt' },
+              };
+              yield { type: 'text_complete', text: 'done' };
+              yield { type: 'complete' };
+            },
           }));
         },
       });
@@ -410,7 +447,10 @@ describe('failed runs surface as an error (not a silent ⚠️ + exit 0)', () =>
       });
 
       assert.equal(result.status, 'failed');
-      assert.ok(result.error, 'a failed run must carry an error so the CLI exit code and the table agree');
+      assert.ok(
+        result.error,
+        'a failed run must carry an error so the CLI exit code and the table agree',
+      );
       assert.equal(result.errorClass, 'backend_failed');
       assert.equal(result.passed, false);
     });
@@ -425,7 +465,9 @@ describe('failed runs surface as an error (not a silent ⚠️ + exit 0)', () =>
     class BareErrorCompleteBackend implements AgentBackend {
       readonly kind: BackendKind = 'fake';
       readonly sessionId: string;
-      constructor(private readonly ctx: { sessionId: string; header: SessionHeader; store: SessionStore }) {
+      constructor(
+        private readonly ctx: { sessionId: string; header: SessionHeader; store: SessionStore },
+      ) {
         this.sessionId = ctx.sessionId;
       }
       async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
@@ -450,8 +492,14 @@ describe('failed runs surface as an error (not a silent ⚠️ + exit 0)', () =>
       const result = await runExperiment(fakeConfig, task, {
         storageRoot,
         registerBackends: (registry) => {
-          registry.register('fake', (ctx) =>
-            new BareErrorCompleteBackend({ sessionId: ctx.sessionId, header: ctx.header, store: ctx.store }),
+          registry.register(
+            'fake',
+            (ctx) =>
+              new BareErrorCompleteBackend({
+                sessionId: ctx.sessionId,
+                header: ctx.header,
+                store: ctx.store,
+              }),
           );
         },
       });
@@ -488,11 +536,14 @@ describe('Config.systemPrompt (benchmark config variable, not session state)', (
   // and pass it through — mirroring the desktop path. The harness itself does
   // NOT thread systemPrompt through BackendFactoryContext (that channel is the
   // child-agent instruction); the factory owns it.
-  const registerCapturingBackend = (captured: { systemPrompt?: string }[]) =>
+  const registerCapturingBackend =
+    (captured: { systemPrompt?: string }[]) =>
     (registry: BackendRegistry, context: HeadlessBackendContext): void => {
       captured.push({ systemPrompt: context.config.systemPrompt });
-      registry.register('fake', (ctx) =>
-        new FakeBackend({ sessionId: ctx.sessionId, header: ctx.header, store: ctx.store }),
+      registry.register(
+        'fake',
+        (ctx) =>
+          new FakeBackend({ sessionId: ctx.sessionId, header: ctx.header, store: ctx.store }),
       );
     };
 
@@ -543,7 +594,11 @@ describe('Config.systemPrompt (benchmark config variable, not session state)', (
       });
 
       assert.equal(captured.length, 1);
-      assert.equal(captured[0]?.systemPrompt, undefined, 'no systemPrompt should be injected when Config omits it');
+      assert.equal(
+        captured[0]?.systemPrompt,
+        undefined,
+        'no systemPrompt should be injected when Config omits it',
+      );
     });
   });
 
@@ -568,8 +623,12 @@ describe('Config.systemPrompt (benchmark config variable, not session state)', (
       const ts = Date.now();
       const messageId = 'capture-msg';
       await this.ctx.store.appendMessage(this.sessionId, {
-        type: 'assistant', id: messageId, turnId, ts,
-        text: 'ok', modelId: this.ctx.header.model,
+        type: 'assistant',
+        id: messageId,
+        turnId,
+        ts,
+        text: 'ok',
+        modelId: this.ctx.header.model,
       });
       yield { type: 'text_complete', id: 'capture-tc', turnId, ts, messageId, text: 'ok' };
       yield { type: 'complete', id: 'capture-c', turnId, ts, stopReason: 'end_turn' };

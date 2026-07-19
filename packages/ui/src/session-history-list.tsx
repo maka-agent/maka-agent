@@ -27,6 +27,7 @@ import { Button as UiButton } from './ui.js';
 import { Button as BaseButton } from '@base-ui/react/button';
 import { describeBlockedReason, presentSessionStatus } from './session-status-presentation.js';
 import { useUiLocale } from './locale-context.js';
+import { getConversationCopy } from './conversation-copy.js';
 
 type SessionRowActionId = 'flag' | 'archive' | 'rename' | 'delete';
 type SessionHistoryGroupVariant = 'status' | 'project';
@@ -84,13 +85,15 @@ export function SessionHistoryList(props: {
   onSelectSession(sessionId: string): void;
   rowActions?: SessionRowActions;
 }) {
+  const locale = useUiLocale();
+  const copy = getConversationCopy(locale).sessions;
   // 参考实现 keeps the lower sidebar region as stable chat history
   // even when Skills / Scheduled Tasks are open in the main pane.
-  const sessionListTitle = '会话';
+  const sessionListTitle = copy.title;
   // PR-UX-POLISH-1 commit 4 (WAWQAQ msg `e0dbad11` + kenji msg
   // `2844f64f`): in-list `筛选会话` filter input removed. All search
   // capability lives in the top-level `搜索` modal (PR-SEARCH-MODAL-
-  // REAL-0 wires it to `window.maka.search.thread()` in the same PR).
+  // REAL-0 wires it to the desktop preload's thread search in the same PR).
   // The previous `searchQuery` state + `searchInputRef` + ⌘F/Ctrl+F
   // focus binding are gone with it; ⌘F is freed for future use.
   // `filteredSessions` collapses to a direct passthrough of
@@ -158,8 +161,8 @@ export function SessionHistoryList(props: {
         // sidebar `+ 新任务` button is the only create-session entry.
         <EmptyState
           Icon={MessageSquare}
-          title="等待开始对话"
-          body="和 Maka 的对话会出现在这里。"
+          title={copy.emptyTitle}
+          body={copy.emptyBody}
           extraClassName="maka-session-empty-state"
         />
       ) : (
@@ -179,7 +182,7 @@ export function SessionHistoryList(props: {
                     collapsible: g.collapsible,
                     defaultExpanded: g.defaultExpanded,
                   }))
-                : groupSessionsForHistory(props.sessions).map((g) => ({
+                : groupSessionsForHistory(props.sessions, locale).map((g) => ({
                     key: g.label,
                     label: g.label,
                     sessions: g.sessions,
@@ -285,10 +288,8 @@ function SessionListGroups(props: {
                 <ChevronRight
                   size={12}
                   aria-hidden="true"
-                  style={{
-                    transform: expanded ? 'rotate(90deg)' : undefined,
-                    transition: 'transform 140ms var(--ease-out-strong)',
-                  }}
+                  className="maka-list-group-chevron"
+                  style={{ transform: expanded ? 'rotate(90deg)' : undefined }}
                 />
                 <span>{group.label}</span>
                 {/* Collapsed history buckets keep a subdued count so users
@@ -333,6 +334,7 @@ function ProjectSessionGroup(props: {
   onSelectSession(sessionId: string): void;
   rowActions?: SessionRowActions;
 }) {
+  const copy = getConversationCopy(useUiLocale()).sessions;
   const [revealed, setRevealed] = useState(false);
   const [expanded, setExpanded] = useState(true);
   const activeIsHidden = props.activeId
@@ -376,9 +378,9 @@ function ProjectSessionGroup(props: {
               type="button"
               className="maka-list-project-more"
               onClick={() => setRevealed(true)}
-              aria-label={`显示 ${hiddenCount} 条更多对话`}
+              aria-label={copy.showMoreAriaLabel(hiddenCount)}
             >
-              显示更多
+              {copy.showMore}
             </BaseButton>
           )}
         </>
@@ -400,6 +402,7 @@ function ProjectSessionGroup(props: {
  * pulling the core type into this file's import list.
  */
 function SessionStatusIcon(props: { session: SessionSummary }) {
+  const locale = useUiLocale();
   const { session } = props;
   const status = session.status;
   // Active is the default; no icon to reduce noise. Aborted retains a
@@ -408,13 +411,13 @@ function SessionStatusIcon(props: { session: SessionSummary }) {
   if (status === 'active') return null;
   const Icon = STATUS_ICON_BY_STATUS[status as keyof typeof STATUS_ICON_BY_STATUS];
   if (!Icon) return null;
-  const { label, tone } = presentSessionStatus(status);
+  const { label, tone } = presentSessionStatus(status, locale);
   // `blocked` may attach a reason; we surface the generalized text in
   // the tooltip without exposing the raw enum identifier (per @kenji
   // i18n contract). The shared presentation module owns the mapping so
   // sidebar and renderer surfaces cannot drift.
   const blockedDetail = status === 'blocked' && session.blockedReason
-    ? describeBlockedReason(session.blockedReason)
+    ? describeBlockedReason(session.blockedReason, locale)
     : null;
   const title = blockedDetail ? `${label} · ${blockedDetail}` : label;
   return (
@@ -475,6 +478,7 @@ const SessionRow = memo(function SessionRow(props: {
 }) {
   const { session, active, streaming, stale, actions, onSelect } = props;
   const locale = useUiLocale();
+  const copy = getConversationCopy(locale).sessions;
   const [editing, setEditing] = useState(false);
   const [actionsVisible, setActionsVisible] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -578,7 +582,7 @@ const SessionRow = memo(function SessionRow(props: {
               className="maka-list-row-rename-input"
               defaultValue={session.name}
               maxLength={80}
-              aria-label="重命名对话"
+              aria-label={copy.renameAriaLabel}
               onBlur={(event) => {
                 // PR-FE-BUG-HUNT-11: skip the commit when the blur was
                 // caused by Escape cancelling edit mode (input unmounts
@@ -653,8 +657,8 @@ const SessionRow = memo(function SessionRow(props: {
               {streaming && (
                 <span
                   className="maka-list-row-streaming-dot"
-                  aria-label="正在响应"
-                  title="对话正在流式响应中"
+                  aria-label={copy.respondingAriaLabel}
+                  title={copy.respondingTitle}
                 />
               )}
               <SessionStatusIcon session={session} />
@@ -666,10 +670,10 @@ const SessionRow = memo(function SessionRow(props: {
                   // session uses a backend / connection that no longer exists,
                   // but @xuan's send-path silent rebind will swap to the
                   // default on send. Tooltip explains why.
-                  title="此会话使用的模型连接已不可用，发送时会切换到默认连接"
-                  aria-label="会话已过期"
+                  title={copy.staleTitle}
+                  aria-label={copy.staleAriaLabel}
                 >
-                  已过期
+                  {copy.stale}
                 </span>
               )}
             </div>
@@ -688,7 +692,7 @@ const SessionRow = memo(function SessionRow(props: {
             asking/busy/error outrank unread; unread outranks plain time.
           */}
           {shouldShowSessionUnreadDot(session, Boolean(streaming), active) ? (
-            <span className="maka-list-row-unread" aria-label="未读消息" />
+            <span className="maka-list-row-unread" aria-label={copy.unreadAriaLabel} />
           ) : (
             <span className="maka-list-row-meta">{formatSessionMeta(session, locale)}</span>
           )}
@@ -697,7 +701,7 @@ const SessionRow = memo(function SessionRow(props: {
       {actions && !editing && (
         <Menu open={menuOpen} onOpenChange={setMenuOpen}>
           <MenuTrigger
-            aria-label="对话操作"
+            aria-label={copy.actionsAriaLabel}
             aria-hidden={actionTriggerVisible ? undefined : 'true'}
             className="maka-list-row-menu-trigger"
             data-visible={actionTriggerVisible ? 'true' : undefined}
@@ -714,11 +718,11 @@ const SessionRow = memo(function SessionRow(props: {
               {session.isFlagged
                 ? <PinOff size={16} aria-hidden="true" />
                 : <Pin size={16} aria-hidden="true" />}
-              {session.isFlagged ? '取消置顶' : '置顶'}
+              {session.isFlagged ? copy.unpin : copy.pin}
             </MenuItem>
             <MenuItem disabled={actionBusy} onClick={startRename}>
               <Pencil size={16} aria-hidden="true" />
-              重命名
+              {copy.rename}
             </MenuItem>
             <MenuItem
               disabled={actionBusy}
@@ -731,7 +735,7 @@ const SessionRow = memo(function SessionRow(props: {
               {session.isArchived
                 ? <ArchiveRestore size={16} aria-hidden="true" />
                 : <Archive size={16} aria-hidden="true" />}
-              {session.isArchived ? '取消归档' : '归档'}
+              {session.isArchived ? copy.unarchive : copy.archive}
             </MenuItem>
             <MenuSeparator />
             <MenuItem
@@ -740,7 +744,7 @@ const SessionRow = memo(function SessionRow(props: {
               onClick={handleDelete}
             >
               <Trash2 size={16} aria-hidden="true" />
-              删除
+              {copy.delete}
             </MenuItem>
           </MenuPopup>
         </Menu>
@@ -754,21 +758,20 @@ interface SessionGroup {
   sessions: SessionSummary[];
 }
 
-const noMessagesYet = '暂无消息';
-
 /**
  * In the Chats filter, pinned (flagged) sessions float to the top in their
  * own section per the session-list-lifecycle contract, separate from the
  * date-bucketed remainder. Other filters keep the date-bucket layout.
  */
-function groupSessionsForHistory(sessions: SessionSummary[]): SessionGroup[] {
+function groupSessionsForHistory(sessions: SessionSummary[], locale: UiLocale): SessionGroup[] {
+  const copy = getConversationCopy(locale).sessions;
   const pinned = sessions.filter((session) => session.isFlagged);
   const rest = sessions.filter((session) => !session.isFlagged);
   const groups: SessionGroup[] = [];
   if (pinned.length > 0) {
-    groups.push({ label: '已置顶', sessions: pinned });
+    groups.push({ label: copy.pinned, sessions: pinned });
   }
-  return [...groups, ...groupSessionsByTime(rest)];
+  return [...groups, ...groupSessionsByTime(rest, locale)];
 }
 
 /**
@@ -776,7 +779,8 @@ function groupSessionsForHistory(sessions: SessionSummary[]): SessionGroup[] {
  * / Older buckets. Sorted by lastMessageAt descending within each group. Falls
  * back to a single bucket if every session lacks a timestamp.
  */
-function groupSessionsByTime(sessions: SessionSummary[]): SessionGroup[] {
+function groupSessionsByTime(sessions: SessionSummary[], locale: UiLocale): SessionGroup[] {
+  const copy = getConversationCopy(locale).sessions;
   const now = Date.now();
   const startOfToday = new Date(now);
   startOfToday.setHours(0, 0, 0, 0);
@@ -786,12 +790,12 @@ function groupSessionsByTime(sessions: SessionSummary[]): SessionGroup[] {
   const thirtyDaysMs = todayMs - 30 * 24 * 60 * 60 * 1000;
 
   const buckets: SessionGroup[] = [
-    { label: '今天', sessions: [] },
-    { label: '昨天', sessions: [] },
-    { label: '过去 7 天', sessions: [] },
-    { label: '过去 30 天', sessions: [] },
-    { label: '更早', sessions: [] },
-    { label: '待发送', sessions: [] },
+    { label: copy.today, sessions: [] },
+    { label: copy.yesterday, sessions: [] },
+    { label: copy.past7Days, sessions: [] },
+    { label: copy.past30Days, sessions: [] },
+    { label: copy.earlier, sessions: [] },
+    { label: copy.pending, sessions: [] },
   ];
 
   for (const session of sessions) {
@@ -811,6 +815,6 @@ function groupSessionsByTime(sessions: SessionSummary[]): SessionGroup[] {
 }
 
 function formatSessionMeta(session: SessionSummary, locale: UiLocale): string {
-  if (!session.lastMessageAt) return noMessagesYet;
+  if (!session.lastMessageAt) return getConversationCopy(locale).chat.noMessages;
   return formatCompactTimestamp(session.lastMessageAt, Date.now(), locale);
 }

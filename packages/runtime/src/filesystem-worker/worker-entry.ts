@@ -16,7 +16,12 @@ async function main(): Promise<void> {
     raw = await readBoundedStdin();
   } catch (error) {
     if (error instanceof RequestTooLargeError) {
-      writeResponse(invalidRequestResponse('invalid-request', 'Filesystem worker request exceeded the size limit.'));
+      writeResponse(
+        invalidRequestResponse(
+          'invalid-request',
+          'Filesystem worker request exceeded the size limit.',
+        ),
+      );
       return;
     }
     throw error;
@@ -26,17 +31,26 @@ async function main(): Promise<void> {
   try {
     decoded = JSON.parse(raw);
   } catch {
-    writeResponse(invalidRequestResponse('invalid-request', 'Filesystem worker request was not valid JSON.'));
+    writeResponse(
+      invalidRequestResponse('invalid-request', 'Filesystem worker request was not valid JSON.'),
+    );
     return;
   }
   const parsed = FilesystemWorkerRequestSchema.safeParse(decoded);
   if (!parsed.success) {
-    writeResponse(invalidRequestResponse(requestIdFromUnknown(decoded), 'Filesystem worker request was invalid.'));
+    writeResponse(
+      invalidRequestResponse(
+        requestIdFromUnknown(decoded),
+        'Filesystem worker request was invalid.',
+      ),
+    );
     return;
   }
-  writeResponse(await executeFilesystemWorkerRequest(parsed.data, {
-    grepExecutable: readOption('--grep-executable'),
-  }));
+  writeResponse(
+    await executeFilesystemWorkerRequest(parsed.data, {
+      grepExecutable: readOption('--grep-executable'),
+    }),
+  );
 }
 
 async function readBoundedStdin(): Promise<string> {
@@ -81,6 +95,8 @@ function readOption(name: string): string | undefined {
 }
 
 main().catch((error: unknown) => {
-  process.stderr.write(`filesystem worker bootstrap failed: ${error instanceof Error ? error.name : 'unknown'}\n`);
+  process.stderr.write(
+    `filesystem worker bootstrap failed: ${error instanceof Error ? error.name : 'unknown'}\n`,
+  );
   process.exitCode = 1;
 });

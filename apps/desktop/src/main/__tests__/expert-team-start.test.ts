@@ -6,13 +6,15 @@
  *  - non-ready OnboardingState → `setup_required`, NO session created
  *  - empty prompt → create-and-open only; NO send
  *  - non-empty prompt → walks the send path
- *  - create/send failure → `send_failed` with a generalized Chinese message
+ *  - workspace failures preserve their recovery semantics; other failures
+ *    become `send_failed` with generalized Chinese copy
  */
 
 import { strict as assert } from 'node:assert';
 import { describe, it } from 'node:test';
 import type { OnboardingState, SessionSummary } from '@maka/core';
 import { handleExpertTeamStart, type ExpertTeamStartDeps } from '../expert-team-start.js';
+import { SESSION_WORKSPACE_UNAVAILABLE_CODE } from '../project-context-root.js';
 
 function fakeSession(overrides: Partial<SessionSummary> = {}): SessionSummary {
   return {
@@ -120,5 +122,17 @@ describe('handleExpertTeamStart', () => {
     const result = await handleExpertTeamStart({ teamId: 'code-review', prompt: 'hi' }, deps);
     assert.equal(result.ok, false);
     assert.equal((result as { reason: string }).reason, 'send_failed');
+  });
+
+  it('preserves an unavailable workspace as a domain result', async () => {
+    const { deps } = makeDeps({
+      async createSession() {
+        throw new Error(`${SESSION_WORKSPACE_UNAVAILABLE_CODE}: unavailable`);
+      },
+    });
+
+    const result = await handleExpertTeamStart({ teamId: 'code-review', prompt: 'hi' }, deps);
+
+    assert.deepEqual(result, { ok: false, reason: 'workspace_unavailable' });
   });
 });

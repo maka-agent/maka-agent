@@ -32,9 +32,11 @@ import { PasswordInput } from './password-input';
 import { buildCatalogModelChoices } from '../model-catalog-choices';
 import { providerDisplay } from './provider-display';
 import { connectionChipStatus } from './provider-connection-status';
+import { useActionGuard, useKeyedActionGuard } from './use-action-guard';
 import { useOAuthLoginFlow, type OAuthLoginFlowBridge } from './use-oauth-login-flow';
 import {
   connectionLastTestMessageDisplay,
+  connectionTestFailureMessage,
   providerPanelActionErrorMessage,
   type ConnectionsBridge,
   type CredentialPresenceStatus,
@@ -65,25 +67,6 @@ function oauthLoginServiceFor(providerType: ProviderType): OAuthLoginService | n
     default:
       return null;
   }
-}
-
-function connectionTestFailureMessage(result: ConnectionTestResult, troubleshootingCopy: string): string {
-  const fallback = connectionTestFailureFallback(result, troubleshootingCopy);
-  if (!result.errorMessage) return fallback;
-  return generalizedErrorMessageChinese(new Error(result.errorMessage), fallback);
-}
-
-function connectionTestFailureFallback(result: ConnectionTestResult, troubleshootingCopy: string): string {
-  if (result.statusCode === 429) return '当前账号或模型服务触发速率限制，请稍后重试。';
-  if (result.errorClass === 'timeout') return '请求超时，请检查网络或代理后重试。';
-  if (result.errorClass === 'auth' || result.statusCode === 401 || result.statusCode === 403) {
-    return `鉴权失败，请确认 ${troubleshootingCopy} 后重试。`;
-  }
-  if (result.errorClass === 'provider_unavailable' || (result.statusCode !== undefined && result.statusCode >= 500)) {
-    return '模型服务暂时不可用，请稍后重试。';
-  }
-  if (result.errorClass === 'network') return '网络错误，请检查服务地址或代理设置后重试。';
-  return `检查 ${troubleshootingCopy} 后重试。`;
 }
 
 interface ConnectionDetailProps {
@@ -169,12 +152,9 @@ function ConnectionDetailInner(props: ConnectionDetailProps) {
   const [savingEnabledModels, setSavingEnabledModels] = useState(false);
   const [settingDefault, setSettingDefault] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const busyRef = useRef(false);
-  const testingRef = useRef(false);
-  const fetchingModelsRef = useRef(false);
-  const savingEnabledModelsRef = useRef(false);
-  const settingDefaultRef = useRef(false);
-  const deletingRef = useRef(false);
+  const connectionDetailActionGuard = useKeyedActionGuard<
+    'save' | 'test' | 'fetch-models' | 'save-enabled-models' | 'set-default' | 'delete'
+  >();
   const connectionDetailMountedRef = useMountedRef();
   const connectionDetailLifecycleRef = useRef(0);
   const toast = useToast();
@@ -214,12 +194,7 @@ function ConnectionDetailInner(props: ConnectionDetailProps) {
     connectionDetailLifecycleRef.current += 1;
     return () => {
       connectionDetailLifecycleRef.current += 1;
-      busyRef.current = false;
-      testingRef.current = false;
-      fetchingModelsRef.current = false;
-      savingEnabledModelsRef.current = false;
-      settingDefaultRef.current = false;
-      deletingRef.current = false;
+      connectionDetailActionGuard.reset();
     };
   }, [connection.slug]);
 
@@ -294,9 +269,9 @@ function ConnectionDetailInner(props: ConnectionDetailProps) {
   });
 
   async function save() {
-    if (busyRef.current || testingRef.current || fetchingModelsRef.current || savingEnabledModelsRef.current || settingDefaultRef.current || deletingRef.current) return;
+    const releaseSave = connectionDetailActionGuard.beginExclusive('save');
+    if (!releaseSave) return;
     const lifecycle = connectionDetailLifecycleRef.current;
-    busyRef.current = true;
     setBusy(true);
     let saved = false;
     try {
@@ -331,13 +306,13 @@ function ConnectionDetailInner(props: ConnectionDetailProps) {
         providerPanelActionErrorMessage(error),
       );
     } finally {
-      busyRef.current = false;
+      releaseSave();
       if (isConnectionDetailCurrent(lifecycle)) setBusy(false);
     }
   }
 
   async function updateEnabledModels(nextIds: string[]) {
-    if (savingEnabledModelsRef.current || detailActionBusy) return;
+    if (connectionDetailActionGuard.has('save-enabled-models') || detailActionBusy) return;
     const next = connectionEnabledModelIds({
       defaultModel: connection.defaultModel,
       enabledModelIds: nextIds,
@@ -345,7 +320,8 @@ function ConnectionDetailInner(props: ConnectionDetailProps) {
     if (modelIdListsEqual(next, enabledModelIds)) return;
     const previous = enabledModelIds;
     const lifecycle = connectionDetailLifecycleRef.current;
-    savingEnabledModelsRef.current = true;
+    const releaseSaveModels = connectionDetailActionGuard.begin('save-enabled-models');
+    if (!releaseSaveModels) return;
     setSavingEnabledModels(true);
     setEnabledModelIds(next);
     let saved = false;
@@ -362,15 +338,15 @@ function ConnectionDetailInner(props: ConnectionDetailProps) {
         providerPanelActionErrorMessage(error),
       );
     } finally {
-      savingEnabledModelsRef.current = false;
+      releaseSaveModels();
       if (isConnectionDetailCurrent(lifecycle)) setSavingEnabledModels(false);
     }
   }
 
   async function runTest() {
-    if (testingRef.current || busyRef.current || fetchingModelsRef.current || savingEnabledModelsRef.current || settingDefaultRef.current || deletingRef.current) return;
+    const releaseTest = connectionDetailActionGuard.beginExclusive('test');
+    if (!releaseTest) return;
     const lifecycle = connectionDetailLifecycleRef.current;
-    testingRef.current = true;
     setTesting(true);
     try {
       const result: ConnectionTestResult = await props.bridge.test(connection.slug, { model: connection.defaultModel });
@@ -383,7 +359,10 @@ function ConnectionDetailInner(props: ConnectionDetailProps) {
       } else {
         toast.error(
           `连接失败 · ${connection.name}`,
-          connectionTestFailureMessage(result, credentialTroubleshootingCopy),
+          connectionTestFailureMessage(result, {
+            auth: `鉴权失败，请确认 ${credentialTroubleshootingCopy} 后重试。`,
+            recheck: `检查 ${credentialTroubleshootingCopy} 后重试。`,
+          }),
         );
       }
     } catch (error) {
@@ -391,16 +370,19 @@ function ConnectionDetailInner(props: ConnectionDetailProps) {
       const message = providerPanelActionErrorMessage(error);
       toast.error(`连接测试出错 · ${connection.name}`, message);
     } finally {
-      testingRef.current = false;
+      releaseTest();
       if (isConnectionDetailCurrent(lifecycle)) setTesting(false);
     }
   }
 
   async function refreshModels(opts: { silent?: boolean } = {}) {
-    if (fetchingModelsRef.current) return;
-    if (!opts.silent && (busyRef.current || testingRef.current || savingEnabledModelsRef.current || settingDefaultRef.current || deletingRef.current)) return;
+    // A silent refresh (the post-save auto-fetch) may overlap other actions;
+    // a manual one is gated on the whole sheet like the other buttons.
+    const releaseFetch = opts.silent
+      ? connectionDetailActionGuard.begin('fetch-models')
+      : connectionDetailActionGuard.beginExclusive('fetch-models');
+    if (!releaseFetch) return;
     const lifecycle = connectionDetailLifecycleRef.current;
-    fetchingModelsRef.current = true;
     setFetchingModels(true);
     try {
       // Backend (xuan `81ed044`) returns a `ModelDiscoveryResult` envelope —
@@ -430,19 +412,20 @@ function ConnectionDetailInner(props: ConnectionDetailProps) {
         `${message} · 当前继续显示静态列表，请确认 ${credentialTroubleshootingCopy} 后重试。`,
       );
     } finally {
-      fetchingModelsRef.current = false;
+      releaseFetch();
       if (isConnectionDetailCurrent(lifecycle)) setFetchingModels(false);
     }
   }
 
   async function setAsDefault() {
-    if (settingDefaultRef.current || busyRef.current || testingRef.current || fetchingModelsRef.current || savingEnabledModelsRef.current || deletingRef.current) return;
+    const releaseSetDefault = connectionDetailActionGuard.beginExclusive('set-default');
+    if (!releaseSetDefault) return;
     if (!connection.enabled) {
+      releaseSetDefault();
       toast.error('无法设为默认', '这个模型连接已禁用，请重新登录或启用后再设为默认。');
       return;
     }
     const lifecycle = connectionDetailLifecycleRef.current;
-    settingDefaultRef.current = true;
     setSettingDefault(true);
     try {
       await props.bridge.setDefault(connection.slug);
@@ -454,15 +437,15 @@ function ConnectionDetailInner(props: ConnectionDetailProps) {
       if (!isConnectionDetailCurrent(lifecycle)) return;
       toast.error('切换默认失败', providerPanelActionErrorMessage(error));
     } finally {
-      settingDefaultRef.current = false;
+      releaseSetDefault();
       if (isConnectionDetailCurrent(lifecycle)) setSettingDefault(false);
     }
   }
 
   async function remove() {
-    if (deletingRef.current || busyRef.current || testingRef.current || fetchingModelsRef.current || savingEnabledModelsRef.current || settingDefaultRef.current) return;
+    const releaseDelete = connectionDetailActionGuard.beginExclusive('delete');
+    if (!releaseDelete) return;
     const lifecycle = connectionDetailLifecycleRef.current;
-    deletingRef.current = true;
     setDeleting(true);
     const ok = await toast.confirm({
       title: `删除供应商 ${connection.name}？`,
@@ -473,7 +456,7 @@ function ConnectionDetailInner(props: ConnectionDetailProps) {
     });
     if (!isConnectionDetailCurrent(lifecycle)) return;
     if (!ok) {
-      deletingRef.current = false;
+      releaseDelete();
       setDeleting(false);
       return;
     }
@@ -490,7 +473,7 @@ function ConnectionDetailInner(props: ConnectionDetailProps) {
         providerPanelActionErrorMessage(error),
       );
     } finally {
-      deletingRef.current = false;
+      releaseDelete();
       if (isConnectionDetailCurrent(lifecycle)) setDeleting(false);
     }
   }
@@ -674,15 +657,14 @@ function GitHubCopilotReloginNotice(props: {
   onRelogin(): Promise<void>;
 }) {
   const [busy, setBusy] = useState(false);
-  const busyRef = useRef(false);
+  const connectGuard = useActionGuard<'connect'>();
   const mountedRef = useMountedRef();
   const toast = useToast();
   const loggedIn = props.hasSecret === true;
   const loading = props.hasSecret === 'loading';
 
   async function connect() {
-    if (busyRef.current) return;
-    busyRef.current = true;
+    if (!connectGuard.begin('connect')) return;
     setBusy(true);
     try {
       const result = await window.maka.githubCopilotSubscription.connectExistingLogin();
@@ -694,7 +676,7 @@ function GitHubCopilotReloginNotice(props: {
     } catch (error) {
       if (mountedRef.current) toast.error('导入 GitHub Copilot 登录失败', generalizedErrorMessageChinese(error));
     } finally {
-      busyRef.current = false;
+      connectGuard.finish();
       if (mountedRef.current) setBusy(false);
     }
   }

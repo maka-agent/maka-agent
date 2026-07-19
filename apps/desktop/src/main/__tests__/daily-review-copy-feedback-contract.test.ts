@@ -40,12 +40,12 @@ describe('Daily Review copy feedback contract', () => {
     );
     assert.match(
       main,
-      /const shouldShowFeedback = options\.shouldShowFeedback \?\? \(\(\) => true\);[\s\S]*if \(shouldShowFeedback\(\)\) \{[\s\S]*toastApi\.success\(\s*`已复制\$\{input\.label\}回顾`/,
+      /const shouldShowFeedback = options\.shouldShowFeedback \?\? \(\(\) => true\);[\s\S]*if \(shouldShowFeedback\(\)\) \{[\s\S]*toastApi\.success\(\s*copy\.reviewCopied\(input\.label\)/,
       'Daily Review copy success must not toast after leaving the Daily Review surface',
     );
     assert.match(
       main,
-      /if \(shouldShowFeedback\(\)\) \{[\s\S]*toastApi\.error\('复制失败', dailyReviewActionErrorMessage\(error, '剪贴板不可用或被系统拒绝'\)\)/,
+      /if \(shouldShowFeedback\(\)\) \{[\s\S]*toastApi\.error\(copy\.copyFailedTitle, dailyReviewActionErrorMessage\(error, copy\.clipboardDenied, uiLocale\)\)/,
       'Daily Review copy failure must not toast after leaving the Daily Review surface',
     );
   });
@@ -61,13 +61,13 @@ describe('Daily Review copy feedback contract', () => {
 
     assert.match(handlerBlock, /const owner = captureComposerImportOwner\(\)/);
     assert.match(handlerBlock, /if \(!owner\.sessionId\) return/);
-    assert.match(handlerBlock, /formatDailyReviewMarkdown\(summary,\s*['"]今天['"]\)/);
+    assert.match(handlerBlock, /formatDailyReviewMarkdown\(summary,\s*copy\.today\)/);
     assert.match(handlerBlock, /if \(!isComposerImportOwnerActive\(owner\)\) return/);
     assert.match(handlerBlock, /composerRef\.current\?\.appendText\(markdown\)/);
-    assert.match(handlerBlock, /toastApi\.success\(\s*['"]已追加今日回顾到输入框['"]/);
+    assert.match(handlerBlock, /toastApi\.success\(\s*copy\.reviewPastedTitle/);
     assert.match(
       handlerBlock,
-      /if \(isComposerImportOwnerActive\(owner\)\) \{[\s\S]*toastApi\.error\(\s*['"]粘贴失败['"]/,
+      /if \(isComposerImportOwnerActive\(owner\)\) \{[\s\S]*toastApi\.error\(\s*copy\.pasteFailedTitle/,
       'Command Palette Daily Review paste must not show stale failure feedback after leaving the original chat composer',
     );
     assert.doesNotMatch(handlerBlock, /composerRef\.current\?\.setText\(markdown\)/);
@@ -86,7 +86,7 @@ describe('Daily Review copy feedback contract', () => {
     assert.match(panelBlock, /pendingDailyReviewAction === 'append' \? '追加中…' : '粘到输入框'/);
     assert.match(main, /onAppendMarkdown=\{appendDailyReviewMarkdown\}/);
     assert.match(appendBlock, /composerRef\.current\?\.appendText\(input\.markdown\)/);
-    assert.match(appendBlock, /toastApi\.success\(\s*`已追加\$\{input\.label\}回顾到输入框`/);
+    assert.match(appendBlock, /toastApi\.success\(\s*copy\.reviewPasted\(input\.label\)/);
     assert.doesNotMatch(appendBlock, /composerRef\.current\?\.setText\(input\.markdown\)/);
   });
 
@@ -96,7 +96,7 @@ describe('Daily Review copy feedback contract', () => {
     const panelBlock = extractFunctionBlock(ui, 'DailyReviewPanel');
 
     assert.match(panelBlock, /<UiButton[\s\S]*?variant="ghost"[\s\S]*?size="icon-sm"[\s\S]*?className="maka-daily-review-stepper"/);
-    assert.match(panelBlock, /<SettingsSegmented[\s\S]*?className="maka-daily-review-range-tabs"/);
+    assert.match(panelBlock, /<Segmented[\s\S]*?className="maka-daily-review-range-tabs"/);
     // PR3 (#527) added min-w-[Nrem] utilities to the copy/append/save buttons
     // (text-swap width lock for 复制/已复制 feedback). Match each semantic
     // class as a whole word in the class list — same form as the negative
@@ -272,53 +272,48 @@ describe('Daily Review copy feedback contract', () => {
     const saveBlock = blockBetween(pageBlock, 'async function patchConfig', 'async function triggerRun');
     const runBlock = blockBetween(pageBlock, 'async function triggerRun', 'const effectiveConfig');
 
-    assert.match(pageBlock, /const savingKeyRef = useRef<string \| null>\(null\)/);
-    assert.match(pageBlock, /const runningModeRef = useRef<DailyReviewMode \| null>\(null\)/);
-    assert.match(
-      pageBlock,
-      /return \(\) => \{\s*savingKeyRef\.current = null;\s*runningModeRef\.current = null;\s*\};/,
-      'Daily Review Settings async owners must be invalidated when Settings closes',
-    );
+    assert.match(pageBlock, /const saveConfigGuard = useActionGuard<string>\(\)/);
+    assert.match(pageBlock, /const runModeGuard = useActionGuard<DailyReviewMode>\(\)/);
     assert.match(
       saveBlock,
-      /if \(!dailyReviewIpc\.setConfig \|\| !config \|\| savingKeyRef\.current !== null\) return;\s*savingKeyRef\.current = key;\s*setSavingKey\(key\);/,
+      /if \(!dailyReviewIpc\.setConfig \|\| !config \|\| saveConfigGuard\.current !== null\) return;\s*saveConfigGuard\.begin\(key\);\s*setSavingKey\(key\);/,
       'Daily Review config saves must synchronously reject same-frame duplicate writes before React disables controls',
     );
     assert.match(
       saveBlock,
-      /const next = await dailyReviewIpc\.setConfig\(patch\);\s*if \(mountedRef\.current && savingKeyRef\.current === key\) setConfig\(next\);/,
+      /const next = await dailyReviewIpc\.setConfig\(patch\);\s*if \(mountedRef\.current && saveConfigGuard\.current === key\) setConfig\(next\);/,
       'Late config save responses must only update the still-mounted owning settings page',
     );
     assert.match(
       saveBlock,
-      /if \(mountedRef\.current && savingKeyRef\.current === key\) \{\s*toast\.error\('保存每日回顾设置失败', settingsActionErrorMessage\(err\)\);\s*\}/,
+      /if \(mountedRef\.current && saveConfigGuard\.current === key\) \{\s*toast\.error\('保存每日回顾设置失败', settingsActionErrorMessage\(err\)\);\s*\}/,
       'Late config save failures must not toast after Settings closes or ownership changes',
     );
     assert.match(
       saveBlock,
-      /finally \{\s*if \(savingKeyRef\.current === key\) \{\s*savingKeyRef\.current = null;\s*\}\s*if \(mountedRef\.current\) setSavingKey\(null\);/,
+      /finally \{\s*if \(saveConfigGuard\.current === key\) \{\s*saveConfigGuard\.finish\(\);\s*\}\s*if \(mountedRef\.current\) setSavingKey\(null\);/,
       'Daily Review config save owners must be released by the matching request only',
     );
     assert.match(pageBlock, /const formDisabled = !hasConfigIpc \|\| loading \|\| Boolean\(loadError\) \|\| !effectiveConfig \|\| savingKey !== null;/);
 
     assert.match(
       runBlock,
-      /if \(!dailyReviewIpc\.runOnce \|\| runningModeRef\.current !== null\) return;\s*runningModeRef\.current = mode;\s*setRunningMode\(mode\);/,
+      /if \(!dailyReviewIpc\.runOnce \|\| runModeGuard\.current !== null\) return;\s*runModeGuard\.begin\(mode\);\s*setRunningMode\(mode\);/,
       'Manual Daily Review runs must synchronously reject duplicate starts before React disables buttons',
     );
     assert.match(
       runBlock,
-      /if \(mountedRef\.current && runningModeRef\.current === mode\) \{\s*toast\.success\(mode === 'daily' \? '已生成每日回顾' : '已生成深度分析', '可在「每日回顾」面板查看。'\);\s*\}/,
+      /if \(mountedRef\.current && runModeGuard\.current === mode\) \{\s*toast\.success\(mode === 'daily' \? '已生成每日回顾' : '已生成深度分析', '可在「每日回顾」面板查看。'\);\s*\}/,
       'Manual run success feedback must be owned by the still-mounted request',
     );
     assert.match(
       runBlock,
-      /if \(mountedRef\.current && runningModeRef\.current === mode\) \{\s*toast\.error\('生成回顾失败', settingsActionErrorMessage\(err\)\);\s*\}/,
+      /if \(mountedRef\.current && runModeGuard\.current === mode\) \{\s*toast\.error\('生成回顾失败', settingsActionErrorMessage\(err\)\);\s*\}/,
       'Manual run failure feedback must be owned by the still-mounted request',
     );
     assert.match(
       runBlock,
-      /finally \{\s*if \(runningModeRef\.current === mode\) \{\s*runningModeRef\.current = null;\s*\}\s*if \(mountedRef\.current\) setRunningMode\(null\);/,
+      /finally \{\s*if \(runModeGuard\.current === mode\) \{\s*runModeGuard\.finish\(\);\s*\}\s*if \(mountedRef\.current\) setRunningMode\(null\);/,
       'Manual run owners must be released by the matching request only',
     );
     assert.match(pageBlock, /disabled=\{runningMode !== null\}/);
@@ -333,7 +328,7 @@ describe('Daily Review copy feedback contract', () => {
     const uiHelpers = await readFile(resolve(REPO_ROOT, 'packages/ui/src/daily-review-helpers.ts'), 'utf8');
     const main = await readRendererShellCombinedSource();
     const panelBlock = extractFunctionBlock(ui, 'DailyReviewPanel');
-    const helperBlock = main.match(/function dailyReviewActionErrorMessage\(error: unknown, fallback: string\): string \{[\s\S]*?\n\}/)?.[0] ?? '';
+    const helperBlock = main.match(/function dailyReviewActionErrorMessage\(error: unknown, fallback: string, locale: UiLocale\): string \{[\s\S]*?\n\}/)?.[0] ?? '';
     const saveBlock = main.match(/async function saveDailyReviewMarkdown\([\s\S]*?const activePermission/)?.[0] ?? '';
     const saveTodayBlock = main.match(/onSaveTodayDailyReviewToFile: async \(\) => \{[\s\S]*?onCopyEnvSummary/)?.[0] ?? '';
 
@@ -342,20 +337,20 @@ describe('Daily Review copy feedback contract', () => {
     assert.doesNotMatch(panelBlock, /err instanceof Error \? err\.message : ['"]加载失败['"]/);
     assert.match(uiHelpers, /function dailyReviewPanelErrorMessage\(error: unknown\): string \{[\s\S]*generalizedErrorMessageChinese\(error, '每日回顾暂时不可用，请稍后重试。'\)/);
 
-    assert.match(helperBlock, /generalizedErrorMessageChinese\(error, fallback\)/);
+    assert.match(helperBlock, /locale === 'zh' \? generalizedErrorMessageChinese\(error, fallback\) : generalizedErrorMessage\(error, fallback\)/);
     assert.match(saveBlock, /const shouldShowFeedback = options\.shouldShowFeedback \?\? \(\(\) => true\)/);
     assert.match(
       saveBlock,
-      /if \(shouldShowFeedback\(\)\) \{[\s\S]*toastApi\.error\('保存失败', dailyReviewActionErrorMessage\(err, '保存每日回顾失败，请稍后重试。'\)\)/,
+      /if \(shouldShowFeedback\(\)\) \{[\s\S]*toastApi\.error\(copy\.saveFailedTitle, dailyReviewActionErrorMessage\(err, copy\.reviewSaveFallback, uiLocale\)\)/,
       'Daily Review save failures must respect the caller feedback owner predicate',
     );
     assert.match(
       saveTodayBlock,
-      /await saveDailyReviewMarkdown\(\{ markdown, label: '今天', summary \}\);/,
+      /await saveDailyReviewMarkdown\(\{ markdown, label: copy\.today, summary \}\);/,
       'Command Palette daily-review save remains a global command and should keep default visible feedback',
     );
-    assert.match(main, /dailyReviewActionErrorMessage\(err, '今日回顾暂时不可用，或剪贴板被系统拒绝。'\)/);
-    assert.match(main, /dailyReviewActionErrorMessage\(err, '今日回顾暂时不可用，请稍后重试。'\)/);
+    assert.match(main, /dailyReviewActionErrorMessage\(err, copy\.reviewCopyFallback, options\.uiLocale\)/);
+    assert.match(main, /dailyReviewActionErrorMessage\(err, copy\.reviewUnavailable, options\.uiLocale\)/);
     assert.doesNotMatch(main, /保存每日回顾失败'\)|剪贴板或数据不可用|加载今日回顾失败/);
   });
 });

@@ -23,6 +23,21 @@ import type {
   PrefixChangeReason,
   PromptSegmentEstimate,
 } from './usage-stats/types.js';
+import {
+  defineObjectShape,
+  hasExactShape,
+  isFiniteNumber,
+  isOptionalString,
+  isRecord,
+  isStringArray,
+} from './record-schema.js';
+import {
+  isAttachmentRef,
+  isPermissionRequestPayload,
+  isPermissionResponse,
+  isUserQuestionRequest,
+} from './interaction-record-schema.js';
+import { isTokenUsageFields } from './usage-record-schema.js';
 
 // ============================================================================
 // Role / Author / Status
@@ -34,7 +49,7 @@ import type {
  * system). Role is about *what lane* the content belongs to.
  */
 export const RUNTIME_EVENT_ROLES = ['user', 'model', 'tool', 'system'] as const;
-export type RuntimeEventRole = typeof RUNTIME_EVENT_ROLES[number];
+export type RuntimeEventRole = (typeof RUNTIME_EVENT_ROLES)[number];
 
 export function isRuntimeEventRole(value: unknown): value is RuntimeEventRole {
   return typeof value === 'string' && (RUNTIME_EVENT_ROLES as readonly string[]).includes(value);
@@ -50,7 +65,7 @@ export function isRuntimeEventRole(value: unknown): value is RuntimeEventRole {
  * not this type module — owns the policy that constrains them.
  */
 export const RUNTIME_EVENT_AUTHORS = ['user', 'agent', 'tool', 'system'] as const;
-export type RuntimeEventAuthor = typeof RUNTIME_EVENT_AUTHORS[number];
+export type RuntimeEventAuthor = (typeof RUNTIME_EVENT_AUTHORS)[number];
 
 export function isRuntimeEventAuthor(value: unknown): value is RuntimeEventAuthor {
   return typeof value === 'string' && (RUNTIME_EVENT_AUTHORS as readonly string[]).includes(value);
@@ -70,7 +85,7 @@ export const RUNTIME_EVENT_STATUSES = [
   'aborted',
   'cancelled',
 ] as const;
-export type RuntimeEventStatus = typeof RUNTIME_EVENT_STATUSES[number];
+export type RuntimeEventStatus = (typeof RUNTIME_EVENT_STATUSES)[number];
 
 export const TERMINAL_RUNTIME_EVENT_STATUSES: readonly RuntimeEventStatus[] = [
   'completed',
@@ -98,12 +113,27 @@ export interface RuntimeEventTextContent {
   kind: 'text';
   text: string;
   /**
+   * Human-facing text when it differs from `text` (e.g. the typed
+   * `/skill:…` prompt while `text` is the composed skill-injection
+   * envelope). Model-history projections MUST ignore this and use `text`
+   * only; UI/transcript/rewind projections should prefer it when present.
+   */
+  displayText?: string;
+  /**
    * Optional user-bound attachments carried with the text turn. Adapters
    * MUST preserve these when converting legacy UserMessage rows so
    * RuntimeEvent history does not silently degrade multimodal/file turns
    * into plain text.
    */
   attachments?: AttachmentRef[];
+  /**
+   * Marks a user message steered into a running turn at a step boundary.
+   * `text` stays raw for UI/transcript projections; model-replay projections
+   * MUST wrap it in the steering envelope so the provider request has exactly
+   * one canonical form — bare text is not an identity (a steer can equal the
+   * current prompt or any historical user message verbatim).
+   */
+  steering?: true;
 }
 
 export interface RuntimeEventThinkingContent {
@@ -159,7 +189,7 @@ export const RUNTIME_EVENT_CONTENT_KINDS = [
   'function_response',
   'error',
 ] as const;
-export type RuntimeEventContentKind = typeof RUNTIME_EVENT_CONTENT_KINDS[number];
+export type RuntimeEventContentKind = (typeof RUNTIME_EVENT_CONTENT_KINDS)[number];
 
 // ============================================================================
 // Actions (control / side-effect intent)
@@ -300,6 +330,200 @@ export interface RuntimeEvent {
   content?: RuntimeEventContent;
   actions?: RuntimeEventActions;
   refs?: RuntimeEventRefs;
+}
+
+const RUNTIME_EVENT_SHAPE = defineObjectShape<RuntimeEvent>()(
+  ['id', 'invocationId', 'runId', 'sessionId', 'turnId', 'ts', 'partial', 'role', 'author'],
+  ['branch', 'status', 'content', 'actions', 'refs'],
+);
+const TEXT_CONTENT_SHAPE = defineObjectShape<RuntimeEventTextContent>()(
+  ['kind', 'text'],
+  ['displayText', 'attachments', 'steering'],
+);
+const THINKING_CONTENT_SHAPE = defineObjectShape<RuntimeEventThinkingContent>()(
+  ['kind', 'text'],
+  ['signature'],
+);
+const FUNCTION_CALL_CONTENT_SHAPE = defineObjectShape<RuntimeEventFunctionCallContent>()(
+  ['kind', 'id', 'name', 'args'],
+  [],
+);
+const FUNCTION_RESPONSE_CONTENT_SHAPE = defineObjectShape<RuntimeEventFunctionResponseContent>()(
+  ['kind', 'id', 'name', 'result'],
+  ['isError'],
+);
+const ERROR_CONTENT_SHAPE = defineObjectShape<RuntimeEventErrorContent>()(
+  ['kind', 'message'],
+  ['code', 'reason', 'details'],
+);
+const RUNTIME_ACTIONS_SHAPE = defineObjectShape<RuntimeEventActions>()(
+  [],
+  [
+    'stateDelta',
+    'artifactDelta',
+    'permissionRequest',
+    'permissionDecision',
+    'userQuestionRequest',
+    'transferToAgent',
+    'endInvocation',
+    'tokenUsage',
+  ],
+);
+const RUNTIME_TOKEN_USAGE_SHAPE = defineObjectShape<RuntimeEventTokenUsage>()(
+  ['input', 'output'],
+  [
+    'cacheHitInput',
+    'cacheMissInput',
+    'cacheWriteInput',
+    'cacheMissInputSource',
+    'reasoning',
+    'total',
+    'rawFinishReason',
+    'runtimeSteps',
+    'cacheRead',
+    'cacheCreation',
+    'costUsd',
+    'systemPromptHash',
+    'contextRemaining',
+    'prefixHash',
+    'prefixChangeReason',
+    'requestShapeHash',
+    'requestShapeChangeReason',
+    'promptSegments',
+    'contextBudget',
+  ],
+);
+const RUNTIME_REFS_SHAPE = defineObjectShape<RuntimeEventRefs>()(
+  [],
+  [
+    'storedMessageId',
+    'traceEventId',
+    'toolCallId',
+    'providerEventId',
+    'artifactId',
+    'stepId',
+    'sourceInvocationId',
+    'sourceRunId',
+    'sourceTurnId',
+    'sourceRuntimeEventHighWater',
+  ],
+);
+
+export function decodeRuntimeEvent(value: unknown): RuntimeEvent {
+  if (
+    !isRecord(value) ||
+    !hasExactShape(value, RUNTIME_EVENT_SHAPE) ||
+    typeof value.id !== 'string' ||
+    typeof value.invocationId !== 'string' ||
+    typeof value.runId !== 'string' ||
+    typeof value.sessionId !== 'string' ||
+    typeof value.turnId !== 'string' ||
+    !isFiniteNumber(value.ts) ||
+    !isOptionalString(value.branch) ||
+    typeof value.partial !== 'boolean' ||
+    !isRuntimeEventRole(value.role) ||
+    !isRuntimeEventAuthor(value.author) ||
+    (value.status !== undefined && !isRuntimeEventStatus(value.status)) ||
+    (value.content !== undefined && !isRuntimeEventContent(value.content)) ||
+    (value.actions !== undefined && !isRuntimeEventActions(value.actions)) ||
+    (value.refs !== undefined && !isRuntimeEventRefs(value.refs))
+  ) {
+    throw new Error('Invalid RuntimeEvent schema');
+  }
+  return value as unknown as RuntimeEvent;
+}
+
+function isRuntimeEventContent(value: unknown): value is RuntimeEventContent {
+  if (!isRecord(value)) return false;
+  switch (value.kind) {
+    case 'text':
+      return (
+        hasExactShape(value, TEXT_CONTENT_SHAPE) &&
+        typeof value.text === 'string' &&
+        isOptionalString(value.displayText) &&
+        (value.attachments === undefined ||
+          (Array.isArray(value.attachments) && value.attachments.every(isAttachmentRef))) &&
+        (value.steering === undefined || value.steering === true)
+      );
+    case 'thinking':
+      return (
+        hasExactShape(value, THINKING_CONTENT_SHAPE) &&
+        typeof value.text === 'string' &&
+        isOptionalString(value.signature)
+      );
+    case 'function_call':
+      return (
+        hasExactShape(value, FUNCTION_CALL_CONTENT_SHAPE) &&
+        typeof value.id === 'string' &&
+        typeof value.name === 'string' &&
+        Object.hasOwn(value, 'args')
+      );
+    case 'function_response':
+      return (
+        hasExactShape(value, FUNCTION_RESPONSE_CONTENT_SHAPE) &&
+        typeof value.id === 'string' &&
+        typeof value.name === 'string' &&
+        Object.hasOwn(value, 'result') &&
+        (value.isError === undefined || typeof value.isError === 'boolean')
+      );
+    case 'error':
+      return (
+        hasExactShape(value, ERROR_CONTENT_SHAPE) &&
+        isOptionalString(value.code) &&
+        isOptionalString(value.reason) &&
+        typeof value.message === 'string' &&
+        (value.details === undefined || isStringArray(value.details) || isRecord(value.details))
+      );
+    default:
+      return false;
+  }
+}
+
+function isRuntimeEventActions(value: unknown): value is RuntimeEventActions {
+  if (!isRecord(value) || !hasExactShape(value, RUNTIME_ACTIONS_SHAPE)) return false;
+  return (
+    (value.stateDelta === undefined || isRecord(value.stateDelta)) &&
+    (value.artifactDelta === undefined ||
+      (isRecord(value.artifactDelta) &&
+        Object.values(value.artifactDelta).every(
+          (item) => typeof item === 'string' || typeof item === 'boolean' || isFiniteNumber(item),
+        ))) &&
+    (value.permissionRequest === undefined ||
+      isPermissionRequestPayload(value.permissionRequest)) &&
+    (value.permissionDecision === undefined || isPermissionResponse(value.permissionDecision)) &&
+    (value.userQuestionRequest === undefined || isUserQuestionRequest(value.userQuestionRequest)) &&
+    isOptionalString(value.transferToAgent) &&
+    (value.endInvocation === undefined || typeof value.endInvocation === 'boolean') &&
+    (value.tokenUsage === undefined || isRuntimeTokenUsage(value.tokenUsage))
+  );
+}
+
+function isRuntimeTokenUsage(value: unknown): value is RuntimeEventTokenUsage {
+  return (
+    isRecord(value) && hasExactShape(value, RUNTIME_TOKEN_USAGE_SHAPE) && isTokenUsageFields(value)
+  );
+}
+
+function isRuntimeEventRefs(value: unknown): value is RuntimeEventRefs {
+  return (
+    isRecord(value) &&
+    hasExactShape(value, RUNTIME_REFS_SHAPE) &&
+    [
+      value.storedMessageId,
+      value.traceEventId,
+      value.toolCallId,
+      value.providerEventId,
+      value.artifactId,
+      value.stepId,
+      value.sourceInvocationId,
+      value.sourceRunId,
+      value.sourceTurnId,
+    ].every(isOptionalString) &&
+    (value.sourceRuntimeEventHighWater === undefined ||
+      (typeof value.sourceRuntimeEventHighWater === 'number' &&
+        Number.isSafeInteger(value.sourceRuntimeEventHighWater) &&
+        value.sourceRuntimeEventHighWater >= 0))
+  );
 }
 
 // ============================================================================

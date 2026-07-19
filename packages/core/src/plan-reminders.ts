@@ -8,19 +8,24 @@ export const PLAN_REMINDER_MAX_DELAY_MS = 366 * 24 * 60 * 60 * 1000;
 export const PLAN_REMINDER_RUN_HISTORY_LIMIT = 10;
 
 export const PLAN_REMINDER_STATUSES = ['scheduled', 'paused', 'completed'] as const;
-export type PlanReminderStatus = typeof PLAN_REMINDER_STATUSES[number];
+export type PlanReminderStatus = (typeof PLAN_REMINDER_STATUSES)[number];
 
 export const PLAN_REMINDER_RUN_STATUSES = ['triggered', 'blocked', 'failed'] as const;
-export type PlanReminderRunStatus = typeof PLAN_REMINDER_RUN_STATUSES[number];
+export type PlanReminderRunStatus = (typeof PLAN_REMINDER_RUN_STATUSES)[number];
 
 export type PlanReminderBlockReason = 'incognito_active' | 'bot_delivery_unavailable';
 
 export const PLAN_REMINDER_RECURRENCES = ['none', 'daily', 'weekly', 'monthly', 'cron'] as const;
-export type PlanReminderRecurrence = typeof PLAN_REMINDER_RECURRENCES[number];
+export type PlanReminderRecurrence = (typeof PLAN_REMINDER_RECURRENCES)[number];
 export type PlanReminderRecurringFrequency = Exclude<PlanReminderRecurrence, 'none' | 'cron'>;
 
-export type PlanReminderSchedule = PlanReminderOnceSchedule | PlanReminderRecurringSchedule | PlanReminderCronSchedule;
-export type PlanReminderDeliveryTarget = PlanReminderLocalDeliveryTarget | PlanReminderBotDeliveryTarget;
+export type PlanReminderSchedule =
+  | PlanReminderOnceSchedule
+  | PlanReminderRecurringSchedule
+  | PlanReminderCronSchedule;
+export type PlanReminderDeliveryTarget =
+  | PlanReminderLocalDeliveryTarget
+  | PlanReminderBotDeliveryTarget;
 
 export interface PlanReminderLocalDeliveryTarget {
   channel: 'local';
@@ -95,12 +100,22 @@ export interface UpdatePlanReminderInput {
 export type PlanReminderNormalizeResult<T> =
   | { ok: true; value: T }
   | {
-    ok: false;
-    reason: 'invalid_title' | 'invalid_note' | 'invalid_run_at' | 'invalid_recurrence' | 'invalid_cron' | 'invalid_delivery' | 'invalid_enabled';
-    message: string;
-  };
+      ok: false;
+      reason:
+        | 'invalid_title'
+        | 'invalid_note'
+        | 'invalid_run_at'
+        | 'invalid_recurrence'
+        | 'invalid_cron'
+        | 'invalid_delivery'
+        | 'invalid_enabled';
+      message: string;
+    };
 
-type PlanReminderNormalizeErrorReason = Extract<PlanReminderNormalizeResult<never>, { ok: false }>['reason'];
+type PlanReminderNormalizeErrorReason = Extract<
+  PlanReminderNormalizeResult<never>,
+  { ok: false }
+>['reason'];
 
 export function isPlanReminderStatus(value: unknown): value is PlanReminderStatus {
   return typeof value === 'string' && (PLAN_REMINDER_STATUSES as readonly string[]).includes(value);
@@ -128,7 +143,10 @@ export function normalizeCreatePlanReminderInput(
   if (!runAt.ok) return runAt;
   const recurrence = normalizePlanReminderRecurrence(record.recurrence);
   if (!recurrence.ok) return recurrence;
-  const cronExpression = normalizePlanReminderCronExpressionForRecurrence(recurrence.value, record.cronExpression);
+  const cronExpression = normalizePlanReminderCronExpressionForRecurrence(
+    recurrence.value,
+    record.cronExpression,
+  );
   if (!cronExpression.ok) return cronExpression;
   const delivery = normalizePlanReminderDeliveryTarget(record.delivery);
   if (!delivery.ok) return delivery;
@@ -137,7 +155,10 @@ export function normalizeCreatePlanReminderInput(
   if (typeof nextRunAt !== 'number') {
     return invalid('invalid_cron', 'Plan reminder cron expression has no run within one year');
   }
-  return { ok: true, value: { title: title.value, note: note.value, schedule, delivery: delivery.value, nextRunAt } };
+  return {
+    ok: true,
+    value: { title: title.value, note: note.value, schedule, delivery: delivery.value, nextRunAt },
+  };
 }
 
 export function normalizeUpdatePlanReminderInput(
@@ -213,7 +234,10 @@ export function normalizePlanReminderTitle(input: unknown): PlanReminderNormaliz
     return invalid('invalid_title', 'Plan reminder title cannot be empty');
   }
   if (Array.from(title).length > PLAN_REMINDER_TITLE_MAX_CHARS) {
-    return invalid('invalid_title', `Plan reminder title must be ${PLAN_REMINDER_TITLE_MAX_CHARS} characters or fewer`);
+    return invalid(
+      'invalid_title',
+      `Plan reminder title must be ${PLAN_REMINDER_TITLE_MAX_CHARS} characters or fewer`,
+    );
   }
   return { ok: true, value: title };
 }
@@ -225,12 +249,18 @@ export function normalizePlanReminderNote(input: unknown): PlanReminderNormalize
   }
   const note = input.normalize('NFC').replace(/\r\n?/g, '\n').trim();
   if (Array.from(note).length > PLAN_REMINDER_NOTE_MAX_CHARS) {
-    return invalid('invalid_note', `Plan reminder note must be ${PLAN_REMINDER_NOTE_MAX_CHARS} characters or fewer`);
+    return invalid(
+      'invalid_note',
+      `Plan reminder note must be ${PLAN_REMINDER_NOTE_MAX_CHARS} characters or fewer`,
+    );
   }
   return { ok: true, value: note };
 }
 
-export function normalizePlanReminderRunAt(input: unknown, now: number): PlanReminderNormalizeResult<number> {
+export function normalizePlanReminderRunAt(
+  input: unknown,
+  now: number,
+): PlanReminderNormalizeResult<number> {
   let value: number;
   if (typeof input === 'number') {
     value = input;
@@ -252,7 +282,9 @@ export function normalizePlanReminderRunAt(input: unknown, now: number): PlanRem
   return { ok: true, value: runAt };
 }
 
-export function normalizePlanReminderRecurrence(input: unknown): PlanReminderNormalizeResult<PlanReminderRecurrence> {
+export function normalizePlanReminderRecurrence(
+  input: unknown,
+): PlanReminderNormalizeResult<PlanReminderRecurrence> {
   if (input === undefined || input === null || input === '' || input === 'none') {
     return { ok: true, value: 'none' };
   }
@@ -260,12 +292,17 @@ export function normalizePlanReminderRecurrence(input: unknown): PlanReminderNor
     return invalid('invalid_recurrence', 'Plan reminder recurrence must be a string');
   }
   if (!PLAN_REMINDER_RECURRENCES.includes(input as PlanReminderRecurrence)) {
-    return invalid('invalid_recurrence', 'Plan reminder recurrence must be none, daily, weekly, monthly, or cron');
+    return invalid(
+      'invalid_recurrence',
+      'Plan reminder recurrence must be none, daily, weekly, monthly, or cron',
+    );
   }
   return { ok: true, value: input as PlanReminderRecurrence };
 }
 
-export function normalizePlanReminderCronExpression(input: unknown): PlanReminderNormalizeResult<string> {
+export function normalizePlanReminderCronExpression(
+  input: unknown,
+): PlanReminderNormalizeResult<string> {
   if (typeof input !== 'string') {
     return invalid('invalid_cron', 'Plan reminder cron expression must be a string');
   }
@@ -274,7 +311,10 @@ export function normalizePlanReminderCronExpression(input: unknown): PlanReminde
     return invalid('invalid_cron', 'Plan reminder cron expression cannot be empty');
   }
   if (Array.from(expression).length > PLAN_REMINDER_CRON_EXPRESSION_MAX_CHARS) {
-    return invalid('invalid_cron', `Plan reminder cron expression must be ${PLAN_REMINDER_CRON_EXPRESSION_MAX_CHARS} characters or fewer`);
+    return invalid(
+      'invalid_cron',
+      `Plan reminder cron expression must be ${PLAN_REMINDER_CRON_EXPRESSION_MAX_CHARS} characters or fewer`,
+    );
   }
   const parsed = parsePlanReminderCronExpression(expression);
   if (!parsed.ok) return invalid('invalid_cron', parsed.message);
@@ -291,7 +331,9 @@ function normalizePlanReminderCronExpressionForRecurrence(
   return cronExpression;
 }
 
-export function normalizePlanReminderDeliveryTarget(input: unknown): PlanReminderNormalizeResult<PlanReminderDeliveryTarget> {
+export function normalizePlanReminderDeliveryTarget(
+  input: unknown,
+): PlanReminderNormalizeResult<PlanReminderDeliveryTarget> {
   if (input === undefined || input === null) return { ok: true, value: { channel: 'local' } };
   if (typeof input !== 'object' || Array.isArray(input)) {
     return invalid('invalid_delivery', 'Plan reminder delivery must be an object');
@@ -306,9 +348,14 @@ export function normalizePlanReminderDeliveryTarget(input: unknown): PlanReminde
     return invalid('invalid_delivery', 'Plan reminder bot delivery platform is not supported');
   }
   if (!isBotDeliveryProvider(platform)) {
-    return invalid('invalid_delivery', 'Plan reminder bot delivery platform is not enabled for delivery');
+    return invalid(
+      'invalid_delivery',
+      'Plan reminder bot delivery platform is not enabled for delivery',
+    );
   }
-  const chatId = normalizePlanReminderDeliveryChatId((record as Partial<PlanReminderBotDeliveryTarget>).chatId);
+  const chatId = normalizePlanReminderDeliveryChatId(
+    (record as Partial<PlanReminderBotDeliveryTarget>).chatId,
+  );
   if (!chatId.ok) return chatId;
   return {
     ok: true,
@@ -320,7 +367,9 @@ export function normalizePlanReminderDeliveryTarget(input: unknown): PlanReminde
   };
 }
 
-export function normalizePlanReminderDeliveryChatId(input: unknown): PlanReminderNormalizeResult<string> {
+export function normalizePlanReminderDeliveryChatId(
+  input: unknown,
+): PlanReminderNormalizeResult<string> {
   if (typeof input !== 'string') {
     return invalid('invalid_delivery', 'Plan reminder bot chatId must be a string');
   }
@@ -334,7 +383,10 @@ export function normalizePlanReminderDeliveryChatId(input: unknown): PlanReminde
     return invalid('invalid_delivery', 'Plan reminder bot chatId cannot be empty');
   }
   if (Array.from(chatId).length > PLAN_REMINDER_DELIVERY_CHAT_ID_MAX_CHARS) {
-    return invalid('invalid_delivery', `Plan reminder bot chatId must be ${PLAN_REMINDER_DELIVERY_CHAT_ID_MAX_CHARS} characters or fewer`);
+    return invalid(
+      'invalid_delivery',
+      `Plan reminder bot chatId must be ${PLAN_REMINDER_DELIVERY_CHAT_ID_MAX_CHARS} characters or fewer`,
+    );
   }
   return { ok: true, value: chatId };
 }
@@ -344,13 +396,19 @@ export function formatPlanReminderDeliveryTarget(delivery: PlanReminderDeliveryT
   return `${botProviderLabel(delivery.platform)} · ${delivery.chatId}`;
 }
 
-export function formatPlanReminderDeliveryMessage(reminder: Pick<PlanReminder, 'title' | 'note'>): string {
+export function formatPlanReminderDeliveryMessage(
+  reminder: Pick<PlanReminder, 'title' | 'note'>,
+): string {
   const lines = [`计划提醒：${reminder.title}`];
   if (reminder.note.trim()) lines.push('', reminder.note.trim());
   return lines.join('\n');
 }
 
-export function createPlanReminderSchedule(runAt: number, recurrence: PlanReminderRecurrence, cronExpression?: string): PlanReminderSchedule {
+export function createPlanReminderSchedule(
+  runAt: number,
+  recurrence: PlanReminderRecurrence,
+  cronExpression?: string,
+): PlanReminderSchedule {
   if (recurrence === 'none') return { kind: 'once', runAt };
   if (recurrence === 'cron') {
     if (!cronExpression) throw new Error('Plan reminder cron expression is required');
@@ -363,7 +421,10 @@ export function planReminderScheduleStartAt(schedule: PlanReminderSchedule): num
   return schedule.kind === 'once' ? schedule.runAt : schedule.startAt;
 }
 
-export function nextPlanReminderRunAtAfter(schedule: PlanReminderSchedule, after: number): number | undefined {
+export function nextPlanReminderRunAtAfter(
+  schedule: PlanReminderSchedule,
+  after: number,
+): number | undefined {
   if (schedule.kind === 'once') return schedule.runAt > after ? schedule.runAt : undefined;
   if (schedule.kind === 'cron') return nextCronRunAtAfter(schedule, after);
   if (schedule.startAt > after) return schedule.startAt;
@@ -371,10 +432,12 @@ export function nextPlanReminderRunAtAfter(schedule: PlanReminderSchedule, after
 }
 
 export function isPlanReminderDue(reminder: PlanReminder, now: number): boolean {
-  return reminder.enabled &&
+  return (
+    reminder.enabled &&
     reminder.status === 'scheduled' &&
     typeof reminder.nextRunAt === 'number' &&
-    reminder.nextRunAt <= now;
+    reminder.nextRunAt <= now
+  );
 }
 
 export function nextPlanReminderStateAfterTrigger(
@@ -475,7 +538,9 @@ function nextCronRunAtAfter(schedule: PlanReminderCronSchedule, after: number): 
   return undefined;
 }
 
-function parsePlanReminderCronExpression(input: string): PlanReminderNormalizeResult<ParsedCronExpression> {
+function parsePlanReminderCronExpression(
+  input: string,
+): PlanReminderNormalizeResult<ParsedCronExpression> {
   const parts = input.split(' ');
   if (parts.length !== 5) {
     return invalid('invalid_cron', 'Plan reminder cron expression must have exactly 5 fields');
@@ -490,21 +555,43 @@ function parsePlanReminderCronExpression(input: string): PlanReminderNormalizeRe
   if (!month.ok) return month;
   const dayOfWeek = parseCronField(parts[4] ?? '', 0, 7, true);
   if (!dayOfWeek.ok) return dayOfWeek;
-  return { ok: true, value: { minute: minute.value, hour: hour.value, dayOfMonth: dayOfMonth.value, month: month.value, dayOfWeek: dayOfWeek.value } };
+  return {
+    ok: true,
+    value: {
+      minute: minute.value,
+      hour: hour.value,
+      dayOfMonth: dayOfMonth.value,
+      month: month.value,
+      dayOfWeek: dayOfWeek.value,
+    },
+  };
 }
 
-function parseCronField(input: string, min: number, max: number, normalizeSevenToZero: boolean): PlanReminderNormalizeResult<ParsedCronField> {
+function parseCronField(
+  input: string,
+  min: number,
+  max: number,
+  normalizeSevenToZero: boolean,
+): PlanReminderNormalizeResult<ParsedCronField> {
   if (!/^[\d*,/\-]+$/.test(input)) {
-    return invalid('invalid_cron', 'Plan reminder cron fields support only numbers, *, ranges, lists, and steps');
+    return invalid(
+      'invalid_cron',
+      'Plan reminder cron fields support only numbers, *, ranges, lists, and steps',
+    );
   }
   const values = new Set<number>();
   let wildcard = false;
   for (const rawPart of input.split(',')) {
-    if (!rawPart) return invalid('invalid_cron', 'Plan reminder cron field contains an empty list item');
+    if (!rawPart)
+      return invalid('invalid_cron', 'Plan reminder cron field contains an empty list item');
     const stepSplit = rawPart.split('/');
-    if (stepSplit.length > 2) return invalid('invalid_cron', 'Plan reminder cron field has an invalid step');
+    if (stepSplit.length > 2)
+      return invalid('invalid_cron', 'Plan reminder cron field has an invalid step');
     const base = stepSplit[0] ?? '';
-    const step = stepSplit[1] === undefined ? { ok: true as const, value: 1 } : parseCronInteger(stepSplit[1], 1, max - min + 1);
+    const step =
+      stepSplit[1] === undefined
+        ? { ok: true as const, value: 1 }
+        : parseCronInteger(stepSplit[1], 1, max - min + 1);
     if (!step.ok) return step;
     let start: number;
     let end: number;
@@ -514,14 +601,16 @@ function parseCronField(input: string, min: number, max: number, normalizeSevenT
       end = max;
     } else if (base.includes('-')) {
       const range = base.split('-');
-      if (range.length !== 2) return invalid('invalid_cron', 'Plan reminder cron field has an invalid range');
+      if (range.length !== 2)
+        return invalid('invalid_cron', 'Plan reminder cron field has an invalid range');
       const parsedStart = parseCronInteger(range[0] ?? '', min, max);
       if (!parsedStart.ok) return parsedStart;
       const parsedEnd = parseCronInteger(range[1] ?? '', min, max);
       if (!parsedEnd.ok) return parsedEnd;
       start = parsedStart.value;
       end = parsedEnd.value;
-      if (start > end) return invalid('invalid_cron', 'Plan reminder cron range start must be before its end');
+      if (start > end)
+        return invalid('invalid_cron', 'Plan reminder cron range start must be before its end');
     } else {
       const parsed = parseCronInteger(base, min, max);
       if (!parsed.ok) return parsed;
@@ -536,13 +625,20 @@ function parseCronField(input: string, min: number, max: number, normalizeSevenT
   return { ok: true, value: { wildcard, values } };
 }
 
-function parseCronInteger(input: string, min: number, max: number): PlanReminderNormalizeResult<number> {
+function parseCronInteger(
+  input: string,
+  min: number,
+  max: number,
+): PlanReminderNormalizeResult<number> {
   if (!/^\d+$/.test(input)) {
     return invalid('invalid_cron', 'Plan reminder cron field values must be integers');
   }
   const value = Number(input);
   if (!Number.isSafeInteger(value) || value < min || value > max) {
-    return invalid('invalid_cron', `Plan reminder cron field value must be between ${min} and ${max}`);
+    return invalid(
+      'invalid_cron',
+      `Plan reminder cron field value must be between ${min} and ${max}`,
+    );
   }
   return { ok: true, value };
 }
@@ -565,13 +661,20 @@ function isBotProvider(value: unknown): value is BotProvider {
 
 function botProviderLabel(provider: BotProvider): string {
   switch (provider) {
-    case 'telegram': return 'Telegram';
-    case 'feishu': return '飞书';
-    case 'wecom': return '企业微信';
-    case 'wechat': return '微信';
-    case 'discord': return 'Discord';
-    case 'dingtalk': return '钉钉';
-    case 'qq': return 'QQ';
+    case 'telegram':
+      return 'Telegram';
+    case 'feishu':
+      return '飞书';
+    case 'wecom':
+      return '企业微信';
+    case 'wechat':
+      return '微信';
+    case 'discord':
+      return 'Discord';
+    case 'dingtalk':
+      return '钉钉';
+    case 'qq':
+      return 'QQ';
   }
 }
 

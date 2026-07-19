@@ -1,14 +1,14 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import { z } from 'zod';
-import { MockLanguageModelV3, convertArrayToReadableStream } from 'ai/test';
-import type { LanguageModelV3StreamPart, LanguageModelV3Usage } from '@ai-sdk/provider';
+import { MockLanguageModelV4, convertArrayToReadableStream } from 'ai/test';
+import type { LanguageModelV4StreamPart, LanguageModelV4Usage } from '@ai-sdk/provider';
 
 import { ModelAdapter } from '../model-adapter.js';
 import { ToolAvailabilityRuntime, LOAD_TOOLS_NAME } from '../tool-availability.js';
 import type { MakaTool } from '../tool-runtime.js';
 
-const ZERO_USAGE: LanguageModelV3Usage = {
+const ZERO_USAGE: LanguageModelV4Usage = {
   inputTokens: { total: 0, noCache: 0, cacheRead: 0, cacheWrite: 0 },
   outputTokens: { total: 0, text: 0, reasoning: 0 },
 };
@@ -48,18 +48,27 @@ describe('prepareStep activates a group within the same turn (Codex Δ1)', () =>
     // The model-visible names doStream receives, per step.
     const toolsPerStep: string[][] = [];
 
-    const model = new MockLanguageModelV3({
+    const model = new MockLanguageModelV4({
       doStream: async ({ tools: stepTools }) => {
         const names = (stepTools ?? []).map((t) => t.name);
         toolsPerStep.push(names);
         const isFirstStep = toolsPerStep.length === 1;
-        const parts: LanguageModelV3StreamPart[] = isFirstStep
+        const parts: LanguageModelV4StreamPart[] = isFirstStep
           ? [
               { type: 'stream-start', warnings: [] },
               // The real load_tools carries the { group } schema, so the SDK
               // parses the tool-call input correctly.
-              { type: 'tool-call', toolCallId: 'tc1', toolName: LOAD_TOOLS_NAME, input: JSON.stringify({ group: 'rive' }) },
-              { type: 'finish', finishReason: { unified: 'tool-calls', raw: 'tool_calls' }, usage: ZERO_USAGE },
+              {
+                type: 'tool-call',
+                toolCallId: 'tc1',
+                toolName: LOAD_TOOLS_NAME,
+                input: JSON.stringify({ group: 'rive' }),
+              },
+              {
+                type: 'finish',
+                finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+                usage: ZERO_USAGE,
+              },
             ]
           : [
               { type: 'stream-start', warnings: [] },
@@ -76,7 +85,8 @@ describe('prepareStep activates a group within the same turn (Codex Δ1)', () =>
       aiSdkTools[t.name] = {
         description: t.description,
         inputSchema: t.parameters,
-        execute: t.name === LOAD_TOOLS_NAME ? () => ({ loaded: ['RiveWorkflow'] }) : () => ({ ok: true }),
+        execute:
+          t.name === LOAD_TOOLS_NAME ? () => ({ loaded: ['RiveWorkflow'] }) : () => ({ ok: true }),
       };
     }
 
@@ -90,13 +100,19 @@ describe('prepareStep activates a group within the same turn (Codex Δ1)', () =>
       abortSignal: new AbortController().signal,
       repairToolCall: async () => null,
     });
-    for await (const _chunk of result.fullStream) {
+    for await (const _chunk of result.stream) {
       void _chunk;
     }
 
     assert.equal(toolsPerStep.length, 2, 'expected two model steps (load then use)');
-    assert.ok(!toolsPerStep[0].includes('RiveWorkflow'), 'step 0 must NOT see the hidden RiveWorkflow');
+    assert.ok(
+      !toolsPerStep[0].includes('RiveWorkflow'),
+      'step 0 must NOT see the hidden RiveWorkflow',
+    );
     assert.ok(toolsPerStep[0].includes(LOAD_TOOLS_NAME), 'step 0 sees load_tools');
-    assert.ok(toolsPerStep[1].includes('RiveWorkflow'), 'step 1 MUST see RiveWorkflow after the load');
+    assert.ok(
+      toolsPerStep[1].includes('RiveWorkflow'),
+      'step 1 MUST see RiveWorkflow after the load',
+    );
   });
 });

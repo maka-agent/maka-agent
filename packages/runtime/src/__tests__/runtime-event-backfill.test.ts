@@ -30,10 +30,33 @@ function nextIds(): () => string {
 }
 
 function recoveryMarker(event: RuntimeEvent): Record<string, unknown> | undefined {
-  return event.actions?.stateDelta?.[RUNTIME_EVENT_BACKFILL_STATE_KEY] as Record<string, unknown> | undefined;
+  return event.actions?.stateDelta?.[RUNTIME_EVENT_BACKFILL_STATE_KEY] as
+    | Record<string, unknown>
+    | undefined;
 }
 
 describe('runtime event backfill', () => {
+  test('prefers the persisted Run invocation identity over a caller fallback', () => {
+    const result = backfillRuntimeEventsFromStoredMessages({
+      run: { ...run, invocationId: 'persisted-invocation' },
+      invocationId: 'caller-fallback',
+      messages: [
+        {
+          type: 'turn_state',
+          id: 'legacy-state',
+          turnId: 'turn-1',
+          ts: 180,
+          status: 'completed',
+          partialOutputRetained: false,
+        },
+      ],
+      newId: nextIds(),
+      now: () => 999,
+    });
+
+    expect(result.events.map((event) => event.invocationId)).toEqual(['persisted-invocation']);
+  });
+
   test('backfills only low-risk RuntimeEvents from legacy StoredMessage rows', () => {
     const messages: StoredMessage[] = [
       {
@@ -42,13 +65,19 @@ describe('runtime event backfill', () => {
         turnId: 'turn-1',
         ts: 101,
         text: 'hello',
-        attachments: [{
-          kind: 'other',
-          name: 'note.txt',
-          mimeType: 'text/plain',
-          bytes: 12,
-          ref: { kind: 'session_file', sessionId: 'session-1', relativePath: 'attachments/note.txt' },
-        }],
+        attachments: [
+          {
+            kind: 'other',
+            name: 'note.txt',
+            mimeType: 'text/plain',
+            bytes: 12,
+            ref: {
+              kind: 'session_file',
+              sessionId: 'session-1',
+              relativePath: 'attachments/note.txt',
+            },
+          },
+        ],
       },
       {
         type: 'assistant',
@@ -128,29 +157,60 @@ describe('runtime event backfill', () => {
       'rt-backfill-7',
       'rt-backfill-8',
     ]);
-    expect(result.events.map((event) => event.invocationId)).toEqual(Array(8).fill('backfill-run-1'));
+    expect(result.events.map((event) => event.invocationId)).toEqual(
+      Array(8).fill('backfill-run-1'),
+    );
     expect(result.events.map((event) => event.partial)).toEqual(Array(8).fill(false));
     expect(result.events[0]?.content).toEqual({
       kind: 'text',
       text: 'hello',
-      attachments: [{
-        kind: 'other',
-        name: 'note.txt',
-        mimeType: 'text/plain',
-        bytes: 12,
-        ref: { kind: 'session_file', sessionId: 'session-1', relativePath: 'attachments/note.txt' },
-      }],
+      attachments: [
+        {
+          kind: 'other',
+          name: 'note.txt',
+          mimeType: 'text/plain',
+          bytes: 12,
+          ref: {
+            kind: 'session_file',
+            sessionId: 'session-1',
+            relativePath: 'attachments/note.txt',
+          },
+        },
+      ],
     });
     expect(result.events[1]?.content).toEqual({ kind: 'text', text: 'answer' });
-    expect(result.events[2]?.content).toEqual({ kind: 'thinking', text: 'reasoning', signature: 'sig-1' });
-    expect(result.events[3]?.content).toEqual({ kind: 'function_call', id: 'tool-1', name: 'Read', args: { path: 'README.md' } });
+    expect(result.events[2]?.content).toEqual({
+      kind: 'thinking',
+      text: 'reasoning',
+      signature: 'sig-1',
+    });
+    expect(result.events[3]?.content).toEqual({
+      kind: 'function_call',
+      id: 'tool-1',
+      name: 'Read',
+      args: { path: 'README.md' },
+    });
     expect(result.events[3]?.actions?.stateDelta?.displayName).toBe('Read file');
     expect(result.events[3]?.actions?.stateDelta?.activityKind).toBe('read');
     expect(result.events[3]?.actions?.stateDelta?.intent).toBe('inspect');
-    expect(result.events[3]?.refs).toEqual({ storedMessageId: 'tool-1', toolCallId: 'tool-1', stepId: 'step-1' });
-    expect(result.events[4]?.content).toEqual({ kind: 'function_response', id: 'tool-1', name: 'Read', result: { kind: 'text', text: 'file body' }, isError: false });
+    expect(result.events[3]?.refs).toEqual({
+      storedMessageId: 'tool-1',
+      toolCallId: 'tool-1',
+      stepId: 'step-1',
+    });
+    expect(result.events[4]?.content).toEqual({
+      kind: 'function_response',
+      id: 'tool-1',
+      name: 'Read',
+      result: { kind: 'text', text: 'file body' },
+      isError: false,
+    });
     expect(result.events[4]?.actions?.stateDelta?.durationMs).toBe(42);
-    expect(result.events[5]?.actions?.permissionDecision).toEqual({ requestId: 'perm-1', decision: 'allow', rememberForTurn: true });
+    expect(result.events[5]?.actions?.permissionDecision).toEqual({
+      requestId: 'perm-1',
+      decision: 'allow',
+      rememberForTurn: true,
+    });
     expect(result.events[5]?.refs).toEqual({ storedMessageId: 'perm-1', toolCallId: 'tool-1' });
     expect(result.events[6]?.actions?.tokenUsage).toEqual({ input: 10, output: 5, total: 15 });
     expect(result.events[7]?.status).toBe('completed');

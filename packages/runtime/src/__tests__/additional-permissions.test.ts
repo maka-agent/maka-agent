@@ -38,10 +38,7 @@ async function createPlanningFixture(prefix: string): Promise<{
   };
 }
 
-function workspaceWritePlanningContext(fixture: {
-  workspace: string;
-  allowedTmp: string;
-}) {
+function workspaceWritePlanningContext(fixture: { workspace: string; allowedTmp: string }) {
   return {
     profile: createWorkspaceWritePermissionProfile(),
     workspaceRoots: [fixture.workspace],
@@ -62,10 +59,12 @@ describe('runtime additional permission path normalization', () => {
       const result = await normalizeAdditionalPermissionProfile({
         cwd: root,
         profile: {
-          fileSystem: { entries: [
-            { path: 'outside/existing.txt', access: 'read', scope: 'exact' },
-            { path: 'outside/missing.txt', access: 'write', scope: 'exact' },
-          ] },
+          fileSystem: {
+            entries: [
+              { path: 'outside/existing.txt', access: 'read', scope: 'exact' },
+              { path: 'outside/missing.txt', access: 'write', scope: 'exact' },
+            ],
+          },
         },
       });
       assert.deepEqual(result.profile.fileSystem?.entries, [
@@ -87,10 +86,9 @@ describe('runtime additional permission path normalization', () => {
           access: 'write',
           scope: 'subtree',
         }),
-        (error: unknown) => (
-          error instanceof AdditionalPermissionError
-          && error.reason === 'invalid_additional_permissions'
-        ),
+        (error: unknown) =>
+          error instanceof AdditionalPermissionError &&
+          error.reason === 'invalid_additional_permissions',
       );
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -122,9 +120,8 @@ describe('runtime additional permission path normalization', () => {
       await symlink(join(root, 'b', 'file.txt'), link);
       await assert.rejects(
         revalidateAdditionalPermissionProposal({ proposal, cwd: root }),
-        (error: unknown) => (
-          error instanceof AdditionalPermissionError && error.reason === 'grant_path_changed'
-        ),
+        (error: unknown) =>
+          error instanceof AdditionalPermissionError && error.reason === 'grant_path_changed',
       );
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -151,9 +148,8 @@ describe('runtime additional permission path normalization', () => {
       await mkdir(target);
       await assert.rejects(
         revalidateAdditionalPermissionProposal({ proposal, cwd: root }),
-        (error: unknown) => (
-          error instanceof AdditionalPermissionError && error.reason === 'grant_path_changed'
-        ),
+        (error: unknown) =>
+          error instanceof AdditionalPermissionError && error.reason === 'grant_path_changed',
       );
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -165,14 +161,18 @@ describe('runtime additional permission planning', () => {
   test('freezes proposals and validates their intent and permission hashes', () => {
     const args = { path: '/outside/file', content: 'x' };
     const proposal = buildAdditionalPermissionProposal({
-      profile: { fileSystem: { entries: [{ path: '/outside/file', access: 'write', scope: 'exact' }] } },
-      normalizedPaths: [{
-        displayPath: '/outside/file',
-        enforcementPath: '/outside/file',
-        access: 'write',
-        scope: 'exact',
-        targetType: 'missing',
-      }],
+      profile: {
+        fileSystem: { entries: [{ path: '/outside/file', access: 'write', scope: 'exact' }] },
+      },
+      normalizedPaths: [
+        {
+          displayPath: '/outside/file',
+          enforcementPath: '/outside/file',
+          access: 'write',
+          scope: 'exact',
+          targetType: 'missing',
+        },
+      ],
       justification: 'Write the requested output.',
       toolName: 'Write',
       args,
@@ -184,17 +184,25 @@ describe('runtime additional permission planning', () => {
     assert.equal(Object.isFrozen(proposal.profile.fileSystem?.entries), true);
     assert.equal(Object.isFrozen(proposal.normalizedPaths), true);
     assert.equal(Object.isFrozen(proposal.risk), true);
-    assert.doesNotThrow(() => assertAdditionalPermissionProposal({ proposal, toolName: 'Write', args }));
+    assert.doesNotThrow(() =>
+      assertAdditionalPermissionProposal({ proposal, toolName: 'Write', args }),
+    );
     assert.throws(
-      () => assertAdditionalPermissionProposal({
-        proposal: { ...proposal, permissionsHash: `sha256:${'0'.repeat(64)}` },
-        toolName: 'Write',
-        args,
-      }),
+      () =>
+        assertAdditionalPermissionProposal({
+          proposal: { ...proposal, permissionsHash: `sha256:${'0'.repeat(64)}` },
+          toolName: 'Write',
+          args,
+        }),
       AdditionalPermissionError,
     );
     assert.throws(
-      () => assertAdditionalPermissionProposal({ proposal, toolName: 'Write', args: { ...args, content: 'y' } }),
+      () =>
+        assertAdditionalPermissionProposal({
+          proposal,
+          toolName: 'Write',
+          args: { ...args, content: 'y' },
+        }),
       AdditionalPermissionError,
     );
   });
@@ -203,22 +211,28 @@ describe('runtime additional permission planning', () => {
     const fixture = await createPlanningFixture('maka-additional-plan-');
     try {
       const context = workspaceWritePlanningContext(fixture);
-      assert.deepEqual(await planFileToolAdditionalPermission({
-        toolName: 'Write',
-        path: 'inside.txt',
-        cwd: fixture.workspace,
-        mode: 'execute',
-        args: {},
-        context,
-      }), { kind: 'not_required' });
-      assert.deepEqual(await planFileToolAdditionalPermission({
-        toolName: 'Write',
-        path: join(fixture.allowedTmp, 'temp.txt'),
-        cwd: fixture.workspace,
-        mode: 'execute',
-        args: {},
-        context,
-      }), { kind: 'not_required' });
+      assert.deepEqual(
+        await planFileToolAdditionalPermission({
+          toolName: 'Write',
+          path: 'inside.txt',
+          cwd: fixture.workspace,
+          mode: 'execute',
+          args: {},
+          context,
+        }),
+        { kind: 'not_required' },
+      );
+      assert.deepEqual(
+        await planFileToolAdditionalPermission({
+          toolName: 'Write',
+          path: join(fixture.allowedTmp, 'temp.txt'),
+          cwd: fixture.workspace,
+          mode: 'execute',
+          args: {},
+          context,
+        }),
+        { kind: 'not_required' },
+      );
 
       const outsidePlan = await planFileToolAdditionalPermission({
         toolName: 'Write',
@@ -320,21 +334,30 @@ describe('runtime additional permission planning', () => {
     const fixture = await createPlanningFixture('maka-additional-bash-');
     try {
       const context = workspaceWritePlanningContext(fixture);
-      assert.deepEqual(await planDeclaredBashAdditionalPermission({
-        declaration: undefined,
-        cwd: fixture.workspace,
-        mode: 'execute',
-        command: `printf blocked > ${join(fixture.outside, 'file.txt')}`,
-        args: { command: `printf blocked > ${join(fixture.outside, 'file.txt')}` },
-        context,
-      }), { kind: 'not_required' });
+      assert.deepEqual(
+        await planDeclaredBashAdditionalPermission({
+          declaration: undefined,
+          cwd: fixture.workspace,
+          mode: 'execute',
+          command: `printf blocked > ${join(fixture.outside, 'file.txt')}`,
+          args: { command: `printf blocked > ${join(fixture.outside, 'file.txt')}` },
+          context,
+        }),
+        { kind: 'not_required' },
+      );
 
       const declaration = {
         mode: 'with_additional_permissions',
-        file_system: { entries: [
-          { path: join(fixture.workspace, 'already-allowed.txt'), access: 'write', scope: 'exact' },
-          { path: join(fixture.outside, 'file.txt'), access: 'write', scope: 'exact' },
-        ] },
+        file_system: {
+          entries: [
+            {
+              path: join(fixture.workspace, 'already-allowed.txt'),
+              access: 'write',
+              scope: 'exact',
+            },
+            { path: join(fixture.outside, 'file.txt'), access: 'write', scope: 'exact' },
+          ],
+        },
         network: true,
         justification: 'Write one output and notify a service.',
       };
@@ -364,10 +387,12 @@ describe('runtime additional permission planning', () => {
   test('reports workspace, metadata, and network risk without exposing arguments', () => {
     const proposal = buildAdditionalPermissionProposal({
       profile: {
-        fileSystem: { entries: [
-          { path: '/workspace/.git/config', access: 'write', scope: 'exact' },
-          { path: '/outside/output.txt', access: 'write', scope: 'exact' },
-        ] },
+        fileSystem: {
+          entries: [
+            { path: '/workspace/.git/config', access: 'write', scope: 'exact' },
+            { path: '/outside/output.txt', access: 'write', scope: 'exact' },
+          ],
+        },
         network: { enabled: true },
       },
       normalizedPaths: [

@@ -21,17 +21,29 @@ describe('ToolRuntime sandbox escalation orchestration', () => {
   test('auto-reviews execute mode, emits no interactive request, and exposes one exact grant', async () => {
     let receivedContext: MakaToolContext['permissionContext'];
     const h = harness({
-      review: async () => ({ outcome: 'allow', riskLevel: 'high', rationale: 'Authorized exact action.' }),
+      review: async () => ({
+        outcome: 'allow',
+        riskLevel: 'high',
+        rationale: 'Authorized exact action.',
+      }),
     });
-    const result = await h.runtime.wrapToolExecute(bashTool((_args, context) => {
-      receivedContext = context.permissionContext;
-      return { ok: true };
-    }), 'turn-1', { push: (event) => h.events.push(event) })(args, {
-      toolCallId: 'tool-1', abortSignal: new AbortController().signal,
+    const result = await h.runtime.wrapToolExecute(
+      bashTool((_args, context) => {
+        receivedContext = context.permissionContext;
+        return { ok: true };
+      }),
+      'turn-1',
+      { push: (event) => h.events.push(event) },
+    )(args, {
+      toolCallId: 'tool-1',
+      abortSignal: new AbortController().signal,
     });
 
     assert.deepEqual(result, { ok: true });
-    assert.equal(h.events.some((event) => event.type === 'permission_request'), false);
+    assert.equal(
+      h.events.some((event) => event.type === 'permission_request'),
+      false,
+    );
     assert.equal(receivedContext?.sandboxEscalationGrant?.command, command);
     assert.equal(receivedContext?.sandboxEscalationGrant?.cwd, '/tmp');
     const decision = h.messages.find((message) => message.type === 'permission_decision');
@@ -48,25 +60,35 @@ describe('ToolRuntime sandbox escalation orchestration', () => {
         return { outcome: 'deny', riskLevel: 'critical', rationale: 'User intent is ambiguous.' };
       },
     });
-    const execute = h.runtime.wrapToolExecute(bashTool(() => {
-      called = true;
-      return { ok: true };
-    }), 'turn-1', { push: (event) => h.events.push(event) });
+    const execute = h.runtime.wrapToolExecute(
+      bashTool(() => {
+        called = true;
+        return { ok: true };
+      }),
+      'turn-1',
+      { push: (event) => h.events.push(event) },
+    );
 
     const first = await execute(args, {
-      toolCallId: 'tool-1', abortSignal: new AbortController().signal,
+      toolCallId: 'tool-1',
+      abortSignal: new AbortController().signal,
     });
     const repeated = await execute(args, {
-      toolCallId: 'tool-2', abortSignal: new AbortController().signal,
+      toolCallId: 'tool-2',
+      abortSignal: new AbortController().signal,
     });
 
     assert.equal(called, false);
     assert.deepEqual(first, { error: '自动审批已拒绝权限请求：User intent is ambiguous.' });
     assert.deepEqual(repeated, {
-      error: '相同的 sandbox 提权请求已在当前轮次中被自动审批拒绝；需要用户发送新的消息后才能重新申请。',
+      error:
+        '相同的 sandbox 提权请求已在当前轮次中被自动审批拒绝；需要用户发送新的消息后才能重新申请。',
     });
     assert.equal(reviews, 1);
-    assert.equal(h.events.some((event) => event.type === 'permission_request'), false);
+    assert.equal(
+      h.events.some((event) => event.type === 'permission_request'),
+      false,
+    );
   });
 
   test('fails closed on reviewer failure and permits a new review next turn', async () => {
@@ -86,7 +108,9 @@ describe('ToolRuntime sandbox escalation orchestration', () => {
     const first = await h.runtime.wrapToolExecute(tool, 'turn-1', {
       push: (event) => h.events.push(event),
     })(args, { toolCallId: 'tool-1', abortSignal: new AbortController().signal });
-    assert.deepEqual(first, { error: '自动审批已拒绝权限请求：Automatic approval review failed closed.' });
+    assert.deepEqual(first, {
+      error: '自动审批已拒绝权限请求：Automatic approval review failed closed.',
+    });
 
     h.runtime.endTurn('turn-1');
     h.runtime.beginTurn('turn-2');
@@ -111,13 +135,14 @@ function bashTool(impl: MakaTool['impl']): MakaTool {
       }),
     }),
     permissionRequired: true,
-    planSandboxEscalation: (_args, context) => planDeclaredBashSandboxEscalation({
-      declaration,
-      command,
-      cwd: context.cwd,
-      mode: context.mode,
-      args: context.args,
-    }),
+    planSandboxEscalation: (_args, context) =>
+      planDeclaredBashSandboxEscalation({
+        declaration,
+        command,
+        cwd: context.cwd,
+        mode: context.mode,
+        args: context.args,
+      }),
     impl,
   };
 }
@@ -131,16 +156,37 @@ function harness(autoReviewer: AutoApprovalReviewer) {
     now: () => 100,
   });
   const header: SessionHeader = {
-    id: 'session-1', workspaceRoot: '/tmp', cwd: '/tmp', createdAt: 1, lastUsedAt: 1,
-    name: 'Test', isFlagged: false, labels: [], isArchived: false, status: 'active',
-    statusUpdatedAt: 1, hasUnread: false, backend: 'ai-sdk', llmConnectionSlug: 'c',
-    connectionLocked: true, model: 'm', permissionMode: 'execute', schemaVersion: 1,
+    id: 'session-1',
+    workspaceRoot: '/tmp',
+    cwd: '/tmp',
+    createdAt: 1,
+    lastUsedAt: 1,
+    name: 'Test',
+    titleIsManual: true,
+    isFlagged: false,
+    labels: [],
+    isArchived: false,
+    status: 'active',
+    statusUpdatedAt: 1,
+    hasUnread: false,
+    backend: 'ai-sdk',
+    llmConnectionSlug: 'c',
+    connectionLocked: true,
+    model: 'm',
+    permissionMode: 'execute',
+    schemaVersion: 1,
   };
   const runtime = new ToolRuntime({
-    sessionId: 'session-1', header,
+    sessionId: 'session-1',
+    header,
     connection: { providerType: 'openai', slug: 'c' } as never,
-    modelId: 'm', appendMessage: async (message) => { messages.push(message); },
-    permissionEngine, newId: () => `runtime-${++id}`, now: () => 100,
+    modelId: 'm',
+    appendMessage: async (message) => {
+      messages.push(message);
+    },
+    permissionEngine,
+    newId: () => `runtime-${++id}`,
+    now: () => 100,
     getPermissionPauseTarget: () => null,
     approvalCoordinator: new ApprovalCoordinator({ autoReviewer }),
     getAutoApprovalReviewContext: () => ({ userIntent: 'Write the exact output.' }),

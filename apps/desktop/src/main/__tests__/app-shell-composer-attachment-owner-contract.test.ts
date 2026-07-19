@@ -29,7 +29,10 @@ describe('AppShell composer attachment ownership', () => {
     ]);
 
     assert.match(shell, /const ok = await send\(text, pending\)/);
-    assert.match(shell, /window\.maka\.sessions\.compact\(activeId\)/);
+    assert.match(
+      shell,
+      /const sessionId = activeIdRef\.current;[\s\S]*window\.maka\.sessions\.compact\(sessionId\)/,
+    );
     assert.doesNotMatch(owner, /sessions\.send|sessions\.compact/);
   });
 });

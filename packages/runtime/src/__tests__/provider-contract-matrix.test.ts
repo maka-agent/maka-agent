@@ -36,11 +36,16 @@ import {
   type ProviderContractGeneratedCell,
   type ProviderContractWire,
 } from '@maka/core';
-import { generateText, stepCountIs, tool } from 'ai';
+import { generateText, isStepCount, tool } from 'ai';
 import { z } from 'zod';
 import { fetchProviderModels } from '../model-fetcher.js';
 import { getAIModel } from '../model-factory.js';
-import { closeAllJsonServers, readBody, respondJson, startJsonServer } from './conformance-harness.js';
+import {
+  closeAllJsonServers,
+  readBody,
+  respondJson,
+  startJsonServer,
+} from './conformance-harness.js';
 import {
   PROVIDER_CONTRACT_OVERRIDE_BINDINGS,
   type ProviderContractOverrideBinding,
@@ -56,7 +61,9 @@ after(closeAllJsonServers);
 
 /** Executable override lookup: plan `overrideKey` → its runnable binding. */
 const OVERRIDE_BINDING_BY_KEY: ReadonlyMap<string, ProviderContractOverrideBinding> = new Map(
-  PROVIDER_CONTRACT_OVERRIDE_BINDINGS.flatMap((binding) => binding.keys.map((key) => [key, binding])),
+  PROVIDER_CONTRACT_OVERRIDE_BINDINGS.flatMap((binding) =>
+    binding.keys.map((key) => [key, binding]),
+  ),
 );
 
 const KNOWN_WIRES: ReadonlySet<ProviderContractWire> = new Set([
@@ -74,18 +81,24 @@ describe('provider conformance matrix — gap report', () => {
       switch (cell.state) {
         case 'generated':
           if (dimension === 'discovery') {
-            if (!cell.discovery) gaps.push(`${where}: generated discovery cell is missing its derived plan`);
+            if (!cell.discovery)
+              gaps.push(`${where}: generated discovery cell is missing its derived plan`);
           } else if (!cell.wire || !KNOWN_WIRES.has(cell.wire)) {
-            gaps.push(`${where}: generated wire cell has no executable wire (${String(cell.wire)})`);
+            gaps.push(
+              `${where}: generated wire cell has no executable wire (${String(cell.wire)})`,
+            );
           }
           break;
         case 'override':
           if (!OVERRIDE_BINDING_BY_KEY.has(cell.overrideKey)) {
-            gaps.push(`${where}: no executable override binding registered for key "${cell.overrideKey}"`);
+            gaps.push(
+              `${where}: no executable override binding registered for key "${cell.overrideKey}"`,
+            );
           }
           break;
         case 'not-applicable':
-          if (!cell.reason) gaps.push(`${where}: not-applicable cell is missing a machine-readable reason`);
+          if (!cell.reason)
+            gaps.push(`${where}: not-applicable cell is missing a machine-readable reason`);
           break;
         default:
           gaps.push(`${where}: unknown cell state`);
@@ -102,11 +115,20 @@ describe('provider conformance matrix — gap report', () => {
     );
     const seen = new Set<string>();
     for (const binding of PROVIDER_CONTRACT_OVERRIDE_BINDINGS) {
-      assert.ok(binding.keys.length > 0, `override binding "${binding.title}" must own at least one key`);
+      assert.ok(
+        binding.keys.length > 0,
+        `override binding "${binding.title}" must own at least one key`,
+      );
       for (const key of binding.keys) {
-        assert.ok(!seen.has(key), `override key "${key}" is bound by more than one executable binding`);
+        assert.ok(
+          !seen.has(key),
+          `override key "${key}" is bound by more than one executable binding`,
+        );
         seen.add(key);
-        assert.ok(overrideKeys.has(key), `override binding key "${key}" has no matching override cell`);
+        assert.ok(
+          overrideKeys.has(key),
+          `override binding key "${key}" has no matching override cell`,
+        );
       }
     }
   });
@@ -125,9 +147,17 @@ describe('provider conformance matrix — discovery', () => {
     const cell = row.cells.discovery;
     if (cell.state === 'generated' && cell.discovery) {
       test(`${row.providerType} · discovery · generated (${cell.discovery.protocol})`, async () => {
-        await runGeneratedDiscovery(row, cell as ProviderContractGeneratedCell & { discovery: NonNullable<ProviderContractGeneratedCell['discovery']> });
+        await runGeneratedDiscovery(
+          row,
+          cell as ProviderContractGeneratedCell & {
+            discovery: NonNullable<ProviderContractGeneratedCell['discovery']>;
+          },
+        );
       });
-    } else if (cell.state === 'not-applicable' && cell.reverseAssertion === 'must-not-request-models-endpoint') {
+    } else if (
+      cell.state === 'not-applicable' &&
+      cell.reverseAssertion === 'must-not-request-models-endpoint'
+    ) {
       test(`${row.providerType} · discovery · N/A (${cell.reason}) does not call /models`, async () => {
         await assertFallbackDiscoveryMakesNoRequest(row);
       });
@@ -137,8 +167,9 @@ describe('provider conformance matrix — discovery', () => {
 
 describe('provider conformance matrix — wire (exact-model-id + tool-loop + reasoning-replay)', () => {
   for (const row of plan.rows) {
-    const wireDims = (['exact-model-id', 'tool-loop', 'reasoning-replay'] as const)
-      .filter((dimension) => row.cells[dimension].state === 'generated');
+    const wireDims = (['exact-model-id', 'tool-loop', 'reasoning-replay'] as const).filter(
+      (dimension) => row.cells[dimension].state === 'generated',
+    );
     if (wireDims.length === 0) continue;
     const wire = wireOfRow(row);
     test(`${row.providerType} · ${wire} · ${wireDims.join(' + ')}`, async () => {
@@ -169,7 +200,9 @@ interface DiscoveryCredentialCase {
   expectCredential: boolean;
 }
 
-function discoveryCredentialCases(auth: ProviderContractDiscoveryPlan['auth']): DiscoveryCredentialCase[] {
+function discoveryCredentialCases(
+  auth: ProviderContractDiscoveryPlan['auth'],
+): DiscoveryCredentialCase[] {
   switch (auth) {
     case 'default':
       return [{ label: 'provider-auth', apiKey: API_KEY, expectCredential: true }];
@@ -185,7 +218,9 @@ function discoveryCredentialCases(auth: ProviderContractDiscoveryPlan['auth']): 
 
 async function runGeneratedDiscovery(
   row: ProviderContractRow,
-  cell: ProviderContractGeneratedCell & { discovery: NonNullable<ProviderContractGeneratedCell['discovery']> },
+  cell: ProviderContractGeneratedCell & {
+    discovery: NonNullable<ProviderContractGeneratedCell['discovery']>;
+  },
 ): Promise<void> {
   const sample = row.sampleModelId;
   const discovery = cell.discovery;
@@ -208,7 +243,11 @@ async function runGeneratedDiscovery(
         } catch (error) {
           handlerErrors.push(error);
         }
-        respondJson(response, 200, discoveryPayload(discovery.protocol, sample, discovery.filter, shape));
+        respondJson(
+          response,
+          200,
+          discoveryPayload(discovery.protocol, sample, discovery.filter, shape),
+        );
       });
       const connection = baseConnection(row, server.url);
       const models = await fetchProviderModels(connection, credentialCase.apiKey);
@@ -254,7 +293,8 @@ function assertDiscoveryRequest(
 
   // Query: exactly the declared parameters (google adds its key-query credential).
   const expectedQuery: Record<string, string> = { ...(discovery.query ?? {}) };
-  if (discovery.protocol === 'google' && credentialCase.expectCredential) expectedQuery.key = API_KEY;
+  if (discovery.protocol === 'google' && credentialCase.expectCredential)
+    expectedQuery.key = API_KEY;
   assert.deepEqual(
     Object.fromEntries(url.searchParams),
     expectedQuery,
@@ -283,7 +323,11 @@ function assertDiscoveryRequest(
       break;
     case 'google':
       // Credential is the `key` query parameter asserted above; no auth header.
-      assert.equal(authorization, undefined, `${where} must carry its credential in the key query, not a header`);
+      assert.equal(
+        authorization,
+        undefined,
+        `${where} must carry its credential in the key query, not a header`,
+      );
       break;
     case 'cohere':
       assert.fail(`${where}: cohere discovery is never generated`);
@@ -333,10 +377,7 @@ function discoveryPayload(
   if (filter === 'fallback-models') {
     return {
       object: 'list',
-      data: [
-        { id: sample },
-        { id: 'contract-decoy-not-in-fallback' },
-      ],
+      data: [{ id: sample }, { id: 'contract-decoy-not-in-fallback' }],
     };
   }
   if (shape === 'bare-array') return [{ id: sample }];
@@ -351,8 +392,15 @@ async function assertFallbackDiscoveryMakesNoRequest(row: ProviderContractRow): 
   });
   const connection = baseConnection(row, server.url);
   const models = await fetchProviderModels(connection, API_KEY);
-  assert.equal(requestCount, 0, `${row.providerType} fallback discovery must not request any endpoint`);
-  assert.ok(models.length > 0, `${row.providerType} fallback discovery should return the static snapshot`);
+  assert.equal(
+    requestCount,
+    0,
+    `${row.providerType} fallback discovery must not request any endpoint`,
+  );
+  assert.ok(
+    models.length > 0,
+    `${row.providerType} fallback discovery should return the static snapshot`,
+  );
   assert.ok(
     models.some((model) => model.id === row.sampleModelId),
     `${row.providerType} fallback snapshot should include its sample model`,
@@ -413,9 +461,10 @@ async function runGeneratedWire(
   const wire = wireOfRow(row);
   const wantsReasoning = wireDims.includes('reasoning-replay');
   const replayCell = row.cells['reasoning-replay'];
-  const replayField = replayCell.state === 'generated' && replayCell.reasoningReplay
-    ? replayCell.reasoningReplay.replayField
-    : undefined;
+  const replayField =
+    replayCell.state === 'generated' && replayCell.reasoningReplay
+      ? replayCell.reasoningReplay.replayField
+      : undefined;
   for (const credential of wireCredentialCases(row)) {
     await runWireOnce(row, wire, row.sampleModelId, credential, wantsReasoning, replayField);
   }
@@ -456,7 +505,12 @@ async function runWireOnce(
 }
 
 /** Every credential header a maka wire could carry; all but the expected carrier must be absent. */
-const WIRE_CREDENTIAL_HEADERS = ['authorization', 'x-api-key', 'api-key', 'x-goog-api-key'] as const;
+const WIRE_CREDENTIAL_HEADERS = [
+  'authorization',
+  'x-api-key',
+  'api-key',
+  'x-goog-api-key',
+] as const;
 
 const WIRE_CARRIER_HEADER = {
   'authorization-bearer': 'authorization',
@@ -548,20 +602,24 @@ async function runOpenAiChatWire(
         object: 'chat.completion',
         created: 1,
         model: modelId,
-        choices: [{
-          index: 0,
-          message: {
-            role: 'assistant',
-            content: null,
-            ...(wantsReasoning ? { reasoning_content: REASONING_TEXT } : {}),
-            tool_calls: [{
-              id: OPAQUE_TOOL_CALL_ID,
-              type: 'function',
-              function: { name: 'echo', arguments: '{"text":"hello"}' },
-            }],
+        choices: [
+          {
+            index: 0,
+            message: {
+              role: 'assistant',
+              content: null,
+              ...(wantsReasoning ? { reasoning_content: REASONING_TEXT } : {}),
+              tool_calls: [
+                {
+                  id: OPAQUE_TOOL_CALL_ID,
+                  type: 'function',
+                  function: { name: 'echo', arguments: '{"text":"hello"}' },
+                },
+              ],
+            },
+            finish_reason: 'tool_calls',
           },
-          finish_reason: 'tool_calls',
-        }],
+        ],
         usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
       });
       return;
@@ -571,7 +629,9 @@ async function runOpenAiChatWire(
       object: 'chat.completion',
       created: 2,
       model: modelId,
-      choices: [{ index: 0, message: { role: 'assistant', content: FINAL_TEXT }, finish_reason: 'stop' }],
+      choices: [
+        { index: 0, message: { role: 'assistant', content: FINAL_TEXT }, finish_reason: 'stop' },
+      ],
       usage: { prompt_tokens: 12, completion_tokens: 3, total_tokens: 15 },
     });
   });
@@ -579,7 +639,7 @@ async function runOpenAiChatWire(
   const result = await generateText({
     model: getAIModel({ connection, apiKey: credential.apiKey, modelId }),
     prompt: 'Call echo with hello.',
-    stopWhen: stepCountIs(2),
+    stopWhen: isStepCount(2),
     tools: { echo: echoTool },
   });
 
@@ -591,19 +651,29 @@ async function runOpenAiChatWire(
     `${row.providerType} must send the exact model id on both requests`,
   );
   assert.deepEqual(
-    (requestBodies[0].tools as Array<{ function: { name: string } }>).map((entry) => entry.function.name),
+    (requestBodies[0].tools as Array<{ function: { name: string } }>).map(
+      (entry) => entry.function.name,
+    ),
     ['echo'],
   );
   assert.deepEqual(
-    (requestBodies[1].messages as Array<{ role: string; content: string }>).find(({ role }) => role === 'tool'),
+    (requestBodies[1].messages as Array<{ role: string; content: string }>).find(
+      ({ role }) => role === 'tool',
+    ),
     { role: 'tool', content: '{"echoed":"hello"}', tool_call_id: OPAQUE_TOOL_CALL_ID },
     `${row.providerType} must replay the tool result against the provider's opaque call id`,
   );
   assert.deepEqual(result.steps[0]?.toolResults[0]?.output, { echoed: 'hello' });
   assert.equal(result.text, FINAL_TEXT);
   if (wantsReasoning && replayField) {
-    assert.equal(result.steps[0]?.reasoningText, REASONING_TEXT, `${row.providerType} should surface reasoning`);
-    const assistant = (requestBodies[1].messages as Array<Record<string, unknown>>).find(({ role }) => role === 'assistant');
+    assert.equal(
+      result.steps[0]?.reasoningText,
+      REASONING_TEXT,
+      `${row.providerType} should surface reasoning`,
+    );
+    const assistant = (requestBodies[1].messages as Array<Record<string, unknown>>).find(
+      ({ role }) => role === 'assistant',
+    );
     assert.ok(assistant, `${row.providerType} must replay the assistant turn`);
     assert.equal(
       assistant?.[replayField],
@@ -623,9 +693,10 @@ async function runAnthropicMessagesWire(
   // default; providers declaring `auth: 'bearer'` carry an Authorization
   // Bearer token instead (getAIModel passes authToken).
   const adapter = PROVIDER_DEFAULTS[row.providerType].runtimeAdapter;
-  const carrier = adapter.kind === 'anthropic' && adapter.auth === 'bearer'
-    ? 'authorization-bearer' as const
-    : 'x-api-key' as const;
+  const carrier =
+    adapter.kind === 'anthropic' && adapter.auth === 'bearer'
+      ? ('authorization-bearer' as const)
+      : ('x-api-key' as const);
   const requestBodies: Array<Record<string, unknown>> = [];
   // Second-turn contract violations are asserted in the handler before the
   // final response, recorded, and rethrown after the call so the test fails
@@ -662,7 +733,9 @@ async function runAnthropicMessagesWire(
     // before the wire answers with the final text.
     try {
       const toolResults = (body.messages as Array<{ role: string; content: unknown }>)
-        .flatMap((message) => (Array.isArray(message.content) ? message.content as Array<Record<string, unknown>> : []))
+        .flatMap((message) =>
+          Array.isArray(message.content) ? (message.content as Array<Record<string, unknown>>) : [],
+        )
         .filter((block) => block.type === 'tool_result');
       assert.equal(
         toolResults.length,
@@ -697,7 +770,7 @@ async function runAnthropicMessagesWire(
   const result = await generateText({
     model: getAIModel({ connection, apiKey: credential.apiKey, modelId: sample }),
     prompt: 'Call echo with hello.',
-    stopWhen: stepCountIs(2),
+    stopWhen: isStepCount(2),
     tools: { echo: echoTool },
   });
 
@@ -742,14 +815,16 @@ async function runGoogleGenerateWire(
     const body = JSON.parse(await readBody(request)) as Record<string, unknown>;
     if (requestUrls.length === 1) {
       respondJson(response, 200, {
-        candidates: [{
-          index: 0,
-          content: {
-            role: 'model',
-            parts: [{ functionCall: { name: 'echo', args: { text: 'hello' } } }],
+        candidates: [
+          {
+            index: 0,
+            content: {
+              role: 'model',
+              parts: [{ functionCall: { name: 'echo', args: { text: 'hello' } } }],
+            },
+            finishReason: 'STOP',
           },
-          finishReason: 'STOP',
-        }],
+        ],
         usageMetadata: { promptTokenCount: 8, candidatesTokenCount: 4, totalTokenCount: 12 },
       });
       return;
@@ -780,11 +855,13 @@ async function runGoogleGenerateWire(
       handlerErrors.push(error);
     }
     respondJson(response, 200, {
-      candidates: [{
-        index: 0,
-        content: { role: 'model', parts: [{ text: FINAL_TEXT }] },
-        finishReason: 'STOP',
-      }],
+      candidates: [
+        {
+          index: 0,
+          content: { role: 'model', parts: [{ text: FINAL_TEXT }] },
+          finishReason: 'STOP',
+        },
+      ],
       usageMetadata: { promptTokenCount: 12, candidatesTokenCount: 3, totalTokenCount: 15 },
     });
   });
@@ -792,12 +869,15 @@ async function runGoogleGenerateWire(
   const result = await generateText({
     model: getAIModel({ connection, apiKey: credential.apiKey, modelId: sample }),
     prompt: 'Call echo with hello.',
-    stopWhen: stepCountIs(2),
+    stopWhen: isStepCount(2),
     tools: { echo: echoTool },
   });
 
   if (handlerErrors.length > 0) throw handlerErrors[0];
-  assert.ok(requestUrls.length >= 2, `${row.providerType} should make two generateContent requests`);
+  assert.ok(
+    requestUrls.length >= 2,
+    `${row.providerType} should make two generateContent requests`,
+  );
   assert.ok(
     requestUrls.every((url) => url.includes(`models/${sample}`)),
     `${row.providerType} must send the exact model id in the generateContent path`,
@@ -838,17 +918,27 @@ async function runCohereV2Wire(
           role: 'assistant',
           content: [],
           tool_plan: 'Call echo.',
-          tool_calls: [{ id: 'call_echo', type: 'function', function: { name: 'echo', arguments: '{"text":"hello"}' } }],
+          tool_calls: [
+            {
+              id: 'call_echo',
+              type: 'function',
+              function: { name: 'echo', arguments: '{"text":"hello"}' },
+            },
+          ],
         },
-        usage: { billed_units: { input_tokens: 8, output_tokens: 4 }, tokens: { input_tokens: 8, output_tokens: 4 } },
+        usage: {
+          billed_units: { input_tokens: 8, output_tokens: 4 },
+          tokens: { input_tokens: 8, output_tokens: 4 },
+        },
       });
       return;
     }
     // Turn two must replay the tool result message, keyed to the first-turn
     // call id, before the wire answers with the final text.
     try {
-      const toolMessages = (body.messages as Array<Record<string, unknown>>)
-        .filter((message) => message.role === 'tool');
+      const toolMessages = (body.messages as Array<Record<string, unknown>>).filter(
+        (message) => message.role === 'tool',
+      );
       assert.equal(
         toolMessages.length,
         1,
@@ -871,14 +961,17 @@ async function runCohereV2Wire(
       generation_id: 'cohere-final-turn',
       finish_reason: 'COMPLETE',
       message: { role: 'assistant', content: [{ type: 'text', text: FINAL_TEXT }] },
-      usage: { billed_units: { input_tokens: 12, output_tokens: 3 }, tokens: { input_tokens: 12, output_tokens: 3 } },
+      usage: {
+        billed_units: { input_tokens: 12, output_tokens: 3 },
+        tokens: { input_tokens: 12, output_tokens: 3 },
+      },
     });
   });
   const connection = baseConnection(row, `${server.url}${WIRE_BASE_PATH}/v2`);
   const result = await generateText({
     model: getAIModel({ connection, apiKey: credential.apiKey, modelId: sample }),
     prompt: 'Call echo with hello.',
-    stopWhen: stepCountIs(2),
+    stopWhen: isStepCount(2),
     tools: { echo: echoTool },
   });
 

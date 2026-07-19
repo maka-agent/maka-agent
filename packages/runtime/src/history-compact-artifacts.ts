@@ -16,7 +16,6 @@ import type {
   HistoryCompactWriteResult,
 } from './ai-sdk-backend.js';
 
-
 export interface HistoryCompactArtifactStore {
   create(input: {
     id?: string;
@@ -33,7 +32,10 @@ export interface HistoryCompactArtifactStore {
   delete(artifactId: string): Promise<void>;
   purge(artifactIds: readonly string[]): Promise<void>;
   list(sessionId: string, options?: { includeDeleted?: boolean }): Promise<ArtifactRecord[]>;
-  readText(artifactId: string, options?: { maxBytes?: number; includeDeleted?: boolean }): Promise<{ ok: true; text: string } | { ok: false; reason: string }>;
+  readText(
+    artifactId: string,
+    options?: { maxBytes?: number; includeDeleted?: boolean },
+  ): Promise<{ ok: true; text: string } | { ok: false; reason: string }>;
 }
 
 export interface PersistHistoryCompactBlocksDeps {
@@ -215,10 +217,12 @@ function throwIfHistoryCompactAborted(signal: AbortSignal | undefined): void {
 }
 
 function hasSessionId(value: unknown): value is { sessionId: string } {
-  return !!value
-    && typeof value === 'object'
-    && 'sessionId' in value
-    && typeof (value as { sessionId?: unknown }).sessionId === 'string';
+  return (
+    !!value &&
+    typeof value === 'object' &&
+    'sessionId' in value &&
+    typeof (value as { sessionId?: unknown }).sessionId === 'string'
+  );
 }
 
 function serializeHistoryCompactSourceBody(value: unknown): string {

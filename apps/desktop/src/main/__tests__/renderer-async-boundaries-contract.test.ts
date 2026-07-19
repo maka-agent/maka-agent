@@ -24,7 +24,7 @@ describe('renderer async action boundary contract', () => {
     );
     assert.match(
       settingsActions,
-      /async function setSessionModel[\s\S]*catch \(error\) \{[\s\S]*toastApi\.error\('切换模型失败', generalizedErrorMessageChinese\(error, '模型暂时无法切换，请稍后重试。'\)\)/,
+      /async function setSessionModel[\s\S]*catch \(error\) \{[\s\S]*toastApi\.error\(copy\.modelFailedTitle, localizedShellErrorMessage\(error, copy\.modelFallback, uiLocale\)\)/,
       'model switch errors must have visible feedback in the AppShell action owner',
     );
     assert.doesNotMatch(
@@ -48,7 +48,7 @@ describe('renderer async action boundary contract', () => {
     );
     assert.match(
       rowActions,
-      /async function runSessionRowAction[\s\S]*catch \(error\) \{[\s\S]*toastApi\.error\(errorTitle, generalizedErrorMessageChinese\(error, '会话操作失败，请稍后重试。'\)\)/,
+      /async function runSessionRowAction[\s\S]*catch \(error\) \{[\s\S]*toastApi\.error\(errorTitle, localizedShellErrorMessage\(error, copy\.actionFallback, uiLocale\)\)/,
       'session row action errors must have visible feedback in the AppShell action owner',
     );
     assert.doesNotMatch(

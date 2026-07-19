@@ -2,7 +2,10 @@ import { createHash } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { ResultRecord } from './contracts.js';
-import { auditSelfCheckPlanConsistency, isAcceptedHeavyTaskSelfCheck } from './heavy-task-self-check.js';
+import {
+  auditSelfCheckPlanConsistency,
+  isAcceptedHeavyTaskSelfCheck,
+} from './heavy-task-self-check.js';
 import {
   isTerminalTaskRunStatus,
   type AutonomousResultTaxonomy,
@@ -42,7 +45,12 @@ export interface TaskRunExport {
     lease?: TaskRunProjection['workspaceLease'];
     submittedSnapshot?: unknown;
     primaryWorkspacePath?: string;
-    diff: { status: 'present' | 'not_captured'; artifactRef?: string; path?: string; hash?: string };
+    diff: {
+      status: 'present' | 'not_captured';
+      artifactRef?: string;
+      path?: string;
+      hash?: string;
+    };
   };
   artifacts: {
     primaryWorkspacePath?: string;
@@ -151,7 +159,11 @@ export async function writeTaskRunExport(
     resultMd: join(outDir, 'result.md'),
   };
   await writeFile(files.taskRunJson, `${JSON.stringify(rendered, null, 2)}\n`, 'utf8');
-  await writeFile(files.resultJson, `${JSON.stringify(compactResultView(rendered), null, 2)}\n`, 'utf8');
+  await writeFile(
+    files.resultJson,
+    `${JSON.stringify(compactResultView(rendered), null, 2)}\n`,
+    'utf8',
+  );
   await writeFile(files.resultMd, renderTaskRunMarkdown(rendered), 'utf8');
   if (options.includeEvents) {
     files.eventsJsonl = join(outDir, options.eventsFileName ?? 'events.jsonl');
@@ -171,19 +183,30 @@ export function taskRunExportFromProjection(
   const runtimeRefs = scoreDetails.runtimeRefs ?? runtimeRefsFromFeedback(projection);
   const runtimeEventIds = runtimeEventIdsFrom(runtimeRefs);
   const benchmark = verifierBenchmark(verifier);
-  const taxonomy = score?.taxonomy ?? projection.result?.taxonomy ?? legacyResultRecord.errorClass ?? projection.status;
+  const taxonomy =
+    score?.taxonomy ??
+    projection.result?.taxonomy ??
+    legacyResultRecord.errorClass ??
+    projection.status;
   const primaryWorkspacePath = primaryWorkspacePathFromArtifacts(projection.artifacts);
   const policy = policyFromProjection(projection);
   const heavyTask = projection.heavyTaskCompletion
     ? {
         mode: projection.heavyTaskMode,
         completion: projection.heavyTaskCompletion,
-        ...(projection.latestHeavyTaskSelfCheckGate ? { selfCheckGate: projection.latestHeavyTaskSelfCheckGate } : {}),
+        ...(projection.latestHeavyTaskSelfCheckGate
+          ? { selfCheckGate: projection.latestHeavyTaskSelfCheckGate }
+          : {}),
         ...(projection.latestHeavyTaskSelfCheckPlan || projection.latestHeavyTaskSelfCheck
           ? {
               selfCheckPlan: {
-                ...(projection.latestHeavyTaskSelfCheckPlan ? { latest: projection.latestHeavyTaskSelfCheckPlan } : {}),
-                audit: auditSelfCheckPlanConsistency(projection.latestHeavyTaskSelfCheckPlan, projection.latestHeavyTaskSelfCheck),
+                ...(projection.latestHeavyTaskSelfCheckPlan
+                  ? { latest: projection.latestHeavyTaskSelfCheckPlan }
+                  : {}),
+                audit: auditSelfCheckPlanConsistency(
+                  projection.latestHeavyTaskSelfCheckPlan,
+                  projection.latestHeavyTaskSelfCheck,
+                ),
               },
             }
           : {}),
@@ -233,7 +256,9 @@ export function taskRunExportFromProjection(
         }
       : undefined,
     score,
-    budget: recordValue(scoreDetails.budget) ? scoreDetails.budget as Record<string, unknown> : undefined,
+    budget: recordValue(scoreDetails.budget)
+      ? (scoreDetails.budget as Record<string, unknown>)
+      : undefined,
     economy: economyFromDetails(scoreDetails),
     policy,
     heavyTask,
@@ -255,7 +280,11 @@ export function taskRunExportFromProjection(
       passed: score?.passed ?? projection.result?.passed ?? legacyResultRecord.passed,
       scored: score?.scored ?? legacyResultRecord.scored,
       eligible: score?.eligible ?? legacyResultRecord.eligible,
-      errorClass: score?.errorClass ?? verifier?.errorClass ?? projection.error?.class ?? legacyResultRecord.errorClass,
+      errorClass:
+        score?.errorClass ??
+        verifier?.errorClass ??
+        projection.error?.class ??
+        legacyResultRecord.errorClass,
       excludedReason: score?.excludedReason ?? legacyResultRecord.excludedReason,
     },
     warnings: projection.warnings,
@@ -291,7 +320,10 @@ export function renderTaskRunMarkdown(exported: TaskRunExport): string {
     lines.push(
       '## artifacts',
       '',
-      ...exported.artifacts.items.map((artifact) => `- ${md(artifact.kind)} ${md(artifact.workspacePath ?? artifact.path ?? artifact.artifactRef ?? artifact.artifactId)}`),
+      ...exported.artifacts.items.map(
+        (artifact) =>
+          `- ${md(artifact.kind)} ${md(artifact.workspacePath ?? artifact.path ?? artifact.artifactRef ?? artifact.artifactId)}`,
+      ),
       '',
     );
   }
@@ -335,7 +367,8 @@ function compactResultView(exported: TaskRunExport): Record<string, unknown> {
 }
 
 function runtimeRefsFromFeedback(projection: TaskRunProjection): unknown {
-  return projection.feedback.find((observation) => recordValue(observation.details?.runtimeRefs))?.details?.runtimeRefs;
+  return projection.feedback.find((observation) => recordValue(observation.details?.runtimeRefs))
+    ?.details?.runtimeRefs;
 }
 
 function progressFromProjection(projection: TaskRunProjection): TaskRunExport['progress'] {
@@ -362,7 +395,10 @@ function progressFromProjection(projection: TaskRunProjection): TaskRunExport['p
     progress.selfCheckPlans = {
       latest: projection.latestHeavyTaskSelfCheckPlan,
       historyCount: projection.heavyTaskSelfCheckPlans.length,
-      audit: auditSelfCheckPlanConsistency(projection.latestHeavyTaskSelfCheckPlan, projection.latestHeavyTaskSelfCheck),
+      audit: auditSelfCheckPlanConsistency(
+        projection.latestHeavyTaskSelfCheckPlan,
+        projection.latestHeavyTaskSelfCheck,
+      ),
     };
   }
   if (projection.latestHeavyTaskSelfCheckGate) {
@@ -378,7 +414,14 @@ function progressFromProjection(projection: TaskRunProjection): TaskRunExport['p
       historyCount: projection.heavyTaskEvidence.length,
     };
   }
-  return progress.inventory || progress.todos || progress.selfChecks || progress.selfCheckPlans || progress.selfCheckGates || progress.evidence ? progress : undefined;
+  return progress.inventory ||
+    progress.todos ||
+    progress.selfChecks ||
+    progress.selfCheckPlans ||
+    progress.selfCheckGates ||
+    progress.evidence
+    ? progress
+    : undefined;
 }
 
 function runtimeEventIdsFrom(runtimeRefs: unknown): string[] {
@@ -386,7 +429,9 @@ function runtimeEventIdsFrom(runtimeRefs: unknown): string[] {
   return runtimeRefs.runtimeEventIds.filter((value): value is string => typeof value === 'string');
 }
 
-function submittedSnapshotRef(verifier: VerifierResult | undefined): Record<string, unknown> | undefined {
+function submittedSnapshotRef(
+  verifier: VerifierResult | undefined,
+): Record<string, unknown> | undefined {
   return verifier?.submittedSnapshotId ? { id: verifier.submittedSnapshotId } : undefined;
 }
 
@@ -413,11 +458,17 @@ function diffMetadata(
   };
 }
 
-function primaryWorkspacePathFromArtifacts(artifacts: TaskRunProjection['artifacts']): string | undefined {
-  return artifacts.find((artifact) => artifact.kind === 'container_workspace' && artifact.workspacePath)?.workspacePath;
+function primaryWorkspacePathFromArtifacts(
+  artifacts: TaskRunProjection['artifacts'],
+): string | undefined {
+  return artifacts.find(
+    (artifact) => artifact.kind === 'container_workspace' && artifact.workspacePath,
+  )?.workspacePath;
 }
 
-function artifactsByKind(artifacts: TaskRunProjection['artifacts']): Record<string, TaskRunProjection['artifacts']> {
+function artifactsByKind(
+  artifacts: TaskRunProjection['artifacts'],
+): Record<string, TaskRunProjection['artifacts']> {
   const grouped: Record<string, TaskRunProjection['artifacts']> = {};
   for (const artifact of artifacts) {
     grouped[artifact.kind] = [...(grouped[artifact.kind] ?? []), artifact];
@@ -425,13 +476,18 @@ function artifactsByKind(artifacts: TaskRunProjection['artifacts']): Record<stri
   return grouped;
 }
 
-function verifierBenchmark(verifier: VerifierResult | undefined): Record<string, unknown> | undefined {
+function verifierBenchmark(
+  verifier: VerifierResult | undefined,
+): Record<string, unknown> | undefined {
   if (!verifier?.details) return undefined;
   return verifier.details;
 }
 
 function eventsJsonl(events: readonly TaskEvent[]): string {
-  const body = events.flatMap(exportableTaskEvents).map((event) => JSON.stringify(event)).join('\n');
+  const body = events
+    .flatMap(exportableTaskEvents)
+    .map((event) => JSON.stringify(event))
+    .join('\n');
   return body.length > 0 ? `${body}\n` : '';
 }
 
@@ -454,7 +510,8 @@ export function exportContentHash(value: unknown): string {
 
 function scoreValue(score: ScoreResult | undefined): string {
   if (!score) return 'none';
-  if (score.score !== undefined || score.maxScore !== undefined) return `${score.score ?? 'unknown'}/${score.maxScore ?? 'unknown'}`;
+  if (score.score !== undefined || score.maxScore !== undefined)
+    return `${score.score ?? 'unknown'}/${score.maxScore ?? 'unknown'}`;
   return score.passed ? 'pass' : 'fail';
 }
 
@@ -481,7 +538,9 @@ function economyFromDetails(scoreDetails: Record<string, unknown>): TaskRunExpor
   const tools = recordValue(scoreDetails.tools) ? scoreDetails.tools : undefined;
   if (!budget && !tools) return undefined;
   return {
-    ...(recordValue(budget) && recordValue(budget.totals) ? { tokens: budget.totals as Record<string, unknown> } : {}),
+    ...(recordValue(budget) && recordValue(budget.totals)
+      ? { tokens: budget.totals as Record<string, unknown> }
+      : {}),
     ...(tools ? { tools } : {}),
   };
 }

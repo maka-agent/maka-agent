@@ -3,12 +3,14 @@ import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import type { CredentialKind, CredentialStore } from '../credential-store.js';
+import { readMainProcessCombinedSource } from './main-process-contract-source-helpers.js';
 
 const repoRoot = process.cwd().endsWith(join('apps', 'desktop'))
   ? resolve(process.cwd(), '..', '..')
   : process.cwd();
 
 async function readRepo(relativePath: string): Promise<string> {
+  if (relativePath === 'apps/desktop/src/main/main.ts') return readMainProcessCombinedSource();
   return readFile(join(repoRoot, relativePath), 'utf8');
 }
 

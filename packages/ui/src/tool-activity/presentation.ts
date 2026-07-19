@@ -33,7 +33,7 @@ export function deriveToolActivityPresentation(
 ): ToolActivityPresentation {
   return {
     kind: trowActivityKind(item.toolName, item.activityKind),
-    summary: formatUserVisibleToolText(item.intent ?? '') || resolveToolDisplayName(item, locale),
+    summary: formatUserVisibleToolText(item.intent ?? '', locale) || resolveToolDisplayName(item, locale),
     // Only a permission prompt is an attention state: it is actionable and a
     // collapsed row would hide it. An errored tool stays collapsed — the trow
     // summary line keeps the failure signal (「N 个失败」 in destructive

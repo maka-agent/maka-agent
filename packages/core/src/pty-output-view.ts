@@ -4,7 +4,7 @@ export function ptyHumanTerminalText(output: PtyShellOutput): string {
   const current = output.alternateScreen
     ? output.screen
     : joinNonEmpty(output.scrollback, output.screen);
-  return current.trim().length > 0 ? current : output.lastAlternateScreen ?? '';
+  return current.trim().length > 0 ? current : (output.lastAlternateScreen ?? '');
 }
 
 export function ptyTuiTerminalRows(output: PtyShellOutput, maxRows = 6): string[] {
@@ -51,9 +51,11 @@ export function ptyCompactTerminalLine(output: PtyShellOutput): string | undefin
       if (nonEmpty(screen[index])) return screen[index].trim();
     }
   }
-  return lastNonEmpty(screen)
-    ?? lastNonEmpty(textRows(output.scrollback))
-    ?? lastNonEmpty(textRows(output.lastAlternateScreen ?? ''));
+  return (
+    lastNonEmpty(screen) ??
+    lastNonEmpty(textRows(output.scrollback)) ??
+    lastNonEmpty(textRows(output.lastAlternateScreen ?? ''))
+  );
 }
 
 function edgeRows(rows: string[], limit: number): string[] {

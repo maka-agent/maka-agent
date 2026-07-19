@@ -19,68 +19,135 @@ function conn(providerType: LlmConnection['providerType'], slug = 'test'): LlmCo
 describe('buildProviderOptions: thinking level', () => {
   test('anthropic effort model (opus-4-8) sends effort field directly; no budgetTokens mapping', () => {
     assert.deepEqual(buildProviderOptions(conn('anthropic'), 'claude-opus-4-8'), { anthropic: {} });
-    assert.deepEqual(buildProviderOptions(conn('anthropic'), 'claude-opus-4-8', 'high'), { anthropic: { effort: 'high' } });
-    assert.deepEqual(buildProviderOptions(conn('anthropic'), 'claude-opus-4-8', 'max'), { anthropic: { effort: 'max' } });
-    assert.deepEqual(buildProviderOptions(conn('anthropic'), 'claude-opus-4-8', 'xhigh'), { anthropic: { effort: 'xhigh' } });
+    assert.deepEqual(buildProviderOptions(conn('anthropic'), 'claude-opus-4-8', 'high'), {
+      anthropic: { effort: 'high' },
+    });
+    assert.deepEqual(buildProviderOptions(conn('anthropic'), 'claude-opus-4-8', 'max'), {
+      anthropic: { effort: 'max' },
+    });
+    assert.deepEqual(buildProviderOptions(conn('anthropic'), 'claude-opus-4-8', 'xhigh'), {
+      anthropic: { effort: 'xhigh' },
+    });
   });
 
   test('anthropic budget/toggle model (haiku-4-5) sends thinking.disabled for off; drops unsupported effort', () => {
-    assert.deepEqual(buildProviderOptions(conn('anthropic'), 'claude-haiku-4-5', 'off'), { anthropic: { thinking: { type: 'disabled' } } });
+    assert.deepEqual(buildProviderOptions(conn('anthropic'), 'claude-haiku-4-5', 'off'), {
+      anthropic: { thinking: { type: 'disabled' } },
+    });
     // haiku-4-5 has no effort variants, only off → high is dropped
-    assert.deepEqual(buildProviderOptions(conn('anthropic'), 'claude-haiku-4-5', 'high'), { anthropic: {} });
+    assert.deepEqual(buildProviderOptions(conn('anthropic'), 'claude-haiku-4-5', 'high'), {
+      anthropic: {},
+    });
   });
 
   test('anthropic effort model without toggle (opus-4-8) drops off (cannot disable)', () => {
-    assert.deepEqual(buildProviderOptions(conn('anthropic'), 'claude-opus-4-8', 'off'), { anthropic: {} });
+    assert.deepEqual(buildProviderOptions(conn('anthropic'), 'claude-opus-4-8', 'off'), {
+      anthropic: {},
+    });
+  });
+
+  test('Kimi K3 always sends its required adaptive thinking at max effort', () => {
+    assert.deepEqual([...thinkingVariantsForModel('kimi-coding-plan', 'k3')], ['max']);
+    const expected = { anthropic: { thinking: { type: 'adaptive' }, effort: 'max' } };
+    assert.deepEqual(buildProviderOptions(conn('kimi-coding-plan'), 'k3'), expected);
+    assert.deepEqual(buildProviderOptions(conn('kimi-coding-plan'), 'k3', 'max'), expected);
   });
 
   test('openai gpt-5.5 sends reasoningEffort (none for off, max for max); gpt-4o drops level', () => {
-    assert.deepEqual(buildProviderOptions(conn('openai'), 'gpt-4o', 'high'), { openai: { store: false } });
-    assert.deepEqual(buildProviderOptions(conn('openai'), 'gpt-5.5', 'medium'), { openai: { store: false, reasoningEffort: 'medium' } });
-    assert.deepEqual(buildProviderOptions(conn('openai'), 'gpt-5.5', 'xhigh'), { openai: { store: false, reasoningEffort: 'xhigh' } });
-    assert.deepEqual(buildProviderOptions(conn('openai'), 'gpt-5.5', 'off'), { openai: { store: false, reasoningEffort: 'none' } });
+    assert.deepEqual(buildProviderOptions(conn('openai'), 'gpt-4o', 'high'), {
+      openai: { store: false },
+    });
+    assert.deepEqual(buildProviderOptions(conn('openai'), 'gpt-5.5', 'medium'), {
+      openai: { store: false, reasoningEffort: 'medium' },
+    });
+    assert.deepEqual(buildProviderOptions(conn('openai'), 'gpt-5.5', 'xhigh'), {
+      openai: { store: false, reasoningEffort: 'xhigh' },
+    });
+    assert.deepEqual(buildProviderOptions(conn('openai'), 'gpt-5.5', 'off'), {
+      openai: { store: false, reasoningEffort: 'none' },
+    });
   });
 
   test('openai-codex (gpt-5.5) preserves store:false / textVerbosity and merges reasoningEffort', () => {
-    assert.deepEqual(buildProviderOptions(conn('openai-codex'), 'gpt-5.5'), { openai: { store: false, textVerbosity: 'medium' } });
-    assert.deepEqual(buildProviderOptions(conn('openai-codex'), 'gpt-5.5', 'high'), { openai: { store: false, textVerbosity: 'medium', reasoningEffort: 'high' } });
-    assert.deepEqual(buildProviderOptions(conn('openai-codex'), 'gpt-5.5', 'off'), { openai: { store: false, textVerbosity: 'medium', reasoningEffort: 'none' } });
+    assert.deepEqual(buildProviderOptions(conn('openai-codex'), 'gpt-5.5'), {
+      openai: { store: false, textVerbosity: 'medium' },
+    });
+    assert.deepEqual(buildProviderOptions(conn('openai-codex'), 'gpt-5.5', 'high'), {
+      openai: { store: false, textVerbosity: 'medium', reasoningEffort: 'high' },
+    });
+    assert.deepEqual(buildProviderOptions(conn('openai-codex'), 'gpt-5.5', 'off'), {
+      openai: { store: false, textVerbosity: 'medium', reasoningEffort: 'none' },
+    });
   });
 
   test('google effort model (gemini-3) sends thinkingLevel; Gemini 2.5 Flash off sends thinkingBudget 0; safetySettings always present', () => {
     const g3 = buildProviderOptions(conn('google'), 'gemini-3-pro-preview', 'high');
-    assert.equal((g3.google as { thinkingConfig: { thinkingLevel: string } }).thinkingConfig.thinkingLevel, 'high');
+    assert.equal(
+      (g3.google as { thinkingConfig: { thinkingLevel: string } }).thinkingConfig.thinkingLevel,
+      'high',
+    );
     assert.ok((g3.google as { safetySettings: unknown[] }).safetySettings.length > 0);
     // off not in gemini-3-pro-preview variants (only low/high) → dropped → no thinkingConfig
     const g3off = buildProviderOptions(conn('google'), 'gemini-3-pro-preview', 'off');
     assert.equal((g3off.google as { thinkingConfig?: unknown }).thinkingConfig, undefined);
     // gemini-2.5-flash is toggle-only (off); off is the Google budget-zero wire.
     const g25 = buildProviderOptions(conn('google'), 'gemini-2.5-flash', 'off');
-    assert.deepEqual((g25.google as { thinkingConfig?: unknown }).thinkingConfig, { thinkingBudget: 0 });
+    assert.deepEqual((g25.google as { thinkingConfig?: unknown }).thinkingConfig, {
+      thinkingBudget: 0,
+    });
     assert.ok((g25.google as { safetySettings: unknown[] }).safetySettings.length > 0);
   });
 
   test('openai-compatible sends reasoningEffort for effort levels and does not expose no-op off', () => {
-    assert.deepEqual([...thinkingVariantsForModel('deepinfra', 'moonshotai/Kimi-K2.7-Code')], ['off', 'low', 'medium', 'high']);
-    assert.deepEqual(buildProviderOptions(conn('deepinfra'), 'moonshotai/Kimi-K2.7-Code', 'high'), { deepinfra: { reasoningEffort: 'high' } });
-    assert.deepEqual(buildProviderOptions(conn('deepinfra'), 'moonshotai/Kimi-K2.7-Code', 'off'), { deepinfra: { reasoningEffort: 'none' } });
+    assert.deepEqual(
+      [...thinkingVariantsForModel('deepinfra', 'moonshotai/Kimi-K2.7-Code')],
+      ['off', 'low', 'medium', 'high'],
+    );
+    assert.deepEqual(buildProviderOptions(conn('deepinfra'), 'moonshotai/Kimi-K2.7-Code', 'high'), {
+      deepinfra: { reasoningEffort: 'high' },
+    });
+    assert.deepEqual(buildProviderOptions(conn('deepinfra'), 'moonshotai/Kimi-K2.7-Code', 'off'), {
+      deepinfra: { reasoningEffort: 'none' },
+    });
     // Groq reasoning_effort: only gpt-oss-120b / gpt-oss-20b accept it, with
     // low/medium/high (no `none`). qwen/qwen3-32b does not accept reasoning_effort.
-    assert.deepEqual([...thinkingVariantsForModel('groq', 'openai/gpt-oss-120b')], ['low', 'medium', 'high']);
-    assert.deepEqual(buildProviderOptions(conn('groq'), 'openai/gpt-oss-120b', 'high'), { groq: { reasoningEffort: 'high' } });
+    assert.deepEqual(
+      [...thinkingVariantsForModel('groq', 'openai/gpt-oss-120b')],
+      ['low', 'medium', 'high'],
+    );
+    assert.deepEqual(buildProviderOptions(conn('groq'), 'openai/gpt-oss-120b', 'high'), {
+      groq: { reasoningEffort: 'high' },
+    });
     assert.deepEqual(buildProviderOptions(conn('groq'), 'openai/gpt-oss-120b', 'off'), {});
     assert.deepEqual([...thinkingVariantsForModel('groq', 'qwen/qwen3-32b')], []);
     assert.deepEqual([...thinkingVariantsForModel('groq', 'openai/gpt-oss-safeguard-20b')], []);
     assert.deepEqual([...thinkingVariantsForModel('groq', 'llama-3.3-70b-versatile')], []);
     // OpenRouter accepts the same `reasoning_effort` shorthand (none disables).
-    assert.deepEqual([...thinkingVariantsForModel('openrouter', 'openai/gpt-5.6-sol')], ['off', 'low', 'medium', 'high', 'xhigh', 'max']);
-    assert.deepEqual(buildProviderOptions(conn('openrouter'), 'openai/gpt-5.6-sol', 'high'), { openrouter: { reasoningEffort: 'high' } });
-    assert.deepEqual(buildProviderOptions(conn('openrouter'), 'openai/gpt-5.6-sol', 'off'), { openrouter: { reasoningEffort: 'none' } });
+    assert.deepEqual(
+      [...thinkingVariantsForModel('openrouter', 'openai/gpt-5.6-sol')],
+      ['off', 'low', 'medium', 'high', 'xhigh', 'max'],
+    );
+    assert.deepEqual(buildProviderOptions(conn('openrouter'), 'openai/gpt-5.6-sol', 'high'), {
+      openrouter: { reasoningEffort: 'high' },
+    });
+    assert.deepEqual(buildProviderOptions(conn('openrouter'), 'openai/gpt-5.6-sol', 'off'), {
+      openrouter: { reasoningEffort: 'none' },
+    });
     // claude-sonnet-5 exposes no off switch (no `none` effort); only effort tiers.
-    assert.deepEqual([...thinkingVariantsForModel('openrouter', 'anthropic/claude-sonnet-5')], ['low', 'medium', 'high', 'xhigh', 'max']);
-    assert.deepEqual([...thinkingVariantsForModel('deepseek', 'deepseek-v4-flash')], ['high', 'max']);
-    assert.deepEqual(buildProviderOptions(conn('deepseek'), 'deepseek-v4-flash', 'high'), { deepseek: { reasoningEffort: 'high' } });
-    assert.deepEqual(buildProviderOptions(conn('deepseek'), 'deepseek-v4-flash', 'max'), { deepseek: { reasoningEffort: 'max' } });
+    assert.deepEqual(
+      [...thinkingVariantsForModel('openrouter', 'anthropic/claude-sonnet-5')],
+      ['low', 'medium', 'high', 'xhigh', 'max'],
+    );
+    assert.deepEqual(
+      [...thinkingVariantsForModel('deepseek', 'deepseek-v4-flash')],
+      ['high', 'max'],
+    );
+    assert.deepEqual(buildProviderOptions(conn('deepseek'), 'deepseek-v4-flash', 'high'), {
+      deepseek: { reasoningEffort: 'high' },
+    });
+    assert.deepEqual(buildProviderOptions(conn('deepseek'), 'deepseek-v4-flash', 'max'), {
+      deepseek: { reasoningEffort: 'max' },
+    });
     assert.deepEqual(buildProviderOptions(conn('deepseek'), 'deepseek-v4-flash', 'off'), {});
     assert.deepEqual([...thinkingVariantsForModel('zai-coding-plan', 'glm-5.1')], []);
     assert.deepEqual([...thinkingVariantsForModel('zai-coding-plan', 'glm-4.5-air')], []);
@@ -95,26 +162,26 @@ describe('buildProviderOptions: thinking level', () => {
       ['off', 'low', 'medium', 'high'],
     );
     assert.deepEqual(buildProviderOptions(conn('cloudflare-workers-ai'), modelId), {});
-    assert.deepEqual(
-      buildProviderOptions(conn('cloudflare-workers-ai'), modelId, 'high'),
-      { 'cloudflare-workers-ai': { reasoningEffort: 'high' } },
-    );
-    assert.deepEqual(
-      buildProviderOptions(conn('cloudflare-workers-ai'), modelId, 'off'),
-      { 'cloudflare-workers-ai': { chat_template_kwargs: { thinking: false } } },
-    );
+    assert.deepEqual(buildProviderOptions(conn('cloudflare-workers-ai'), modelId, 'high'), {
+      'cloudflare-workers-ai': { reasoningEffort: 'high' },
+    });
+    assert.deepEqual(buildProviderOptions(conn('cloudflare-workers-ai'), modelId, 'off'), {
+      'cloudflare-workers-ai': { chat_template_kwargs: { thinking: false } },
+    });
   });
 
   test('StepFun Step Plan sends only officially supported reasoning effort levels', () => {
-    assert.deepEqual(
-      buildProviderOptions(conn('stepfun-step-plan'), 'step-3.7-flash', 'medium'),
-      { 'stepfun-step-plan': { reasoningEffort: 'medium' } },
-    );
+    assert.deepEqual(buildProviderOptions(conn('stepfun-step-plan'), 'step-3.7-flash', 'medium'), {
+      'stepfun-step-plan': { reasoningEffort: 'medium' },
+    });
     assert.deepEqual(
       buildProviderOptions(conn('stepfun-step-plan'), 'step-3.5-flash-2603', 'high'),
       { 'stepfun-step-plan': { reasoningEffort: 'high' } },
     );
-    assert.deepEqual(buildProviderOptions(conn('stepfun-step-plan'), 'step-3.5-flash-2603', 'medium'), {});
+    assert.deepEqual(
+      buildProviderOptions(conn('stepfun-step-plan'), 'step-3.5-flash-2603', 'medium'),
+      {},
+    );
     assert.deepEqual(buildProviderOptions(conn('stepfun-step-plan'), 'step-router-v1', 'high'), {});
   });
 
@@ -127,12 +194,18 @@ describe('buildProviderOptions: thinking level', () => {
       buildProviderOptions(conn('stepfun-ai-step-plan'), 'step-3.5-flash-2603', 'low'),
       { 'stepfun-ai-step-plan': { reasoningEffort: 'low' } },
     );
-    assert.deepEqual(buildProviderOptions(conn('stepfun-ai-step-plan'), 'step-3.5-flash', 'medium'), {});
+    assert.deepEqual(
+      buildProviderOptions(conn('stepfun-ai-step-plan'), 'step-3.5-flash', 'medium'),
+      {},
+    );
   });
 
   test('Volcengine Ark sends its official thinking object and optional reasoning effort', () => {
     const modelId = 'doubao-seed-2-0-pro-260215';
-    assert.deepEqual([...thinkingVariantsForModel('volcengine-ark', modelId)], ['off', 'minimal', 'low', 'medium', 'high']);
+    assert.deepEqual(
+      [...thinkingVariantsForModel('volcengine-ark', modelId)],
+      ['off', 'minimal', 'low', 'medium', 'high'],
+    );
     assert.deepEqual(buildProviderOptions(conn('volcengine-ark'), modelId), {
       'volcengine-ark': { thinking: { type: 'enabled' } },
     });
@@ -155,16 +228,21 @@ describe('buildProviderOptions: thinking level', () => {
   });
 
   test('Tencent Token Plan sends its documented reasoning effort under the stable provider namespace', () => {
-    assert.deepEqual([...thinkingVariantsForModel('tencent-token-plan', 'hy3')], ['low', 'medium', 'high']);
     assert.deepEqual(
-      buildProviderOptions(conn('tencent-token-plan'), 'hy3', 'high'),
-      { 'tencent-token-plan': { reasoningEffort: 'high' } },
+      [...thinkingVariantsForModel('tencent-token-plan', 'hy3')],
+      ['low', 'medium', 'high'],
     );
+    assert.deepEqual(buildProviderOptions(conn('tencent-token-plan'), 'hy3', 'high'), {
+      'tencent-token-plan': { reasoningEffort: 'high' },
+    });
     assert.deepEqual(buildProviderOptions(conn('tencent-token-plan'), 'hy3', 'off'), {});
   });
 
   test('Vercel Gateway sends reasoning effort under its stable namespace and exact model id', () => {
-    assert.deepEqual([...thinkingVariantsForModel('vercel', 'xai/grok-4.3')], ['off', 'low', 'medium', 'high']);
+    assert.deepEqual(
+      [...thinkingVariantsForModel('vercel', 'xai/grok-4.3')],
+      ['off', 'low', 'medium', 'high'],
+    );
     assert.deepEqual(buildProviderOptions(conn('vercel'), 'xai/grok-4.3', 'high'), {
       vercel: { reasoningEffort: 'high' },
     });
@@ -175,14 +253,20 @@ describe('buildProviderOptions: thinking level', () => {
   });
 
   test('Ollama Cloud sends reasoning effort under its namespace; standard models expose off, GPT-OSS does not', () => {
-    assert.deepEqual([...thinkingVariantsForModel('ollama-cloud', 'glm-5.2')], ['off', 'low', 'medium', 'high', 'max']);
+    assert.deepEqual(
+      [...thinkingVariantsForModel('ollama-cloud', 'glm-5.2')],
+      ['off', 'low', 'medium', 'high', 'max'],
+    );
     assert.deepEqual(buildProviderOptions(conn('ollama-cloud'), 'glm-5.2', 'high'), {
       'ollama-cloud': { reasoningEffort: 'high' },
     });
     assert.deepEqual(buildProviderOptions(conn('ollama-cloud'), 'glm-5.2', 'off'), {
       'ollama-cloud': { reasoningEffort: 'none' },
     });
-    assert.deepEqual([...thinkingVariantsForModel('ollama-cloud', 'gpt-oss:120b')], ['low', 'medium', 'high']);
+    assert.deepEqual(
+      [...thinkingVariantsForModel('ollama-cloud', 'gpt-oss:120b')],
+      ['low', 'medium', 'high'],
+    );
     assert.deepEqual(buildProviderOptions(conn('ollama-cloud'), 'gpt-oss:120b', 'high'), {
       'ollama-cloud': { reasoningEffort: 'high' },
     });
@@ -190,8 +274,12 @@ describe('buildProviderOptions: thinking level', () => {
   });
 
   test('a level the model does not support is dropped (defensive)', () => {
-    assert.deepEqual(buildProviderOptions(conn('openai'), 'gpt-4o', 'high'), { openai: { store: false } });
-    assert.deepEqual(buildProviderOptions(conn('anthropic'), 'claude-haiku-4-5', 'max'), { anthropic: {} });
+    assert.deepEqual(buildProviderOptions(conn('openai'), 'gpt-4o', 'high'), {
+      openai: { store: false },
+    });
+    assert.deepEqual(buildProviderOptions(conn('anthropic'), 'claude-haiku-4-5', 'max'), {
+      anthropic: {},
+    });
   });
 });
 
@@ -247,11 +335,20 @@ describe('getAIModel: models.dev registry providers', () => {
 
 describe('buildProviderOptions: openai-compatible namespace', () => {
   test('zai-coding-plan emits reasoningEffort under the raw dashed namespace', () => {
-    assert.deepEqual(buildProviderOptions(conn('zai-coding-plan', 'zai-coding-plan'), 'glm-5.2', 'high'), { 'zai-coding-plan': { reasoningEffort: 'high' } });
-    assert.deepEqual(buildProviderOptions(conn('zai-coding-plan', 'zai-coding-plan'), 'glm-5.2', 'max'), { 'zai-coding-plan': { reasoningEffort: 'max' } });
+    assert.deepEqual(
+      buildProviderOptions(conn('zai-coding-plan', 'zai-coding-plan'), 'glm-5.2', 'high'),
+      { 'zai-coding-plan': { reasoningEffort: 'high' } },
+    );
+    assert.deepEqual(
+      buildProviderOptions(conn('zai-coding-plan', 'zai-coding-plan'), 'glm-5.2', 'max'),
+      { 'zai-coding-plan': { reasoningEffort: 'max' } },
+    );
   });
   test('deepseek uses its own raw namespace', () => {
-    assert.deepEqual(buildProviderOptions(conn('deepseek', 'deepseek'), 'deepseek-v4-flash', 'high'), { deepseek: { reasoningEffort: 'high' } });
+    assert.deepEqual(
+      buildProviderOptions(conn('deepseek', 'deepseek'), 'deepseek-v4-flash', 'high'),
+      { deepseek: { reasoningEffort: 'high' } },
+    );
   });
 });
 
@@ -259,7 +356,11 @@ describe('buildProviderOptions: resolver/options drift guard', () => {
   // Every displayed level must map to a real providerOptions fragment. For
   // `off`, that fragment must be an actual disabled/none/budget-zero wire, not
   // an empty object that only means "no override".
-  const cases: Array<{ providerType: LlmConnection['providerType']; model: string; slug?: string }> = [
+  const cases: Array<{
+    providerType: LlmConnection['providerType'];
+    model: string;
+    slug?: string;
+  }> = [
     { providerType: 'anthropic', model: 'claude-opus-4-8' },
     { providerType: 'anthropic', model: 'claude-haiku-4-5' },
     { providerType: 'claude-subscription', model: 'claude-opus-4-8' },
@@ -290,7 +391,12 @@ describe('buildProviderOptions: resolver/options drift guard', () => {
           return v !== null && typeof v === 'object' && Object.keys(v as object).length > 0;
         });
         assert.equal(nonEmpty, true, `${providerType}/${model} level=${level} produced no options`);
-        if (level === 'off') assert.equal(hasRealOffWire(opts), true, `${providerType}/${model} exposed off without a real disabled wire`);
+        if (level === 'off')
+          assert.equal(
+            hasRealOffWire(opts),
+            true,
+            `${providerType}/${model} exposed off without a real disabled wire`,
+          );
       }
     });
   }
@@ -303,10 +409,12 @@ describe('buildProviderOptions: resolver/options drift guard', () => {
 
   function hasRealOffWire(opts: Record<string, unknown>): boolean {
     const serialized = JSON.stringify(opts);
-    return serialized.includes('"reasoningEffort":"none"')
-      || serialized.includes('"type":"disabled"')
-      || serialized.includes('"thinkingBudget":0')
-      || serialized.includes('"thinking":false');
+    return (
+      serialized.includes('"reasoningEffort":"none"') ||
+      serialized.includes('"type":"disabled"') ||
+      serialized.includes('"thinkingBudget":0') ||
+      serialized.includes('"thinking":false')
+    );
   }
 });
 

@@ -120,6 +120,15 @@
      Done CTA and made every palette read as olive-green. */
   --brand-deep: var(--accent);
   --brand-deep-hover: oklch(from var(--accent) calc(l - 0.06) c h);
+  /* Fixed external channel identity; unlike palette-derived Maka accents. */
+  --brand-wechat: #07c160;
+  /* Fixed service identities for MCP market tiles that fall back to a text mark
+     because simple-icons carries no library mark for them (钉钉/飞书 are absent
+     from every simple-icons release). Brands with a simple-icons mark — Slack,
+     LINE, Google Calendar, Figma, Vercel, Supabase, Notion — render the real
+     mark on a neutral plate (mcp-brand-marks.tsx), so they need no tint token. */
+  --brand-dingtalk: #1677ff;
+  --brand-feishu: #3370ff;
   --bot-brand-default: var(--accent);
   /* PALETTE-LEAK-0: semantic alias for informational system banners (the
      plan-reminders 系统提醒 banner) — component CSS derives its tint family
@@ -224,7 +233,6 @@
   --color-text-quaternary: var(--muted-foreground);
 
   /* === shadow opacity (subtle in light, stronger in dark) === */
-  --shadow-border-opacity: 0.08;
   --shadow-blur-opacity:   0.06;
 
   /* === shadow recipes ===
@@ -380,7 +388,6 @@
           with 8px inset: 12 − 8 = 4px (not a tier), so
           `border-radius: calc(var(--radius-modal) - 8px)`. The radius
           contract's calc allowlist permits only this shrink form. */
-  --radius: 0rem;
   --radius-control: 6px;
   --radius-surface: 8px;
   --radius-modal: 12px;
@@ -534,7 +541,6 @@
      the overlay inset at 0px on platforms/windows without titleBarOverlay. */
   --maka-titlebar-area-x: env(titlebar-area-x, 0px);
   --maka-titlebar-area-width: env(titlebar-area-width, 100vw);
-  --maka-titlebar-area-height: env(titlebar-area-height, var(--h-titlebar));
   --maka-titlebar-overlay-right-width: max(
     0px,
     calc(100vw - var(--maka-titlebar-area-x) - var(--maka-titlebar-area-width))
@@ -563,9 +569,10 @@
   --h-control-md:  calc(var(--spacing) * 7);  /* 28px — compact menu item, sm tab,
                                       round FAB (jump-to-bottom)          */
   --h-control-lg:  var(--space-8);  /* 32px — default button, input, tab,
-                                      sidebar nav row, session row, select */
-  --h-control-xl:  calc(var(--spacing) * 9);  /* 36px — prominent button, settings
-                                      nav row, first-run checklist row    */
+                                      sidebar nav row, session row,
+                                      settings nav row, select            */
+  --h-control-xl:  calc(var(--spacing) * 9);  /* 36px — prominent button,
+                                      first-run checklist row             */
   --h-control-2xl: var(--space-10); /* 40px — toolbar, large touch target  */
 
   /* === content measure (#520 PR4 item 16) ================================
@@ -620,7 +627,6 @@
   --success: oklch(0.60 0.17 145);
   --destructive: oklch(0.70 0.19 22);
 
-  --shadow-border-opacity: 0.15;
   --shadow-blur-opacity:   0.12;
   --opacity-overlay: 0.06;
 

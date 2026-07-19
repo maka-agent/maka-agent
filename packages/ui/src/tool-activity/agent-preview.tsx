@@ -1,34 +1,106 @@
-import { type ToolResultContent } from '@maka/core';
+import { projectAgentSwarmResult, type ToolResultContent, type UiLocale } from '@maka/core';
 import { Check, Copy } from '../icons.js';
 import { useClipboardCopyFeedback } from '../clipboard-feedback.js';
 import { previewVariants } from '../primitives/chat.js';
 import { redactSecrets } from '../redact.js';
 import { Button as UiButton, cn } from '../ui.js';
 import { formatBytes, formatDuration } from './preview-utils.js';
+import { useUiLocale } from '../locale-context.js';
+import { getToolActivityCopy } from './copy.js';
 
 type SubagentResult = Extract<ToolResultContent, { kind: 'subagent' }>;
 type ExploreAgentResult = Extract<ToolResultContent, { kind: 'explore_agent' }>;
+type AgentSwarmResult = Extract<ToolResultContent, { kind: 'agent_swarm' }>;
 
-const SUBAGENT_STATUS_LABEL: Record<SubagentResult['status'], string> = {
-  completed: '已完成',
-  failed: '失败',
-  cancelled: '已取消',
-  running: '运行中',
-  waiting_permission: '等待权限',
-};
+const AGENT_SWARM_SUMMARY_MAX_CHARS = 280;
+const AGENT_SWARM_PREVIEW_MAX_ITEMS = 32;
+
+export function AgentSwarmPreview(props: {
+  result: AgentSwarmResult;
+}) {
+  const locale = useUiLocale();
+  const copy = getToolActivityCopy(locale).agent;
+  const { result } = props;
+  const projection = projectAgentSwarmResult(result);
+  const rows = result.items.slice(0, AGENT_SWARM_PREVIEW_MAX_ITEMS);
+  const hiddenRows = Math.max(0, result.items.length - rows.length);
+  const duration = formatDuration(result.durationMs);
+  const meta = [
+    copy.swarm.status[result.status],
+    copy.swarm.completedCount(projection.completedItemCount),
+    projection.failedItemCount > 0 ? copy.swarm.failedCount(projection.failedItemCount) : '',
+    projection.cancelledItemCount > 0 ? copy.swarm.cancelledCount(projection.cancelledItemCount) : '',
+    projection.artifactCount > 0 ? copy.swarm.artifactCount(projection.artifactCount) : '',
+    duration ? copy.duration(duration) : '',
+  ].filter(Boolean).join(' · ');
+
+  return (
+    <div
+      className={cn(previewVariants({ part: 'overlay' }), previewVariants({ part: 'agent' }))}
+      data-kind="agent_swarm"
+      data-status={result.status}
+    >
+      <header className={previewVariants({ part: 'agent-head' })}>
+        <strong>Agent Swarm</strong>
+        <small>{copy.swarm.taskCount(projection.itemCount)} · {meta}</small>
+      </header>
+      <section className={previewVariants({ part: 'agent-section' })} aria-label={copy.swarm.resultsAriaLabel}>
+        <ul>
+          {rows.map((item) => {
+            const itemDuration = formatDuration(item.durationMs);
+            const summary = boundedAgentSwarmSummary(item.summary);
+            const rowMeta = [
+              copy.swarm.status[item.status],
+              item.profile,
+              itemDuration ? copy.duration(itemDuration) : '',
+              item.artifactIds.length > 0 ? copy.swarm.artifactCount(item.artifactIds.length) : '',
+            ].filter(Boolean).join(' · ');
+            const refs = [
+              item.runId ? `run ${redactSecrets(item.runId)}` : '',
+              item.turnId ? `turn ${redactSecrets(item.turnId)}` : '',
+            ].filter(Boolean).join(' · ');
+
+            return (
+              <li key={`${item.index}:${item.itemId}`} data-status={item.status}>
+                <code>{redactSecrets(item.itemId)}</code>
+                <small>{rowMeta}</small>
+                {summary.length > 0 && <p>{redactSecrets(summary)}</p>}
+                {item.failureClass && (
+                  <span className="text-[color:var(--destructive)]">
+                    {redactSecrets(item.failureClass)}
+                  </span>
+                )}
+                {refs && <code title={refs}>{refs}</code>}
+              </li>
+            );
+          })}
+        </ul>
+        {hiddenRows > 0 && <small>{copy.swarm.hiddenTaskCount(hiddenRows)}</small>}
+      </section>
+    </div>
+  );
+}
+
+function boundedAgentSwarmSummary(summary: string): string {
+  const normalized = summary.trim();
+  if (normalized.length <= AGENT_SWARM_SUMMARY_MAX_CHARS) return normalized;
+  return `${normalized.slice(0, AGENT_SWARM_SUMMARY_MAX_CHARS - 1)}…`;
+}
 
 export function SubagentPreview(props: {
   result: SubagentResult;
 }) {
+  const locale = useUiLocale();
+  const copy = getToolActivityCopy(locale).agent;
   const { result } = props;
   const duration = formatDuration(result.durationMs);
-  const status = presentSubagentStatus(result.status);
+  const status = presentSubagentStatus(result.status, locale);
   const summary = typeof result.summary === 'string' ? result.summary.trim() : '';
   const artifactCount = result.artifactIds.length;
   const meta = [
     status,
-    presentSubagentPermission(result.permissionMode),
-    duration ? `耗时 ${duration}` : '',
+    presentSubagentPermission(result.permissionMode, locale),
+    duration ? copy.duration(duration) : '',
   ].filter(Boolean).join(' · ');
 
   return (
@@ -38,8 +110,8 @@ export function SubagentPreview(props: {
         <small>{meta}</small>
       </header>
       {summary.length > 0 && (
-        <section className={previewVariants({ part: 'agent-section' })} aria-label="子代理结果摘要">
-          <strong>结果摘要</strong>
+        <section className={previewVariants({ part: 'agent-section' })} aria-label={copy.resultSummaryAriaLabel}>
+          <strong>{copy.resultSummary}</strong>
           <p>{redactSecrets(summary)}</p>
         </section>
       )}
@@ -49,27 +121,29 @@ export function SubagentPreview(props: {
         </div>
       )}
       {artifactCount > 0 && (
-        <section className={previewVariants({ part: 'agent-section' })} aria-label="子代理产物">
-          <strong>产物</strong>
-          <p>{artifactCount} 个</p>
+        <section className={previewVariants({ part: 'agent-section' })} aria-label={copy.artifactsAriaLabel}>
+          <strong>{copy.artifacts}</strong>
+          <p>{copy.artifactCount(artifactCount)}</p>
         </section>
       )}
     </div>
   );
 }
 
-function presentSubagentStatus(status: SubagentResult['status']): string {
-  return SUBAGENT_STATUS_LABEL[status] ?? status;
+function presentSubagentStatus(status: SubagentResult['status'], locale: UiLocale): string {
+  return getToolActivityCopy(locale).agent.subagentStatus[status] ?? status;
 }
 
-function presentSubagentPermission(permissionMode: SubagentResult['permissionMode']): string {
-  if (permissionMode === 'explore') return '只读';
+function presentSubagentPermission(permissionMode: SubagentResult['permissionMode'], locale: UiLocale): string {
+  if (permissionMode === 'explore') return getToolActivityCopy(locale).agent.readOnly;
   return permissionMode;
 }
 
 export function ExploreAgentPreview(props: {
   result: ExploreAgentResult;
 }) {
+  const locale = useUiLocale();
+  const copy = getToolActivityCopy(locale).agent;
   const { result } = props;
   const copyFeedback = useClipboardCopyFeedback();
   const {
@@ -93,7 +167,7 @@ export function ExploreAgentPreview(props: {
     continuationReason,
     continuationText,
     copyPayloads,
-  } = buildExploreAgentPreviewModel(result);
+  } = buildExploreAgentPreviewModel(result, locale);
 
   function copyButtonState(key: string, idleLabel: string, copiedAria: string) {
     const phase = copyFeedback.phaseFor(key);
@@ -101,39 +175,39 @@ export function ExploreAgentPreview(props: {
       phase,
       disabled: copyFeedback.isPending,
       label: phase === 'pending'
-        ? '复制中…'
+        ? copy.copyState.pending
         : phase === 'copied'
-          ? '已复制'
+          ? copy.copyState.copied
           : phase === 'failed'
-            ? '复制失败'
+            ? copy.copyState.failed
             : idleLabel,
       ariaLabel: phase === 'pending'
-        ? `${idleLabel}中`
+        ? copy.copyState.pendingAria(idleLabel)
         : phase === 'copied'
           ? copiedAria
           : phase === 'failed'
-            ? `${idleLabel}失败`
+            ? copy.copyState.failedAria(idleLabel)
             : idleLabel,
     };
   }
 
-  const summaryCopy = copyButtonState('summary', '复制摘要', '已复制探索摘要');
-  const continuationCopy = copyButtonState('continuation', '复制续研提示', '已复制续研提示');
-  const processCopy = copyButtonState('process', '复制过程', '已复制探索过程');
-  const evidenceCopy = copyButtonState('evidence', '复制证据', '已复制证据锚点');
-  const reportCopy = copyButtonState('report', '复制报告', '已复制研究报告');
-  const candidateCopy = copyButtonState('candidate', '复制候选', '已复制候选文件');
-  const matchesCopy = copyButtonState('matches', '复制片段', '已复制命中片段');
+  const summaryCopy = copyButtonState('summary', copy.copyButtons.summary.idle, copy.copyButtons.summary.copied);
+  const continuationCopy = copyButtonState('continuation', copy.copyButtons.continuation.idle, copy.copyButtons.continuation.copied);
+  const processCopy = copyButtonState('process', copy.copyButtons.process.idle, copy.copyButtons.process.copied);
+  const evidenceCopy = copyButtonState('evidence', copy.copyButtons.evidence.idle, copy.copyButtons.evidence.copied);
+  const reportCopy = copyButtonState('report', copy.copyButtons.report.idle, copy.copyButtons.report.copied);
+  const candidateCopy = copyButtonState('candidate', copy.copyButtons.candidate.idle, copy.copyButtons.candidate.copied);
+  const matchesCopy = copyButtonState('matches', copy.copyButtons.matches.idle, copy.copyButtons.matches.copied);
 
   return (
     <div className={cn(previewVariants({ part: 'overlay' }), previewVariants({ part: 'agent' }))} data-kind="explore_agent" data-ok={result.ok ? 'true' : 'false'}>
       <header className={previewVariants({ part: 'agent-head' })}>
-        <strong>{redactSecrets(result.objective || '只读探索')}</strong>
+        <strong>{redactSecrets(result.objective || copy.objectiveFallback)}</strong>
         <small>
-          {status} · 发现/读 {filesDiscovered} / {result.filesInspected} 个文件 · {skippedSummary} · {formatBytes(result.bytesRead)}
-          {limitReasons ? ' · 受预算限制' : ''}
-          {continuationReason ? ` · 建议续研：${continuationReason}` : ''}
-          {duration ? ` · 耗时 ${duration}` : ''}
+          {status} · {copy.foundRead(filesDiscovered, result.filesInspected)} · {skippedSummary} · {formatBytes(result.bytesRead)}
+          {limitReasons ? ` · ${copy.budgetLimited}` : ''}
+          {continuationReason ? ` · ${copy.continuationSuggested(continuationReason)}` : ''}
+          {duration ? ` · ${copy.duration(duration)}` : ''}
         </small>
         {resultSummary.length > 0 && (
           <div className={previewVariants({ part: 'agent-summary-line' })}>
@@ -157,7 +231,7 @@ export function ExploreAgentPreview(props: {
           </div>
         )}
         {continuationText.length > 0 && (
-          <div className={previewVariants({ part: 'agent-actions' })} aria-label="只读探索后续操作">
+          <div className={previewVariants({ part: 'agent-actions' })} aria-label={copy.followupActionsAriaLabel}>
             <UiButton
               type="button"
               variant="ghost"
@@ -170,7 +244,7 @@ export function ExploreAgentPreview(props: {
               data-pending={continuationCopy.phase === 'pending' ? 'true' : undefined}
               data-copied={continuationCopy.phase === 'copied' ? 'true' : 'false'}
               data-copy-error={continuationCopy.phase === 'failed' ? 'true' : undefined}
-              title="复制一段可继续只读探索的提示"
+              title={copy.continuationTitle}
             >
               {continuationCopy.phase === 'copied' ? <Check size={13} aria-hidden="true" /> : <Copy size={13} aria-hidden="true" />}
               <span>{continuationCopy.label}</span>
@@ -180,55 +254,55 @@ export function ExploreAgentPreview(props: {
       </header>
       {!result.ok && (
         <div className={previewVariants({ part: 'agent-message' })} role="note">
-          {redactSecrets(result.message ?? '只读探索未完成。')}
+          {redactSecrets(result.message ?? copy.incompleteFallback)}
         </div>
       )}
       <dl className={previewVariants({ part: 'agent-meta' })}>
         <div>
-          <dt>终态</dt>
+          <dt>{copy.detail.terminal}</dt>
           <dd>{terminalStatus}</dd>
         </div>
         <div>
-          <dt>发现/读</dt>
-          <dd>{filesDiscovered} / {result.filesInspected} 个文件</dd>
+          <dt>{copy.detail.foundRead}</dt>
+          <dd>{filesDiscovered} / {copy.files(result.filesInspected)}</dd>
         </div>
         <div>
-          <dt>范围</dt>
+          <dt>{copy.detail.scope}</dt>
           <dd>{redactSecrets(roots)}</dd>
         </div>
         <div>
-          <dt>查询</dt>
+          <dt>{copy.detail.queries}</dt>
           <dd>{redactSecrets(queries)}</dd>
         </div>
         {ignoredPaths && (
           <div>
-            <dt>忽略</dt>
+            <dt>{copy.detail.ignored}</dt>
             <dd>{redactSecrets(ignoredPaths)}</dd>
           </div>
         )}
         {stoppingCondition && (
           <div>
-            <dt>停止</dt>
+            <dt>{copy.detail.stopping}</dt>
             <dd>{redactSecrets(stoppingCondition)}</dd>
           </div>
         )}
         {limitReasons && (
           <div>
-            <dt>边界</dt>
+            <dt>{copy.detail.boundary}</dt>
             <dd>{redactSecrets(limitReasons)}</dd>
           </div>
         )}
         {continuationReason && (
           <div>
-            <dt>后续</dt>
-            <dd>建议续研：{redactSecrets(continuationReason)}</dd>
+            <dt>{copy.detail.next}</dt>
+            <dd>{copy.continuationSuggested(redactSecrets(continuationReason))}</dd>
           </div>
         )}
       </dl>
       {progress.length > 0 && (
-        <section className={previewVariants({ part: 'agent-section' })} aria-label="探索过程">
+        <section className={previewVariants({ part: 'agent-section' })} aria-label={copy.section.process.ariaLabel}>
           <div className={previewVariants({ part: 'agent-section-head' })}>
-            <strong>过程</strong>
+            <strong>{copy.section.process.title}</strong>
             <UiButton
               type="button"
               variant="ghost"
@@ -256,9 +330,9 @@ export function ExploreAgentPreview(props: {
         </section>
       )}
       {evidence.length > 0 && (
-        <section className={previewVariants({ part: 'agent-section' })} aria-label="证据锚点">
+        <section className={previewVariants({ part: 'agent-section' })} aria-label={copy.section.evidence.ariaLabel}>
           <div className={previewVariants({ part: 'agent-section-head' })}>
-            <strong>证据锚点</strong>
+            <strong>{copy.section.evidence.title}</strong>
             <UiButton
               type="button"
               variant="ghost"
@@ -285,7 +359,7 @@ export function ExploreAgentPreview(props: {
                 </code>
                 <small>
                   {redactSecrets(item.label)}
-                  {typeof item.score === 'number' ? ` · 分数 ${item.score}` : ''}
+                  {typeof item.score === 'number' ? ` · ${copy.score(item.score)}` : ''}
                 </small>
               </li>
             ))}
@@ -293,9 +367,9 @@ export function ExploreAgentPreview(props: {
         </section>
       )}
       {reportLines.length > 0 && (
-        <section className={previewVariants({ part: 'agent-section' })} aria-label="研究报告">
+        <section className={previewVariants({ part: 'agent-section' })} aria-label={copy.section.report.ariaLabel}>
           <div className={previewVariants({ part: 'agent-section-head' })}>
-            <strong>研究报告</strong>
+            <strong>{copy.section.report.title}</strong>
             <UiButton
               type="button"
               variant="ghost"
@@ -323,9 +397,9 @@ export function ExploreAgentPreview(props: {
         </section>
       )}
       {candidateFiles.length > 0 && (
-        <section className={previewVariants({ part: 'agent-section' })} aria-label="候选文件">
+        <section className={previewVariants({ part: 'agent-section' })} aria-label={copy.section.candidates.ariaLabel}>
           <div className={previewVariants({ part: 'agent-section-head' })}>
-            <strong>候选文件</strong>
+            <strong>{copy.section.candidates.title}</strong>
             <UiButton
               type="button"
               variant="ghost"
@@ -348,8 +422,8 @@ export function ExploreAgentPreview(props: {
               <li key={file.path}>
                 <code>{redactSecrets(file.path)}</code>
                 <small>
-                  分数 {file.score}
-                  {file.reasons.length > 0 ? ` · ${presentExploreAgentCandidateReasons(file.reasons)}` : ''}
+                  {copy.score(file.score)}
+                  {file.reasons.length > 0 ? ` · ${presentExploreAgentCandidateReasons(file.reasons, locale)}` : ''}
                 </small>
               </li>
             ))}
@@ -357,9 +431,9 @@ export function ExploreAgentPreview(props: {
         </section>
       )}
       {matches.length > 0 && (
-        <section className={previewVariants({ part: 'agent-section' })} aria-label="命中片段">
+        <section className={previewVariants({ part: 'agent-section' })} aria-label={copy.section.matches.ariaLabel}>
           <div className={previewVariants({ part: 'agent-section-head' })}>
-            <strong>命中片段</strong>
+            <strong>{copy.section.matches.title}</strong>
             <UiButton
               type="button"
               variant="ghost"
@@ -389,8 +463,8 @@ export function ExploreAgentPreview(props: {
         </section>
       )}
       {notes.length > 0 && (
-        <section className={previewVariants({ part: 'agent-section' })} aria-label="探索说明">
-          <strong>说明</strong>
+        <section className={previewVariants({ part: 'agent-section' })} aria-label={copy.section.notes.ariaLabel}>
+          <strong>{copy.section.notes.title}</strong>
           <ul>
             {notes.map((note, index) => (
               <li key={`${index}:${note.slice(0, 24)}`}>
@@ -409,30 +483,31 @@ export function ExploreAgentPreview(props: {
  * dist in tool-activity-result-preview-contract.test.ts, which knip cannot
  * trace through the runtime module URL.
  */
-export function buildExploreAgentCopyPayloads(result: ExploreAgentResult): Record<'summary' | 'process' | 'evidence' | 'report' | 'candidate' | 'matches' | 'continuation', string> {
-  return buildExploreAgentPreviewModel(result).copyPayloads;
+export function buildExploreAgentCopyPayloads(result: ExploreAgentResult, locale: UiLocale = 'zh'): Record<'summary' | 'process' | 'evidence' | 'report' | 'candidate' | 'matches' | 'continuation', string> {
+  return buildExploreAgentPreviewModel(result, locale).copyPayloads;
 }
 
-function buildExploreAgentPreviewModel(result: ExploreAgentResult) {
+function buildExploreAgentPreviewModel(result: ExploreAgentResult, locale: UiLocale) {
+  const copy = getToolActivityCopy(locale).agent;
   const candidateFiles = result.candidateFiles.slice(0, 8);
   const matches = result.matches.slice(0, 8);
   const processLines = Array.isArray(result.recentEvents) && result.recentEvents.length > 0
-    ? result.recentEvents.slice(0, 20).map((event) => formatExploreAgentEvent(event, result.startedAt))
+    ? result.recentEvents.slice(0, 20).map((event) => formatExploreAgentEvent(event, result.startedAt, locale))
     : (result.progress ?? []).slice(0, 12);
   const progress = processLines.slice(0, 6);
   const evidence = (result.evidence ?? []).slice(0, 6);
   const resultSummary = typeof result.summary === 'string' ? result.summary.trim() : '';
   const reportText = typeof result.report === 'string' ? result.report.trim() : '';
-  const terminalStatus = presentExploreAgentTerminalStatus(result.terminalStatus, result.ok, result.partial === true, result.reason);
+  const terminalStatus = presentExploreAgentTerminalStatus(result.terminalStatus, result.ok, result.partial === true, result.reason, locale);
   const status = result.ok
-    ? '已完成'
+    ? copy.complete
     : result.reason === 'aborted' && result.partial === true
-      ? '已取消 · 保留部分结果'
-      : presentExploreAgentReason(result.reason) ?? '未完成';
+      ? copy.cancelledPartial
+      : presentExploreAgentReason(result.reason, locale) ?? copy.incomplete;
   const reportLines = reportText.split('\n').filter((line) => line.trim().length > 0).slice(0, 8);
   const notes = result.notes.slice(0, 4);
   const roots = result.roots.length > 0 ? result.roots.join(', ') : '.';
-  const queries = result.queries.length > 0 ? result.queries.join(', ') : '未指定';
+  const queries = result.queries.length > 0 ? result.queries.join(', ') : copy.notSpecified;
   const ignoredPaths = Array.isArray(result.ignoredPaths) && result.ignoredPaths.length > 0
     ? result.ignoredPaths.join(', ')
     : '';
@@ -440,69 +515,69 @@ function buildExploreAgentPreviewModel(result: ExploreAgentResult) {
     ? result.stoppingCondition.trim()
     : '';
   const limitReasons = Array.isArray(result.limitReasons)
-    ? result.limitReasons.map(presentExploreAgentLimitReason).filter(Boolean).join('、')
+    ? result.limitReasons.map((reason) => presentExploreAgentLimitReason(reason, locale)).filter(Boolean).join(locale === 'en' ? ', ' : '、')
     : '';
   const filesDiscovered = typeof result.filesDiscovered === 'number' && Number.isFinite(result.filesDiscovered)
     ? Math.max(0, Math.floor(result.filesDiscovered))
     : result.filesInspected;
   const skippedSummary = result.sensitiveFilesSkipped && result.sensitiveFilesSkipped > 0
-    ? `跳过 ${result.filesSkipped} 个（含敏感 ${result.sensitiveFilesSkipped} 个）`
-    : `跳过 ${result.filesSkipped} 个`;
+    ? copy.skipped(result.filesSkipped, result.sensitiveFilesSkipped)
+    : copy.skipped(result.filesSkipped);
   const duration = formatDuration(result.durationMs);
   const summaryText = resultSummary.length > 0
     ? [
-      `状态：${status}`,
-      `终态：${terminalStatus}`,
-      `目标：${result.objective || '只读探索'}`,
-      `摘要：${resultSummary}`,
-      `范围：${roots}`,
-      `查询：${queries}`,
-      `发现/读取：${filesDiscovered} / ${result.filesInspected} 个文件`,
-      duration ? `耗时：${duration}` : '',
-      ignoredPaths ? `忽略：${ignoredPaths}` : '',
-      stoppingCondition ? `停止条件：${stoppingCondition}` : '',
-      limitReasons ? `预算边界：${limitReasons}` : '',
+      `${copy.field.status}: ${status}`,
+      `${copy.field.terminal}: ${terminalStatus}`,
+      `${copy.field.objective}: ${result.objective || copy.objectiveFallback}`,
+      `${copy.field.summary}: ${resultSummary}`,
+      `${copy.field.scope}: ${roots}`,
+      `${copy.field.queries}: ${queries}`,
+      `${copy.field.foundRead}: ${filesDiscovered} / ${copy.files(result.filesInspected)}`,
+      duration ? `${copy.field.duration}: ${duration}` : '',
+      ignoredPaths ? `${copy.field.ignored}: ${ignoredPaths}` : '',
+      stoppingCondition ? `${copy.field.stopping}: ${stoppingCondition}` : '',
+      limitReasons ? `${copy.field.boundary}: ${limitReasons}` : '',
     ].filter((line) => line.length > 0).join('\n')
     : '';
   const processText = [
     summaryText,
-    processLines.length > 0 ? `事件：${processLines.length}` : '',
+    processLines.length > 0 ? `${copy.field.events}: ${processLines.length}` : '',
     processLines.join('\n'),
   ].filter((line) => line.trim().length > 0).join('\n').trim();
   const evidenceText = evidence.length > 0
     ? [
-      `状态：${status}`,
-      `终态：${terminalStatus}`,
-      `目标：${result.objective || '只读探索'}`,
-      `证据：${evidence.length}`,
+      `${copy.field.status}: ${status}`,
+      `${copy.field.terminal}: ${terminalStatus}`,
+      `${copy.field.objective}: ${result.objective || copy.objectiveFallback}`,
+      `${copy.field.evidence}: ${evidence.length}`,
       ...evidence.map((item) => [
         `- ${item.path}${typeof item.line === 'number' ? `:${item.line}` : ''}`,
         item.label,
-        typeof item.score === 'number' ? `分数 ${item.score}` : '',
+        typeof item.score === 'number' ? copy.score(item.score) : '',
       ].filter(Boolean).join(' — ')),
     ].join('\n')
     : '';
   const candidateText = candidateFiles.length > 0
     ? [
-      `状态：${status}`,
-      `终态：${terminalStatus}`,
-      `目标：${result.objective || '只读探索'}`,
-      `发现/读取：${filesDiscovered} / ${result.filesInspected} 个文件`,
-      `候选：${candidateFiles.length}`,
+      `${copy.field.status}: ${status}`,
+      `${copy.field.terminal}: ${terminalStatus}`,
+      `${copy.field.objective}: ${result.objective || copy.objectiveFallback}`,
+      `${copy.field.foundRead}: ${filesDiscovered} / ${copy.files(result.filesInspected)}`,
+      `${copy.field.candidates}: ${candidateFiles.length}`,
       ...candidateFiles.map((file) => [
         `- ${file.path}`,
-        `分数 ${file.score}`,
-        file.reasons.length > 0 ? presentExploreAgentCandidateReasons(file.reasons) : '',
+        copy.score(file.score),
+        file.reasons.length > 0 ? presentExploreAgentCandidateReasons(file.reasons, locale) : '',
       ].filter(Boolean).join(' — ')),
     ].join('\n')
     : '';
   const matchesText = matches.length > 0
     ? [
-      `状态：${status}`,
-      `终态：${terminalStatus}`,
-      `目标：${result.objective || '只读探索'}`,
-      `查询：${queries}`,
-      `命中片段：${matches.length}`,
+      `${copy.field.status}: ${status}`,
+      `${copy.field.terminal}: ${terminalStatus}`,
+      `${copy.field.objective}: ${result.objective || copy.objectiveFallback}`,
+      `${copy.field.queries}: ${queries}`,
+      `${copy.field.matches}: ${matches.length}`,
       ...matches.map((match) => `- ${match.path}:${match.line} [${match.query}] ${match.snippet}`),
     ].join('\n')
     : '';
@@ -517,36 +592,36 @@ function buildExploreAgentPreviewModel(result: ExploreAgentResult) {
       ok: result.ok,
       hasLimitReasons: Boolean(limitReasons),
       terminalStatus: result.terminalStatus,
-    })
+    }, locale)
     : '';
   const continuationText = needsContinuation
     ? [
-      '继续这次只读探索，不要修改文件。',
-      continuationReason ? `续研原因：${continuationReason}` : '',
-      `上一轮状态：${status}`,
-      `上一轮终态：${terminalStatus}`,
-      `目标：${result.objective || '只读探索'}`,
-      `范围：${roots}`,
-      `查询：${queries}`,
-      `发现/读取：${filesDiscovered} / ${result.filesInspected} 个文件`,
-      duration ? `上一轮耗时：${duration}` : '',
-      ignoredPaths ? `继续忽略：${ignoredPaths}` : '',
-      stoppingCondition ? `停止条件：${stoppingCondition}` : '',
-      limitReasons ? `上一轮预算边界：${limitReasons}` : '',
-      resultSummary ? `上一轮摘要：${resultSummary}` : '',
+      copy.continuationIntro,
+      continuationReason ? `${copy.field.continuationReason}: ${continuationReason}` : '',
+      `${copy.field.previousStatus}: ${status}`,
+      `${copy.field.previousTerminal}: ${terminalStatus}`,
+      `${copy.field.objective}: ${result.objective || copy.objectiveFallback}`,
+      `${copy.field.scope}: ${roots}`,
+      `${copy.field.queries}: ${queries}`,
+      `${copy.field.foundRead}: ${filesDiscovered} / ${copy.files(result.filesInspected)}`,
+      duration ? `${copy.field.previousDuration}: ${duration}` : '',
+      ignoredPaths ? `${copy.field.ignored}: ${ignoredPaths}` : '',
+      stoppingCondition ? `${copy.field.stopping}: ${stoppingCondition}` : '',
+      limitReasons ? `${copy.field.previousBoundary}: ${limitReasons}` : '',
+      resultSummary ? `${copy.field.previousSummary}: ${resultSummary}` : '',
       candidateFiles.length > 0
         ? [
-          '优先补读候选：',
-          ...candidateFiles.slice(0, 5).map((file) => `- ${file.path}（分数 ${file.score}）`),
+          copy.continuationCandidates,
+          ...candidateFiles.slice(0, 5).map((file) => `- ${file.path} (${copy.score(file.score)})`),
         ].join('\n')
         : '',
       matches.length > 0
         ? [
-          '已有命中片段：',
+          copy.continuationMatches,
           ...matches.slice(0, 5).map((match) => `- ${match.path}:${match.line} [${match.query}] ${match.snippet}`),
         ].join('\n')
         : '',
-      '请只读检查仍缺证据的部分，输出新的证据锚点、候选文件、结论和下一步 gate。',
+      copy.continuationOutro,
     ].filter((line) => line.trim().length > 0).join('\n')
     : '';
   const copyPayloads = {
@@ -588,57 +663,62 @@ function presentExploreAgentTerminalStatus(
   ok: boolean,
   partial: boolean,
   reason: Extract<ToolResultContent, { kind: 'explore_agent' }>['reason'],
+  locale: UiLocale,
 ): string {
+  const copy = getToolActivityCopy(locale).agent;
   switch (terminalStatus) {
     case 'completed':
-      return '完成，有证据';
+      return copy.terminalStatus.completed;
     case 'completed_empty':
-      return '完成，无证据';
+      return copy.terminalStatus.completed_empty;
     case 'failed':
-      return '失败';
+      return copy.terminalStatus.failed;
     case 'canceled':
-      return '已取消';
+      return copy.terminalStatus.canceled;
     case 'canceled_partial':
-      return '已取消，有部分结果';
+      return copy.terminalStatus.canceled_partial;
     case undefined:
-      if (reason === 'aborted' && partial) return '已取消，有部分结果';
-      if (reason === 'aborted') return '已取消';
-      if (!ok) return '失败';
-      return '完成';
+      if (reason === 'aborted' && partial) return copy.terminalStatus.canceled_partial;
+      if (reason === 'aborted') return copy.terminalStatus.canceled;
+      if (!ok) return copy.terminalStatus.failed;
+      return copy.complete;
     default:
-      return '未知终态';
+      return copy.terminalStatus.unknown;
   }
 }
 
 function presentExploreAgentReason(
   reason: Extract<ToolResultContent, { kind: 'explore_agent' }>['reason'],
+  locale: UiLocale,
 ): string | undefined {
+  const copy = getToolActivityCopy(locale).agent.reason;
   switch (reason) {
     case 'invalid_objective':
-      return '目标无效';
+      return copy.invalid_objective;
     case 'invalid_root':
-      return '范围无效';
+      return copy.invalid_root;
     case 'no_readable_roots':
-      return '没有可读取范围';
+      return copy.no_readable_roots;
     case 'aborted':
-      return '已取消';
+      return copy.aborted;
     case undefined:
       return undefined;
     default:
-      return '未知诊断';
+      return copy.unknown;
   }
 }
 
-function presentExploreAgentLimitReason(reason: string): string {
+function presentExploreAgentLimitReason(reason: string, locale: UiLocale): string {
+  const copy = getToolActivityCopy(locale).agent.limitReason;
   switch (reason) {
     case 'candidate_budget':
-      return '候选文件预算已满';
+      return copy.candidate_budget;
     case 'file_budget':
-      return '读取文件预算已满';
+      return copy.file_budget;
     case 'match_budget':
-      return '命中预算已满';
+      return copy.match_budget;
     case 'byte_budget':
-      return '读取字节预算已满';
+      return copy.byte_budget;
     default:
       return '';
   }
@@ -649,16 +729,17 @@ function presentExploreAgentContinuationReason(input: {
   ok: boolean;
   hasLimitReasons: boolean;
   terminalStatus: Extract<ToolResultContent, { kind: 'explore_agent' }>['terminalStatus'];
-}): string {
-  if (input.partial) return '已有部分结果，仍需补证据';
-  if (!input.ok) return '上一轮未完成';
-  if (input.hasLimitReasons) return '达到预算边界';
-  if (input.terminalStatus === 'completed_empty') return '没有找到证据';
-  return '仍缺证据';
+}, locale: UiLocale): string {
+  const copy = getToolActivityCopy(locale).agent.continuationReason;
+  if (input.partial) return copy.partial;
+  if (!input.ok) return copy.failed;
+  if (input.hasLimitReasons) return copy.budget;
+  if (input.terminalStatus === 'completed_empty') return copy.empty;
+  return copy.missing;
 }
 
-function formatExploreAgentEvent(event: { type: string; message: string; at?: number }, startedAt?: number): string {
-  const label = presentExploreAgentEventType(event.type);
+function formatExploreAgentEvent(event: { type: string; message: string; at?: number }, startedAt: number | undefined, locale: UiLocale): string {
+  const label = presentExploreAgentEventType(event.type, locale);
   const message = typeof event.message === 'string' ? event.message.trim() : '';
   const offset = formatExploreAgentEventOffset(event.at, startedAt);
   const prefix = [label, offset].filter(Boolean).join(' ');
@@ -673,39 +754,36 @@ function formatExploreAgentEventOffset(at: number | undefined, startedAt: number
   return formatted ? `+${formatted}` : '';
 }
 
-function presentExploreAgentEventType(type: string): string {
+function presentExploreAgentEventType(type: string, locale: UiLocale): string {
+  const copy = getToolActivityCopy(locale).agent.eventType;
   switch (type) {
     case 'started':
-      return '开始';
+      return copy.started;
     case 'scope_resolved':
-      return '范围';
+      return copy.scope_resolved;
     case 'scan':
-      return '扫描';
+      return copy.scan;
     case 'read':
-      return '读取';
+      return copy.read;
     case 'checkpoint':
-      return '进度';
+      return copy.checkpoint;
     case 'completed':
-      return '完成';
+      return copy.completed;
     case 'failed':
-      return '失败';
+      return copy.failed;
     case 'aborted':
-      return '取消';
+      return copy.aborted;
     default:
       return '';
   }
 }
 
-function presentExploreAgentCandidateReasons(reasons: string[]): string {
+function presentExploreAgentCandidateReasons(reasons: string[], locale: UiLocale): string {
+  const copy = getToolActivityCopy(locale).agent;
   return reasons.map((reason) => {
-    if (reason === 'content match') return '内容命中';
-    if (reason === 'project manifest') return '项目配置';
-    if (reason === 'project documentation') return '项目文档';
-    if (reason === 'project entrypoint') return '入口文件';
-    if (reason === 'project test surface') return '测试线索';
-    if (reason === 'project source surface') return '源码线索';
+    if (reason in copy.candidateReason && reason !== 'fallback') return copy.candidateReason[reason as Exclude<keyof typeof copy.candidateReason, 'fallback'>];
     const pathMatch = reason.match(/^path contains "(.+)"$/);
-    if (pathMatch) return `路径命中 ${redactSecrets(pathMatch[1] ?? '')}`;
-    return '探索线索';
+    if (pathMatch) return copy.pathMatch(redactSecrets(pathMatch[1] ?? ''));
+    return copy.candidateReason.fallback;
   }).join(', ');
 }

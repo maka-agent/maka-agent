@@ -1,0 +1,859 @@
+import { randomBytes, randomUUID } from 'node:crypto';
+import { constants as fsConstants, type BigIntStats } from 'node:fs';
+import {
+  chmod,
+  link,
+  lstat,
+  mkdir,
+  open,
+  realpath,
+  stat,
+  unlink,
+  type FileHandle,
+} from 'node:fs/promises';
+import { userInfo } from 'node:os';
+import { isAbsolute, join, normalize, parse, resolve } from 'node:path';
+import { tryLock, unlock } from 'fs-native-extensions';
+
+export const STORAGE_ROOT_MARKER_FILE = '.maka-storage-root.json';
+export const STORAGE_ROOT_MARKER_SCHEMA_VERSION = 1 as const;
+
+export type StorageRootKind = 'interactive' | 'headless';
+export type StorageRootAccess = 'read' | 'write';
+
+const capabilityBrand: unique symbol = Symbol('StorageRootCapability');
+const leaseBrand: unique symbol = Symbol('StorageRootLease');
+
+export interface StorageRootCapability<K extends StorageRootKind = StorageRootKind> {
+  readonly kind: K;
+  readonly canonicalPath: string;
+  readonly rootId: string;
+  readonly [capabilityBrand]: true;
+}
+
+export interface StorageRootLease<
+  K extends StorageRootKind = StorageRootKind,
+  A extends StorageRootAccess = StorageRootAccess,
+> {
+  readonly kind: K;
+  readonly access: A;
+  readonly canonicalPath: string;
+  readonly rootId: string;
+  readonly [leaseBrand]: true;
+}
+
+export interface ResolveStorageRootInput<K extends StorageRootKind> {
+  path: string;
+  kind: K;
+}
+
+export interface ResolveExistingStorageRootInput<K extends StorageRootKind>
+  extends ResolveStorageRootInput<K> {
+  expectedRootId: string;
+}
+
+export interface InteractiveRootOwner {
+  readonly capability: StorageRootCapability<'interactive'>;
+  readonly lease: StorageRootLease<'interactive', 'write'>;
+  readonly controlDirectory: string;
+  readonly lockPath: string;
+  readonly closed: boolean;
+  close(): Promise<void>;
+}
+
+export interface InteractiveRootReader {
+  readonly capability: StorageRootCapability<'interactive'>;
+  readonly lease: StorageRootLease<'interactive', 'read'>;
+  readonly controlDirectory: string;
+  readonly lockPath: string;
+  readonly closed: boolean;
+  close(): Promise<void>;
+}
+
+interface RootIdentity {
+  dev: bigint;
+  ino: bigint;
+}
+
+interface CapabilityRecord<K extends StorageRootKind = StorageRootKind> {
+  kind: K;
+  canonicalPath: string;
+  rootId: string;
+  identity: RootIdentity;
+}
+
+interface LeaseRecord<
+  K extends StorageRootKind = StorageRootKind,
+  A extends StorageRootAccess = StorageRootAccess,
+> extends CapabilityRecord<K> {
+  access: A;
+  isActive: () => boolean;
+  beginOperation: () => () => void;
+}
+
+interface RootMarker {
+  schemaVersion: typeof STORAGE_ROOT_MARKER_SCHEMA_VERSION;
+  kind: StorageRootKind;
+  rootId: string;
+  rootIdentity: {
+    dev: string;
+    ino: string;
+  };
+}
+
+const capabilities = new WeakMap<object, CapabilityRecord>();
+const leases = new WeakMap<object, LeaseRecord>();
+const interactiveRootLocks = new WeakMap<object, { access: StorageRootAccess }>();
+
+export type StorageRootAuthorityErrorCode =
+  | 'invalid_root'
+  | 'invalid_root_kind'
+  | 'invalid_marker'
+  | 'root_kind_mismatch'
+  | 'root_identity_collision'
+  | 'root_identity_changed'
+  | 'invalid_capability'
+  | 'invalid_lease'
+  | 'invalid_owner'
+  | 'invalid_lock_artifact'
+  | 'insecure_control_directory'
+  | 'root_io_failed'
+  | 'control_io_failed'
+  | 'lock_failed';
+
+export class StorageRootAuthorityError extends Error {
+  constructor(
+    readonly code: StorageRootAuthorityErrorCode,
+    message: string,
+    options?: ErrorOptions,
+  ) {
+    super(message, options);
+    this.name = 'StorageRootAuthorityError';
+  }
+}
+
+function assertStorageRootKind(kind: unknown): asserts kind is StorageRootKind {
+  if (kind !== 'interactive' && kind !== 'headless') {
+    throw new StorageRootAuthorityError(
+      'invalid_root_kind',
+      `Unsupported storage root kind: ${String(kind)}`,
+    );
+  }
+}
+
+export async function resolveStorageRoot<K extends StorageRootKind>(
+  input: ResolveStorageRootInput<K>,
+): Promise<StorageRootCapability<K>> {
+  assertStorageRootKind(input.kind);
+  return withAuthorityFailure('root_io_failed', 'Unable to resolve the storage root', () =>
+    resolveStorageRootUnchecked(input),
+  );
+}
+
+async function resolveStorageRootUnchecked<K extends StorageRootKind>(
+  input: ResolveStorageRootInput<K>,
+): Promise<StorageRootCapability<K>> {
+  const requestedPath = resolve(input.path);
+  await ensureRootDirectory(requestedPath);
+  const canonicalPath = canonicalizePath(await realpath(requestedPath));
+  const rootStat = await stat(canonicalPath, { bigint: true });
+  if (!rootStat.isDirectory()) {
+    throw new StorageRootAuthorityError(
+      'invalid_root',
+      `Storage root is not a directory: ${canonicalPath}`,
+    );
+  }
+
+  const identity = { dev: rootStat.dev, ino: rootStat.ino };
+  const marker = await confirmRootSnapshot({
+    root: canonicalPath,
+    identity,
+    readMarker: () => ensureRootMarker(canonicalPath, input.kind, identity),
+    markerMismatchCode: 'root_identity_collision',
+    markerMismatchMessage: `Storage root marker belongs to a different directory: ${canonicalPath}`,
+  });
+  return createCapability(input.kind, canonicalPath, marker.rootId, identity);
+}
+
+export async function resolveExistingStorageRoot<K extends StorageRootKind>(
+  input: ResolveExistingStorageRootInput<K>,
+): Promise<StorageRootCapability<K>> {
+  assertStorageRootKind(input.kind);
+  return withAuthorityFailure(
+    'root_io_failed',
+    'Unable to resolve the existing storage root',
+    async () => {
+      const canonicalPath = canonicalizePath(await realpath(resolve(input.path)));
+      const rootStat = await stat(canonicalPath, { bigint: true });
+      if (!rootStat.isDirectory()) {
+        throw new StorageRootAuthorityError(
+          'invalid_root',
+          `Storage root is not a directory: ${canonicalPath}`,
+        );
+      }
+      const identity = { dev: rootStat.dev, ino: rootStat.ino };
+      const marker = await confirmRootSnapshot({
+        root: canonicalPath,
+        identity,
+        readMarker: () => readAndValidateRootMarker(canonicalPath, input.kind),
+        expectedRootId: input.expectedRootId,
+        markerMismatchCode: 'root_identity_changed',
+        markerMismatchMessage: `Storage root identity does not match the expected root: ${canonicalPath}`,
+      });
+      return createCapability(input.kind, canonicalPath, marker.rootId, identity);
+    },
+  );
+}
+
+function createCapability<K extends StorageRootKind>(
+  kind: K,
+  canonicalPath: string,
+  rootId: string,
+  identity: RootIdentity,
+): StorageRootCapability<K> {
+  const record: CapabilityRecord<K> = {
+    kind,
+    canonicalPath,
+    rootId,
+    identity,
+  };
+  const capability = Object.freeze({
+    kind: record.kind,
+    canonicalPath: record.canonicalPath,
+    rootId: record.rootId,
+  }) as StorageRootCapability<K>;
+  capabilities.set(capability, record);
+  return capability;
+}
+
+async function ensureRootDirectory(path: string): Promise<void> {
+  try {
+    await mkdir(path, { recursive: true, mode: 0o700 });
+  } catch (error) {
+    const existing = await statRootIfPresent(path);
+    if (existing && !existing.isDirectory()) {
+      throw new StorageRootAuthorityError(
+        'invalid_root',
+        `Storage root is not a directory: ${path}`,
+      );
+    }
+    throw error;
+  }
+}
+
+export function resolveRootControlNamespace(): string {
+  try {
+    const accountHome = userInfo().homedir;
+    if (!isAbsolute(accountHome)) {
+      throw new Error('OS account home must be an absolute path');
+    }
+    if (process.platform === 'darwin') {
+      return join(accountHome, 'Library', 'Caches', 'Maka', 'runtime-hosts');
+    }
+    if (process.platform === 'win32') {
+      return join(accountHome, 'AppData', 'Local', 'Maka', 'runtime-hosts');
+    }
+    return join(accountHome, '.cache', 'maka', 'runtime-hosts');
+  } catch (error) {
+    throw normalizeAuthorityFailure(
+      error,
+      'control_io_failed',
+      'Unable to resolve the Runtime Host control namespace',
+    );
+  }
+}
+
+export async function tryAcquireInteractiveRootOwner(
+  capability: StorageRootCapability<'interactive'>,
+): Promise<InteractiveRootOwner | undefined> {
+  return withAuthorityFailure(
+    'lock_failed',
+    'Unable to acquire the interactive storage root owner lock',
+    () => acquireInteractiveRootLock(capability, 'write'),
+  );
+}
+
+export async function prepareStorageRootControlDirectory(
+  capability: StorageRootCapability,
+): Promise<{ controlRoot: string; controlDirectory: string }> {
+  return withAuthorityFailure(
+    'control_io_failed',
+    'Unable to prepare the Runtime Host control directory',
+    async () => {
+      const record = requireCapability(capability, capability.kind);
+      await assertRootIdentity(record);
+      const controlRoot = resolve(resolveRootControlNamespace());
+      await ensurePrivateDirectory(controlRoot);
+      const controlDirectory = join(controlRoot, record.rootId);
+      await ensurePrivateDirectory(controlDirectory);
+      return { controlRoot, controlDirectory };
+    },
+  );
+}
+
+export async function tryAcquireInteractiveRootReader(
+  capability: StorageRootCapability<'interactive'>,
+): Promise<InteractiveRootReader | undefined> {
+  return withAuthorityFailure(
+    'lock_failed',
+    'Unable to acquire the interactive storage root reader lock',
+    () => acquireInteractiveRootLock(capability, 'read'),
+  );
+}
+
+export function createHeadlessRootLease<A extends StorageRootAccess>(
+  capability: StorageRootCapability<'headless'>,
+  access: A,
+): StorageRootLease<'headless', A> {
+  const record = requireCapability(capability, 'headless');
+  return createLease(record, access, () => true);
+}
+
+export async function assertStorageRootLease<
+  K extends StorageRootKind,
+  A extends StorageRootAccess,
+>(lease: StorageRootLease<K, A>, expectedKind: K, expectedAccess: A): Promise<void> {
+  const record = requireLease(lease, expectedKind, expectedAccess);
+  await assertRootIdentity(record);
+  requireLease(lease, expectedKind, expectedAccess);
+}
+
+export async function runWithStorageRootLease<
+  K extends StorageRootKind,
+  A extends StorageRootAccess,
+  T,
+>(
+  lease: StorageRootLease<K, A>,
+  expectedKind: K,
+  expectedAccess: A,
+  operation: (canonicalPath: string) => Promise<T>,
+): Promise<T> {
+  const record = requireLease(lease, expectedKind, expectedAccess);
+  const finishOperation = record.beginOperation();
+  try {
+    await assertRootIdentity(record);
+    return await operation(record.canonicalPath);
+  } finally {
+    finishOperation();
+  }
+}
+
+export async function assertStorageRootCapability<K extends StorageRootKind>(
+  capability: StorageRootCapability<K>,
+  expectedKind: K,
+): Promise<void> {
+  const record = requireCapability(capability, expectedKind);
+  await assertRootIdentity(record);
+}
+
+export async function assertInteractiveRootOwner(owner: InteractiveRootOwner): Promise<void> {
+  const authenticOwner = authenticateInteractiveRootOwner(owner);
+  const capabilityRecord = requireCapability(authenticOwner.capability, 'interactive');
+  requireLease(authenticOwner.lease, 'interactive', 'write');
+  await assertRootIdentity(capabilityRecord);
+  requireLease(authenticOwner.lease, 'interactive', 'write');
+}
+
+export function authenticateInteractiveRootOwner(
+  owner: InteractiveRootOwner,
+): InteractiveRootOwner {
+  if (interactiveRootLocks.get(owner)?.access !== 'write') {
+    throw new StorageRootAuthorityError(
+      'invalid_owner',
+      'Expected an authentic interactive storage root owner',
+    );
+  }
+  return owner;
+}
+
+function acquireInteractiveRootLock(
+  capability: StorageRootCapability<'interactive'>,
+  access: 'write',
+): Promise<InteractiveRootOwner | undefined>;
+function acquireInteractiveRootLock(
+  capability: StorageRootCapability<'interactive'>,
+  access: 'read',
+): Promise<InteractiveRootReader | undefined>;
+async function acquireInteractiveRootLock(
+  capability: StorageRootCapability<'interactive'>,
+  access: StorageRootAccess,
+): Promise<InteractiveRootOwner | InteractiveRootReader | undefined> {
+  const capabilityRecord = requireCapability(capability, 'interactive');
+  const { controlDirectory } = await prepareStorageRootControlDirectory(capability);
+  const lockPath = join(controlDirectory, 'owner.lock');
+  const handle = await open(lockPath, 'a+', 0o600);
+  try {
+    await assertStableLockArtifact(handle, lockPath);
+    await handle.chmod(0o600);
+  } catch (error) {
+    await handle.close();
+    throw error;
+  }
+
+  let granted = false;
+  try {
+    granted = tryLock(handle.fd, { shared: access === 'read' });
+  } catch (error) {
+    await handle.close();
+    throw error;
+  }
+  if (!granted) {
+    await handle.close();
+    return undefined;
+  }
+  try {
+    await assertStableLockArtifact(handle, lockPath);
+    await assertRootIdentity(capabilityRecord);
+  } catch (error) {
+    releaseLock(handle);
+    await handle.close();
+    throw error;
+  }
+
+  let active = true;
+  let activeOperations = 0;
+  const operationDrainWaiters = new Set<() => void>();
+  let closePromise: Promise<void> | undefined;
+  const beginOperation = () => {
+    if (!active) throw invalidLease(capabilityRecord.kind, access);
+    activeOperations += 1;
+    let finished = false;
+    return () => {
+      if (finished) return;
+      finished = true;
+      activeOperations -= 1;
+      if (activeOperations !== 0) return;
+      for (const resolve of operationDrainWaiters) resolve();
+      operationDrainWaiters.clear();
+    };
+  };
+  const waitForOperations = () =>
+    activeOperations === 0
+      ? Promise.resolve()
+      : new Promise<void>((resolve) => operationDrainWaiters.add(resolve));
+  const close = () => {
+    if (closePromise) return closePromise;
+    active = false;
+    closePromise = withAuthorityFailure(
+      'lock_failed',
+      'Unable to close the interactive storage root lock',
+      async () => {
+        await waitForOperations();
+        releaseLock(handle);
+        await handle.close();
+      },
+    );
+    return closePromise;
+  };
+  return createInteractiveRootLock(
+    capability,
+    capabilityRecord,
+    access,
+    controlDirectory,
+    lockPath,
+    () => active,
+    beginOperation,
+    close,
+  );
+}
+
+function createInteractiveRootLock(
+  capability: StorageRootCapability<'interactive'>,
+  capabilityRecord: CapabilityRecord<'interactive'>,
+  access: StorageRootAccess,
+  controlDirectory: string,
+  lockPath: string,
+  isActive: () => boolean,
+  beginOperation: () => () => void,
+  close: () => Promise<void>,
+): InteractiveRootOwner | InteractiveRootReader {
+  const lock = Object.freeze({
+    capability,
+    lease: createLease(capabilityRecord, access, isActive, beginOperation),
+    controlDirectory,
+    lockPath,
+    get closed() {
+      return !isActive();
+    },
+    close,
+  }) as InteractiveRootOwner | InteractiveRootReader;
+  interactiveRootLocks.set(lock, { access });
+  return lock;
+}
+
+function createLease<K extends StorageRootKind, A extends StorageRootAccess>(
+  capability: CapabilityRecord<K>,
+  access: A,
+  isActive: () => boolean,
+  beginOperation: () => () => void = () => {
+    if (!isActive()) throw invalidLease(capability.kind, access);
+    return () => {};
+  },
+): StorageRootLease<K, A> {
+  const lease = Object.freeze({
+    kind: capability.kind,
+    access,
+    canonicalPath: capability.canonicalPath,
+    rootId: capability.rootId,
+  }) as StorageRootLease<K, A>;
+  leases.set(lease, { ...capability, access, isActive, beginOperation });
+  return lease;
+}
+
+function requireCapability<K extends StorageRootKind>(
+  capability: StorageRootCapability<K>,
+  expectedKind: K,
+): CapabilityRecord<K> {
+  const record = capabilities.get(capability);
+  if (!record || record.kind !== expectedKind) {
+    throw new StorageRootAuthorityError(
+      'invalid_capability',
+      `Expected a ${expectedKind} storage root capability`,
+    );
+  }
+  return record as CapabilityRecord<K>;
+}
+
+function requireLease<K extends StorageRootKind, A extends StorageRootAccess>(
+  lease: StorageRootLease<K, A>,
+  expectedKind: K,
+  expectedAccess: A,
+): LeaseRecord<K, A> {
+  const record = leases.get(lease);
+  if (
+    !record ||
+    record.kind !== expectedKind ||
+    record.access !== expectedAccess ||
+    !record.isActive()
+  ) {
+    throw invalidLease(expectedKind, expectedAccess);
+  }
+  return record as LeaseRecord<K, A>;
+}
+
+function invalidLease(kind: StorageRootKind, access: StorageRootAccess): StorageRootAuthorityError {
+  return new StorageRootAuthorityError(
+    'invalid_lease',
+    `Expected an active ${kind} ${access} storage root lease`,
+  );
+}
+
+async function assertRootIdentity(record: CapabilityRecord): Promise<void> {
+  await withAuthorityFailure(
+    'root_io_failed',
+    `Unable to validate storage root identity: ${record.canonicalPath}`,
+    async () => {
+      await assertRootPathIdentity(
+        record.canonicalPath,
+        record.identity,
+        `Storage root identity changed: ${record.canonicalPath}`,
+      );
+      await confirmRootSnapshot({
+        root: record.canonicalPath,
+        identity: record.identity,
+        readMarker: () => readAndValidateRootMarker(record.canonicalPath, record.kind),
+        expectedRootId: record.rootId,
+        markerMismatchCode: 'root_identity_changed',
+        markerMismatchMessage: `Storage root marker identity changed: ${record.canonicalPath}`,
+      });
+    },
+  );
+}
+
+interface ConfirmRootSnapshotInput {
+  root: string;
+  identity: RootIdentity;
+  readMarker(): Promise<RootMarker>;
+  expectedRootId?: string;
+  markerMismatchCode: 'root_identity_collision' | 'root_identity_changed';
+  markerMismatchMessage: string;
+}
+
+async function confirmRootSnapshot(input: ConfirmRootSnapshotInput): Promise<RootMarker> {
+  const marker = await input.readMarker();
+  if (
+    (input.expectedRootId !== undefined && marker.rootId !== input.expectedRootId) ||
+    !markerMatchesIdentity(marker, input.identity)
+  ) {
+    throw new StorageRootAuthorityError(input.markerMismatchCode, input.markerMismatchMessage);
+  }
+  await assertRootPathIdentity(
+    input.root,
+    input.identity,
+    `Storage root identity changed while validating its marker: ${input.root}`,
+  );
+  return marker;
+}
+
+async function ensureRootMarker(
+  root: string,
+  kind: StorageRootKind,
+  identity: RootIdentity,
+): Promise<RootMarker> {
+  const markerPath = join(root, STORAGE_ROOT_MARKER_FILE);
+  const marker: RootMarker = {
+    schemaVersion: STORAGE_ROOT_MARKER_SCHEMA_VERSION,
+    kind,
+    rootId: randomBytes(32).toString('hex'),
+    rootIdentity: {
+      dev: identity.dev.toString(),
+      ino: identity.ino.toString(),
+    },
+  };
+  const tempPath = join(root, `${STORAGE_ROOT_MARKER_FILE}.${process.pid}.${randomUUID()}.tmp`);
+  let tempCreated = false;
+  try {
+    const handle = await open(tempPath, 'wx', 0o600);
+    tempCreated = true;
+    try {
+      await handle.writeFile(`${JSON.stringify(marker)}\n`, 'utf8');
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    await assertRootPathIdentity(
+      root,
+      identity,
+      `Storage root identity changed before publishing its marker: ${root}`,
+    );
+    try {
+      await link(tempPath, markerPath);
+      await syncDirectory(root);
+    } catch (error) {
+      if (!isNodeError(error, 'EEXIST')) throw error;
+    }
+  } finally {
+    if (tempCreated) {
+      try {
+        await unlink(tempPath);
+      } catch (error) {
+        if (!isNodeError(error, 'ENOENT')) throw error;
+      }
+    }
+  }
+  return readAndValidateRootMarker(root, kind);
+}
+
+async function assertRootPathIdentity(
+  root: string,
+  identity: RootIdentity,
+  message: string,
+): Promise<void> {
+  const rootStat = await statRootIfPresent(root);
+  if (!rootStat?.isDirectory() || rootStat.dev !== identity.dev || rootStat.ino !== identity.ino) {
+    throw new StorageRootAuthorityError('root_identity_changed', message);
+  }
+}
+
+async function readAndValidateRootMarker(
+  root: string,
+  expectedKind: StorageRootKind,
+): Promise<RootMarker> {
+  const markerPath = join(root, STORAGE_ROOT_MARKER_FILE);
+  let marker: unknown;
+  try {
+    const handle = await open(markerPath, markerReadFlags());
+    try {
+      const [markerStat, pathStat] = await Promise.all([
+        handle.stat({ bigint: true }),
+        lstat(markerPath, { bigint: true }),
+      ]);
+      if (
+        !markerStat.isFile() ||
+        !pathStat.isFile() ||
+        markerStat.size > 1_024n ||
+        markerStat.dev !== pathStat.dev ||
+        markerStat.ino !== pathStat.ino
+      ) {
+        throw new StorageRootAuthorityError(
+          'invalid_marker',
+          `Storage root marker must be one bounded regular file: ${markerPath}`,
+        );
+      }
+      marker = JSON.parse(await handle.readFile('utf8'));
+    } finally {
+      await handle.close();
+    }
+  } catch (error) {
+    if (error instanceof StorageRootAuthorityError) throw error;
+    if (error instanceof SyntaxError || isInvalidMarkerPathError(error)) {
+      throw new StorageRootAuthorityError(
+        'invalid_marker',
+        `Invalid storage root marker at ${markerPath}: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      );
+    }
+    throw error;
+  }
+  if (!isRootMarker(marker)) {
+    throw new StorageRootAuthorityError(
+      'invalid_marker',
+      `Invalid storage root marker at ${markerPath}`,
+    );
+  }
+  if (marker.kind !== expectedKind) {
+    throw new StorageRootAuthorityError(
+      'root_kind_mismatch',
+      `Storage root ${root} is ${marker.kind}, not ${expectedKind}`,
+    );
+  }
+  return marker;
+}
+
+function isRootMarker(value: unknown): value is RootMarker {
+  if (!value || typeof value !== 'object') return false;
+  const marker = value as Record<string, unknown>;
+  return (
+    marker.schemaVersion === STORAGE_ROOT_MARKER_SCHEMA_VERSION &&
+    (marker.kind === 'interactive' || marker.kind === 'headless') &&
+    typeof marker.rootId === 'string' &&
+    /^[a-f0-9]{64}$/.test(marker.rootId) &&
+    isMarkerRootIdentity(marker.rootIdentity)
+  );
+}
+
+function isMarkerRootIdentity(value: unknown): value is RootMarker['rootIdentity'] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const identity = value as Record<string, unknown>;
+  return (
+    typeof identity.dev === 'string' &&
+    /^\d+$/.test(identity.dev) &&
+    typeof identity.ino === 'string' &&
+    /^\d+$/.test(identity.ino)
+  );
+}
+
+function markerMatchesIdentity(marker: RootMarker, identity: RootIdentity): boolean {
+  return (
+    marker.rootIdentity.dev === identity.dev.toString() &&
+    marker.rootIdentity.ino === identity.ino.toString()
+  );
+}
+
+async function ensurePrivateDirectory(path: string): Promise<void> {
+  await mkdir(path, { recursive: true, mode: 0o700 });
+  let directoryStat = await lstat(path);
+  if (!directoryStat.isDirectory()) {
+    throw new StorageRootAuthorityError(
+      'insecure_control_directory',
+      `Runtime Host control path is not a directory: ${path}`,
+    );
+  }
+  if (process.platform === 'win32') return;
+  if (typeof process.getuid === 'function' && directoryStat.uid !== process.getuid()) {
+    throw new StorageRootAuthorityError(
+      'insecure_control_directory',
+      `Runtime Host control path is not owned by the current user: ${path}`,
+    );
+  }
+  await chmod(path, 0o700);
+  directoryStat = await lstat(path);
+  if (!directoryStat.isDirectory() || (directoryStat.mode & 0o077) !== 0) {
+    throw new StorageRootAuthorityError(
+      'insecure_control_directory',
+      `Runtime Host control path is not private: ${path}`,
+    );
+  }
+}
+
+async function syncDirectory(path: string): Promise<void> {
+  if (process.platform === 'win32') return;
+  const handle = await open(path, 'r');
+  try {
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+}
+
+async function assertStableLockArtifact(handle: FileHandle, path: string): Promise<void> {
+  let stable = false;
+  try {
+    const [handleStat, pathStat] = await Promise.all([
+      handle.stat({ bigint: true }),
+      lstat(path, { bigint: true }),
+    ]);
+    stable =
+      handleStat.isFile() &&
+      pathStat.isFile() &&
+      handleStat.dev === pathStat.dev &&
+      handleStat.ino === pathStat.ino;
+  } catch (error) {
+    if (!isMissingPathError(error)) throw error;
+  }
+  if (!stable) {
+    throw new StorageRootAuthorityError(
+      'invalid_lock_artifact',
+      `Storage root lock path is not one stable regular file: ${path}`,
+    );
+  }
+}
+
+function releaseLock(handle: FileHandle): void {
+  try {
+    unlock(handle.fd);
+  } catch {
+    // Closing the OS handle is the authoritative release path.
+  }
+}
+
+function canonicalizePath(path: string): string {
+  const normalized = normalize(path);
+  const root = parse(normalized).root;
+  return normalized === root ? normalized : normalized.replace(/[\\/]+$/, '');
+}
+
+function isNodeError(error: unknown, code: string): boolean {
+  return (
+    error instanceof Error && 'code' in error && (error as NodeJS.ErrnoException).code === code
+  );
+}
+
+function isMissingPathError(error: unknown): boolean {
+  return isNodeError(error, 'ENOENT') || isNodeError(error, 'ENOTDIR');
+}
+
+function isInvalidMarkerPathError(error: unknown): boolean {
+  return isMissingPathError(error) || isNodeError(error, 'ELOOP') || isNodeError(error, 'ENXIO');
+}
+
+function markerReadFlags(): string | number {
+  if (process.platform === 'win32') return 'r';
+  return fsConstants.O_RDONLY | fsConstants.O_NONBLOCK | fsConstants.O_NOFOLLOW;
+}
+
+async function statRootIfPresent(path: string): Promise<BigIntStats | undefined> {
+  try {
+    return await stat(path, { bigint: true });
+  } catch (error) {
+    if (isMissingPathError(error)) return undefined;
+    throw error;
+  }
+}
+
+async function withAuthorityFailure<T>(
+  code: Extract<
+    StorageRootAuthorityErrorCode,
+    'root_io_failed' | 'control_io_failed' | 'lock_failed'
+  >,
+  message: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    throw normalizeAuthorityFailure(error, code, message);
+  }
+}
+
+function normalizeAuthorityFailure(
+  error: unknown,
+  code: Extract<
+    StorageRootAuthorityErrorCode,
+    'root_io_failed' | 'control_io_failed' | 'lock_failed'
+  >,
+  message: string,
+): StorageRootAuthorityError {
+  if (error instanceof StorageRootAuthorityError) return error;
+  return new StorageRootAuthorityError(code, message, { cause: error });
+}

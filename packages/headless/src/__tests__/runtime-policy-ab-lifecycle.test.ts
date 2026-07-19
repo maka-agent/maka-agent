@@ -29,7 +29,13 @@ const executionProfile: RuntimePolicyAbExecutionProfile = {
   provider: 'deepseek',
   baseUrl: 'https://api.deepseek.com',
   model: 'deepseek/deepseek-v4-flash',
-  pricing: { inputUsdPer1M: 1, outputUsdPer1M: 1, cacheReadUsdPer1M: 0, cacheWriteUsdPer1M: 0, source: 'test-profile' },
+  pricing: {
+    inputUsdPer1M: 1,
+    outputUsdPer1M: 1,
+    cacheReadUsdPer1M: 0,
+    cacheWriteUsdPer1M: 0,
+    source: 'test-profile',
+  },
   taskBudgetSec: 1800,
   harborTimeoutMs: 2_100_000,
   observedCostStopUsd: 20,
@@ -66,7 +72,10 @@ test('same-run pilot checkpoint gates full execution and resumes completed state
     assert.equal(first.status, 'full_completed');
     assert.equal(first.pilot?.candidate.contextBudget?.activatedAttempts, 1);
     assert.equal(calls.length, 6);
-    assert.equal(calls.every((roundId) => roundId.startsWith('pilot-') || roundId.startsWith('full-')), true);
+    assert.equal(
+      calls.every((roundId) => roundId.startsWith('pilot-') || roundId.startsWith('full-')),
+      true,
+    );
 
     const resumed = await runRuntimePolicyAbLifecycle(input);
     assert.equal(resumed.status, 'full_completed');
@@ -102,11 +111,13 @@ test('rebuilds a legacy terminal lifecycle summary from WAL before returning it'
     };
     await runRuntimePolicyAbLifecycle(input);
     const wal = await readFile(input.resultsJsonlPath, 'utf8');
-    const walEvents = wal.split('\n')
+    const walEvents = wal
+      .split('\n')
       .filter(Boolean)
       .map((line) => JSON.parse(line) as Record<string, any>);
-    const firstFullBaseline = walEvents
-      .find((event) => event.roundId === 'full-ab-prune-off-r0-full');
+    const firstFullBaseline = walEvents.find(
+      (event) => event.roundId === 'full-ab-prune-off-r0-full',
+    );
     assert.ok(firstFullBaseline);
     const staleRetry = {
       ...firstFullBaseline,
@@ -140,7 +151,8 @@ test('rebuilds a legacy terminal lifecycle summary from WAL before returning it'
       scored: false,
       eligible: false,
       errorClass: 'missing_execution_identity',
-      error: 'Harbor cell did not attest the connection, model, prompt, and pricing profile that executed',
+      error:
+        'Harbor cell did not attest the connection, model, prompt, and pricing profile that executed',
     };
     await writeFile(
       input.resultsJsonlPath,
@@ -246,7 +258,13 @@ test('pilot candidate pass against an attested baseline timeout can launch full 
               systemPromptHash: hashSystemPrompt(runInput.systemPrompt),
               pricingProfile: 'test-profile',
             },
-            tokenSummary: tokenSummary({ input: 4, output: 6, reasoning: 0, total: 10, costUsd: 0.01 }),
+            tokenSummary: tokenSummary({
+              input: 4,
+              output: 6,
+              reasoning: 0,
+              total: 10,
+              costUsd: 0.01,
+            }),
           });
         }
         return output(runInput, candidate);
@@ -320,7 +338,9 @@ test('pilot preserves candidate activation from an unattested timeout', async ()
         const candidate = runInput.agentEnv?.MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE === 'on';
         if (runInput.roundId.startsWith('pilot-') && candidate) {
           const { executionIdentity: _, ...cellOutput } = output(runInput, true).cell;
-          throw new FixedPromptBudgetExhaustedError('pilot budget exhausted', undefined, { cellOutput });
+          throw new FixedPromptBudgetExhaustedError('pilot budget exhausted', undefined, {
+            cellOutput,
+          });
         }
         return output(runInput, candidate);
       },
@@ -353,7 +373,10 @@ test('maps an invalid full summary to invalid lifecycle status', async () => {
       ],
       executionProfile,
       harborRunner: async (runInput) => {
-        const result = output(runInput, runInput.agentEnv?.MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE === 'on');
+        const result = output(
+          runInput,
+          runInput.agentEnv?.MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE === 'on',
+        );
         if (runInput.roundId.startsWith('full-')) {
           return {
             ...result,
@@ -387,8 +410,15 @@ function output(input: HarborTaskRunInput, activated: boolean): HarborTaskRunOut
         pricingProfile: 'test-profile',
       },
       tokenSummary: tokenSummary({ input: 4, output: 6, reasoning: 0, total: 10, costUsd: 0.01 }),
-      ...(activated ? { contextBudgetSummary: contextBudgetSummary({ activePrunedToolResults: 1 }) } : {}),
-      toolSummary: { providerVisibleToolCount: 0, actualToolCalls: 0, actualToolNames: [], actualToolCallCounts: {} },
+      ...(activated
+        ? { contextBudgetSummary: contextBudgetSummary({ activePrunedToolResults: 1 }) }
+        : {}),
+      toolSummary: {
+        providerVisibleToolCount: 0,
+        actualToolCalls: 0,
+        actualToolNames: [],
+        actualToolCallCounts: {},
+      },
       steps: 1,
       durationMs: 100,
       startedAt: 0,

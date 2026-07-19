@@ -509,7 +509,9 @@ describe('ProviderAuth contract', () => {
 
     expect(contract.state).toBe('disabled');
     expect(contract.validationStatus).toBe('verified');
-    expect(Object.values(contract.actionAvailability).every((value) => value === 'hidden')).toBe(true);
+    expect(Object.values(contract.actionAvailability).every((value) => value === 'hidden')).toBe(
+      true,
+    );
   });
 
   test('disabled OAuth preview providers do not expose preview actions', () => {
@@ -523,7 +525,9 @@ describe('ProviderAuth contract', () => {
     expect(contract.setupMode).toBe('oauth');
     expect(contract.state).toBe('disabled');
     expect(contract.validationStatus).toBe('verified');
-    expect(Object.values(contract.actionAvailability).every((value) => value === 'hidden')).toBe(true);
+    expect(Object.values(contract.actionAvailability).every((value) => value === 'hidden')).toBe(
+      true,
+    );
   });
 
   test('connection wrapper consumes only metadata plus caller-supplied secret presence', () => {
@@ -556,7 +560,9 @@ describe('ProviderAuth contract', () => {
       hasSecret: true,
     });
 
-    expect(Object.keys(contract.actionAvailability).sort()).toEqual([...PROVIDER_AUTH_ACTIONS].sort());
+    expect(Object.keys(contract.actionAvailability).sort()).toEqual(
+      [...PROVIDER_AUTH_ACTIONS].sort(),
+    );
   });
 });
 
@@ -596,7 +602,11 @@ describe('ProviderAuth contract unknown-providerType fallback', () => {
 
   test('deriveProviderAuthContractFromConnection tolerates an unknown providerType', () => {
     const contract = deriveProviderAuthContractFromConnection(
-      { providerType: 'branch-only-provider' as never, enabled: true, lastTestStatus: undefined } as never,
+      {
+        providerType: 'branch-only-provider' as never,
+        enabled: true,
+        lastTestStatus: undefined,
+      } as never,
       true,
     );
 

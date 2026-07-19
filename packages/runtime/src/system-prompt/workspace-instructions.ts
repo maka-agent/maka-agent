@@ -1,5 +1,6 @@
 import { readFile, realpath } from 'node:fs/promises';
-import { isAbsolute, join, relative, sep } from 'node:path';
+import { join } from 'node:path';
+import { isPathInside } from '../path-containment.js';
 
 /**
  * Read-only workspace-instruction prompt fragment.
@@ -15,11 +16,7 @@ import { isAbsolute, join, relative, sep } from 'node:path';
  * duplicating the read path.
  */
 
-export const WORKSPACE_INSTRUCTION_FILES = [
-  'AGENTS.md',
-  'CLAUDE.md',
-  'GEMINI.md',
-] as const;
+export const WORKSPACE_INSTRUCTION_FILES = ['AGENTS.md', 'CLAUDE.md', 'GEMINI.md'] as const;
 
 export const MAX_WORKSPACE_INSTRUCTION_FILE_CHARS = 6000;
 export const MAX_WORKSPACE_INSTRUCTIONS_PROMPT_CHARS = 14000;
@@ -52,7 +49,9 @@ export interface WorkspaceInstructionsState {
   promptCharLimit: number;
 }
 
-export async function buildWorkspaceInstructionsPromptFragment(cwd: string): Promise<string | undefined> {
+export async function buildWorkspaceInstructionsPromptFragment(
+  cwd: string,
+): Promise<string | undefined> {
   const instructions = await readWorkspaceInstructions(cwd);
   if (instructions.length === 0) return undefined;
 
@@ -64,15 +63,13 @@ export async function buildWorkspaceInstructionsPromptFragment(cwd: string): Pro
   let usedChars = parts.join('\n').length;
 
   for (const instruction of instructions) {
-    const header = [
-      '',
-      `<workspace-instructions file="${instruction.file}">`,
-    ].join('\n');
+    const header = ['', `<workspace-instructions file="${instruction.file}">`].join('\n');
     const footer = [
       instruction.truncated ? '\n[instructions truncated]' : '',
       '</workspace-instructions>',
     ].join('\n');
-    const remaining = MAX_WORKSPACE_INSTRUCTIONS_PROMPT_CHARS - usedChars - header.length - footer.length;
+    const remaining =
+      MAX_WORKSPACE_INSTRUCTIONS_PROMPT_CHARS - usedChars - header.length - footer.length;
     if (remaining <= 80) break;
     const text = truncateCodepoints(instruction.text, remaining);
     const block = `${header}\n${text}${footer}`;
@@ -83,13 +80,17 @@ export async function buildWorkspaceInstructionsPromptFragment(cwd: string): Pro
   return parts.join('\n');
 }
 
-export async function getWorkspaceInstructionsState(cwd: string): Promise<WorkspaceInstructionsState> {
-  const files = (await scanWorkspaceInstructions(cwd)).map(({ file, status, chars, truncated }) => ({
-    file,
-    status,
-    chars,
-    truncated,
-  }));
+export async function getWorkspaceInstructionsState(
+  cwd: string,
+): Promise<WorkspaceInstructionsState> {
+  const files = (await scanWorkspaceInstructions(cwd)).map(
+    ({ file, status, chars, truncated }) => ({
+      file,
+      status,
+      chars,
+      truncated,
+    }),
+  );
   return {
     files,
     detectedCount: files.filter((file) => file.status === 'available').length,
@@ -105,9 +106,9 @@ async function readWorkspaceInstructions(cwd: string): Promise<WorkspaceInstruct
   );
 }
 
-async function scanWorkspaceInstructions(cwd: string): Promise<Array<
-  WorkspaceInstruction & { status: WorkspaceInstructionFileStatus }
->> {
+async function scanWorkspaceInstructions(
+  cwd: string,
+): Promise<Array<WorkspaceInstruction & { status: WorkspaceInstructionFileStatus }>> {
   let root: string;
   try {
     root = await realpath(cwd);
@@ -166,23 +167,4 @@ function truncateCodepoints(text: string, max: number): string {
   const chars = Array.from(text);
   if (chars.length <= max) return text;
   return chars.slice(0, Math.max(0, max)).join('');
-}
-
-export interface PathInsideApi {
-  relative: typeof relative;
-  isAbsolute: typeof isAbsolute;
-  sep: string;
-}
-
-export function isPathInside(root: string, target: string, pathApi: PathInsideApi = { relative, isAbsolute, sep }): boolean {
-  const rel = pathApi.relative(root, target);
-  // path.relative returns the target path unchanged (absolute) when root and
-  // target are on different drives on Windows. An absolute result means the
-  // target is not reachable from root via a relative path, so reject it before
-  // the `..` escape check.
-  if (pathApi.isAbsolute(rel)) return false;
-  // Reject only a real parent-reference segment: the exact ".." or a path
-  // starting with `..${sep}`. A leading ".." followed by anything else (e.g.
-  // "..rules") is a legitimate directory name, not an escape.
-  return rel === '' || (rel !== '..' && !rel.startsWith(`..${pathApi.sep}`));
 }

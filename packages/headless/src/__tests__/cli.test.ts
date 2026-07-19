@@ -22,8 +22,12 @@ function runCli(
     });
     let stdout = '';
     let stderr = '';
-    child.stdout.on('data', (d: Buffer) => { stdout += d.toString('utf8'); });
-    child.stderr.on('data', (d: Buffer) => { stderr += d.toString('utf8'); });
+    child.stdout.on('data', (d: Buffer) => {
+      stdout += d.toString('utf8');
+    });
+    child.stderr.on('data', (d: Buffer) => {
+      stderr += d.toString('utf8');
+    });
     child.on('close', (code) => resolve({ code, stdout, stderr }));
   });
 }
@@ -35,8 +39,15 @@ describe('maka-headless CLI', () => {
 
   test('maps every legacy command family into the unified eval tree', () => {
     assert.deepEqual(mapLegacyMakaHeadlessArgs(['eval', 'spec.json']), ['run', 'spec.json']);
-    assert.deepEqual(mapLegacyMakaHeadlessArgs(['compare', 'results.jsonl']), ['compare', 'results.jsonl']);
-    assert.deepEqual(mapLegacyMakaHeadlessArgs(['task', 'inspect', 'run-1']), ['task-run', 'inspect', 'run-1']);
+    assert.deepEqual(mapLegacyMakaHeadlessArgs(['compare', 'results.jsonl']), [
+      'compare',
+      'results.jsonl',
+    ]);
+    assert.deepEqual(mapLegacyMakaHeadlessArgs(['task', 'inspect', 'run-1']), [
+      'task-run',
+      'inspect',
+      'run-1',
+    ]);
     assert.deepEqual(mapLegacyMakaHeadlessArgs(['harbor', 'run']), ['harbor', 'run']);
     assert.deepEqual(mapLegacyMakaHeadlessArgs(['ahe', 'export']), ['ahe', 'export']);
     assert.equal(mapLegacyMakaHeadlessArgs(['unknown']), null);
@@ -54,7 +65,9 @@ describe('maka-headless CLI', () => {
       await mkdir(join(dir, 'fixture'), { recursive: true });
       await writeFile(join(dir, 'fixture', 'marker.txt'), 'ok', 'utf8');
       const spec = {
-        configs: [{ id: 'fake-cfg', backend: 'fake', llmConnectionSlug: 'fake', model: 'fake-model' }],
+        configs: [
+          { id: 'fake-cfg', backend: 'fake', llmConnectionSlug: 'fake', model: 'fake-model' },
+        ],
         tasks: [
           {
             id: 't-pass',
@@ -105,8 +118,17 @@ describe('maka-headless CLI', () => {
     const dir = await mkdtemp(join(tmpdir(), 'maka-headless-cli-'));
     try {
       const spec = {
-        configs: [{ id: 'fake-cfg', backend: 'fake', llmConnectionSlug: 'fake', model: 'fake-model' }],
-        tasks: [{ id: 't', instruction: 'go', workspaceDir: 'fixture', verification: { command: 'true' } }],
+        configs: [
+          { id: 'fake-cfg', backend: 'fake', llmConnectionSlug: 'fake', model: 'fake-model' },
+        ],
+        tasks: [
+          {
+            id: 't',
+            instruction: 'go',
+            workspaceDir: 'fixture',
+            verification: { command: 'true' },
+          },
+        ],
       };
       const specPath = join(dir, 'spec.json');
       await writeFile(specPath, JSON.stringify(spec), 'utf8');
@@ -123,8 +145,14 @@ describe('maka-headless CLI', () => {
     try {
       const spec = {
         configs: [{ id: 'real', backend: 'ai-sdk', llmConnectionSlug: 'x', model: 'm' }],
-        tasks: [{ id: 't', instruction: 'go', workspaceDir: 'fixture',
-          verification: { command: 'true', protectedPaths: [] } }],
+        tasks: [
+          {
+            id: 't',
+            instruction: 'go',
+            workspaceDir: 'fixture',
+            verification: { command: 'true', protectedPaths: [] },
+          },
+        ],
       };
       const specPath = join(dir, 'spec.json');
       await writeFile(specPath, JSON.stringify(spec), 'utf8');
@@ -176,18 +204,21 @@ describe('maka-headless CLI', () => {
       assert.equal(missingUrl.code, 1);
       assert.match(missingUrl.stderr, /MAKA_HARBOR_TOOL_EXECUTOR_URL is required/);
 
-      const missingToken = await runCli([
-        'harbor',
-        'run',
-        '--backend',
-        'fake',
-        '--isolation',
-        'harbor-http',
-        '--instruction',
-        'solve it',
-        '--workdir',
-        join(dir, 'fixture'),
-      ], { env: { MAKA_HARBOR_TOOL_EXECUTOR_URL: 'http://127.0.0.1:1' } });
+      const missingToken = await runCli(
+        [
+          'harbor',
+          'run',
+          '--backend',
+          'fake',
+          '--isolation',
+          'harbor-http',
+          '--instruction',
+          'solve it',
+          '--workdir',
+          join(dir, 'fixture'),
+        ],
+        { env: { MAKA_HARBOR_TOOL_EXECUTOR_URL: 'http://127.0.0.1:1' } },
+      );
       assert.equal(missingToken.code, 1);
       assert.match(missingToken.stderr, /MAKA_HARBOR_TOOL_EXECUTOR_TOKEN is required/);
     } finally {
@@ -203,25 +234,28 @@ describe('maka-headless CLI', () => {
       await mkdir(fixture, { recursive: true });
       await writeFile(join(fixture, 'README.txt'), 'Harbor owns the task workspace.\n', 'utf8');
 
-      const result = await runCli([
-        'harbor',
-        'run',
-        '--backend',
-        'fake',
-        '--isolation',
-        'none',
-        '--instruction',
-        'solve it',
-        '--workdir',
-        fixture,
-        '--task-id',
-        'tb-real-backend',
-        '--task-run-id',
-        'harbor-run-1',
-        '--out',
-        outDir,
-        '--include-events',
-      ], { env: { MAKA_ECONOMY_TASK_MODE: 'true' } });
+      const result = await runCli(
+        [
+          'harbor',
+          'run',
+          '--backend',
+          'fake',
+          '--isolation',
+          'none',
+          '--instruction',
+          'solve it',
+          '--workdir',
+          fixture,
+          '--task-id',
+          'tb-real-backend',
+          '--task-run-id',
+          'harbor-run-1',
+          '--out',
+          outDir,
+          '--include-events',
+        ],
+        { env: { MAKA_ECONOMY_TASK_MODE: 'true' } },
+      );
       assert.equal(result.code, 0, result.stderr);
       const summary = JSON.parse(result.stdout);
       assert.equal(summary.taskRunId, 'harbor-run-1');
@@ -229,7 +263,9 @@ describe('maka-headless CLI', () => {
       assert.equal(summary.scored, false);
       assert.equal(summary.authoritative, false);
 
-      const taskRunJson = JSON.parse(await readFile(join(outDir, 'exports', 'harbor-run-1', 'task-run.json'), 'utf8'));
+      const taskRunJson = JSON.parse(
+        await readFile(join(outDir, 'exports', 'harbor-run-1', 'task-run.json'), 'utf8'),
+      );
       assert.equal(taskRunJson.policy.economyTask.enabled, true);
       assert.equal(taskRunJson.policy.economyTask.triggerSource, 'config');
       assert.equal(taskRunJson.verifier.kind, 'terminal_bench');
@@ -238,12 +274,18 @@ describe('maka-headless CLI', () => {
       assert.equal(taskRunJson.verifier.benchmark.pendingExternalHarborVerifier, true);
       assert.equal(taskRunJson.verifier.authority.authoritative, false);
       assert.equal(taskRunJson.verifier.authority.label, 'external Harbor verifier pending');
-      const events = await readFile(join(outDir, 'exports', 'harbor-run-1', 'events.jsonl'), 'utf8');
+      const events = await readFile(
+        join(outDir, 'exports', 'harbor-run-1', 'events.jsonl'),
+        'utf8',
+      );
       assert.doesNotMatch(events, /"testCommand":"false"/);
       assert.doesNotMatch(events, /"placeholder":true/);
       assert.doesNotMatch(events, /verificationPlaceholder/);
       assert.doesNotMatch(events, /unsupported local benchmark placeholder/);
-      const resultJson = await readFile(join(outDir, 'exports', 'harbor-run-1', 'result.json'), 'utf8');
+      const resultJson = await readFile(
+        join(outDir, 'exports', 'harbor-run-1', 'result.json'),
+        'utf8',
+      );
       assert.doesNotMatch(resultJson, /verificationPlaceholder/);
       assert.doesNotMatch(resultJson, /unsupported local benchmark placeholder/);
     } finally {
@@ -258,27 +300,35 @@ describe('maka-headless CLI', () => {
       const outDir = join(dir, 'out');
       await mkdir(fixture, { recursive: true });
 
-      const result = await runCli([
-        'harbor',
-        'run',
-        '--backend',
-        'fake',
-        '--isolation',
-        'none',
-        '--instruction',
-        'solve it',
-        '--workdir',
-        fixture,
-        '--task-id',
-        'tb-custom-dataset',
-        '--task-run-id',
-        'harbor-run-custom-dataset',
-        '--out',
-        outDir,
-      ], { env: { MAKA_BENCHMARK_DATASET: 'terminal-bench/custom' } });
+      const result = await runCli(
+        [
+          'harbor',
+          'run',
+          '--backend',
+          'fake',
+          '--isolation',
+          'none',
+          '--instruction',
+          'solve it',
+          '--workdir',
+          fixture,
+          '--task-id',
+          'tb-custom-dataset',
+          '--task-run-id',
+          'harbor-run-custom-dataset',
+          '--out',
+          outDir,
+        ],
+        { env: { MAKA_BENCHMARK_DATASET: 'terminal-bench/custom' } },
+      );
       assert.equal(result.code, 0, result.stderr);
 
-      const taskRunJson = JSON.parse(await readFile(join(outDir, 'exports', 'harbor-run-custom-dataset', 'task-run.json'), 'utf8'));
+      const taskRunJson = JSON.parse(
+        await readFile(
+          join(outDir, 'exports', 'harbor-run-custom-dataset', 'task-run.json'),
+          'utf8',
+        ),
+      );
       assert.equal(taskRunJson.verifier.benchmark.dataset, 'terminal-bench/custom');
     } finally {
       await rm(dir, { recursive: true, force: true });
@@ -289,33 +339,38 @@ describe('maka-headless CLI', () => {
     const dir = await mkdtemp(join(tmpdir(), 'maka-headless-harbor-cli-'));
     try {
       const outDir = join(dir, 'out');
-      const result = await runCli([
-        'harbor',
-        'run',
-        '--backend',
-        'fake',
-        '--isolation',
-        'harbor-http',
-        '--instruction',
-        'solve it',
-        '--workdir',
-        '/app',
-        '--task-id',
-        'tb-remote-workspace',
-        '--task-run-id',
-        'harbor-remote-run-1',
-        '--out',
-        outDir,
-        '--include-events',
-      ], {
-        env: {
-          MAKA_HARBOR_TOOL_EXECUTOR_URL: 'http://127.0.0.1:1',
-          MAKA_HARBOR_TOOL_EXECUTOR_TOKEN: 'test-token',
+      const result = await runCli(
+        [
+          'harbor',
+          'run',
+          '--backend',
+          'fake',
+          '--isolation',
+          'harbor-http',
+          '--instruction',
+          'solve it',
+          '--workdir',
+          '/app',
+          '--task-id',
+          'tb-remote-workspace',
+          '--task-run-id',
+          'harbor-remote-run-1',
+          '--out',
+          outDir,
+          '--include-events',
+        ],
+        {
+          env: {
+            MAKA_HARBOR_TOOL_EXECUTOR_URL: 'http://127.0.0.1:1',
+            MAKA_HARBOR_TOOL_EXECUTOR_TOKEN: 'test-token',
+          },
         },
-      });
+      );
       assert.equal(result.code, 0, result.stderr);
 
-      const taskRunJson = JSON.parse(await readFile(join(outDir, 'exports', 'harbor-remote-run-1', 'task-run.json'), 'utf8'));
+      const taskRunJson = JSON.parse(
+        await readFile(join(outDir, 'exports', 'harbor-remote-run-1', 'task-run.json'), 'utf8'),
+      );
       assert.match(taskRunJson.workspace.lease.sourceWorkspaceDir, /host-workspace-source$/);
       assert.notEqual(taskRunJson.workspace.lease.sourceWorkspaceDir, '/app');
       assert.equal(taskRunJson.isolation.policy.label, 'Harbor task container via host adapter');
@@ -328,9 +383,17 @@ describe('maka-headless CLI', () => {
     const dir = await mkdtemp(join(tmpdir(), 'maka-headless-cli-'));
     try {
       const spec = {
-        configs: [{ id: 'fake-cfg', backend: 'fake', llmConnectionSlug: 'fake', model: 'fake-model' }],
-        tasks: [{ id: 't', instruction: 'go', workspaceDir: 'does-not-exist',
-          verification: { command: 'true', protectedPaths: [] } }],
+        configs: [
+          { id: 'fake-cfg', backend: 'fake', llmConnectionSlug: 'fake', model: 'fake-model' },
+        ],
+        tasks: [
+          {
+            id: 't',
+            instruction: 'go',
+            workspaceDir: 'does-not-exist',
+            verification: { command: 'true', protectedPaths: [] },
+          },
+        ],
       };
       const specPath = join(dir, 'spec.json');
       await writeFile(specPath, JSON.stringify(spec), 'utf8');
@@ -346,9 +409,17 @@ describe('maka-headless CLI', () => {
     try {
       await mkdir(join(dir, 'fixture'), { recursive: true });
       const spec = {
-        configs: [{ id: 'fake-cfg', backend: 'fake', llmConnectionSlug: 'fake', model: 'fake-model' }],
-        tasks: [{ id: 't-fail', instruction: 'go', workspaceDir: 'fixture',
-          verification: { command: 'test -f nope.txt', protectedPaths: [] } }],
+        configs: [
+          { id: 'fake-cfg', backend: 'fake', llmConnectionSlug: 'fake', model: 'fake-model' },
+        ],
+        tasks: [
+          {
+            id: 't-fail',
+            instruction: 'go',
+            workspaceDir: 'fixture',
+            verification: { command: 'test -f nope.txt', protectedPaths: [] },
+          },
+        ],
       };
       const specPath = join(dir, 'spec.json');
       await writeFile(specPath, JSON.stringify(spec), 'utf8');
@@ -368,7 +439,9 @@ describe('maka-headless CLI', () => {
       await mkdir(join(dir, 'fixture'), { recursive: true });
       await writeFile(join(dir, 'fixture', 'marker.txt'), 'ok', 'utf8');
       const spec = {
-        configs: [{ id: 'fake-cfg', backend: 'fake', llmConnectionSlug: 'fake', model: 'fake-model' }],
+        configs: [
+          { id: 'fake-cfg', backend: 'fake', llmConnectionSlug: 'fake', model: 'fake-model' },
+        ],
         tasks: [
           {
             id: 'tb-pass',
@@ -405,7 +478,14 @@ describe('maka-headless CLI', () => {
       assert.equal(run.code, 1);
       assert.match(run.stdout, /taskRunId: task-run-1/);
 
-      const inspect = await runCli(['task', 'inspect', 'task-run-1', '--store', join(outDir, 'runs'), '--json']);
+      const inspect = await runCli([
+        'task',
+        'inspect',
+        'task-run-1',
+        '--store',
+        join(outDir, 'runs'),
+        '--json',
+      ]);
       assert.equal(inspect.code, 0, inspect.stderr);
       const inspectDocument = JSON.parse(inspect.stdout);
       assert.equal(inspectDocument.schemaVersion, 'maka.task_run_inspect.v1');
@@ -413,7 +493,13 @@ describe('maka-headless CLI', () => {
       assert.equal(inspectDocument.taskRun.result.taxonomy, 'verification_failed');
       assert.ok(Array.isArray(inspectDocument.attempts));
 
-      const humanInspect = await runCli(['task', 'inspect', 'task-run-1', '--store', join(outDir, 'runs')]);
+      const humanInspect = await runCli([
+        'task',
+        'inspect',
+        'task-run-1',
+        '--store',
+        join(outDir, 'runs'),
+      ]);
       assert.equal(humanInspect.code, 0, humanInspect.stderr);
       assert.match(humanInspect.stdout, /TaskRun task-run-1 \[/);
       assert.match(humanInspect.stdout, /Task Events task_event:task-run-1/);
@@ -435,7 +521,10 @@ describe('maka-headless CLI', () => {
       assert.equal(taskRunJson.verifier.benchmark.instanceId, 'tb-local');
       assert.equal(taskRunJson.verifier.authority.authoritative, false);
       assert.equal(taskRunJson.verifier.benchmark.verificationPlaceholder, true);
-      assert.match(await readFile(join(exportDir, 'events.jsonl'), 'utf8'), /verifier_result_recorded/);
+      assert.match(
+        await readFile(join(exportDir, 'events.jsonl'), 'utf8'),
+        /verifier_result_recorded/,
+      );
 
       const aheExportDir = join(dir, 'ahe-export');
       const aheExported = await runCli([
@@ -452,7 +541,9 @@ describe('maka-headless CLI', () => {
       ]);
       assert.equal(aheExported.code, 0, aheExported.stderr);
       assert.match(aheExported.stdout, /harnessResults:/);
-      const aheResults = JSON.parse(await readFile(join(aheExportDir, 'harness-results.json'), 'utf8'));
+      const aheResults = JSON.parse(
+        await readFile(join(aheExportDir, 'harness-results.json'), 'utf8'),
+      );
       assert.equal(aheResults.results[0].status, 'excluded');
       assert.equal(aheResults.results[0].scoreAuthority, 'self_check');
       assert.equal(aheResults.results[0].taskRunId, 'task-run-1');
@@ -461,13 +552,36 @@ describe('maka-headless CLI', () => {
       assert.match(aheTraceIndex, /traces\/task-run-1\/result.md/);
       assert.match(aheTraceIndex, /task-events.jsonl/);
       assert.doesNotMatch(aheTraceIndex, /"runtimeEventsJsonl"/);
-      const aheLineage = JSON.parse(await readFile(join(aheExportDir, 'traces', 'task-run-1', 'execution-lineage.json'), 'utf8'));
+      const aheLineage = JSON.parse(
+        await readFile(
+          join(aheExportDir, 'traces', 'task-run-1', 'execution-lineage.json'),
+          'utf8',
+        ),
+      );
       assert.equal(aheLineage.rawRuntimeEvents, 'included');
       assert.equal(aheLineage.attempts[0].executions.length > 0, true);
-      assert.match(aheLineage.attempts[0].executions[0].inspectRef.ref, /agent-runs\/.+\/inspect.json$/);
-      assert.match(aheLineage.attempts[0].executions[0].runtimeEventsRef.ref, /agent-runs\/.+\/runtime-events.jsonl$/);
-      assert.match(await readFile(join(aheExportDir, aheLineage.attempts[0].executions[0].inspectRef.ref), 'utf8'), /maka.agent_run_inspect.v1/);
-      assert.match(await readFile(join(aheExportDir, aheLineage.attempts[0].executions[0].runtimeEventsRef.ref), 'utf8'), /"runId"/);
+      assert.match(
+        aheLineage.attempts[0].executions[0].inspectRef.ref,
+        /agent-runs\/.+\/inspect.json$/,
+      );
+      assert.match(
+        aheLineage.attempts[0].executions[0].runtimeEventsRef.ref,
+        /agent-runs\/.+\/runtime-events.jsonl$/,
+      );
+      assert.match(
+        await readFile(
+          join(aheExportDir, aheLineage.attempts[0].executions[0].inspectRef.ref),
+          'utf8',
+        ),
+        /maka.agent_run_inspect.v1/,
+      );
+      assert.match(
+        await readFile(
+          join(aheExportDir, aheLineage.attempts[0].executions[0].runtimeEventsRef.ref),
+          'utf8',
+        ),
+        /"runId"/,
+      );
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -479,7 +593,9 @@ describe('maka-headless CLI', () => {
       await mkdir(join(dir, 'fixture'), { recursive: true });
       await writeFile(join(dir, 'fixture', 'marker.txt'), 'ok', 'utf8');
       const spec = {
-        configs: [{ id: 'fake-cfg', backend: 'fake', llmConnectionSlug: 'fake', model: 'fake-model' }],
+        configs: [
+          { id: 'fake-cfg', backend: 'fake', llmConnectionSlug: 'fake', model: 'fake-model' },
+        ],
         tasks: [
           {
             id: 'approval-task',
@@ -495,63 +611,89 @@ describe('maka-headless CLI', () => {
       const firstAttemptId = `${taskRunId}-attempt-1`;
       await writeFile(specPath, JSON.stringify(spec), 'utf8');
       await mkdir(join(outDir, 'runs', 'task-runs'), { recursive: true });
-      await writeFile(join(outDir, 'runs', 'task-runs', `${taskRunId}.jsonl`), [
-        JSON.stringify({ type: 'task_run_created', id: 'e1', taskRunId, ts: 1, taskId: 'approval-task', configId: 'fake-cfg' }),
-        JSON.stringify({
-          type: 'task_run_started',
-          id: 'e2',
-          taskRunId,
-          ts: 2,
-          startedAt: 2,
-          sessionId: 'session-1',
-          agentRunId: 'agent-1',
-        }),
-        JSON.stringify({
-          type: 'task_attempt_started',
-          id: 'e3',
-          taskRunId,
-          ts: 2,
-          attemptId: firstAttemptId,
-          startedAt: 2,
-          sessionId: 'session-1',
-          agentRunId: 'agent-1',
-        }),
-        JSON.stringify({
-          type: 'task_inbox_item_recorded',
-          id: 'e4',
-          taskRunId,
-          ts: 3,
-          item: {
-            schemaVersion: 1,
-            inboxItemId: 'inbox-1',
+      await writeFile(
+        join(outDir, 'runs', 'task-runs', `${taskRunId}.jsonl`),
+        [
+          JSON.stringify({
+            type: 'task_run_created',
+            id: 'e1',
             taskRunId,
+            ts: 1,
+            taskId: 'approval-task',
+            configId: 'fake-cfg',
+          }),
+          JSON.stringify({
+            type: 'task_run_started',
+            id: 'e2',
+            taskRunId,
+            ts: 2,
+            startedAt: 2,
+            sessionId: 'session-1',
+            agentRunId: 'agent-1',
+          }),
+          JSON.stringify({
+            type: 'task_attempt_started',
+            id: 'e3',
+            taskRunId,
+            ts: 2,
             attemptId: firstAttemptId,
-            kind: 'approval_request',
-            status: 'open',
-            title: 'Approval required',
-            reason: 'Bash requires approval',
-            createdAt: 3,
-            relatedRequestId: 'request-1',
-          },
-        }),
-        JSON.stringify({
-          type: 'task_run_needs_approval',
-          id: 'e5',
-          taskRunId,
-          ts: 3,
-          attemptId: firstAttemptId,
-          reason: 'approval',
-          inboxItemId: 'inbox-1',
-        }),
-        '',
-      ].join('\n'), 'utf8');
+            startedAt: 2,
+            sessionId: 'session-1',
+            agentRunId: 'agent-1',
+          }),
+          JSON.stringify({
+            type: 'task_inbox_item_recorded',
+            id: 'e4',
+            taskRunId,
+            ts: 3,
+            item: {
+              schemaVersion: 1,
+              inboxItemId: 'inbox-1',
+              taskRunId,
+              attemptId: firstAttemptId,
+              kind: 'approval_request',
+              status: 'open',
+              title: 'Approval required',
+              reason: 'Bash requires approval',
+              createdAt: 3,
+              relatedRequestId: 'request-1',
+            },
+          }),
+          JSON.stringify({
+            type: 'task_run_needs_approval',
+            id: 'e5',
+            taskRunId,
+            ts: 3,
+            attemptId: firstAttemptId,
+            reason: 'approval',
+            inboxItemId: 'inbox-1',
+          }),
+          '',
+        ].join('\n'),
+        'utf8',
+      );
 
-      const resumed = await runCli(['task', 'resume', taskRunId, '--spec', specPath, '--out', outDir]);
+      const resumed = await runCli([
+        'task',
+        'resume',
+        taskRunId,
+        '--spec',
+        specPath,
+        '--out',
+        outDir,
+      ]);
       assert.equal(resumed.code, 0, resumed.stderr);
       assert.match(resumed.stdout, /resumed: parked-run/);
       assert.match(resumed.stdout, /status: completed/);
 
-      const inspect = await runCli(['task', 'inspect', taskRunId, '--store', join(outDir, 'runs'), '--json']);
+      const inspect = await runCli([
+        'task',
+        'inspect',
+        taskRunId,
+        '--store',
+        join(outDir, 'runs'),
+        '--json',
+      ]);
       assert.equal(inspect.code, 0, inspect.stderr);
       const projected = JSON.parse(inspect.stdout);
       assert.equal(projected.taskRun.status, 'completed');
@@ -560,7 +702,9 @@ describe('maka-headless CLI', () => {
       assert.equal(projected.attempts.length, 2);
       assert.equal(projected.taskRun.parked, undefined);
 
-      const exported = JSON.parse(await readFile(join(outDir, 'exports', taskRunId, 'task-run.json'), 'utf8'));
+      const exported = JSON.parse(
+        await readFile(join(outDir, 'exports', taskRunId, 'task-run.json'), 'utf8'),
+      );
       assert.equal(exported.taskRun.status, 'completed');
       assert.equal(exported.inbox.items[0].status, 'resolved');
 
@@ -578,30 +722,66 @@ describe('maka-headless CLI', () => {
     try {
       await mkdir(join(dir, 'fixture'), { recursive: true });
       const spec = {
-        configs: [{ id: 'fake-cfg', backend: 'fake', llmConnectionSlug: 'fake', model: 'fake-model' }],
+        configs: [
+          { id: 'fake-cfg', backend: 'fake', llmConnectionSlug: 'fake', model: 'fake-model' },
+        ],
         tasks: [
-          { id: 'pass', instruction: 'go', workspaceDir: 'fixture', verification: { command: 'true', protectedPaths: [] } },
-          { id: 'retry-me', instruction: 'go', workspaceDir: 'fixture', verification: { command: 'true', protectedPaths: [] } },
-          { id: 'unsupported', instruction: 'go', workspaceDir: 'fixture', verification: { command: 'true', protectedPaths: [] } },
+          {
+            id: 'pass',
+            instruction: 'go',
+            workspaceDir: 'fixture',
+            verification: { command: 'true', protectedPaths: [] },
+          },
+          {
+            id: 'retry-me',
+            instruction: 'go',
+            workspaceDir: 'fixture',
+            verification: { command: 'true', protectedPaths: [] },
+          },
+          {
+            id: 'unsupported',
+            instruction: 'go',
+            workspaceDir: 'fixture',
+            verification: { command: 'true', protectedPaths: [] },
+          },
         ],
       };
       const specPath = join(dir, 'spec.json');
       const priorPath = join(dir, 'prior-results.jsonl');
       await writeFile(specPath, JSON.stringify(spec), 'utf8');
-      await writeFile(priorPath, [
-        JSON.stringify(record('pass', 'fake-cfg', true)),
-        JSON.stringify(record('retry-me', 'fake-cfg', false, { errorClass: 'verification_failed', exitCode: 1 })),
-        JSON.stringify(record('unsupported', 'fake-cfg', false, {
-          errorClass: 'unsupported_adapter',
-          excludedReason: 'unsupported_adapter',
-          error: 'adapter missing',
-          exitCode: null,
-        })),
-        '',
-      ].join('\n'), 'utf8');
+      await writeFile(
+        priorPath,
+        [
+          JSON.stringify(record('pass', 'fake-cfg', true)),
+          JSON.stringify(
+            record('retry-me', 'fake-cfg', false, {
+              errorClass: 'verification_failed',
+              exitCode: 1,
+            }),
+          ),
+          JSON.stringify(
+            record('unsupported', 'fake-cfg', false, {
+              errorClass: 'unsupported_adapter',
+              excludedReason: 'unsupported_adapter',
+              error: 'adapter missing',
+              exitCode: null,
+            }),
+          ),
+          '',
+        ].join('\n'),
+        'utf8',
+      );
 
       const outDir = join(dir, 'out');
-      const result = await runCli(['task', 'retry-failed', priorPath, '--spec', specPath, '--out', outDir]);
+      const result = await runCli([
+        'task',
+        'retry-failed',
+        priorPath,
+        '--spec',
+        specPath,
+        '--out',
+        outDir,
+      ]);
       assert.equal(result.code, 0, result.stderr);
       assert.match(result.stdout, /retry retry-me/);
       assert.match(result.stdout, /skip unsupported/);
@@ -616,7 +796,12 @@ describe('maka-headless CLI', () => {
   });
 });
 
-function record(taskId: string, configId: string, passed: boolean, extra: Record<string, unknown> = {}) {
+function record(
+  taskId: string,
+  configId: string,
+  passed: boolean,
+  extra: Record<string, unknown> = {},
+) {
   return {
     taskId,
     configId,

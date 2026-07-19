@@ -1,8 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import {
-  resolvePromptOptimizationProfile,
-} from '../prompt-optimization-profile.js';
+import { resolvePromptOptimizationProfile } from '../prompt-optimization-profile.js';
 
 describe('prompt optimization profile', () => {
   test('defaults unattended prompt optimization runs to the pilot profile', () => {

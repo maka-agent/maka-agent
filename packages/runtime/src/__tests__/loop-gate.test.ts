@@ -16,7 +16,10 @@ import {
 import { PermissionEngine } from '../permission-engine.js';
 
 type ShellRunToolResult = Extract<ToolResultContent, { kind: 'shell_run' }>;
-type ObservedShellRunStatus = Extract<ShellRunToolResult['status'], 'failed' | 'timed_out' | 'cancelled' | 'orphaned'>;
+type ObservedShellRunStatus = Extract<
+  ShellRunToolResult['status'],
+  'failed' | 'timed_out' | 'cancelled' | 'orphaned'
+>;
 const observedShellRunStatuses = [
   'failed',
   'timed_out',
@@ -38,6 +41,7 @@ function header(): SessionHeader {
     createdAt: 1,
     lastUsedAt: 1,
     name: 'Test',
+    titleIsManual: true,
     isFlagged: false,
     labels: [],
     isArchived: false,
@@ -72,7 +76,9 @@ function makeHarness(): Harness {
     header: header(),
     connection: { providerType: 'openai', slug: 'c' } as never,
     modelId: 'm',
-    appendMessage: async (m) => { appended.push(m); },
+    appendMessage: async (m) => {
+      appended.push(m);
+    },
     permissionEngine: engine,
     newId: () => `id-${++n}`,
     now: () => 1,
@@ -91,7 +97,10 @@ function makeTool(name: string, impl: string[]): MakaTool {
     description: name,
     parameters: z.object({}).passthrough(),
     permissionRequired: false,
-    impl: (args) => { impl.push(`${name}:${JSON.stringify(args)}`); return { ok: true }; },
+    impl: (args) => {
+      impl.push(`${name}:${JSON.stringify(args)}`);
+      return { ok: true };
+    },
   };
 }
 
@@ -102,13 +111,21 @@ function makeFailingTool(name: string, impl: string[], message = 'boom'): MakaTo
     description: name,
     parameters: z.object({}).passthrough(),
     permissionRequired: false,
-    impl: (args) => { impl.push(`${name}:${JSON.stringify(args)}`); throw new Error(message); },
+    impl: (args) => {
+      impl.push(`${name}:${JSON.stringify(args)}`);
+      throw new Error(message);
+    },
   };
 }
 
 // A tool whose outcome flips with `box.fail`, so one tool can both fail and
 // succeed across calls (for the success-resets-the-streak case).
-function makeFlakyTool(name: string, impl: string[], box: { fail: boolean }, message = 'boom'): MakaTool {
+function makeFlakyTool(
+  name: string,
+  impl: string[],
+  box: { fail: boolean },
+  message = 'boom',
+): MakaTool {
   return {
     name,
     description: name,
@@ -174,11 +191,12 @@ function makeShellRunTool(name: string, impl: string[], status: ObservedShellRun
           ? { failureMessage: 'missing live shell process handle' }
           : {
               exitCode: status === 'timed_out' ? 124 : status === 'cancelled' ? 130 : 1,
-              failureMessage: status === 'timed_out'
-                ? 'Command timed out after 10000ms'
-                : status === 'cancelled'
-                  ? 'Command cancelled'
-                  : 'Command failed',
+              failureMessage:
+                status === 'timed_out'
+                  ? 'Command timed out after 10000ms'
+                  : status === 'cancelled'
+                    ? 'Command cancelled'
+                    : 'Command failed',
             }),
         revision: 2,
         output: {
@@ -194,10 +212,7 @@ function makeShellRunTool(name: string, impl: string[], status: ObservedShellRun
   };
 }
 
-function makeComputerFailureTool(
-  impl: string[],
-  failureClass?: 'ambiguous_target',
-): MakaTool {
+function makeComputerFailureTool(impl: string[], failureClass?: 'ambiguous_target'): MakaTool {
   return {
     name: 'maka_computer',
     description: 'computer',
@@ -248,11 +263,21 @@ describe('loop-gate for repeated identical FAILING tool calls', () => {
     const results: unknown[] = [];
     for (let i = 0; i < LOOP_GATE_IDENTICAL_THRESHOLD; i++) results.push(await call(h, t, args));
 
-    assert.equal(h.impl.length, LOOP_GATE_IDENTICAL_THRESHOLD - 1, 'only the calls before the gate ran');
-    assert.deepEqual(results[LOOP_GATE_IDENTICAL_THRESHOLD - 1], { error: formatLoopGateText('Edit') });
+    assert.equal(
+      h.impl.length,
+      LOOP_GATE_IDENTICAL_THRESHOLD - 1,
+      'only the calls before the gate ran',
+    );
+    assert.deepEqual(results[LOOP_GATE_IDENTICAL_THRESHOLD - 1], {
+      error: formatLoopGateText('Edit'),
+    });
 
     const again = await call(h, t, args);
-    assert.deepEqual(again, { error: formatLoopGateText('Edit') }, 'further identical calls stay blocked');
+    assert.deepEqual(
+      again,
+      { error: formatLoopGateText('Edit') },
+      'further identical calls stay blocked',
+    );
     assert.equal(h.impl.length, LOOP_GATE_IDENTICAL_THRESHOLD - 1, 'no further impl runs');
   });
 
@@ -266,7 +291,11 @@ describe('loop-gate for repeated identical FAILING tool calls', () => {
     for (let i = 0; i < runs; i++) results.push(await call(h, poll, args));
 
     assert.equal(h.impl.length, runs, 'every successful poll ran');
-    assert.deepEqual(results, Array.from({ length: runs }, () => ({ ok: true })), 'no poll was gated');
+    assert.deepEqual(
+      results,
+      Array.from({ length: runs }, () => ({ ok: true })),
+      'no poll was gated',
+    );
   });
 
   test('a success between failures resets the streak', async () => {
@@ -283,12 +312,20 @@ describe('loop-gate for repeated identical FAILING tool calls', () => {
     await call(h, t, args); // fail → streak 1
     const stillRuns = await call(h, t, args); // fail → streak 2 (was 1 at the gate, so it ran)
 
-    assert.deepEqual(stillRuns, { error: 'boom' }, 'the success reset the streak, so this still ran');
+    assert.deepEqual(
+      stillRuns,
+      { error: 'boom' },
+      'the success reset the streak, so this still ran',
+    );
     assert.equal(h.impl.length, 4, 'all four ran — the success prevented an early block');
 
     // Only now, after two fresh back-to-back failures, is the next identical call blocked.
     const blocked = await call(h, t, args);
-    assert.deepEqual(blocked, { error: formatLoopGateText('Bash') }, 'blocked after two fresh failures');
+    assert.deepEqual(
+      blocked,
+      { error: formatLoopGateText('Bash') },
+      'blocked after two fresh failures',
+    );
     assert.equal(h.impl.length, 4, 'the blocked call did not run');
   });
 
@@ -351,8 +388,16 @@ describe('loop-gate for repeated identical FAILING tool calls', () => {
     const r2 = await call(h, gated, args);
     const r3 = await call(h, gated, args);
 
-    assert.deepEqual(r1, { error: formatDeferredNotLoadedText('browser_click') }, 'first: load hint');
-    assert.deepEqual(r2, { error: formatDeferredNotLoadedText('browser_click') }, 'second: load hint');
+    assert.deepEqual(
+      r1,
+      { error: formatDeferredNotLoadedText('browser_click') },
+      'first: load hint',
+    );
+    assert.deepEqual(
+      r2,
+      { error: formatDeferredNotLoadedText('browser_click') },
+      'second: load hint',
+    );
     assert.deepEqual(r3, { error: formatLoopGateText('browser_click') }, 'third: loop-gated');
     assert.equal(h.impl.length, 0, 'the gated tool never actually ran');
   });
@@ -373,7 +418,11 @@ describe('loop-gate for repeated identical FAILING tool calls', () => {
     // 3rd back-to-back failure and is blocked. This is exactly why send() must
     // reset per turn rather than relying on the turn id alone.
     const withoutReset = await call(h, t, args, 'turn-2');
-    assert.deepEqual(withoutReset, { error: formatLoopGateText('Edit') }, 'without a reset the streak leaks across turns');
+    assert.deepEqual(
+      withoutReset,
+      { error: formatLoopGateText('Edit') },
+      'without a reset the streak leaks across turns',
+    );
 
     // send() resets ToolRuntime at each turn boundary (at turn start, and via
     // cleanupAfterTurn at turn end). After the reset, the same call is the first
@@ -381,7 +430,11 @@ describe('loop-gate for repeated identical FAILING tool calls', () => {
     // 3rd repeat.
     h.runtime.resetTurnState();
     const afterReset = await call(h, t, args, 'turn-3');
-    assert.deepEqual(afterReset, { error: 'boom' }, 'after the per-turn reset the identical call runs again');
+    assert.deepEqual(
+      afterReset,
+      { error: 'boom' },
+      'after the per-turn reset the identical call runs again',
+    );
     assert.equal(h.impl.length, 3, 'the post-reset call ran');
   });
 
@@ -395,11 +448,23 @@ describe('loop-gate for repeated identical FAILING tool calls', () => {
     const results: unknown[] = [];
     for (let i = 0; i < LOOP_GATE_IDENTICAL_THRESHOLD; i++) results.push(await call(h, t, args));
 
-    assert.equal(h.impl.length, LOOP_GATE_IDENTICAL_THRESHOLD - 1, 'impl ran only before the gate fired');
+    assert.equal(
+      h.impl.length,
+      LOOP_GATE_IDENTICAL_THRESHOLD - 1,
+      'impl ran only before the gate fired',
+    );
     for (let i = 0; i < LOOP_GATE_IDENTICAL_THRESHOLD - 1; i++) {
-      assert.equal((results[i] as { kind?: string }).kind, 'terminal', 'failing runs still return their terminal output');
+      assert.equal(
+        (results[i] as { kind?: string }).kind,
+        'terminal',
+        'failing runs still return their terminal output',
+      );
     }
-    assert.deepEqual(results[LOOP_GATE_IDENTICAL_THRESHOLD - 1], { error: formatLoopGateText('Bash') }, 'the Nth identical failure is gated');
+    assert.deepEqual(
+      results[LOOP_GATE_IDENTICAL_THRESHOLD - 1],
+      { error: formatLoopGateText('Bash') },
+      'the Nth identical failure is gated',
+    );
   });
 
   test('a returned terminal result with exit 0 is a success — polling is not gated', async () => {
@@ -464,7 +529,11 @@ describe('loop-gate for repeated identical FAILING tool calls', () => {
       element_id: 'renumbered-duplicate',
     });
     assert.deepEqual(second, { error: formatAmbiguousComputerLoopGateText() });
-    assert.equal(h.impl.length, 2, 'observe runs but the repeated mutation never reaches the backend');
+    assert.equal(
+      h.impl.length,
+      2,
+      'observe runs but the repeated mutation never reaches the backend',
+    );
   });
 
   test('repeated shell_run observations are not loop-gated by process status', async () => {

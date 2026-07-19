@@ -1,5 +1,5 @@
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -9,7 +9,12 @@ import type { AgentRunEvent, AgentRunHeader, RuntimeEvent } from '@maka/core';
 describe('AgentRunStore', () => {
   it('creates, reads, updates, and lists runs under a session', async () => {
     await withStore(async (store, root) => {
-      const first = makeHeader({ runId: 'run-1', invocationId: 'invocation-1', createdAt: 1, updatedAt: 1 });
+      const first = makeHeader({
+        runId: 'run-1',
+        invocationId: 'invocation-1',
+        createdAt: 1,
+        updatedAt: 1,
+      });
       const second = makeHeader({ runId: 'run-2', turnId: 'turn-2', createdAt: 2, updatedAt: 2 });
 
       await store.createRun(second);
@@ -24,9 +29,14 @@ describe('AgentRunStore', () => {
       assert.equal(read.status, 'completed');
       assert.equal(read.completedAt, 10);
       assert.equal(read.invocationId, 'invocation-1');
-      assert.deepEqual((await store.listSessionRuns('session-1')).map((run) => run.runId), ['run-1', 'run-2']);
+      assert.deepEqual(
+        (await store.listSessionRuns('session-1')).map((run) => run.runId),
+        ['run-1', 'run-2'],
+      );
       assert.equal(
-        JSON.parse(await readFile(join(root, 'sessions', 'session-1', 'runs', 'run-1', 'run.json'), 'utf8')).runId,
+        JSON.parse(
+          await readFile(join(root, 'sessions', 'session-1', 'runs', 'run-1', 'run.json'), 'utf8'),
+        ).runId,
         'run-1',
       );
     });
@@ -36,7 +46,11 @@ describe('AgentRunStore', () => {
     await withStore(async (store, root) => {
       await store.createRun(makeHeader());
       const runPath = join(root, 'sessions', 'session-1', 'runs', 'run-1', 'run.json');
-      await writeFile(runPath, JSON.stringify({ runId: 'run-1', sessionId: 'session-1' }) + '\n', 'utf8');
+      await writeFile(
+        runPath,
+        JSON.stringify({ runId: 'run-1', sessionId: 'session-1' }) + '\n',
+        'utf8',
+      );
 
       await assert.rejects(
         () => store.readRun('session-1', 'run-1'),
@@ -50,30 +64,50 @@ describe('AgentRunStore', () => {
     await withStore(async (store, root) => {
       await store.createRun(makeHeader());
       const runPath = join(root, 'sessions', 'session-1', 'runs', 'run-1', 'run.json');
-      const invalid = JSON.stringify({
-        runId: 'run-1',
-        sessionId: 'session-1',
-        turnId: 'turn-1',
-        status: 'running',
-        backendKind: 'fake',
-        llmConnectionSlug: 'fake',
-        modelId: 'fake-model',
-        cwd: '/tmp/cwd',
-        permissionMode: 'ask',
-        createdAt: 1,
-        updatedAt: 'soon',
-      }, null, 2) + '\n';
+      const invalid =
+        JSON.stringify(
+          {
+            runId: 'run-1',
+            sessionId: 'session-1',
+            turnId: 'turn-1',
+            status: 'running',
+            backendKind: 'fake',
+            llmConnectionSlug: 'fake',
+            modelId: 'fake-model',
+            cwd: '/tmp/cwd',
+            permissionMode: 'ask',
+            createdAt: 1,
+            updatedAt: 'soon',
+          },
+          null,
+          2,
+        ) + '\n';
       await writeFile(runPath, invalid, 'utf8');
 
       await assert.rejects(
-        () => store.updateRun('session-1', 'run-1', {
-          status: 'completed',
-          completedAt: 10,
-          updatedAt: 10,
-        }),
+        () =>
+          store.updateRun('session-1', 'run-1', {
+            status: 'completed',
+            completedAt: 10,
+            updatedAt: 10,
+          }),
         /Invalid AgentRun header for run run-1: malformed fields/,
       );
       assert.equal(await readFile(runPath, 'utf8'), invalid);
+    });
+  });
+
+  it('rejects malformed optional run header fields', async () => {
+    await withStore(async (store, root) => {
+      const runPath = join(root, 'sessions', 'session-1', 'runs', 'run-1', 'run.json');
+      for (const patch of [{ automationId: 42 }, { abortSource: false }]) {
+        await mkdir(dirname(runPath), { recursive: true });
+        await writeFile(runPath, JSON.stringify({ ...makeHeader(), ...patch }) + '\n', 'utf8');
+        await assert.rejects(
+          () => store.readRun('session-1', 'run-1'),
+          /Invalid AgentRun header for run run-1: malformed fields/,
+        );
+      }
     });
   });
 
@@ -81,9 +115,11 @@ describe('AgentRunStore', () => {
     await withStore(async (store) => {
       await store.createRun(makeHeader());
 
-      await Promise.all(Array.from({ length: 20 }, (_, index) =>
-        store.appendEvent('session-1', 'run-1', makeEvent({ id: `event-${index}`, ts: index })),
-      ));
+      await Promise.all(
+        Array.from({ length: 20 }, (_, index) =>
+          store.appendEvent('session-1', 'run-1', makeEvent({ id: `event-${index}`, ts: index })),
+        ),
+      );
 
       const events = await store.readEvents('session-1', 'run-1');
       assert.equal(events.length, 20);
@@ -100,21 +136,22 @@ describe('AgentRunStore', () => {
         ): Promise<AgentRunEvent | null | undefined>;
       };
       await store.createRun(makeHeader({ runId: 'run-accepted' }));
-      const checkpointEvent = (runId: string, eventCount: number): AgentRunEvent => makeEvent({
-        type: 'history_compact_checkpoint_recorded',
-        id: `checkpoint-${runId}`,
-        runId,
-        turnId: `turn-${runId}`,
-        data: {
-          checkpoint: {
-            kind: 'maka.history_compact_checkpoint',
-            version: 2,
-            checkpointId: `hcheckpoint-${runId}`,
-            sessionId: 'session-1',
-            coverage: { eventCount },
+      const checkpointEvent = (runId: string, eventCount: number): AgentRunEvent =>
+        makeEvent({
+          type: 'history_compact_checkpoint_recorded',
+          id: `checkpoint-${runId}`,
+          runId,
+          turnId: `turn-${runId}`,
+          data: {
+            checkpoint: {
+              kind: 'maka.history_compact_checkpoint',
+              version: 2,
+              checkpointId: `hcheckpoint-${runId}`,
+              sessionId: 'session-1',
+              coverage: { eventCount },
+            },
           },
-        },
-      });
+        });
 
       await store.appendEvent('session-1', 'run-accepted', checkpointEvent('run-accepted', 3));
 
@@ -123,8 +160,8 @@ describe('AgentRunStore', () => {
         'history_compact_checkpoint_recorded',
       );
       assert.equal(
-        projected?.data?.checkpoint
-          && (projected.data.checkpoint as { checkpointId?: string }).checkpointId,
+        projected?.data?.checkpoint &&
+          (projected.data.checkpoint as { checkpointId?: string }).checkpointId,
         'hcheckpoint-run-accepted',
       );
     });
@@ -142,7 +179,10 @@ describe('AgentRunStore', () => {
       await store.createRun(makeHeader());
 
       assert.equal(
-        await projectionStore.readEventProjection('session-1', 'history_compact_checkpoint_recorded'),
+        await projectionStore.readEventProjection(
+          'session-1',
+          'history_compact_checkpoint_recorded',
+        ),
         null,
       );
     });
@@ -157,18 +197,23 @@ describe('AgentRunStore', () => {
         ): Promise<AgentRunEvent | null | undefined>;
       };
       await store.createRun(makeHeader({ runId: 'run-before-crash' }));
-      await rm(join(
-        root,
-        'sessions',
-        'session-1',
-        'projections',
-        'history_compact_checkpoint_recorded.json',
-      ));
+      await rm(
+        join(
+          root,
+          'sessions',
+          'session-1',
+          'projections',
+          'history_compact_checkpoint_recorded.json',
+        ),
+      );
 
       await store.createRun(makeHeader({ runId: 'run-after-restart' }));
 
       assert.equal(
-        await projectionStore.readEventProjection('session-1', 'history_compact_checkpoint_recorded'),
+        await projectionStore.readEventProjection(
+          'session-1',
+          'history_compact_checkpoint_recorded',
+        ),
         undefined,
       );
     });
@@ -187,33 +232,36 @@ describe('AgentRunStore', () => {
           event: AgentRunEvent | null,
         ): Promise<void>;
       };
-      const checkpointEvent = (runId: string, eventCount: number): AgentRunEvent => makeEvent({
-        type: 'history_compact_checkpoint_recorded',
-        id: `checkpoint-${runId}`,
-        runId,
-        turnId: `turn-${runId}`,
-        data: {
-          checkpoint: {
-            kind: 'maka.history_compact_checkpoint',
-            version: 2,
-            checkpointId: `hcheckpoint-${runId}`,
-            sessionId: 'session-1',
-            coverage: { eventCount },
+      const checkpointEvent = (runId: string, eventCount: number): AgentRunEvent =>
+        makeEvent({
+          type: 'history_compact_checkpoint_recorded',
+          id: `checkpoint-${runId}`,
+          runId,
+          turnId: `turn-${runId}`,
+          data: {
+            checkpoint: {
+              kind: 'maka.history_compact_checkpoint',
+              version: 2,
+              checkpointId: `hcheckpoint-${runId}`,
+              sessionId: 'session-1',
+              coverage: { eventCount },
+            },
           },
-        },
-      });
+        });
       const stale = checkpointEvent('run-stale-repair', 1);
       const further = checkpointEvent('run-further-write', 2);
       await store.createRun(makeHeader({ runId: stale.runId }));
       await store.createRun(makeHeader({ runId: further.runId }));
       await store.appendEvent('session-1', stale.runId, stale);
-      await rm(join(
-        root,
-        'sessions',
-        'session-1',
-        'projections',
-        'history_compact_checkpoint_recorded.json',
-      ));
+      await rm(
+        join(
+          root,
+          'sessions',
+          'session-1',
+          'projections',
+          'history_compact_checkpoint_recorded.json',
+        ),
+      );
 
       await store.appendEvent('session-1', further.runId, further);
       await projectionStore.repairEventProjection(
@@ -263,10 +311,12 @@ describe('AgentRunStore', () => {
       await store.appendEvent('session-1', legacy.runId, legacy);
 
       assert.equal(
-        (await projectionStore.readEventProjection(
-          'session-1',
-          'history_compact_checkpoint_recorded',
-        ))?.id,
+        (
+          await projectionStore.readEventProjection(
+            'session-1',
+            'history_compact_checkpoint_recorded',
+          )
+        )?.id,
         sourceBound.id,
       );
 
@@ -352,31 +402,33 @@ describe('AgentRunStore', () => {
         ): Promise<AgentRunEvent | null | undefined>;
       };
       await store.createRun(makeHeader());
-      const checkpointEvent = (checkpointId: string, eventCount: number): AgentRunEvent => makeEvent({
-        type: 'history_compact_checkpoint_recorded',
-        data: {
-          checkpoint: {
-            kind: 'maka.history_compact_checkpoint',
-            version: 2,
-            checkpointId,
-            sessionId: 'session-1',
-            coverage: { eventCount },
+      const checkpointEvent = (checkpointId: string, eventCount: number): AgentRunEvent =>
+        makeEvent({
+          type: 'history_compact_checkpoint_recorded',
+          data: {
+            checkpoint: {
+              kind: 'maka.history_compact_checkpoint',
+              version: 2,
+              checkpointId,
+              sessionId: 'session-1',
+              coverage: { eventCount },
+            },
           },
-        },
-      });
+        });
       await store.appendEvent('session-1', 'run-1', checkpointEvent('hcheckpoint-previous', 1));
       const eventsPath = join(root, 'sessions', 'session-1', 'runs', 'run-1', 'events.jsonl');
       await rm(eventsPath);
       await mkdir(eventsPath);
 
-      await assert.rejects(() => store.appendEvent(
-        'session-1',
-        'run-1',
-        checkpointEvent('hcheckpoint-orphan', 2),
-      ));
+      await assert.rejects(() =>
+        store.appendEvent('session-1', 'run-1', checkpointEvent('hcheckpoint-orphan', 2)),
+      );
 
       assert.equal(
-        await projectionStore.readEventProjection('session-1', 'history_compact_checkpoint_recorded'),
+        await projectionStore.readEventProjection(
+          'session-1',
+          'history_compact_checkpoint_recorded',
+        ),
         undefined,
       );
     });
@@ -387,9 +439,13 @@ describe('AgentRunStore', () => {
       await store.createRun(makeHeader());
       await store.appendEvent('session-1', 'run-1', makeEvent({ id: 'good-1', ts: 1 }));
       const eventsPath = join(root, 'sessions', 'session-1', 'runs', 'run-1', 'events.jsonl');
-      await writeFile(eventsPath, '{"type":"run_started"\n' + JSON.stringify(makeEvent({ id: 'good-2', ts: 2 })) + '\n', {
-        flag: 'a',
-      });
+      await writeFile(
+        eventsPath,
+        '{"type":"run_started"\n' + JSON.stringify(makeEvent({ id: 'good-2', ts: 2 })) + '\n',
+        {
+          flag: 'a',
+        },
+      );
 
       const events = await store.readEvents('session-1', 'run-1');
       assert.equal(events[0]?.id, 'good-1');
@@ -403,10 +459,36 @@ describe('AgentRunStore', () => {
       await store.createRun(makeHeader());
       const eventsPath = join(root, 'sessions', 'session-1', 'runs', 'run-1', 'events.jsonl');
       await mkdir(join(root, 'sessions', 'session-1', 'runs', 'run-1'), { recursive: true });
-      await writeFile(eventsPath, JSON.stringify(makeEvent({ id: 'good-1', ts: 1 })) + '\n{"type":"run_started"');
+      await writeFile(
+        eventsPath,
+        JSON.stringify(makeEvent({ id: 'good-1', ts: 1 })) + '\n{"type":"run_started"',
+      );
 
       const events = await store.readEvents('session-1', 'run-1');
-      assert.deepEqual(events.map((event) => event.id), ['good-1']);
+      assert.deepEqual(
+        events.map((event) => event.id),
+        ['good-1'],
+      );
+    });
+  });
+
+  it('does not mistake an invalid unterminated tail for a crash prefix', async () => {
+    await withStore(async (store, root) => {
+      await store.createRun(makeHeader());
+      const eventsPath = join(root, 'sessions', 'session-1', 'runs', 'run-1', 'events.jsonl');
+      const bytes = JSON.stringify(makeEvent({ id: 'good-1', ts: 1 })) + '\n{"type":]';
+      await writeFile(eventsPath, bytes, 'utf8');
+
+      const events = await store.readEvents('session-1', 'run-1');
+      assert.deepEqual(
+        events.map((event) => event.type),
+        ['run_started', 'event_corrupt'],
+      );
+      await assert.rejects(
+        () => store.readEventsForRecovery('session-1', 'run-1'),
+        /AgentRun run-1 has a corrupt JSONL record at line 2/,
+      );
+      assert.equal(await readFile(eventsPath, 'utf8'), bytes);
     });
   });
 
@@ -415,28 +497,84 @@ describe('AgentRunStore', () => {
       await store.createRun(makeHeader());
       const eventsPath = join(root, 'sessions', 'session-1', 'runs', 'run-1', 'events.jsonl');
       await mkdir(join(root, 'sessions', 'session-1', 'runs', 'run-1'), { recursive: true });
-      await writeFile(eventsPath, JSON.stringify(makeEvent({ id: 'good-1', ts: 1 })) + '\n{"type":"run_started"\n');
+      await writeFile(
+        eventsPath,
+        JSON.stringify(makeEvent({ id: 'good-1', ts: 1 })) + '\n{"type":"run_started"\n',
+      );
 
       const events = await store.readEvents('session-1', 'run-1');
-      assert.deepEqual(events.map((event) => event.type), ['run_started', 'event_corrupt']);
+      assert.deepEqual(
+        events.map((event) => event.type),
+        ['run_started', 'event_corrupt'],
+      );
       assert.equal(events[1]?.data?.lineNumber, 2);
+    });
+  });
+
+  it('rejects complete schema-invalid and identity-mismatched events during recovery', async () => {
+    await withStore(async (store, root) => {
+      await store.createRun(makeHeader());
+      const eventsPath = join(root, 'sessions', 'session-1', 'runs', 'run-1', 'events.jsonl');
+      for (const record of [
+        {},
+        makeEvent({ sessionId: 'other-session' }),
+        makeEvent({ runId: 'other-run' }),
+        makeEvent({ turnId: 'other-turn' }),
+      ]) {
+        await writeFile(eventsPath, JSON.stringify(record));
+        await assert.rejects(
+          () => store.readEventsForRecovery('session-1', 'run-1'),
+          /AgentRun run-1 has a corrupt JSONL record at line 1/,
+        );
+      }
     });
   });
 
   it('appends and reads runtime events from a separate per-run ledger', async () => {
     await withStores(async (runStore, runtimeEventStore, root) => {
-      await runStore.createRun(makeHeader());
+      await runStore.createRun(makeHeader({ invocationId: 'turn-1' }));
       await runStore.appendEvent('session-1', 'run-1', makeEvent({ id: 'operational-event' }));
-      await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', makeRuntimeEvent({ id: 'runtime-1', role: 'user' }));
-      await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', makeRuntimeEvent({ id: 'runtime-2', role: 'model' }));
+      await runtimeEventStore.appendRuntimeEvent(
+        'session-1',
+        'run-1',
+        makeRuntimeEvent({ id: 'runtime-1', role: 'user' }),
+      );
+      await runtimeEventStore.appendRuntimeEvent(
+        'session-1',
+        'run-1',
+        makeRuntimeEvent({ id: 'runtime-2', role: 'model' }),
+      );
 
       const runtimeEvents = await runtimeEventStore.readRuntimeEvents('session-1', 'run-1');
-      assert.deepEqual(runtimeEvents.map((event) => event.id), ['runtime-1', 'runtime-2']);
-      assert.deepEqual(runtimeEvents.map((event) => event.role), ['user', 'model']);
-      assert.deepEqual((await runStore.readEvents('session-1', 'run-1')).map((event) => event.id), ['operational-event']);
+      assert.deepEqual(
+        runtimeEvents.map((event) => event.id),
+        ['runtime-1', 'runtime-2'],
+      );
+      assert.deepEqual(
+        runtimeEvents.map((event) => event.role),
+        ['user', 'model'],
+      );
+      assert.deepEqual(
+        (await runStore.readEvents('session-1', 'run-1')).map((event) => event.id),
+        ['operational-event'],
+      );
 
-      const runtimeEventsPath = join(root, 'sessions', 'session-1', 'runs', 'run-1', 'runtime-events.jsonl');
-      const operationalEventsPath = join(root, 'sessions', 'session-1', 'runs', 'run-1', 'events.jsonl');
+      const runtimeEventsPath = join(
+        root,
+        'sessions',
+        'session-1',
+        'runs',
+        'run-1',
+        'runtime-events.jsonl',
+      );
+      const operationalEventsPath = join(
+        root,
+        'sessions',
+        'session-1',
+        'runs',
+        'run-1',
+        'events.jsonl',
+      );
       assert.match(await readFile(runtimeEventsPath, 'utf8'), /"id":"runtime-1"/);
       assert.match(await readFile(operationalEventsPath, 'utf8'), /"id":"operational-event"/);
     });
@@ -454,15 +592,19 @@ describe('AgentRunStore', () => {
     await withStores(async (runStore, runtimeEventStore) => {
       await runStore.createRun(makeHeader());
       for (const [index, text] of ['hel', 'lo', '!'].entries()) {
-        await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', makeRuntimeEvent({
-          id: `runtime-partial-${index}`,
-          ts: index + 1,
-          partial: true,
-          role: 'model',
-          author: 'agent',
-          content: { kind: 'text', text },
-          refs: { providerEventId: 'message-1' },
-        }));
+        await runtimeEventStore.appendRuntimeEvent(
+          'session-1',
+          'run-1',
+          makeRuntimeEvent({
+            id: `runtime-partial-${index}`,
+            ts: index + 1,
+            partial: true,
+            role: 'model',
+            author: 'agent',
+            content: { kind: 'text', text },
+            refs: { providerEventId: 'message-1' },
+          }),
+        );
       }
 
       const events = await runtimeEventStore.readRuntimeEvents('session-1', 'run-1');
@@ -480,36 +622,47 @@ describe('AgentRunStore', () => {
   it('does not merge partial streams across branch lineage', async () => {
     await withStores(async (runStore, runtimeEventStore) => {
       await runStore.createRun(makeHeader());
-      await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', makeRuntimeEvent({
-        id: 'runtime-branch-a',
-        ts: 1,
-        branch: 'agent-a',
-        partial: true,
-        role: 'model',
-        author: 'agent',
-        content: { kind: 'text', text: 'alpha' },
-        refs: { providerEventId: 'message-1' },
-      }));
-      await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', makeRuntimeEvent({
-        id: 'runtime-branch-b',
-        ts: 2,
-        branch: 'agent-b',
-        partial: true,
-        role: 'model',
-        author: 'agent',
-        content: { kind: 'text', text: 'beta' },
-        refs: { providerEventId: 'message-1' },
-      }));
+      await runtimeEventStore.appendRuntimeEvent(
+        'session-1',
+        'run-1',
+        makeRuntimeEvent({
+          id: 'runtime-branch-a',
+          ts: 1,
+          branch: 'agent-a',
+          partial: true,
+          role: 'model',
+          author: 'agent',
+          content: { kind: 'text', text: 'alpha' },
+          refs: { providerEventId: 'message-1' },
+        }),
+      );
+      await runtimeEventStore.appendRuntimeEvent(
+        'session-1',
+        'run-1',
+        makeRuntimeEvent({
+          id: 'runtime-branch-b',
+          ts: 2,
+          branch: 'agent-b',
+          partial: true,
+          role: 'model',
+          author: 'agent',
+          content: { kind: 'text', text: 'beta' },
+          refs: { providerEventId: 'message-1' },
+        }),
+      );
 
       const events = await runtimeEventStore.readRuntimeEvents('session-1', 'run-1');
 
-      assert.deepEqual(events.map((event) => ({
-        branch: event.branch,
-        text: event.content?.kind === 'text' ? event.content.text : undefined,
-      })), [
-        { branch: 'agent-a', text: 'alpha' },
-        { branch: 'agent-b', text: 'beta' },
-      ]);
+      assert.deepEqual(
+        events.map((event) => ({
+          branch: event.branch,
+          text: event.content?.kind === 'text' ? event.content.text : undefined,
+        })),
+        [
+          { branch: 'agent-a', text: 'alpha' },
+          { branch: 'agent-b', text: 'beta' },
+        ],
+      );
     });
   });
 
@@ -517,14 +670,18 @@ describe('AgentRunStore', () => {
     await withStores(async (runStore, runtimeEventStore, root) => {
       await runStore.createRun(makeHeader());
       for (const [index, text] of ['still ', 'working'].entries()) {
-        await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', makeRuntimeEvent({
-          id: `runtime-partial-${index}`,
-          partial: true,
-          role: 'model',
-          author: 'agent',
-          content: { kind: 'text', text },
-          refs: { providerEventId: 'message-1' },
-        }));
+        await runtimeEventStore.appendRuntimeEvent(
+          'session-1',
+          'run-1',
+          makeRuntimeEvent({
+            id: `runtime-partial-${index}`,
+            partial: true,
+            role: 'model',
+            author: 'agent',
+            content: { kind: 'text', text },
+            refs: { providerEventId: 'message-1' },
+          }),
+        );
       }
 
       const reopened = createRuntimeEventStore(root);
@@ -539,38 +696,33 @@ describe('AgentRunStore', () => {
     await withStores(async (runStore, runtimeEventStore, root) => {
       await runStore.createRun(makeHeader());
       for (let index = 0; index < 10_000; index += 1) {
-        await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', makeRuntimeEvent({
-          id: `runtime-partial-${index}`,
-          partial: true,
-          role: 'model',
-          author: 'agent',
-          content: { kind: 'text', text: 'x' },
-          refs: { providerEventId: 'message-1' },
-        }));
+        await runtimeEventStore.appendRuntimeEvent(
+          'session-1',
+          'run-1',
+          makeRuntimeEvent({
+            id: `runtime-partial-${index}`,
+            partial: true,
+            role: 'model',
+            author: 'agent',
+            content: { kind: 'text', text: 'x' },
+            refs: { providerEventId: 'message-1' },
+          }),
+        );
       }
 
       const events = await runtimeEventStore.readRuntimeEvents('session-1', 'run-1');
-      const partialFiles = await readdir(join(
-        root,
-        'sessions',
-        'session-1',
-        'runs',
-        'run-1',
-        'runtime-partials',
-      ));
+      const partialFiles = await readdir(
+        join(root, 'sessions', 'session-1', 'runs', 'run-1', 'runtime-partials'),
+      );
 
       assert.equal(events.length, 1);
       assert.equal(events[0]?.content?.kind === 'text' && events[0].content.text.length, 10_000);
       assert.equal(partialFiles.filter((name) => name.endsWith('.partial')).length, 1);
       assert.equal(partialFiles.length, 1);
-      const immutableLedger = await readFile(join(
-        root,
-        'sessions',
-        'session-1',
-        'runs',
-        'run-1',
-        'runtime-events.jsonl',
-      ), 'utf8').catch((error) => {
+      const immutableLedger = await readFile(
+        join(root, 'sessions', 'session-1', 'runs', 'run-1', 'runtime-events.jsonl'),
+        'utf8',
+      ).catch((error) => {
         if ((error as NodeJS.ErrnoException).code === 'ENOENT') return '';
         throw error;
       });
@@ -582,14 +734,18 @@ describe('AgentRunStore', () => {
     await withStores(async (runStore, runtimeEventStore) => {
       await runStore.createRun(makeHeader());
       for (const [index, text] of ['reason', 'ing ', 'continues'].entries()) {
-        await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', makeRuntimeEvent({
-          id: `runtime-thinking-${index}`,
-          partial: true,
-          role: 'model',
-          author: 'agent',
-          content: { kind: 'thinking', text },
-          refs: { providerEventId: 'message-1' },
-        }));
+        await runtimeEventStore.appendRuntimeEvent(
+          'session-1',
+          'run-1',
+          makeRuntimeEvent({
+            id: `runtime-thinking-${index}`,
+            partial: true,
+            role: 'model',
+            author: 'agent',
+            content: { kind: 'thinking', text },
+            refs: { providerEventId: 'message-1' },
+          }),
+        );
       }
 
       const events = await runtimeEventStore.readRuntimeEvents('session-1', 'run-1');
@@ -603,34 +759,45 @@ describe('AgentRunStore', () => {
     await withStores(async (runStore, runtimeEventStore) => {
       await runStore.createRun(makeHeader());
       for (let index = 0; index < 100; index += 1) {
-        await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', makeRuntimeEvent({
-          id: `runtime-tool-progress-${index}`,
-          partial: true,
-          role: 'tool',
-          author: 'tool',
-          content: undefined,
-          refs: { toolCallId: 'tool-call-1' },
-        }));
+        await runtimeEventStore.appendRuntimeEvent(
+          'session-1',
+          'run-1',
+          makeRuntimeEvent({
+            id: `runtime-tool-progress-${index}`,
+            partial: true,
+            role: 'tool',
+            author: 'tool',
+            content: undefined,
+            refs: { toolCallId: 'tool-call-1' },
+          }),
+        );
       }
 
       assert.equal((await runtimeEventStore.readRuntimeEvents('session-1', 'run-1')).length, 1);
 
-      await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', makeRuntimeEvent({
-        id: 'runtime-tool-result',
-        ts: 2,
-        role: 'tool',
-        author: 'tool',
-        content: {
-          kind: 'function_response',
-          id: 'tool-call-1',
-          name: 'Bash',
-          result: 'done',
-        },
-        refs: { toolCallId: 'tool-call-1' },
-      }));
+      await runtimeEventStore.appendRuntimeEvent(
+        'session-1',
+        'run-1',
+        makeRuntimeEvent({
+          id: 'runtime-tool-result',
+          ts: 2,
+          role: 'tool',
+          author: 'tool',
+          content: {
+            kind: 'function_response',
+            id: 'tool-call-1',
+            name: 'Bash',
+            result: 'done',
+          },
+          refs: { toolCallId: 'tool-call-1' },
+        }),
+      );
 
       const events = await runtimeEventStore.readRuntimeEvents('session-1', 'run-1');
-      assert.deepEqual(events.map((event) => event.id), ['runtime-tool-result']);
+      assert.deepEqual(
+        events.map((event) => event.id),
+        ['runtime-tool-result'],
+      );
     });
   });
 
@@ -638,15 +805,19 @@ describe('AgentRunStore', () => {
     await withStores(async (runStore, runtimeEventStore) => {
       await runStore.createRun(makeHeader());
       for (let index = 0; index < 2; index += 1) {
-        await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', makeRuntimeEvent({
-          id: `runtime-lifecycle-${index}`,
-          partial: true,
-          role: 'system',
-          author: 'system',
-          content: undefined,
-          actions: { stateDelta: { progress: index } },
-          refs: { toolCallId: 'tool-call-1' },
-        }));
+        await runtimeEventStore.appendRuntimeEvent(
+          'session-1',
+          'run-1',
+          makeRuntimeEvent({
+            id: `runtime-lifecycle-${index}`,
+            partial: true,
+            role: 'system',
+            author: 'system',
+            content: undefined,
+            actions: { stateDelta: { progress: index } },
+            refs: { toolCallId: 'tool-call-1' },
+          }),
+        );
       }
 
       const events = await runtimeEventStore.readRuntimeEvents('session-1', 'run-1');
@@ -654,40 +825,51 @@ describe('AgentRunStore', () => {
       assert.ok(readImmutable);
       const immutableEvents = await readImmutable.call(runtimeEventStore, 'session-1', 'run-1');
 
-      assert.deepEqual(events.map((event) => event.id), [
-        'runtime-lifecycle-0',
-        'runtime-lifecycle-1',
-      ]);
-      assert.deepEqual(immutableEvents.map((event) => event.id), [
-        'runtime-lifecycle-0',
-        'runtime-lifecycle-1',
-      ]);
+      assert.deepEqual(
+        events.map((event) => event.id),
+        ['runtime-lifecycle-0', 'runtime-lifecycle-1'],
+      );
+      assert.deepEqual(
+        immutableEvents.map((event) => event.id),
+        ['runtime-lifecycle-0', 'runtime-lifecycle-1'],
+      );
     });
   });
 
   it('replaces a text partial snapshot with the durable final event', async () => {
     await withStores(async (runStore, runtimeEventStore) => {
       await runStore.createRun(makeHeader());
-      await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', makeRuntimeEvent({
-        id: 'runtime-partial',
-        partial: true,
-        role: 'model',
-        author: 'agent',
-        content: { kind: 'text', text: 'hello' },
-        refs: { providerEventId: 'message-1' },
-      }));
-      await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', makeRuntimeEvent({
-        id: 'runtime-final',
-        ts: 2,
-        role: 'model',
-        author: 'agent',
-        content: { kind: 'text', text: 'hello world' },
-        refs: { providerEventId: 'message-1' },
-      }));
+      await runtimeEventStore.appendRuntimeEvent(
+        'session-1',
+        'run-1',
+        makeRuntimeEvent({
+          id: 'runtime-partial',
+          partial: true,
+          role: 'model',
+          author: 'agent',
+          content: { kind: 'text', text: 'hello' },
+          refs: { providerEventId: 'message-1' },
+        }),
+      );
+      await runtimeEventStore.appendRuntimeEvent(
+        'session-1',
+        'run-1',
+        makeRuntimeEvent({
+          id: 'runtime-final',
+          ts: 2,
+          role: 'model',
+          author: 'agent',
+          content: { kind: 'text', text: 'hello world' },
+          refs: { providerEventId: 'message-1' },
+        }),
+      );
 
       const events = await runtimeEventStore.readRuntimeEvents('session-1', 'run-1');
 
-      assert.deepEqual(events.map((event) => event.id), ['runtime-final']);
+      assert.deepEqual(
+        events.map((event) => event.id),
+        ['runtime-final'],
+      );
       assert.deepEqual(events[0]?.content, { kind: 'text', text: 'hello world' });
     });
   });
@@ -698,24 +880,32 @@ describe('AgentRunStore', () => {
       await withStores(async (runStore, runtimeEventStore) => {
         await runStore.createRun(makeHeader());
         for (const [index, text] of chunks.entries()) {
-          await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', makeRuntimeEvent({
-            id: `runtime-partial-${index}`,
-            ts: index + 1,
-            partial: true,
+          await runtimeEventStore.appendRuntimeEvent(
+            'session-1',
+            'run-1',
+            makeRuntimeEvent({
+              id: `runtime-partial-${index}`,
+              ts: index + 1,
+              partial: true,
+              role: 'model',
+              author: 'agent',
+              content: { kind: 'text', text },
+              refs: { providerEventId: 'message-1' },
+            }),
+          );
+        }
+        await runtimeEventStore.appendRuntimeEvent(
+          'session-1',
+          'run-1',
+          makeRuntimeEvent({
+            id: 'runtime-final',
+            ts: 10,
             role: 'model',
             author: 'agent',
-            content: { kind: 'text', text },
+            content: { kind: 'text', text: 'same final output' },
             refs: { providerEventId: 'message-1' },
-          }));
-        }
-        await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', makeRuntimeEvent({
-          id: 'runtime-final',
-          ts: 10,
-          role: 'model',
-          author: 'agent',
-          content: { kind: 'text', text: 'same final output' },
-          refs: { providerEventId: 'message-1' },
-        }));
+          }),
+        );
         replay = await runtimeEventStore.readRuntimeEvents('session-1', 'run-1');
       });
       return replay;
@@ -725,44 +915,53 @@ describe('AgentRunStore', () => {
     const coarselyChunked = await replayFor(['same final output']);
 
     assert.deepEqual(finelyChunked, coarselyChunked);
-    assert.deepEqual(finelyChunked.map((event) => event.id), ['runtime-final']);
+    assert.deepEqual(
+      finelyChunked.map((event) => event.id),
+      ['runtime-final'],
+    );
   });
 
   it('ignores a stale partial snapshot when its final event is already durable', async () => {
     await withStores(async (runStore, runtimeEventStore, root) => {
       await runStore.createRun(makeHeader());
-      await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', makeRuntimeEvent({
-        id: 'runtime-final',
-        ts: 2,
-        role: 'model',
-        author: 'agent',
-        content: { kind: 'text', text: 'complete' },
-        refs: { providerEventId: 'message-1' },
-      }));
-      await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', makeRuntimeEvent({
-        id: 'runtime-stale-partial',
-        ts: 1,
-        partial: true,
-        role: 'model',
-        author: 'agent',
-        content: { kind: 'text', text: 'stale' },
-        refs: { providerEventId: 'message-1' },
-      }));
+      await runtimeEventStore.appendRuntimeEvent(
+        'session-1',
+        'run-1',
+        makeRuntimeEvent({
+          id: 'runtime-final',
+          ts: 2,
+          role: 'model',
+          author: 'agent',
+          content: { kind: 'text', text: 'complete' },
+          refs: { providerEventId: 'message-1' },
+        }),
+      );
+      await runtimeEventStore.appendRuntimeEvent(
+        'session-1',
+        'run-1',
+        makeRuntimeEvent({
+          id: 'runtime-stale-partial',
+          ts: 1,
+          partial: true,
+          role: 'model',
+          author: 'agent',
+          content: { kind: 'text', text: 'stale' },
+          refs: { providerEventId: 'message-1' },
+        }),
+      );
 
       const events = await runtimeEventStore.readRuntimeEvents('session-1', 'run-1');
-      const partialFiles = await readdir(join(
-        root,
-        'sessions',
-        'session-1',
-        'runs',
-        'run-1',
-        'runtime-partials',
-      )).catch((error) => {
+      const partialFiles = await readdir(
+        join(root, 'sessions', 'session-1', 'runs', 'run-1', 'runtime-partials'),
+      ).catch((error) => {
         if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
         throw error;
       });
 
-      assert.deepEqual(events.map((event) => event.id), ['runtime-final']);
+      assert.deepEqual(
+        events.map((event) => event.id),
+        ['runtime-final'],
+      );
       assert.deepEqual(partialFiles, []);
     });
   });
@@ -770,42 +969,60 @@ describe('AgentRunStore', () => {
   it('restores a retained partial snapshot before a later terminal event', async () => {
     await withStores(async (runStore, runtimeEventStore) => {
       await runStore.createRun(makeHeader());
-      await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', makeRuntimeEvent({
-        id: 'runtime-user',
-        ts: 1,
-      }));
-      await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', makeRuntimeEvent({
-        id: 'runtime-partial',
-        ts: 2,
-        partial: true,
-        role: 'model',
-        author: 'agent',
-        content: { kind: 'text', text: 'retained output' },
-        refs: { providerEventId: 'message-1' },
-      }));
-      await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', makeRuntimeEvent({
-        id: 'runtime-terminal',
-        ts: 1,
-        role: 'system',
-        author: 'system',
-        status: 'failed',
-        content: { kind: 'error', message: 'provider failed' },
-      }));
+      await runtimeEventStore.appendRuntimeEvent(
+        'session-1',
+        'run-1',
+        makeRuntimeEvent({
+          id: 'runtime-user',
+          ts: 1,
+        }),
+      );
+      await runtimeEventStore.appendRuntimeEvent(
+        'session-1',
+        'run-1',
+        makeRuntimeEvent({
+          id: 'runtime-partial',
+          ts: 2,
+          partial: true,
+          role: 'model',
+          author: 'agent',
+          content: { kind: 'text', text: 'retained output' },
+          refs: { providerEventId: 'message-1' },
+        }),
+      );
+      await runtimeEventStore.appendRuntimeEvent(
+        'session-1',
+        'run-1',
+        makeRuntimeEvent({
+          id: 'runtime-terminal',
+          ts: 1,
+          role: 'system',
+          author: 'system',
+          status: 'failed',
+          content: { kind: 'error', message: 'provider failed' },
+        }),
+      );
 
       const events = await runtimeEventStore.readRuntimeEvents('session-1', 'run-1');
 
-      assert.deepEqual(events.map((event) => event.id), [
-        'runtime-user',
-        'runtime-partial',
-        'runtime-terminal',
-      ]);
+      assert.deepEqual(
+        events.map((event) => event.id),
+        ['runtime-user', 'runtime-partial', 'runtime-terminal'],
+      );
     });
   });
 
   it('rejects durable corrupt runtime event lines instead of shortening the canonical ledger', async () => {
     await withStores(async (runStore, runtimeEventStore, root) => {
       await runStore.createRun(makeHeader());
-      const runtimeEventsPath = join(root, 'sessions', 'session-1', 'runs', 'run-1', 'runtime-events.jsonl');
+      const runtimeEventsPath = join(
+        root,
+        'sessions',
+        'session-1',
+        'runs',
+        'run-1',
+        'runtime-events.jsonl',
+      );
       await writeFile(
         runtimeEventsPath,
         JSON.stringify(makeRuntimeEvent({ id: 'runtime-1' })) +
@@ -821,18 +1038,122 @@ describe('AgentRunStore', () => {
     });
   });
 
+  it('re-establishes a terminal durability barrier without duplicating the event', async () => {
+    await withStores(async (runStore, runtimeEventStore) => {
+      await runStore.createRun(makeHeader({ invocationId: 'turn-1' }));
+      const terminal = makeRuntimeEvent({
+        id: 'runtime-terminal',
+        role: 'system',
+        author: 'system',
+        status: 'completed',
+        content: undefined,
+        actions: { endInvocation: true },
+      });
+      await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', terminal);
+
+      await runtimeEventStore.ensureTerminalRuntimeEventDurable('session-1', 'run-1', terminal);
+      await runtimeEventStore.ensureTerminalRuntimeEventDurable('session-1', 'run-1', terminal);
+
+      const events = await runtimeEventStore.readImmutableRuntimeEvents('session-1', 'run-1');
+      assert.deepEqual(
+        events.map((event) => event.id),
+        ['runtime-terminal'],
+      );
+      await assert.rejects(
+        () =>
+          runtimeEventStore.ensureTerminalRuntimeEventDurable('session-1', 'run-1', {
+            ...terminal,
+            ts: terminal.ts + 1,
+          }),
+        /does not match the durable ledger record/,
+      );
+      await assert.rejects(
+        () =>
+          runtimeEventStore.ensureTerminalRuntimeEventDurable('session-1', 'run-1', {
+            ...terminal,
+            id: 'runtime-terminal-2',
+          }),
+        /already has terminal RuntimeEvent runtime-terminal/,
+      );
+      assert.deepEqual(
+        (await runtimeEventStore.readImmutableRuntimeEvents('session-1', 'run-1')).map(
+          (event) => event.id,
+        ),
+        ['runtime-terminal'],
+      );
+    });
+  });
+
+  it('rejects complete schema-invalid and path-mismatched runtime events', async () => {
+    await withStores(async (runStore, runtimeEventStore, root) => {
+      await runStore.createRun(makeHeader({ invocationId: 'turn-1' }));
+      const runtimeEventsPath = join(
+        root,
+        'sessions',
+        'session-1',
+        'runs',
+        'run-1',
+        'runtime-events.jsonl',
+      );
+      for (const record of [
+        {},
+        makeRuntimeEvent({ sessionId: 'other-session' }),
+        makeRuntimeEvent({ runId: 'other-run' }),
+        makeRuntimeEvent({ turnId: 'other-turn' }),
+        makeRuntimeEvent({ invocationId: 'other-invocation' }),
+      ]) {
+        await writeFile(runtimeEventsPath, JSON.stringify(record));
+        await assert.rejects(
+          () => runtimeEventStore.readRuntimeEvents('session-1', 'run-1'),
+          /Invalid RuntimeEvent JSONL line 1 for run run-1/,
+        );
+      }
+    });
+  });
+
   it('ignores an unterminated partial runtime event tail', async () => {
     await withStores(async (runStore, runtimeEventStore, root) => {
       await runStore.createRun(makeHeader());
-      const runtimeEventsPath = join(root, 'sessions', 'session-1', 'runs', 'run-1', 'runtime-events.jsonl');
+      const runtimeEventsPath = join(
+        root,
+        'sessions',
+        'session-1',
+        'runs',
+        'run-1',
+        'runtime-events.jsonl',
+      );
       await writeFile(
         runtimeEventsPath,
-        JSON.stringify(makeRuntimeEvent({ id: 'runtime-1' })) +
-          '\n{"id":"partial"',
+        JSON.stringify(makeRuntimeEvent({ id: 'runtime-1' })) + '\n{"id":"partial"',
       );
 
       const events = await runtimeEventStore.readRuntimeEvents('session-1', 'run-1');
-      assert.deepEqual(events.map((event) => event.id), ['runtime-1']);
+      assert.deepEqual(
+        events.map((event) => event.id),
+        ['runtime-1'],
+      );
+    });
+  });
+
+  it('rejects an invalid unterminated runtime event tail without changing it', async () => {
+    await withStores(async (runStore, runtimeEventStore, root) => {
+      await runStore.createRun(makeHeader());
+      const runtimeEventsPath = join(
+        root,
+        'sessions',
+        'session-1',
+        'runs',
+        'run-1',
+        'runtime-events.jsonl',
+      );
+      const bytes = JSON.stringify(makeRuntimeEvent({ id: 'runtime-1' })) + '\n{"id":]';
+      await writeFile(runtimeEventsPath, bytes, 'utf8');
+
+      await assert.rejects(
+        () => runtimeEventStore.readRuntimeEvents('session-1', 'run-1'),
+        /Invalid RuntimeEvent JSONL line 2 for run run-1/,
+      );
+      assert.equal(await readFile(runtimeEventsPath, 'utf8'), bytes);
     });
   });
 
@@ -840,17 +1161,30 @@ describe('AgentRunStore', () => {
     await withStores(async (runStore, runtimeEventStore) => {
       await runStore.createRun(makeHeader({ runId: 'run-2', turnId: 'turn-2' }));
       await runStore.createRun(makeHeader({ runId: 'run-1', turnId: 'turn-1' }));
-      await runtimeEventStore.appendRuntimeEvent('session-1', 'run-2', makeRuntimeEvent({ id: 'runtime-2', runId: 'run-2', turnId: 'turn-2', ts: 20 }));
-      await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', makeRuntimeEvent({ id: 'runtime-1', runId: 'run-1', turnId: 'turn-1', ts: 10 }));
+      await runtimeEventStore.appendRuntimeEvent(
+        'session-1',
+        'run-2',
+        makeRuntimeEvent({ id: 'runtime-2', runId: 'run-2', turnId: 'turn-2', ts: 20 }),
+      );
+      await runtimeEventStore.appendRuntimeEvent(
+        'session-1',
+        'run-1',
+        makeRuntimeEvent({ id: 'runtime-1', runId: 'run-1', turnId: 'turn-1', ts: 10 }),
+      );
 
       const events = await runtimeEventStore.readSessionRuntimeEvents('session-1');
 
-      assert.deepEqual(events.map((event) => event.id), ['runtime-1', 'runtime-2']);
+      assert.deepEqual(
+        events.map((event) => event.id),
+        ['runtime-1', 'runtime-2'],
+      );
     });
   });
 });
 
-async function withStore(fn: (store: ReturnType<typeof createAgentRunStore>, root: string) => Promise<void>): Promise<void> {
+async function withStore(
+  fn: (store: ReturnType<typeof createAgentRunStore>, root: string) => Promise<void>,
+): Promise<void> {
   const root = await mkdtemp(join(tmpdir(), 'maka-agent-run-store-'));
   try {
     await fn(createAgentRunStore(root), root);

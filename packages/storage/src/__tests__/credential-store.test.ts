@@ -7,7 +7,9 @@ import {
   CREDENTIAL_SCHEMA_VERSION,
   createFileCredentialStore,
   withCredentialFileLock,
+  type CredentialCasResult,
   type CredentialKind,
+  type CredentialStore,
 } from '../credential-store.js';
 
 const isPosix = process.platform !== 'win32';
@@ -109,7 +111,9 @@ describe('FileCredentialStore', () => {
     });
   });
 
-  test('re-chmods a pre-existing world-readable file to 0600 on write', { skip: !isPosix }, async () => {
+  test('re-chmods a pre-existing world-readable file to 0600 on write', {
+    skip: !isPosix,
+  }, async () => {
     await withTempDir(async (dir) => {
       const path = join(dir, 'credentials.json');
       // A valid v1 file that was created with a loose mode.
@@ -124,7 +128,9 @@ describe('FileCredentialStore', () => {
     });
   });
 
-  test('hardens a pre-existing world-accessible workspace dir to 0700 on write', { skip: !isPosix }, async () => {
+  test('hardens a pre-existing world-accessible workspace dir to 0700 on write', {
+    skip: !isPosix,
+  }, async () => {
     await withTempDir(async (dir) => {
       await chmod(dir, 0o777); // a loose dir that predates the hardening
       const store = createFileCredentialStore(dir);
@@ -144,7 +150,9 @@ describe('FileCredentialStore', () => {
       const store = createFileCredentialStore(dir);
       const count = 8;
       await Promise.all(
-        Array.from({ length: count }, (_unused, i) => store.setSecret(`conn-${i}`, 'api_key', `key-${i}`)),
+        Array.from({ length: count }, (_unused, i) =>
+          store.setSecret(`conn-${i}`, 'api_key', `key-${i}`),
+        ),
       );
       for (let i = 0; i < count; i++) {
         assert.equal(await store.getSecret(`conn-${i}`, 'api_key'), `key-${i}`);
@@ -204,9 +212,124 @@ describe('FileCredentialStore', () => {
       await assert.rejects(
         withCredentialFileLock(path, async () => 'unreachable', 60),
         (error: Error) =>
-          error.message.includes(`${path}.lock`)
-          && /remove that directory and retry/.test(error.message),
+          error.message.includes(`${path}.lock`) &&
+          /remove that directory and retry/.test(error.message),
       );
+    });
+  });
+});
+
+describe('FileCredentialStore compareAndSetSecret', () => {
+  // Optional capability: exercise it through a guarded helper so a store that
+  // does not expose CAS is a caller's own fallback problem, not a test crash.
+  function cas(
+    store: CredentialStore,
+    slug: string,
+    kind: CredentialKind,
+    expected: string | null,
+    value: string,
+  ): Promise<CredentialCasResult> {
+    assert.ok(store.compareAndSetSecret, 'file store exposes the CAS capability');
+    return store.compareAndSetSecret(slug, kind, expected, value);
+  }
+
+  test('the file store advertises the optional CAS capability', async () => {
+    await withTempDir(async (dir) => {
+      const store = createFileCredentialStore(dir);
+      assert.equal(typeof store.compareAndSetSecret, 'function');
+    });
+  });
+
+  test('commits when the basis still matches, and the write persists', async () => {
+    await withTempDir(async (dir) => {
+      const store = createFileCredentialStore(dir);
+      await store.setSecret('acct', 'oauth_token', 'tok-basis');
+
+      const result = await cas(store, 'acct', 'oauth_token', 'tok-basis', 'tok-next');
+      assert.deepEqual(result, { committed: true });
+      assert.equal(await store.getSecret('acct', 'oauth_token'), 'tok-next');
+    });
+  });
+
+  test('commits a write-if-absent (expected null) only while the entry is absent', async () => {
+    await withTempDir(async (dir) => {
+      // The one-shot legacy import: decide "store has no token" and write in one
+      // serialized step. A value written between the check and the write must
+      // make the import lose, not clobber.
+      const importer = createFileCredentialStore(dir);
+      const other = createFileCredentialStore(dir);
+
+      // Someone writes a token after the importer would have read "absent".
+      await other.setSecret('acct', 'oauth_token', 'tok-live');
+
+      const blocked = await cas(importer, 'acct', 'oauth_token', null, 'tok-import');
+      assert.deepEqual(blocked, { committed: false, current: 'tok-live' });
+      assert.equal(await other.getSecret('acct', 'oauth_token'), 'tok-live');
+
+      // With a genuinely absent entry the same write-if-absent commits.
+      const committed = await cas(importer, 'other-acct', 'oauth_token', null, 'tok-import');
+      assert.deepEqual(committed, { committed: true });
+      assert.equal(await importer.getSecret('other-acct', 'oauth_token'), 'tok-import');
+    });
+  });
+
+  test('two store instances racing on the same basis: loser sees the entry changed and adopts it', async () => {
+    await withTempDir(async (dir) => {
+      // Two separate instances share the file (a cross-process refresh). Both
+      // read the same basis; only the file lock decides the winner.
+      const a = createFileCredentialStore(dir);
+      const b = createFileCredentialStore(dir);
+      await a.setSecret('acct', 'oauth_token', 'tok-basis');
+
+      // A commits first, then B tries with the now-stale basis.
+      const winner = await cas(a, 'acct', 'oauth_token', 'tok-basis', 'tok-A');
+      const loser = await cas(b, 'acct', 'oauth_token', 'tok-basis', 'tok-B');
+
+      assert.deepEqual(winner, { committed: true });
+      // Entry changed (not gone): current is a string the loser adopts.
+      assert.deepEqual(loser, { committed: false, current: 'tok-A' });
+      const reader = createFileCredentialStore(dir);
+      assert.equal(await reader.getSecret('acct', 'oauth_token'), 'tok-A');
+    });
+  });
+
+  test('a basis whose entry was deleted (logout) is distinguishable from a changed one', async () => {
+    await withTempDir(async (dir) => {
+      const a = createFileCredentialStore(dir);
+      const b = createFileCredentialStore(dir);
+      await a.setSecret('acct', 'oauth_token', 'tok-basis');
+
+      // A terminal logout removes the entry after B read its basis.
+      await a.deleteSecret('acct', 'oauth_token');
+
+      const result = await cas(b, 'acct', 'oauth_token', 'tok-basis', 'tok-resurrect');
+      // Entry gone (current === null): the caller must NOT resurrect it, and the
+      // write did not commit.
+      assert.deepEqual(result, { committed: false, current: null });
+      const reader = createFileCredentialStore(dir);
+      assert.equal(await reader.getSecret('acct', 'oauth_token'), null);
+    });
+  });
+
+  test('concurrent CAS from the same basis: exactly one wins, the loser returns the winner value', async () => {
+    await withTempDir(async (dir) => {
+      const a = createFileCredentialStore(dir);
+      const b = createFileCredentialStore(dir);
+      await a.setSecret('acct', 'oauth_token', 'tok-basis');
+
+      const [ra, rb] = await Promise.all([
+        cas(a, 'acct', 'oauth_token', 'tok-basis', 'tok-A'),
+        cas(b, 'acct', 'oauth_token', 'tok-basis', 'tok-B'),
+      ]);
+
+      const winners = [ra, rb].filter((r) => r.committed);
+      assert.equal(winners.length, 1, 'exactly one CAS commits');
+      const winnerValue = ra.committed ? 'tok-A' : 'tok-B';
+      const loser = ra.committed ? rb : ra;
+      assert.deepEqual(loser, { committed: false, current: winnerValue });
+
+      const reader = createFileCredentialStore(dir);
+      assert.equal(await reader.getSecret('acct', 'oauth_token'), winnerValue);
     });
   });
 });

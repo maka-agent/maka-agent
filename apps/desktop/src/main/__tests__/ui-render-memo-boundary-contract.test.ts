@@ -11,7 +11,7 @@ const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');
 const LUCIDE_REACT_PACKAGE = ['lucide', 'react'].join('-');
 
 type SessionHistoryModule = {
-  LocaleProvider(props: { preference: 'zh'; children: ReactElement }): ReactElement;
+  LocaleProvider(props: { locale: 'zh'; children: ReactElement }): ReactElement;
   SessionHistoryList(props: {
     sessions: SessionSummary[];
     activeId?: string;
@@ -122,7 +122,7 @@ function RenderHost(props: {
   streamingSessionIds: Set<string>;
 }) {
   return createElement(props.LocaleProvider, {
-    preference: 'zh',
+    locale: 'zh',
     children: createElement(
       'div',
       null,

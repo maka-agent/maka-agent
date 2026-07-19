@@ -7,9 +7,7 @@ export {
   type PromptOptimizationReplayPlan,
   type PromptOptimizationReplayState,
 } from './prompt-optimization-replay-state.js';
-export {
-  replayPromptBaselinePartition,
-} from './prompt-optimization-replay-sweeps.js';
+export { replayPromptBaselinePartition } from './prompt-optimization-replay-sweeps.js';
 export {
   assertReplayedDecisionMatchesResult,
   replayPromptDecisionRound,

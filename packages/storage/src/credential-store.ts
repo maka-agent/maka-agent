@@ -49,12 +49,53 @@ interface CredentialFile {
   values: Record<string, string>;
 }
 
+/**
+ * Outcome of a compare-and-set write.
+ *
+ * `committed: true` — the basis was still the stored authority, so the new
+ * value was persisted (this caller is the winner).
+ *
+ * `committed: false` — the basis was stale; someone committed first. `current`
+ * is what the store holds instead, and it distinguishes the two loser cases the
+ * refresh lifecycle must tell apart:
+ *   - `current === null`: the entry is gone. A terminal delete (e.g. a logout)
+ *     happened after the caller read its basis; the caller must NOT resurrect it.
+ *   - `current` is a string: the entry was changed by a concurrent winner. The
+ *     caller adopts `current` instead of overwriting it.
+ */
+export type CredentialCasResult =
+  | { committed: true }
+  | { committed: false; current: string | null };
+
 export interface CredentialStore {
   getSecret(slug: string, kind: CredentialKind): Promise<string | null>;
   setSecret(slug: string, kind: CredentialKind, value: string): Promise<void>;
   /** Delete one kind, or — with no kind — every kind for the slug (e.g. a
    *  connection being removed). */
   deleteSecret(slug: string, kind?: CredentialKind): Promise<void>;
+  /**
+   * Optional compare-and-set write. Persist `value` for `(slug, kind)` only
+   * while the stored entry still equals `expected` — the basis the caller read
+   * before deciding to write. `expected: null` asserts the entry is absent, for
+   * a write-if-not-present (e.g. the one-shot legacy import deciding "store
+   * already has a token" and writing inside one serialized step).
+   *
+   * The basis check and the write run together under the same cross-process
+   * lock as `setSecret`, so no concurrent writer can slip in between them; the
+   * check is a specialization of the current read-modify-write, not a lease held
+   * across any external I/O.
+   *
+   * Optional capability: third-party `CredentialStore` implementations and the
+   * future `credential_provider` backends stay source-compatible without it.
+   * When it is absent, callers fall back to an unconditional `setSecret`
+   * (today's behavior).
+   */
+  compareAndSetSecret?(
+    slug: string,
+    kind: CredentialKind,
+    expected: string | null,
+    value: string,
+  ): Promise<CredentialCasResult>;
 }
 
 export function createFileCredentialStore(workspaceRoot: string): CredentialStore {
@@ -126,12 +167,16 @@ export async function migrateLegacyCredentialFile(
     const parsed = JSON.parse(raw) as { version?: number; values?: Record<string, string> };
     if (parsed.version === CREDENTIAL_SCHEMA_VERSION) return; // already migrated (possibly by a racing process)
     if (parsed.version !== undefined) {
-      throw new Error(`Cannot migrate credentials.json: unexpected schema version ${parsed.version}.`);
+      throw new Error(
+        `Cannot migrate credentials.json: unexpected schema version ${parsed.version}.`,
+      );
     }
 
     const legacy = parsed.values;
     if (legacy === null || typeof legacy !== 'object' || Array.isArray(legacy)) {
-      throw new Error('Cannot migrate credentials.json: missing or malformed `values`. Leaving it untouched.');
+      throw new Error(
+        'Cannot migrate credentials.json: missing or malformed `values`. Leaving it untouched.',
+      );
     }
     const entries = Object.entries(legacy);
     // Every legacy value must be a string we can hand to the decryptor. A
@@ -207,6 +252,33 @@ class FileCredentialStore implements CredentialStore {
   }
 
   /**
+   * Compare-and-set specialization of the read-modify-write: read under the
+   * lock, verify the stored entry still equals the caller's basis, and only then
+   * write. A mismatch commits nothing and reports what the store holds so the
+   * loser can distinguish a terminal delete (`current === null`) from a
+   * concurrent winner it must adopt (`current` is a string).
+   */
+  compareAndSetSecret(
+    slug: string,
+    kind: CredentialKind,
+    expected: string | null,
+    value: string,
+  ): Promise<CredentialCasResult> {
+    const key = this.key(slug, toStoredKind(kind));
+    return withCredentialFileLock(this.path, async () => {
+      const file = await this.readUnlocked();
+      const stored = file.values[key];
+      const current = stored === undefined ? null : stored;
+      if (current !== expected) {
+        return { committed: false, current };
+      }
+      file.values[key] = value;
+      await this.write(file);
+      return { committed: true };
+    });
+  }
+
+  /**
    * Read-modify-write the whole file under the cross-process lockfile. The lock
    * serializes concurrent calls on this instance and a second store instance /
    * process alike, so one mechanism covers both — no separate in-instance queue.
@@ -240,10 +312,10 @@ class FileCredentialStore implements CredentialStore {
     // not silently start a parallel plaintext store next to it.
     if (parsed.version !== CREDENTIAL_SCHEMA_VERSION) {
       throw new Error(
-        `Unsupported credentials.json schema version: ${String(parsed.version)} `
-          + `(expected ${CREDENTIAL_SCHEMA_VERSION}). Open the desktop app once to migrate, `
-          + `or re-authenticate. If migration keeps failing, a stale lock may be blocking it — `
-          + `remove ${this.path}.lock and retry.`,
+        `Unsupported credentials.json schema version: ${String(parsed.version)} ` +
+          `(expected ${CREDENTIAL_SCHEMA_VERSION}). Open the desktop app once to migrate, ` +
+          `or re-authenticate. If migration keeps failing, a stale lock may be blocking it — ` +
+          `remove ${this.path}.lock and retry.`,
       );
     }
     // A v1 file must carry a well-formed `values` map. Treat a missing or
@@ -364,8 +436,8 @@ export async function withCredentialFileLock<T>(
       if ((error as { code?: string }).code !== 'EEXIST') throw error;
       if (Date.now() >= deadline) {
         throw new Error(
-          `credentials.json is locked by another process (${lockPath}). `
-            + 'If no other process is using it, remove that directory and retry.',
+          `credentials.json is locked by another process (${lockPath}). ` +
+            'If no other process is using it, remove that directory and retry.',
         );
       }
       await delay(LOCK_POLL_MS);

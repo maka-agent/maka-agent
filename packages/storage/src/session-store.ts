@@ -1,14 +1,20 @@
-import { mkdir, open, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdir, open, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
+import {
+  decodeStoredMessageForRead,
+  decodeStoredMessageForRecovery,
+} from './execution-record-codec.js';
+import { appendJsonl } from './jsonl-append.js';
+import { classifyJsonRecord } from './json-prefix.js';
 import { chainWrite } from './write-queue.js';
 import {
+  DEFAULT_SESSION_NAME,
   deriveTurnRecords,
   isPermissionMode,
   isSessionBlockedReason,
   isSessionStatus,
-  normalizeShellToolResultContent,
   normalizeUserSessionName,
 } from '@maka/core';
 import type {
@@ -26,8 +32,15 @@ const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 export interface SessionStore {
   create(input: CreateSessionInput): Promise<SessionHeader>;
   list(filter?: SessionListFilter): Promise<SessionSummary[]>;
+  listForRecovery(): Promise<SessionHeader[]>;
   /** Read only the durable header without triggering connection-lock self-healing. */
   readHeaderSnapshot(sessionId: string): Promise<SessionHeader>;
+  /** Read durable messages without triggering connection-lock self-healing. */
+  readMessagesSnapshot(sessionId: string): Promise<StoredMessage[]>;
+  /** Read messages for startup recovery, rejecting durable JSONL corruption. */
+  readMessagesForRecovery(sessionId: string): Promise<StoredMessage[]>;
+  /** Derive durable turns without triggering connection-lock self-healing. */
+  listTurnsSnapshot(sessionId: string): Promise<TurnRecord[]>;
   readHeader(sessionId: string): Promise<SessionHeader>;
   readMessages(sessionId: string): Promise<StoredMessage[]>;
   listTurns(sessionId: string): Promise<TurnRecord[]>;
@@ -39,6 +52,7 @@ export interface SessionStore {
   unarchive(sessionId: string): Promise<void>;
   setFlagged(sessionId: string, isFlagged: boolean): Promise<void>;
   rename(sessionId: string, name: string): Promise<void>;
+  setGeneratedTitleIfAbsent(sessionId: string, title: string): Promise<SessionHeader | null>;
   remove(sessionId: string): Promise<void>;
 }
 
@@ -70,7 +84,7 @@ class FileSessionStore implements SessionStore {
     // user's intent (per @xuan caller-semantics lock).
     let resolvedName: string;
     if (input.name === undefined) {
-      resolvedName = 'New Chat';
+      resolvedName = DEFAULT_SESSION_NAME;
     } else {
       const normalized = normalizeUserSessionName(input.name);
       if (!normalized.ok) {
@@ -85,6 +99,7 @@ class FileSessionStore implements SessionStore {
       createdAt: now,
       lastUsedAt: now,
       name: resolvedName,
+      titleIsManual: false,
       isFlagged: false,
       labels: input.labels ?? [],
       isArchived: false,
@@ -114,7 +129,7 @@ class FileSessionStore implements SessionStore {
   async list(filter?: SessionListFilter): Promise<SessionSummary[]> {
     let entries;
     try {
-      entries = await import('node:fs/promises').then((fs) => fs.readdir(this.sessionsRoot, { withFileTypes: true }));
+      entries = await readdir(this.sessionsRoot, { withFileTypes: true });
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
       throw error;
@@ -124,7 +139,11 @@ class FileSessionStore implements SessionStore {
     // list() proportional to the number of sessions rather than full
     // transcript size, while preserving sidebar previews and timestamp
     // fallback for sessions outside the top few.
-    const withHeaders: Array<{ id: string; header: SessionHeader; previewMessages: StoredMessage[] }> = [];
+    const withHeaders: Array<{
+      id: string;
+      header: SessionHeader;
+      previewMessages: StoredMessage[];
+    }> = [];
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
       if (!isSafeSessionId(entry.name)) continue;
@@ -147,8 +166,14 @@ class FileSessionStore implements SessionStore {
     // (PR108k-yj per @kenji visual-smoke determinism). Negligible cost
     // for real users; identical lastMessageAt is rare in production.
     withHeaders.sort((a, b) => {
-      const aLastMessageAt = maxTimestamp(a.header.lastMessageAt, latestVisibleMessageAt(a.previewMessages));
-      const bLastMessageAt = maxTimestamp(b.header.lastMessageAt, latestVisibleMessageAt(b.previewMessages));
+      const aLastMessageAt = maxTimestamp(
+        a.header.lastMessageAt,
+        latestVisibleMessageAt(a.previewMessages),
+      );
+      const bLastMessageAt = maxTimestamp(
+        b.header.lastMessageAt,
+        latestVisibleMessageAt(b.previewMessages),
+      );
       const tsDelta = (bLastMessageAt ?? 0) - (aLastMessageAt ?? 0);
       if (tsDelta !== 0) return tsDelta;
       return a.header.id.localeCompare(b.header.id);
@@ -175,6 +200,24 @@ class FileSessionStore implements SessionStore {
     return summaries;
   }
 
+  async listForRecovery(): Promise<SessionHeader[]> {
+    let entries;
+    try {
+      entries = await readdir(this.sessionsRoot, { withFileTypes: true });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+      throw error;
+    }
+    const headers: SessionHeader[] = [];
+    for (const entry of entries) {
+      if (!entry.isDirectory() || !isSafeSessionId(entry.name)) {
+        throw new Error(`Invalid Session entry: ${entry.name}`);
+      }
+      headers.push(await this.readHeaderOnly(entry.name));
+    }
+    return headers.sort((a, b) => a.id.localeCompare(b.id));
+  }
+
   async readHeader(sessionId: string): Promise<SessionHeader> {
     const { header, messages } = await this.readFileParts(sessionId);
     if (!header.connectionLocked && messages.some((message) => message.type === 'user')) {
@@ -195,6 +238,18 @@ class FileSessionStore implements SessionStore {
     return messages;
   }
 
+  async readMessagesSnapshot(sessionId: string): Promise<StoredMessage[]> {
+    return (await this.readFileParts(sessionId)).messages;
+  }
+
+  async readMessagesForRecovery(sessionId: string): Promise<StoredMessage[]> {
+    return (await this.readFilePartsUnlocked(sessionId, true)).messages;
+  }
+
+  async listTurnsSnapshot(sessionId: string): Promise<TurnRecord[]> {
+    return deriveTurnRecords(await this.readMessagesSnapshot(sessionId));
+  }
+
   async listTurns(sessionId: string): Promise<TurnRecord[]> {
     return deriveTurnRecords(await this.readMessages(sessionId));
   }
@@ -206,9 +261,10 @@ class FileSessionStore implements SessionStore {
   async appendMessages(sessionId: string, messages: StoredMessage[]): Promise<void> {
     if (messages.length === 0) return;
     await this.withQueue(sessionId, async () => {
-      await mkdir(this.sessionDir(sessionId), { recursive: true });
       const payload = messages.map((message) => JSON.stringify(message)).join('\n') + '\n';
-      await import('node:fs/promises').then((fs) => fs.appendFile(this.sessionPath(sessionId), payload, 'utf8'));
+      await appendJsonl(this.sessionPath(sessionId), payload, {
+        requireExistingRecord: true,
+      });
     });
   }
 
@@ -217,7 +273,10 @@ class FileSessionStore implements SessionStore {
     await this.withQueue(sessionId, async () => {
       const { header, messages } = await this.readFilePartsUnlocked(sessionId);
       nextHeader = { ...header, ...patch };
-      const lines = [JSON.stringify(nextHeader), ...messages.map((message) => JSON.stringify(message))];
+      const lines = [
+        JSON.stringify(nextHeader),
+        ...messages.map((message) => JSON.stringify(message)),
+      ];
       await this.writeAtomic(this.sessionPath(sessionId), lines.join('\n') + '\n');
     });
     if (!nextHeader) throw new Error(`Failed to update session ${sessionId}`);
@@ -228,13 +287,23 @@ class FileSessionStore implements SessionStore {
     let nextHeader: SessionHeader | undefined;
     await this.withQueue(sessionId, async () => {
       const { header, messages } = await this.readFilePartsUnlocked(sessionId);
-      const effectiveLastMessageAt = maxTimestamp(header.lastMessageAt, latestVisibleMessageAt(messages));
-      if (!Number.isFinite(readThroughTs) || !header.hasUnread || (effectiveLastMessageAt !== undefined && effectiveLastMessageAt > readThroughTs)) {
+      const effectiveLastMessageAt = maxTimestamp(
+        header.lastMessageAt,
+        latestVisibleMessageAt(messages),
+      );
+      if (
+        !Number.isFinite(readThroughTs) ||
+        !header.hasUnread ||
+        (effectiveLastMessageAt !== undefined && effectiveLastMessageAt > readThroughTs)
+      ) {
         nextHeader = header;
         return;
       }
       nextHeader = { ...header, hasUnread: false };
-      const lines = [JSON.stringify(nextHeader), ...messages.map((message) => JSON.stringify(message))];
+      const lines = [
+        JSON.stringify(nextHeader),
+        ...messages.map((message) => JSON.stringify(message)),
+      ];
       await this.writeAtomic(this.sessionPath(sessionId), lines.join('\n') + '\n');
     });
     if (!nextHeader) throw new Error(`Failed to update session ${sessionId}`);
@@ -243,7 +312,12 @@ class FileSessionStore implements SessionStore {
 
   async archive(sessionId: string): Promise<void> {
     const now = Date.now();
-    await this.updateHeader(sessionId, { isArchived: true, archivedAt: now, status: 'archived', statusUpdatedAt: now });
+    await this.updateHeader(sessionId, {
+      isArchived: true,
+      archivedAt: now,
+      status: 'archived',
+      statusUpdatedAt: now,
+    });
   }
 
   async unarchive(sessionId: string): Promise<void> {
@@ -270,7 +344,25 @@ class FileSessionStore implements SessionStore {
     if (!normalized.ok) {
       throw new Error(normalized.error);
     }
-    await this.updateHeader(sessionId, { name: normalized.value });
+    await this.updateHeader(sessionId, { name: normalized.value, titleIsManual: true });
+  }
+
+  async setGeneratedTitleIfAbsent(sessionId: string, title: string): Promise<SessionHeader | null> {
+    const normalized = normalizeUserSessionName(title);
+    if (!normalized.ok) return null;
+    let nextHeader: SessionHeader | null = null;
+    await this.withQueue(sessionId, async () => {
+      const { header, messages } = await this.readFilePartsUnlocked(sessionId);
+      if (header.titleIsManual || header.name !== DEFAULT_SESSION_NAME) return;
+      if (normalized.value === header.name) return;
+      nextHeader = { ...header, name: normalized.value };
+      const lines = [
+        JSON.stringify(nextHeader),
+        ...messages.map((message) => JSON.stringify(message)),
+      ];
+      await this.writeAtomic(this.sessionPath(sessionId), lines.join('\n') + '\n');
+    });
+    return nextHeader;
   }
 
   async remove(sessionId: string): Promise<void> {
@@ -298,17 +390,19 @@ class FileSessionStore implements SessionStore {
       const chunks: Buffer[] = [];
       let offset = 0;
       while (offset < FileSessionStore.MAX_HEADER_BYTES) {
-        const buf = Buffer.alloc(Math.min(
-          FileSessionStore.HEADER_BUDGET,
-          FileSessionStore.MAX_HEADER_BYTES - offset,
-        ));
+        const buf = Buffer.alloc(
+          Math.min(FileSessionStore.HEADER_BUDGET, FileSessionStore.MAX_HEADER_BYTES - offset),
+        );
         const { bytesRead } = await handle.read(buf, 0, buf.length, offset);
         if (bytesRead === 0) break;
         chunks.push(buf.subarray(0, bytesRead));
         const region = Buffer.concat(chunks).toString('utf8');
         const firstNl = region.indexOf('\n');
         if (firstNl !== -1) {
-          return migrateHeader(JSON.parse(region.slice(0, firstNl)) as StoredSessionHeader, sessionId);
+          return migrateHeader(
+            JSON.parse(region.slice(0, firstNl)) as StoredSessionHeader,
+            sessionId,
+          );
         }
         offset += bytesRead;
       }
@@ -337,7 +431,7 @@ class FileSessionStore implements SessionStore {
       for (const line of completeLines) {
         if (line.trim().length === 0) continue;
         try {
-          messages.push(normalizeStoredMessageForRead(JSON.parse(line)));
+          messages.push(decodeStoredMessageForRead(JSON.parse(line)));
         } catch {
           // Tail previews are best-effort; full reads still surface durable corruption notes.
         }
@@ -348,11 +442,16 @@ class FileSessionStore implements SessionStore {
     }
   }
 
-  private async readFileParts(sessionId: string): Promise<{ header: SessionHeader; messages: StoredMessage[] }> {
+  private async readFileParts(
+    sessionId: string,
+  ): Promise<{ header: SessionHeader; messages: StoredMessage[] }> {
     return this.readFilePartsUnlocked(sessionId);
   }
 
-  private async readFilePartsUnlocked(sessionId: string): Promise<{ header: SessionHeader; messages: StoredMessage[] }> {
+  private async readFilePartsUnlocked(
+    sessionId: string,
+    strict = false,
+  ): Promise<{ header: SessionHeader; messages: StoredMessage[] }> {
     const text = await readFile(this.sessionPath(sessionId), 'utf8');
     const rawLines = text.split('\n');
     const endsWithNewline = text.endsWith('\n');
@@ -364,10 +463,36 @@ class FileSessionStore implements SessionStore {
     const messages: StoredMessage[] = [];
     const lastLineNumber = lines.at(-1)?.lineNumber;
     for (const entry of lines.slice(1)) {
+      let parsed: unknown;
       try {
-        messages.push(normalizeStoredMessageForRead(JSON.parse(entry.line)));
+        parsed = JSON.parse(entry.line);
       } catch (error) {
-        if (!endsWithNewline && entry.lineNumber === lastLineNumber) continue;
+        if (
+          !endsWithNewline &&
+          entry.lineNumber === lastLineNumber &&
+          classifyJsonRecord(entry.line) === 'incomplete-prefix'
+        )
+          continue;
+        if (strict) {
+          const detail = error instanceof Error ? error.message : String(error);
+          throw new Error(
+            `Session ${sessionId} has a corrupt JSONL record at line ${entry.lineNumber}: ${detail}`,
+          );
+        }
+        messages.push(createJsonlCorruptionNote(header, entry.lineNumber, error));
+        continue;
+      }
+      try {
+        messages.push(
+          strict ? decodeStoredMessageForRecovery(parsed) : decodeStoredMessageForRead(parsed),
+        );
+      } catch (error) {
+        if (strict) {
+          const detail = error instanceof Error ? error.message : String(error);
+          throw new Error(
+            `Session ${sessionId} has a corrupt JSONL record at line ${entry.lineNumber}: ${detail}`,
+          );
+        }
         messages.push(createJsonlCorruptionNote(header, entry.lineNumber, error));
       }
     }
@@ -406,14 +531,6 @@ async function replaceFileWithWindowsReaderRetry(tempPath: string, path: string)
   }
 }
 
-function normalizeStoredMessageForRead(value: unknown): StoredMessage {
-  const message = value as StoredMessage;
-  if (!value || typeof value !== 'object' || Array.isArray(value) || message.type !== 'tool_result') return message;
-  const normalized = normalizeShellToolResultContent(message.content);
-  if (normalized.state === 'invalid') throw new Error('Invalid shell tool result content');
-  return normalized.state === 'valid' ? { ...message, content: normalized.content } : message;
-}
-
 /** Shared guard for stores that derive filesystem paths from a session id. */
 export function assertSafeSessionId(sessionId: string): void {
   if (!isSafeSessionId(sessionId)) {
@@ -425,15 +542,23 @@ export function isSafeSessionId(sessionId: string): boolean {
   return SESSION_ID_PATTERN.test(sessionId);
 }
 
-type StoredSessionHeader = Omit<SessionHeader, 'backend' | 'model' | 'permissionMode' | 'status' | 'blockedReason'> & {
+type StoredSessionHeader = Omit<
+  SessionHeader,
+  'backend' | 'model' | 'permissionMode' | 'status' | 'blockedReason' | 'titleIsManual'
+> & {
   backend: string;
   model?: unknown;
   permissionMode?: unknown;
   status?: unknown;
   blockedReason?: unknown;
+  titleIsManual?: unknown;
 };
 
-function createJsonlCorruptionNote(header: SessionHeader, lineNumber: number, error: unknown): StoredMessage {
+function createJsonlCorruptionNote(
+  header: SessionHeader,
+  lineNumber: number,
+  error: unknown,
+): StoredMessage {
   return {
     type: 'system_note',
     id: `jsonl-corrupt-${lineNumber}`,
@@ -449,32 +574,56 @@ function createJsonlCorruptionNote(header: SessionHeader, lineNumber: number, er
 
 function migrateHeader(header: StoredSessionHeader, sessionId: string): SessionHeader {
   const permissionMode = isPermissionMode(header.permissionMode) ? header.permissionMode : 'ask';
-  const model = typeof header.model === 'string' && header.model.length > 0 ? header.model : 'default';
+  const model =
+    typeof header.model === 'string' && header.model.length > 0 ? header.model : 'default';
   const status = resolveMigratedStatus(header);
-  const blockedReason = status === 'blocked' && isSessionBlockedReason(header.blockedReason)
-    ? header.blockedReason
-    : undefined;
+  const blockedReason =
+    status === 'blocked' && isSessionBlockedReason(header.blockedReason)
+      ? header.blockedReason
+      : undefined;
   const statusFields = {
     status,
     blockedReason,
-    statusUpdatedAt: header.statusUpdatedAt ?? header.archivedAt ?? header.lastMessageAt ?? header.lastUsedAt ?? header.createdAt,
+    statusUpdatedAt:
+      header.statusUpdatedAt ??
+      header.archivedAt ??
+      header.lastMessageAt ??
+      header.lastUsedAt ??
+      header.createdAt,
   };
+  const titleIsManual =
+    typeof header.titleIsManual === 'boolean'
+      ? header.titleIsManual
+      : normalizeSessionName(header.name) !== DEFAULT_SESSION_NAME;
   if (header.backend === 'claude') {
-    return normalizeMigratedHeader({ ...header, ...statusFields, backend: 'ai-sdk', model, permissionMode }, sessionId);
+    return normalizeMigratedHeader(
+      { ...header, ...statusFields, titleIsManual, backend: 'ai-sdk', model, permissionMode },
+      sessionId,
+    );
   }
   if (header.backend === 'pi-agent') {
-    return normalizeMigratedHeader({ ...header, ...statusFields, backend: 'pi-agent', model, permissionMode }, sessionId);
+    return normalizeMigratedHeader(
+      { ...header, ...statusFields, titleIsManual, backend: 'pi-agent', model, permissionMode },
+      sessionId,
+    );
   }
   if (header.backend === 'pi') {
-    return normalizeMigratedHeader({ ...header, ...statusFields, backend: 'pi-agent', model, permissionMode }, sessionId);
+    return normalizeMigratedHeader(
+      { ...header, ...statusFields, titleIsManual, backend: 'pi-agent', model, permissionMode },
+      sessionId,
+    );
   }
-  return normalizeMigratedHeader({
-    ...header,
-    ...statusFields,
-    backend: header.backend === 'ai-sdk' ? 'ai-sdk' : 'fake',
-    model,
-    permissionMode,
-  }, sessionId);
+  return normalizeMigratedHeader(
+    {
+      ...header,
+      ...statusFields,
+      titleIsManual,
+      backend: header.backend === 'ai-sdk' ? 'ai-sdk' : 'fake',
+      model,
+      permissionMode,
+    },
+    sessionId,
+  );
 }
 
 function resolveMigratedStatus(header: StoredSessionHeader): SessionHeader['status'] {
@@ -484,13 +633,16 @@ function resolveMigratedStatus(header: StoredSessionHeader): SessionHeader['stat
 }
 
 function normalizeMigratedHeader(header: SessionHeader, sessionId: string): SessionHeader {
-  const valid = header.id === sessionId &&
+  const valid =
+    header.id === sessionId &&
     typeof header.workspaceRoot === 'string' &&
     typeof header.cwd === 'string' &&
+    (header.pendingCwdReminder === undefined || isCwdReminder(header.pendingCwdReminder)) &&
     isFiniteNumber(header.createdAt) &&
     isFiniteNumber(header.lastUsedAt) &&
     (header.lastMessageAt === undefined || isFiniteNumber(header.lastMessageAt)) &&
     typeof header.name === 'string' &&
+    typeof header.titleIsManual === 'boolean' &&
     typeof header.isFlagged === 'boolean' &&
     Array.isArray(header.labels) &&
     header.labels.every((label) => typeof label === 'string') &&
@@ -512,7 +664,7 @@ function normalizeMigratedHeader(header: SessionHeader, sessionId: string): Sess
   if (!valid) {
     throw new Error(`Invalid session header for session ${sessionId}: malformed fields`);
   }
-  return header;
+  return { ...header, name: normalizeSessionName(header.name) };
 }
 
 function isBackendKind(value: unknown): value is SessionHeader['backend'] {
@@ -523,6 +675,15 @@ function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
 }
 
+function isCwdReminder(value: unknown): value is NonNullable<SessionHeader['pendingCwdReminder']> {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as { from?: unknown }).from === 'string' &&
+    typeof (value as { to?: unknown }).to === 'string'
+  );
+}
+
 function toSummary(header: SessionHeader, messages: StoredMessage[] = []): SessionSummary {
   const preview = lastMessagePreview(messages);
   const derivedLastMessageAt = latestVisibleMessageAt(messages);
@@ -530,6 +691,7 @@ function toSummary(header: SessionHeader, messages: StoredMessage[] = []): Sessi
   return {
     id: header.id,
     cwd: header.cwd,
+    ...(header.pendingCwdReminder ? { pendingCwdReminder: header.pendingCwdReminder } : {}),
     name: normalizeSessionName(header.name),
     isFlagged: header.isFlagged,
     isArchived: header.isArchived,
@@ -566,14 +728,16 @@ function maxTimestamp(left: number | undefined, right: number | undefined): numb
 }
 
 function normalizeSessionName(name: string): string {
-  return name === 'New Session' ? 'New Chat' : name;
+  return name === 'New Session' ? DEFAULT_SESSION_NAME : name;
 }
 
 function lastMessagePreview(messages: StoredMessage[]): string | undefined {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index]!;
     if (message.type === 'user') {
-      const text = normalizePreviewText(message.text);
+      // Prefer the human-facing view when the stored model text is a composed
+      // envelope (e.g. explicit skill invocation).
+      const text = normalizePreviewText(message.displayText ?? message.text);
       if (text) return truncatePreview(text);
       if (message.attachments && message.attachments.length > 0) return '附件';
     }
@@ -595,13 +759,19 @@ function truncatePreview(text: string, maxLength = 96): string {
   return `${chars.slice(0, maxLength - 1).join('')}…`;
 }
 
-export function createUserMessage(input: { turnId: string; text: string; attachments?: UserMessage['attachments'] }): UserMessage {
+export function createUserMessage(input: {
+  turnId: string;
+  text: string;
+  displayText?: string;
+  attachments?: UserMessage['attachments'];
+}): UserMessage {
   return {
     type: 'user',
     id: randomUUID(),
     turnId: input.turnId,
     ts: Date.now(),
     text: input.text,
+    ...(input.displayText !== undefined ? { displayText: input.displayText } : {}),
     attachments: input.attachments,
   };
 }

@@ -1,11 +1,7 @@
 import type { SessionEvent } from '@maka/core/events';
 import type { SessionSummary } from '@maka/core/session';
 import type { InvocationResult } from '@maka/runtime';
-import {
-  runMakaTextCli,
-  type MakaRunContext,
-  type MakaRunRuntime,
-} from '../run-command.js';
+import { runMakaTextCli, type MakaRunContext, type MakaRunRuntime } from '../run-command.js';
 import type { CreateMakaCliRuntimeContextInput } from '../runtime-bootstrap.js';
 import type { ReadySessionTarget } from '../connection-target.js';
 
@@ -48,8 +44,8 @@ const runtime: MakaRunRuntime = {
       throw new Error('unexpected createSession call');
     }
     if (
-      process.env.MAKA_RUN_EXPECT_PERMISSION_MODE
-      && input.permissionMode !== process.env.MAKA_RUN_EXPECT_PERMISSION_MODE
+      process.env.MAKA_RUN_EXPECT_PERMISSION_MODE &&
+      input.permissionMode !== process.env.MAKA_RUN_EXPECT_PERMISSION_MODE
     ) {
       throw new Error(`unexpected permissionMode ${input.permissionMode}`);
     }
@@ -57,8 +53,8 @@ const runtime: MakaRunRuntime = {
   },
   async *sendMessage(sessionId, input): AsyncIterable<SessionEvent> {
     if (
-      process.env.MAKA_RUN_EXPECT_SESSION_ID
-      && sessionId !== process.env.MAKA_RUN_EXPECT_SESSION_ID
+      process.env.MAKA_RUN_EXPECT_SESSION_ID &&
+      sessionId !== process.env.MAKA_RUN_EXPECT_SESSION_ID
     ) {
       throw new Error(`unexpected sessionId ${sessionId}`);
     }
@@ -85,23 +81,27 @@ const runtime: MakaRunRuntime = {
     if (scenario === 'slow') {
       process.stderr.write('fixture-ready\n');
       const keepAlive = setInterval(() => {}, 1_000);
-      await new Promise<void>((resolve) => { releaseStop = resolve; });
+      await new Promise<void>((resolve) => {
+        releaseStop = resolve;
+      });
       clearInterval(keepAlive);
       await notify(failedResult('aborted', 'fixture stopped'));
       return;
     }
     if (scenario === 'missing-output') {
-      await notify(failedResult('missing_final_output', 'completed invocation produced no final output'));
+      await notify(
+        failedResult('missing_final_output', 'completed invocation produced no final output'),
+      );
       return;
     }
     if (scenario === 'step-limit') {
-      await notify(failedResult('step_limit', 'explicit tool-step limit reached; send continue to resume'));
+      await notify(
+        failedResult('step_limit', 'explicit tool-step limit reached; send continue to resume'),
+      );
       return;
     }
     const maxSteps = process.env.MAKA_RUN_EXPECT_MAX_STEPS;
-    const output = maxSteps
-      ? `maxSteps=${maxSteps};prompt=${input.text}`
-      : `prompt=${input.text}`;
+    const output = maxSteps ? `maxSteps=${maxSteps};prompt=${input.text}` : `prompt=${input.text}`;
     await notify(completedResult(output));
   },
   async respondToPermission(_sessionId, response) {
@@ -115,8 +115,8 @@ const runtime: MakaRunRuntime = {
 async function createContext(input: CreateMakaCliRuntimeContextInput): Promise<MakaRunContext> {
   if (scenario === 'config-error') throw new Error('unknown connection fixture-missing');
   if (
-    process.env.MAKA_RUN_EXPECT_MAX_STEPS
-    && input.maxSteps !== Number(process.env.MAKA_RUN_EXPECT_MAX_STEPS)
+    process.env.MAKA_RUN_EXPECT_MAX_STEPS &&
+    input.maxSteps !== Number(process.env.MAKA_RUN_EXPECT_MAX_STEPS)
   ) {
     throw new Error(`unexpected maxSteps ${String(input.maxSteps)}`);
   }
@@ -126,18 +126,21 @@ async function createContext(input: CreateMakaCliRuntimeContextInput): Promise<M
       throw new Error(`unexpected permissionRules ${actual}`);
     }
   }
-  if (process.env.MAKA_RUN_EXPECT_CONTEXT_CWD && input.cwd !== process.env.MAKA_RUN_EXPECT_CONTEXT_CWD) {
+  if (
+    process.env.MAKA_RUN_EXPECT_CONTEXT_CWD &&
+    input.cwd !== process.env.MAKA_RUN_EXPECT_CONTEXT_CWD
+  ) {
     throw new Error(`unexpected context cwd ${input.cwd}`);
   }
   if (
-    process.env.MAKA_RUN_EXPECT_CONTEXT_CONNECTION
-    && input.requestedConnectionSlug !== process.env.MAKA_RUN_EXPECT_CONTEXT_CONNECTION
+    process.env.MAKA_RUN_EXPECT_CONTEXT_CONNECTION &&
+    input.requestedConnectionSlug !== process.env.MAKA_RUN_EXPECT_CONTEXT_CONNECTION
   ) {
     throw new Error(`unexpected context connection ${String(input.requestedConnectionSlug)}`);
   }
   if (
-    process.env.MAKA_RUN_EXPECT_CONTEXT_MODEL
-    && input.requestedModel !== process.env.MAKA_RUN_EXPECT_CONTEXT_MODEL
+    process.env.MAKA_RUN_EXPECT_CONTEXT_MODEL &&
+    input.requestedModel !== process.env.MAKA_RUN_EXPECT_CONTEXT_MODEL
   ) {
     throw new Error(`unexpected context model ${String(input.requestedModel)}`);
   }
@@ -188,7 +191,9 @@ async function notify(result: InvocationResult): Promise<void> {
 }
 
 runMakaTextCli(process.argv.slice(2), { createContext, listSessions }).then(
-  (code) => { process.exitCode = code; },
+  (code) => {
+    process.exitCode = code;
+  },
   (error) => {
     process.stderr.write(`${error instanceof Error ? error.stack : String(error)}\n`);
     process.exitCode = 1;

@@ -19,7 +19,12 @@ describe('runtime resume phase 0 projection', () => {
     );
     assert.deepEqual(
       [...new Set(RUNTIME_RESUME_FAILPOINTS.map((failpoint) => failpoint.committedPrefix))],
-      ['before_function_call', 'after_function_call', 'after_function_response', 'after_terminal_event'],
+      [
+        'before_function_call',
+        'after_function_call',
+        'after_function_response',
+        'after_terminal_event',
+      ],
     );
   });
 
@@ -34,28 +39,31 @@ describe('runtime resume phase 0 projection', () => {
     const second = projectToolOperationsFromRuntimeEvents(events);
 
     assert.deepEqual(first, second);
-    assert.deepEqual(first.map((operation) => ({
-      toolCallId: operation.toolCallId,
-      toolName: operation.toolName,
-      status: operation.status,
-      callRuntimeEventId: operation.callRuntimeEventId,
-      responseRuntimeEventId: operation.responseRuntimeEventId,
-    })), [
-      {
-        toolCallId: 'tool-1',
-        toolName: 'Bash',
-        status: 'failed',
-        callRuntimeEventId: 'call-1',
-        responseRuntimeEventId: 'result-1',
-      },
-      {
-        toolCallId: 'tool-2',
-        toolName: 'Read',
-        status: 'indeterminate',
-        callRuntimeEventId: 'call-2',
-        responseRuntimeEventId: undefined,
-      },
-    ]);
+    assert.deepEqual(
+      first.map((operation) => ({
+        toolCallId: operation.toolCallId,
+        toolName: operation.toolName,
+        status: operation.status,
+        callRuntimeEventId: operation.callRuntimeEventId,
+        responseRuntimeEventId: operation.responseRuntimeEventId,
+      })),
+      [
+        {
+          toolCallId: 'tool-1',
+          toolName: 'Bash',
+          status: 'failed',
+          callRuntimeEventId: 'call-1',
+          responseRuntimeEventId: 'result-1',
+        },
+        {
+          toolCallId: 'tool-2',
+          toolName: 'Read',
+          status: 'indeterminate',
+          callRuntimeEventId: 'call-2',
+          responseRuntimeEventId: undefined,
+        },
+      ],
+    );
   });
 
   test('distinguishes committed failed results from indeterminate missing results', () => {
@@ -88,7 +96,10 @@ describe('runtime resume phase 0 projection', () => {
 
     const replayEvents = buildResumeReplayRuntimeEvents(events);
 
-    assert.deepEqual(replayEvents.map((event) => event.id), ['user-1', 'system-1']);
+    assert.deepEqual(
+      replayEvents.map((event) => event.id),
+      ['user-1', 'system-1'],
+    );
   });
 
   test('blocks replay on unmatched tool results rather than inventing provider history', () => {
@@ -99,20 +110,27 @@ describe('runtime resume phase 0 projection', () => {
     assert.equal(plan.disposition, 'blocked');
     assert.equal(plan.requiresVerification, false);
     assert.deepEqual(plan.rejectionReasons, ['dangling_tool_state']);
-    assert.deepEqual(plan.diagnostics.map((diagnostic) => diagnostic.code), ['unmatched_tool_result']);
-    assert.deepEqual(buildResumeReplayRuntimeEvents(plan.runtimeEvents).map((event) => event.id), []);
+    assert.deepEqual(
+      plan.diagnostics.map((diagnostic) => diagnostic.code),
+      ['unmatched_tool_result'],
+    );
+    assert.deepEqual(
+      buildResumeReplayRuntimeEvents(plan.runtimeEvents).map((event) => event.id),
+      [],
+    );
   });
 
   test('rejects runtime high-water mismatches with a stable fallback reason', () => {
-    const plan = buildResumePlanFromRuntimeEvents([
-      textEvent('user-1', 'user', 'hello'),
-    ], {
+    const plan = buildResumePlanFromRuntimeEvents([textEvent('user-1', 'user', 'hello')], {
       expectedRuntimeEventHighWater: 2,
     });
 
     assert.equal(plan.disposition, 'blocked');
     assert.deepEqual(plan.rejectionReasons, ['runtime_offset_mismatch']);
-    assert.deepEqual(plan.diagnostics.map((diagnostic) => diagnostic.code), ['runtime_offset_mismatch']);
+    assert.deepEqual(
+      plan.diagnostics.map((diagnostic) => diagnostic.code),
+      ['runtime_offset_mismatch'],
+    );
   });
 });
 

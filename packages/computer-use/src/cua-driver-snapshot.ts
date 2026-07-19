@@ -48,11 +48,12 @@ function windowBounds(value: unknown): CuaWindowBounds | undefined {
   if (!value || typeof value !== 'object') return undefined;
   const record = value as Record<string, unknown>;
   if (
-    typeof record.x !== 'number'
-    || typeof record.y !== 'number'
-    || !finitePositive(record.width)
-    || !finitePositive(record.height)
-  ) return undefined;
+    typeof record.x !== 'number' ||
+    typeof record.y !== 'number' ||
+    !finitePositive(record.width) ||
+    !finitePositive(record.height)
+  )
+    return undefined;
   return {
     x: record.x,
     y: record.y,
@@ -79,25 +80,31 @@ export function resolveWindowAtDeclaredPoint(input: {
     .flatMap((window) => {
       const bounds = windowBounds(window.bounds);
       if (
-        window.layer !== 0
-        || window.is_on_screen === false
-        || !bounds
-        || typeof window.pid !== 'number'
-        || typeof window.window_id !== 'number'
-      ) return [];
-      const inside = screenPoint.x >= bounds.x
-        && screenPoint.x < bounds.x + bounds.width
-        && screenPoint.y >= bounds.y
-        && screenPoint.y < bounds.y + bounds.height;
-      return inside ? [{
-        pid: window.pid,
-        windowId: window.window_id,
-        ...(typeof window.app_name === 'string' ? { appName: window.app_name } : {}),
-        ...(typeof window.title === 'string' ? { title: window.title } : {}),
-        bounds,
-        screenPoint,
-        zIndex: Number(window.z_index) || 0,
-      }] : [];
+        window.layer !== 0 ||
+        window.is_on_screen === false ||
+        !bounds ||
+        typeof window.pid !== 'number' ||
+        typeof window.window_id !== 'number'
+      )
+        return [];
+      const inside =
+        screenPoint.x >= bounds.x &&
+        screenPoint.x < bounds.x + bounds.width &&
+        screenPoint.y >= bounds.y &&
+        screenPoint.y < bounds.y + bounds.height;
+      return inside
+        ? [
+            {
+              pid: window.pid,
+              windowId: window.window_id,
+              ...(typeof window.app_name === 'string' ? { appName: window.app_name } : {}),
+              ...(typeof window.title === 'string' ? { title: window.title } : {}),
+              bounds,
+              screenPoint,
+              zIndex: Number(window.z_index) || 0,
+            },
+          ]
+        : [];
     })
     .sort((a, b) => b.zIndex - a.zIndex);
   const winner = containing[0];
@@ -121,11 +128,12 @@ export function windowPointFromSnapshot(input: {
 }): CuPoint | undefined {
   const { screenPoint, windowBounds } = input;
   if (
-    !finitePositive(windowBounds.width)
-    || !finitePositive(windowBounds.height)
-    || !finitePositive(input.screenshotWidthPx)
-    || !finitePositive(input.screenshotHeightPx)
-  ) return undefined;
+    !finitePositive(windowBounds.width) ||
+    !finitePositive(windowBounds.height) ||
+    !finitePositive(input.screenshotWidthPx) ||
+    !finitePositive(input.screenshotHeightPx)
+  )
+    return undefined;
   const relativeX = (screenPoint.x - windowBounds.x) / windowBounds.width;
   const relativeY = (screenPoint.y - windowBounds.y) / windowBounds.height;
   if (relativeX < 0 || relativeX >= 1 || relativeY < 0 || relativeY >= 1) return undefined;
@@ -135,24 +143,27 @@ export function windowPointFromSnapshot(input: {
   };
 }
 
-export function normalizeCuaSnapshotElement(element: CuaSnapshotElement): {
-  element_index: number;
-  element_token?: string;
-  role: string;
-  label?: string;
-  value?: string;
-  depth: number;
-  frame: { x: number; y: number; w: number; h: number };
-} | undefined {
+export function normalizeCuaSnapshotElement(element: CuaSnapshotElement):
+  | {
+      element_index: number;
+      element_token?: string;
+      role: string;
+      label?: string;
+      value?: string;
+      depth: number;
+      frame: { x: number; y: number; w: number; h: number };
+    }
+  | undefined {
   if (typeof element.element_index !== 'number') return undefined;
   if (!element.frame || typeof element.frame !== 'object') return undefined;
   const frame = element.frame as Record<string, unknown>;
   if (
-    typeof frame.x !== 'number'
-    || typeof frame.y !== 'number'
-    || !finitePositive(frame.w)
-    || !finitePositive(frame.h)
-  ) return undefined;
+    typeof frame.x !== 'number' ||
+    typeof frame.y !== 'number' ||
+    !finitePositive(frame.w) ||
+    !finitePositive(frame.h)
+  )
+    return undefined;
   return {
     element_index: element.element_index,
     ...(typeof element.element_token === 'string' ? { element_token: element.element_token } : {}),
@@ -179,10 +190,11 @@ function elementsContaining(
       const normalized = normalizeCuaSnapshotElement(element);
       if (!normalized) return [];
       const { frame } = normalized;
-      const inside = point.x >= frame.x
-        && point.x < frame.x + frame.w
-        && point.y >= frame.y
-        && point.y < frame.y + frame.h;
+      const inside =
+        point.x >= frame.x &&
+        point.x < frame.x + frame.w &&
+        point.y >= frame.y &&
+        point.y < frame.y + frame.h;
       return inside ? [normalized] : [];
     })
     .sort((a, b) => {
@@ -211,12 +223,7 @@ const CLICKABLE_ROLES = new Set([
   'AXTab',
 ]);
 
-const EDITABLE_ROLES = new Set([
-  'AXComboBox',
-  'AXSearchField',
-  'AXTextArea',
-  'AXTextField',
-]);
+const EDITABLE_ROLES = new Set(['AXComboBox', 'AXSearchField', 'AXTextArea', 'AXTextField']);
 
 export function editableElementAtScreenPoint(
   elements: readonly CuaSnapshotElement[],

@@ -1,9 +1,6 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
-import type {
-  AbRunManifest,
-  AbRunManifestInput,
-} from './ab-types.js';
+import type { AbRunManifest, AbRunManifestInput } from './ab-types.js';
 import { publishImmutableFile } from './immutable-file.js';
 
 export function buildAbRunManifest(input: AbRunManifestInput): AbRunManifest {
@@ -11,12 +8,14 @@ export function buildAbRunManifest(input: AbRunManifestInput): AbRunManifest {
     schemaVersion: 'maka.ab.run_manifest.v1' as const,
     experimentKind: input.experimentKind,
     metadata: input.metadata,
-    arms: input.arms.map((arm) => withoutUndefined({
-      id: arm.id,
-      kind: arm.kind,
-      fingerprint: arm.fingerprint,
-      metadata: arm.metadata,
-    })) as [AbRunManifest['arms'][number], AbRunManifest['arms'][number]],
+    arms: input.arms.map((arm) =>
+      withoutUndefined({
+        id: arm.id,
+        kind: arm.kind,
+        fingerprint: arm.fingerprint,
+        metadata: arm.metadata,
+      }),
+    ) as [AbRunManifest['arms'][number], AbRunManifest['arms'][number]],
     taskBudgetSec: input.taskBudgetSec,
     harborTimeoutMs: input.harborTimeoutMs,
     subjectFingerprint: input.subjectFingerprint,
@@ -63,7 +62,8 @@ export async function ensureAbRunManifest<T extends { fingerprint: string }>(
       return manifest;
     }
     existing = await readAbRunManifest<T>(path);
-    if (existing === null) throw new Error('concurrent A/B run manifest disappeared after publication');
+    if (existing === null)
+      throw new Error('concurrent A/B run manifest disappeared after publication');
   }
   if (existing.fingerprint !== manifest.fingerprint) {
     throw new Error(
@@ -73,7 +73,9 @@ export async function ensureAbRunManifest<T extends { fingerprint: string }>(
   return existing;
 }
 
-export async function readAbRunManifest<T extends { fingerprint: string }>(path: string): Promise<T | null> {
+export async function readAbRunManifest<T extends { fingerprint: string }>(
+  path: string,
+): Promise<T | null> {
   let raw: string;
   try {
     raw = await readFile(path, 'utf8');
@@ -94,7 +96,9 @@ export async function readAbRunManifest<T extends { fingerprint: string }>(path:
   return existing;
 }
 
-function hasFullBodyFingerprint(value: unknown): value is { schemaVersion: string; fingerprint: string } {
+function hasFullBodyFingerprint(
+  value: unknown,
+): value is { schemaVersion: string; fingerprint: string } {
   if (!value || typeof value !== 'object' || !('schemaVersion' in value)) return false;
   const schemaVersion = (value as { schemaVersion?: unknown }).schemaVersion;
   return schemaVersion === 'maka.ab.run_manifest.v1';
@@ -112,12 +116,16 @@ function canonicalJson(value: unknown): string {
 }
 
 function withoutUndefined<T extends Record<string, unknown>>(value: T): T {
-  return Object.fromEntries(Object.entries(value).filter(([, entryValue]) => entryValue !== undefined)) as T;
+  return Object.fromEntries(
+    Object.entries(value).filter(([, entryValue]) => entryValue !== undefined),
+  ) as T;
 }
 
 function isNotFound(error: unknown): boolean {
-  return typeof error === 'object'
-    && error !== null
-    && 'code' in error
-    && (error as { code?: unknown }).code === 'ENOENT';
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code?: unknown }).code === 'ENOENT'
+  );
 }

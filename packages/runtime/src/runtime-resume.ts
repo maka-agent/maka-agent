@@ -7,10 +7,7 @@ import {
   type RuntimeEventFunctionResponseContent,
 } from '@maka/core/runtime-event';
 
-export type ToolOperationStatus =
-  | 'succeeded'
-  | 'failed'
-  | 'indeterminate';
+export type ToolOperationStatus = 'succeeded' | 'failed' | 'indeterminate';
 
 export interface ToolOperation {
   toolCallId: string;
@@ -22,9 +19,7 @@ export interface ToolOperation {
   responseIsError?: boolean;
 }
 
-export type ResumePlanDisposition =
-  | 'safe_replay'
-  | 'blocked';
+export type ResumePlanDisposition = 'safe_replay' | 'blocked';
 
 export type ResumePlanDiagnosticCode =
   | 'pending_tool_result'
@@ -133,14 +128,42 @@ export interface RuntimeResumeFailpointSpec {
  */
 export const RUNTIME_RESUME_FAILPOINTS = [
   { id: 'P0', boundary: 'before tool preparation (T1)', committedPrefix: 'before_function_call' },
-  { id: 'P1', boundary: 'function_call committed before prepared journal', committedPrefix: 'after_function_call' },
-  { id: 'P2', boundary: 'prepared journal committed before implementation', committedPrefix: 'after_function_call' },
+  {
+    id: 'P1',
+    boundary: 'function_call committed before prepared journal',
+    committedPrefix: 'after_function_call',
+  },
+  {
+    id: 'P2',
+    boundary: 'prepared journal committed before implementation',
+    committedPrefix: 'after_function_call',
+  },
   { id: 'P3', boundary: 'tool implementation in progress', committedPrefix: 'after_function_call' },
-  { id: 'P4', boundary: 'side effect completed before outcome transaction (T2)', committedPrefix: 'after_function_call' },
-  { id: 'P5', boundary: 'function_response committed before outcome journal', committedPrefix: 'after_function_response' },
-  { id: 'P6', boundary: 'outcome transaction committed before model result delivery', committedPrefix: 'after_function_response' },
-  { id: 'P7', boundary: 'tool result delivered before the next provider step', committedPrefix: 'after_function_response' },
-  { id: 'P8', boundary: 'terminal RuntimeEvent commit', committedPrefix: 'after_function_response' },
+  {
+    id: 'P4',
+    boundary: 'side effect completed before outcome transaction (T2)',
+    committedPrefix: 'after_function_call',
+  },
+  {
+    id: 'P5',
+    boundary: 'function_response committed before outcome journal',
+    committedPrefix: 'after_function_response',
+  },
+  {
+    id: 'P6',
+    boundary: 'outcome transaction committed before model result delivery',
+    committedPrefix: 'after_function_response',
+  },
+  {
+    id: 'P7',
+    boundary: 'tool result delivered before the next provider step',
+    committedPrefix: 'after_function_response',
+  },
+  {
+    id: 'P8',
+    boundary: 'terminal RuntimeEvent commit',
+    committedPrefix: 'after_function_response',
+  },
   { id: 'P9', boundary: 'terminal run header commit', committedPrefix: 'after_terminal_event' },
   { id: 'P10', boundary: 'recovery decision commit', committedPrefix: 'after_terminal_event' },
   { id: 'P11', boundary: 'continuation run creation', committedPrefix: 'after_terminal_event' },
@@ -249,11 +272,16 @@ export class RuntimeContinuationPlanner {
     try {
       events = await this.deps.readRuntimeEvents(input.sessionId, input.sourceRunId);
     } catch {
-      return parkedPlan('runtime_ledger_unreadable', 'RuntimeEvent ledger could not be read reliably');
+      return parkedPlan(
+        'runtime_ledger_unreadable',
+        'RuntimeEvent ledger could not be read reliably',
+      );
     }
-    if (events.some((event) => (
-      event.sessionId !== input.sessionId || event.runId !== input.sourceRunId
-    ))) {
+    if (
+      events.some(
+        (event) => event.sessionId !== input.sessionId || event.runId !== input.sourceRunId,
+      )
+    ) {
       return parkedPlan(
         'runtime_identity_mismatch',
         'RuntimeEvent ledger does not belong to the requested source run',
@@ -305,9 +333,9 @@ function hasConsistentTerminalBoundary(
   events: readonly RuntimeEvent[],
 ): boolean {
   if (!isTerminalRunStatus(runStatus)) return false;
-  const terminalEvents = events.filter((event) => (
-    !isPartialRuntimeEvent(event) && isTerminalRuntimeEvent(event)
-  ));
+  const terminalEvents = events.filter(
+    (event) => !isPartialRuntimeEvent(event) && isTerminalRuntimeEvent(event),
+  );
   if (terminalEvents.length !== 1) return false;
   const eventStatus = terminalEvents[0]?.status;
   if (eventStatus === 'aborted' || eventStatus === 'cancelled') {
@@ -390,9 +418,7 @@ export function buildResumePlanFromRuntimeEvents(
   };
 }
 
-export function buildResumeReplayRuntimeEvents(
-  events: readonly RuntimeEvent[],
-): RuntimeEvent[] {
+export function buildResumeReplayRuntimeEvents(events: readonly RuntimeEvent[]): RuntimeEvent[] {
   const pairedCallIds = collectPairedCallIds(events);
   const replayEvents: RuntimeEvent[] = [];
 
@@ -421,12 +447,10 @@ export function buildSafeBoundaryContinuationPlan(
   events: readonly RuntimeEvent[],
   facts: SafeBoundaryContinuationFacts,
 ): SafeBoundaryContinuationPlan {
-  const expectedRuntimeEventHighWater = facts.workspaceCheckpoint?.runtimeEventHighWater
-    ?? facts.expectedRuntimeEventHighWater;
+  const expectedRuntimeEventHighWater =
+    facts.workspaceCheckpoint?.runtimeEventHighWater ?? facts.expectedRuntimeEventHighWater;
   const replayPlan = buildResumePlanFromRuntimeEvents(events, {
-    ...(expectedRuntimeEventHighWater !== undefined
-      ? { expectedRuntimeEventHighWater }
-      : {}),
+    ...(expectedRuntimeEventHighWater !== undefined ? { expectedRuntimeEventHighWater } : {}),
   });
   const phaseOneDiagnostics = collectPendingPermissionDiagnostics(events);
   const phaseOneRejectionReasons: ResumeRejectionReason[] = [];
@@ -439,11 +463,12 @@ export function buildSafeBoundaryContinuationPlan(
     });
     phaseOneRejectionReasons.push('runtime_ledger_empty');
   } else {
-    const mismatchedEvent = events.find((event) =>
-      event.sessionId !== source.sessionId
-      || event.invocationId !== source.invocationId
-      || event.runId !== source.runId
-      || event.turnId !== source.turnId
+    const mismatchedEvent = events.find(
+      (event) =>
+        event.sessionId !== source.sessionId ||
+        event.invocationId !== source.invocationId ||
+        event.runId !== source.runId ||
+        event.turnId !== source.turnId,
     );
     if (mismatchedEvent) {
       phaseOneDiagnostics.push({
@@ -454,9 +479,9 @@ export function buildSafeBoundaryContinuationPlan(
       phaseOneRejectionReasons.push('runtime_identity_mismatch');
     }
     if (
-      facts.continuationIdentity.invocationId === source.invocationId
-      || facts.continuationIdentity.runId === source.runId
-      || facts.continuationIdentity.turnId === source.turnId
+      facts.continuationIdentity.invocationId === source.invocationId ||
+      facts.continuationIdentity.runId === source.runId ||
+      facts.continuationIdentity.turnId === source.turnId
     ) {
       phaseOneDiagnostics.push({
         code: 'continuation_identity_reused',
@@ -522,11 +547,13 @@ export function buildSafeBoundaryContinuationPlan(
     }
   }
   const availableToolNames = new Set(facts.availableToolNames);
-  const unavailableToolNames = [...new Set(
-    replayPlan.operations
-      .map((operation) => operation.toolName)
-      .filter((toolName) => !availableToolNames.has(toolName)),
-  )].sort();
+  const unavailableToolNames = [
+    ...new Set(
+      replayPlan.operations
+        .map((operation) => operation.toolName)
+        .filter((toolName) => !availableToolNames.has(toolName)),
+    ),
+  ].sort();
   if (unavailableToolNames.length > 0) {
     phaseOneDiagnostics.push({
       code: 'tool_catalog_mismatch',
@@ -537,10 +564,10 @@ export function buildSafeBoundaryContinuationPlan(
   }
   const lastModelVisibleEvent = findLastModelVisibleEvent(replayPlan.replayRuntimeEvents);
   if (
-    source
-    && !phaseOneRejectionReasons.includes('runtime_identity_mismatch')
-    && lastModelVisibleEvent?.role !== 'user'
-    && lastModelVisibleEvent?.role !== 'tool'
+    source &&
+    !phaseOneRejectionReasons.includes('runtime_identity_mismatch') &&
+    lastModelVisibleEvent?.role !== 'user' &&
+    lastModelVisibleEvent?.role !== 'tool'
   ) {
     phaseOneDiagnostics.push({
       code: 'provider_resume_boundary_unsupported',
@@ -574,12 +601,14 @@ export function buildSafeBoundaryContinuationPlan(
         workspaceIdentity: facts.currentWorkspaceIdentity,
         backgroundOperationsSettled: true,
         availableToolNames: [...new Set(facts.availableToolNames)].sort(),
-        ...(facts.workspaceCheckpoint?.ref ? {
-          workspaceCheckpoint: {
-            ref: facts.workspaceCheckpoint.ref,
-            runtimeEventHighWater: facts.workspaceCheckpoint.runtimeEventHighWater,
-          },
-        } : {}),
+        ...(facts.workspaceCheckpoint?.ref
+          ? {
+              workspaceCheckpoint: {
+                ref: facts.workspaceCheckpoint.ref,
+                runtimeEventHighWater: facts.workspaceCheckpoint.runtimeEventHighWater,
+              },
+            }
+          : {}),
       },
     },
   };
@@ -606,14 +635,10 @@ function collectPendingPermissionDiagnostics(
 
 function normalizeCwd(value: string): string {
   const normalized = value.replaceAll('\\', '/').replace(/\/+$/, '');
-  return /^[A-Za-z]:\//.test(normalized)
-    ? normalized.toLowerCase()
-    : normalized;
+  return /^[A-Za-z]:\//.test(normalized) ? normalized.toLowerCase() : normalized;
 }
 
-function findLastModelVisibleEvent(
-  events: readonly RuntimeEvent[],
-): RuntimeEvent | undefined {
+function findLastModelVisibleEvent(events: readonly RuntimeEvent[]): RuntimeEvent | undefined {
   for (let index = events.length - 1; index >= 0; index -= 1) {
     const event = events[index];
     if (event && runtimeEventHasModelVisibleContent(event)) return event;
@@ -641,8 +666,8 @@ function collectResumeDiagnostics(
   const diagnostics: ResumePlanDiagnostic[] = [];
   const operationsById = new Map(operations.map((operation) => [operation.toolCallId, operation]));
   if (
-    options.expectedRuntimeEventHighWater !== undefined
-    && options.expectedRuntimeEventHighWater !== events.length
+    options.expectedRuntimeEventHighWater !== undefined &&
+    options.expectedRuntimeEventHighWater !== events.length
   ) {
     diagnostics.push({
       code: 'runtime_offset_mismatch',

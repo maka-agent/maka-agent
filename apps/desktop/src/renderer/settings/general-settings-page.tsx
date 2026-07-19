@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { PersonalizationSettingsPage } from './appearance-settings-page';
 import type {
   AppSettings,
@@ -7,7 +7,6 @@ import type {
   NetworkProxySettings,
   UpdateAppSettingsResult,
 } from '@maka/core';
-import { generalizedErrorMessageChinese } from '@maka/core';
 import type { TestProxyInput } from '@maka/core/settings/network-settings';
 import {
   Button,
@@ -23,12 +22,16 @@ import {
   parseModelChoiceValue,
   useMountedRef,
   useToast,
+  useUiLocale,
 } from '@maka/ui';
 import { ProviderLogo } from './ProvidersPanel';
 import { buildCatalogChatModelChoices } from '../model-catalog-choices';
 import { PasswordInput } from './password-input';
 import { SettingsRows } from './settings-rows';
 import { settingsActionErrorMessage } from './settings-error-copy';
+import { useActionGuard, useKeyedActionGuard } from './use-action-guard';
+import { useOptimisticSettingsDraft } from './use-optimistic-settings-draft';
+import { getSettingsPreferencesCopy } from '../locales/settings-preferences-copy.js';
 
 export function GeneralSettingsPage(props: {
   settings: AppSettings;
@@ -37,6 +40,8 @@ export function GeneralSettingsPage(props: {
   onUpdate(patch: Parameters<typeof window.maka.settings.update>[0]): Promise<UpdateAppSettingsResult>;
   onRefreshConnections(): Promise<void>;
 }) {
+  const locale = useUiLocale();
+  const copy = getSettingsPreferencesCopy(locale).general;
   const toast = useToast();
   return (
     <div className="settingsStructuredPage">
@@ -47,30 +52,30 @@ export function GeneralSettingsPage(props: {
       <SettingsRows>
         <div className="settingsFormRow">
           <div>
-            <strong>隐身模式</strong>
-            <small>开启后暂停本地记忆读写、联网搜索和计划提醒触发；关闭后恢复正常工作区状态。</small>
+            <strong>{copy.incognito}</strong>
+            <small>{copy.incognitoHelp}</small>
           </div>
           <Switch
-            ariaLabel="启用隐身模式"
+            ariaLabel={copy.enableIncognito}
             checked={props.settings.privacy.incognitoActive}
             onChange={(incognitoActive) => {
               props.onUpdate({ privacy: { incognitoActive } }).catch((error: unknown) => {
-                toast.error('隐身模式切换失败', generalizedErrorMessageChinese(error, '设置未生效，请稍后重试'));
+                toast.error(copy.incognitoFailed, settingsActionErrorMessage(error, locale));
               });
             }}
           />
         </div>
         <div className="settingsFormRow">
           <div>
-            <strong>完成时发送系统通知</strong>
-            <small>当窗口不在前台时，一轮回答生成完成或出错后发送桌面通知；窗口聚焦时不打扰。需系统已授予通知权限。</small>
+            <strong>{copy.notifications}</strong>
+            <small>{copy.notificationsHelp}</small>
           </div>
           <Switch
-            ariaLabel="完成时发送系统通知"
+            ariaLabel={copy.notifications}
             checked={props.settings.notifications.runComplete}
             onChange={(runComplete) => {
               props.onUpdate({ notifications: { runComplete } }).catch((error: unknown) => {
-                toast.error('通知设置切换失败', generalizedErrorMessageChinese(error, '设置未生效，请稍后重试'));
+                toast.error(copy.notificationsFailed, settingsActionErrorMessage(error, locale));
               });
             }}
           />
@@ -117,19 +122,13 @@ function GeneralDefaultsCard(props: {
   permissionMode: ChatDefaultPermissionMode;
   onUpdate(patch: Parameters<typeof window.maka.settings.update>[0]): Promise<UpdateAppSettingsResult>;
 }) {
+  const locale = useUiLocale();
+  const copy = getSettingsPreferencesCopy(locale).general;
   const toast = useToast();
   const mountedRef = useMountedRef();
-  const savingRef = useRef(false);
+  const persistGuard = useKeyedActionGuard<'default-model' | 'permission-mode'>();
   const [saving, setSaving] = useState(false);
-  const savingPermissionModeRef = useRef(false);
   const [savingPermissionMode, setSavingPermissionMode] = useState(false);
-
-  useEffect(() => {
-    return () => {
-      savingRef.current = false;
-      savingPermissionModeRef.current = false;
-    };
-  }, []);
 
   const modelChoices = useMemo(() => buildCatalogChatModelChoices(props.connections), [props.connections]);
   const modelGroups = useMemo(() => modelMenuGroups(modelChoices), [modelChoices]);
@@ -141,13 +140,13 @@ function GeneralDefaultsCard(props: {
     return modelChoices.some((choice) => modelChoiceValue(choice.connectionSlug, choice.model) === value) ? value : '';
   }, [modelChoices, props.connections, props.defaultSlug]);
   const selectedLabel = useMemo(() => {
-    if (!selectedValue) return '未设置';
-    return modelChoices.find((choice) => modelChoiceValue(choice.connectionSlug, choice.model) === selectedValue)?.label ?? '未设置';
-  }, [modelChoices, selectedValue]);
+    if (!selectedValue) return copy.notSet;
+    return modelChoices.find((choice) => modelChoiceValue(choice.connectionSlug, choice.model) === selectedValue)?.label ?? copy.notSet;
+  }, [copy.notSet, modelChoices, selectedValue]);
 
   async function persistDefault(nextValue: string) {
-    if (savingRef.current) return;
-    savingRef.current = true;
+    const releaseSave = persistGuard.begin('default-model');
+    if (!releaseSave) return;
     setSaving(true);
     try {
       const parsed = parseModelChoiceValue(nextValue);
@@ -159,12 +158,10 @@ function GeneralDefaultsCard(props: {
       await props.onRefresh();
     } catch (error) {
       if (mountedRef.current) {
-        toast.error('保存默认模型失败', settingsActionErrorMessage(error));
+        toast.error(copy.saveDefaultModelFailed, settingsActionErrorMessage(error, locale));
       }
     } finally {
-      if (savingRef.current) {
-        savingRef.current = false;
-      }
+      releaseSave();
       if (mountedRef.current) setSaving(false);
     }
   }
@@ -174,17 +171,17 @@ function GeneralDefaultsCard(props: {
     // alone can't fully prevent overlapping saves (React disables it a tick
     // after the click), and overlapping settings.update calls have no
     // ordering guarantee.
-    if (savingPermissionModeRef.current) return;
-    savingPermissionModeRef.current = true;
+    const releaseSave = persistGuard.begin('permission-mode');
+    if (!releaseSave) return;
     setSavingPermissionMode(true);
     try {
       await props.onUpdate({ chatDefaults: { permissionMode: nextMode } });
     } catch (error) {
       if (mountedRef.current) {
-        toast.error('保存默认权限模式失败', settingsActionErrorMessage(error));
+        toast.error(copy.saveDefaultPermissionFailed, settingsActionErrorMessage(error, locale));
       }
     } finally {
-      savingPermissionModeRef.current = false;
+      releaseSave();
       if (mountedRef.current) setSavingPermissionMode(false);
     }
   }
@@ -193,8 +190,8 @@ function GeneralDefaultsCard(props: {
     <SettingsRows>
       <div className="settingsRow" data-control-width="select">
         <div>
-          <strong>默认模型</strong>
-          <small>新对话默认使用的模型。</small>
+          <strong>{copy.defaultModel}</strong>
+          <small>{copy.defaultModelHelp}</small>
         </div>
         {/* Shared searchable picker with the composer's model switcher
             (ModelPicker in @maka/ui) so the grouped list, provider marks,
@@ -202,9 +199,9 @@ function GeneralDefaultsCard(props: {
         <ModelPicker
           groups={modelGroups}
           value={selectedValue}
-          pinnedItem={{ value: '', label: '未设置' }}
+          pinnedItem={{ value: '', label: copy.notSet }}
           renderProviderMark={(type) => <ProviderLogo type={type} compact />}
-          ariaLabel="默认模型"
+          ariaLabel={copy.defaultModel}
           disabled={saving}
           triggerClassName="settingsSelectTrigger max-w-[320px] w-full"
           onValueChange={(value) => {
@@ -216,10 +213,10 @@ function GeneralDefaultsCard(props: {
       </div>
       <div className="settingsRow" data-control-width="select">
         <div>
-          <strong>默认权限模式</strong>
+          <strong>{copy.defaultPermission}</strong>
           {/* Fixed description of the SETTING (not the selected option's own
               hint — the shared popup already shows every option's hint). */}
-          <small>新对话默认使用的权限模式；可在对话内随时切换，仅影响新建对话的初始值。</small>
+          <small>{copy.defaultPermissionHelp}</small>
         </div>
         {/* Shared Base UI Select picker with the composer (PermissionModeSelect)
             — same component, so option markup can't drift between the two
@@ -231,7 +228,7 @@ function GeneralDefaultsCard(props: {
           }}
           align="end"
           disabled={savingPermissionMode}
-          ariaLabel="默认权限模式"
+          ariaLabel={copy.defaultPermission}
           className="settingsSelectTrigger max-w-[320px] w-full justify-between"
         />
       </div>
@@ -243,75 +240,44 @@ function NetworkProxySection(props: {
   settings: AppSettings;
   onUpdate(patch: Parameters<typeof window.maka.settings.update>[0]): Promise<UpdateAppSettingsResult>;
 }) {
+  const locale = useUiLocale();
+  const copy = getSettingsPreferencesCopy(locale).general;
   const persistedProxy = props.settings.network.proxy;
-  const [proxyDraft, setProxyDraft] = useState<NetworkProxySettings>(persistedProxy);
   const [testing, setTesting] = useState(false);
-  const proxyDraftRef = useRef<NetworkProxySettings>(persistedProxy);
-  const persistedProxyRef = useRef<NetworkProxySettings>(persistedProxy);
-  const proxyPendingSaveCountRef = useRef(0);
-  const proxySaveTicketRef = useRef(0);
-  const proxyTestRunningRef = useRef(false);
-  const networkPageMountedRef = useMountedRef();
+  const proxyTestGuard = useActionGuard<'test'>();
   const toast = useToast();
+  const {
+    draft: proxyDraft,
+    draftRef: proxyDraftRef,
+    mountedRef: networkPageMountedRef,
+    update,
+  } = useOptimisticSettingsDraft<NetworkProxySettings>(
+    persistedProxy,
+    (patch) => props.onUpdate({ network: { proxy: patch } }).then((result) => result.settings.network.proxy),
+    { onError: (error) => toast.error(copy.saveNetworkFailed, settingsActionErrorMessage(error, locale)) },
+  );
 
-  useEffect(() => {
-    return () => {
-      proxySaveTicketRef.current += 1;
-      proxyTestRunningRef.current = false;
-    };
-  }, []);
-
-  function commitProxyDraft(next: NetworkProxySettings) {
-    proxyDraftRef.current = next;
-    setProxyDraft(next);
-  }
-
-  useEffect(() => {
-    persistedProxyRef.current = persistedProxy;
-    if (proxyPendingSaveCountRef.current === 0) {
-      commitProxyDraft(persistedProxy);
-    }
-  }, [persistedProxy]);
-
-  async function updateProxy(patch: Partial<NetworkProxySettings>) {
-    const nextDraft = { ...proxyDraftRef.current, ...patch };
-    const ticket = proxySaveTicketRef.current + 1;
-    proxySaveTicketRef.current = ticket;
-    proxyPendingSaveCountRef.current += 1;
-    commitProxyDraft(nextDraft);
-    try {
-      const result = await props.onUpdate({ network: { proxy: patch } });
-      if (networkPageMountedRef.current && ticket === proxySaveTicketRef.current) {
-        commitProxyDraft(result.settings.network.proxy);
-      }
-    } catch (error) {
-      if (networkPageMountedRef.current && ticket === proxySaveTicketRef.current) {
-        commitProxyDraft(persistedProxyRef.current);
-        toast.error('保存网络设置失败', settingsActionErrorMessage(error));
-      }
-    } finally {
-      proxyPendingSaveCountRef.current = Math.max(0, proxyPendingSaveCountRef.current - 1);
-    }
+  function updateProxy(patch: Partial<NetworkProxySettings>) {
+    return update(patch);
   }
 
   async function testProxy() {
-    if (proxyTestRunningRef.current) return;
-    proxyTestRunningRef.current = true;
+    if (!proxyTestGuard.begin('test')) return;
     setTesting(true);
     try {
       const result = await window.maka.settings.testNetworkProxy(toProxyTestInput(proxyDraftRef.current));
       const latency = result.latencyMs !== undefined ? ` · ${result.latencyMs} ms` : '';
       if (result.ok && networkPageMountedRef.current) {
-        toast.success('代理可达', `${result.message}${latency}`);
+        toast.success(copy.proxyReachable, `${result.message}${latency}`);
       } else if (networkPageMountedRef.current) {
-        toast.error('代理测试失败', result.message);
+        toast.error(copy.proxyTestFailed, result.message);
       }
     } catch (error) {
       if (networkPageMountedRef.current) {
-        toast.error('代理测试出错', settingsActionErrorMessage(error));
+        toast.error(copy.proxyTestError, settingsActionErrorMessage(error, locale));
       }
     } finally {
-      proxyTestRunningRef.current = false;
+      proxyTestGuard.finish();
       if (networkPageMountedRef.current) {
         setTesting(false);
       }
@@ -322,11 +288,11 @@ function NetworkProxySection(props: {
     <>
       <div className="settingsFormRow">
         <div>
-          <strong>代理服务器</strong>
-          <small>为 AI 模型请求配置网络代理</small>
+          <strong>{copy.proxy}</strong>
+          <small>{copy.proxyHelp}</small>
         </div>
         <Switch
-          ariaLabel="启用代理服务器"
+          ariaLabel={copy.enableProxy}
           checked={proxyDraft.enabled}
           onChange={(enabled) => void updateProxy({ enabled })}
         />
@@ -336,10 +302,10 @@ function NetworkProxySection(props: {
         <>
           <div className="settingsFormGrid settingsFormGridProxy">
             <label>
-              <span>代理协议</span>
+              <span>{copy.proxyProtocol}</span>
               <SettingsSelect
                 value={proxyDraft.protocol}
-                ariaLabel="代理协议"
+                ariaLabel={copy.proxyProtocol}
                 options={[
                   ['http', 'HTTP/HTTPS'],
                   ['https', 'HTTPS'],
@@ -349,24 +315,24 @@ function NetworkProxySection(props: {
               />
             </label>
             <label>
-              <span>服务器地址</span>
-              <Input value={proxyDraft.host} onChange={(event) => void updateProxy({ host: event.currentTarget.value })} placeholder="127.0.0.1" aria-label="代理服务器地址" />
+              <span>{copy.serverAddress}</span>
+              <Input value={proxyDraft.host} onChange={(event) => void updateProxy({ host: event.currentTarget.value })} placeholder="127.0.0.1" aria-label={copy.proxyServerAddress} />
             </label>
             <label>
-              <span>端口</span>
+              <span>{copy.port}</span>
               <NumberField value={proxyDraft.port || null} format={{ useGrouping: false }} onValueChange={(v) => void updateProxy({ port: v ?? 0 })}>
-                <NumberFieldInput placeholder="7890" aria-label="代理端口" />
+                <NumberFieldInput placeholder="7890" aria-label={copy.proxyPort} />
               </NumberField>
             </label>
           </div>
 
           <div className="settingsFormRow">
             <div>
-              <strong>代理认证</strong>
-              <small>需要用户名和密码时开启。</small>
+              <strong>{copy.proxyAuth}</strong>
+              <small>{copy.proxyAuthHelp}</small>
             </div>
             <Switch
-              ariaLabel="启用代理认证"
+              ariaLabel={copy.enableProxyAuth}
               checked={proxyDraft.authEnabled}
               onChange={(authEnabled) => void updateProxy({ authEnabled })}
             />
@@ -375,29 +341,29 @@ function NetworkProxySection(props: {
           {proxyDraft.authEnabled && (
             <div className="settingsFormGrid">
               <label>
-                <span>用户名</span>
-                <Input value={proxyDraft.username} onChange={(event) => void updateProxy({ username: event.currentTarget.value })} aria-label="代理用户名" />
+                <span>{copy.username}</span>
+                <Input value={proxyDraft.username} onChange={(event) => void updateProxy({ username: event.currentTarget.value })} aria-label={copy.proxyUsername} />
               </label>
               <label>
-                <span>密码</span>
-                <PasswordInput value={proxyDraft.password} onChange={(next) => void updateProxy({ password: next })} ariaLabel="代理密码" />
+                <span>{copy.password}</span>
+                <PasswordInput value={proxyDraft.password} onChange={(next) => void updateProxy({ password: next })} ariaLabel={copy.proxyPassword} />
               </label>
             </div>
           )}
 
           <label className="settingsField">
-            <span>代理白名单</span>
+            <span>{copy.bypassList}</span>
             <Input
               value={proxyDraft.bypassList.join(', ')}
               onChange={(event) => void updateProxy({ bypassList: csvList(event.currentTarget.value) })}
               placeholder="metaso.cn, baidu.com"
-              aria-label="代理白名单"
+              aria-label={copy.bypassList}
             />
-            <small>这些域名将绕过代理直连，多个用逗号分隔。</small>
+            <small>{copy.bypassHelp}</small>
           </label>
 
           <div className="settingsNotice">
-            已自动添加 {proxyDraft.autoBypassDomains.length} 个域名（来自本地和模型供应商）。代理仅作用于 AI 模型请求，不影响应用自身网络。
+            {copy.autoBypass(proxyDraft.autoBypassDomains.length)}
           </div>
 
           <div className="settingsActionRow">
@@ -408,7 +374,7 @@ function NetworkProxySection(props: {
               data-pending={testing ? 'true' : undefined}
               onClick={() => void testProxy()}
             >
-              {testing ? '测试中…' : '测试当前配置'}
+              {testing ? copy.testing : copy.testCurrent}
             </Button>
           </div>
         </>

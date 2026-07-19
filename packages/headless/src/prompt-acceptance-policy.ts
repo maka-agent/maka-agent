@@ -137,10 +137,7 @@ export interface PromptAcceptanceState {
   }>;
 }
 
-export type StablePromptTaskRejectionReason =
-  | 'incomplete'
-  | 'unstable_outcome'
-  | 'too_slow';
+export type StablePromptTaskRejectionReason = 'incomplete' | 'unstable_outcome' | 'too_slow';
 
 export interface SelectStablePromptTasksInput {
   taskIds: readonly string[];
@@ -189,24 +186,16 @@ const MAX_ADDRESSABLE_TASK_FLIP_RATE = 0.5;
 export function calibratePromptAcceptanceBaseline(
   input: CalibratePromptAcceptanceBaselineInput,
 ): PromptAcceptanceBaseline {
-  const heldInSummaries = input.baselineRuns.map((run) => summarizePromptAcceptancePartition(
-    run.heldInEvents,
-    input.heldInTaskIds,
-  ));
-  const heldOutSummaries = input.baselineRuns.map((run) => summarizePromptAcceptancePartition(
-    run.heldOutEvents,
-    input.heldOutTaskIds,
-  ));
+  const heldInSummaries = input.baselineRuns.map((run) =>
+    summarizePromptAcceptancePartition(run.heldInEvents, input.heldInTaskIds),
+  );
+  const heldOutSummaries = input.baselineRuns.map((run) =>
+    summarizePromptAcceptancePartition(run.heldOutEvents, input.heldOutTaskIds),
+  );
   assertCompleteBaselineSummaries(heldInSummaries, 'held-in');
   assertCompleteBaselineSummaries(heldOutSummaries, 'held-out');
-  const heldIn = calibratePartitionBaseline(
-    heldInSummaries,
-    input.zScore,
-  );
-  const heldOut = calibratePartitionBaseline(
-    heldOutSummaries,
-    input.zScore,
-  );
+  const heldIn = calibratePartitionBaseline(heldInSummaries, input.zScore);
+  const heldOut = calibratePartitionBaseline(heldOutSummaries, input.zScore);
   return {
     heldIn: {
       ...heldIn,
@@ -225,11 +214,11 @@ function assertCompleteBaselineSummaries(
 ): void {
   summaries.forEach((summary, index) => {
     if (
-      summary.observed !== summary.taskCount
-      || summary.missingTaskIds.length > 0
-      || summary.unscoredTaskIds.length > 0
-      || summary.infraFailedTaskIds.length > 0
-      || summary.plumbingFailedTaskIds.length > 0
+      summary.observed !== summary.taskCount ||
+      summary.missingTaskIds.length > 0 ||
+      summary.unscoredTaskIds.length > 0 ||
+      summary.infraFailedTaskIds.length > 0 ||
+      summary.plumbingFailedTaskIds.length > 0
     ) {
       throw new Error(`baseline ${partitionName} run ${index + 1} is incomplete`);
     }
@@ -259,7 +248,9 @@ export function selectStablePromptTasks(
       rejectedTaskIds: input.taskIds.map((taskId) => ({ taskId, reason: 'incomplete' })),
     };
   }
-  const baselineRunsByTask = input.baselineRuns.map((run) => new Map(run.map((event) => [event.taskId, event])));
+  const baselineRunsByTask = input.baselineRuns.map(
+    (run) => new Map(run.map((event) => [event.taskId, event])),
+  );
   for (const taskId of input.taskIds) {
     const events = baselineRunsByTask.map((run) => run.get(taskId));
     const completedEvents = events.filter(isStableBaselineEvent);
@@ -268,11 +259,14 @@ export function selectStablePromptTasks(
       continue;
     }
     const maxDurationMs = input.maxDurationMs;
-    if (maxDurationMs !== undefined && completedEvents.some((event) => event.durationMs > maxDurationMs)) {
+    if (
+      maxDurationMs !== undefined &&
+      completedEvents.some((event) => event.durationMs > maxDurationMs)
+    ) {
       rejectedTaskIds.push({ taskId, reason: 'too_slow' });
       continue;
     }
-    const passIndicators = completedEvents.map((event) => event.passed ? 1 : 0);
+    const passIndicators = completedEvents.map((event) => (event.passed ? 1 : 0));
     if (Math.max(...passIndicators) - Math.min(...passIndicators) > maxPassRateSpread) {
       rejectedTaskIds.push({ taskId, reason: 'unstable_outcome' });
       continue;
@@ -295,12 +289,13 @@ export function selectAddressablePromptTasks(
   const taskIdSet = new Set(input.taskIds);
   const historyByTask = new Map<string, Array<{ passed: boolean; promptHash: string }>>();
   const orderedEvents = input.keptPromptEvents
-    .filter((event): event is FixedPromptTaskCompletedEvent => (
-      event.type === 'task_completed'
-      && event.eligible
-      && event.scored
-      && taskIdSet.has(event.taskId)
-    ))
+    .filter(
+      (event): event is FixedPromptTaskCompletedEvent =>
+        event.type === 'task_completed' &&
+        event.eligible &&
+        event.scored &&
+        taskIdSet.has(event.taskId),
+    )
     .map((event, index) => ({ event, index }))
     .sort((a, b) => a.event.ts - b.event.ts || a.index - b.index);
   for (const { event } of orderedEvents) {
@@ -326,11 +321,12 @@ export function selectAddressablePromptTasks(
       if (outcomes[index] !== outcomes[index - 1]) flips += 1;
     }
     const flipRate = observations > 1 ? flips / (observations - 1) : 0;
-    const rejectionReason: PromptTaskAddressabilityRejectionReason | undefined = keptPrompts >= 2 && passes === 0
-      ? 'capability_limit'
-      : observations >= MIN_FLAKY_TASK_OBSERVATIONS && flipRate > MAX_ADDRESSABLE_TASK_FLIP_RATE
-        ? 'flaky'
-        : undefined;
+    const rejectionReason: PromptTaskAddressabilityRejectionReason | undefined =
+      keptPrompts >= 2 && passes === 0
+        ? 'capability_limit'
+        : observations >= MIN_FLAKY_TASK_OBSERVATIONS && flipRate > MAX_ADDRESSABLE_TASK_FLIP_RATE
+          ? 'flaky'
+          : undefined;
     return {
       taskId,
       observations,
@@ -369,12 +365,14 @@ export function decidePromptAcceptance(input: DecidePromptAcceptanceInput): Prom
       heldOut: summarizePromptAcceptancePartition(input.candidateEvents, input.heldOutTaskIds),
     },
   };
-  const reason = rewardHackGateReason(rewardHackScan) ?? acceptanceReason(metrics, {
-    previousHeldInReferencePassEligibleRate: input.previousHeldInReferencePassEligibleRate,
-    originalHeldOutPassEligibleRate: input.originalHeldOutPassEligibleRate,
-    heldInPassRateNoiseBand: input.heldInPassRateNoiseBand,
-    heldOutPassRateNoiseBand: input.heldOutPassRateNoiseBand,
-  });
+  const reason =
+    rewardHackGateReason(rewardHackScan) ??
+    acceptanceReason(metrics, {
+      previousHeldInReferencePassEligibleRate: input.previousHeldInReferencePassEligibleRate,
+      originalHeldOutPassEligibleRate: input.originalHeldOutPassEligibleRate,
+      heldInPassRateNoiseBand: input.heldInPassRateNoiseBand,
+      heldOutPassRateNoiseBand: input.heldOutPassRateNoiseBand,
+    });
   const decision: PromptAcceptanceDecision = reason === 'held_in_improved' ? 'keep' : 'discard';
   const heldInReferencePassEligibleRate = nextHeldInReferencePassEligibleRate({
     decision,
@@ -389,7 +387,8 @@ export function decidePromptAcceptance(input: DecidePromptAcceptanceInput): Prom
     reason,
     candidateCommitSha: input.candidateCommitSha,
     previousLastKeptCommitSha: input.previousLastKeptCommitSha,
-    lastKeptCommitSha: decision === 'keep' ? input.candidateCommitSha : input.previousLastKeptCommitSha,
+    lastKeptCommitSha:
+      decision === 'keep' ? input.candidateCommitSha : input.previousLastKeptCommitSha,
     previousHeldInReferencePassEligibleRate: input.previousHeldInReferencePassEligibleRate,
     heldInReferencePassEligibleRate,
     originalCommitSha: input.originalCommitSha,
@@ -409,9 +408,10 @@ function calibratePartitionBaseline(
     .map((summary) => summary.passEligibleRate)
     .filter((rate): rate is number => rate !== null);
   const meanPassEligibleRate = mean(passRates);
-  const observedSpread = meanPassEligibleRate === null
-    ? 0
-    : Math.max(0, ...passRates.map((rate) => Math.abs(rate - meanPassEligibleRate)));
+  const observedSpread =
+    meanPassEligibleRate === null
+      ? 0
+      : Math.max(0, ...passRates.map((rate) => Math.abs(rate - meanPassEligibleRate)));
   const sampleSize = Math.max(0, ...summaries.map((summary) => summary.eligible));
   return {
     taskCount: Math.max(0, ...summaries.map((summary) => summary.taskCount)),
@@ -431,8 +431,8 @@ function calibratePartitionBaseline(
 function wilsonHalfWidth(sampleSize: number, passRate: number, zScore: number): number {
   const z2 = zScore * zScore;
   const denominator = 1 + z2 / sampleSize;
-  const inner = passRate * (1 - passRate) / sampleSize + z2 / (4 * sampleSize * sampleSize);
-  return zScore * Math.sqrt(inner) / denominator;
+  const inner = (passRate * (1 - passRate)) / sampleSize + z2 / (4 * sampleSize * sampleSize);
+  return (zScore * Math.sqrt(inner)) / denominator;
 }
 
 function mean(values: readonly number[]): number | null {
@@ -475,7 +475,9 @@ export function summarizePromptAcceptancePartition(
 ): PromptAcceptancePartitionSummary {
   const byTask = new Map(events.map((event) => [event.taskId, event]));
   const selected = taskIds.map((taskId) => byTask.get(taskId));
-  const observed = selected.filter((event): event is FixedPromptTaskWalEvent => event !== undefined);
+  const observed = selected.filter(
+    (event): event is FixedPromptTaskWalEvent => event !== undefined,
+  );
   const eligible = observed.filter((event) => event.eligible);
   const scored = observed.filter((event) => event.scored);
   const passed = observed.filter((event) => event.passed);
@@ -491,7 +493,9 @@ export function summarizePromptAcceptancePartition(
       const event = byTask.get(taskId);
       return event !== undefined && event.eligible && !event.scored;
     }),
-    infraFailedTaskIds: taskIds.filter((taskId) => byTask.get(taskId)?.type === 'task_infra_failed'),
+    infraFailedTaskIds: taskIds.filter(
+      (taskId) => byTask.get(taskId)?.type === 'task_infra_failed',
+    ),
     plumbingFailedTaskIds: taskIds.filter((taskId) => {
       const event = byTask.get(taskId);
       return event !== undefined && event.type === 'task_plumbing_failed';
@@ -582,7 +586,13 @@ function heldOutGateReasonFromSummaries(
   if (heldOutCandidate.taskCount > 0 && input.originalHeldOutPassEligibleRate === null) {
     return 'coverage_regressed';
   }
-  if (regressed(heldOutCandidate.passEligibleRate, input.originalHeldOutPassEligibleRate, input.heldOutPassRateNoiseBand)) {
+  if (
+    regressed(
+      heldOutCandidate.passEligibleRate,
+      input.originalHeldOutPassEligibleRate,
+      input.heldOutPassRateNoiseBand,
+    )
+  ) {
     return 'held_out_regressed';
   }
   return null; // held-out cleared → keep
@@ -627,14 +637,20 @@ function acceptanceReason(
     heldInPassRateNoiseBand: input.heldInPassRateNoiseBand,
   });
   if (heldIn !== null) return heldIn;
-  const heldOut = heldOutGateReasonFromSummaries(metrics.candidate.heldOut, metrics.original.heldOut, {
-    originalHeldOutPassEligibleRate: input.originalHeldOutPassEligibleRate,
-    heldOutPassRateNoiseBand: input.heldOutPassRateNoiseBand,
-  });
+  const heldOut = heldOutGateReasonFromSummaries(
+    metrics.candidate.heldOut,
+    metrics.original.heldOut,
+    {
+      originalHeldOutPassEligibleRate: input.originalHeldOutPassEligibleRate,
+      heldOutPassRateNoiseBand: input.heldOutPassRateNoiseBand,
+    },
+  );
   return heldOut ?? 'held_in_improved';
 }
 
-function normalizeRewardHackScan(scan: PromptCandidateRewardHackScan | undefined): PromptCandidateRewardHackScan {
+function normalizeRewardHackScan(
+  scan: PromptCandidateRewardHackScan | undefined,
+): PromptCandidateRewardHackScan {
   return scan ?? { decision: 'clean' };
 }
 
@@ -642,10 +658,7 @@ function rewardHackGateReason(scan: PromptCandidateRewardHackScan): PromptAccept
   return scan.decision === 'clean' ? null : PROMPT_REWARD_HACK_QUARANTINE_REASON;
 }
 
-export function bankPromptAcceptanceReference(
-  passEligibleRate: number,
-  noiseBand: number,
-): number {
+export function bankPromptAcceptanceReference(passEligibleRate: number, noiseBand: number): number {
   return passEligibleRate - noiseBand;
 }
 
@@ -658,16 +671,21 @@ function nextHeldInReferencePassEligibleRate(input: {
   if (input.decision !== 'keep' || input.candidatePassEligibleRate === null) {
     return input.previousReference;
   }
-  const bankedReference = bankPromptAcceptanceReference(input.candidatePassEligibleRate, input.noiseBand);
+  const bankedReference = bankPromptAcceptanceReference(
+    input.candidatePassEligibleRate,
+    input.noiseBand,
+  );
   return input.previousReference === null
     ? bankedReference
     : Math.max(input.previousReference, bankedReference);
 }
 
 function hasBlockingTaskFailure(summary: PromptAcceptancePartitionSummary): boolean {
-  return summary.missingTaskIds.length > 0
-    || summary.infraFailedTaskIds.length > 0
-    || summary.plumbingFailedTaskIds.length > 0;
+  return (
+    summary.missingTaskIds.length > 0 ||
+    summary.infraFailedTaskIds.length > 0 ||
+    summary.plumbingFailedTaskIds.length > 0
+  );
 }
 
 function improved(candidate: number | null, reference: number | null, noiseBand: number): boolean {

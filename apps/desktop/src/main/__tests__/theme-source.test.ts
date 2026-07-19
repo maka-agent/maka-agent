@@ -11,6 +11,7 @@ import { describe, it } from 'node:test';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { isThemePreference, toNativeThemeSource } from '../theme-source.js';
+import { readMainProcessCombinedSource } from './main-process-contract-source-helpers.js';
 
 // Anchored at the repo root, not relative to this test file's own location --
 // `npm test` runs the compiled dist/main/__tests__/*.test.js, so a plain
@@ -19,6 +20,7 @@ import { isThemePreference, toNativeThemeSource } from '../theme-source.js';
 const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');
 const MAIN_TS = resolve(REPO_ROOT, 'apps/desktop/src/main/main.ts');
 const MAIN_WINDOW_TS = resolve(REPO_ROOT, 'apps/desktop/src/main/main-window.ts');
+const RENDERER_THEME_TS = resolve(REPO_ROOT, 'apps/desktop/src/renderer/theme.ts');
 
 describe('theme-source', () => {
   describe('toNativeThemeSource', () => {
@@ -86,7 +88,7 @@ describe('theme-source', () => {
 
       assert.match(
         src,
-        /const titleBarOverlayOptions = \(isDark: boolean\): \{ color: string; symbolColor: string; height: number \} => \(\{[\s\S]*height: TITLEBAR_OVERLAY_HEIGHT,[\s\S]*\}\);/,
+        /const titleBarOverlayOptions = \([\s\S]*?isDark: boolean,[\s\S]*?color = isDark \? '#1c1d21' : '#ffffff',[\s\S]*?\): \{ color: string; symbolColor: string; height: number \} => \(\{[\s\S]*height: TITLEBAR_OVERLAY_HEIGHT,[\s\S]*\}\);/,
         'one helper should include color, symbolColor, and height',
       );
       assert.match(
@@ -95,23 +97,42 @@ describe('theme-source', () => {
         'window creation should use the shared titleBarOverlay options helper',
       );
 
-      const methodMatch = src.match(/setTitleBarOverlayTheme\(sender, isDark\) \{([\s\S]*?)\n {4}\},/);
+      const methodMatch = src.match(/setTitleBarOverlayTheme\(sender, theme\) \{([\s\S]*?)\n {4}\},/);
       assert.ok(methodMatch, 'setTitleBarOverlayTheme method must exist on the controller');
       const body = methodMatch![1];
       assert.match(body, /target !== mainWindow/, 'must reject senders that are not the tracked main window');
-      assert.match(body, /typeof isDark !== 'boolean'/, 'must reject non-boolean theme values');
+      assert.match(body, /isTitleBarOverlayTheme\(theme\)/, 'must validate the renderer-provided theme payload');
       assert.match(
         body,
-        /mainWindow\.setTitleBarOverlay\(titleBarOverlayOptions\(isDark\)\)/,
-        'runtime theme sync should preserve the same overlay height as window creation',
+        /mainWindow\.setTitleBarOverlay\(titleBarOverlayOptions\(theme\.isDark, theme\.backgroundColor\)\)/,
+        'runtime theme sync should preserve the height and use the renderer surface color',
+      );
+    });
+
+    it('samples the resolved renderer background again after light/dark and palette changes', async () => {
+      const src = await readFile(RENDERER_THEME_TS, 'utf8');
+      assert.match(
+        src,
+        /getComputedStyle\(root\)\.getPropertyValue\('--background'\)/,
+        'the native controls should use the actual rendered content-surface color',
+      );
+      assert.match(
+        src,
+        /function setDarkClass[\s\S]*?syncTitleBarOverlay\(root\);/,
+        'light/dark changes should update the native controls',
+      );
+      assert.match(
+        src,
+        /function applyThemePalette[\s\S]*?syncTitleBarOverlay\(root\);/,
+        'palette changes should update the native controls',
       );
     });
 
     it('window:setTitleBarOverlayTheme forwards the sender to the guarded main-window controller', async () => {
-      const src = await readFile(MAIN_TS, 'utf8');
+      const src = await readMainProcessCombinedSource();
       assert.match(
         src,
-        /ipcMain\.handle\('window:setTitleBarOverlayTheme', \(event, isDark: unknown\): void => \{\s*mainWindowController\.setTitleBarOverlayTheme\(event\.sender, isDark\);\s*\}\);/,
+        /ipcMain\.handle\('window:setTitleBarOverlayTheme', \(event, theme: unknown\): void => \{\s*mainWindowController\.setTitleBarOverlayTheme\(event\.sender, theme\);\s*\}\);/,
         'the IPC handler should let main-window.ts validate both sender and payload',
       );
     });

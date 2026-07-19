@@ -17,6 +17,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const DESKTOP_DIR = join(ROOT, 'apps', 'desktop');
 const FIXTURES = [
   'module-skills',
+  'module-mcp',
   'module-daily-review',
   'plan-reminders',
   'settings-general',
@@ -43,17 +44,16 @@ async function resolveElectronBin() {
     console.error('[audit-alignment] electron not resolvable (run `npm install`):', err);
     process.exit(2);
   }
-  console.error('[audit-alignment] electron resolved but exposed no binary path; run `npm install`.');
+  console.error(
+    '[audit-alignment] electron resolved but exposed no binary path; run `npm install`.',
+  );
   process.exit(2);
 }
 
 function launchArgs(debugPort, userDataDir) {
   // Chromium/Electron switches must come before the app path. Mirror the
   // capture-screenshots / Playwright e2e launch: cwd=apps/desktop, app='.'.
-  const args = [
-    `--remote-debugging-port=${debugPort}`,
-    `--user-data-dir=${userDataDir}`,
-  ];
+  const args = [`--remote-debugging-port=${debugPort}`, `--user-data-dir=${userDataDir}`];
   // Headless Linux runners (GitHub Actions) need these; macOS/Windows e2e
   // already pass without them. Playwright's chromium launcher adds the same
   // set — raw electron spawn does not.
@@ -160,8 +160,18 @@ const ELECTRON = await resolveElectronBin();
 for (const fx of FIXTURES) {
   const P = port++;
   const userDataDir = join(tmpdir(), `maka-audit-${P}-${process.pid}`);
-  const stderrBuf = { s: '', toString() { return this.s; } };
-  const stdoutBuf = { s: '', toString() { return this.s; } };
+  const stderrBuf = {
+    s: '',
+    toString() {
+      return this.s;
+    },
+  };
+  const stdoutBuf = {
+    s: '',
+    toString() {
+      return this.s;
+    },
+  };
   const child = spawn(ELECTRON, launchArgs(P, userDataDir), {
     cwd: DESKTOP_DIR,
     env: {
@@ -183,7 +193,10 @@ for (const fx of FIXTURES) {
   // unhandled 'error' event that crashes the process before fixtureErrors++.
   const launchError = new Promise((_, rej) => child.once('error', rej));
   try {
-    const page = await Promise.race([waitForPageTarget(P, child, stderrBuf, stdoutBuf), launchError]);
+    const page = await Promise.race([
+      waitForPageTarget(P, child, stderrBuf, stdoutBuf),
+      launchError,
+    ]);
     // Fixture paint settles after the page target appears; fixed 8.5s was both
     // slow on warm macOS and still insufficient when boot itself never finished.
     await new Promise((r) => setTimeout(r, SETTLE_MS));
@@ -199,7 +212,11 @@ for (const fx of FIXTURES) {
     for (const i of arr) console.log(JSON.stringify(i));
     totalIssues += arr.length;
     if (!arr.length) console.log('(clean)');
-    try { ws.close(); } catch { /* ignore */ }
+    try {
+      ws.close();
+    } catch {
+      /* ignore */
+    }
   } catch (e) {
     console.log('==', fx, '== ERROR', e.message);
     fixtureErrors++;

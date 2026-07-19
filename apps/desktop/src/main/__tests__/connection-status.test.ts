@@ -158,7 +158,7 @@ describe('presentConnectionUiStatus copy gates', () => {
   // into the `verified` presentation.
 
   it('verified label is credential-only, no operational claim', () => {
-    const presentation = presentConnectionUiStatus('verified');
+    const presentation = presentConnectionUiStatus('verified', 'zh');
     assert.equal(presentation.label, '凭据已验证');
     // Negative gate: the operational synonyms must not appear in
     // the label.
@@ -168,7 +168,7 @@ describe('presentConnectionUiStatus copy gates', () => {
   });
 
   it('verified detail acknowledges credential test scope and points to runtime probe', () => {
-    const presentation = presentConnectionUiStatus('verified');
+    const presentation = presentConnectionUiStatus('verified', 'zh');
     // Detail can mention 运行态 as long as it's framed as
     // "needs separate verification", not "this status proves it".
     assert.ok(
@@ -179,28 +179,28 @@ describe('presentConnectionUiStatus copy gates', () => {
 
   it('configured / not_configured / needs_reauth / error labels do not falsely claim ready state', () => {
     for (const status of ['configured', 'not_configured', 'needs_reauth', 'error'] as const) {
-      const presentation = presentConnectionUiStatus(status);
+      const presentation = presentConnectionUiStatus(status, 'zh');
       assert.ok(!presentation.label.includes('运行可用'), `${status} label must not say 运行可用`);
       assert.ok(!presentation.label.includes('凭据已验证'), `${status} label must not say 凭据已验证`);
     }
   });
 
   it('configured copy uses actionable waiting language instead of unverified wording', () => {
-    const presentation = presentConnectionUiStatus('configured');
+    const presentation = presentConnectionUiStatus('configured', 'zh');
     assert.equal(presentation.label, '已配置 · 等待验证');
     assert.match(presentation.detail, /点测试连接确认服务可达/);
     assert.doesNotMatch(`${presentation.label}\n${presentation.detail}`, /未验证|还未真正调用/);
   });
 
   it('not_configured copy frames missing setup as a next action', () => {
-    const presentation = presentConnectionUiStatus('not_configured');
+    const presentation = presentConnectionUiStatus('not_configured', 'zh');
     assert.equal(presentation.label, '待补齐');
     assert.match(presentation.detail, /等待填写模型密钥或选择默认模型/);
     assert.doesNotMatch(`${presentation.label}\n${presentation.detail}`, /未配置|缺少 API key/);
   });
 
   it('error copy describes the failed test without saying the provider is unavailable', () => {
-    const presentation = presentConnectionUiStatus('error');
+    const presentation = presentConnectionUiStatus('error', 'zh');
     assert.equal(presentation.label, '连接出错');
     assert.match(presentation.detail, /服务商返回错误/);
     assert.doesNotMatch(`${presentation.label}\n${presentation.detail}`, /provider 不可用/);
@@ -245,7 +245,7 @@ describe('connectionUiStatusFromRecord unknown-provider fallback', () => {
   });
 
   it('explains that the current version does not support the provider', () => {
-    const presentation = presentConnectionUiStatus('unsupported_provider');
+    const presentation = presentConnectionUiStatus('unsupported_provider', 'zh');
     assert.equal(presentation.label, '当前版本不支持');
     assert.match(presentation.detail, /未在当前版本注册/);
     assert.doesNotMatch(presentation.detail, /模型密钥|默认模型/);

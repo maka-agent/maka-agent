@@ -7,11 +7,7 @@ import type { StoredMessage } from '@maka/core/session';
 import type { ToolExecutionFacts } from '@maka/core/permission';
 import { projectToolActivityArgs } from '@maka/core';
 
-import {
-  ToolRuntime,
-  formatDeferredNotLoadedText,
-  type MakaTool,
-} from '../tool-runtime.js';
+import { ToolRuntime, formatDeferredNotLoadedText, type MakaTool } from '../tool-runtime.js';
 import { mapSessionEventToRuntimeEvent } from '../ai-sdk-flow.js';
 import { PermissionEngine, type EvaluateInput } from '../permission-engine.js';
 
@@ -28,6 +24,7 @@ function header(): SessionHeader {
     createdAt: 1,
     lastUsedAt: 1,
     name: 'Test',
+    titleIsManual: true,
     isFlagged: false,
     labels: [],
     isArchived: false,
@@ -72,7 +69,9 @@ function makeHarness(): Harness {
     header: header(),
     connection: { providerType: 'openai', slug: 'c' } as never,
     modelId: 'm',
-    appendMessage: async (m) => { appended.push(m); },
+    appendMessage: async (m) => {
+      appended.push(m);
+    },
     permissionEngine: engine,
     newId: () => `id-${++n}`,
     now: () => 1,
@@ -89,7 +88,10 @@ function tool(name: string, implCalls: string[]): MakaTool {
     name,
     description: name,
     parameters: z.object({}),
-    impl: () => { implCalls.push(name); return { ok: true }; },
+    impl: () => {
+      implCalls.push(name);
+      return { ok: true };
+    },
   };
 }
 
@@ -109,8 +111,12 @@ describe('tool-availability execute-boundary guard', () => {
 
     await run(h, t);
 
-    const call = h.appended.find((message) => message.type === 'tool_call') as unknown as { activityKind?: string };
-    const start = h.pushed.find((event) => event.type === 'tool_start') as unknown as { activityKind?: string };
+    const call = h.appended.find((message) => message.type === 'tool_call') as unknown as {
+      activityKind?: string;
+    };
+    const start = h.pushed.find((event) => event.type === 'tool_start') as unknown as {
+      activityKind?: string;
+    };
     assert.equal(call.activityKind, 'command');
     assert.equal(start.activityKind, 'command');
   });
@@ -129,7 +135,8 @@ describe('tool-availability execute-boundary guard', () => {
 
     const call = h.appended.find((message) => message.type === 'tool_call');
     const start = h.pushed.find(
-      (event): event is Extract<SessionEvent, { type: 'tool_start' }> => event.type === 'tool_start',
+      (event): event is Extract<SessionEvent, { type: 'tool_start' }> =>
+        event.type === 'tool_start',
     );
     assert.ok(call?.type === 'tool_call');
     assert.ok(start);
@@ -155,7 +162,10 @@ describe('tool-availability execute-boundary guard', () => {
       now: () => 1,
     });
     assert.equal(runtimeEvent.content?.kind, 'function_call');
-    assert.deepEqual(runtimeEvent.content?.kind === 'function_call' ? runtimeEvent.content.args : undefined, args);
+    assert.deepEqual(
+      runtimeEvent.content?.kind === 'function_call' ? runtimeEvent.content.args : undefined,
+      args,
+    );
     assert.deepEqual(
       JSON.parse(h.invocationArgsSummaries[0] ?? 'null'),
       projectToolActivityArgs('WriteStdin', args),
@@ -195,7 +205,11 @@ describe('tool-availability execute-boundary guard', () => {
     const result = await run(h, tool('browser_click', implCalls));
 
     assert.deepEqual(implCalls, [], 'the real impl must not run');
-    assert.deepEqual(h.evaluateCalls, [], 'permission must not be evaluated for a rejected gated call');
+    assert.deepEqual(
+      h.evaluateCalls,
+      [],
+      'permission must not be evaluated for a rejected gated call',
+    );
     assert.deepEqual(result, { error: formatDeferredNotLoadedText('browser_click') });
 
     const callMsg = h.appended.find((m) => m.type === 'tool_call');
@@ -255,7 +269,10 @@ describe('tool-availability execute-boundary guard', () => {
       description: 'Read',
       parameters: z.object({}),
       permissionRequired: false,
-      impl: () => { implCalls.push('Read'); return { ok: true }; },
+      impl: () => {
+        implCalls.push('Read');
+        return { ok: true };
+      },
     };
     await run(h, direct);
     assert.deepEqual(implCalls, ['Read']);

@@ -41,6 +41,7 @@ function connection(overrides: Partial<LlmConnection> = {}): LlmConnection {
 
 function input(partial: Partial<SessionHealthNoticeInput> = {}): SessionHealthNoticeInput {
   return {
+    locale: 'zh',
     session: {
       backend: 'ai-sdk',
       llmConnectionSlug: 'openai-live',

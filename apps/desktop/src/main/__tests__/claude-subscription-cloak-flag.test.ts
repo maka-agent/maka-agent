@@ -202,28 +202,26 @@ describe('cloaked request module isolation (xuan G-X4)', () => {
       /'maka-desktop\/[^']*\(oauth-subscription\)'/,
       'OAuth UA must NOT advertise maka-desktop — Anthropic rejects non-claude-cli UAs',
     );
-    // Every OAuth-related fetch (token exchange, refresh, usage,
-    // profile) must reference the OAUTH_USER_AGENT constant, not
-    // any inline literal.
+    // Every OAuth-related fetch (token exchange, usage, profile)
+    // must reference the OAUTH_USER_AGENT constant, not any inline
+    // literal. Refresh lives in the runtime's shared refresher
+    // (subscription-credentials.ts), which pins the same UA.
     const uaUses = src.match(/'User-Agent':\s*\w+/g) ?? [];
-    assert.ok(uaUses.length >= 4,
-      `expected at least 4 OAuth fetches to set User-Agent (token / refresh / usage / profile), got ${uaUses.length}`);
+    assert.ok(uaUses.length >= 3,
+      `expected at least 3 OAuth fetches to set User-Agent (token / usage / profile), got ${uaUses.length}`);
     for (const u of uaUses) {
       assert.match(u, /OAUTH_USER_AGENT/, `${u} must reference the OAUTH_USER_AGENT constant`);
     }
   });
 
-  it('token storage fails closed when safeStorage encryption is unavailable', async () => {
+  it('token storage fails closed when the shared credential store rejects the write', async () => {
     const src = await readFile(SERVICE_SOURCE, 'utf8');
+    // saveTokens must record storage_failed AND rethrow — a token that
+    // could not be persisted for every surface is not a partial success.
     assert.match(
       src,
-      /safeStorage\.isEncryptionAvailable\(\)\)\s*\{\s*throw new Error\('safeStorage encryption is unavailable\.'\);/s,
-      'saveTokens must fail closed instead of writing plaintext when safeStorage is unavailable',
-    );
-    assert.doesNotMatch(
-      src,
-      /Buffer\.from\(serialized,\s*['"]utf8['"]\)/,
-      'token persistence must not fall back to plaintext Buffer.from(serialized)',
+      /saveSharedOAuthTokens\(this\.credentialStore, 'claude-subscription'[\s\S]{0,400}lastStorageFailedMessage[\s\S]{0,200}throw err;/,
+      'saveTokens must set storage_failed detail and rethrow when the store write fails',
     );
   });
 });

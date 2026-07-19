@@ -223,7 +223,7 @@ export const LongFormArticle: Story = {
             '',
             '## 非目标',
             '',
-            '`AppShell` 这个集成根不在 Storybook 里整体挂载。它深度依赖 `window.maka` 的 IPC，整体挂载需要造一整套 mock，维护成本高、容易脆。改为用真实的子组件拼出布局，能稳定反映页面长什么样。',
+            '`AppShell` 这个集成根不在 Storybook 里整体挂载。它深度依赖桌面 preload 的 IPC，整体挂载需要造一整套 mock，维护成本高、容易脆。改为用真实的子组件拼出布局，能稳定反映页面长什么样。',
             '',
             '| 页面 | 方式 | 原因 |',
             '| --- | --- | --- |',

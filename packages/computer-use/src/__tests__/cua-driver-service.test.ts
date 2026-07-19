@@ -5,10 +5,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, afterEach, before, describe, it } from 'node:test';
-import {
-  isCuaDriverLifecycleError,
-  type CuaDriverReleaseEvent,
-} from '../cua-driver-release.js';
+import { isCuaDriverLifecycleError, type CuaDriverReleaseEvent } from '../cua-driver-release.js';
 import { CuaDriverService } from '../cua-driver-service.js';
 
 const MOCK = String.raw`#!/usr/bin/env node
@@ -118,23 +115,25 @@ function service(
   } = {},
 ) {
   const logPath = join(directory, `log-${crypto.randomUUID()}.ndjson`);
-  const instance = trackService(new CuaDriverService({
-    role: 'action',
-    binaryPath,
-    hostBundleId: 'ai.maka.test',
-    captureScope: 'window',
-    homeDir: join(directory, `home-${crypto.randomUUID()}`),
-    timeoutMs: options.timeoutMs ?? 200,
-    handshakeTimeoutMs: options.handshakeTimeoutMs ?? 10_000,
-    maxRestartAttempts: options.maxRestartAttempts ?? 2,
-    restartBackoffMs: options.restartBackoffMs ?? 1,
-    childEnv: {
-      ...process.env,
-      CUA_SERVICE_LOG: logPath,
-      CUA_SERVICE_MODE: mode,
-    },
-    ...(options.onRelease ? { onRelease: options.onRelease } : {}),
-  }));
+  const instance = trackService(
+    new CuaDriverService({
+      role: 'action',
+      binaryPath,
+      hostBundleId: 'ai.maka.test',
+      captureScope: 'window',
+      homeDir: join(directory, `home-${crypto.randomUUID()}`),
+      timeoutMs: options.timeoutMs ?? 200,
+      handshakeTimeoutMs: options.handshakeTimeoutMs ?? 10_000,
+      maxRestartAttempts: options.maxRestartAttempts ?? 2,
+      restartBackoffMs: options.restartBackoffMs ?? 1,
+      childEnv: {
+        ...process.env,
+        CUA_SERVICE_LOG: logPath,
+        CUA_SERVICE_MODE: mode,
+      },
+      ...(options.onRelease ? { onRelease: options.onRelease } : {}),
+    }),
+  );
   return { instance, logPath };
 }
 
@@ -152,9 +151,8 @@ describe('cua-driver service lifecycle', () => {
     assert.equal(instance.snapshot().state, 'ready');
     assert.equal(instance.snapshot().generation, 1);
 
-    await assert.rejects(
-      instance.callTool('exit_busy', {}),
-      (error) => isCuaDriverLifecycleError(error, 'outcome_unknown'),
+    await assert.rejects(instance.callTool('exit_busy', {}), (error) =>
+      isCuaDriverLifecycleError(error, 'outcome_unknown'),
     );
     assert.equal(instance.snapshot().state, 'idle');
 
@@ -166,15 +164,13 @@ describe('cua-driver service lifecycle', () => {
   it('never replays a delivered request after busy exit', async () => {
     const { instance, logPath } = service();
     await assert.rejects(
-      instance.withSession('session-a', () =>
-        instance.callTool('exit_busy', {})),
+      instance.withSession('session-a', () => instance.callTool('exit_busy', {})),
       (error) => isCuaDriverLifecycleError(error, 'outcome_unknown'),
     );
     await instance.callTool('ok', {});
 
     const calls = (await records(logPath)).filter(
-      (record) => record.kind === 'request'
-        && record.name === 'exit_busy',
+      (record) => record.kind === 'request' && record.name === 'exit_busy',
     );
     assert.equal(calls.length, 1);
   });
@@ -188,9 +184,8 @@ describe('cua-driver service lifecycle', () => {
       assert.equal(instance.snapshot().state, 'ready');
       assert.equal(instance.snapshot().generation, generation);
       assert.equal(instance.snapshot().restartAttempts, 0);
-      await assert.rejects(
-        instance.callTool('exit_busy', {}),
-        (error) => isCuaDriverLifecycleError(error, 'outcome_unknown'),
+      await assert.rejects(instance.callTool('exit_busy', {}), (error) =>
+        isCuaDriverLifecycleError(error, 'outcome_unknown'),
       );
     }
     await instance.callTool('ok', {});
@@ -205,20 +200,21 @@ describe('cua-driver service lifecycle', () => {
       onRelease: (event) => releases.push(event),
     });
     await assert.rejects(
-      instance.withSession('session-timeout', () =>
-        instance.callTool('hang_busy', {})),
+      instance.withSession('session-timeout', () => instance.callTool('hang_busy', {})),
       (error) => isCuaDriverLifecycleError(error, 'outcome_unknown'),
     );
     assert.equal(
-      (await records(logPath)).filter(
-        (record) => record.name === 'hang_busy',
-      ).length,
+      (await records(logPath)).filter((record) => record.name === 'hang_busy').length,
       1,
     );
-    assert.ok(releases.some((event) =>
-      event.reason === 'request_timeout'
-      && event.outcomeUnknown
-      && event.sessionIds.includes('session-timeout')));
+    assert.ok(
+      releases.some(
+        (event) =>
+          event.reason === 'request_timeout' &&
+          event.outcomeUnknown &&
+          event.sessionIds.includes('session-timeout'),
+      ),
+    );
   });
 
   it('clearSession kills a pending owner request and clears transport state', async () => {
@@ -227,23 +223,20 @@ describe('cua-driver service lifecycle', () => {
       timeoutMs: 1_000,
       onRelease: (event) => releases.push(event),
     });
-    const pending = instance.withSession('session-clear', () =>
-      instance.callTool('hang_busy', {}));
-    await waitForRecord(
-      logPath,
-      (record) => record.name === 'hang_busy',
-    );
+    const pending = instance.withSession('session-clear', () => instance.callTool('hang_busy', {}));
+    await waitForRecord(logPath, (record) => record.name === 'hang_busy');
     instance.clearSession('session-clear');
 
-    await assert.rejects(
-      pending,
-      (error) => isCuaDriverLifecycleError(error, 'outcome_unknown'),
-    );
+    await assert.rejects(pending, (error) => isCuaDriverLifecycleError(error, 'outcome_unknown'));
     assert.equal(instance.snapshot().state, 'idle');
-    assert.ok(releases.some((event) =>
-      event.reason === 'session_cleared'
-      && event.generationReleased
-      && event.sessionIds.includes('session-clear')));
+    assert.ok(
+      releases.some(
+        (event) =>
+          event.reason === 'session_cleared' &&
+          event.generationReleased &&
+          event.sessionIds.includes('session-clear'),
+      ),
+    );
   });
 
   it('clearSession without a pending request keeps the child generation alive', async () => {
@@ -257,10 +250,14 @@ describe('cua-driver service lifecycle', () => {
     instance.clearSession('session-idle');
 
     assert.equal(instance.snapshot().generation, generation);
-    assert.ok(releases.some((event) =>
-      event.reason === 'session_cleared'
-      && !event.generationReleased
-      && event.sessionIds.includes('session-idle')));
+    assert.ok(
+      releases.some(
+        (event) =>
+          event.reason === 'session_cleared' &&
+          !event.generationReleased &&
+          event.sessionIds.includes('session-idle'),
+      ),
+    );
   });
 
   it('exhausts a bounded restart budget and becomes unavailable', async () => {
@@ -268,9 +265,8 @@ describe('cua-driver service lifecycle', () => {
       handshakeTimeoutMs: 20,
       maxRestartAttempts: 2,
     });
-    await assert.rejects(
-      instance.callTool('ok', {}),
-      (error) => isCuaDriverLifecycleError(error, 'service_unavailable'),
+    await assert.rejects(instance.callTool('ok', {}), (error) =>
+      isCuaDriverLifecycleError(error, 'service_unavailable'),
     );
     assert.equal(instance.snapshot().state, 'unavailable');
     assert.equal(instance.snapshot().generation, 2);
@@ -278,44 +274,44 @@ describe('cua-driver service lifecycle', () => {
 
   it('fails closed before spawn when the executable hash mismatches', async () => {
     const logPath = join(directory, `log-${crypto.randomUUID()}.ndjson`);
-    const mismatched = trackService(new CuaDriverService({
-      role: 'action',
-      binaryPath,
-      hostBundleId: 'ai.maka.test',
-      captureScope: 'window',
-      homeDir: join(directory, `home-${crypto.randomUUID()}`),
-      expectedBinarySha256: createHash('sha256')
-        .update('not the mock binary')
-        .digest('hex'),
-      childEnv: {
-        ...process.env,
-        CUA_SERVICE_LOG: logPath,
-      },
-    }));
-    await assert.rejects(
-      mismatched.callTool('ok', {}),
-      (error) => isCuaDriverLifecycleError(error, 'service_mismatch'),
+    const mismatched = trackService(
+      new CuaDriverService({
+        role: 'action',
+        binaryPath,
+        hostBundleId: 'ai.maka.test',
+        captureScope: 'window',
+        homeDir: join(directory, `home-${crypto.randomUUID()}`),
+        expectedBinarySha256: createHash('sha256').update('not the mock binary').digest('hex'),
+        childEnv: {
+          ...process.env,
+          CUA_SERVICE_LOG: logPath,
+        },
+      }),
+    );
+    await assert.rejects(mismatched.callTool('ok', {}), (error) =>
+      isCuaDriverLifecycleError(error, 'service_mismatch'),
     );
     assert.equal((await records(logPath)).length, 0);
   });
 
   it('rejects an unexpected initialized server identity', async () => {
-    const strict = trackService(new CuaDriverService({
-      role: 'action',
-      binaryPath,
-      hostBundleId: 'ai.maka.test',
-      captureScope: 'window',
-      homeDir: join(directory, `home-${crypto.randomUUID()}`),
-      expectedServerName: 'mock-cua-driver',
-      childEnv: {
-        ...process.env,
-        CUA_SERVICE_LOG: join(directory, `log-${crypto.randomUUID()}.ndjson`),
-        CUA_SERVICE_MODE: 'wrong_identity',
-      },
-    }));
-    await assert.rejects(
-      strict.callTool('ok', {}),
-      (error) => isCuaDriverLifecycleError(error, 'service_mismatch'),
+    const strict = trackService(
+      new CuaDriverService({
+        role: 'action',
+        binaryPath,
+        hostBundleId: 'ai.maka.test',
+        captureScope: 'window',
+        homeDir: join(directory, `home-${crypto.randomUUID()}`),
+        expectedServerName: 'mock-cua-driver',
+        childEnv: {
+          ...process.env,
+          CUA_SERVICE_LOG: join(directory, `log-${crypto.randomUUID()}.ndjson`),
+          CUA_SERVICE_MODE: 'wrong_identity',
+        },
+      }),
+    );
+    await assert.rejects(strict.callTool('ok', {}), (error) =>
+      isCuaDriverLifecycleError(error, 'service_mismatch'),
     );
   });
 

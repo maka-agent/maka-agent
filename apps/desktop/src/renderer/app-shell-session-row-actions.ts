@@ -1,5 +1,5 @@
-import type { SessionSummary, StoredMessage } from '@maka/core';
-import { generalizedErrorMessageChinese } from '@maka/core';
+import type { SessionSummary, StoredMessage, UiLocale } from '@maka/core';
+import { getShellCopy, localizedShellErrorMessage } from './locales/shell-copy.js';
 
 type RefBox<T> = { current: T };
 
@@ -24,6 +24,7 @@ export interface AppShellSessionRowActions {
 }
 
 export function createAppShellSessionRowActions(deps: {
+  uiLocale: UiLocale;
   activeIdRef: RefBox<string | undefined>;
   clearSessionRendererState: (sessionId: string) => void;
   pendingSessionRowActionsRef: RefBox<Set<string>>;
@@ -34,6 +35,7 @@ export function createAppShellSessionRowActions(deps: {
   toastApi: ToastApi;
 }): AppShellSessionRowActions {
   const {
+    uiLocale,
     activeIdRef,
     clearSessionRendererState,
     pendingSessionRowActionsRef,
@@ -43,6 +45,7 @@ export function createAppShellSessionRowActions(deps: {
     setMessages,
     toastApi,
   } = deps;
+  const copy = getShellCopy(uiLocale).sessionRowActions;
 
   async function runSessionRowAction(
     sessionId: string,
@@ -57,21 +60,21 @@ export function createAppShellSessionRowActions(deps: {
     try {
       await action();
     } catch (error) {
-      toastApi.error(errorTitle, generalizedErrorMessageChinese(error, '会话操作失败，请稍后重试。'));
+      toastApi.error(errorTitle, localizedShellErrorMessage(error, copy.actionFallback, uiLocale));
     } finally {
       pendingSessionRowActionsRef.current.delete(key);
     }
   }
 
   async function flagSession(sessionId: string, flagged: boolean) {
-    return runSessionRowAction(sessionId, 'flag', flagged ? '标记会话失败' : '取消标记失败', async () => {
+    return runSessionRowAction(sessionId, 'flag', flagged ? copy.flagFailedTitle : copy.unflagFailedTitle, async () => {
       await window.maka.sessions.setFlagged(sessionId, flagged);
       await refreshSessions();
     });
   }
 
   async function archiveSession(sessionId: string) {
-    return runSessionRowAction(sessionId, 'archive', '归档会话失败', async () => {
+    return runSessionRowAction(sessionId, 'archive', copy.archiveFailedTitle, async () => {
       await window.maka.sessions.archive(sessionId);
       if (activeIdRef.current === sessionId) {
         setActiveId(undefined);
@@ -83,28 +86,28 @@ export function createAppShellSessionRowActions(deps: {
   }
 
   async function unarchiveSession(sessionId: string) {
-    return runSessionRowAction(sessionId, 'archive', '恢复会话失败', async () => {
+    return runSessionRowAction(sessionId, 'archive', copy.unarchiveFailedTitle, async () => {
       await window.maka.sessions.unarchive(sessionId);
       await refreshSessions();
     });
   }
 
   async function renameSession(sessionId: string, name: string) {
-    return runSessionRowAction(sessionId, 'rename', '重命名会话失败', async () => {
+    return runSessionRowAction(sessionId, 'rename', copy.renameFailedTitle, async () => {
       await window.maka.sessions.rename(sessionId, name);
       await refreshSessions();
     });
   }
 
   async function deleteSession(sessionId: string) {
-    return runSessionRowAction(sessionId, 'delete', '删除会话失败', async () => {
+    return runSessionRowAction(sessionId, 'delete', copy.deleteFailedTitle, async () => {
       const session = sessionsRef.current.find((entry) => entry.id === sessionId);
-      const name = session?.name ?? '当前会话';
+      const name = session?.name ?? copy.currentConversation;
       const ok = await toastApi.confirm({
-        title: `删除 "${name}"`,
-        description: '会话和全部消息会从磁盘上永久移除。该操作不可撤销。',
-        confirmLabel: '删除',
-        cancelLabel: '取消',
+        title: copy.deleteTitle(name),
+        description: copy.deleteDescription,
+        confirmLabel: copy.deleteLabel,
+        cancelLabel: copy.cancelLabel,
         destructive: true,
       });
       if (!ok) return;
@@ -115,7 +118,7 @@ export function createAppShellSessionRowActions(deps: {
       }
       clearSessionRendererState(sessionId);
       await refreshSessions();
-      toastApi.success(`已删除 ${name}`);
+      toastApi.success(copy.deletedTitle(name));
     });
   }
 

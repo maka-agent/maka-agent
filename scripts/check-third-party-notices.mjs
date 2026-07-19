@@ -7,7 +7,11 @@ const artifactPath = resolve(repoRoot, 'apps/desktop/dist-renderer/THIRD_PARTY_L
 
 const [source, artifact] = await Promise.all([readFile(sourcePath), readFile(artifactPath)]);
 if (!source.equals(artifact)) {
-  throw new Error('dist-renderer/THIRD_PARTY_LICENSES.txt does not match the governed public source');
+  throw new Error(
+    'dist-renderer/THIRD_PARTY_LICENSES.txt does not match the governed public source',
+  );
 }
 
-console.log('[third-party-notices] OK — renderer artifact contains the byte-identical public notice.');
+console.log(
+  '[third-party-notices] OK — renderer artifact contains the byte-identical public notice.',
+);

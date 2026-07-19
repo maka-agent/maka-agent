@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { DailyReviewConfig, DailyReviewMode, LlmConnection } from '@maka/core';
 import { Alert, AlertDescription, Button, Input, SettingsSelect, SettingsSwitch as Switch, useMountedRef, useToast } from '@maka/ui';
 import { buildCatalogDailyReviewModelOptions } from '../model-catalog-choices';
 import { settingsActionErrorMessage } from './settings-error-copy';
 import { SettingsRows } from './settings-rows';
+import { useActionGuard } from './use-action-guard';
 
 /**
  * PR-DAILY-REVIEW-MVP-0 follow-up: Settings → 每日回顾 is no longer
@@ -50,15 +51,8 @@ export function DailyReviewSettingsPage(props: { connections: readonly LlmConnec
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [runningMode, setRunningMode] = useState<DailyReviewMode | null>(null);
   const mountedRef = useMountedRef();
-  const savingKeyRef = useRef<string | null>(null);
-  const runningModeRef = useRef<DailyReviewMode | null>(null);
-
-  useEffect(() => {
-    return () => {
-      savingKeyRef.current = null;
-      runningModeRef.current = null;
-    };
-  }, []);
+  const saveConfigGuard = useActionGuard<string>();
+  const runModeGuard = useActionGuard<DailyReviewMode>();
 
   useEffect(() => {
     if (!hasConfigIpc || !dailyReviewIpc.getConfig) {
@@ -89,40 +83,40 @@ export function DailyReviewSettingsPage(props: { connections: readonly LlmConnec
   }, [hasConfigIpc, dailyReviewIpc]);
 
   async function patchConfig(key: string, patch: Partial<DailyReviewConfig>) {
-    if (!dailyReviewIpc.setConfig || !config || savingKeyRef.current !== null) return;
-    savingKeyRef.current = key;
+    if (!dailyReviewIpc.setConfig || !config || saveConfigGuard.current !== null) return;
+    saveConfigGuard.begin(key);
     setSavingKey(key);
     try {
       const next = await dailyReviewIpc.setConfig(patch);
-      if (mountedRef.current && savingKeyRef.current === key) setConfig(next);
+      if (mountedRef.current && saveConfigGuard.current === key) setConfig(next);
     } catch (err) {
-      if (mountedRef.current && savingKeyRef.current === key) {
+      if (mountedRef.current && saveConfigGuard.current === key) {
         toast.error('保存每日回顾设置失败', settingsActionErrorMessage(err));
       }
     } finally {
-      if (savingKeyRef.current === key) {
-        savingKeyRef.current = null;
+      if (saveConfigGuard.current === key) {
+        saveConfigGuard.finish();
       }
       if (mountedRef.current) setSavingKey(null);
     }
   }
 
   async function triggerRun(mode: DailyReviewMode) {
-    if (!dailyReviewIpc.runOnce || runningModeRef.current !== null) return;
-    runningModeRef.current = mode;
+    if (!dailyReviewIpc.runOnce || runModeGuard.current !== null) return;
+    runModeGuard.begin(mode);
     setRunningMode(mode);
     try {
       await dailyReviewIpc.runOnce({ mode });
-      if (mountedRef.current && runningModeRef.current === mode) {
+      if (mountedRef.current && runModeGuard.current === mode) {
         toast.success(mode === 'daily' ? '已生成每日回顾' : '已生成深度分析', '可在「每日回顾」面板查看。');
       }
     } catch (err) {
-      if (mountedRef.current && runningModeRef.current === mode) {
+      if (mountedRef.current && runModeGuard.current === mode) {
         toast.error('生成回顾失败', settingsActionErrorMessage(err));
       }
     } finally {
-      if (runningModeRef.current === mode) {
-        runningModeRef.current = null;
+      if (runModeGuard.current === mode) {
+        runModeGuard.finish();
       }
       if (mountedRef.current) setRunningMode(null);
     }

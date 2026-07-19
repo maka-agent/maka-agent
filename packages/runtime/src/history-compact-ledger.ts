@@ -47,14 +47,16 @@ export async function loadLatestHistoryCompactCheckpointFromRunLedger(
     }
   }
   const selected = selectRecoveredCheckpoint(candidates);
-  await runStore.repairEventProjection?.(
-    sessionId,
-    'history_compact_checkpoint_recorded',
-    selected?.event ?? null,
-    replaceEventId ? { replaceEventId } : undefined,
-  ).catch(() => {
-    // Recovery succeeded; a later cold read can retry this derived-state repair.
-  });
+  await runStore
+    .repairEventProjection?.(
+      sessionId,
+      'history_compact_checkpoint_recorded',
+      selected?.event ?? null,
+      replaceEventId ? { replaceEventId } : undefined,
+    )
+    .catch(() => {
+      // Recovery succeeded; a later cold read can retry this derived-state repair.
+    });
   return selected?.checkpoint;
 }
 

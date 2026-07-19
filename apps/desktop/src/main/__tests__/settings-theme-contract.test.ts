@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { readRendererContractCss } from './contract-css-helpers.js';
 import { readSettingsCombinedSource } from './settings-contract-source-helpers.js';
+import { getSettingsPreferencesCopy } from '../../renderer/locales/settings-preferences-copy.js';
 
 const repoRoot = process.cwd().endsWith('apps/desktop')
   ? join(process.cwd(), '..', '..')
@@ -26,7 +27,7 @@ describe('Settings theme page contract', () => {
     );
     assert.match(
       themePage![0],
-      /const ticket = \+\+themePersistTicketRef\.current;[\s\S]*try \{[\s\S]*await props\.onUpdate\(\{ appearance: patch \}\)[\s\S]*catch \(error\) \{[\s\S]*if \(themePageMountedRef\.current && ticket === themePersistTicketRef\.current\) \{[\s\S]*toast\.error\('保存外观设置失败', settingsActionErrorMessage\(error\)\)/,
+      /const ticket = \+\+themePersistTicketRef\.current;[\s\S]*try \{[\s\S]*await props\.onUpdate\(\{ appearance: patch \}\)[\s\S]*catch \(error\) \{[\s\S]*if \(themePageMountedRef\.current && ticket === themePersistTicketRef\.current\) \{[\s\S]*toast\.error\(copy\.saveFailed, settingsActionErrorMessage\(error, locale\)\)/,
       'Appearance persistence failures must show a user-visible toast only for the latest mounted request',
     );
     assert.match(
@@ -62,7 +63,7 @@ describe('Settings theme page contract', () => {
     );
     assert.match(
       themePage,
-      /const ticket = \+\+themePersistTicketRef\.current;[\s\S]*catch \(error\) \{[\s\S]*if \(themePageMountedRef\.current && ticket === themePersistTicketRef\.current\) \{[\s\S]*toast\.error\('保存外观设置失败', settingsActionErrorMessage\(error\)\);/,
+      /const ticket = \+\+themePersistTicketRef\.current;[\s\S]*catch \(error\) \{[\s\S]*if \(themePageMountedRef\.current && ticket === themePersistTicketRef\.current\) \{[\s\S]*toast\.error\(copy\.saveFailed, settingsActionErrorMessage\(error, locale\)\);/,
       'Only the latest mounted theme persistence failure may show a toast',
     );
   });
@@ -74,7 +75,7 @@ describe('Settings theme page contract', () => {
     // PR round-c-choice-card-primitive + PR yuejing/settings-segmented-
     // primitive: Theme/Palette via Base UI `RadioGroup`-backed
     // `ChoiceCardGroup`; Segmented via Base UI `ToggleGroup`-backed
-    // `SettingsSegmented`. Both primitives provide arrow-key
+    // `Segmented`. Both primitives provide arrow-key
     // navigation, focus management, and roving tabindex for free, so
     // the hand-rolled `onSettingsRadioGroupKeyDown` /
     // `focusRadioValue` / `radioTabIndex` helpers are gone from
@@ -88,15 +89,14 @@ describe('Settings theme page contract', () => {
     // Theme + palette pickers must use `ChoiceCardGroup` with
     // `value` + `onValueChange` semantics, NOT the legacy keyboard
     // helpers or `data-radio-value` attribute.
-    assert.match(themePage, /<ChoiceCardGroup[\s\S]*aria-label="主题"[\s\S]*value=\{props\.themePref\}[\s\S]*onValueChange/);
-    assert.match(themePage, /<ChoiceCardGroup[\s\S]*aria-label=\{group\.label\}[\s\S]*value=\{currentPalette\}[\s\S]*onValueChange/);
+    assert.match(themePage, /<ChoiceCardGroup[\s\S]*aria-label=\{copy\.theme\}[\s\S]*value=\{props\.themePref\}[\s\S]*onValueChange/);
+    assert.match(themePage, /<ChoiceCardGroup[\s\S]*aria-label=\{copy\.paletteGroups\[group\.id\]\}[\s\S]*value=\{currentPalette\}[\s\S]*onValueChange/);
     assert.doesNotMatch(themePage, /onSettingsRadioGroupKeyDown|radioTabIndex|data-radio-value/);
     assert.doesNotMatch(themePage, /界面密度|props\.density|setDensity|onDensityChange/);
 
-    // Segmented now comes from `@maka/ui` as `SettingsSegmented`,
-    // imported aliased as `Segmented`. The local `function Segmented`
-    // declaration must be gone.
-    assert.match(src, /SettingsSegmented as Segmented/);
+    // Segmented now comes from `@maka/ui`. The local
+    // `function Segmented` declaration must be gone.
+    assert.match(src, /import \{[^}]*\bSegmented\b[^}]*\} from '@maka\/ui'/);
     assert.doesNotMatch(src, /^function Segmented</m);
   });
 
@@ -151,26 +151,16 @@ describe('Settings theme page contract', () => {
     assert.doesNotMatch(themePage, /界面密度|settingsDensitySwatch|setDensity/);
   });
 
-  it('keeps theme page copy Chinese-first and user-facing', async () => {
-    const src = await readSettingsCombinedSource();
-    const themePage = src.match(/function ThemeSettingsPage\([\s\S]*?function WebSearchSettingsPage/)?.[0] ?? '';
-    const themeCopy = [
-      src.match(/const THEME_OPTIONS[\s\S]*?\];/)?.[0] ?? '',
-      src.match(/const PALETTE_HELP[\s\S]*?\};/)?.[0] ?? '',
-      themePage.match(/<p className="settingsHelpText">[\s\S]*?<\/p>/)?.[0] ?? '',
-    ].join('\n');
-
-    assert.match(themeCopy, /匹配 macOS 当前浅色或深色偏好。/);
-    // Brand accent is logo blue now (owner decision 2026-07-03); the old
-    // pinned copy still claimed a purple accent.
-    assert.match(themeCopy, /Maka 品牌蓝强调色/);
-    assert.match(themeCopy, /湖蓝强调色，干净冷静/);
-    assert.match(themeCopy, /保存在本地外观设置里下次启动延续/);
-    assert.doesNotMatch(
-      themeCopy,
-      /Light\/Dark|settings\.json|safeStorage|API key|accent|IDE/,
-      'Theme settings visible copy must not leak implementation or English UI terms',
-    );
+  it('keeps theme page copy complete in both locales', () => {
+    const zh = getSettingsPreferencesCopy('zh').appearance;
+    const en = getSettingsPreferencesCopy('en').appearance;
+    assert.match(zh.themeOptions.auto.help, /系统/);
+    assert.match(zh.paletteHelp.default, /Maka 品牌蓝/);
+    assert.match(zh.paletteHelp.azure, /湖蓝/);
+    assert.match(zh.persistenceHelp, /保存在本地/);
+    assert.equal(en.themeOptions.auto.label, 'Follow system');
+    assert.equal(en.paletteLabels.azure, 'Azure');
+    assert.doesNotMatch(JSON.stringify(en), /[\u3400-\u9fff]/u);
   });
 
   it('keeps shared Button chrome from collapsing theme choice cards', async () => {

@@ -21,12 +21,19 @@ export function buildDefaultContextBudgetPolicy(
     defaultHistoryBudgetTokens(connection, contextWindow, reserveTokens);
   const maxHistoryTurns = parseOptionalPositiveInt(env.MAKA_CONTEXT_HISTORY_BUDGET_TURNS);
   const minRecentTurns = parsePositiveInt(env.MAKA_CONTEXT_MIN_RECENT_TURNS, 2);
-  const surfaceName = (options.name ?? 'default-history-budget').replace(/-default-history-budget$/, '');
+  const surfaceName = (options.name ?? 'default-history-budget').replace(
+    /-default-history-budget$/,
+    '',
+  );
   const staleToolResultPrune = buildStaleToolResultPrunePolicy(env);
   const archiveRetrieval = buildArchiveRetrievalPolicy(env);
   const historySearch = buildHistorySearchPolicy(env);
   const synthesisCache = buildSynthesisCachePolicy(env);
-  const historyCompact = buildHistoryCompactPolicy(env, `${surfaceName}-history-compact`, reserveTokens);
+  const historyCompact = buildHistoryCompactPolicy(
+    env,
+    `${surfaceName}-history-compact`,
+    reserveTokens,
+  );
   const historyRewrite = buildHistoryRewriteGatePolicy(env, `${surfaceName}-history-rewrite`);
   const semanticCompact = buildSemanticCompactPolicy(env, `${surfaceName}-semantic-compact`);
   const activeToolResultPrune = buildActiveToolResultPrunePolicy(env);
@@ -73,9 +80,10 @@ export function buildManualCompactLookupPolicy(
   options: BuildManualCompactLookupPolicyOptions = {},
 ): ContextBudgetPolicy | undefined {
   if (!base) return undefined;
-  const budgetedPolicy = base.maxHistoryEstimatedTokens === undefined
-    ? { ...base, maxHistoryEstimatedTokens: 32_000 }
-    : base;
+  const budgetedPolicy =
+    base.maxHistoryEstimatedTokens === undefined
+      ? { ...base, maxHistoryEstimatedTokens: 32_000 }
+      : base;
   const current = budgetedPolicy.historyCompact;
   return {
     ...budgetedPolicy,
@@ -104,10 +112,7 @@ function buildStaleToolResultPrunePolicy(
   if (enabled === false) return undefined;
   return {
     enabled: true,
-    maxResultEstimatedTokens: parsePositiveInt(
-      env.MAKA_CONTEXT_STALE_TOOL_RESULT_MAX_TOKENS,
-      2048,
-    ),
+    maxResultEstimatedTokens: parsePositiveInt(env.MAKA_CONTEXT_STALE_TOOL_RESULT_MAX_TOKENS, 2048),
     minRecentTurnsFull: parsePositiveInt(
       env.MAKA_CONTEXT_STALE_TOOL_RESULT_MIN_RECENT_TURNS,
       parsePositiveInt(env.MAKA_CONTEXT_MIN_RECENT_TURNS, 2),
@@ -129,7 +134,8 @@ function buildActiveToolResultPrunePolicy(
       env.MAKA_CONTEXT_ACTIVE_TOOL_RESULT_MAX_ESTIMATED_TOKENS,
       2048,
     ),
-    minStepNumber: parseOptionalNonNegativeInt(env.MAKA_CONTEXT_ACTIVE_TOOL_RESULT_MIN_STEP_NUMBER) ?? 1,
+    minStepNumber:
+      parseOptionalNonNegativeInt(env.MAKA_CONTEXT_ACTIVE_TOOL_RESULT_MIN_STEP_NUMBER) ?? 1,
   };
 }
 
@@ -169,7 +175,10 @@ function buildSynthesisCachePolicy(
     mode: parseSynthesisCacheMode(env.MAKA_CONTEXT_SYNTHESIS_CACHE_MODE),
     maxBlocks: parsePositiveInt(env.MAKA_CONTEXT_SYNTHESIS_CACHE_MAX_BLOCKS, 1),
     maxEstimatedTokens: parsePositiveInt(env.MAKA_CONTEXT_SYNTHESIS_CACHE_MAX_TOKENS, 2048),
-    maxBlockEstimatedTokens: parsePositiveInt(env.MAKA_CONTEXT_SYNTHESIS_CACHE_MAX_BLOCK_TOKENS, 1024),
+    maxBlockEstimatedTokens: parsePositiveInt(
+      env.MAKA_CONTEXT_SYNTHESIS_CACHE_MAX_BLOCK_TOKENS,
+      1024,
+    ),
     invalidateOnNewToolResult: true,
     schemaVersion: 1,
   };
@@ -180,14 +189,23 @@ function buildHistoryCompactPolicy(
   defaultHighWaterName: string,
   reserveTokens: number,
 ): NonNullable<ContextBudgetPolicy['historyCompact']> | undefined {
-  const enabled = parseOptionalBoolean(env.MAKA_CONTEXT_HISTORY_COMPACT, 'MAKA_CONTEXT_HISTORY_COMPACT');
+  const enabled = parseOptionalBoolean(
+    env.MAKA_CONTEXT_HISTORY_COMPACT,
+    'MAKA_CONTEXT_HISTORY_COMPACT',
+  );
   if (enabled === false) return undefined;
   const highWaterRatio = parseOptionalRatio(env.MAKA_CONTEXT_HISTORY_COMPACT_HIGH_WATER_RATIO);
   const forceRatio = parseOptionalRatio(env.MAKA_CONTEXT_HISTORY_COMPACT_FORCE_RATIO);
   const targetRatio = parseOptionalRatio(env.MAKA_CONTEXT_HISTORY_COMPACT_TARGET_RATIO);
-  const tailEstimatedTokens = parseOptionalPositiveInt(env.MAKA_CONTEXT_HISTORY_COMPACT_TAIL_TOKENS);
-  const minRecentTurns = parseOptionalPositiveInt(env.MAKA_CONTEXT_HISTORY_COMPACT_MIN_RECENT_TURNS);
-  const maxSummaryEstimatedTokens = parseOptionalPositiveInt(env.MAKA_CONTEXT_HISTORY_COMPACT_MAX_SUMMARY_TOKENS);
+  const tailEstimatedTokens = parseOptionalPositiveInt(
+    env.MAKA_CONTEXT_HISTORY_COMPACT_TAIL_TOKENS,
+  );
+  const minRecentTurns = parseOptionalPositiveInt(
+    env.MAKA_CONTEXT_HISTORY_COMPACT_MIN_RECENT_TURNS,
+  );
+  const maxSummaryEstimatedTokens = parseOptionalPositiveInt(
+    env.MAKA_CONTEXT_HISTORY_COMPACT_MAX_SUMMARY_TOKENS,
+  );
   const midTurn = buildHistoryCompactMidTurnPolicy(env, reserveTokens);
   return {
     enabled: true,
@@ -200,7 +218,10 @@ function buildHistoryCompactPolicy(
     ...(maxSummaryEstimatedTokens !== undefined ? { maxSummaryEstimatedTokens } : {}),
     maxBlocks: parsePositiveInt(env.MAKA_CONTEXT_HISTORY_COMPACT_MAX_BLOCKS, 1),
     maxEstimatedTokens: parsePositiveInt(env.MAKA_CONTEXT_HISTORY_COMPACT_MAX_TOKENS, 2048),
-    maxBlockEstimatedTokens: parsePositiveInt(env.MAKA_CONTEXT_HISTORY_COMPACT_MAX_BLOCK_TOKENS, 1024),
+    maxBlockEstimatedTokens: parsePositiveInt(
+      env.MAKA_CONTEXT_HISTORY_COMPACT_MAX_BLOCK_TOKENS,
+      1024,
+    ),
     highWaterName: env.MAKA_CONTEXT_HISTORY_COMPACT_HIGH_WATER_NAME ?? defaultHighWaterName,
     ...(midTurn !== undefined ? { midTurn } : {}),
   };
@@ -224,7 +245,9 @@ function buildHistoryCompactMidTurnPolicy(
     'MAKA_CONTEXT_HISTORY_COMPACT_MID_TURN',
   );
   if (enabled === false) return undefined;
-  const reserveTailEvents = parseOptionalNonNegativeInt(env.MAKA_CONTEXT_HISTORY_COMPACT_MID_TURN_TAIL_EVENTS);
+  const reserveTailEvents = parseOptionalNonNegativeInt(
+    env.MAKA_CONTEXT_HISTORY_COMPACT_MID_TURN_TAIL_EVENTS,
+  );
   return {
     enabled: true,
     reserveTokens,
@@ -241,7 +264,8 @@ function buildHistoryRewriteGatePolicy(
     enabled: true,
     name: env.MAKA_CONTEXT_HISTORY_REWRITE_NAME ?? defaultName,
     historyRewriteVersion: env.MAKA_CONTEXT_HISTORY_REWRITE_VERSION ?? 'phase6-v1',
-    resetReason: env.MAKA_CONTEXT_HISTORY_REWRITE_RESET_REASON ?? 'operator_enabled_history_rewrite_gate',
+    resetReason:
+      env.MAKA_CONTEXT_HISTORY_REWRITE_RESET_REASON ?? 'operator_enabled_history_rewrite_gate',
   };
 }
 
@@ -255,7 +279,10 @@ function buildSemanticCompactPolicy(
   env: Record<string, string | undefined>,
   defaultHighWaterName: string,
 ): NonNullable<ContextBudgetPolicy['semanticCompact']> | undefined {
-  const enabled = parseOptionalBoolean(env.MAKA_CONTEXT_SEMANTIC_COMPACT, 'MAKA_CONTEXT_SEMANTIC_COMPACT');
+  const enabled = parseOptionalBoolean(
+    env.MAKA_CONTEXT_SEMANTIC_COMPACT,
+    'MAKA_CONTEXT_SEMANTIC_COMPACT',
+  );
   if (enabled === false) return undefined;
   const mode = parseSemanticCompactMode(env.MAKA_CONTEXT_SEMANTIC_COMPACT_MODE);
   if (mode === 'off') return undefined;
@@ -269,7 +296,8 @@ function buildSemanticCompactPolicy(
   return {
     enabled: true,
     mode: mode ?? 'replace',
-    minStepNumber: parseOptionalNonNegativeInt(env.MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_STEP_NUMBER) ?? 2,
+    minStepNumber:
+      parseOptionalNonNegativeInt(env.MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_STEP_NUMBER) ?? 2,
     // Attention compaction stays dormant through the first 128K estimated
     // provider tokens. The completed-span thresholds below only apply after
     // this high-water has been crossed.
@@ -280,35 +308,62 @@ function buildSemanticCompactPolicy(
       parseOptionalPositiveInt(env.MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_ACTIVE_ESTIMATED_TOKENS) ??
       parseOptionalPositiveInt(env.MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_ESTIMATED_TOKENS) ??
       131_072,
-    ...(parseOptionalNonNegativeInt(env.MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_RECENT_MESSAGES) !== undefined
-      ? { minRecentMessages: parseOptionalNonNegativeInt(env.MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_RECENT_MESSAGES) }
+    ...(parseOptionalNonNegativeInt(env.MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_RECENT_MESSAGES) !==
+    undefined
+      ? {
+          minRecentMessages: parseOptionalNonNegativeInt(
+            env.MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_RECENT_MESSAGES,
+          ),
+        }
       : {}),
-    ...(parseOptionalNonNegativeInt(env.MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_RECENT_TOOL_PAIRS) !== undefined
-      ? { minRecentToolPairs: parseOptionalNonNegativeInt(env.MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_RECENT_TOOL_PAIRS) }
+    ...(parseOptionalNonNegativeInt(env.MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_RECENT_TOOL_PAIRS) !==
+    undefined
+      ? {
+          minRecentToolPairs: parseOptionalNonNegativeInt(
+            env.MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_RECENT_TOOL_PAIRS,
+          ),
+        }
       : {}),
     minSafePrefixEstimatedTokens:
-      parseOptionalPositiveInt(env.MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_SAFE_PREFIX_ESTIMATED_TOKENS) ?? 4_096,
+      parseOptionalPositiveInt(
+        env.MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_SAFE_PREFIX_ESTIMATED_TOKENS,
+      ) ?? 4_096,
     minNewPrefixEstimatedTokens:
-      parseOptionalPositiveInt(env.MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_NEW_PREFIX_ESTIMATED_TOKENS) ?? 4_096,
+      parseOptionalPositiveInt(env.MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_NEW_PREFIX_ESTIMATED_TOKENS) ??
+      4_096,
     maxAcceptedProjectionEstimatedTokens:
-      parseOptionalPositiveInt(env.MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_ACCEPTED_PROJECTION_ESTIMATED_TOKENS) ??
+      parseOptionalPositiveInt(
+        env.MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_ACCEPTED_PROJECTION_ESTIMATED_TOKENS,
+      ) ??
       parseOptionalPositiveInt(env.MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_SUMMARY_ESTIMATED_TOKENS) ??
       parseOptionalPositiveInt(env.MAKA_CONTEXT_SEMANTIC_COMPACT_SUMMARY_MAX_ESTIMATED_TOKENS) ??
       768,
-    ...(parseOptionalPositiveInt(env.MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_SUMMARY_ESTIMATED_TOKENS) !== undefined
-      ? { maxSummaryEstimatedTokens: parseOptionalPositiveInt(env.MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_SUMMARY_ESTIMATED_TOKENS) }
+    ...(parseOptionalPositiveInt(env.MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_SUMMARY_ESTIMATED_TOKENS) !==
+    undefined
+      ? {
+          maxSummaryEstimatedTokens: parseOptionalPositiveInt(
+            env.MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_SUMMARY_ESTIMATED_TOKENS,
+          ),
+        }
       : {}),
-    minSavingsTokens: parseOptionalNonNegativeInt(env.MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_SAVINGS_TOKENS) ?? 256,
+    minSavingsTokens:
+      parseOptionalNonNegativeInt(env.MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_SAVINGS_TOKENS) ?? 256,
     minSavingsRatio: parseOptionalRatio(env.MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_SAVINGS_RATIO),
-    minNetSavingsTokens: parseOptionalNonNegativeInt(env.MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_NET_SAVINGS_TOKENS) ?? 256,
+    minNetSavingsTokens:
+      parseOptionalNonNegativeInt(env.MAKA_CONTEXT_SEMANTIC_COMPACT_MIN_NET_SAVINGS_TOKENS) ?? 256,
     compactCallTokenCostWeight: parseOptionalNonNegativeNumber(
       env.MAKA_CONTEXT_SEMANTIC_COMPACT_CALL_TOKEN_COST_WEIGHT,
     ),
-    maxCompactCallTokens: parseOptionalPositiveInt(env.MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_CALL_TOKENS) ?? 4096,
+    maxCompactCallTokens:
+      parseOptionalPositiveInt(env.MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_CALL_TOKENS) ?? 4096,
     maxConsecutiveInvalidSummaries:
-      parseOptionalNonNegativeInt(env.MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_CONSECUTIVE_INVALID_SUMMARIES) ?? 2,
+      parseOptionalNonNegativeInt(
+        env.MAKA_CONTEXT_SEMANTIC_COMPACT_MAX_CONSECUTIVE_INVALID_SUMMARIES,
+      ) ?? 2,
     invalidSummaryCooldownSteps:
-      parseOptionalNonNegativeInt(env.MAKA_CONTEXT_SEMANTIC_COMPACT_INVALID_SUMMARY_COOLDOWN_STEPS) ?? 8,
+      parseOptionalNonNegativeInt(
+        env.MAKA_CONTEXT_SEMANTIC_COMPACT_INVALID_SUMMARY_COOLDOWN_STEPS,
+      ) ?? 8,
     timeoutMs: parseOptionalPositiveInt(env.MAKA_CONTEXT_SEMANTIC_COMPACT_TIMEOUT_MS),
     ...(archiveRequired !== undefined ? { archiveRequired } : {}),
     ...(env.MAKA_CONTEXT_SEMANTIC_COMPACT_MODEL
@@ -352,13 +407,19 @@ function defaultHistoryBudgetTokens(
   return 32_000;
 }
 
-export function resolveSelectedModelContextWindow(connection: LlmConnection, modelId: string | undefined): number | undefined {
+export function resolveSelectedModelContextWindow(
+  connection: LlmConnection,
+  modelId: string | undefined,
+): number | undefined {
   const selectedModelId = modelId ?? connection.defaultModel;
   const model = selectedModelId
     ? connection.models?.find((candidate) => candidate.id === selectedModelId)
     : undefined;
-  return model?.contextWindow ?? (
-    selectedModelId ? lookupModelMetadata(connection.providerType, selectedModelId).contextWindow : undefined
+  return (
+    model?.contextWindow ??
+    (selectedModelId
+      ? lookupModelMetadata(connection.providerType, selectedModelId).contextWindow
+      : undefined)
   );
 }
 
@@ -395,14 +456,24 @@ function parseSynthesisCacheMode(value: string | undefined): 'lookup' | 'read_wr
   return value === 'read_write' ? 'read_write' : 'lookup';
 }
 
-function parseHistoryCompactMode(value: string | undefined): NonNullable<ContextBudgetPolicy['historyCompact']>['mode'] {
+function parseHistoryCompactMode(
+  value: string | undefined,
+): NonNullable<ContextBudgetPolicy['historyCompact']>['mode'] {
   if (value === 'lookup' || value === 'read_write' || value === 'deterministic') return value;
   return 'read_write';
 }
 
-function parseSemanticCompactMode(value: string | undefined): NonNullable<ContextBudgetPolicy['semanticCompact']>['mode'] | undefined {
+function parseSemanticCompactMode(
+  value: string | undefined,
+): NonNullable<ContextBudgetPolicy['semanticCompact']>['mode'] | undefined {
   if (!value) return undefined;
-  if (value === 'off' || value === 'validate_only' || value === 'prepare_step_dry_run' || value === 'replace') return value;
+  if (
+    value === 'off' ||
+    value === 'validate_only' ||
+    value === 'prepare_step_dry_run' ||
+    value === 'replace'
+  )
+    return value;
   return undefined;
 }
 
@@ -427,6 +498,8 @@ function parseOptionalBoolean(value: string | undefined, name: string): boolean 
   }
 }
 
-function parseArchiveRetrievalMode(value: string | undefined): NonNullable<ContextBudgetPolicy['archiveRetrieval']>['mode'] | undefined {
+function parseArchiveRetrievalMode(
+  value: string | undefined,
+): NonNullable<ContextBudgetPolicy['archiveRetrieval']>['mode'] | undefined {
   return value === 'history_search_gated' || value === 'eager' ? value : undefined;
 }

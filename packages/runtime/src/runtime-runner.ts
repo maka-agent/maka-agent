@@ -68,9 +68,7 @@ export interface RuntimeGate {
  * future Phase 6 gate will compose from readiness rules.
  */
 export function runtimeGateFromCallback(
-  preflight: (
-    request: InvocationRequest,
-  ) => Promise<RuntimeGateDecision> | RuntimeGateDecision,
+  preflight: (request: InvocationRequest) => Promise<RuntimeGateDecision> | RuntimeGateDecision,
 ): RuntimeGate {
   return {
     preflight: async (request) => preflight(request),
@@ -115,6 +113,8 @@ export interface InitialUserRuntimeEventInput {
   ts: number;
   branch?: string;
   text: string;
+  /** Human-facing view when it differs from `text`; see RuntimeEventTextContent. */
+  displayText?: string;
   attachments?: InvocationRequest['attachments'];
 }
 
@@ -176,7 +176,8 @@ export class RuntimeRunner {
    */
   async run(request: InvocationRequest): Promise<InvocationResult> {
     const startedAt = this.providers.now();
-    const invocationId = request.invocationId ?? request.initialRuntimeEvent?.invocationId ?? this.providers.newId();
+    const invocationId =
+      request.invocationId ?? request.initialRuntimeEvent?.invocationId ?? this.providers.newId();
     const runId = request.runId ?? request.initialRuntimeEvent?.runId ?? this.providers.newId();
     if (request.continuation) {
       if (!request.runtimeContext) {
@@ -263,17 +264,19 @@ export class RuntimeRunner {
     // resumes committed provider history directly and must not invent a
     // duplicate user message.
     if (!request.continuation) {
-      const userEvent = request.initialRuntimeEvent ?? buildInitialUserRuntimeEvent({
-        id: ctx.newId(),
-        invocationId: ctx.invocationId,
-        runId: ctx.runId,
-        sessionId: ctx.sessionId,
-        turnId: ctx.turnId,
-        ts: ctx.startedAt,
-        ...(ctx.branch ? { branch: ctx.branch } : {}),
-        text: request.text,
-        ...(request.attachments !== undefined ? { attachments: request.attachments } : {}),
-      });
+      const userEvent =
+        request.initialRuntimeEvent ??
+        buildInitialUserRuntimeEvent({
+          id: ctx.newId(),
+          invocationId: ctx.invocationId,
+          runId: ctx.runId,
+          sessionId: ctx.sessionId,
+          turnId: ctx.turnId,
+          ts: ctx.startedAt,
+          ...(ctx.branch ? { branch: ctx.branch } : {}),
+          text: request.text,
+          ...(request.attachments !== undefined ? { attachments: request.attachments } : {}),
+        });
       events.push(userEvent);
     } else {
       if (!this.commitContinuationStart) {
@@ -391,19 +394,20 @@ function assertRuntimeContinuationEnvelope(
   if (continuation.runtimeContext.length === 0) {
     throw new Error('Runtime continuation replay context must not be empty');
   }
-  const mismatched = continuation.runtimeContext.find((event) =>
-    event.sessionId !== continuation.sessionId
-    || event.invocationId !== continuation.sourceInvocationId
-    || event.runId !== continuation.sourceRunId
-    || event.turnId !== continuation.sourceTurnId
+  const mismatched = continuation.runtimeContext.find(
+    (event) =>
+      event.sessionId !== continuation.sessionId ||
+      event.invocationId !== continuation.sourceInvocationId ||
+      event.runId !== continuation.sourceRunId ||
+      event.turnId !== continuation.sourceTurnId,
   );
   if (mismatched) {
     throw new Error(`Runtime continuation replay identity mismatch at event ${mismatched.id}`);
   }
   if (
-    continuation.invocationId === continuation.sourceInvocationId
-    || continuation.runId === continuation.sourceRunId
-    || continuation.turnId === continuation.sourceTurnId
+    continuation.invocationId === continuation.sourceInvocationId ||
+    continuation.runId === continuation.sourceRunId ||
+    continuation.turnId === continuation.sourceTurnId
   ) {
     throw new Error('Runtime continuation must use fresh invocation, run, and turn identities');
   }
@@ -413,10 +417,10 @@ function finalOutputFromEvents(events: readonly RuntimeEvent[]): string | undefi
   for (let index = events.length - 1; index >= 0; index -= 1) {
     const event = events[index]!;
     if (
-      event.role === 'model'
-      && event.partial !== true
-      && event.content?.kind === 'text'
-      && event.content.text.trim().length > 0
+      event.role === 'model' &&
+      event.partial !== true &&
+      event.content?.kind === 'text' &&
+      event.content.text.trim().length > 0
     ) {
       return event.content.text;
     }
@@ -443,6 +447,7 @@ export function buildInitialUserRuntimeEvent(input: InitialUserRuntimeEventInput
     content: {
       kind: 'text',
       text: input.text,
+      ...(input.displayText !== undefined ? { displayText: input.displayText } : {}),
       ...(input.attachments !== undefined && input.attachments.length > 0
         ? { attachments: input.attachments }
         : {}),
@@ -452,7 +457,10 @@ export function buildInitialUserRuntimeEvent(input: InitialUserRuntimeEventInput
 
 function assertInitialRuntimeEventMatchesRequest(
   event: RuntimeEvent,
-  request: Pick<InvocationRequest, 'sessionId' | 'turnId'> & { invocationId: string; runId: string },
+  request: Pick<InvocationRequest, 'sessionId' | 'turnId'> & {
+    invocationId: string;
+    runId: string;
+  },
 ): void {
   if (
     event.sessionId !== request.sessionId ||
@@ -475,6 +483,9 @@ function buildFlowInput(request: InvocationRequest): FlowInput {
     ...(request.runtimeContext !== undefined ? { runtimeContext: request.runtimeContext } : {}),
     ...(request.continuation !== undefined ? { continuation: request.continuation } : {}),
     ...(request.attachments !== undefined ? { attachments: request.attachments } : {}),
+    ...(request.pullSteering !== undefined ? { pullSteering: request.pullSteering } : {}),
+    ...(request.ackSteering !== undefined ? { ackSteering: request.ackSteering } : {}),
+    ...(request.nackSteering !== undefined ? { nackSteering: request.nackSteering } : {}),
     ...(request.abortSignal ? { abortSignal: request.abortSignal } : {}),
   };
 }
@@ -525,10 +536,12 @@ function failureFromTerminalEvent(event: RuntimeEvent): InvocationFailure | unde
   // failure modes and the run ledger stays consistent with the invocation.
   if (status === 'failed') {
     const message = content?.kind === 'error' ? content.message : undefined;
-    const classFromContent = content?.kind === 'error' ? (content.reason ?? content.code) : undefined;
+    const classFromContent =
+      content?.kind === 'error' ? (content.reason ?? content.code) : undefined;
     const classFromState = event.actions?.stateDelta?.failureClass;
     return {
-      class: classFromContent ?? (typeof classFromState === 'string' ? classFromState : 'runtime_error'),
+      class:
+        classFromContent ?? (typeof classFromState === 'string' ? classFromState : 'runtime_error'),
       ...(message ? { message } : {}),
       terminalStatus: status,
     };
@@ -541,7 +554,9 @@ function failureFromTerminalEvent(event: RuntimeEvent): InvocationFailure | unde
   };
 }
 
-function failureFromRawFinishReason(rawFinishReason: string | undefined): InvocationFailure | undefined {
+function failureFromRawFinishReason(
+  rawFinishReason: string | undefined,
+): InvocationFailure | undefined {
   if (!rawFinishReason) return undefined;
   const normalized = rawFinishReason.toLowerCase().replace(/_/g, '-');
   if (normalized === 'tool-calls') {

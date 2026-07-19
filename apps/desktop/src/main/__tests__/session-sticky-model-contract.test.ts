@@ -5,6 +5,7 @@ import { readProviderSettingsCombinedSource } from './provider-contract-source-h
 import { describe, it } from 'node:test';
 import { readRendererContractCss } from './contract-css-helpers.js';
 import { readRendererShellCombinedSource } from './renderer-shell-source-helpers.js';
+import { readMainProcessCombinedSource } from './main-process-contract-source-helpers.js';
 
 const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');
 
@@ -24,18 +25,18 @@ async function readModelSwitcherUiSource(): Promise<string> {
 
 describe('PR-SESSION-STICKY-MODEL-0 contract', () => {
   it('captures the ready model when creating a desktop session', async () => {
-    const main = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/main/main.ts'), 'utf8');
+    const main = await readMainProcessCombinedSource();
 
     assert.match(main, /const requestedSlug = input\?\.llmConnectionSlug \?\? \(await connectionStore\.getDefault\(\)\)/);
     assert.match(main, /const \{ connection, model \} = await getReadyConnection\(requestedSlug, input\?\.model\)/);
-    assert.match(main, /runtime\.createSession\(\{[\s\S]*llmConnectionSlug: connection\.slug,[\s\S]*model,/);
+    assert.match(main, /createSession\(\{[\s\S]*llmConnectionSlug: connection\.slug,[\s\S]*model,/);
   });
 
   it('validates sends against the session model, not the latest provider default', async () => {
     const readiness = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/main/chat-readiness.ts'), 'utf8');
     const coreReadiness = await readFile(resolve(REPO_ROOT, 'packages/core/src/connection-readiness.ts'), 'utf8');
     const projection = await readFile(resolve(REPO_ROOT, 'packages/core/src/session-send-projection.ts'), 'utf8');
-    const main = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/main/main.ts'), 'utf8');
+    const main = await readMainProcessCombinedSource();
 
     assert.match(readiness, /assertSessionCanSend\([\s\S]*header: Pick<SessionHeader, 'backend' \| 'llmConnectionSlug' \| 'model'>/);
     assert.match(readiness, /requireReadyConnection\(header\.llmConnectionSlug, deps, header\.model\)/);
@@ -70,15 +71,15 @@ describe('PR-SESSION-STICKY-MODEL-0 contract', () => {
     const providers = await readProviderSettingsCombinedSource();
 
     assert.match(renderer, /normalizeActiveChatModel\(activeSession, activeConnection, chatModelChoices\)/);
-    assert.match(ui, /本会话固定模型：\$\{props\.activeConnectionLabel\} · \$\{props\.activeModelLabel\}/);
-    assert.match(ui, /设置里的默认模型只影响新建会话/);
+    assert.match(ui, /copy\.pinnedSession\(props\.activeConnectionLabel, props\.activeModelLabel\)/);
+    assert.match(ui, /copy\.switchTitle\(currentSessionModelTitle\)/);
     assert.match(providers, /勾选的模型会出现在模型选择器中/);
   });
 
   it('lets the user explicitly switch the current session model from the chat header', async () => {
-    const main = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/main/main.ts'), 'utf8');
+    const main = await readMainProcessCombinedSource();
     const preload = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/preload/preload.ts'), 'utf8');
-    const globalTypes = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/global.d.ts'), 'utf8');
+    const globalTypes = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/preload/bridge-contract.d.ts'), 'utf8');
     const renderer = await readRendererShellCombinedSource();
     const ui = await readModelSwitcherUiSource();
     const uiPrimitives = await readFile(resolve(REPO_ROOT, 'packages/ui/src/ui.tsx'), 'utf8');
@@ -103,18 +104,18 @@ describe('PR-SESSION-STICKY-MODEL-0 contract', () => {
     assert.match(renderer, /const sessionId = activeIdRef\.current;[\s\S]*pendingSessionModelChangesRef\.current\.has\(sessionId\)[\s\S]*window\.maka\.sessions\.setModel\(sessionId, input\)[\s\S]*finally \{[\s\S]*pendingSessionModelChangesRef\.current\.delete\(sessionId\);/);
     assert.match(
       renderer,
-      /pendingSessionModelChangesRef\.current\.add\(sessionId\);[\s\S]*setPendingSessionModelBySession\(\(current\) => \(\{ \.\.\.current, \[sessionId\]: true \}\)\);/,
+      /pendingSessionModelChangesRef\.current\.add\(sessionId\);[\s\S]*setPendingSessionModelBySession\(\(current\) => \(\{\s*\.\.\.current,\s*\[sessionId\]: true,?\s*\}\)\);/,
       'app shell must expose per-session model pending state so switching away and back does not make a guarded request look idle',
     );
     assert.match(renderer, /delete next\[sessionId\];/);
     assert.match(
       renderer,
-      /const next = await window\.maka\.sessions\.setModel\(sessionId, input\);[\s\S]*setSessions\([\s\S]*if \(activeIdRef\.current === sessionId\) \{[\s\S]*toastApi\.success\([\s\S]*已切换当前会话模型/,
+      /const next = await window\.maka\.sessions\.setModel\(sessionId, input\);[\s\S]*setSessions\([\s\S]*if \(activeIdRef\.current === sessionId\) \{[\s\S]*toastApi\.success\(copy\.modelSwitchedTitle/,
       'model switch success toast must only describe the current session when the original session is still active',
     );
     assert.match(
       renderer,
-      /catch \(error\) \{[\s\S]*if \(activeIdRef\.current === sessionId\) \{[\s\S]*toastApi\.error\('切换模型失败', generalizedErrorMessageChinese\(error, '模型暂时无法切换，请稍后重试。'\)\);[\s\S]*\}[\s\S]*\} finally/,
+      /catch \(error\) \{[\s\S]*if \(activeIdRef\.current === sessionId\) \{[\s\S]*toastApi\.error\(copy\.modelFailedTitle, localizedShellErrorMessage\(error, copy\.modelFallback, uiLocale\)\);[\s\S]*\}[\s\S]*\} finally/,
       'model switch failure toast must not surface stale failures after the user switches sessions',
     );
     assert.doesNotMatch(
@@ -139,7 +140,7 @@ describe('PR-SESSION-STICKY-MODEL-0 contract', () => {
     assert.match(ui, /pending=\{props\.modelChangePending\}/);
     assert.match(ui, /activeModel\?: string/);
     assert.match(ui, /const currentModel = props\.activeModel \?\? props\.activeSession\.model/);
-    assert.match(ui, /ariaLabel="切换当前会话模型"/);
+    assert.match(ui, /ariaLabel=\{copy\.switchAriaLabel\}/);
     assert.match(ui, /pending\?: boolean/);
     assert.match(ui, /const \[localPending,\s*setLocalPending\] = useState\(false\);/);
     assert.match(ui, /const pendingRef = useRef\(false\);/);
@@ -186,7 +187,7 @@ describe('PR-SESSION-STICKY-MODEL-0 contract', () => {
     assert.match(ui, /<BaseCombobox\.Item[\s\S]*<span className="min-w-0">\{children\}<\/span>/);
     assert.doesNotMatch(uiPrimitives, /BaseCombobox/, 'Combobox stays private to ModelPicker until a second real consumer appears');
     assert.doesNotMatch(ui, /<select\b[\s\S]*aria-label="切换当前会话模型"/);
-    assert.match(ui, /<span className="maka-model-switcher-label">\{pending \? '切换中' : '模型'\}<\/span>/);
+    assert.match(ui, /<span className="maka-model-switcher-label">\{pending \? copy\.switching : copy\.model\}<\/span>/);
     assert.match(styles, /\.maka-model-switcher\s*\{/);
     assert.match(styles, /\.maka-model-switcher\[data-pending="true"\]\s*\{[\s\S]*cursor: progress;[\s\S]*\}/);
     assert.match(styles, /\.maka-model-switcher-trigger\s*\{/);

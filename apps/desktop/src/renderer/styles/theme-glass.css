@@ -26,26 +26,29 @@ html[data-os="darwin"],
      reference-atlas `light-glass` / `dark-glass` mode that we documented
      but never wired all the way through. */
 
-html[data-os="darwin"] .appFrame {
-    background: transparent;
-  }
-
+/* Maintainer 2026-07-18 (user verdict: the Settings rail color is the
+   correct one): the darwin overrides that forced .appFrame and
+   .maka-shell-2col transparent made the native vibrancy material the
+   rail's effective color (~white over a light desktop) while the
+   Settings page kept its opaque --agents-layout-bg backplate — the two
+   sidebars visibly disagreed. The backplate now paints the shared token
+   on every platform; the BrowserWindow vibrancy stays configured but no
+   longer shows through the shell. */
 html[data-os="darwin"] .maka-shell-2col {
     background: transparent;
   }
 
 html[data-os="darwin"] .maka-session-panel {
-    /* PR-CHAT-CHROME-FIX-1 (WAWQAQ msg `4a1b8c13`): the previous 172deg
-       gradient + 1px border-right reintroduced exactly the
-       "上面灰下面白" + visible seam that WAWQAQ called out in
-       `1e693dee` / `5d3b10e5` / `486b5611`. round-0 only stripped the
-       shell-level gradient; this `[data-os="darwin"]` rule was the
-       other place the gradient still lived. Flat translucent base only
-       — no gradient, no 1px border. The 4px gap around the floating
-       detail panel is the only visible boundary. */
-    background: oklch(from var(--surface-canvas) l c h / 0.50);
-    backdrop-filter: saturate(140%) blur(8px);
-    -webkit-backdrop-filter: saturate(140%) blur(8px);
+    /* PR-CHAT-CHROME-FIX-1 (WAWQAQ msg `4a1b8c13`): flat base only —
+       no gradient, no 1px border. The 4px gap around the floating
+       detail panel is the only visible boundary.
+       Maintainer 2026-07-18: the rail is transparent BY DESIGN (the
+       shared .agents-sidebar reset) — its color comes from the shell
+       backplate below. The old 50%-alpha tint + blur here fought that
+       architecture and washed the rail to ~0.988 while Settings read
+       0.976; both now inherit the same opaque backplate (see the
+       appFrame note below), so this rule keeps only the flat base. */
+    background: transparent;
   }
 
 /* =============================================================================

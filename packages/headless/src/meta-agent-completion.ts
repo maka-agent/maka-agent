@@ -1,12 +1,16 @@
 import type { LlmConnection } from '@maka/core';
-import { createScriptedMetaAgent, type MetaAgent, type MetaAgentCompletion } from './prompt-candidate-loop.js';
+import {
+  createScriptedMetaAgent,
+  type MetaAgent,
+  type MetaAgentCompletion,
+} from './prompt-candidate-loop.js';
 import { runOneShotCompletion } from './one-shot-completion.js';
 
 const META_AGENT_SYSTEM =
-  'You optimize a single benchmark system prompt. Reply with exactly one JSON object '
-  + '{"systemPrompt":"...","summary":"...","candidateRationale":{"editedSurface":"system_prompt","evidenceRefs":["rsi-sig:id"],"hypothesis":"short plain text","targetedFix":"short plain text","predictedFixes":["held-in-task-id"],"riskTasks":["held-in-task-id"]}} '
-  + 'and nothing else - no markdown fences, no prose. '
-  + 'Use failurePattern only as a coarse fallback when no evidence id is available.';
+  'You optimize a single benchmark system prompt. Reply with exactly one JSON object ' +
+  '{"systemPrompt":"...","summary":"...","candidateRationale":{"editedSurface":"system_prompt","evidenceRefs":["rsi-sig:id"],"hypothesis":"short plain text","targetedFix":"short plain text","predictedFixes":["held-in-task-id"],"riskTasks":["held-in-task-id"]}} ' +
+  'and nothing else - no markdown fences, no prose. ' +
+  'Use failurePattern only as a coarse fallback when no evidence id is available.';
 
 export interface CreateAiSdkMetaAgentInput {
   connection: LlmConnection;
@@ -22,17 +26,22 @@ export interface CreateAiSdkMetaAgentInput {
 /** A real meta-agent completion backed by a single tool-less model call
  * (deepseek-v4-flash by default), with JSON extracted so the strict
  * parseMetaAgentResult succeeds even when the model adds fences or prose. */
-export function createAiSdkMetaAgentCompletion(input: CreateAiSdkMetaAgentInput): MetaAgentCompletion {
+export function createAiSdkMetaAgentCompletion(
+  input: CreateAiSdkMetaAgentInput,
+): MetaAgentCompletion {
   const system = input.system ?? META_AGENT_SYSTEM;
-  const generate = input.generate ?? ((args) => runOneShotCompletion({
-    connection: input.connection,
-    apiKey: input.apiKey,
-    modelId: input.modelId,
-    prompt: args.prompt,
-    ...(args.system !== undefined ? { system: args.system } : {}),
-    ...(input.maxOutputTokens !== undefined ? { maxOutputTokens: input.maxOutputTokens } : {}),
-    ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
-  }));
+  const generate =
+    input.generate ??
+    ((args) =>
+      runOneShotCompletion({
+        connection: input.connection,
+        apiKey: input.apiKey,
+        modelId: input.modelId,
+        prompt: args.prompt,
+        ...(args.system !== undefined ? { system: args.system } : {}),
+        ...(input.maxOutputTokens !== undefined ? { maxOutputTokens: input.maxOutputTokens } : {}),
+        ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
+      }));
   return async ({ prompt }) => extractJsonObject(await generate({ prompt, system }));
 }
 

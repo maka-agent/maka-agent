@@ -3,7 +3,7 @@ import { buildAbRunManifest, buildRunManifestFingerprint } from './ab-manifest.j
 import type { AbRunManifest } from './ab-types.js';
 import type { HarnessOracleAnnotation } from './harness-oracle-registry.js';
 
-export type HarnessAbArmId = 'maka' | 'opencode';
+export type HarnessAbArmId = 'maka' | 'opencode' | 'kimi-code';
 
 export const HARNESS_AB_PAIR_CONCURRENCY = 2;
 export const HARNESS_AB_MAX_CONCURRENT_ATTEMPTS = HARNESS_AB_PAIR_CONCURRENCY * 2;
@@ -25,7 +25,8 @@ export const HARNESS_MAKA_CONTEXT_BUDGET = {
 
 // Authoritative snapshot: https://github.com/harbor-framework/terminal-bench-2-1
 export const TERMINAL_BENCH_2_1_REVISION = 'd49e28f1e4ddd13d289e85a5f312a66750951932';
-export const TERMINAL_BENCH_2_1_TASK_TREE_FINGERPRINT = 'sha256:456826aa4c47ed309716c964c96d2a3acc998764ebc84f3e8449c807d74bd4e7';
+export const TERMINAL_BENCH_2_1_TASK_TREE_FINGERPRINT =
+  'sha256:456826aa4c47ed309716c964c96d2a3acc998764ebc84f3e8449c807d74bd4e7';
 export const TERMINAL_BENCH_2_1_TASK_IDS = [
   'adaptive-rejection-sampler',
   'bn-fit-modify',
@@ -123,7 +124,12 @@ export function assertTerminalBench21TaskSet(taskIds: readonly string[]): void {
   const expected = new Set<string>(TERMINAL_BENCH_2_1_TASK_IDS);
   const missing = TERMINAL_BENCH_2_1_TASK_IDS.filter((taskId) => !actual.has(taskId));
   const unexpected = [...actual].filter((taskId) => !expected.has(taskId)).sort();
-  if (taskIds.length === TERMINAL_BENCH_2_1_TASK_IDS.length && actual.size === expected.size && missing.length === 0 && unexpected.length === 0) {
+  if (
+    taskIds.length === TERMINAL_BENCH_2_1_TASK_IDS.length &&
+    actual.size === expected.size &&
+    missing.length === 0 &&
+    unexpected.length === 0
+  ) {
     return;
   }
   throw new Error(
@@ -176,6 +182,7 @@ export interface HarnessAbRunManifestInput {
   subjectFingerprint: string;
   taskSourceFingerprint: string;
   toolchainFingerprint: string;
+  pairConcurrency?: number;
   oracleEvidence?: {
     registryUrl?: string;
     expectedSnapshotFingerprint?: string;
@@ -223,10 +230,14 @@ export function deterministicHarnessTaskOrder(taskIds: readonly string[], seed: 
 
 export function buildHarnessAbRunManifest(input: HarnessAbRunManifestInput): HarnessAbRunManifest {
   const evaluationTaskIds = deterministicHarnessTaskOrder(input.taskIds, input.orderSeed);
+  const pairConcurrency = input.pairConcurrency ?? HARNESS_AB_PAIR_CONCURRENCY;
+  if (!Number.isSafeInteger(pairConcurrency) || pairConcurrency < 1) {
+    throw new Error('pairConcurrency must be a positive integer');
+  }
   if (
-    !Number.isSafeInteger(input.pilotTaskCount)
-    || input.pilotTaskCount < 1
-    || input.pilotTaskCount > evaluationTaskIds.length
+    !Number.isSafeInteger(input.pilotTaskCount) ||
+    input.pilotTaskCount < 1 ||
+    input.pilotTaskCount > evaluationTaskIds.length
   ) {
     throw new Error(`pilotTaskCount must be between 1 and ${evaluationTaskIds.length}`);
   }
@@ -240,13 +251,15 @@ export function buildHarnessAbRunManifest(input: HarnessAbRunManifestInput): Har
     },
     model: { ...input.model },
     pricing: { ...input.pricing },
-    ...(input.oracleEvidence ? {
-      oracleEvidence: {
-        ...input.oracleEvidence,
-        annotations: input.oracleEvidence.annotations.map((annotation) => ({ ...annotation })),
-        warnings: [...input.oracleEvidence.warnings],
-      },
-    } : {}),
+    ...(input.oracleEvidence
+      ? {
+          oracleEvidence: {
+            ...input.oracleEvidence,
+            annotations: input.oracleEvidence.annotations.map((annotation) => ({ ...annotation })),
+            warnings: [...input.oracleEvidence.warnings],
+          },
+        }
+      : {}),
   };
   const manifest = buildAbRunManifest({
     experimentKind: 'harness',
@@ -266,8 +279,8 @@ export function buildHarnessAbRunManifest(input: HarnessAbRunManifestInput): Har
     pilotTaskIds: evaluationTaskIds.slice(0, input.pilotTaskCount),
     reps: 1,
     candidateLimit: null,
-    maxConcurrency: HARNESS_AB_PAIR_CONCURRENCY,
-    maxConcurrentAttempts: HARNESS_AB_MAX_CONCURRENT_ATTEMPTS,
+    maxConcurrency: pairConcurrency,
+    maxConcurrentAttempts: pairConcurrency * 2,
     selectionMode: 'explicit',
   });
   return manifest as HarnessAbRunManifest;

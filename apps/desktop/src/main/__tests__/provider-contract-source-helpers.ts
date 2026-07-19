@@ -9,6 +9,7 @@ export interface ProviderSettingsSources {
   dialog: string;
   catalog: string;
   oauth: string;
+  claudeCard: string;
   display: string;
   displayCopy: string;
   addForm: string;
@@ -22,6 +23,10 @@ const sourcePaths = {
   dialog: resolve(SETTINGS_ROOT, 'provider-connection-dialog.tsx'),
   catalog: resolve(SETTINGS_ROOT, 'provider-catalog.tsx'),
   oauth: resolve(SETTINGS_ROOT, 'provider-oauth-section.tsx'),
+  // #1042: ClaudeSubscriptionCard moved out of provider-oauth-section.tsx
+  // into its own file; it stays part of the provider settings surface the
+  // contract tests pin, right after the OAuth section that renders it.
+  claudeCard: resolve(SETTINGS_ROOT, 'claude-subscription-card.tsx'),
   display: resolve(SETTINGS_ROOT, 'provider-display.tsx'),
   displayCopy: resolve(SETTINGS_ROOT, 'provider-display-copy.ts'),
   addForm: resolve(SETTINGS_ROOT, 'provider-add-form.tsx'),
@@ -30,11 +35,12 @@ const sourcePaths = {
 } as const;
 
 export async function readProviderSettingsSources(): Promise<ProviderSettingsSources> {
-  const [panel, dialog, catalog, oauth, display, displayCopy, addForm, detail, shared] = await Promise.all([
+  const [panel, dialog, catalog, oauth, claudeCard, display, displayCopy, addForm, detail, shared] = await Promise.all([
     readFile(sourcePaths.panel, 'utf8'),
     readFile(sourcePaths.dialog, 'utf8'),
     readFile(sourcePaths.catalog, 'utf8'),
     readFile(sourcePaths.oauth, 'utf8'),
+    readFile(sourcePaths.claudeCard, 'utf8'),
     readFile(sourcePaths.display, 'utf8'),
     readFile(sourcePaths.displayCopy, 'utf8'),
     readFile(sourcePaths.addForm, 'utf8'),
@@ -47,6 +53,7 @@ export async function readProviderSettingsSources(): Promise<ProviderSettingsSou
     dialog,
     catalog,
     oauth,
+    claudeCard,
     display,
     displayCopy,
     addForm,
@@ -57,6 +64,7 @@ export async function readProviderSettingsSources(): Promise<ProviderSettingsSou
       dialog,
       catalog,
       oauth,
+      claudeCard,
       display,
       displayCopy,
       addForm,

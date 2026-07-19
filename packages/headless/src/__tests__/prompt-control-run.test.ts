@@ -4,10 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
 import type { MetaAgent } from '../prompt-candidate-loop.js';
-import {
-  CONTROL_RULE_MARKER,
-  runPromptControlExperiment,
-} from '../prompt-control-run.js';
+import { CONTROL_RULE_MARKER, runPromptControlExperiment } from '../prompt-control-run.js';
 
 describe('runPromptControlExperiment', () => {
   test('keeps a prompt that learns the held-in control rule and passes held-out', async () => {

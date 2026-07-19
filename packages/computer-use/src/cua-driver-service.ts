@@ -104,9 +104,7 @@ export class CuaDriverService {
       state: this.state,
       generation: this.generation,
       restartAttempts: this.restartAttempts,
-      ...(this.nextRestartAt === undefined
-        ? {}
-        : { nextRestartAt: this.nextRestartAt }),
+      ...(this.nextRestartAt === undefined ? {} : { nextRestartAt: this.nextRestartAt }),
     };
   }
 
@@ -158,8 +156,7 @@ export class CuaDriverService {
   }
 
   private async startWithBudget(): Promise<void> {
-    const maxAttempts = this.opts.maxRestartAttempts
-      ?? DEFAULT_MAX_RESTART_ATTEMPTS;
+    const maxAttempts = this.opts.maxRestartAttempts ?? DEFAULT_MAX_RESTART_ATTEMPTS;
     let lastError: unknown;
     while (this.restartAttempts < maxAttempts) {
       this.assertActive();
@@ -180,15 +177,13 @@ export class CuaDriverService {
       } catch (error) {
         lastError = error;
         if (this.disposed) throw error;
-        if (
-          error instanceof CuaDriverLifecycleError
-          && error.code === 'service_mismatch'
-        ) {
+        if (error instanceof CuaDriverLifecycleError && error.code === 'service_mismatch') {
           this.state = 'unavailable';
           throw error;
         }
-        const backoff = (this.opts.restartBackoffMs
-          ?? DEFAULT_RESTART_BACKOFF_MS) * 2 ** (this.restartAttempts - 1);
+        const backoff =
+          (this.opts.restartBackoffMs ?? DEFAULT_RESTART_BACKOFF_MS) *
+          2 ** (this.restartAttempts - 1);
         this.nextRestartAt = Date.now() + backoff;
       }
     }
@@ -253,8 +248,7 @@ export class CuaDriverService {
     child.on('exit', () => this.onExit(child, 'child_exit'));
     child.on('error', () => this.onExit(child, 'child_exit'));
 
-    const timeoutMs = this.opts.handshakeTimeoutMs
-      ?? DEFAULT_HANDSHAKE_TIMEOUT_MS;
+    const timeoutMs = this.opts.handshakeTimeoutMs ?? DEFAULT_HANDSHAKE_TIMEOUT_MS;
     try {
       const initialized = await this.request(
         'initialize',
@@ -269,16 +263,13 @@ export class CuaDriverService {
       const serverName = initialized.result?.serverInfo?.name;
       const serverVersion = initialized.result?.serverInfo?.version;
       if (
-        protocolVersion !== (this.opts.expectedProtocolVersion ?? '2025-06-18')
-        || typeof serverName !== 'string'
-        || serverName.length === 0
-        || typeof serverVersion !== 'string'
-        || serverVersion.length === 0
-        || (this.opts.expectedServerName && serverName !== this.opts.expectedServerName)
-        || (
-          this.opts.expectedServerVersion
-          && serverVersion !== this.opts.expectedServerVersion
-        )
+        protocolVersion !== (this.opts.expectedProtocolVersion ?? '2025-06-18') ||
+        typeof serverName !== 'string' ||
+        serverName.length === 0 ||
+        typeof serverVersion !== 'string' ||
+        serverVersion.length === 0 ||
+        (this.opts.expectedServerName && serverName !== this.opts.expectedServerName) ||
+        (this.opts.expectedServerVersion && serverVersion !== this.opts.expectedServerVersion)
       ) {
         throw new CuaDriverLifecycleError(
           'service_mismatch',
@@ -338,10 +329,7 @@ export class CuaDriverService {
     }
   }
 
-  private onStdout(
-    child: ChildProcessWithoutNullStreams,
-    chunk: string,
-  ): void {
+  private onStdout(child: ChildProcessWithoutNullStreams, chunk: string): void {
     if (this.child !== child) return;
     this.buffer += chunk;
     if (this.buffer.length > MAX_STDOUT_BUFFER) {
@@ -364,10 +352,7 @@ export class CuaDriverService {
     }
   }
 
-  private onStderr(
-    child: ChildProcessWithoutNullStreams,
-    chunk: string,
-  ): void {
+  private onStderr(child: ChildProcessWithoutNullStreams, chunk: string): void {
     if (this.child !== child) return;
     this.stderrTail = (this.stderrTail + chunk).slice(-STDERR_TAIL_CAP);
   }
@@ -380,11 +365,11 @@ export class CuaDriverService {
     const requests = [...this.pending.values()];
     this.pending.clear();
     const potentiallyDelivered = requests.filter(
-      (request) =>
-        request.stage === 'writing' || request.stage === 'delivered',
+      (request) => request.stage === 'writing' || request.stage === 'delivered',
     );
     const sessionIds = potentiallyDelivered.flatMap((request) =>
-      request.sessionId ? [request.sessionId] : []);
+      request.sessionId ? [request.sessionId] : [],
+    );
     for (const request of requests) {
       request.reject(
         request.stage === 'writing' || request.stage === 'delivered'
@@ -408,23 +393,15 @@ export class CuaDriverService {
     this.buffer = '';
     if (!this.disposed) {
       this.state = 'idle';
-      const backoff = this.opts.restartBackoffMs
-        ?? DEFAULT_RESTART_BACKOFF_MS;
+      const backoff = this.opts.restartBackoffMs ?? DEFAULT_RESTART_BACKOFF_MS;
       this.nextRestartAt = Date.now() + backoff;
     }
-    this.emitRelease(
-      reason,
-      sessionIds,
-      potentiallyDelivered.length > 0,
-      true,
-    );
+    this.emitRelease(reason, sessionIds, potentiallyDelivered.length > 0, true);
   }
 
   private notify(method: string, params?: unknown): void {
     try {
-      this.child?.stdin.write(
-        `${JSON.stringify({ jsonrpc: '2.0', method, params })}\n`,
-      );
+      this.child?.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', method, params })}\n`);
     } catch {
       // The child event handlers own teardown.
     }
@@ -509,10 +486,7 @@ export class CuaDriverService {
       }
       if (opts.timeoutMs) {
         timer = setTimeout(() => {
-          if (
-            (entry.stage === 'writing' || entry.stage === 'delivered')
-            && !opts.retrySafe
-          ) {
+          if ((entry.stage === 'writing' || entry.stage === 'delivered') && !opts.retrySafe) {
             this.kill('request_timeout');
             return;
           }
@@ -563,8 +537,8 @@ export class CuaDriverService {
   clearSession(sessionId: string): void {
     const ownsPending = [...this.pending.values()].some(
       (request) =>
-        request.sessionId === sessionId
-        && (request.stage === 'writing' || request.stage === 'delivered'),
+        request.sessionId === sessionId &&
+        (request.stage === 'writing' || request.stage === 'delivered'),
     );
     if (ownsPending) {
       this.kill('session_cleared');

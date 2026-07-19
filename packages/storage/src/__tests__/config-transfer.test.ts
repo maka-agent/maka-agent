@@ -84,13 +84,17 @@ describe('config-transfer', () => {
   it('rejects non-JSON and malformed payloads', () => {
     assert.equal((parseConfigBundle('not json') as { reason: string }).reason, 'not_json');
     assert.equal(
-      (parseConfigBundle(JSON.stringify({ schemaVersion: 1, data: {} })) as { reason: string }).reason,
+      (parseConfigBundle(JSON.stringify({ schemaVersion: 1, data: {} })) as { reason: string })
+        .reason,
       'malformed',
       'missing includedData is malformed',
     );
     assert.equal(
-      (parseConfigBundle(JSON.stringify({ schemaVersion: 1, includedData: ['bogus'], data: {} })) as { reason: string })
-        .reason,
+      (
+        parseConfigBundle(
+          JSON.stringify({ schemaVersion: 1, includedData: ['bogus'], data: {} }),
+        ) as { reason: string }
+      ).reason,
       'malformed',
       'unknown category in includedData is malformed',
     );
@@ -102,17 +106,29 @@ describe('config-transfer', () => {
 
     const skip = planConnectionMerge(existing, incoming, 'skip');
     assert.deepEqual(skip.skipped, [{ slug: 'a', reason: 'exists' }]);
-    assert.deepEqual(skip.create.map((c) => c.slug), ['c']);
+    assert.deepEqual(
+      skip.create.map((c) => c.slug),
+      ['c'],
+    );
     assert.equal(skip.overwrite.length, 0);
 
     const overwrite = planConnectionMerge(existing, incoming, 'overwrite');
-    assert.deepEqual(overwrite.overwrite.map((c) => c.slug), ['a']);
-    assert.deepEqual(overwrite.create.map((c) => c.slug), ['c']);
+    assert.deepEqual(
+      overwrite.overwrite.map((c) => c.slug),
+      ['a'],
+    );
+    assert.deepEqual(
+      overwrite.create.map((c) => c.slug),
+      ['c'],
+    );
     assert.equal(overwrite.skipped.length, 0);
   });
 
   it('de-dupes repeated slugs within the imported set', () => {
     const plan = planConnectionMerge([], [conn('x'), conn('x'), conn('y')], 'skip');
-    assert.deepEqual(plan.create.map((c) => c.slug), ['x', 'y']);
+    assert.deepEqual(
+      plan.create.map((c) => c.slug),
+      ['x', 'y'],
+    );
   });
 });

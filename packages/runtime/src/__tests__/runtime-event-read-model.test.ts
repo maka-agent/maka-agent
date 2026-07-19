@@ -17,11 +17,7 @@ import {
   projectRuntimeEventsToStoredMessagesWithArchiveStatuses,
 } from '../runtime-event-read-model.js';
 import { materializeSession } from '../materializer.js';
-import {
-  BackendRegistry,
-  SessionManager,
-  type SessionStore,
-} from '../session-manager.js';
+import { BackendRegistry, SessionManager, type SessionStore } from '../session-manager.js';
 
 const ts = 1_800_000_000_000;
 const sessionId = 'sess-1';
@@ -241,6 +237,45 @@ function equivalentLegacyMessages(): StoredMessage[] {
 }
 
 describe('projectRuntimeEventsToStoredMessages', () => {
+  test('projects user displayText from RuntimeEvent text content', () => {
+    const typed = '/skill:alpha 帮我整理';
+    const envelope = 'The user explicitly invoked…\n\n<user-message>\n帮我整理\n</user-message>';
+    const out = projectRuntimeEventsToStoredMessages(
+      [
+        ev({
+          id: 'evt-user-skill',
+          ts: ts + 1,
+          role: 'user',
+          author: 'user',
+          content: { kind: 'text', text: envelope, displayText: typed },
+          refs: { storedMessageId: 'user-skill' },
+        }),
+      ],
+      { runHeaders: [header] },
+    );
+    expect(out.messages).toEqual([
+      {
+        type: 'user',
+        id: 'user-skill',
+        turnId,
+        ts: ts + 1,
+        text: envelope,
+        displayText: typed,
+      },
+    ]);
+    const compare = compareRuntimeReadModelMessages(out.messages, [
+      {
+        type: 'user',
+        id: 'user-skill',
+        turnId,
+        ts: ts + 1,
+        text: envelope,
+        displayText: typed,
+      },
+    ]);
+    expect(compare.diagnostics).toEqual([]);
+  });
+
   test('full RuntimeEvent turn projects legacy-compatible rows', () => {
     const out = projectRuntimeEventsToStoredMessages(baseEvents(), { runHeaders: [header] });
 
@@ -289,52 +324,55 @@ describe('projectRuntimeEventsToStoredMessages', () => {
   });
 
   test('projects an AskUserQuestion round trip without a legacy row for the live request', () => {
-    const out = projectRuntimeEventsToStoredMessages([
-      ev({
-        id: 'evt-question-call',
-        ts: ts + 1,
-        role: 'model',
-        author: 'agent',
-        content: {
-          kind: 'function_call',
-          id: 'question-tool-1',
-          name: 'AskUserQuestion',
-          args: { questions: [{ question: 'Choose', options: [{ label: 'Extend' }] }] },
-        },
-        refs: { toolCallId: 'question-tool-1' },
-      }),
-      ev({
-        id: 'evt-question-request',
-        ts: ts + 2,
-        actions: {
-          userQuestionRequest: {
-            requestId: 'question-1',
-            toolUseId: 'question-tool-1',
-            questions: [{ question: 'Choose', options: [{ label: 'Extend' }] }],
+    const out = projectRuntimeEventsToStoredMessages(
+      [
+        ev({
+          id: 'evt-question-call',
+          ts: ts + 1,
+          role: 'model',
+          author: 'agent',
+          content: {
+            kind: 'function_call',
+            id: 'question-tool-1',
+            name: 'AskUserQuestion',
+            args: { questions: [{ question: 'Choose', options: [{ label: 'Extend' }] }] },
           },
-        },
-        refs: { toolCallId: 'question-tool-1' },
-      }),
-      ev({
-        id: 'evt-question-result',
-        ts: ts + 3,
-        role: 'tool',
-        author: 'tool',
-        content: {
-          kind: 'function_response',
-          id: 'question-tool-1',
-          name: 'AskUserQuestion',
-          result: { kind: 'json', value: { answers: ['Extend'] } },
-        },
-        refs: { toolCallId: 'question-tool-1' },
-      }),
-      ev({
-        id: 'evt-question-complete',
-        ts: ts + 4,
-        status: 'completed',
-        actions: { endInvocation: true },
-      }),
-    ], { runHeaders: [header] });
+          refs: { toolCallId: 'question-tool-1' },
+        }),
+        ev({
+          id: 'evt-question-request',
+          ts: ts + 2,
+          actions: {
+            userQuestionRequest: {
+              requestId: 'question-1',
+              toolUseId: 'question-tool-1',
+              questions: [{ question: 'Choose', options: [{ label: 'Extend' }] }],
+            },
+          },
+          refs: { toolCallId: 'question-tool-1' },
+        }),
+        ev({
+          id: 'evt-question-result',
+          ts: ts + 3,
+          role: 'tool',
+          author: 'tool',
+          content: {
+            kind: 'function_response',
+            id: 'question-tool-1',
+            name: 'AskUserQuestion',
+            result: { kind: 'json', value: { answers: ['Extend'] } },
+          },
+          refs: { toolCallId: 'question-tool-1' },
+        }),
+        ev({
+          id: 'evt-question-complete',
+          ts: ts + 4,
+          status: 'completed',
+          actions: { endInvocation: true },
+        }),
+      ],
+      { runHeaders: [header] },
+    );
 
     expect(out.messages.map((message) => message.type)).toEqual([
       'tool_call',
@@ -345,30 +383,33 @@ describe('projectRuntimeEventsToStoredMessages', () => {
   });
 
   test('normalizes an exact legacy terminal result at RuntimeEvent restore', () => {
-    const out = projectRuntimeEventsToStoredMessages([
-      ev({
-        id: 'evt-legacy-terminal',
-        role: 'tool',
-        author: 'tool',
-        content: {
-          kind: 'function_response',
-          id: 'tool-legacy-terminal',
-          name: 'Bash',
-          result: {
-            kind: 'terminal',
-            cwd: '/tmp/work',
-            cmd: 'printf ok',
-            status: 'completed',
-            exitCode: 0,
-            stdout: 'ok',
-            stderr: '',
-            stdoutTruncated: false,
-            stderrTruncated: false,
+    const out = projectRuntimeEventsToStoredMessages(
+      [
+        ev({
+          id: 'evt-legacy-terminal',
+          role: 'tool',
+          author: 'tool',
+          content: {
+            kind: 'function_response',
+            id: 'tool-legacy-terminal',
+            name: 'Bash',
+            result: {
+              kind: 'terminal',
+              cwd: '/tmp/work',
+              cmd: 'printf ok',
+              status: 'completed',
+              exitCode: 0,
+              stdout: 'ok',
+              stderr: '',
+              stdoutTruncated: false,
+              stderrTruncated: false,
+            },
           },
-        },
-        refs: { toolCallId: 'tool-legacy-terminal' },
-      }),
-    ], { runHeaders: [header] });
+          refs: { toolCallId: 'tool-legacy-terminal' },
+        }),
+      ],
+      { runHeaders: [header] },
+    );
 
     const result = out.messages.find((message) => message.type === 'tool_result');
     expect(result?.type === 'tool_result' ? result.content : undefined).toEqual({
@@ -378,83 +419,145 @@ describe('projectRuntimeEventsToStoredMessages', () => {
       status: 'completed',
       exitCode: 0,
       output: {
-        mode: 'pipes', stdout: 'ok', stderr: '',
-        stdoutTruncated: false, stderrTruncated: false, redacted: false,
+        mode: 'pipes',
+        stdout: 'ok',
+        stderr: '',
+        stdoutTruncated: false,
+        stderrTruncated: false,
+        redacted: false,
       },
     });
   });
 
+  test('restores a settled Agent Swarm function response', () => {
+    const result = {
+      kind: 'agent_swarm' as const,
+      status: 'completed' as const,
+      items: [
+        {
+          itemId: 'contract',
+          index: 0,
+          profile: 'local_read',
+          started: true,
+          agentId: 'local-read',
+          agentName: 'Local Read',
+          turnId: 'child-turn',
+          runId: 'child-run',
+          status: 'completed' as const,
+          summary: 'Verified the contract.',
+          artifactIds: [],
+          startedAt: ts + 1,
+          completedAt: ts + 2,
+          durationMs: 1,
+        },
+      ],
+      startedAt: ts,
+      completedAt: ts + 2,
+      durationMs: 2,
+    };
+    const out = projectRuntimeEventsToStoredMessages(
+      [
+        ev({
+          id: 'evt-agent-swarm-result',
+          role: 'tool',
+          author: 'tool',
+          content: {
+            kind: 'function_response',
+            id: 'tool-agent-swarm',
+            name: 'agent_swarm',
+            result,
+          },
+          refs: { toolCallId: 'tool-agent-swarm' },
+        }),
+      ],
+      { runHeaders: [header] },
+    );
+
+    const projected = out.messages.find((message) => message.type === 'tool_result');
+    expect(projected?.type === 'tool_result' ? projected.content : undefined).toEqual(result);
+    expect(out.diagnostics).toEqual([]);
+  });
+
   test('diagnoses a mixed legacy/current shell result instead of restoring it', () => {
-    const out = projectRuntimeEventsToStoredMessages([
-      ev({
-        id: 'evt-mixed-terminal',
-        role: 'tool',
-        author: 'tool',
-        content: {
-          kind: 'function_response',
-          id: 'tool-mixed-terminal',
-          name: 'Bash',
-          result: {
-            kind: 'terminal',
-            cwd: '/tmp/work',
-            cmd: 'printf bad',
-            status: 'completed',
-            exitCode: 0,
-            stdout: 'bad',
-            stderr: '',
-            stdoutTruncated: false,
-            stderrTruncated: false,
-            output: {
-              mode: 'pipes', stdout: 'bad', stderr: '',
-              stdoutTruncated: false, stderrTruncated: false, redacted: false,
+    const out = projectRuntimeEventsToStoredMessages(
+      [
+        ev({
+          id: 'evt-mixed-terminal',
+          role: 'tool',
+          author: 'tool',
+          content: {
+            kind: 'function_response',
+            id: 'tool-mixed-terminal',
+            name: 'Bash',
+            result: {
+              kind: 'terminal',
+              cwd: '/tmp/work',
+              cmd: 'printf bad',
+              status: 'completed',
+              exitCode: 0,
+              stdout: 'bad',
+              stderr: '',
+              stdoutTruncated: false,
+              stderrTruncated: false,
+              output: {
+                mode: 'pipes',
+                stdout: 'bad',
+                stderr: '',
+                stdoutTruncated: false,
+                stderrTruncated: false,
+                redacted: false,
+              },
             },
           },
-        },
-        refs: { toolCallId: 'tool-mixed-terminal' },
-      }),
-    ], { runHeaders: [header] });
+          refs: { toolCallId: 'tool-mixed-terminal' },
+        }),
+      ],
+      { runHeaders: [header] },
+    );
 
     expect(out.messages.some((message) => message.type === 'tool_result')).toBe(false);
     expect(out.diagnostics.map((diagnostic) => diagnostic.code)).toContain('incomplete_event');
   });
 
   test('projects first-observed step content order for stable live handoff', () => {
-    const out = projectRuntimeEventsToStoredMessages([
-      ev({
-        ts: ts + 1,
-        role: 'model',
-        author: 'agent',
-        content: { kind: 'function_call', id: 'tool-1', name: 'Read', args: {} },
-        refs: { toolCallId: 'tool-1', stepId: 'message-1' },
-      }),
-      ev({
-        ts: ts + 2,
-        role: 'model',
-        author: 'agent',
-        content: { kind: 'thinking', text: 'late reasoning' },
-        refs: { providerEventId: 'message-1' },
-      }),
-      ev({
-        ts: ts + 3,
-        role: 'model',
-        author: 'agent',
-        content: { kind: 'text', text: 'answer' },
-        refs: { providerEventId: 'message-1' },
-      }),
-    ], { runHeaders: [header] });
+    const out = projectRuntimeEventsToStoredMessages(
+      [
+        ev({
+          ts: ts + 1,
+          role: 'model',
+          author: 'agent',
+          content: { kind: 'function_call', id: 'tool-1', name: 'Read', args: {} },
+          refs: { toolCallId: 'tool-1', stepId: 'message-1' },
+        }),
+        ev({
+          ts: ts + 2,
+          role: 'model',
+          author: 'agent',
+          content: { kind: 'thinking', text: 'late reasoning' },
+          refs: { providerEventId: 'message-1' },
+        }),
+        ev({
+          ts: ts + 3,
+          role: 'model',
+          author: 'agent',
+          content: { kind: 'text', text: 'answer' },
+          refs: { providerEventId: 'message-1' },
+        }),
+      ],
+      { runHeaders: [header] },
+    );
 
     const assistant = out.messages.find((message) => message.type === 'assistant');
-    expect((assistant as unknown as { contentOrder?: string[] } | undefined)?.contentOrder).toEqual([
-      'tools',
-      'thinking',
-      'text',
-    ]);
+    expect((assistant as unknown as { contentOrder?: string[] } | undefined)?.contentOrder).toEqual(
+      ['tools', 'thinking', 'text'],
+    );
   });
 
   test('archived tool-result placeholders project to diagnostic tool-result rows', () => {
     const events = baseEvents();
     const toolResult = events.find((event) => event.id === 'evt-tool-result');
-    if (toolResult?.content?.kind !== 'function_response') throw new Error('fixture missing tool result');
+    if (toolResult?.content?.kind !== 'function_response')
+      throw new Error('fixture missing tool result');
     toolResult.content.result = {
       kind: 'maka.archived_tool_result',
       rewriteVersion: 1,
@@ -497,7 +600,8 @@ describe('projectRuntimeEventsToStoredMessages', () => {
   test('archive status wrapper can project missing and corrupt rows without changing sync defaults', () => {
     const events = baseEvents();
     const toolResult = events.find((event) => event.id === 'evt-tool-result');
-    if (toolResult?.content?.kind !== 'function_response') throw new Error('fixture missing tool result');
+    if (toolResult?.content?.kind !== 'function_response')
+      throw new Error('fixture missing tool result');
     toolResult.content.result = {
       kind: 'maka.archived_tool_result',
       rewriteVersion: 1,
@@ -542,21 +646,24 @@ describe('projectRuntimeEventsToStoredMessages', () => {
   });
 
   test('partial RuntimeEvents are excluded', () => {
-    const out = projectRuntimeEventsToStoredMessages([
-      ev({
-        id: 'evt-partial',
-        partial: true,
-        role: 'model',
-        author: 'agent',
-        content: { kind: 'text', text: 'streaming' },
-      }),
-      ev({
-        id: 'evt-final',
-        role: 'model',
-        author: 'agent',
-        content: { kind: 'text', text: 'final' },
-      }),
-    ], { runHeaders: [header] });
+    const out = projectRuntimeEventsToStoredMessages(
+      [
+        ev({
+          id: 'evt-partial',
+          partial: true,
+          role: 'model',
+          author: 'agent',
+          content: { kind: 'text', text: 'streaming' },
+        }),
+        ev({
+          id: 'evt-final',
+          role: 'model',
+          author: 'agent',
+          content: { kind: 'text', text: 'final' },
+        }),
+      ],
+      { runHeaders: [header] },
+    );
 
     expect(out.messages).toHaveLength(1);
     expect(out.messages[0]).toMatchObject({ type: 'assistant', text: 'final' });
@@ -566,33 +673,38 @@ describe('projectRuntimeEventsToStoredMessages', () => {
   test('model thinking attaches to the assistant text row that shares its step message id', () => {
     // Real emission and backfill give a step's thinking and text the same message
     // id (providerEventId / storedMessageId), so the projection pairs by id.
-    const out = projectRuntimeEventsToStoredMessages([
-      ev({
-        id: 'evt-thinking',
-        ts: ts + 5,
-        role: 'model',
-        author: 'agent',
-        content: { kind: 'thinking', text: 'private reasoning', signature: 'sig-1' },
-        refs: { storedMessageId: 'legacy-assistant' },
-      }),
-      ev({
-        id: 'evt-assistant',
+    const out = projectRuntimeEventsToStoredMessages(
+      [
+        ev({
+          id: 'evt-thinking',
+          ts: ts + 5,
+          role: 'model',
+          author: 'agent',
+          content: { kind: 'thinking', text: 'private reasoning', signature: 'sig-1' },
+          refs: { storedMessageId: 'legacy-assistant' },
+        }),
+        ev({
+          id: 'evt-assistant',
+          ts: ts + 6,
+          role: 'model',
+          author: 'agent',
+          content: { kind: 'text', text: 'visible answer' },
+          refs: { storedMessageId: 'legacy-assistant' },
+        }),
+      ],
+      { runHeaders: [header] },
+    );
+    const legacy: StoredMessage[] = [
+      {
+        type: 'assistant',
+        id: 'legacy-assistant',
+        turnId,
         ts: ts + 6,
-        role: 'model',
-        author: 'agent',
-        content: { kind: 'text', text: 'visible answer' },
-        refs: { storedMessageId: 'legacy-assistant' },
-      }),
-    ], { runHeaders: [header] });
-    const legacy: StoredMessage[] = [{
-      type: 'assistant',
-      id: 'legacy-assistant',
-      turnId,
-      ts: ts + 6,
-      text: 'visible answer',
-      modelId: 'claude-sonnet-4-5',
-      thinking: { text: 'private reasoning', signature: 'sig-1' },
-    }];
+        text: 'visible answer',
+        modelId: 'claude-sonnet-4-5',
+        thinking: { text: 'private reasoning', signature: 'sig-1' },
+      },
+    ];
 
     expect(out.messages).toEqual(legacy);
     expect(out.diagnostics).toEqual([]);
@@ -604,40 +716,43 @@ describe('projectRuntimeEventsToStoredMessages', () => {
     // per step is thinking → text (finish-step flush), and each step's thinking
     // carries its step message id, so it must attach to its own assistant row —
     // not the last row of the turn.
-    const out = projectRuntimeEventsToStoredMessages([
-      ev({
-        id: 'evt-think-1',
-        ts: ts + 1,
-        role: 'model',
-        author: 'agent',
-        content: { kind: 'thinking', text: 'reasoning one', signature: 'sig-1' },
-        refs: { providerEventId: 'step-1' },
-      }),
-      ev({
-        id: 'evt-text-1',
-        ts: ts + 2,
-        role: 'model',
-        author: 'agent',
-        content: { kind: 'text', text: 'answer one' },
-        refs: { providerEventId: 'step-1' },
-      }),
-      ev({
-        id: 'evt-think-2',
-        ts: ts + 3,
-        role: 'model',
-        author: 'agent',
-        content: { kind: 'thinking', text: 'reasoning two', signature: 'sig-2' },
-        refs: { providerEventId: 'step-2' },
-      }),
-      ev({
-        id: 'evt-text-2',
-        ts: ts + 4,
-        role: 'model',
-        author: 'agent',
-        content: { kind: 'text', text: 'answer two' },
-        refs: { providerEventId: 'step-2' },
-      }),
-    ], { runHeaders: [header] });
+    const out = projectRuntimeEventsToStoredMessages(
+      [
+        ev({
+          id: 'evt-think-1',
+          ts: ts + 1,
+          role: 'model',
+          author: 'agent',
+          content: { kind: 'thinking', text: 'reasoning one', signature: 'sig-1' },
+          refs: { providerEventId: 'step-1' },
+        }),
+        ev({
+          id: 'evt-text-1',
+          ts: ts + 2,
+          role: 'model',
+          author: 'agent',
+          content: { kind: 'text', text: 'answer one' },
+          refs: { providerEventId: 'step-1' },
+        }),
+        ev({
+          id: 'evt-think-2',
+          ts: ts + 3,
+          role: 'model',
+          author: 'agent',
+          content: { kind: 'thinking', text: 'reasoning two', signature: 'sig-2' },
+          refs: { providerEventId: 'step-2' },
+        }),
+        ev({
+          id: 'evt-text-2',
+          ts: ts + 4,
+          role: 'model',
+          author: 'agent',
+          content: { kind: 'text', text: 'answer two' },
+          refs: { providerEventId: 'step-2' },
+        }),
+      ],
+      { runHeaders: [header] },
+    );
 
     const assistants = out.messages.filter((message) => message.type === 'assistant');
     expect(assistants).toEqual([
@@ -664,34 +779,37 @@ describe('projectRuntimeEventsToStoredMessages', () => {
   });
 
   test('unsupported and incomplete events are diagnostic-only', () => {
-    const out = projectRuntimeEventsToStoredMessages([
-      ev({
-        id: 'evt-thinking',
-        role: 'model',
-        author: 'agent',
-        content: { kind: 'thinking', text: 'private reasoning' },
-      }),
-      ev({
-        id: 'evt-permission-orphan',
-        actions: {
-          permissionDecision: {
-            requestId: 'missing-request',
-            decision: 'deny',
+    const out = projectRuntimeEventsToStoredMessages(
+      [
+        ev({
+          id: 'evt-thinking',
+          role: 'model',
+          author: 'agent',
+          content: { kind: 'thinking', text: 'private reasoning' },
+        }),
+        ev({
+          id: 'evt-permission-orphan',
+          actions: {
+            permissionDecision: {
+              requestId: 'missing-request',
+              decision: 'deny',
+            },
           },
-        },
-      }),
-      ev({
-        id: 'evt-invalid-result',
-        role: 'tool',
-        author: 'tool',
-        content: {
-          kind: 'function_response',
-          id: 'tool-x',
-          name: 'Read',
-          result: 'plain string is not ToolResultContent',
-        },
-      }),
-    ], { runHeaders: [header] });
+        }),
+        ev({
+          id: 'evt-invalid-result',
+          role: 'tool',
+          author: 'tool',
+          content: {
+            kind: 'function_response',
+            id: 'tool-x',
+            name: 'Read',
+            result: 'plain string is not ToolResultContent',
+          },
+        }),
+      ],
+      { runHeaders: [header] },
+    );
 
     expect(out.messages).toEqual([]);
     expect(out.diagnostics.map((diag) => diag.code)).toEqual([
@@ -704,44 +822,52 @@ describe('projectRuntimeEventsToStoredMessages', () => {
   });
 
   test('failed terminal RuntimeEvent maps to failed turn state when run header carries failure class', () => {
-    const out = projectRuntimeEventsToStoredMessages([
-      ev({
+    const out = projectRuntimeEventsToStoredMessages(
+      [
+        ev({
+          id: 'evt-failed',
+          ts: ts + 9,
+          status: 'failed',
+          actions: { endInvocation: true },
+        }),
+      ],
+      {
+        runHeaders: [{ ...header, status: 'failed', failureClass: 'tool_failed' }],
+      },
+    );
+
+    expect(out.messages).toEqual([
+      {
+        type: 'turn_state',
         id: 'evt-failed',
+        turnId,
         ts: ts + 9,
         status: 'failed',
-        actions: { endInvocation: true },
-      }),
-    ], {
-      runHeaders: [{ ...header, status: 'failed', failureClass: 'tool_failed' }],
-    });
-
-    expect(out.messages).toEqual([{
-      type: 'turn_state',
-      id: 'evt-failed',
-      turnId,
-      ts: ts + 9,
-      status: 'failed',
-      parentTurnId: 'parent-turn',
-      errorClass: 'tool_failed',
-      partialOutputRetained: false,
-    }]);
+        parentTurnId: 'parent-turn',
+        errorClass: 'tool_failed',
+        partialOutputRetained: false,
+      },
+    ]);
     expect(out.diagnostics).toEqual([]);
   });
 
   test('tool step cap terminal fact projects a persistent system notice', () => {
-    const out = projectRuntimeEventsToStoredMessages([
-      ev({
-        id: 'evt-step-limit',
-        ts: ts + 9,
-        status: 'failed',
-        actions: {
-          endInvocation: true,
-          stateDelta: { stopReason: 'step_limit', failureClass: 'tool_step_cap_reached' },
-        },
-      }),
-    ], {
-      runHeaders: [{ ...header, status: 'failed', failureClass: 'tool_step_cap_reached' }],
-    });
+    const out = projectRuntimeEventsToStoredMessages(
+      [
+        ev({
+          id: 'evt-step-limit',
+          ts: ts + 9,
+          status: 'failed',
+          actions: {
+            endInvocation: true,
+            stateDelta: { stopReason: 'step_limit', failureClass: 'tool_step_cap_reached' },
+          },
+        }),
+      ],
+      {
+        runHeaders: [{ ...header, status: 'failed', failureClass: 'tool_step_cap_reached' }],
+      },
+    );
 
     expect(out.messages.find((message) => message.type === 'system_note')).toEqual({
       type: 'system_note',
@@ -753,42 +879,50 @@ describe('projectRuntimeEventsToStoredMessages', () => {
   });
 
   test('aborted terminal RuntimeEvent preserves abort source from runtime state', () => {
-    const out = projectRuntimeEventsToStoredMessages([
-      ev({
+    const out = projectRuntimeEventsToStoredMessages(
+      [
+        ev({
+          id: 'evt-aborted',
+          ts: ts + 9,
+          status: 'aborted',
+          actions: { endInvocation: true, stateDelta: { abortSource: 'renderer.stop_button' } },
+        }),
+      ],
+      {
+        runHeaders: [{ ...header, status: 'cancelled' }],
+      },
+    );
+
+    expect(out.messages).toEqual([
+      {
+        type: 'turn_state',
         id: 'evt-aborted',
+        turnId,
         ts: ts + 9,
         status: 'aborted',
-        actions: { endInvocation: true, stateDelta: { abortSource: 'renderer.stop_button' } },
-      }),
-    ], {
-      runHeaders: [{ ...header, status: 'cancelled' }],
-    });
-
-    expect(out.messages).toEqual([{
-      type: 'turn_state',
-      id: 'evt-aborted',
-      turnId,
-      ts: ts + 9,
-      status: 'aborted',
-      parentTurnId: 'parent-turn',
-      abortedAt: ts + 9,
-      abortSource: 'renderer.stop_button',
-      partialOutputRetained: false,
-    }]);
+        parentTurnId: 'parent-turn',
+        abortedAt: ts + 9,
+        abortSource: 'renderer.stop_button',
+        partialOutputRetained: false,
+      },
+    ]);
     expect(out.diagnostics).toEqual([]);
   });
 
   test('aborted terminal RuntimeEvent keeps an explicit diagnostic when abort source is unavailable', () => {
-    const out = projectRuntimeEventsToStoredMessages([
-      ev({
-        id: 'evt-aborted',
-        ts: ts + 9,
-        status: 'aborted',
-        actions: { endInvocation: true },
-      }),
-    ], {
-      runHeaders: [{ ...header, status: 'cancelled' }],
-    });
+    const out = projectRuntimeEventsToStoredMessages(
+      [
+        ev({
+          id: 'evt-aborted',
+          ts: ts + 9,
+          status: 'aborted',
+          actions: { endInvocation: true },
+        }),
+      ],
+      {
+        runHeaders: [{ ...header, status: 'cancelled' }],
+      },
+    );
 
     expect(out.messages[0]).toMatchObject({
       type: 'turn_state',
@@ -799,44 +933,58 @@ describe('projectRuntimeEventsToStoredMessages', () => {
   });
 
   test('projects tool_call stepId from refs so the UI timeline keeps step pairing', () => {
-    const stepCall = (id: string, stepId?: string) => ev({
-      id: `evt-${id}`,
-      role: 'model' as const,
-      author: 'agent' as const,
-      content: {
-        kind: 'function_call' as const,
-        id,
-        name: 'Read',
-        args: { path: '/tmp/a.txt' },
-      },
-      refs: { toolCallId: id, ...(stepId ? { stepId } : {}) },
-    });
+    const stepCall = (id: string, stepId?: string) =>
+      ev({
+        id: `evt-${id}`,
+        role: 'model' as const,
+        author: 'agent' as const,
+        content: {
+          kind: 'function_call' as const,
+          id,
+          name: 'Read',
+          args: { path: '/tmp/a.txt' },
+        },
+        refs: { toolCallId: id, ...(stepId ? { stepId } : {}) },
+      });
 
-    const withStep = projectRuntimeEventsToStoredMessages([stepCall('tool-step', 'step-1')], { runHeaders: [header] });
-    expect(withStep.messages[0]).toMatchObject({ type: 'tool_call', id: 'tool-step', stepId: 'step-1' });
+    const withStep = projectRuntimeEventsToStoredMessages([stepCall('tool-step', 'step-1')], {
+      runHeaders: [header],
+    });
+    expect(withStep.messages[0]).toMatchObject({
+      type: 'tool_call',
+      id: 'tool-step',
+      stepId: 'step-1',
+    });
 
     // Legacy events without refs.stepId must not grow a stepId key: the UI
     // uses its absence to pick the backward-compatible tools-first ordering.
-    const withoutStep = projectRuntimeEventsToStoredMessages([stepCall('tool-legacy')], { runHeaders: [header] });
+    const withoutStep = projectRuntimeEventsToStoredMessages([stepCall('tool-legacy')], {
+      runHeaders: [header],
+    });
     const legacyCall = withoutStep.messages[0];
     expect(legacyCall).toMatchObject({ type: 'tool_call', id: 'tool-legacy' });
     expect(legacyCall && 'stepId' in legacyCall).toBe(false);
   });
 
   test('projects tool_call activityKind from runtime state for replay', () => {
-    const out = projectRuntimeEventsToStoredMessages([ev({
-      id: 'evt-tool-kind',
-      role: 'model',
-      author: 'agent',
-      content: {
-        kind: 'function_call',
-        id: 'tool-kind',
-        name: 'CustomCommand',
-        args: {},
-      },
-      actions: { stateDelta: { activityKind: 'command' } },
-      refs: { toolCallId: 'tool-kind' },
-    })], { runHeaders: [header] });
+    const out = projectRuntimeEventsToStoredMessages(
+      [
+        ev({
+          id: 'evt-tool-kind',
+          role: 'model',
+          author: 'agent',
+          content: {
+            kind: 'function_call',
+            id: 'tool-kind',
+            name: 'CustomCommand',
+            args: {},
+          },
+          actions: { stateDelta: { activityKind: 'command' } },
+          refs: { toolCallId: 'tool-kind' },
+        }),
+      ],
+      { runHeaders: [header] },
+    );
 
     expect(out.messages[0]).toMatchObject({
       type: 'tool_call',
@@ -860,30 +1008,33 @@ describe('compareRuntimeReadModelMessages', () => {
   });
 
   test('treats nested JSON with different property order as compatible', () => {
-    const projected = projectRuntimeEventsToStoredMessages([
-      ev({
-        id: 'evt-tool-call-json',
-        role: 'model',
-        author: 'agent',
-        content: {
-          kind: 'function_call',
-          id: 'tool-json',
-          name: 'JsonTool',
-          args: { beta: 2, alpha: { z: 3, a: 1 } },
-        },
-      }),
-      ev({
-        id: 'evt-tool-result-json',
-        role: 'tool',
-        author: 'tool',
-        content: {
-          kind: 'function_response',
-          id: 'tool-json',
-          name: 'JsonTool',
-          result: { kind: 'json', value: { outer: { y: 2, x: 1 }, list: [{ b: 2, a: 1 }] } },
-        },
-      }),
-    ], { runHeaders: [header] });
+    const projected = projectRuntimeEventsToStoredMessages(
+      [
+        ev({
+          id: 'evt-tool-call-json',
+          role: 'model',
+          author: 'agent',
+          content: {
+            kind: 'function_call',
+            id: 'tool-json',
+            name: 'JsonTool',
+            args: { beta: 2, alpha: { z: 3, a: 1 } },
+          },
+        }),
+        ev({
+          id: 'evt-tool-result-json',
+          role: 'tool',
+          author: 'tool',
+          content: {
+            kind: 'function_response',
+            id: 'tool-json',
+            name: 'JsonTool',
+            result: { kind: 'json', value: { outer: { y: 2, x: 1 }, list: [{ b: 2, a: 1 }] } },
+          },
+        }),
+      ],
+      { runHeaders: [header] },
+    );
     const legacy: StoredMessage[] = [
       {
         type: 'tool_call',
@@ -911,27 +1062,31 @@ describe('compareRuntimeReadModelMessages', () => {
   });
 
   test('rejects a mismatched tool activity kind', () => {
-    const projected: StoredMessage[] = [{
-      type: 'tool_call',
-      id: 'tool-kind',
-      turnId,
-      ts,
-      toolName: 'CustomTool',
-      activityKind: 'read',
-      args: {},
-    }];
-    const legacy: StoredMessage[] = [{
-      ...projected[0] as Extract<StoredMessage, { type: 'tool_call' }>,
-      activityKind: 'command',
-    }];
+    const projected: StoredMessage[] = [
+      {
+        type: 'tool_call',
+        id: 'tool-kind',
+        turnId,
+        ts,
+        toolName: 'CustomTool',
+        activityKind: 'read',
+        args: {},
+      },
+    ];
+    const legacy: StoredMessage[] = [
+      {
+        ...(projected[0] as Extract<StoredMessage, { type: 'tool_call' }>),
+        activityKind: 'command',
+      },
+    ];
 
     expect(compareRuntimeReadModelMessages(projected, legacy).compatible).toBe(false);
   });
 
   test('rejects missing tool result and assistant text cases', () => {
     const projected = projectRuntimeEventsToStoredMessages(baseEvents(), { runHeaders: [header] });
-    const missing = projected.messages.filter((message) =>
-      message.type !== 'tool_result' && message.type !== 'assistant'
+    const missing = projected.messages.filter(
+      (message) => message.type !== 'tool_result' && message.type !== 'assistant',
     );
     const result = compareRuntimeReadModelMessages(missing, equivalentLegacyMessages());
 
@@ -954,7 +1109,10 @@ describe('SessionManager read behavior', () => {
       now: () => ts,
     });
 
-    await expectRejects(manager.getMessages(sessionId), /RuntimeReadModel requires AgentRunStore and RuntimeEventStore/);
+    await expectRejects(
+      manager.getMessages(sessionId),
+      /RuntimeReadModel requires AgentRunStore and RuntimeEventStore/,
+    );
     expect(store.readMessagesCalls).toBe(0);
   });
 });
@@ -999,7 +1157,12 @@ class ReadOnlyStore implements SessionStore {
 
   async markSessionReadThrough(id: string, readThroughTs: number): Promise<SessionHeader> {
     const header = makeHeader(id);
-    if (!Number.isFinite(readThroughTs) || !header.hasUnread || (header.lastMessageAt !== undefined && header.lastMessageAt > readThroughTs)) return header;
+    if (
+      !Number.isFinite(readThroughTs) ||
+      !header.hasUnread ||
+      (header.lastMessageAt !== undefined && header.lastMessageAt > readThroughTs)
+    )
+      return header;
     return { ...header, hasUnread: false };
   }
 
@@ -1033,6 +1196,7 @@ function makeHeader(id: string): SessionHeader {
     createdAt: ts,
     lastUsedAt: ts,
     name: 'Session',
+    titleIsManual: true,
     isFlagged: false,
     labels: [],
     isArchived: false,

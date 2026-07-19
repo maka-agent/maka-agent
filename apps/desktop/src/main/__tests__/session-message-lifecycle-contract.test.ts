@@ -66,12 +66,12 @@ describe('active session message lifecycle contract', () => {
     );
     assert.match(
       activeReadCatch,
-      /const message = messageReadErrorMessage\(error\);/,
+      /const message = messageReadErrorMessage\(error, options\.uiLocale\);/,
       'message read failures should preserve trusted diagnostics before falling back to generalized copy',
     );
     assert.match(
       activeReadCatch,
-      /const message = messageReadErrorMessage\(error\);[\s\S]*options\.setMessageLoadErrorBySession\(\(current\) => \(\{ \.\.\.current, \[sessionId\]: message \}\)\);[\s\S]*options\.setMessageLoadPending\(false\);[\s\S]*options\.toastApi\.error\('读取对话失败', message\)/,
+      /const message = messageReadErrorMessage\(error, options\.uiLocale\);[\s\S]*options\.setMessageLoadErrorBySession\(\(current\) => \(\{\s*\.\.\.current,\s*\[sessionId\]: message,?\s*\}\)\);[\s\S]*options\.setMessageLoadPending\(false\);[\s\S]*options\.toastApi\.error\(getDesktopConversationCopy\(options\.uiLocale\)\.actions\.messageReadFailedTitle, message\)/,
       'active-session read failures must clear pending and set a visible per-session load error after stale content was cleared',
     );
     assert.doesNotMatch(activeReadCatch, /const message = cleanErrorMessage\(error\)/);
@@ -87,7 +87,7 @@ describe('active session message lifecycle contract', () => {
     );
     assert.match(
       refreshMessages,
-      /try \{[\s\S]*readMessagesForRefresh\(sessionId, options\)[\s\S]*const next = result\.messages[\s\S]*activeIdRef\.current === sessionId[\s\S]*setMessages\(next\)[\s\S]*setMessageLoadErrorBySession[\s\S]*return result\.settled;[\s\S]*\} catch \(error\) \{[\s\S]*const message = messageRefreshErrorMessage\(error\);[\s\S]*setMessageLoadErrorBySession\(\(current\) => \(\{ \.\.\.current, \[sessionId\]: message \}\)\);[\s\S]*toastApi\.error\('刷新对话失败', message\)/,
+      /try \{[\s\S]*readMessagesForRefresh\(sessionId, options\)[\s\S]*const next = result\.messages[\s\S]*activeIdRef\.current === sessionId[\s\S]*setMessages\(next\)[\s\S]*setMessageLoadErrorBySession[\s\S]*return result\.settled;[\s\S]*\} catch \(error\) \{[\s\S]*const message = messageRefreshErrorMessage\(error, uiLocale\);[\s\S]*setMessageLoadErrorBySession\(\(current\) => \(\{\s*\.\.\.current,\s*\[sessionId\]: message,?\s*\}\)\);[\s\S]*toastApi\.error\(copy\.refreshFailedTitle, message\)/,
       'shared refreshMessages path must surface stage-specific read failures through the same per-session load error state',
     );
     assert.match(refreshMessages, /readMessagesForRefresh\(sessionId, options\)/);
@@ -95,7 +95,7 @@ describe('active session message lifecycle contract', () => {
     assert.doesNotMatch(refreshMessages, /const message = cleanErrorMessage\(error\)/);
     assert.match(
       src,
-      /const SESSION_READ_MESSAGES_ERROR_MARKER = 'MAKA_SESSION_READ_MESSAGES_ERROR:';[\s\S]*function messageReadErrorMessage\(error: unknown\): string \{[\s\S]*return sessionMessageErrorMessage\(error, '对话内容暂时无法读取，请稍后重试。'\);[\s\S]*\}[\s\S]*function messageRefreshErrorMessage\(error: unknown\): string \{[\s\S]*return sessionMessageErrorMessage\(error, '对话内容暂时无法刷新，请稍后重试。'\);[\s\S]*\}[\s\S]*function sessionMessageErrorMessage\(error: unknown, fallback: string\): string \{[\s\S]*const markerIndex = raw\.indexOf\(SESSION_READ_MESSAGES_ERROR_MARKER\);[\s\S]*if \(markerIndex < 0\) return generalizedErrorMessageChinese\(error, fallback\);/,
+      /const SESSION_READ_MESSAGES_ERROR_MARKER = 'MAKA_SESSION_READ_MESSAGES_ERROR:';[\s\S]*function messageReadErrorMessage\(error: unknown, locale: UiLocale\): string \{[\s\S]*getShellCopy\(locale\)\.errors\.messageRead[\s\S]*function messageRefreshErrorMessage\(error: unknown, locale: UiLocale\): string \{[\s\S]*getShellCopy\(locale\)\.errors\.messageRefresh[\s\S]*function sessionMessageErrorMessage\(error: unknown, fallback: string, locale: UiLocale\): string \{[\s\S]*const markerIndex = raw\.indexOf\(SESSION_READ_MESSAGES_ERROR_MARKER\);[\s\S]*localizedErrorMessage\(error, fallback, locale\)/,
       'read and refresh failures should trust only the machine marker emitted by main before falling back to generic copy',
     );
     assert.doesNotMatch(
@@ -153,7 +153,7 @@ describe('active session message lifecycle contract', () => {
     );
     assert.match(
       ui,
-      /props\.messageLoadError \? \([\s\S]*role="alert" aria-busy=\{props\.messageLoadRetryPending \? 'true' : undefined\}[\s\S]*title="对话载入失败"[\s\S]*body=\{props\.messageLoadError\}[\s\S]*label: props\.messageLoadRetryPending \? '载入中…' : '重试载入'[\s\S]*disabled: props\.messageLoadRetryPending/,
+      /props\.messageLoadError \? \([\s\S]*role="alert" aria-busy=\{props\.messageLoadRetryPending \? 'true' : undefined\}[\s\S]*title=\{copy\.loadFailed\}[\s\S]*body=\{props\.messageLoadError\}[\s\S]*label: props\.messageLoadRetryPending \? copy\.loading : copy\.retryLoad[\s\S]*disabled: props\.messageLoadRetryPending/,
       'ChatView must render an explicit load-error state instead of the normal empty chat hero',
     );
   });

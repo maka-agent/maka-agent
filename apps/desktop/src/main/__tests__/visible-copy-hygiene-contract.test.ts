@@ -37,9 +37,13 @@ const FILES_TO_SCAN = [
   resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'chat-view.tsx'),
   resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'chat-turn.tsx'),
   resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'composer.tsx'),
+  // Issue #1044: visible copy that moved out of the two decomposed panels
+  // keeps the same hygiene coverage in its new home.
+  resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'composer-workspace-row.tsx'),
   resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'skills-panel.tsx'),
   resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'daily-review-panel.tsx'),
   resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'plan-reminder-panel.tsx'),
+  resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'plan-reminder-form-dialog.tsx'),
   resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'chat-empty-hero.tsx'),
   ...RENDERER_SHELL_SOURCE_REPO_PATHS.map((repoPath) => resolve(process.cwd(), '..', '..', repoPath)),
   join(process.cwd(), 'src', 'renderer', 'OnboardingHero.tsx'),
@@ -262,20 +266,22 @@ describe('visible-copy hygiene contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup v2)', 
 
   it('pins the zh empty-chat hero product tagline', async () => {
     const heroPath = resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'chat-empty-hero.tsx');
+    const copyPath = resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'conversation-copy.ts');
     const src = stripComments(await readFile(heroPath, 'utf8'));
+    const copy = stripComments(await readFile(copyPath, 'utf8'));
 
     assert.match(
-      src,
+      copy,
       /intro:\s*'自主规划，陪你把事做完的智能个人助手。'/,
       'The default zh chat empty hero should carry Maka’s exact product tagline.',
     );
     assert.match(
-      src,
+      copy,
       /primaryBubble:\s*'好，我来帮你理清楚。'/,
       'The default zh chat empty hero visual should not leak the English fixture bubble.',
     );
     assert.match(
-      src,
+      copy,
       /secondaryBubble:\s*'为这个任务起草计划'/,
       'The default zh chat empty hero visual should keep the task prompt bubble Chinese-first.',
     );
@@ -311,7 +317,7 @@ describe('terminal truncation handoff contract', () => {
     );
     assert.match(
       src,
-      /输出已截断 · 每路仅展示前 \$\{TOOL_LINE_CAP\} 行/,
+      /copy\.streamsTruncated\(TOOL_LINE_CAP\)/,
       'The truncation note should state the line cap without a copy button.',
     );
     assert.match(
@@ -341,7 +347,7 @@ describe('terminal truncation handoff contract', () => {
     );
     assert.match(
       src,
-      /失败 · 退出码/,
+      /copy\.failed[\s\S]*copy\.exitCode\(props\.exitCode\)/,
       'Failed terminals should expose a one-line failure note with the exit code.',
     );
   });
@@ -418,9 +424,9 @@ describe('turn footer copy feedback contract', () => {
     assert.match(footerBlock, /setCopyPhase\('pending'\)/, 'Turn footer copy should expose pending state immediately.');
     assert.match(footerBlock, /settleCopy\('copied'\)/, 'Turn footer copy should expose success state.');
     assert.match(footerBlock, /settleCopy\('failed'\)/, 'Turn footer copy should expose clipboard failure state.');
-    assert.match(footerBlock, /复制中…/, 'Turn footer copy should show a pending label.');
-    assert.match(footerBlock, /已复制/, 'Turn footer copy should show success feedback.');
-    assert.match(footerBlock, /复制失败/, 'Turn footer copy should show failure feedback.');
+    assert.match(footerBlock, /copy\.copying/, 'Turn footer copy should show a pending label.');
+    assert.match(footerBlock, /copy\.copied/, 'Turn footer copy should show success feedback.');
+    assert.match(footerBlock, /copy\.copyFailed/, 'Turn footer copy should show failure feedback.');
     assert.match(footerBlock, /data-copy-feedback/, 'Turn footer copy should expose stable state data for CSS and review.');
     assert.match(footerBlock, /aria-busy=\{isActionPending/, 'Turn footer copy should expose busy state to assistive tech.');
     assert.match(footerBlock, /aria-disabled=\{!action\.enabled \|\| copyIsPending\}/, 'Turn footer copy should set aria-disabled while pending.');
@@ -477,9 +483,9 @@ describe('tool error copy feedback contract', () => {
     assert.match(block, /const copyFeedback = useClipboardCopyFeedback\(\)/, 'Tool-error copy should use the shared pending/failure copy feedback path.');
     assert.match(block, /copyFeedback\.phaseFor\('tool-error'\)/, 'Tool-error copy should expose a scoped copy phase.');
     assert.match(block, /await copyFeedback\.copy\('tool-error', errorText\)/, 'Tool-error copy should route clipboard writes through the guarded helper.');
-    assert.match(block, /复制中…/, 'Tool-error copy should show a pending label.');
-    assert.match(block, /已复制/, 'Tool-error copy should show success feedback.');
-    assert.match(block, /复制失败/, 'Tool-error copy should show failure feedback.');
+    assert.match(block, /copyText\.copy\.pending/, 'Tool-error copy should show a pending label.');
+    assert.match(block, /copyText\.copy\.copied/, 'Tool-error copy should show success feedback.');
+    assert.match(block, /copyText\.copy\.failed/, 'Tool-error copy should show failure feedback.');
     assert.match(block, /data-copy-feedback=\{copyPhase \?\? undefined\}/, 'Tool-error copy should expose stable copy state for CSS and review.');
     assert.match(block, /aria-busy=\{copyPending \? 'true' : undefined\}/, 'Tool-error copy should expose busy state to assistive tech.');
     assert.match(block, /disabled=\{copyPending\}/, 'Tool-error copy should disable while pending.');
@@ -539,8 +545,8 @@ describe('chat markdown copy feedback contract', () => {
 
     assert.match(block, /useClipboardCopyFeedback\(1400, \{ redact: false \}\)/, 'Message copy should preserve raw assistant markdown.');
     assert.match(block, /await copyFeedback\.copy\('message', props\.text\)/, 'Message copy should route through the guarded helper.');
-    assert.match(block, /复制中/, 'Message copy should expose pending feedback.');
-    assert.match(block, /复制失败/, 'Message copy should expose failure feedback.');
+    assert.match(block, /copyText\.copying/, 'Message copy should expose pending feedback.');
+    assert.match(block, /copyText\.copyFailed/, 'Message copy should expose failure feedback.');
     assert.match(block, /aria-busy=\{copyPending \? 'true' : undefined\}/, 'Message copy should expose busy state.');
     assert.match(block, /disabled=\{copyPending\}/, 'Message copy should disable while pending.');
     assert.match(block, /data-copy-feedback=\{copyPhase \?\? undefined\}/, 'Message copy should expose stable copy state.');

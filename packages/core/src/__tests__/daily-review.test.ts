@@ -77,7 +77,10 @@ describe('pickDailyReviewSessions', () => {
       aSession({ id: 'd' }), // no ts → skipped
     ];
     const picked = pickDailyReviewSessions(sessions, day, 10);
-    assert.deepEqual(picked.map((s) => s.id), ['a']);
+    assert.deepEqual(
+      picked.map((s) => s.id),
+      ['a'],
+    );
   });
 
   it('sorts most-recent first and caps at limit', () => {
@@ -87,7 +90,10 @@ describe('pickDailyReviewSessions', () => {
       aSession({ id: 'c', lastMessageAt: day.fromMs + 2_000 }),
     ];
     const picked = pickDailyReviewSessions(sessions, day, 2);
-    assert.deepEqual(picked.map((s) => s.id), ['b', 'c']);
+    assert.deepEqual(
+      picked.map((s) => s.id),
+      ['b', 'c'],
+    );
   });
 
   it('returns empty array when limit is 0 / negative', () => {
@@ -119,7 +125,10 @@ describe('pickDailyReviewTopEntries', () => {
   it('sorts by request count descending and caps at limit', () => {
     const buckets = [bucket('a', 1, 10, 0.01), bucket('b', 5, 20, 0.05), bucket('c', 3, 30, 0.02)];
     const top = pickDailyReviewTopEntries(buckets, 2);
-    assert.deepEqual(top.map((t) => t.key), ['b', 'c']);
+    assert.deepEqual(
+      top.map((t) => t.key),
+      ['b', 'c'],
+    );
   });
 
   it('returns empty array on empty input', () => {

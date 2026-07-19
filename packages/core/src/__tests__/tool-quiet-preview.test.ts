@@ -24,33 +24,51 @@ describe('tool-quiet-preview', () => {
 
   describe('formatToolInvocationLine', () => {
     it('extracts command for Bash', () => {
-      const line = formatToolInvocationLine({ toolName: 'Bash', args: { command: 'npm test' } }, 'en');
+      const line = formatToolInvocationLine(
+        { toolName: 'Bash', args: { command: 'npm test' } },
+        'en',
+      );
       assert.equal(line, 'npm test');
     });
     it('extracts path for Read', () => {
-      const line = formatToolInvocationLine({ toolName: 'Read', args: { path: '/foo/bar.ts' } }, 'en');
+      const line = formatToolInvocationLine(
+        { toolName: 'Read', args: { path: '/foo/bar.ts' } },
+        'en',
+      );
       assert.equal(line, '/foo/bar.ts');
     });
     it('extracts name for Skill (Bug 1 fix)', () => {
-      const line = formatToolInvocationLine({ toolName: 'Skill', args: { name: 'my-skill' } }, 'en');
+      const line = formatToolInvocationLine(
+        { toolName: 'Skill', args: { name: 'my-skill' } },
+        'en',
+      );
       assert.equal(line, 'my-skill');
     });
     it('uses zh strings for WriteStdin', () => {
       const line = formatToolInvocationLine(
-        { toolName: 'WriteStdin', args: { inputPreview: { text: 'echo hi', bytes: 7, truncated: false } } },
+        {
+          toolName: 'WriteStdin',
+          args: { inputPreview: { text: 'echo hi', bytes: 7, truncated: false } },
+        },
         'zh',
       );
       assert.match(line!, /后台终端交互/);
     });
     it('uses en strings for WriteStdin', () => {
       const line = formatToolInvocationLine(
-        { toolName: 'WriteStdin', args: { inputPreview: { text: 'echo hi', bytes: 7, truncated: false } } },
+        {
+          toolName: 'WriteStdin',
+          args: { inputPreview: { text: 'echo hi', bytes: 7, truncated: false } },
+        },
         'en',
       );
       assert.match(line!, /Background terminal interaction/);
     });
     it('falls back to key:value lines, not JSON', () => {
-      const line = formatToolInvocationLine({ toolName: 'Custom', args: { alpha: 1, beta: 'two' } }, 'en');
+      const line = formatToolInvocationLine(
+        { toolName: 'Custom', args: { alpha: 1, beta: 'two' } },
+        'en',
+      );
       assert.match(line!, /alpha: 1/);
       assert.match(line!, /beta: two/);
       assert.doesNotMatch(line!, /\{/);

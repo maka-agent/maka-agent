@@ -1,15 +1,16 @@
-import { generalizedErrorMessageChinese } from '@maka/core';
+import { generalizedErrorMessageChinese, type UiLocale } from '@maka/core';
 import { redactSecrets } from '@maka/ui';
+import { getSettingsSharedCopy } from '../locales/settings-shared-copy.js';
 
-export function settingsActionErrorMessage(error: unknown): string {
+export function settingsActionErrorMessage(error: unknown, locale: UiLocale = 'zh'): string {
   const raw = error instanceof Error
     ? error.message
     : typeof error === 'string'
       ? error
       : '';
-  const classified = generalizedErrorMessageChinese(new Error(raw), '');
+  const classified = locale === 'zh' ? generalizedErrorMessageChinese(new Error(raw), '') : '';
   if (classified) return classified;
   const redacted = redactSecrets(raw).trim();
-  if (redacted && /[\u4E00-\u9FFF]/.test(redacted)) return redacted;
-  return '未知错误，请稍后重试。';
+  if (locale === 'zh' && redacted && /[\u4E00-\u9FFF]/.test(redacted)) return redacted;
+  return getSettingsSharedCopy(locale).unknownError;
 }

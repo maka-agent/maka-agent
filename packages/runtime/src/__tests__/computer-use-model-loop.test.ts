@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import type { LanguageModelV3StreamPart, LanguageModelV3Usage } from '@ai-sdk/provider';
+import type { LanguageModelV4StreamPart, LanguageModelV4Usage } from '@ai-sdk/provider';
 import type {
   LlmConnection,
   SessionEvent,
@@ -8,7 +8,7 @@ import type {
   StoredMessage,
   ToolInvocationRecord,
 } from '@maka/core';
-import { MockLanguageModelV3, simulateReadableStream } from 'ai/test';
+import { MockLanguageModelV4, simulateReadableStream } from 'ai/test';
 
 import { AiSdkBackend } from '../ai-sdk-backend.js';
 import {
@@ -19,7 +19,7 @@ import {
 } from '../computer-use-tools.js';
 import { PermissionEngine } from '../permission-engine.js';
 
-const ZERO_USAGE: LanguageModelV3Usage = {
+const ZERO_USAGE: LanguageModelV4Usage = {
   inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
   outputTokens: { total: 1, text: 1, reasoning: 0 },
 };
@@ -38,7 +38,7 @@ describe('AiSdkBackend Computer Use model loop', () => {
       const computerBackend = fakeComputerBackend(value, []);
       const [computerTool] = buildComputerUseTools({ backend: computerBackend });
       let declaredTools: unknown;
-      const model = new MockLanguageModelV3({
+      const model = new MockLanguageModelV4({
         doStream: async (options) => {
           declaredTools = options.tools;
           return {
@@ -58,16 +58,21 @@ describe('AiSdkBackend Computer Use model loop', () => {
         connection: connection(providerType),
       });
 
-      await collect(runtime.send({
-        turnId: 'turn-1',
-        text: 'Inspect the desktop safely.',
-        context: [],
-      }));
+      await collect(
+        runtime.send({
+          turnId: 'turn-1',
+          text: 'Inspect the desktop safely.',
+          context: [],
+        }),
+      );
 
       const serialized = JSON.stringify(declaredTools);
       assert.match(serialized, /maka_computer/);
       assert.match(serialized, /Prefer click_element or set_value/);
-      assert.match(serialized, /Coordinate click, pointer move, scroll, drag, press_key, type.*disabled by default/);
+      assert.match(
+        serialized,
+        /Coordinate click, pointer move, scroll, drag, press_key, type.*disabled by default/,
+      );
     }
   });
 
@@ -79,42 +84,43 @@ describe('AiSdkBackend Computer Use model loop', () => {
     const modelPrompts: unknown[] = [];
     const modelTools: unknown[] = [];
     let modelStep = 0;
-    const model = new MockLanguageModelV3({
+    const model = new MockLanguageModelV4({
       doStream: async (options) => {
         modelPrompts.push(options.prompt);
         modelTools.push(options.tools);
         modelStep += 1;
-        const chunks = modelStep === 1
-          ? toolCall('list-apps', { action: 'list_apps' })
-          : modelStep === 2
-            ? toolCall('observe', {
-                action: 'observe',
-                app: 'pid:42',
-                window_id: 7,
-                include_screenshot: true,
-              })
-            : modelStep === 3
-              ? (() => {
-                  const observation = latestObservation(options.prompt);
-                  const field = observation.elements.find(
-                    (element) => element.label === 'CUA Lab Set Value Field',
-                  );
-                  assert.ok(field, 'model must receive the observed field');
-                  return toolCall('set-value', {
-                    action: 'set_value',
-                    observation_id: observation.observation_id,
-                    element_id: field.element_id,
-                    value: 'model-written',
-                  });
-                })()
-              : (() => {
-                  const observation = latestObservation(options.prompt);
-                  const field = observation.elements.find(
-                    (element) => element.label === 'CUA Lab Set Value Field',
-                  );
-                  assert.equal(field?.value, 'model-written');
-                  return textCompletion('done');
-                })();
+        const chunks =
+          modelStep === 1
+            ? toolCall('list-apps', { action: 'list_apps' })
+            : modelStep === 2
+              ? toolCall('observe', {
+                  action: 'observe',
+                  app: 'pid:42',
+                  window_id: 7,
+                  include_screenshot: true,
+                })
+              : modelStep === 3
+                ? (() => {
+                    const observation = latestObservation(options.prompt);
+                    const field = observation.elements.find(
+                      (element) => element.label === 'CUA Lab Set Value Field',
+                    );
+                    assert.ok(field, 'model must receive the observed field');
+                    return toolCall('set-value', {
+                      action: 'set_value',
+                      observation_id: observation.observation_id,
+                      element_id: field.element_id,
+                      value: 'model-written',
+                    });
+                  })()
+                : (() => {
+                    const observation = latestObservation(options.prompt);
+                    const field = observation.elements.find(
+                      (element) => element.label === 'CUA Lab Set Value Field',
+                    );
+                    assert.equal(field?.value, 'model-written');
+                    return textCompletion('done');
+                  })();
         return {
           stream: simulateReadableStream({
             chunks,
@@ -133,41 +139,38 @@ describe('AiSdkBackend Computer Use model loop', () => {
       telemetry,
     });
 
-    const events = await collect(runtime.send({
-      turnId: 'turn-1',
-      text: 'Set the fixture field to model-written.',
-      context: [],
-    }));
+    const events = await collect(
+      runtime.send({
+        turnId: 'turn-1',
+        text: 'Set the fixture field to model-written.',
+        context: [],
+      }),
+    );
 
     assert.equal(modelStep, 4);
-    assert.deepEqual(backendCalls, [
-      'list_apps',
-      'observe',
-      'set_value',
-    ]);
+    assert.deepEqual(backendCalls, ['list_apps', 'observe', 'set_value']);
     assert.equal(value.current, 'model-written');
     assert.equal(events.at(-1)?.type, 'complete');
-    const textComplete = [...events].reverse().find(
-      (event) => event.type === 'text_complete',
-    );
-    assert.equal(
-      textComplete?.type === 'text_complete' ? textComplete.text : undefined,
-      'done',
-    );
+    const textComplete = [...events].reverse().find((event) => event.type === 'text_complete');
+    assert.equal(textComplete?.type === 'text_complete' ? textComplete.text : undefined, 'done');
     assert.deepEqual(
       messages.filter((message) => message.type === 'tool_call').map((message) => message.toolName),
       ['maka_computer', 'maka_computer', 'maka_computer'],
     );
     assert.equal(telemetry.length, 3);
-    assert.equal(telemetry.every((record) => record.toolName === 'maka_computer'), true);
+    assert.equal(
+      telemetry.every((record) => record.toolName === 'maka_computer'),
+      true,
+    );
     assert.match(JSON.stringify(modelPrompts[2]), /CUA Lab Set Value Field/);
     assert.match(JSON.stringify(modelPrompts[3]), /model-written/);
-    assert.match(JSON.stringify(modelTools[0]), /Coordinate click, pointer move, scroll, drag, press_key, type.*disabled by default/);
+    assert.match(
+      JSON.stringify(modelTools[0]),
+      /Coordinate click, pointer move, scroll, drag, press_key, type.*disabled by default/,
+    );
     assert.match(JSON.stringify(modelTools[0]), /Prefer click_element or set_value/);
     assert.equal(
-      (modelTools[0] as Array<{ name?: string }>).some(
-        (tool) => tool.name === 'maka_computer',
-      ),
+      (modelTools[0] as Array<{ name?: string }>).some((tool) => tool.name === 'maka_computer'),
       true,
     );
   });
@@ -178,53 +181,51 @@ describe('AiSdkBackend Computer Use model loop', () => {
     const computerBackend = fakeComputerBackend(value, backendCalls);
     const [computerTool] = buildComputerUseTools({ backend: computerBackend });
     let modelStep = 0;
-    const model = new MockLanguageModelV3({
+    const model = new MockLanguageModelV4({
       doStream: async (options) => {
         modelStep += 1;
-        const chunks = modelStep === 1
-          ? toolCall('observe-1', {
-              action: 'observe',
-              app: 'pid:42',
-              window_id: 7,
-              include_screenshot: true,
-            })
-          : modelStep === 2
-            ? (() => {
-                const observation = latestObservation(options.prompt);
-                return toolCall('blocked-click', {
-                  action: 'left_click',
-                  observation_id: observation.observation_id,
-                  coordinate: [20, 20],
-                });
-              })()
-            : modelStep === 3
+        const chunks =
+          modelStep === 1
+            ? toolCall('observe-1', {
+                action: 'observe',
+                app: 'pid:42',
+                window_id: 7,
+                include_screenshot: true,
+              })
+            : modelStep === 2
               ? (() => {
-                  assert.match(
-                    stringsIn(options.prompt).join('\n'),
-                    /unsupported_action/,
-                  );
-                  return toolCall('observe-2', {
-                    action: 'observe',
-                    app: 'pid:42',
-                    window_id: 7,
-                    include_screenshot: true,
+                  const observation = latestObservation(options.prompt);
+                  return toolCall('blocked-click', {
+                    action: 'left_click',
+                    observation_id: observation.observation_id,
+                    coordinate: [20, 20],
                   });
                 })()
-              : modelStep === 4
+              : modelStep === 3
                 ? (() => {
-                    const observation = latestObservation(options.prompt);
-                    const field = observation.elements.find(
-                      (element) => element.label === 'CUA Lab Set Value Field',
-                    );
-                    assert.ok(field);
-                    return toolCall('safe-set', {
-                      action: 'set_value',
-                      observation_id: observation.observation_id,
-                      element_id: field.element_id,
-                      value: 'recovered',
+                    assert.match(stringsIn(options.prompt).join('\n'), /unsupported_action/);
+                    return toolCall('observe-2', {
+                      action: 'observe',
+                      app: 'pid:42',
+                      window_id: 7,
+                      include_screenshot: true,
                     });
                   })()
-                : textCompletion('recovered safely');
+                : modelStep === 4
+                  ? (() => {
+                      const observation = latestObservation(options.prompt);
+                      const field = observation.elements.find(
+                        (element) => element.label === 'CUA Lab Set Value Field',
+                      );
+                      assert.ok(field);
+                      return toolCall('safe-set', {
+                        action: 'set_value',
+                        observation_id: observation.observation_id,
+                        element_id: field.element_id,
+                        value: 'recovered',
+                      });
+                    })()
+                  : textCompletion('recovered safely');
         return {
           stream: simulateReadableStream({
             chunks,
@@ -241,28 +242,22 @@ describe('AiSdkBackend Computer Use model loop', () => {
       telemetry: [],
     });
 
-    const events = await collect(runtime.send({
-      turnId: 'turn-1',
-      text: 'Update the fixture safely.',
-      context: [],
-    }));
+    const events = await collect(
+      runtime.send({
+        turnId: 'turn-1',
+        text: 'Update the fixture safely.',
+        context: [],
+      }),
+    );
 
     assert.equal(modelStep, 5);
     assert.equal(value.current, 'recovered');
-    assert.deepEqual(backendCalls, [
-      'observe',
-      'left_click',
-      'observe',
-      'set_value',
-    ]);
+    assert.deepEqual(backendCalls, ['observe', 'left_click', 'observe', 'set_value']);
     assert.equal(events.at(-1)?.type, 'complete');
   });
 });
 
-function fakeComputerBackend(
-  value: { current: string },
-  calls: string[],
-): CuDispatchBackend {
+function fakeComputerBackend(value: { current: string }, calls: string[]): CuDispatchBackend {
   const observation = (): CuObservation => ({
     observationId: `backend-${calls.length}`,
     appId: 'pid:42',
@@ -270,17 +265,19 @@ function fakeComputerBackend(
     windowId: 7,
     windowTitle: 'Codex CUA Lab',
     contentFingerprint: 'fixture-structure',
-    elements: [{
-      elementId: 'field-1',
-      role: 'AXTextField',
-      label: 'CUA Lab Set Value Field',
-      value: value.current,
-      identity: {
+    elements: [
+      {
+        elementId: 'field-1',
         role: 'AXTextField',
         label: 'CUA Lab Set Value Field',
         value: value.current,
+        identity: {
+          role: 'AXTextField',
+          label: 'CUA Lab Set Value Field',
+          value: value.current,
+        },
       },
-    }],
+    ],
     screenshot: {
       base64: 'AA==',
       mimeType: 'image/png',
@@ -294,13 +291,15 @@ function fakeComputerBackend(
     },
     async listApps() {
       calls.push('list_apps');
-      return [{
-        appId: 'pid:42',
-        pid: 42,
-        name: 'Codex CUA Lab',
-        windowCount: 1,
-        windows: [{ windowId: 7, title: 'Codex CUA Lab' }],
-      }];
+      return [
+        {
+          appId: 'pid:42',
+          pid: 42,
+          name: 'Codex CUA Lab',
+          windowCount: 1,
+          windows: [{ windowId: 7, title: 'Codex CUA Lab' }],
+        },
+      ];
     },
     async observeApp() {
       calls.push('observe');
@@ -338,7 +337,7 @@ function fakeComputerBackend(
 }
 
 function createRuntime(input: {
-  model: MockLanguageModelV3;
+  model: MockLanguageModelV4;
   computerTool: ReturnType<typeof buildComputerUseTools>[number];
   messages: StoredMessage[];
   telemetry: ToolInvocationRecord[];
@@ -348,7 +347,9 @@ function createRuntime(input: {
   return new AiSdkBackend({
     sessionId: 'session-1',
     header: header(),
-    appendMessage: async (message) => { input.messages.push(message); },
+    appendMessage: async (message) => {
+      input.messages.push(message);
+    },
     connection: selectedConnection,
     apiKey: 'test-key',
     modelId: 'mock-computer-model',
@@ -360,11 +361,13 @@ function createRuntime(input: {
     tools: [input.computerTool],
     newId: idGenerator(),
     now: monotonicClock(),
-    recordToolInvocation: (record) => { input.telemetry.push(record); },
+    recordToolInvocation: (record) => {
+      input.telemetry.push(record);
+    },
   });
 }
 
-function toolCall(id: string, args: Record<string, unknown>): LanguageModelV3StreamPart[] {
+function toolCall(id: string, args: Record<string, unknown>): LanguageModelV4StreamPart[] {
   return [
     { type: 'stream-start', warnings: [] },
     {
@@ -381,7 +384,7 @@ function toolCall(id: string, args: Record<string, unknown>): LanguageModelV3Str
   ];
 }
 
-function textCompletion(text: string): LanguageModelV3StreamPart[] {
+function textCompletion(text: string): LanguageModelV4StreamPart[] {
   return [
     { type: 'stream-start', warnings: [] },
     { type: 'text-start', id: 'final-text' },
@@ -405,11 +408,12 @@ function latestObservation(prompt: unknown): {
 } {
   const candidates = stringsIn(prompt).flatMap((text) => {
     const marker = text.lastIndexOf('Fresh observation:\n');
-    const json = marker >= 0
-      ? text.slice(marker + 'Fresh observation:\n'.length)
-      : text.trim().startsWith('{')
-        ? text.trim()
-        : '';
+    const json =
+      marker >= 0
+        ? text.slice(marker + 'Fresh observation:\n'.length)
+        : text.trim().startsWith('{')
+          ? text.trim()
+          : '';
     if (!json) return [];
     try {
       const value = JSON.parse(json) as Record<string, unknown>;
@@ -449,6 +453,7 @@ function header(): SessionHeader {
     createdAt: 1,
     lastUsedAt: 1,
     name: 'Computer model loop',
+    titleIsManual: true,
     isFlagged: false,
     labels: [],
     isArchived: false,
@@ -464,9 +469,7 @@ function header(): SessionHeader {
   };
 }
 
-function connection(
-  providerType: LlmConnection['providerType'],
-): LlmConnection {
+function connection(providerType: LlmConnection['providerType']): LlmConnection {
   return {
     slug: `${providerType}-main`,
     name: providerType,

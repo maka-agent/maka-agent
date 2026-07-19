@@ -24,7 +24,7 @@ const COMPOSER_TSX = join(process.cwd(), '../../packages/ui/src/composer.tsx');
 
 function renderWithLocale(child: ReactNode): string {
   return renderToStaticMarkup(
-    createElement(LocaleProvider, { preference: 'zh', children: child }),
+    createElement(LocaleProvider, { locale: 'zh', children: child }),
   );
 }
 

@@ -15,7 +15,10 @@ const DEFAULT_FETCH_TIMEOUT_MS = 300_000;
 
 const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
 const officeCli = manifest.officecli;
-const FETCH_TIMEOUT_MS = readPositiveIntEnv('MAKA_OFFICECLI_FETCH_TIMEOUT_MS', DEFAULT_FETCH_TIMEOUT_MS);
+const FETCH_TIMEOUT_MS = readPositiveIntEnv(
+  'MAKA_OFFICECLI_FETCH_TIMEOUT_MS',
+  DEFAULT_FETCH_TIMEOUT_MS,
+);
 
 export function officeCliTargetFor(platform, arch) {
   return officeCli.assets[`${platform}-${arch}`] ? { platform, arch } : null;
@@ -68,10 +71,11 @@ function readPositiveIntEnv(name, fallback) {
 }
 
 function isTimeoutError(error) {
-  return Boolean(error && typeof error === 'object' && (
-    error.name === 'AbortError' ||
-    error.name === 'TimeoutError'
-  ));
+  return Boolean(
+    error &&
+      typeof error === 'object' &&
+      (error.name === 'AbortError' || error.name === 'TimeoutError'),
+  );
 }
 
 function officeCliTimeoutError(url) {
@@ -116,11 +120,16 @@ async function verifyOfficeCliVersion(binaryPath, expectedVersion) {
     env: { ...process.env, OFFICECLI_SKIP_UPDATE: '1' },
   });
   if (!officeCliVersionMatches(stdout, expectedVersion)) {
-    throw new Error(`OfficeCLI version mismatch: expected ${expectedVersion}, got ${stdout.trim()}`);
+    throw new Error(
+      `OfficeCLI version mismatch: expected ${expectedVersion}, got ${stdout.trim()}`,
+    );
   }
 }
 
-export async function prepareOfficeCli(targetPlatform = process.platform, targetArch = process.arch) {
+export async function prepareOfficeCli(
+  targetPlatform = process.platform,
+  targetArch = process.arch,
+) {
   const asset = assetForTarget(targetPlatform, targetArch);
   const assetUrl = officeCliDownloadUrl(officeCli.version, asset);
   const sums = parseSha256Sums(await fetchText(officeCliSha256SumsUrl(officeCli.version)));
@@ -156,5 +165,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const platform = readArg('--platform') ?? process.platform;
   const arch = readArg('--arch') ?? process.arch;
   const result = await prepareOfficeCli(platform, arch);
-  process.stdout.write(`Prepared OfficeCLI ${result.version} for ${platform}-${arch}: ${result.destination}\n`);
+  process.stdout.write(
+    `Prepared OfficeCLI ${result.version} for ${platform}-${arch}: ${result.destination}\n`,
+  );
 }

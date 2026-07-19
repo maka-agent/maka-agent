@@ -24,12 +24,7 @@ import type { LlmConnection } from '@maka/core/llm-connections';
 
 export const CONFIG_TRANSFER_SCHEMA_VERSION = 1;
 
-export const CONFIG_CATEGORIES = [
-  'connections',
-  'settings',
-  'credentials',
-  'memory',
-] as const;
+export const CONFIG_CATEGORIES = ['connections', 'settings', 'credentials', 'memory'] as const;
 export type ConfigCategory = (typeof CONFIG_CATEGORIES)[number];
 
 /** Categories that carry plaintext secrets and must be explicitly opted into. */
@@ -93,7 +88,11 @@ export function parseConfigBundle(raw: string): ConfigParseResult {
   }
   const version = parsed.schemaVersion;
   if (typeof version !== 'number') {
-    return { ok: false, reason: 'malformed', message: 'Config bundle is missing a numeric schemaVersion.' };
+    return {
+      ok: false,
+      reason: 'malformed',
+      message: 'Config bundle is missing a numeric schemaVersion.',
+    };
   }
   if (version !== CONFIG_TRANSFER_SCHEMA_VERSION) {
     return {
@@ -103,7 +102,11 @@ export function parseConfigBundle(raw: string): ConfigParseResult {
     };
   }
   if (!Array.isArray(parsed.includedData) || !parsed.includedData.every(isConfigCategory)) {
-    return { ok: false, reason: 'malformed', message: 'includedData must be an array of known categories.' };
+    return {
+      ok: false,
+      reason: 'malformed',
+      message: 'includedData must be an array of known categories.',
+    };
   }
   const rawData = isJsonObject(parsed.data) ? parsed.data : {};
   const includedData = [...new Set(parsed.includedData as ConfigCategory[])];

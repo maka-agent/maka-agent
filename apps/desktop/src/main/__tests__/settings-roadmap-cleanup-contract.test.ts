@@ -26,7 +26,7 @@ describe('Settings coming-soon cleanup contract', () => {
   it('does not expose nav-level comingSoon state or command-palette soon hints', async () => {
     const settings = await readSettingsCombinedSource();
     const providers = await readProviderSettingsCombinedSource();
-    const palette = await readRepo('apps/desktop/src/renderer/command-palette.tsx');
+    const palette = await readRepo('apps/desktop/src/renderer/command-palette-commands.ts');
     const styles = await readRendererContractCss();
     const providerCatalog = await readRepo('packages/core/src/llm-connections.ts');
     assert.doesNotMatch(settings, /comingSoon\??:/, 'Settings nav items must not carry stale comingSoon flags');
@@ -61,7 +61,7 @@ describe('Settings coming-soon cleanup contract', () => {
     // (enable toggle, execute time, section toggles, deep analysis, manual
     // trigger). The page status now describes the wired automatic analysis
     // path and keeps the local-only fallback copy in the same branch.
-    assert.match(settings, /每天自动分析本机对话，生成摘要、遗漏提醒和建议。模型按需消耗。/, 'Daily Review status should describe the shipped automatic analysis mode');
+    assert.match(settings, /每天自动分析前一天的工作内容，提供摘要与建议。/, 'Daily Review status should describe the shipped automatic analysis mode');
     assert.match(settings, /当前版本仅本地数字聚合，定时生成 \/ LLM 摘要尚未连接到后端。/, 'Daily Review fallback should still describe the local aggregate mode when the pipeline is not wired');
     assert.match(settings, /启用每日回顾/, 'Daily Review settings must surface the auto-run enable toggle');
     assert.match(settings, /执行时间/, 'Daily Review settings must surface the configurable execute time');
@@ -78,7 +78,7 @@ describe('Settings coming-soon cleanup contract', () => {
 
   it('sanitizes Settings action errors before they reach visible toasts', async () => {
     const settings = await readSettingsCombinedSource();
-    const helper = settings.match(/function settingsActionErrorMessage\(error: unknown\): string \{[\s\S]*?\n\}/);
+    const helper = settings.match(/function settingsActionErrorMessage\(error: unknown, locale: UiLocale = 'zh'\): string \{[\s\S]*?\n\}/);
 
     assert.ok(helper, 'SettingsModal must keep a shared settingsActionErrorMessage helper');
     assert.match(
@@ -104,7 +104,7 @@ describe('Settings coming-soon cleanup contract', () => {
     );
     assert.match(
       helper![0],
-      /return '未知错误，请稍后重试。'/,
+      /return getSettingsSharedCopy\(locale\)\.unknownError/,
       'Unknown non-localized Settings action errors should degrade to a Chinese fallback',
     );
   });
@@ -152,7 +152,7 @@ describe('Settings coming-soon cleanup contract', () => {
     assert.match(settings, /function botReadinessCopyForSupport\b/, 'Settings bot page must route readiness copy through support-aware presentation');
     assert.match(settings, /if \(support === 'planned'\) return BOT_PLANNED_COPY;/, 'planned bot platforms must not reuse credential-readiness copy');
     assert.match(settings, /wechat:[\s\S]*support:\s*'credentials'/, 'WeChat should expose credential probing rather than stay in the planned-only bucket');
-    assert.match(settings, /selected === 'wechat'/, 'WeChat needs visible App ID / App Secret credential fields');
+    assert.match(settings, /provider === 'wechat'/, 'WeChat needs visible App ID / App Secret credential fields');
     assert.doesNotMatch(settings, /机器人运行时尚未接入|代码中还没有这个平台的运行时|平台运行时尚未接入|运行时未开放|可用运行时|开放前|收发 smoke/, 'planned bot copy must not expose implementation-status placeholder language');
     assert.doesNotMatch(settings, /providerSupport === 'planned'\s*\?\s*\{\s*label: '未接入'/, 'planned bot list tags should use the shared planned copy');
   });
@@ -250,20 +250,19 @@ describe('Settings coming-soon cleanup contract', () => {
     const permissionPage = settings.match(/function PermissionCenterPage\(\)[\s\S]*?function CapabilityRow/)?.[0] ?? '';
 
     assert.match(permissionPage, /const \[pendingPermAction, setPendingPermAction\] = useState<string \| null>\(null\)/);
-    assert.match(permissionPage, /const pendingPermActionRef = useRef<string \| null>\(null\)/);
     assert.match(
       permissionPage,
-      /return \(\) => \{[\s\S]*pendingPermActionRef\.current = null;/,
-      'Permission Center must release the pending action owner when Settings closes',
+      /const permissionActionGuard = useActionGuard<string>\(\)/,
+      'Permission Center must hold the pending action owner in the shared guard (released on unmount)',
     );
     assert.match(
       permissionPage,
-      /const actionKey = `\$\{permId\}:\$\{kind\}`;[\s\S]*if \(pendingPermActionRef\.current\) return;[\s\S]*pendingPermActionRef\.current = actionKey;[\s\S]*setPendingPermAction\(actionKey\);/,
+      /const actionKey = `\$\{permId\}:\$\{kind\}`;[\s\S]*if \(!permissionActionGuard\.begin\(actionKey\)\) return;[\s\S]*setPendingPermAction\(actionKey\);/,
       'Permission Center must synchronously reject same-frame duplicate permission actions before React commits disabled state',
     );
     assert.match(
       permissionPage,
-      /finally \{[\s\S]*if \(pendingPermActionRef\.current === actionKey\) \{[\s\S]*pendingPermActionRef\.current = null;[\s\S]*\}[\s\S]*if \(mountedRef\.current\) setPendingPermAction\(null\);/,
+      /finally \{[\s\S]*if \(permissionActionGuard\.current === actionKey\) \{[\s\S]*permissionActionGuard\.finish\(\);[\s\S]*\}[\s\S]*if \(mountedRef\.current\) setPendingPermAction\(null\);/,
       'Permission Center must release only the action it owns and avoid state writes after unmount',
     );
     assert.match(permissionPage, /busy=\{pendingPermAction !== null\}/);
@@ -285,7 +284,7 @@ describe('Settings coming-soon cleanup contract', () => {
   it('keeps account model empty state framed as an add-connection action', async () => {
     const settings = await readSettingsCombinedSource();
 
-    assert.match(settings, /等待添加模型连接。可在 设置 · 模型 添加。/);
+    assert.match(settings, /等待添加模型连接。可在“设置 · 模型”添加。/);
     assert.doesNotMatch(
       settings,
       /未配置任何模型连接/,
@@ -346,9 +345,15 @@ describe('Settings coming-soon cleanup contract', () => {
         readRepo('packages/ui/src/components.tsx'),
         readRepo('packages/ui/src/chat-view.tsx'),
         readRepo('packages/ui/src/composer.tsx'),
+        // Issue #1044: keep the stub-vocabulary gate on the extracted
+        // composer workspace row (moved out of composer.tsx).
+        readRepo('packages/ui/src/composer-workspace-row.tsx'),
         readRepo('packages/ui/src/skills-panel.tsx'),
         readRepo('packages/ui/src/daily-review-panel.tsx'),
         readRepo('packages/ui/src/plan-reminder-panel.tsx'),
+        // Issue #1044: keep the stub-vocabulary gate on the extracted
+        // plan-reminder form dialog (moved out of plan-reminder-panel.tsx).
+        readRepo('packages/ui/src/plan-reminder-form-dialog.tsx'),
         readRepo('packages/ui/src/relative-time.tsx'),
       ])
     ).join('\n');

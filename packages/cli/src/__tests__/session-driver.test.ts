@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
@@ -7,6 +7,7 @@ import type {
   CreateSessionInput,
   PermissionMode,
   PermissionResponse,
+  QueueEnqueueOutcome,
   SessionEvent,
   SessionSummary,
   StoredMessage,
@@ -27,22 +28,61 @@ describe('Maka session driver', () => {
       newId: nextId('turn'),
     });
 
-    const events = await collect(driver.sendPrompt('please inspect this workspace'));
+    const turn = await driver.preparePrompt('please inspect this workspace');
+    assert.equal(runtime.sent.length, 0, 'turn ownership must be available before runtime starts');
+    const events = await collect(turn.events);
 
     assert.equal(driver.getSessionId(), 'session-1');
-    assert.deepEqual(runtime.created, [{
+    assert.deepEqual(runtime.created, [
+      {
+        cwd: '/repo',
+        name: 'New Chat',
+        backend: 'ai-sdk',
+        llmConnectionSlug: 'anthropic',
+        model: 'claude-sonnet-4-5',
+        permissionMode: 'ask',
+      },
+    ]);
+    assert.deepEqual(runtime.sent, [
+      {
+        sessionId: 'session-1',
+        input: { turnId: 'turn-1', text: 'please inspect this workspace' },
+      },
+    ]);
+    assert.deepEqual(
+      { sessionId: turn.sessionId, turnId: turn.turnId },
+      {
+        sessionId: 'session-1',
+        turnId: 'turn-1',
+      },
+    );
+    assert.deepEqual(
+      events.map((event) => event.type),
+      ['text_delta', 'complete'],
+    );
+  });
+
+  test('new sessions use the default title while displayText keeps the typed prompt', async () => {
+    const runtime = new RecordingRuntime();
+    const driver = createMakaSessionDriver({
+      runtime,
       cwd: '/repo',
-      name: 'please inspect this workspace',
-      backend: 'ai-sdk',
       llmConnectionSlug: 'anthropic',
       model: 'claude-sonnet-4-5',
-      permissionMode: 'ask',
-    }]);
-    assert.deepEqual(runtime.sent, [{
-      sessionId: 'session-1',
-      input: { turnId: 'turn-1', text: 'please inspect this workspace' },
-    }]);
-    assert.deepEqual(events.map((event) => event.type), ['text_delta', 'complete']);
+      newId: nextId('turn'),
+    });
+
+    const typed = '/skill:alpha 帮我整理';
+    const composed = 'The user explicitly invoked…\n\n<user-message>\n帮我整理\n</user-message>';
+    const turn = await driver.preparePrompt(typed, { modelText: composed });
+    await collect(turn.events);
+
+    assert.equal(runtime.created[0]?.name, 'New Chat');
+    assert.deepEqual(runtime.sent[0]?.input, {
+      turnId: 'turn-1',
+      text: composed,
+      displayText: typed,
+    });
   });
 
   test('can still create a bypass session when explicitly requested', async () => {
@@ -56,7 +96,7 @@ describe('Maka session driver', () => {
       newId: nextId('turn'),
     });
 
-    await collect(driver.sendPrompt('ship fast'));
+    await collectPrompt(driver, 'ship fast');
 
     assert.equal(runtime.created[0]?.permissionMode, 'bypass');
   });
@@ -71,7 +111,7 @@ describe('Maka session driver', () => {
     });
 
     await driver.setPermissionMode('execute');
-    await collect(driver.sendPrompt('run tests'));
+    await collectPrompt(driver, 'run tests');
 
     assert.equal(runtime.created[0]?.permissionMode, 'execute');
   });
@@ -85,13 +125,15 @@ describe('Maka session driver', () => {
       model: 'claude-sonnet-4-5',
     });
 
-    await collect(driver.sendPrompt('run tests'));
+    await collectPrompt(driver, 'run tests');
     await driver.setPermissionMode('execute');
 
-    assert.deepEqual(runtime.permissionModes, [{
-      sessionId: 'session-1',
-      mode: 'execute',
-    }]);
+    assert.deepEqual(runtime.permissionModes, [
+      {
+        sessionId: 'session-1',
+        mode: 'execute',
+      },
+    ]);
   });
 
   test('uses an updated model for a new session', async () => {
@@ -104,7 +146,7 @@ describe('Maka session driver', () => {
     });
 
     await driver.setModel('claude-opus-4-1');
-    await collect(driver.sendPrompt('run tests'));
+    await collectPrompt(driver, 'run tests');
 
     assert.equal(runtime.created[0]?.model, 'claude-opus-4-1');
   });
@@ -118,13 +160,15 @@ describe('Maka session driver', () => {
       model: 'claude-sonnet-4-5',
     });
 
-    await collect(driver.sendPrompt('run tests'));
+    await collectPrompt(driver, 'run tests');
     await driver.setModel('claude-opus-4-1');
 
-    assert.deepEqual(runtime.sessionUpdates, [{
-      sessionId: 'session-1',
-      patch: { model: 'claude-opus-4-1', thinkingLevel: undefined },
-    }]);
+    assert.deepEqual(runtime.sessionUpdates, [
+      {
+        sessionId: 'session-1',
+        patch: { model: 'claude-opus-4-1', thinkingLevel: undefined },
+      },
+    ]);
   });
 
   test('switches connection and model together on an active session', async () => {
@@ -136,15 +180,17 @@ describe('Maka session driver', () => {
       model: 'claude-sonnet-4-5',
     });
 
-    await collect(driver.sendPrompt('run tests'));
+    await collectPrompt(driver, 'run tests');
     await driver.setModel('glm-5.2', 'zai');
 
     // The connection rides in the same updateSession patch, so the next turn
     // rebuilds the backend on the new provider.
-    assert.deepEqual(runtime.sessionUpdates, [{
-      sessionId: 'session-1',
-      patch: { model: 'glm-5.2', thinkingLevel: undefined, llmConnectionSlug: 'zai' },
-    }]);
+    assert.deepEqual(runtime.sessionUpdates, [
+      {
+        sessionId: 'session-1',
+        patch: { model: 'glm-5.2', thinkingLevel: undefined, llmConnectionSlug: 'zai' },
+      },
+    ]);
   });
 
   test('a same-connection setModel does not churn the connection', async () => {
@@ -156,13 +202,15 @@ describe('Maka session driver', () => {
       model: 'claude-sonnet-4-5',
     });
 
-    await collect(driver.sendPrompt('run tests'));
+    await collectPrompt(driver, 'run tests');
     await driver.setModel('claude-opus-4-1', 'anthropic');
 
-    assert.deepEqual(runtime.sessionUpdates, [{
-      sessionId: 'session-1',
-      patch: { model: 'claude-opus-4-1', thinkingLevel: undefined },
-    }]);
+    assert.deepEqual(runtime.sessionUpdates, [
+      {
+        sessionId: 'session-1',
+        patch: { model: 'claude-opus-4-1', thinkingLevel: undefined },
+      },
+    ]);
   });
 
   test('creates the next session on a connection chosen before any session exists', async () => {
@@ -175,7 +223,7 @@ describe('Maka session driver', () => {
     });
 
     await driver.setModel('glm-5.2', 'zai');
-    await collect(driver.sendPrompt('run tests'));
+    await collectPrompt(driver, 'run tests');
 
     assert.equal(runtime.created[0]?.llmConnectionSlug, 'zai');
     assert.equal(runtime.created[0]?.model, 'glm-5.2');
@@ -183,6 +231,7 @@ describe('Maka session driver', () => {
 
   test('renames the active session through runtime updateSession', async () => {
     const runtime = new RecordingRuntime();
+    runtime.updatedSessionName = 'Canonical title';
     const driver = createMakaSessionDriver({
       runtime,
       cwd: '/repo',
@@ -190,13 +239,16 @@ describe('Maka session driver', () => {
       model: 'claude-sonnet-4-5',
     });
 
-    await collect(driver.sendPrompt('run tests'));
-    await driver.renameSession('watcher 根目录事件风暴修复');
+    await collectPrompt(driver, 'run tests');
+    const renamed = await driver.renameSession('watcher 根目录事件风暴修复');
 
-    assert.deepEqual(runtime.sessionUpdates, [{
-      sessionId: 'session-1',
-      patch: { name: 'watcher 根目录事件风暴修复' },
-    }]);
+    assert.equal(renamed, 'Canonical title');
+    assert.deepEqual(runtime.sessionUpdates, [
+      {
+        sessionId: 'session-1',
+        patch: { name: 'watcher 根目录事件风暴修复' },
+      },
+    ]);
   });
 
   test('rejects rename before a session starts', async () => {
@@ -212,25 +264,124 @@ describe('Maka session driver', () => {
     assert.deepEqual(runtime.sessionUpdates, []);
   });
 
+  test('moves an active session, warns about dirty old cwd, and injects one replayable reminder', async () => {
+    const oldCwd = await mkdtemp(join(tmpdir(), 'maka-move-old-'));
+    const nextCwd = join(oldCwd, 'worktree-next');
+    await mkdir(nextCwd);
+    try {
+      const runtime = new RecordingRuntime();
+      const inspected: string[] = [];
+      const canonicalNextCwd = await realpath(nextCwd);
+      const driver = createMakaSessionDriver({
+        runtime,
+        cwd: oldCwd,
+        llmConnectionSlug: 'anthropic',
+        model: 'claude-sonnet-4-5',
+        inspectCwdChanges: async (cwd) => {
+          inspected.push(cwd);
+          return true;
+        },
+        newId: nextId('turn'),
+      });
+
+      await collectPrompt(driver, 'before move');
+      const result = await driver.moveSession!(nextCwd);
+      assert.deepEqual(result, {
+        previousCwd: oldCwd,
+        cwd: canonicalNextCwd,
+        changed: true,
+        oldCwdDirty: true,
+      });
+      assert.deepEqual(inspected, [oldCwd]);
+      assert.deepEqual(runtime.sessionUpdates.at(-1), {
+        sessionId: 'session-1',
+        patch: {
+          cwd: canonicalNextCwd,
+          pendingCwdReminder: { from: oldCwd, to: canonicalNextCwd },
+        },
+      });
+
+      await collectPrompt(driver, 'after move');
+      assert.match(
+        runtime.sent.at(-1)?.input.text ?? '',
+        new RegExp(`<system-reminder>.*${escapeRegExp(oldCwd)}.*${escapeRegExp(canonicalNextCwd)}`),
+      );
+      assert.equal(runtime.sent.at(-1)?.input.displayText, 'after move');
+
+      await collectPrompt(driver, 'later turn');
+      assert.equal(runtime.sent.at(-1)?.input.text, 'later turn');
+    } finally {
+      await rm(oldCwd, { recursive: true, force: true });
+    }
+  });
+
+  test('rejects empty, missing, and non-directory move targets before persistence', async () => {
+    const oldCwd = await mkdtemp(join(tmpdir(), 'maka-move-validate-'));
+    const file = join(oldCwd, 'file.txt');
+    const { writeFile } = await import('node:fs/promises');
+    await writeFile(file, 'file');
+    try {
+      const runtime = new RecordingRuntime();
+      const driver = createMakaSessionDriver({
+        runtime,
+        cwd: oldCwd,
+        llmConnectionSlug: 'anthropic',
+        model: 'claude-sonnet-4-5',
+      });
+      await collectPrompt(driver, 'start');
+      await assert.rejects(driver.moveSession!(''), /cannot be empty/);
+      await assert.rejects(driver.moveSession!(join(oldCwd, 'missing')), /does not exist/);
+      await assert.rejects(driver.moveSession!(file), /not a directory/);
+      assert.deepEqual(runtime.sessionUpdates, []);
+    } finally {
+      await rm(oldCwd, { recursive: true, force: true });
+    }
+  });
+
+  test('does not carry a pending cwd reminder into a new session', async () => {
+    const oldCwd = await mkdtemp(join(tmpdir(), 'maka-move-new-session-'));
+    const nextCwd = join(oldCwd, 'next');
+    await mkdir(nextCwd);
+    try {
+      const runtime = new RecordingRuntime();
+      const driver = createMakaSessionDriver({
+        runtime,
+        cwd: oldCwd,
+        llmConnectionSlug: 'anthropic',
+        model: 'claude-sonnet-4-5',
+        inspectCwdChanges: async () => false,
+      });
+      await collectPrompt(driver, 'first');
+      await driver.moveSession!(nextCwd);
+      driver.startNewSession();
+      await collectPrompt(driver, 'new session');
+      assert.equal(runtime.sent.at(-1)?.input.text, 'new session');
+    } finally {
+      await rm(oldCwd, { recursive: true, force: true });
+    }
+  });
+
   test('switches to an existing session for the next prompt', async () => {
     const repo = await mkdtemp(join(tmpdir(), 'maka-switch-cwd-'));
     try {
       const runtime = new RecordingRuntime();
-      runtime.sessionSummaries = [{
-        id: 'session-2',
-        cwd: repo,
-        name: 'Existing chat',
-        isFlagged: false,
-        isArchived: false,
-        labels: [],
-        hasUnread: false,
-        status: 'active',
-        backend: 'ai-sdk',
-        llmConnectionSlug: 'anthropic',
-        connectionLocked: false,
-        model: 'claude-opus-4-1',
-        permissionMode: 'execute',
-      }];
+      runtime.sessionSummaries = [
+        {
+          id: 'session-2',
+          cwd: repo,
+          name: 'Existing chat',
+          isFlagged: false,
+          isArchived: false,
+          labels: [],
+          hasUnread: false,
+          status: 'active',
+          backend: 'ai-sdk',
+          llmConnectionSlug: 'anthropic',
+          connectionLocked: false,
+          model: 'claude-opus-4-1',
+          permissionMode: 'execute',
+        },
+      ];
       runtime.sessionMessages.set('session-2', [
         storedUserMessage('user-1', 'turn-1', 'previous question'),
         storedAssistantMessage('assistant-1', 'turn-1', 'previous answer'),
@@ -243,14 +394,53 @@ describe('Maka session driver', () => {
       });
 
       const summary = await driver.switchSession('session-2');
-      await collect(driver.sendPrompt('continue'));
+      await collectPrompt(driver, 'continue');
 
       assert.equal(summary.summary.id, 'session-2');
-      assert.deepEqual(summary.messages.map((message) => message.id), ['user-1', 'assistant-1']);
+      assert.deepEqual(
+        summary.messages.map((message) => message.id),
+        ['user-1', 'assistant-1'],
+      );
       assert.deepEqual(runtime.created, []);
       assert.equal(runtime.sent[0]?.sessionId, 'session-2');
     } finally {
       await rm(repo, { recursive: true, force: true });
+    }
+  });
+
+  test('restores a persisted cwd reminder when resuming a moved session', async () => {
+    const oldCwd = await mkdtemp(join(tmpdir(), 'maka-move-persisted-old-'));
+    const nextCwd = join(oldCwd, 'worktree-next');
+    await mkdir(nextCwd);
+    try {
+      const runtime = new RecordingRuntime();
+      const canonicalNextCwd = await realpath(nextCwd);
+      runtime.sessionSummaries = [
+        {
+          ...sessionSummary({ id: 'session-2', cwd: canonicalNextCwd }),
+          pendingCwdReminder: { from: oldCwd, to: canonicalNextCwd },
+        },
+      ];
+      const driver = createMakaSessionDriver({
+        runtime,
+        cwd: oldCwd,
+        llmConnectionSlug: 'anthropic',
+        model: 'claude-sonnet-4-5',
+      });
+
+      await driver.switchSession('session-2');
+      await collectPrompt(driver, 'after restart');
+
+      assert.match(
+        runtime.sent.at(-1)?.input.text ?? '',
+        new RegExp(`<system-reminder>.*${escapeRegExp(oldCwd)}.*${escapeRegExp(canonicalNextCwd)}`),
+      );
+      assert.deepEqual(runtime.sessionUpdates.at(-1), {
+        sessionId: 'session-2',
+        patch: { pendingCwdReminder: undefined },
+      });
+    } finally {
+      await rm(oldCwd, { recursive: true, force: true });
     }
   });
 
@@ -265,14 +455,11 @@ describe('Maka session driver', () => {
         llmConnectionSlug: 'anthropic',
         model: 'claude-sonnet-4-5',
       });
-      await collect(driver.sendPrompt('hi'));
+      await collectPrompt(driver, 'hi');
 
-      await assert.rejects(
-        driver.switchSession('no-cwd'),
-        /Session has no working directory/,
-      );
+      await assert.rejects(driver.switchSession('no-cwd'), /Session has no working directory/);
 
-      await collect(driver.sendPrompt('again'));
+      await collectPrompt(driver, 'again');
       assert.equal(runtime.sent[0]?.sessionId, 'session-1');
       assert.equal(runtime.sent[1]?.sessionId, 'session-1');
     } finally {
@@ -316,11 +503,11 @@ describe('Maka session driver', () => {
         llmConnectionSlug: 'anthropic',
         model: 'claude-sonnet-4-5',
       });
-      await collect(driver.sendPrompt('hi'));
+      await collectPrompt(driver, 'hi');
 
       const resumed = await driver.switchSession('other-folder');
       driver.startNewSession();
-      await collect(driver.sendPrompt('new work here'));
+      await collectPrompt(driver, 'new work here');
 
       assert.equal(resumed.summary.cwd, elsewhere);
       assert.equal(runtime.sent[0]?.sessionId, 'session-1');
@@ -344,11 +531,11 @@ describe('Maka session driver', () => {
         llmConnectionSlug: 'anthropic',
         model: 'claude-sonnet-4-5',
       });
-      await collect(driver.sendPrompt('hi'));
+      await collectPrompt(driver, 'hi');
 
       await driver.switchSession('other-conn');
       driver.startNewSession();
-      await collect(driver.sendPrompt('new work here'));
+      await collectPrompt(driver, 'new work here');
 
       assert.equal(runtime.created[1]?.llmConnectionSlug, 'other-connection');
       assert.equal(runtime.created[1]?.model, 'claude-sonnet-4-5');
@@ -373,11 +560,10 @@ describe('Maka session driver', () => {
 
     const sessions = await driver.listSessions();
 
-    assert.deepEqual(sessions.map((session) => session.id), [
-      'cwd-newer',
-      'cwd-older',
-      'other-newer',
-    ]);
+    assert.deepEqual(
+      sessions.map((session) => session.id),
+      ['cwd-newer', 'cwd-older', 'other-newer'],
+    );
   });
 
   test('uses the default turn id generator when one is not injected', async () => {
@@ -389,7 +575,7 @@ describe('Maka session driver', () => {
       model: 'claude-sonnet-4-5',
     });
 
-    await collect(driver.sendPrompt('hi'));
+    await collectPrompt(driver, 'hi');
 
     assert.match(runtime.sent[0]?.input.turnId ?? '', /^[0-9a-f-]{36}$/);
   });
@@ -404,12 +590,20 @@ describe('Maka session driver', () => {
       newId: fixedIds('turn-1', 'turn-compact'),
     });
 
-    await collect(driver.sendPrompt('hello'));
+    await collectPrompt(driver, 'hello');
     const events = await collect(driver.compactSession());
 
-    assert.deepEqual(runtime.compacted, [{ sessionId: 'session-1', input: { turnId: 'turn-compact' } }]);
-    assert.deepEqual(runtime.sent.map((item) => item.input.text), ['hello']);
-    assert.deepEqual(events.map((event) => event.type), ['complete']);
+    assert.deepEqual(runtime.compacted, [
+      { sessionId: 'session-1', input: { turnId: 'turn-compact' } },
+    ]);
+    assert.deepEqual(
+      runtime.sent.map((item) => item.input.text),
+      ['hello'],
+    );
+    assert.deepEqual(
+      events.map((event) => event.type),
+      ['complete'],
+    );
   });
 
   test('plans and streams a safe-boundary resume for the active session', async () => {
@@ -422,12 +616,15 @@ describe('Maka session driver', () => {
       newId: fixedIds('turn-1'),
     });
 
-    await collect(driver.sendPrompt('hello'));
+    await collectPrompt(driver, 'hello');
     const events = await collect(driver.resumeLatest!());
 
     assert.deepEqual(runtime.resumePlanSessions, ['session-1']);
     assert.equal(runtime.resumedContinuations.length, 1);
-    assert.deepEqual(events.map((event) => event.type), ['text_complete', 'complete']);
+    assert.deepEqual(
+      events.map((event) => event.type),
+      ['text_complete', 'complete'],
+    );
   });
 
   test('routes permission responses to the active session', async () => {
@@ -440,21 +637,23 @@ describe('Maka session driver', () => {
       newId: nextId('turn'),
     });
 
-    await collect(driver.sendPrompt('run tests'));
+    await collectPrompt(driver, 'run tests');
     await driver.respondToPermission({
       requestId: 'permission-1',
       decision: 'allow',
       rememberForTurn: true,
     });
 
-    assert.deepEqual(runtime.permissionResponses, [{
-      sessionId: 'session-1',
-      response: {
-        requestId: 'permission-1',
-        decision: 'allow',
-        rememberForTurn: true,
+    assert.deepEqual(runtime.permissionResponses, [
+      {
+        sessionId: 'session-1',
+        response: {
+          requestId: 'permission-1',
+          decision: 'allow',
+          rememberForTurn: true,
+        },
       },
-    }]);
+    ]);
   });
 
   test('routes user-question responses to the active session', async () => {
@@ -467,13 +666,15 @@ describe('Maka session driver', () => {
       newId: nextId('turn'),
     });
 
-    await collect(driver.sendPrompt('choose'));
+    await collectPrompt(driver, 'choose');
     await driver.respondToUserQuestion?.({ requestId: 'question-1', answers: ['A', null] });
 
-    assert.deepEqual(runtime.userQuestionResponses, [{
-      sessionId: 'session-1',
-      response: { requestId: 'question-1', answers: ['A', null] },
-    }]);
+    assert.deepEqual(runtime.userQuestionResponses, [
+      {
+        sessionId: 'session-1',
+        response: { requestId: 'question-1', answers: ['A', null] },
+      },
+    ]);
   });
 
   test('lists rewind targets newest-first, one per prompted turn, including the latest', async () => {
@@ -484,7 +685,7 @@ describe('Maka session driver', () => {
       llmConnectionSlug: 'anthropic',
       model: 'claude-sonnet-4-5',
     });
-    await collect(driver.sendPrompt('first question'));
+    await collectPrompt(driver, 'first question');
     runtime.sessionMessages.set('session-1', [
       storedUserMessage('user-1', 'turn-1', '  first question\nmore detail'),
       storedAssistantMessage('assistant-1', 'turn-1', 'first answer'),
@@ -517,7 +718,7 @@ describe('Maka session driver', () => {
       llmConnectionSlug: 'anthropic',
       model: 'claude-sonnet-4-5',
     });
-    await collect(driver.sendPrompt('first question'));
+    await collectPrompt(driver, 'first question');
     runtime.sessionMessages.set('session-1', [
       storedUserMessage('user-1', 'turn-1', 'first question'),
       storedAssistantMessage('assistant-1', 'turn-1', 'first answer'),
@@ -539,7 +740,7 @@ describe('Maka session driver', () => {
       llmConnectionSlug: 'anthropic',
       model: 'claude-sonnet-4-5',
     });
-    await collect(driver.sendPrompt('first question'));
+    await collectPrompt(driver, 'first question');
     // A /compact turn has no user message, so it never becomes a target itself;
     // the prompted turns around it stay listed unchanged.
     runtime.sessionMessages.set('session-1', [
@@ -566,7 +767,7 @@ describe('Maka session driver', () => {
       llmConnectionSlug: 'anthropic',
       model: 'claude-sonnet-4-5',
     });
-    await collect(driver.sendPrompt('only question'));
+    await collectPrompt(driver, 'only question');
     runtime.sessionMessages.set('session-1', [
       storedUserMessage('user-1', 'turn-1', 'only question'),
       storedAssistantMessage('assistant-1', 'turn-1', 'only answer'),
@@ -588,7 +789,7 @@ describe('Maka session driver', () => {
     });
     assert.deepEqual(await driver.listRewindTargets(), []);
 
-    await collect(driver.sendPrompt('only question'));
+    await collectPrompt(driver, 'only question');
     runtime.sessionMessages.set('session-1', [
       storedUserMessage('user-1', 'turn-1', 'only question'),
       storedAssistantMessage('assistant-1', 'turn-1', 'only answer'),
@@ -622,7 +823,9 @@ describe('Maka session driver', () => {
 
       // Branches *before* turn-2 (dropping it), and returns turn-2's full prompt
       // — the whole text, not the one-line label — for the editor to refill.
-      assert.deepEqual(runtime.branchedBefore, [{ sessionId: 'session-1', sourceTurnId: 'turn-2' }]);
+      assert.deepEqual(runtime.branchedBefore, [
+        { sessionId: 'session-1', sourceTurnId: 'turn-2' },
+      ]);
       assert.deepEqual(runtime.branched, []);
       assert.equal(result.summary.id, 'session-1-branch');
       assert.equal(result.prompt, 'second question\nwith detail');
@@ -640,7 +843,7 @@ describe('Maka session driver', () => {
       llmConnectionSlug: 'anthropic',
       model: 'claude-sonnet-4-5',
     });
-    await collect(driver.sendPrompt('first question'));
+    await collectPrompt(driver, 'first question');
     runtime.sessionMessages.set('session-1', [
       storedUserMessage('user-1', 'turn-1', 'first question'),
       storedContextCompactedNote('note-1', 'turn-compact'),
@@ -671,18 +874,60 @@ describe('Maka session driver', () => {
       model: 'claude-sonnet-4-5',
     });
     await driver.setModel('claude-opus-4-1');
-    await collect(driver.sendPrompt('first'));
+    await collectPrompt(driver, 'first');
     assert.equal(driver.getSessionId(), 'session-1');
 
     driver.startNewSession();
     assert.equal(driver.getSessionId(), null);
 
-    await collect(driver.sendPrompt('second'));
+    await collectPrompt(driver, 'second');
     // A second createSession call — the prompt started a new session rather than
     // reusing the old one — and it kept the current model.
     assert.equal(runtime.created.length, 2);
     assert.equal(runtime.created[1]?.model, 'claude-opus-4-1');
-    assert.equal(runtime.created[1]?.name, 'second');
+    assert.equal(runtime.created[1]?.name, 'New Chat');
+  });
+
+  test('steer / queueMessage / takePendingFollowup / retractQueued delegate to the runtime', async () => {
+    const runtime = new RecordingRuntime();
+    const driver = createMakaSessionDriver({
+      runtime,
+      cwd: '/repo',
+      llmConnectionSlug: 'anthropic',
+      model: 'claude-sonnet-4-5',
+    });
+    await collectPrompt(driver, 'run tests');
+
+    runtime.steerOutcome = { kind: 'queued' };
+    assert.deepEqual(driver.steer?.('x'), { kind: 'queued' });
+    assert.deepEqual(runtime.steered, [{ sessionId: 'session-1', text: 'x' }]);
+
+    runtime.queueOutcome = { kind: 'queued' };
+    assert.deepEqual(driver.queueMessage?.('y'), { kind: 'queued' });
+    assert.deepEqual(runtime.queued, [{ sessionId: 'session-1', text: 'y' }]);
+
+    runtime.followupText = 'a\n\nb';
+    assert.equal(driver.takePendingFollowup?.(), 'a\n\nb');
+    assert.deepEqual(runtime.followupDrains, ['session-1']);
+
+    runtime.retractText = 'x\n\ny';
+    assert.equal(driver.retractQueued?.(), 'x\n\ny');
+    assert.deepEqual(runtime.retracted, ['session-1']);
+  });
+
+  test('steer / queueMessage fall back before any session exists', () => {
+    const runtime = new RecordingRuntime();
+    const driver = createMakaSessionDriver({
+      runtime,
+      cwd: '/repo',
+      llmConnectionSlug: 'anthropic',
+      model: 'claude-sonnet-4-5',
+    });
+    assert.deepEqual(driver.steer?.('x'), { kind: 'fallback' });
+    assert.deepEqual(driver.queueMessage?.('y'), { kind: 'fallback' });
+    assert.equal(driver.takePendingFollowup?.(), null);
+    assert.equal(driver.retractQueued?.(), '');
+    assert.deepEqual(runtime.steered, []);
   });
 });
 
@@ -695,11 +940,22 @@ class RecordingRuntime {
   readonly permissionResponses: Array<{ sessionId: string; response: PermissionResponse }> = [];
   readonly userQuestionResponses: Array<{ sessionId: string; response: UserQuestionResponse }> = [];
   readonly permissionModes: Array<{ sessionId: string; mode: PermissionMode }> = [];
-  readonly sessionUpdates: Array<{ sessionId: string; patch: { model?: string; llmConnectionSlug?: string; thinkingLevel?: import('@maka/core/model-thinking').ThinkingLevel | undefined; name?: string } }> = [];
+  readonly sessionUpdates: Array<{
+    sessionId: string;
+    patch: {
+      cwd?: string;
+      pendingCwdReminder?: SessionSummary['pendingCwdReminder'];
+      model?: string;
+      llmConnectionSlug?: string;
+      thinkingLevel?: import('@maka/core/model-thinking').ThinkingLevel | undefined;
+      name?: string;
+    };
+  }> = [];
   readonly branched: Array<{ sessionId: string; sourceTurnId: string }> = [];
   readonly branchedBefore: Array<{ sessionId: string; sourceTurnId: string }> = [];
   readonly sessionMessages = new Map<string, StoredMessage[]>();
   sessionSummaries: SessionSummary[] = [];
+  updatedSessionName = 'New Chat';
 
   async createSession(input: CreateSessionInput): Promise<SessionSummary> {
     this.created.push(input);
@@ -738,7 +994,10 @@ class RecordingRuntime {
     };
   }
 
-  async *compactSession(sessionId: string, input: { turnId?: string } = {}): AsyncIterable<SessionEvent> {
+  async *compactSession(
+    sessionId: string,
+    input: { turnId?: string } = {},
+  ): AsyncIterable<SessionEvent> {
     this.compacted.push({ sessionId, input });
     yield {
       type: 'complete',
@@ -757,7 +1016,11 @@ class RecordingRuntime {
       disposition: 'continue',
       rejectionReasons: [],
       diagnostics: [],
-      continuation: { sessionId, runId: 'resume-run', turnId: 'resume-turn' } as RuntimeContinuation,
+      continuation: {
+        sessionId,
+        runId: 'resume-run',
+        turnId: 'resume-turn',
+      } as RuntimeContinuation,
     };
   }
 
@@ -783,6 +1046,35 @@ class RecordingRuntime {
   }
 
   async stopSession(_sessionId: string): Promise<void> {}
+
+  readonly steered: Array<{ sessionId: string; text: string }> = [];
+  readonly queued: Array<{ sessionId: string; text: string }> = [];
+  readonly followupDrains: string[] = [];
+  readonly retracted: string[] = [];
+  steerOutcome: QueueEnqueueOutcome = { kind: 'queued' };
+  queueOutcome: QueueEnqueueOutcome = { kind: 'queued' };
+  followupText: string | null = null;
+  retractText = '';
+
+  steer(sessionId: string, text: string): QueueEnqueueOutcome {
+    this.steered.push({ sessionId, text });
+    return this.steerOutcome;
+  }
+
+  queueMessage(sessionId: string, text: string): QueueEnqueueOutcome {
+    this.queued.push({ sessionId, text });
+    return this.queueOutcome;
+  }
+
+  drainFollowup(sessionId: string): string | null {
+    this.followupDrains.push(sessionId);
+    return this.followupText;
+  }
+
+  retractQueue(sessionId: string): string {
+    this.retracted.push(sessionId);
+    return this.retractText;
+  }
 
   async respondToPermission(sessionId: string, response: PermissionResponse): Promise<void> {
     this.permissionResponses.push({ sessionId, response });
@@ -810,11 +1102,25 @@ class RecordingRuntime {
     };
   }
 
-  async updateSession(sessionId: string, patch: { model?: string; llmConnectionSlug?: string; thinkingLevel?: import('@maka/core/model-thinking').ThinkingLevel | undefined; name?: string }): Promise<SessionSummary> {
+  async updateSession(
+    sessionId: string,
+    patch: {
+      cwd?: string;
+      pendingCwdReminder?: SessionSummary['pendingCwdReminder'];
+      model?: string;
+      llmConnectionSlug?: string;
+      thinkingLevel?: import('@maka/core/model-thinking').ThinkingLevel | undefined;
+      name?: string;
+    },
+  ): Promise<SessionSummary> {
     this.sessionUpdates.push({ sessionId, patch });
     return {
       id: sessionId,
-      name: 'New Chat',
+      cwd: patch.cwd ?? '/repo',
+      ...(Object.hasOwn(patch, 'pendingCwdReminder')
+        ? { pendingCwdReminder: patch.pendingCwdReminder }
+        : {}),
+      name: this.updatedSessionName,
       isFlagged: false,
       isArchived: false,
       labels: [],
@@ -836,12 +1142,18 @@ class RecordingRuntime {
     return this.sessionMessages.get(sessionId) ?? [];
   }
 
-  async branchFromTurn(sessionId: string, input: { sourceTurnId: string; name?: string }): Promise<SessionSummary> {
+  async branchFromTurn(
+    sessionId: string,
+    input: { sourceTurnId: string; name?: string },
+  ): Promise<SessionSummary> {
     this.branched.push({ sessionId, sourceTurnId: input.sourceTurnId });
     return this.recordBranch(sessionId);
   }
 
-  async branchBeforeTurn(sessionId: string, input: { sourceTurnId: string; name?: string }): Promise<SessionSummary> {
+  async branchBeforeTurn(
+    sessionId: string,
+    input: { sourceTurnId: string; name?: string },
+  ): Promise<SessionSummary> {
     this.branchedBefore.push({ sessionId, sourceTurnId: input.sourceTurnId });
     return this.recordBranch(sessionId);
   }
@@ -919,7 +1231,11 @@ function storedContextCompactedNote(id: string, turnId: string): StoredMessage {
   };
 }
 
-function storedTurnState(id: string, turnId: string, status: 'completed' | 'aborted' | 'failed'): StoredMessage {
+function storedTurnState(
+  id: string,
+  turnId: string,
+  status: 'completed' | 'aborted' | 'failed',
+): StoredMessage {
   return {
     type: 'turn_state',
     id,
@@ -938,4 +1254,11 @@ async function collect<T>(iterable: AsyncIterable<T>): Promise<T[]> {
   const out: T[] = [];
   for await (const item of iterable) out.push(item);
   return out;
+}
+
+async function collectPrompt(
+  driver: ReturnType<typeof createMakaSessionDriver>,
+  prompt: string,
+): Promise<SessionEvent[]> {
+  return collect((await driver.preparePrompt(prompt)).events);
 }

@@ -10,7 +10,9 @@ export function filterPromptAbCandidateTasksByMetadata(
 ): PromptAbMetadataFilterResult {
   const maxExpertTimeEstimateMin = input.maxExpertTimeEstimateMin ?? 30;
   if (!Number.isFinite(maxExpertTimeEstimateMin) || maxExpertTimeEstimateMin <= 0) {
-    throw new Error(`maxExpertTimeEstimateMin must be positive (got ${String(maxExpertTimeEstimateMin)})`);
+    throw new Error(
+      `maxExpertTimeEstimateMin must be positive (got ${String(maxExpertTimeEstimateMin)})`,
+    );
   }
   const selectedTasks: FixedPromptTask[] = [];
   const longExpertEstimateTaskIds: string[] = [];

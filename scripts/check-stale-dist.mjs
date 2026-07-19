@@ -30,10 +30,23 @@ const pairs = [
   { pkg: '@maka/core', src: 'packages/core/src', dist: 'packages/core/dist' },
   { pkg: '@maka/storage', src: 'packages/storage/src', dist: 'packages/storage/dist' },
   { pkg: '@maka/runtime', src: 'packages/runtime/src', dist: 'packages/runtime/dist' },
+  {
+    pkg: '@maka/runtime-host',
+    src: 'packages/runtime-host/src',
+    dist: 'packages/runtime-host/dist',
+  },
   { pkg: '@maka/ui', src: 'packages/ui/src', dist: 'packages/ui/dist' },
   { pkg: '@maka/desktop:main', src: 'apps/desktop/src/main', dist: 'apps/desktop/dist/main' },
-  { pkg: '@maka/desktop:preload', src: 'apps/desktop/src/preload', dist: 'apps/desktop/dist/preload' },
-  { pkg: '@maka/desktop:renderer', src: 'apps/desktop/src/renderer', dist: 'apps/desktop/dist-renderer' },
+  {
+    pkg: '@maka/desktop:preload',
+    src: 'apps/desktop/src/preload',
+    dist: 'apps/desktop/dist/preload',
+  },
+  {
+    pkg: '@maka/desktop:renderer',
+    src: 'apps/desktop/src/renderer',
+    dist: 'apps/desktop/dist-renderer',
+  },
 ];
 
 function walkMaxMtime(dir, predicate) {
@@ -70,11 +83,7 @@ for (const pair of pairs) {
   const srcMax = walkMaxMtime(srcDir, (n) => n.endsWith('.ts') || n.endsWith('.tsx'));
   const distMax = walkMaxMtime(
     distDir,
-    (n) =>
-      n.endsWith('.js') ||
-      n.endsWith('.mjs') ||
-      n.endsWith('.cjs') ||
-      n === 'index.html',
+    (n) => n.endsWith('.js') || n.endsWith('.mjs') || n.endsWith('.cjs') || n === 'index.html',
   );
   if (srcMax > distMax) {
     stale.push({

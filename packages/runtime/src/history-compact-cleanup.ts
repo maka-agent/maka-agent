@@ -61,11 +61,15 @@ export async function cleanupLegacyHistoryCompactArtifacts(
 async function runLegacyHistoryCompactCleanup(
   input: HistoryCompactCleanupInput,
 ): Promise<HistoryCompactCleanupResult> {
-  const records = (await input.artifactStore.list(input.sessionId, { includeDeleted: true }))
-    .filter((record) =>
-      record.source === 'history_compact_block' || record.source === 'history_compact_source');
-  const compactableEvents = input.runtimeEvents.filter((event) =>
-    estimateRuntimeEventsTokens([event], 4) > 0);
+  const records = (
+    await input.artifactStore.list(input.sessionId, { includeDeleted: true })
+  ).filter(
+    (record) =>
+      record.source === 'history_compact_block' || record.source === 'history_compact_source',
+  );
+  const compactableEvents = input.runtimeEvents.filter(
+    (event) => estimateRuntimeEventsTokens([event], 4) > 0,
+  );
   const checkpointMatch = matchHistoryCompactCheckpointPrefix(input.checkpoint, compactableEvents);
   if (checkpointMatch.reason) {
     return reportCleanupResult(input.onDiagnostic, {
@@ -184,32 +188,46 @@ function matchLegacyBlockPrefix(
     coveredEvents.push(event);
   }
   if (coveredEvents.length === 0 || coveredEvents.length !== coverageIds.size) return undefined;
-  if (!sameStrings(block.coverage.runtimeEventIds, uniqueSorted(coveredEvents.map((event) => event.id)))) {
+  if (
+    !sameStrings(
+      block.coverage.runtimeEventIds,
+      uniqueSorted(coveredEvents.map((event) => event.id)),
+    )
+  ) {
     return undefined;
   }
-  if (!sameStrings(block.coverage.turnIds, uniqueSorted(coveredEvents.map((event) => event.turnId)))) {
+  if (
+    !sameStrings(block.coverage.turnIds, uniqueSorted(coveredEvents.map((event) => event.turnId)))
+  ) {
     return undefined;
   }
-  if (!sameStrings(
-    block.coverage.contentKinds,
-    uniqueSorted(coveredEvents.map((event) => event.content?.kind ?? 'none')),
-  )) return undefined;
-  if (!sameStrings(
-    block.coverage.bodySha256,
-    uniqueSorted(coveredEvents.map((event) => sha256(stableStringify(event.content ?? {})))),
-  )) return undefined;
+  if (
+    !sameStrings(
+      block.coverage.contentKinds,
+      uniqueSorted(coveredEvents.map((event) => event.content?.kind ?? 'none')),
+    )
+  )
+    return undefined;
+  if (
+    !sameStrings(
+      block.coverage.bodySha256,
+      uniqueSorted(coveredEvents.map((event) => sha256(stableStringify(event.content ?? {})))),
+    )
+  )
+    return undefined;
   if (block.sourceRefs.length !== coveredEvents.length) return undefined;
   for (let index = 0; index < coveredEvents.length; index += 1) {
     const event = coveredEvents[index]!;
     const ref = block.sourceRefs[index];
     if (
-      ref?.kind !== 'runtime_event'
-      || ref.sessionId !== event.sessionId
-      || ref.turnId !== event.turnId
-      || ref.runtimeEventId !== event.id
-      || ref.role !== event.role
-      || ref.contentKind !== (event.content?.kind ?? 'none')
-    ) return undefined;
+      ref?.kind !== 'runtime_event' ||
+      ref.sessionId !== event.sessionId ||
+      ref.turnId !== event.turnId ||
+      ref.runtimeEventId !== event.id ||
+      ref.role !== event.role ||
+      ref.contentKind !== (event.content?.kind ?? 'none')
+    )
+      return undefined;
   }
   return coveredEvents;
 }
@@ -220,17 +238,24 @@ async function validateLinkedSourceArtifacts(input: {
   recordsById: ReadonlyMap<string, ArtifactRecord>;
   artifactStore: Pick<HistoryCompactArtifactStore, 'readText'>;
 }): Promise<
-  | { ok: true; artifactIds: string[] }
-  | { ok: false; reason: string; linkedArtifactIds: string[] }
+  { ok: true; artifactIds: string[] } | { ok: false; reason: string; linkedArtifactIds: string[] }
 > {
   const refs = input.block.sourceArchiveRefs;
   if (!refs || refs.length !== input.coveredEvents.length) {
-    return { ok: false, reason: 'source_links_missing', linkedArtifactIds: refs?.map((ref) => ref.artifactId) ?? [] };
+    return {
+      ok: false,
+      reason: 'source_links_missing',
+      linkedArtifactIds: refs?.map((ref) => ref.artifactId) ?? [],
+    };
   }
   const refsByEventId = new Map<string, HistoryCompactSourceArchiveRef>();
   for (const ref of refs) {
     if (refsByEventId.has(ref.runtimeEventId)) {
-      return { ok: false, reason: 'source_links_duplicate', linkedArtifactIds: refs.map((item) => item.artifactId) };
+      return {
+        ok: false,
+        reason: 'source_links_duplicate',
+        linkedArtifactIds: refs.map((item) => item.artifactId),
+      };
     }
     refsByEventId.set(ref.runtimeEventId, ref);
   }
@@ -242,34 +267,50 @@ async function validateLinkedSourceArtifacts(input: {
     }
     const record = input.recordsById.get(ref.artifactId);
     if (
-      !record
-      || record.sessionId !== event.sessionId
-      || record.source !== 'history_compact_source'
-      || record.kind !== 'file'
+      !record ||
+      record.sessionId !== event.sessionId ||
+      record.source !== 'history_compact_source' ||
+      record.kind !== 'file'
     ) {
-      return { ok: false, reason: 'source_ownership_mismatch', linkedArtifactIds: [...artifactIds, ref.artifactId] };
+      return {
+        ok: false,
+        reason: 'source_ownership_mismatch',
+        linkedArtifactIds: [...artifactIds, ref.artifactId],
+      };
     }
     const read = await input.artifactStore.readText(record.id, {
       maxBytes: record.sizeBytes,
       includeDeleted: true,
     });
     if (!read.ok) {
-      return { ok: false, reason: `source_${read.reason}`, linkedArtifactIds: [...artifactIds, record.id] };
+      return {
+        ok: false,
+        reason: `source_${read.reason}`,
+        linkedArtifactIds: [...artifactIds, record.id],
+      };
     }
     let archivedEvent: unknown;
     try {
       archivedEvent = JSON.parse(read.text) as unknown;
     } catch {
-      return { ok: false, reason: 'source_invalid_json', linkedArtifactIds: [...artifactIds, record.id] };
+      return {
+        ok: false,
+        reason: 'source_invalid_json',
+        linkedArtifactIds: [...artifactIds, record.id],
+      };
     }
     const body = serializeSourceBody(event.content ?? {});
     if (
-      stableStringify(archivedEvent) !== stableStringify(event)
-      || ref.runtimeEventId !== event.id
-      || ref.bodySha256 !== sha256(body)
-      || ref.originalBytes !== Buffer.byteLength(body, 'utf8')
+      stableStringify(archivedEvent) !== stableStringify(event) ||
+      ref.runtimeEventId !== event.id ||
+      ref.bodySha256 !== sha256(body) ||
+      ref.originalBytes !== Buffer.byteLength(body, 'utf8')
     ) {
-      return { ok: false, reason: 'source_content_mismatch', linkedArtifactIds: [...artifactIds, record.id] };
+      return {
+        ok: false,
+        reason: 'source_content_mismatch',
+        linkedArtifactIds: [...artifactIds, record.id],
+      };
     }
     artifactIds.push(record.id);
   }

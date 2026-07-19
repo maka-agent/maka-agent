@@ -32,9 +32,15 @@ describe('mid-turn history compact checkpoint', () => {
     assert.deepEqual(checkpoint.headAnchor, { runtimeEventId: 'anchor', turnId: 'turn-1' });
     assert.equal(validateHistoryCompactCheckpointShape(checkpoint, 'session-1'), true);
     // Coverage remains a contiguous prefix whose digest matches the raw events.
-    const match = matchHistoryCompactCheckpointPrefix(checkpoint, [...events, textEvent('tail', 'turn-1', 'model')]);
+    const match = matchHistoryCompactCheckpointPrefix(checkpoint, [
+      ...events,
+      textEvent('tail', 'turn-1', 'model'),
+    ]);
     assert.equal(match.coveredEventCount, 4);
-    assert.deepEqual(match.successorRuntimeEvents.map((event) => event.id), ['tail']);
+    assert.deepEqual(
+      match.successorRuntimeEvents.map((event) => event.id),
+      ['tail'],
+    );
 
     const anchor = midTurnHeadAnchorEvent(checkpoint, match.coveredRuntimeEvents);
     assert.equal(anchor?.id, 'anchor');
@@ -43,41 +49,68 @@ describe('mid-turn history compact checkpoint', () => {
       match.coveredRuntimeEvents,
       match.successorRuntimeEvents,
     );
-    assert.deepEqual(projected.map((event) => event.id), [
-      `history-compact:${checkpoint.checkpointId}`,
-      'anchor',
-      'tail',
-    ]);
+    assert.deepEqual(
+      projected.map((event) => event.id),
+      [`history-compact:${checkpoint.checkpointId}`, 'anchor', 'tail'],
+    );
     // Head anchor is byte-identical to the covered raw event.
     assert.deepEqual(projected[1], events[2]);
   });
 
   test('rejects a mid_turn checkpoint without a covered head anchor', () => {
     const events = [textEvent('a', 'turn-1', 'user'), textEvent('b', 'turn-1', 'model')];
-    assert.throws(() => buildHistoryCompactCheckpoint({
-      sessionId: 'session-1', coveredRuntimeEvents: events, summary: 'x', phase: 'mid_turn',
-    }), /requires a head anchor/);
-    assert.throws(() => buildHistoryCompactCheckpoint({
-      sessionId: 'session-1', coveredRuntimeEvents: events, summary: 'x', phase: 'mid_turn',
-      headAnchor: { runtimeEventId: 'missing', turnId: 'turn-1' },
-    }), /must be a covered RuntimeEvent/);
+    assert.throws(
+      () =>
+        buildHistoryCompactCheckpoint({
+          sessionId: 'session-1',
+          coveredRuntimeEvents: events,
+          summary: 'x',
+          phase: 'mid_turn',
+        }),
+      /requires a head anchor/,
+    );
+    assert.throws(
+      () =>
+        buildHistoryCompactCheckpoint({
+          sessionId: 'session-1',
+          coveredRuntimeEvents: events,
+          summary: 'x',
+          phase: 'mid_turn',
+          headAnchor: { runtimeEventId: 'missing', turnId: 'turn-1' },
+        }),
+      /must be a covered RuntimeEvent/,
+    );
   });
 
-  test('rejects a head anchor that is not the compacted turn\'s user event', () => {
+  test("rejects a head anchor that is not the compacted turn's user event", () => {
     const events = [textEvent('a', 'turn-1', 'user'), textEvent('b', 'turn-1', 'model')];
     // Anchor turnId disagrees with the covered event.
-    assert.throws(() => buildHistoryCompactCheckpoint({
-      sessionId: 'session-1', coveredRuntimeEvents: events, summary: 'x', phase: 'mid_turn',
-      headAnchor: { runtimeEventId: 'a', turnId: 'turn-9' },
-    }), /must be the compacted turn's user event/);
+    assert.throws(
+      () =>
+        buildHistoryCompactCheckpoint({
+          sessionId: 'session-1',
+          coveredRuntimeEvents: events,
+          summary: 'x',
+          phase: 'mid_turn',
+          headAnchor: { runtimeEventId: 'a', turnId: 'turn-9' },
+        }),
+      /must be the compacted turn's user event/,
+    );
     // Anchor references a model event, not the turn's user message.
-    assert.throws(() => buildHistoryCompactCheckpoint({
-      sessionId: 'session-1', coveredRuntimeEvents: events, summary: 'x', phase: 'mid_turn',
-      headAnchor: { runtimeEventId: 'b', turnId: 'turn-1' },
-    }), /must be the compacted turn's user event/);
+    assert.throws(
+      () =>
+        buildHistoryCompactCheckpoint({
+          sessionId: 'session-1',
+          coveredRuntimeEvents: events,
+          summary: 'x',
+          phase: 'mid_turn',
+          headAnchor: { runtimeEventId: 'b', turnId: 'turn-1' },
+        }),
+      /must be the compacted turn's user event/,
+    );
   });
 
-  test('rejects a head anchor pointing at another covered turn\'s user event', () => {
+  test("rejects a head anchor pointing at another covered turn's user event", () => {
     // A self-consistent anchor (role user, matching self-reported turnId) that
     // resolves to a PRIOR turn's prompt would silently drop the real current
     // prompt from the replay — the compacted turn is the last covered event's
@@ -88,22 +121,35 @@ describe('mid-turn history compact checkpoint', () => {
       textEvent('anchor', 'turn-1', 'user'),
       textEvent('step-model', 'turn-1', 'model'),
     ];
-    assert.throws(() => buildHistoryCompactCheckpoint({
-      sessionId: 'session-1', coveredRuntimeEvents: events, summary: 'x', phase: 'mid_turn',
-      headAnchor: { runtimeEventId: 'prior-user', turnId: 'turn-0' },
-    }), /must be the compacted turn's user event/);
+    assert.throws(
+      () =>
+        buildHistoryCompactCheckpoint({
+          sessionId: 'session-1',
+          coveredRuntimeEvents: events,
+          summary: 'x',
+          phase: 'mid_turn',
+          headAnchor: { runtimeEventId: 'prior-user', turnId: 'turn-0' },
+        }),
+      /must be the compacted turn's user event/,
+    );
 
     // Matcher: a persisted checkpoint whose anchor was tampered to the prior
     // turn's user event must fail closed as coverage_miss.
     const checkpoint = buildHistoryCompactCheckpoint({
-      sessionId: 'session-1', coveredRuntimeEvents: events, summary: 'mid turn summary',
-      phase: 'mid_turn', headAnchor: { runtimeEventId: 'anchor', turnId: 'turn-1' },
+      sessionId: 'session-1',
+      coveredRuntimeEvents: events,
+      summary: 'mid turn summary',
+      phase: 'mid_turn',
+      headAnchor: { runtimeEventId: 'anchor', turnId: 'turn-1' },
     });
     const priorUserAnchor = {
       ...checkpoint,
       headAnchor: { runtimeEventId: 'prior-user', turnId: 'turn-0' },
     };
-    assert.equal(matchHistoryCompactCheckpointPrefix(priorUserAnchor, events).reason, 'coverage_miss');
+    assert.equal(
+      matchHistoryCompactCheckpointPrefix(priorUserAnchor, events).reason,
+      'coverage_miss',
+    );
     assert.equal(matchHistoryCompactCheckpointPrefix(checkpoint, events).reason, undefined);
   });
 
@@ -113,10 +159,17 @@ describe('mid-turn history compact checkpoint', () => {
       { ...textEvent('b-partial', 'turn-1', 'model'), partial: true },
       textEvent('c', 'turn-1', 'model'),
     ];
-    assert.throws(() => buildHistoryCompactCheckpoint({
-      sessionId: 'session-1', coveredRuntimeEvents: events, summary: 'x', phase: 'mid_turn',
-      headAnchor: { runtimeEventId: 'a', turnId: 'turn-1' },
-    }), /must not include partial events/);
+    assert.throws(
+      () =>
+        buildHistoryCompactCheckpoint({
+          sessionId: 'session-1',
+          coveredRuntimeEvents: events,
+          summary: 'x',
+          phase: 'mid_turn',
+          headAnchor: { runtimeEventId: 'a', turnId: 'turn-1' },
+        }),
+      /must not include partial events/,
+    );
   });
 
   test('fails the prefix match closed when the head anchor reference is corrupted', () => {
@@ -139,7 +192,10 @@ describe('mid-turn history compact checkpoint', () => {
       ...checkpoint,
       headAnchor: { runtimeEventId: 'tail', turnId: 'turn-1' },
     };
-    assert.equal(matchHistoryCompactCheckpointPrefix(missingAnchor, events).reason, 'coverage_miss');
+    assert.equal(
+      matchHistoryCompactCheckpointPrefix(missingAnchor, events).reason,
+      'coverage_miss',
+    );
 
     // Anchor resolving to a covered non-user event fails the same way.
     const modelAnchor = {
@@ -153,7 +209,10 @@ describe('mid-turn history compact checkpoint', () => {
       ...checkpoint,
       headAnchor: { runtimeEventId: 'anchor', turnId: 'turn-9' },
     };
-    assert.equal(matchHistoryCompactCheckpointPrefix(wrongTurnAnchor, events).reason, 'coverage_miss');
+    assert.equal(
+      matchHistoryCompactCheckpointPrefix(wrongTurnAnchor, events).reason,
+      'coverage_miss',
+    );
 
     // The intact checkpoint still matches.
     assert.equal(matchHistoryCompactCheckpointPrefix(checkpoint, events).reason, undefined);
@@ -162,17 +221,28 @@ describe('mid-turn history compact checkpoint', () => {
   test('keeps pre_turn checkpoint ids stable when phase is absent or explicit', () => {
     const events = [textEvent('a', 'turn-0', 'user'), textEvent('b', 'turn-0', 'model')];
     const implicit = buildHistoryCompactCheckpoint({
-      sessionId: 'session-1', coveredRuntimeEvents: events, summary: 'same', now: 5,
+      sessionId: 'session-1',
+      coveredRuntimeEvents: events,
+      summary: 'same',
+      now: 5,
     });
     const explicit = buildHistoryCompactCheckpoint({
-      sessionId: 'session-1', coveredRuntimeEvents: events, summary: 'same', phase: 'pre_turn', now: 5,
+      sessionId: 'session-1',
+      coveredRuntimeEvents: events,
+      summary: 'same',
+      phase: 'pre_turn',
+      now: 5,
     });
     assert.equal(implicit.phase, undefined);
     assert.equal(explicit.checkpointId, implicit.checkpointId);
     // A mid_turn checkpoint over the same coverage is a distinct id.
     const mid = buildHistoryCompactCheckpoint({
-      sessionId: 'session-1', coveredRuntimeEvents: events, summary: 'same', now: 5,
-      phase: 'mid_turn', headAnchor: { runtimeEventId: 'a', turnId: 'turn-0' },
+      sessionId: 'session-1',
+      coveredRuntimeEvents: events,
+      summary: 'same',
+      now: 5,
+      phase: 'mid_turn',
+      headAnchor: { runtimeEventId: 'a', turnId: 'turn-0' },
     });
     assert.notEqual(mid.checkpointId, implicit.checkpointId);
   });
@@ -203,18 +273,22 @@ describe('mid-turn history compact checkpoint', () => {
     });
 
     assert.equal(replay.checkpoint?.checkpointId, checkpoint.checkpointId);
-    assert.deepEqual(replay.events.map((event) => event.id), [
-      `history-compact:${checkpoint.checkpointId}`,
-      'anchor',
-      'step-tool',
-    ]);
+    assert.deepEqual(
+      replay.events.map((event) => event.id),
+      [`history-compact:${checkpoint.checkpointId}`, 'anchor', 'step-tool'],
+    );
     // The head anchor renders verbatim and is not duplicated in the tail.
     const anchorCount = replay.events.filter((event) => event.id === 'anchor').length;
     assert.equal(anchorCount, 1);
   });
 });
 
-function textEvent(id: string, turnId: string, role: 'user' | 'model', text = `payload-${id}`): RuntimeEvent {
+function textEvent(
+  id: string,
+  turnId: string,
+  role: 'user' | 'model',
+  text = `payload-${id}`,
+): RuntimeEvent {
   return {
     id,
     sessionId: 'session-1',

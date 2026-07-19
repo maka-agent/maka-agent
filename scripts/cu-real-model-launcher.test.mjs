@@ -12,14 +12,8 @@ import {
   waitForTraceFlush,
 } from './cu-real-model-launcher.mjs';
 
-const launcher = await readFile(
-  new URL('./cu-real-model-launcher.mjs', import.meta.url),
-  'utf8',
-);
-const main = await readFile(
-  new URL('../apps/desktop/src/main/main.ts', import.meta.url),
-  'utf8',
-);
+const launcher = await readFile(new URL('./cu-real-model-launcher.mjs', import.meta.url), 'utf8');
+const main = await readFile(new URL('../apps/desktop/src/main/main.ts', import.meta.url), 'utf8');
 
 test('real-model launcher uses an isolated profile and the production Desktop IPC path', () => {
   assert.match(launcher, /mkdtemp\(join\(tmpdir\(\), 'maka-cu-real-model-'\)\)/);
@@ -76,12 +70,15 @@ test('real-model launcher owns a synthetic fixture and emits only sanitized evid
 });
 
 test('launcher ownership verdict matches matrix exemptions for targetless actions', () => {
-  assert.equal(allActionTargetsOwned([
-    { type: 'list_apps', targetOwned: false },
-    { type: 'wait', targetOwned: false },
-    { type: 'cursor_position', targetOwned: false },
-    { type: 'observe', targetOwned: true },
-  ]), true);
+  assert.equal(
+    allActionTargetsOwned([
+      { type: 'list_apps', targetOwned: false },
+      { type: 'wait', targetOwned: false },
+      { type: 'cursor_position', targetOwned: false },
+      { type: 'observe', targetOwned: true },
+    ]),
+    true,
+  );
 });
 
 test('Desktop isolation gate does not enable FakeBackend', () => {
@@ -94,48 +91,56 @@ test('Desktop isolation gate does not enable FakeBackend', () => {
 });
 
 test('fixture identity is discovered independently and a wrong action window cannot join it', async () => {
-  const fixtureIdentity = await discoverFixtureIdentity(
-    4242,
-    [{ title: 'Fixture Target' }],
-    {
-      listApps: async () => [{
+  const fixtureIdentity = await discoverFixtureIdentity(4242, [{ title: 'Fixture Target' }], {
+    listApps: async () => [
+      {
         pid: 4242,
         windows: [
           { title: 'Fixture Target', windowId: 7 },
           { title: 'Wrong Window', windowId: 99 },
         ],
-      }],
-      timeoutMs: 50,
-      pollIntervalMs: 1,
+      },
+    ],
+    timeoutMs: 50,
+    pollIntervalMs: 1,
+  });
+  const actions = [
+    {
+      type: 'observe',
+      toolCallId: 'observe-wrong',
+      resultObservationId: 'wrong-observation',
+      targetPid: 4242,
+      targetWindowId: 99,
+      success: true,
     },
+    {
+      type: 'click_element',
+      toolCallId: 'click-wrong',
+      sourceObservationId: 'wrong-observation',
+      success: true,
+    },
+    {
+      type: 'click_element',
+      toolCallId: 'click-result-only',
+      targetPid: 4242,
+      targetWindowId: 7,
+      success: true,
+    },
+  ];
+  const bound = bindActionTargets(
+    actions,
+    [
+      {
+        type: 'dispatch',
+        toolCallId: 'click-wrong',
+        actionType: 'click_element',
+        pid: 4242,
+        windowId: 99,
+        address: 'ax',
+      },
+    ],
+    fixtureIdentity,
   );
-  const actions = [{
-    type: 'observe',
-    toolCallId: 'observe-wrong',
-    resultObservationId: 'wrong-observation',
-    targetPid: 4242,
-    targetWindowId: 99,
-    success: true,
-  }, {
-    type: 'click_element',
-    toolCallId: 'click-wrong',
-    sourceObservationId: 'wrong-observation',
-    success: true,
-  }, {
-    type: 'click_element',
-    toolCallId: 'click-result-only',
-    targetPid: 4242,
-    targetWindowId: 7,
-    success: true,
-  }];
-  const bound = bindActionTargets(actions, [{
-    type: 'dispatch',
-    toolCallId: 'click-wrong',
-    actionType: 'click_element',
-    pid: 4242,
-    windowId: 99,
-    address: 'ax',
-  }], fixtureIdentity);
 
   assert.deepEqual(fixtureIdentity, {
     instances: [{ pid: 4242, windowIds: [7] }],
@@ -148,31 +153,32 @@ test('fixture identity is discovered independently and a wrong action window can
 });
 
 test('screenshot without observation_id still contributes PID/window ownership evidence', () => {
-  const records = actionRecords([{
-    type: 'tool_start',
-    toolName: 'maka_computer',
-    toolUseId: 'screenshot-1',
-    args: { action: 'screenshot', app: 'Fixture Target' },
-  }, {
-    type: 'tool_result',
-    toolUseId: 'screenshot-1',
-    content: {
-      kind: 'text',
-      text: JSON.stringify({
-        app_id: 'pid:4242',
-        pid: 4242,
-        window_id: 7,
-        screenshot: { mime_type: 'image/png', width_px: 800, height_px: 600 },
-      }),
+  const records = actionRecords([
+    {
+      type: 'tool_start',
+      toolName: 'maka_computer',
+      toolUseId: 'screenshot-1',
+      args: { action: 'screenshot', app: 'Fixture Target' },
     },
-    durationMs: 12,
-    isError: false,
-  }]);
-  const [screenshot] = bindActionTargets(
-    records,
-    [],
-    { instances: [{ pid: 4242, windowIds: [7] }] },
-  );
+    {
+      type: 'tool_result',
+      toolUseId: 'screenshot-1',
+      content: {
+        kind: 'text',
+        text: JSON.stringify({
+          app_id: 'pid:4242',
+          pid: 4242,
+          window_id: 7,
+          screenshot: { mime_type: 'image/png', width_px: 800, height_px: 600 },
+        }),
+      },
+      durationMs: 12,
+      isError: false,
+    },
+  ]);
+  const [screenshot] = bindActionTargets(records, [], {
+    instances: [{ pid: 4242, windowIds: [7] }],
+  });
 
   assert.equal(records[0].resultObservationId, undefined);
   assert.equal(screenshot.targetPid, 4242);
@@ -182,35 +188,40 @@ test('screenshot without observation_id still contributes PID/window ownership e
 });
 
 test('policy rejection remains canonical action-attempt evidence', () => {
-  const records = actionRecords([{
-    type: 'tool_start',
-    toolName: 'maka_computer',
-    toolUseId: 'disallowed-1',
-    args: { action: 'left_click', observation_id: 'owned-observation' },
-  }, {
-    type: 'tool_result',
-    toolUseId: 'disallowed-1',
-    content: {
-      kind: 'text',
-      text: 'maka_computer.left_click failed: unsupported_action_policy',
+  const records = actionRecords([
+    {
+      type: 'tool_start',
+      toolName: 'maka_computer',
+      toolUseId: 'disallowed-1',
+      args: { action: 'left_click', observation_id: 'owned-observation' },
     },
-    durationMs: 1,
-    isError: true,
-  }, {
-    type: 'tool_start',
-    toolName: 'maka_computer',
-    toolUseId: 'budget-1',
-    args: { action: 'observe', app: 'Fixture Target' },
-  }, {
-    type: 'tool_result',
-    toolUseId: 'budget-1',
-    content: {
-      kind: 'text',
-      text: 'maka_computer failed: total_action_budget_exceeded',
+    {
+      type: 'tool_result',
+      toolUseId: 'disallowed-1',
+      content: {
+        kind: 'text',
+        text: 'maka_computer.left_click failed: unsupported_action_policy',
+      },
+      durationMs: 1,
+      isError: true,
     },
-    durationMs: 1,
-    isError: true,
-  }]);
+    {
+      type: 'tool_start',
+      toolName: 'maka_computer',
+      toolUseId: 'budget-1',
+      args: { action: 'observe', app: 'Fixture Target' },
+    },
+    {
+      type: 'tool_result',
+      toolUseId: 'budget-1',
+      content: {
+        kind: 'text',
+        text: 'maka_computer failed: total_action_budget_exceeded',
+      },
+      durationMs: 1,
+      isError: true,
+    },
+  ]);
 
   assert.deepEqual(
     records.map(({ type, success, resultCode }) => ({ type, success, resultCode })),
@@ -236,15 +247,11 @@ test('fixture READY identity and window discovery fail closed', async () => {
     /does not match launcher child pid/,
   );
   await assert.rejects(
-    discoverFixtureIdentity(
-      4242,
-      [{ title: 'Fixture Target' }],
-      {
-        listApps: async () => [{ pid: 4242, windows: [] }],
-        timeoutMs: 5,
-        pollIntervalMs: 1,
-      },
-    ),
+    discoverFixtureIdentity(4242, [{ title: 'Fixture Target' }], {
+      listApps: async () => [{ pid: 4242, windows: [] }],
+      timeoutMs: 5,
+      pollIntervalMs: 1,
+    }),
     /fixture identity discovery failed/,
   );
 });
@@ -253,17 +260,23 @@ test('trace flush waits for every corresponding dispatch tool call', async () =>
   const directory = await mkdtemp(join(tmpdir(), 'maka-cu-trace-test-'));
   const path = join(directory, 'trace.jsonl');
   try {
-    await writeFile(path, `${JSON.stringify({
-      type: 'dispatch',
-      toolCallId: 'first',
-    })}\n`);
+    await writeFile(
+      path,
+      `${JSON.stringify({
+        type: 'dispatch',
+        toolCallId: 'first',
+      })}\n`,
+    );
     const pending = waitForTraceFlush(path, ['first', 'second'], 500);
     setTimeout(() => {
-      void writeFile(path, [
-        JSON.stringify({ type: 'dispatch', toolCallId: 'first' }),
-        JSON.stringify({ type: 'dispatch', toolCallId: 'second' }),
-        '',
-      ].join('\n'));
+      void writeFile(
+        path,
+        [
+          JSON.stringify({ type: 'dispatch', toolCallId: 'first' }),
+          JSON.stringify({ type: 'dispatch', toolCallId: 'second' }),
+          '',
+        ].join('\n'),
+      );
     }, 30);
     const traces = await pending;
     assert.deepEqual(

@@ -22,10 +22,13 @@ import {
   ModelContinuingIndicator,
   ModelProcessingIndicator,
   TurnView,
+  type ReadAttachmentBytes,
   type TurnFooterActionMeta,
   type TurnLineageBadge,
 } from './chat-turn.js';
 import { useChatScroll } from './use-chat-scroll.js';
+import { useUiLocale } from './locale-context.js';
+import { getConversationCopy } from './conversation-copy.js';
 
 export function ChatView(props: {
   messages: StoredMessage[];
@@ -142,9 +145,19 @@ export function ChatView(props: {
     fromAbortedTurn?: boolean;
   };
   onBranchBannerClick?: (parentSessionId: string) => void;
+  /**
+   * Host reader for image attachment bytes, threaded to each turn's user-message
+   * thumbnails. The desktop shell passes its preload `attachments.readBytes`;
+   * non-desktop hosts omit it and image thumbnails stay in their pending
+   * skeleton. Keeps @maka/ui host-agnostic with no direct host-global access.
+   * Pass an identity-stable reference so the memoized TurnViews keep skipping
+   * reconciliation on the hot streaming path.
+   */
+  onReadAttachmentBytes?: ReadAttachmentBytes;
   onNew(): void;
   onPromptSuggestion?(prompt: string): void;
 }) {
+  const copy = getConversationCopy(useUiLocale()).chat;
   // chat + storedTools survive for the empty-state and streaming-bubble
   // paths; the main message log is now driven by `turns` (per @kenji UI-04
   // turn-grouping projection).
@@ -300,22 +313,22 @@ export function ChatView(props: {
             className="maka-chat-header-memory-pill"
             data-active="true"
             onClick={() => props.onOpenMemorySettings?.()}
-            title="本地 MEMORY.md 已加入 agent 系统提示。点击进入设置 · 记忆 管理。"
-            aria-label="本地记忆已启用"
+            title={copy.memoryTitle}
+            aria-label={copy.memoryAriaLabel}
           >
             <BookOpen size={12} aria-hidden="true" />
-            <span>记忆</span>
+            <span>{copy.memory}</span>
           </BaseButton>
         )}
         {deepResearchActive && (
           <span
             className="maka-chat-header-mode-pill"
             data-mode="deep-research"
-            title="深度研究会话使用只读探索边界：先阅读和分析，默认不改文件。"
-            aria-label="深度研究，只读探索"
+            title={copy.deepResearchTitle}
+            aria-label={copy.deepResearchAriaLabel}
           >
             <Sparkles size={12} aria-hidden="true" />
-            <span>深度研究</span>
+            <span>{copy.deepResearch}</span>
           </span>
         )}
         {props.goalIndicator && (
@@ -327,11 +340,11 @@ export function ChatView(props: {
             className="maka-chat-header-mode-pill"
             data-mode="goal"
             onClick={() => props.goalIndicator?.onClear()}
-            title={`自主执行目标进行中：「${props.goalIndicator.condition}」（第 ${props.goalIndicator.iterations}/${props.goalIndicator.maxIterations} 轮，${props.goalIndicator.status}）。系统每轮后自动续行；点击可清除目标、停止续行。`}
-            aria-label={`清除自主执行目标（已进行 ${props.goalIndicator.iterations}/${props.goalIndicator.maxIterations} 轮）`}
+            title={copy.clearGoal(props.goalIndicator.condition, props.goalIndicator.iterations, props.goalIndicator.maxIterations, props.goalIndicator.status)}
+            aria-label={copy.clearGoalAriaLabel(props.goalIndicator.iterations, props.goalIndicator.maxIterations)}
           >
             <Target size={12} aria-hidden="true" />
-            <span>目标 {props.goalIndicator.iterations}/{props.goalIndicator.maxIterations} · 清除</span>
+            <span>{copy.goalLabel(props.goalIndicator.iterations, props.goalIndicator.maxIterations)}</span>
           </BaseButton>
         )}
         {/* PR-MOVE-PERMISSION-MODE: switcher relocated into the
@@ -357,10 +370,10 @@ export function ChatView(props: {
               <div role="alert" aria-busy={props.messageLoadRetryPending ? 'true' : undefined}>
                 <EmptyState
                   Icon={AlertTriangle}
-                  title="对话载入失败"
+                  title={copy.loadFailed}
                   body={props.messageLoadError}
                   cta={props.onRetryMessages ? {
-                    label: props.messageLoadRetryPending ? '载入中…' : '重试载入',
+                    label: props.messageLoadRetryPending ? copy.loading : copy.retryLoad,
                     onClick: props.onRetryMessages,
                     disabled: props.messageLoadRetryPending,
                   } : undefined}
@@ -386,6 +399,7 @@ export function ChatView(props: {
                 failedRecoveryLabel={props.turnFailedRecoveryLabels?.[turn.turnId]}
                 lineageBadges={props.turnLineageBadgesByTurn?.[turn.turnId]}
                 onLineageBadgeClick={stableLineageBadgeClick}
+                onReadAttachmentBytes={props.onReadAttachmentBytes}
                 searchHighlighted={highlightedTurnId === turn.turnId}
                 liveStreaming={
                   turn.turnId === tailTurnId
@@ -428,7 +442,7 @@ export function ChatView(props: {
             type="button"
             className="maka-chat-jump-bottom"
             onClick={scrollToBottom}
-            aria-label="跳到最新消息"
+            aria-label={copy.jumpLatest}
           >
             <ArrowDown size={16} aria-hidden="true" />
           </BaseButton>
@@ -474,24 +488,19 @@ function SessionBranchBanner(props: {
   onClick?: (parentSessionId: string) => void;
 }) {
   const { banner } = props;
+  const copy = getConversationCopy(useUiLocale()).chat;
   return (
     <BaseButton
       type="button"
       className="maka-session-branch-banner"
       data-from-aborted={banner.fromAbortedTurn || undefined}
       onClick={() => props.onClick?.(banner.parentSessionId)}
-      aria-label={banner.fromAbortedTurn
-        ? `从中断前分支自 ${banner.parentSessionName} · 点击跳回原会话`
-        : `分自 ${banner.parentSessionName} · 点击跳回原会话`}
+      aria-label={copy.branchTitle(banner.parentSessionName, Boolean(banner.fromAbortedTurn))}
     >
       <GitBranch size={12} aria-hidden="true" />
       <span>
-        {banner.fromAbortedTurn
-          ? `从中断前分支自 ${banner.parentSessionName}`
-          : `分自 ${banner.parentSessionName}`}
+        {copy.branchLabel(banner.parentSessionName, Boolean(banner.fromAbortedTurn))}
       </span>
     </BaseButton>
   );
 }
-
-const noMessagesYet = '暂无消息';

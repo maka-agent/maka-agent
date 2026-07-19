@@ -4,6 +4,7 @@ import { describe, it } from 'node:test';
 import { join, resolve } from 'node:path';
 import { readAllRendererCss } from './css-test-helpers.js';
 import { readSettingsCombinedSource } from './settings-contract-source-helpers.js';
+import { readMainProcessCombinedSource } from './main-process-contract-source-helpers.js';
 
 const REPO_ROOT = resolve(process.cwd(), '..', '..');
 const CAPABILITY_SNAPSHOT = join(REPO_ROOT, 'apps', 'desktop', 'src', 'main', 'capability-snapshot.ts');
@@ -24,7 +25,7 @@ describe('Office document capability contract', () => {
   it('surfaces Office 文档 as a capability backed by officecli probe', async () => {
     const [snapshot, main] = await Promise.all([
       readFile(CAPABILITY_SNAPSHOT, 'utf8'),
-      readFile(MAIN, 'utf8'),
+      readMainProcessCombinedSource(),
     ]);
 
     assert.match(snapshot, /officeDocumentsCapability\(input\.officeCliProbe, now\)/);
@@ -55,14 +56,9 @@ describe('Office document capability contract', () => {
     assert.match(settings, /复制 macOS\/Linux 安装命令/);
     assert.match(settings, /<div className="settingsCapabilityGuidanceActions" role="group" aria-label="Office 文档安装辅助">/);
     assert.doesNotMatch(settings, /<div className="settingsCapabilityGuidanceActions" aria-label="Office 文档安装辅助">/);
-    assert.match(settings, /copyingOfficeCliInstallRef\.current/, 'OfficeCLI install copy action must have a ref-backed double-click guard');
-    assert.match(settings, /if \(copyingOfficeCliInstallRef\.current\) return;/);
+    assert.match(settings, /const copyOfficeCliInstallGuard = useActionGuard<'copy'>\(\)/, 'OfficeCLI install copy action must have a guard-backed double-click guard from the shared hook');
+    assert.match(settings, /if \(!copyOfficeCliInstallGuard\.begin\('copy'\)\) return;/);
     assert.match(settings, /const capabilityRowMountedRef = useMountedRef\(\);/);
-    assert.match(
-      settings,
-      /useEffect\(\(\) => \{[\s\S]*return \(\) => \{[\s\S]*copyingOfficeCliInstallRef\.current = false;/,
-      'OfficeCLI install copy action must release ownership when its capability row unmounts',
-    );
     assert.match(settings, /disabled=\{copyingOfficeCliInstall\}/);
     assert.match(settings, /copyingOfficeCliInstall \? '复制中…' : '复制 macOS\/Linux 安装命令'/);
     assert.match(
@@ -77,8 +73,8 @@ describe('Office document capability contract', () => {
     );
     assert.match(
       settings,
-      /finally \{[\s\S]*copyingOfficeCliInstallRef\.current = false;[\s\S]*if \(capabilityRowMountedRef\.current\) \{[\s\S]*setCopyingOfficeCliInstall\(false\);/,
-      'OfficeCLI install copy cleanup must not write React pending state after unmount',
+      /finally \{[\s\S]*copyOfficeCliInstallGuard\.finish\(\);[\s\S]*if \(capabilityRowMountedRef\.current\) \{[\s\S]*setCopyingOfficeCliInstall\(false\);/,
+      'OfficeCLI install copy cleanup must not write React pending state after unmount (the shared guard hook releases on unmount)',
     );
     assert.match(settings, /iOfficeAI\/OfficeCLI\/releases/);
     assert.doesNotMatch(settings, /execFile\(|spawn\(|child_process/);
@@ -158,14 +154,14 @@ describe('Office document capability contract', () => {
     assert.match(previewSource, /capLines\(redactSecrets\(result\.stdout/);
     assert.match(previewSource, /data-kind="office_document"/);
     assert.match(previewSource, /function presentOfficeDocumentReason/);
-    assert.match(previewSource, /officecli 未安装/);
-    assert.match(previewSource, /Office 文档操作未完成。/);
-    assert.match(previewSource, /操作超时/);
-    assert.match(previewSource, /操作失败/);
+    assert.match(previewSource, /getToolActivityCopy\(locale\)\.result/);
+    assert.match(previewSource, /message \|\| copy\.officeIncomplete/);
+    assert.match(previewSource, /copy\.officeReason/);
+    assert.match(previewSource, /copy\.diagnostic\(reason\)/);
     const officePreviewBlock = previewSource.match(/function OfficeDocumentPreview[\s\S]*?function presentOfficeDocumentReason/)?.[0] ?? '';
     const officeReasonBlock = previewSource.match(/function presentOfficeDocumentReason[\s\S]*?\n\}/)?.[0] ?? '';
     assert.doesNotMatch(`${officePreviewBlock}\n${officeReasonBlock}`, /Office 文档读取未完成。|读取超时|读取失败|read-only Office adapter/, 'Office result preview must describe read and edit operations, not only reads');
-    assert.doesNotMatch(previewSource, /诊断：\{redactSecrets\(result\.reason\)\}/);
+    assert.doesNotMatch(previewSource, /redactSecrets\(result\.reason\)/);
     const officeBranch = previewSource.indexOf("content.kind === 'office_document'");
     const jsonBranch = previewSource.indexOf("content.kind === 'json'");
     assert.ok(officeBranch > 0, 'Office document branch must exist');
@@ -185,13 +181,13 @@ describe('Office document capability contract', () => {
     const summaryBlock = components.match(/function renderPermissionSummary[\s\S]*?function permissionValuePreview/)?.[0] ?? '';
 
     assert.match(summaryBlock, /case 'OfficeDocumentEdit'/, 'OfficeDocumentEdit permission requests need a dedicated summary branch');
-    assert.match(components, /request\.toolName === 'OfficeDocumentEdit'\) return '允许编辑 Office 文档？'/);
+    assert.match(components, /request\.toolName === 'OfficeDocumentEdit'\) return copy\.editOffice/);
     assert.doesNotMatch(summaryBlock, /即将编辑 Office 文档/, 'the exact title must not be repeated in the compact summary');
     assert.match(summaryBlock, /return <p className="maka-permission-path"><code>\{redactSecrets\(path\)\}<\/code><\/p>/);
-    assert.match(summaryBlock, /operation && `操作=\$\{redactSecrets\(operation\)\}`/, 'the expanded change must retain the operation');
-    assert.match(summaryBlock, /target && `目标=\$\{redactSecrets\(target\)\}`/, 'the expanded change must retain the selector target');
-    assert.match(summaryBlock, /permissionValuePreview\(value\)/, 'Permission dialog must summarize bounded props without dumping raw JSON first');
-    assert.match(summaryBlock, /另有 \${hiddenProps} 个属性/, 'Permission dialog must cap long prop lists');
+    assert.match(summaryBlock, /operation && `\$\{copy\.officeField\.operation\}=\$\{redactSecrets\(operation\)\}`/, 'the expanded change must retain the operation');
+    assert.match(summaryBlock, /target && `\$\{copy\.officeField\.target\}=\$\{redactSecrets\(target\)\}`/, 'the expanded change must retain the selector target');
+    assert.match(summaryBlock, /permissionValuePreview\(value, copy\)/, 'Permission dialog must summarize bounded props without dumping raw JSON first');
+    assert.match(summaryBlock, /copy\.hiddenProperties\(hiddenProps\)/, 'Permission dialog must cap long prop lists');
     assert.match(components, /function permissionValuePreview/, 'Permission prop rendering should use a bounded helper');
   });
 });

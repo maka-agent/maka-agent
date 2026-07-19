@@ -41,8 +41,10 @@ async function syncDirectory(directory: string): Promise<void> {
 }
 
 function isAlreadyExists(error: unknown): boolean {
-  return typeof error === 'object'
-    && error !== null
-    && 'code' in error
-    && (error as { code?: unknown }).code === 'EEXIST';
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code?: unknown }).code === 'EEXIST'
+  );
 }

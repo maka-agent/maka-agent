@@ -13,18 +13,24 @@ describe('renderer lazy fallback contract', () => {
   it('keeps visible shell lazy chunks on compact non-null fallbacks', async () => {
     const appShell = await readFile(APP_SHELL_PATH, 'utf8');
     const overlays = await readFile(APP_SHELL_OVERLAYS_PATH, 'utf8');
+    const chatWorkbar = await readFile(resolve(RENDERER_ROOT, 'chat-workbar.tsx'), 'utf8');
 
     assert.match(overlays, /function SettingsModalFallback/, 'Settings modal must reserve a loading shell');
     assert.match(overlays, /<Suspense fallback=\{<SettingsModalFallback \/>\}>/);
     assert.doesNotMatch(overlays, /settingsOpen[\s\S]{0,120}<Suspense fallback=\{null\}>/);
 
-    assert.match(appShell, /function SessionWorkbarFallback/, 'Session workbar must reserve a loading shell');
+    assert.match(chatWorkbar, /function SessionWorkbarFallback/, 'Session workbar must reserve a loading shell');
     assert.match(
       appShell,
-      /\{navSelection\.section === 'sessions' && activeId && !workbarCollapsed && \([\s\S]*?<Suspense fallback=\{<SessionWorkbarFallback \/>\}>[\s\S]*?<SessionWorkbar[\s\S]*?<\/Suspense>[\s\S]*?\)\}/,
+      /navSelection\.section === 'sessions' && activeId && !workbarCollapsed && \([\s\S]*?<ChatWorkbar/,
       'The persisted shell-owned workbar state makes its visible fallback deterministic',
     );
-    assert.match(appShell, /<Suspense fallback=\{<SessionWorkbarFallback \/>\}>/);
+    assert.match(
+      chatWorkbar,
+      /<Suspense fallback=\{<SessionWorkbarFallback \/>\}>[\s\S]*?<SessionWorkbar[\s\S]*?<\/Suspense>/,
+      'The persisted shell-owned workbar state makes its visible fallback deterministic',
+    );
+    assert.match(chatWorkbar, /<Suspense fallback=\{<SessionWorkbarFallback \/>\}>/);
   });
 
   it('keeps module lazy chunks on compact non-null fallbacks', async () => {

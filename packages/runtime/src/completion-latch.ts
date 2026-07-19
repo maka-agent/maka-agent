@@ -42,10 +42,7 @@ export class CompletionLatch<T> {
     delayMs: undefined,
     signal?: AbortSignal,
   ): Promise<CompletionSignalWaitResult>;
-  private waitInternal(
-    delayMs: number,
-    signal?: AbortSignal,
-  ): Promise<CompletionWaitResult>;
+  private waitInternal(delayMs: number, signal?: AbortSignal): Promise<CompletionWaitResult>;
   private waitInternal(
     delayMs: number | undefined,
     signal?: AbortSignal,

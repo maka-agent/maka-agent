@@ -21,13 +21,14 @@
  *     vocabulary.
  */
 
-import type { SessionBlockedReason, SessionStatus, SessionSummary } from '@maka/core';
+import type { SessionBlockedReason, SessionStatus, SessionSummary, UiLocale } from '@maka/core';
 import {
   describeBlockedReason,
   presentSessionStatus,
   type SessionStatusPresentation,
   type SessionStatusTone,
 } from '@maka/ui';
+import { getDesktopConversationCopy } from './locales/conversation-copy.js';
 export { presentSessionStatus } from '@maka/ui';
 export { describeBlockedReason } from '@maka/ui';
 export type { SessionStatusPresentation, SessionStatusTone } from '@maka/ui';
@@ -88,10 +89,10 @@ export function normalizeSessionSummaryForDisplay(session: SessionSummary): Sess
  *
  * Non-blocked sessions return just the status label.
  */
-export function sessionStatusAriaLabel(status: SessionStatus, blockedReason?: SessionBlockedReason): string {
-  const presentation = presentSessionStatus(status);
+export function sessionStatusAriaLabel(status: SessionStatus, blockedReason?: SessionBlockedReason, locale: UiLocale = 'zh'): string {
+  const presentation = presentSessionStatus(status, locale);
   if (status !== 'blocked') return presentation.label;
-  return `${presentation.label} · ${describeBlockedReason(blockedReason)}`;
+  return `${presentation.label} · ${describeBlockedReason(blockedReason, locale)}`;
 }
 
 /**
@@ -108,21 +109,22 @@ export function sessionStatusAriaLabel(status: SessionStatus, blockedReason?: Se
  * the UI; they just fall through to the catch-all until the mapping
  * is extended.
  */
-export function describeTurnErrorClass(errorClass: string | undefined): string {
-  if (!errorClass) return '未知错误';
+export function describeTurnErrorClass(errorClass: string | undefined, locale: UiLocale = 'zh'): string {
+  const copy = getDesktopConversationCopy(locale).turnError;
+  if (!errorClass) return copy.unknown;
   const lower = errorClass.toLowerCase();
-  if (lower === 'timeout' || lower.includes('timeout')) return '请求超时';
-  if (lower === 'auth' || lower.includes('auth') || lower === '401' || lower === '403') return '鉴权失败';
-  if (lower === 'rate_limit' || lower.includes('rate')) return '触发模型速率限制';
+  if (lower === 'timeout' || lower.includes('timeout')) return copy.timeout;
+  if (lower === 'auth' || lower.includes('auth') || lower === '401' || lower === '403') return copy.auth;
+  if (lower === 'rate_limit' || lower.includes('rate')) return copy.rateLimit;
   if (lower === 'network' || lower.includes('network') || lower.includes('fetch') || lower.includes('econn')) {
-    return '网络错误';
+    return copy.network;
   }
-  if (lower === 'provider_unavailable' || /\b5\d\d\b/.test(lower)) return '模型服务返回错误';
-  if (lower === 'tool_step_cap_reached') return '达到工具步骤上限';
-  if (lower === 'tool_failed' || lower.includes('tool')) return '工具调用失败';
-  if (lower === 'permission_required' || lower.includes('permission')) return '等待权限确认';
-  if (lower === 'app_restarted') return '本地应用重启，上一轮没有完成';
-  return '未知错误';
+  if (lower === 'provider_unavailable' || /\b5\d\d\b/.test(lower)) return copy.provider;
+  if (lower === 'tool_step_cap_reached') return copy.stepCap;
+  if (lower === 'tool_failed' || lower.includes('tool')) return copy.tool;
+  if (lower === 'permission_required' || lower.includes('permission')) return copy.permission;
+  if (lower === 'app_restarted') return copy.restarted;
+  return copy.unknown;
 }
 
 export type FailedTurnRecoveryAction = 'retry' | 'continue' | 'inspect_tool' | 'check_connection';
@@ -146,22 +148,23 @@ export interface FailedTurnRecoveryInput {
  * do not ask the user to blindly retry if a tool already ran or partial output
  * was retained.
  */
-export function deriveFailedTurnRecovery(input: FailedTurnRecoveryInput): FailedTurnRecoveryPresentation {
+export function deriveFailedTurnRecovery(input: FailedTurnRecoveryInput, locale: UiLocale = 'zh'): FailedTurnRecoveryPresentation {
+  const copy = getDesktopConversationCopy(locale).turnError.recovery;
   const lower = input.errorClass?.toLowerCase() ?? '';
   if (lower === 'tool_step_cap_reached') {
-    return { action: 'continue', label: '任务可能尚未完成，可以继续' };
+    return { action: 'continue', label: copy.stepCap };
   }
   if (input.erroredToolCount > 0 || lower === 'tool_failed' || lower.includes('tool')) {
-    return { action: 'inspect_tool', label: '先检查工具结果，再决定是否重试' };
+    return { action: 'inspect_tool', label: copy.toolError };
   }
   if (lower === 'auth' || lower.includes('auth') || lower === '401' || lower === '403') {
-    return { action: 'check_connection', label: '先检查模型连接或登录状态' };
+    return { action: 'check_connection', label: copy.connection };
   }
   if (input.partialOutputRetained) {
-    return { action: 'continue', label: '已保留部分输出，可从这里继续' };
+    return { action: 'continue', label: copy.partial };
   }
   if (input.toolActivityCount > 0) {
-    return { action: 'inspect_tool', label: '工具记录已保留，重试前先看结果' };
+    return { action: 'inspect_tool', label: copy.toolRecord };
   }
-  return { action: 'retry', label: '没有执行工具，可直接重试' };
+  return { action: 'retry', label: copy.retry };
 }

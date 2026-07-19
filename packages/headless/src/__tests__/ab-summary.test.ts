@@ -43,7 +43,6 @@ describe('summarizeAbComparison', () => {
     assert.equal(result.taskLevel.meanPassRateDelta, 0.75);
     assert.equal(result.baseline.budgetExhausted, 0);
     assert.equal(result.candidate.budgetExhausted, 0);
-
   });
 
   test('counts task budget exhaustion separately from infra while treating it as a budgeted non-pass', () => {
@@ -54,21 +53,25 @@ describe('summarizeAbComparison', () => {
       candidateArmId: 'candidate',
       evaluationTaskIds: ['long-task'],
       baselineRuns: [[completed('long-task', true)]],
-      candidateRuns: [[{
-        ...budgetExhausted('long-task'),
-        tokenSummary: {
-          input: 100,
-          cachedInput: 0,
-          cacheHitInput: 0,
-          cacheMissInput: 100,
-          cacheWriteInput: 0,
-          output: 20,
-          reasoning: 0,
-          total: 120,
-          costUsd: 0.42,
-          pricingSource: 'runtime',
-        },
-      }]],
+      candidateRuns: [
+        [
+          {
+            ...budgetExhausted('long-task'),
+            tokenSummary: {
+              input: 100,
+              cachedInput: 0,
+              cacheHitInput: 0,
+              cacheMissInput: 100,
+              cacheWriteInput: 0,
+              output: 20,
+              reasoning: 0,
+              total: 120,
+              costUsd: 0.42,
+              pricingSource: 'runtime',
+            },
+          },
+        ],
+      ],
       budgetMs: 600_000,
     });
 
@@ -158,7 +161,9 @@ describe('summarizeAbComparison', () => {
       baselineArmId: 'baseline',
       candidateArmId: 'candidate',
       evaluationTaskIds: taskIds,
-      baselineRuns: [[providerTimeout, ...taskIds.slice(1).map((taskId) => completed(taskId, true))]],
+      baselineRuns: [
+        [providerTimeout, ...taskIds.slice(1).map((taskId) => completed(taskId, true))],
+      ],
       candidateRuns: [[...taskIds.map((taskId) => completed(taskId, true))]],
     });
 
@@ -169,19 +174,23 @@ describe('summarizeAbComparison', () => {
 
   test('uses evaluated pairs for both the formal point estimate and confidence bound', () => {
     const taskIds = Array.from({ length: 10 }, (_, index) => `task-${index}`);
-    const baselineRuns = [0, 1].map((rep) => taskIds.map((taskId, index) => completed(taskId, rep === 0 && index < 3)));
-    const candidateRuns = [0, 1].map((rep) => taskIds.map((taskId, index) => {
-      if (rep === 0 && index < 2) {
-        return {
-          ...completed(taskId, false),
-          status: 'failed' as const,
-          scored: false,
-          eligible: false,
-          errorClass: 'network',
-        };
-      }
-      return completed(taskId, false);
-    }));
+    const baselineRuns = [0, 1].map((rep) =>
+      taskIds.map((taskId, index) => completed(taskId, rep === 0 && index < 3)),
+    );
+    const candidateRuns = [0, 1].map((rep) =>
+      taskIds.map((taskId, index) => {
+        if (rep === 0 && index < 2) {
+          return {
+            ...completed(taskId, false),
+            status: 'failed' as const,
+            scored: false,
+            eligible: false,
+            errorClass: 'network',
+          };
+        }
+        return completed(taskId, false);
+      }),
+    );
     const result = summarizeAbComparison({
       runId: 'ab-run',
       roundId: 'ab-summary',
@@ -254,8 +263,12 @@ describe('summarizeAbComparison', () => {
       eligible: false,
       errorClass: 'network' as const,
     });
-    const baselineRun = taskIds.map((taskId, index) => index === 0 ? excluded(taskId) : completed(taskId, true));
-    const candidateRun = taskIds.map((taskId, index) => index === 1 ? excluded(taskId) : completed(taskId, true));
+    const baselineRun = taskIds.map((taskId, index) =>
+      index === 0 ? excluded(taskId) : completed(taskId, true),
+    );
+    const candidateRun = taskIds.map((taskId, index) =>
+      index === 1 ? excluded(taskId) : completed(taskId, true),
+    );
     const result = summarizeAbComparison({
       runId: 'ab-run',
       roundId: 'ab-summary',
@@ -274,7 +287,12 @@ describe('summarizeAbComparison', () => {
   });
 
   test('derives task-level outcomes from matching evaluable pairs', () => {
-    const excluded = { ...completed('task', false), scored: false, eligible: false, errorClass: 'network' as const };
+    const excluded = {
+      ...completed('task', false),
+      scored: false,
+      eligible: false,
+      errorClass: 'network' as const,
+    };
     const result = summarizeAbComparison({
       runId: 'ab-run',
       roundId: 'ab-summary',
@@ -290,7 +308,10 @@ describe('summarizeAbComparison', () => {
   });
 
   test('includes timeout task-tool evidence in the arm summary', () => {
-    const timeout = { ...budgetExhausted('task'), taskToolSummary: taskToolSummary({ todoWriteCalls: 7 }) };
+    const timeout = {
+      ...budgetExhausted('task'),
+      taskToolSummary: taskToolSummary({ todoWriteCalls: 7 }),
+    };
     const result = summarizeAbComparison({
       runId: 'ab-run',
       roundId: 'ab-summary',
@@ -429,32 +450,52 @@ describe('summarizeAbComparison', () => {
       baselineArmId: 'prune-off',
       candidateArmId: 'prune-on',
       evaluationTaskIds: ['t1', 't2'],
-      baselineRuns: [[
-        { ...completed('t1', true), contextBudgetPolicy: { enabled: false }, contextBudgetSummary: baselineInactive },
-        { ...completed('t2', true), contextBudgetPolicy: { enabled: false }, contextBudgetSummary: baselineInactive },
-      ]],
-      candidateRuns: [[
-        {
-          ...completed('t1', true),
-          contextBudgetPolicy: {
-            enabled: true,
-            name: 'harbor-cell-context-budget',
-            staleToolResultPrune: { enabled: true, maxResultEstimatedTokens: 2048, minRecentTurnsFull: 2 },
-            minRecentTurns: 2,
+      baselineRuns: [
+        [
+          {
+            ...completed('t1', true),
+            contextBudgetPolicy: { enabled: false },
+            contextBudgetSummary: baselineInactive,
           },
-          contextBudgetSummary: candidateActive,
-        },
-        {
-          ...completed('t2', true),
-          contextBudgetPolicy: {
-            enabled: true,
-            name: 'harbor-cell-context-budget',
-            staleToolResultPrune: { enabled: true, maxResultEstimatedTokens: 2048, minRecentTurnsFull: 2 },
-            minRecentTurns: 2,
+          {
+            ...completed('t2', true),
+            contextBudgetPolicy: { enabled: false },
+            contextBudgetSummary: baselineInactive,
           },
-          contextBudgetSummary: candidateInactive,
-        },
-      ]],
+        ],
+      ],
+      candidateRuns: [
+        [
+          {
+            ...completed('t1', true),
+            contextBudgetPolicy: {
+              enabled: true,
+              name: 'harbor-cell-context-budget',
+              staleToolResultPrune: {
+                enabled: true,
+                maxResultEstimatedTokens: 2048,
+                minRecentTurnsFull: 2,
+              },
+              minRecentTurns: 2,
+            },
+            contextBudgetSummary: candidateActive,
+          },
+          {
+            ...completed('t2', true),
+            contextBudgetPolicy: {
+              enabled: true,
+              name: 'harbor-cell-context-budget',
+              staleToolResultPrune: {
+                enabled: true,
+                maxResultEstimatedTokens: 2048,
+                minRecentTurnsFull: 2,
+              },
+              minRecentTurns: 2,
+            },
+            contextBudgetSummary: candidateInactive,
+          },
+        ],
+      ],
     });
 
     assert.equal(result.baseline.contextBudgetPolicy?.enabledAttempts, 0);
@@ -584,24 +625,25 @@ describe('summarizeAbComparison', () => {
       candidateArmId: 'prune-on',
       evaluationTaskIds: ['t1'],
       baselineRuns: [[]],
-      candidateRuns: [[
-        {
-          ...withUsage(completed('t1', true), {
-            input: 10,
-            cacheHitInput: 3,
-            cacheMissInput: 4,
-            cacheWriteInput: 2,
-            output: 5,
-            reasoning: 1,
-            total: 16,
-            costUsd: 0.02,
-            durationMs: 250,
-          }),
-          contextBudgetSummary: contextBudgetSummary({ activePrunedToolResults: 1 }),
-        },
-      ]],
+      candidateRuns: [
+        [
+          {
+            ...withUsage(completed('t1', true), {
+              input: 10,
+              cacheHitInput: 3,
+              cacheMissInput: 4,
+              cacheWriteInput: 2,
+              output: 5,
+              reasoning: 1,
+              total: 16,
+              costUsd: 0.02,
+              durationMs: 250,
+            }),
+            contextBudgetSummary: contextBudgetSummary({ activePrunedToolResults: 1 }),
+          },
+        ],
+      ],
     });
-
   });
 
   test('classifies step-cap consistently inside the active-prune subset', () => {
@@ -619,10 +661,14 @@ describe('summarizeAbComparison', () => {
       candidateArmId: 'candidate',
       evaluationTaskIds: ['t1'],
       baselineRuns: [[stepCapFailure]],
-      candidateRuns: [[{
-        ...stepCapFailure,
-        contextBudgetSummary: contextBudgetSummary({ activePrunedToolResults: 1 }),
-      }]],
+      candidateRuns: [
+        [
+          {
+            ...stepCapFailure,
+            contextBudgetSummary: contextBudgetSummary({ activePrunedToolResults: 1 }),
+          },
+        ],
+      ],
     });
 
     assert.equal(result.candidate.activePruneSubset?.completed, 0);
@@ -638,14 +684,36 @@ describe('summarizeAbComparison', () => {
       baselineArmId: 'prune-off',
       candidateArmId: 'prune-on',
       evaluationTaskIds: taskIds,
-      baselineRuns: [taskIds.map((taskId) => withUsage(
-        completed(taskId, true),
-        { input: 100, cacheHitInput: 20, cacheMissInput: 70, cacheWriteInput: 10, output: 30, reasoning: 5, total: 135, costUsd: 3, durationMs: 1000 },
-      ))],
-      candidateRuns: [taskIds.map((taskId) => withUsage(
-        completed(taskId, true),
-        { input: 60, cacheHitInput: 15, cacheMissInput: 40, cacheWriteInput: 5, output: 25, reasoning: 5, total: 90, costUsd: 2, durationMs: 800 },
-      ))],
+      baselineRuns: [
+        taskIds.map((taskId) =>
+          withUsage(completed(taskId, true), {
+            input: 100,
+            cacheHitInput: 20,
+            cacheMissInput: 70,
+            cacheWriteInput: 10,
+            output: 30,
+            reasoning: 5,
+            total: 135,
+            costUsd: 3,
+            durationMs: 1000,
+          }),
+        ),
+      ],
+      candidateRuns: [
+        taskIds.map((taskId) =>
+          withUsage(completed(taskId, true), {
+            input: 60,
+            cacheHitInput: 15,
+            cacheMissInput: 40,
+            cacheWriteInput: 5,
+            output: 25,
+            reasoning: 5,
+            total: 90,
+            costUsd: 2,
+            durationMs: 800,
+          }),
+        ),
+      ],
     });
 
     assert.equal(result.decision, 'diagnostic');
@@ -673,7 +741,6 @@ describe('summarizeAbComparison', () => {
       costUsd: 2000,
       meanDurationMs: 800,
     });
-
   });
 
   test('summarizes continuation cap diagnostics for A/B validity review', () => {
@@ -684,24 +751,59 @@ describe('summarizeAbComparison', () => {
       candidateArmId: 'prune-on',
       evaluationTaskIds: ['t1', 't2'],
       budgetMs: 600_000,
-      baselineRuns: [[
-        { ...completed('t1', true), continuationSummary: continuationSummary({ turnsUsed: 2, continuedTurns: 1, stepCapHits: 1, totalRuntimeSteps: 42, turns: [
-          { turnIndex: 0, status: 'failed', stepCapHit: true, runtimeSteps: 42 },
-          { turnIndex: 1, status: 'completed', stepCapHit: false, runtimeSteps: 0 },
-        ] }) },
-        { ...completed('t2', false), continuationSummary: continuationSummary({ capExhausted: true, turnsUsed: 3, continuedTurns: 2, stepCapHits: 3, totalRuntimeSteps: 60, turns: [
-          { turnIndex: 0, status: 'failed', stepCapHit: true, runtimeSteps: 20 },
-          { turnIndex: 1, status: 'failed', stepCapHit: true, runtimeSteps: 20 },
-          { turnIndex: 2, status: 'failed', stepCapHit: true, runtimeSteps: 20 },
-        ] }) },
-      ]],
-      candidateRuns: [[
-        { ...completed('t1', true), continuationSummary: continuationSummary({ turnsUsed: 1, totalRuntimeSteps: 20 }) },
-        { ...completed('t2', true), continuationSummary: continuationSummary({ turnsUsed: 2, continuedTurns: 1, stepCapHits: 1, totalRuntimeSteps: 44, turns: [
-          { turnIndex: 0, status: 'failed', stepCapHit: true, runtimeSteps: 44 },
-          { turnIndex: 1, status: 'completed', stepCapHit: false, runtimeSteps: 0 },
-        ] }) },
-      ]],
+      baselineRuns: [
+        [
+          {
+            ...completed('t1', true),
+            continuationSummary: continuationSummary({
+              turnsUsed: 2,
+              continuedTurns: 1,
+              stepCapHits: 1,
+              totalRuntimeSteps: 42,
+              turns: [
+                { turnIndex: 0, status: 'failed', stepCapHit: true, runtimeSteps: 42 },
+                { turnIndex: 1, status: 'completed', stepCapHit: false, runtimeSteps: 0 },
+              ],
+            }),
+          },
+          {
+            ...completed('t2', false),
+            continuationSummary: continuationSummary({
+              capExhausted: true,
+              turnsUsed: 3,
+              continuedTurns: 2,
+              stepCapHits: 3,
+              totalRuntimeSteps: 60,
+              turns: [
+                { turnIndex: 0, status: 'failed', stepCapHit: true, runtimeSteps: 20 },
+                { turnIndex: 1, status: 'failed', stepCapHit: true, runtimeSteps: 20 },
+                { turnIndex: 2, status: 'failed', stepCapHit: true, runtimeSteps: 20 },
+              ],
+            }),
+          },
+        ],
+      ],
+      candidateRuns: [
+        [
+          {
+            ...completed('t1', true),
+            continuationSummary: continuationSummary({ turnsUsed: 1, totalRuntimeSteps: 20 }),
+          },
+          {
+            ...completed('t2', true),
+            continuationSummary: continuationSummary({
+              turnsUsed: 2,
+              continuedTurns: 1,
+              stepCapHits: 1,
+              totalRuntimeSteps: 44,
+              turns: [
+                { turnIndex: 0, status: 'failed', stepCapHit: true, runtimeSteps: 44 },
+                { turnIndex: 1, status: 'completed', stepCapHit: false, runtimeSteps: 0 },
+              ],
+            }),
+          },
+        ],
+      ],
     });
 
     assert.deepEqual(result.baseline.continuation, {
@@ -730,7 +832,6 @@ describe('summarizeAbComparison', () => {
       maxTurns: 3,
       maxTotalRuntimeSteps: 150,
     });
-
   });
 
   test('summarizes task experiment tool usage for A/B baseline review', () => {
@@ -741,20 +842,22 @@ describe('summarizeAbComparison', () => {
       candidateArmId: 'task-tools-on',
       evaluationTaskIds: ['t1', 't2'],
       baselineRuns: [[completed('t1', true), completed('t2', true)]],
-      candidateRuns: [[
-        {
-          ...completed('t1', true),
-          taskToolSummary: taskToolSummary({
-            todoWriteCalls: 5,
-          }),
-        },
-        {
-          ...completed('t2', true),
-          taskToolSummary: taskToolSummary({
-            todoWriteCalls: 3,
-          }),
-        },
-      ]],
+      candidateRuns: [
+        [
+          {
+            ...completed('t1', true),
+            taskToolSummary: taskToolSummary({
+              todoWriteCalls: 5,
+            }),
+          },
+          {
+            ...completed('t2', true),
+            taskToolSummary: taskToolSummary({
+              todoWriteCalls: 3,
+            }),
+          },
+        ],
+      ],
     });
 
     assert.equal(result.baseline.taskTools, undefined);
@@ -774,15 +877,17 @@ describe('summarizeAbComparison', () => {
       candidateArmId: 'task-tools-on',
       evaluationTaskIds: ['t1', 't2'],
       baselineRuns: [[completed('t1', true), completed('t2', true)]],
-      candidateRuns: [[
-        {
-          ...completed('t1', true),
-          taskToolSummary: taskToolSummary({
-            todoWriteCalls: 1,
-          }),
-        },
-        completed('t2', true),
-      ]],
+      candidateRuns: [
+        [
+          {
+            ...completed('t1', true),
+            taskToolSummary: taskToolSummary({
+              todoWriteCalls: 1,
+            }),
+          },
+          completed('t2', true),
+        ],
+      ],
     });
 
     assert.deepEqual(result.candidate.taskTools, {
@@ -801,15 +906,17 @@ describe('summarizeAbComparison', () => {
       candidateArmId: 'task-tools-on',
       evaluationTaskIds: ['t1', 't2'],
       baselineRuns: [[completed('t1', true), completed('t2', true)]],
-      candidateRuns: [[
-        {
-          ...completed('t1', true),
-          taskToolSummary: taskToolSummary({
-            todoWriteCalls: 1,
-          }),
-        },
-        budgetExhausted('t2'),
-      ]],
+      candidateRuns: [
+        [
+          {
+            ...completed('t1', true),
+            taskToolSummary: taskToolSummary({
+              todoWriteCalls: 1,
+            }),
+          },
+          budgetExhausted('t2'),
+        ],
+      ],
     });
 
     assert.deepEqual(result.candidate.taskTools, {
@@ -828,16 +935,18 @@ describe('summarizeAbComparison', () => {
       candidateArmId: 'task-tools-on',
       evaluationTaskIds: ['t1', 't2'],
       baselineRuns: [[completed('t1', true), completed('t2', true)]],
-      candidateRuns: [[
-        {
-          ...completed('t1', true),
-          taskToolSummary: taskToolSummary({ todoWriteCalls: 0 }),
-        },
-        {
-          ...completed('t2', true),
-          taskToolSummary: taskToolSummary({ todoWriteCalls: 0 }),
-        },
-      ]],
+      candidateRuns: [
+        [
+          {
+            ...completed('t1', true),
+            taskToolSummary: taskToolSummary({ todoWriteCalls: 0 }),
+          },
+          {
+            ...completed('t2', true),
+            taskToolSummary: taskToolSummary({ todoWriteCalls: 0 }),
+          },
+        ],
+      ],
     });
 
     assert.deepEqual(result.candidate.taskTools, {
@@ -849,7 +958,10 @@ describe('summarizeAbComparison', () => {
   });
 
   test('records activated attempts and investigation refs for follow-up', () => {
-    const activatedSummary = contextBudgetSummary({ activePrunedToolResults: 1, activeEstimatedTokensSaved: 50 });
+    const activatedSummary = contextBudgetSummary({
+      activePrunedToolResults: 1,
+      activeEstimatedTokensSaved: 50,
+    });
     const staleOnlySummary = contextBudgetSummary({ prunedToolResults: 1, archivePlaceholders: 1 });
     const result = summarizeAbComparison({
       runId: 'ab-run',
@@ -857,40 +969,64 @@ describe('summarizeAbComparison', () => {
       baselineArmId: 'prune-off',
       candidateArmId: 'active-prune-on',
       evaluationTaskIds: ['b-loss', 'activated', 'stale-only', 'budget'],
-      baselineRuns: [[
-        withTrace(completed('b-loss', true), 'A', 'b-loss'),
-        withTrace(completed('activated', true), 'A', 'activated'),
-        withTrace(completed('stale-only', true), 'A', 'stale-only'),
-        withTrace(completed('budget', true), 'A', 'budget'),
-      ]],
-      candidateRuns: [[
-        withTrace(completed('b-loss', false), 'B', 'b-loss'),
-        {
-          ...withTrace(completed('activated', true), 'B', 'activated'),
-          id: 'event-B-activated-r0',
-          contextBudgetSummary: activatedSummary,
-        },
-        {
-          ...withTrace(completed('stale-only', true), 'B', 'stale-only'),
-          id: 'event-B-stale-only-r0',
-          contextBudgetSummary: staleOnlySummary,
-        },
-        { ...budgetExhausted('budget'), id: 'event-B-budget-r0', roundId: 'ab-prune-on-r0-budget' },
-      ]],
+      baselineRuns: [
+        [
+          withTrace(completed('b-loss', true), 'A', 'b-loss'),
+          withTrace(completed('activated', true), 'A', 'activated'),
+          withTrace(completed('stale-only', true), 'A', 'stale-only'),
+          withTrace(completed('budget', true), 'A', 'budget'),
+        ],
+      ],
+      candidateRuns: [
+        [
+          withTrace(completed('b-loss', false), 'B', 'b-loss'),
+          {
+            ...withTrace(completed('activated', true), 'B', 'activated'),
+            id: 'event-B-activated-r0',
+            contextBudgetSummary: activatedSummary,
+          },
+          {
+            ...withTrace(completed('stale-only', true), 'B', 'stale-only'),
+            id: 'event-B-stale-only-r0',
+            contextBudgetSummary: staleOnlySummary,
+          },
+          {
+            ...budgetExhausted('budget'),
+            id: 'event-B-budget-r0',
+            roundId: 'ab-prune-on-r0-budget',
+          },
+        ],
+      ],
     });
 
     assert.deepEqual(result.candidate.contextBudget?.activatedAttemptIds, ['event-B-activated-r0']);
-    assert.deepEqual(result.candidate.activePruneSubset?.contextBudget?.activatedAttemptIds, ['event-B-activated-r0']);
+    assert.deepEqual(result.candidate.activePruneSubset?.contextBudget?.activatedAttemptIds, [
+      'event-B-activated-r0',
+    ]);
     assert.equal(result.investigationRefs.activatedAttempts[0]?.taskId, 'activated');
-    assert.equal(result.investigationRefs.activatedAttempts.some((ref) => ref.taskId === 'stale-only'), false);
+    assert.equal(
+      result.investigationRefs.activatedAttempts.some((ref) => ref.taskId === 'stale-only'),
+      false,
+    );
     assert.equal(result.investigationRefs.activatedAttempts[0]?.rep, 0);
-    assert.equal(result.investigationRefs.activatedAttempts[0]?.runtimeEventsPath, '/logs/B/activated/runtime-events.jsonl');
-    assert.equal(result.investigationRefs.activatedAttempts[0]?.traceEventsPath, '/traces/B/activated/events.jsonl');
+    assert.equal(
+      result.investigationRefs.activatedAttempts[0]?.runtimeEventsPath,
+      '/logs/B/activated/runtime-events.jsonl',
+    );
+    assert.equal(
+      result.investigationRefs.activatedAttempts[0]?.traceEventsPath,
+      '/traces/B/activated/events.jsonl',
+    );
     assert.equal(result.investigationRefs.candidateLosses[0]?.pairId, 'b-loss#r0');
-    assert.equal(result.investigationRefs.candidateLosses[0]?.candidate?.runtimeEventsPath, '/logs/B/b-loss/runtime-events.jsonl');
+    assert.equal(
+      result.investigationRefs.candidateLosses[0]?.candidate?.runtimeEventsPath,
+      '/logs/B/b-loss/runtime-events.jsonl',
+    );
     assert.equal(result.investigationRefs.budgetDiscordantPairs[0]?.pairId, 'budget#r0');
-    assert.equal(result.investigationRefs.budgetDiscordantPairs[0]?.candidate?.runtimeEventsUnavailableReason, 'budget_exhausted_before_cell_output');
-
+    assert.equal(
+      result.investigationRefs.budgetDiscordantPairs[0]?.candidate?.runtimeEventsUnavailableReason,
+      'budget_exhausted_before_cell_output',
+    );
   });
 
   test('keeps sign test auxiliary while using non-inferiority as the decision', () => {
@@ -907,10 +1043,16 @@ describe('summarizeAbComparison', () => {
 
     assert.equal(result.taskLevel.wins, 9);
     assert.equal(result.taskLevel.losses, 7);
-    assert.equal(result.taskLevel.signTestPValue !== null && result.taskLevel.signTestPValue > 0.05, true);
+    assert.equal(
+      result.taskLevel.signTestPValue !== null && result.taskLevel.signTestPValue > 0.05,
+      true,
+    );
     assert.equal(result.decision, 'not_cleared');
     assert.equal(result.reason, 'non_inferiority_confidence_interval_crosses_margin');
-    assert.equal(result.nonInferiority.lowerBound !== null && result.nonInferiority.lowerBound < -0.1, true);
+    assert.equal(
+      result.nonInferiority.lowerBound !== null && result.nonInferiority.lowerBound < -0.1,
+      true,
+    );
   });
 
   test('keeps an exact task-level sign test as an auxiliary metric', () => {
@@ -927,7 +1069,10 @@ describe('summarizeAbComparison', () => {
 
     assert.equal(result.taskLevel.wins, 13);
     assert.equal(result.taskLevel.losses, 3);
-    assert.equal(result.taskLevel.signTestPValue !== null && result.taskLevel.signTestPValue <= 0.05, true);
+    assert.equal(
+      result.taskLevel.signTestPValue !== null && result.taskLevel.signTestPValue <= 0.05,
+      true,
+    );
     assert.equal(result.decision, 'non_inferior');
     assert.equal(result.reason, 'non_inferiority_lower_bound_within_margin');
   });
@@ -955,25 +1100,44 @@ describe('summarizeAbComparison', () => {
       baselineArmId: 'prune-off',
       candidateArmId: 'prune-on',
       evaluationTaskIds: Array.from({ length: 100 }, (_, index) => `t${index}`),
-      baselineRuns: repeatedRuns(Array.from({ length: 100 }, (_, index) => completed(`t${index}`, index < 100))),
-      candidateRuns: repeatedRuns(Array.from({ length: 100 }, (_, index) => completed(`t${index}`, index < 91))),
+      baselineRuns: repeatedRuns(
+        Array.from({ length: 100 }, (_, index) => completed(`t${index}`, index < 100)),
+      ),
+      candidateRuns: repeatedRuns(
+        Array.from({ length: 100 }, (_, index) => completed(`t${index}`, index < 91)),
+      ),
     });
     assert.equal(underpoweredNinePointLoss.nonInferiorityMargin, 0.1);
     assert.equal(underpoweredNinePointLoss.passRateDelta, -0.09);
     assert.equal(underpoweredNinePointLoss.decision, 'not_cleared');
-    assert.equal(underpoweredNinePointLoss.reason, 'non_inferiority_confidence_interval_crosses_margin');
-    assert.equal(underpoweredNinePointLoss.nonInferiority.lowerBound !== null && underpoweredNinePointLoss.nonInferiority.lowerBound < -0.1, true);
+    assert.equal(
+      underpoweredNinePointLoss.reason,
+      'non_inferiority_confidence_interval_crosses_margin',
+    );
+    assert.equal(
+      underpoweredNinePointLoss.nonInferiority.lowerBound !== null &&
+        underpoweredNinePointLoss.nonInferiority.lowerBound < -0.1,
+      true,
+    );
     const poweredFivePointLoss = summarizeAbComparison({
       runId: 'ab-run',
       roundId: 'ab-summary',
       baselineArmId: 'prune-off',
       candidateArmId: 'prune-on',
       evaluationTaskIds: Array.from({ length: 1000 }, (_, index) => `t${index}`),
-      baselineRuns: repeatedRuns(Array.from({ length: 1000 }, (_, index) => completed(`t${index}`, index < 1000))),
-      candidateRuns: repeatedRuns(Array.from({ length: 1000 }, (_, index) => completed(`t${index}`, index < 950))),
+      baselineRuns: repeatedRuns(
+        Array.from({ length: 1000 }, (_, index) => completed(`t${index}`, index < 1000)),
+      ),
+      candidateRuns: repeatedRuns(
+        Array.from({ length: 1000 }, (_, index) => completed(`t${index}`, index < 950)),
+      ),
     });
     assert.equal(poweredFivePointLoss.passRateDelta, -0.05);
-    assert.equal(poweredFivePointLoss.nonInferiority.lowerBound !== null && poweredFivePointLoss.nonInferiority.lowerBound >= -0.1, true);
+    assert.equal(
+      poweredFivePointLoss.nonInferiority.lowerBound !== null &&
+        poweredFivePointLoss.nonInferiority.lowerBound >= -0.1,
+      true,
+    );
     assert.equal(poweredFivePointLoss.decision, 'non_inferior');
     assert.equal(poweredFivePointLoss.reason, 'non_inferiority_lower_bound_within_margin');
 
@@ -983,8 +1147,12 @@ describe('summarizeAbComparison', () => {
       baselineArmId: 'prune-off',
       candidateArmId: 'prune-on',
       evaluationTaskIds: Array.from({ length: 100 }, (_, index) => `t${index}`),
-      baselineRuns: repeatedRuns(Array.from({ length: 100 }, (_, index) => completed(`t${index}`, index < 100))),
-      candidateRuns: repeatedRuns(Array.from({ length: 100 }, (_, index) => completed(`t${index}`, index < 89))),
+      baselineRuns: repeatedRuns(
+        Array.from({ length: 100 }, (_, index) => completed(`t${index}`, index < 100)),
+      ),
+      candidateRuns: repeatedRuns(
+        Array.from({ length: 100 }, (_, index) => completed(`t${index}`, index < 89)),
+      ),
     });
     assert.equal(elevenPointLoss.passRateDelta, -0.11);
     assert.equal(elevenPointLoss.decision, 'inferior');
@@ -1004,7 +1172,10 @@ describe('summarizeAbComparison', () => {
     assert.equal(onePairTie.passRateDelta, 0);
     assert.equal(onePairTie.nonInferiority.method, 'paired_bonferroni_wilson');
     assert.equal(onePairTie.nonInferiority.lowerBound, -0.657619772493);
-    assert.equal(onePairTie.nonInferiority.lowerBound !== null && onePairTie.nonInferiority.lowerBound < -0.1, true);
+    assert.equal(
+      onePairTie.nonInferiority.lowerBound !== null && onePairTie.nonInferiority.lowerBound < -0.1,
+      true,
+    );
     assert.equal(onePairTie.decision, 'not_cleared');
     assert.equal(onePairTie.reason, 'non_inferiority_confidence_interval_crosses_margin');
 
@@ -1020,7 +1191,11 @@ describe('summarizeAbComparison', () => {
     });
     assert.equal(allTieSmallSample.passRateDelta, 0);
     assert.equal(allTieSmallSample.nonInferiority.method, 'paired_bonferroni_wilson');
-    assert.equal(allTieSmallSample.nonInferiority.lowerBound !== null && allTieSmallSample.nonInferiority.lowerBound < -0.1, true);
+    assert.equal(
+      allTieSmallSample.nonInferiority.lowerBound !== null &&
+        allTieSmallSample.nonInferiority.lowerBound < -0.1,
+      true,
+    );
     assert.equal(allTieSmallSample.decision, 'not_cleared');
 
     const poweredTaskIds = Array.from({ length: 1000 }, (_, index) => `powered-${index}`);
@@ -1031,14 +1206,19 @@ describe('summarizeAbComparison', () => {
       candidateArmId: 'prune-on',
       evaluationTaskIds: poweredTaskIds,
       baselineRuns: repeatedRuns(poweredTaskIds.map((taskId) => completed(taskId, true))),
-      candidateRuns: repeatedRuns(poweredTaskIds.map((taskId, index) => completed(taskId, index < 950))),
+      candidateRuns: repeatedRuns(
+        poweredTaskIds.map((taskId, index) => completed(taskId, index < 950)),
+      ),
     });
 
     assert.equal(powered.passRateDelta, -0.05);
     assert.equal(powered.pairedAttempts.losses, 100);
     assert.equal(powered.pairedAttempts.ties, 1900);
     assert.equal(powered.nonInferiority.method, 'paired_bonferroni_wilson');
-    assert.equal(powered.nonInferiority.lowerBound !== null && powered.nonInferiority.lowerBound >= -0.1, true);
+    assert.equal(
+      powered.nonInferiority.lowerBound !== null && powered.nonInferiority.lowerBound >= -0.1,
+      true,
+    );
     assert.equal(powered.decision, 'non_inferior');
     assert.equal(powered.reason, 'non_inferiority_lower_bound_within_margin');
 
@@ -1049,12 +1229,20 @@ describe('summarizeAbComparison', () => {
       baselineArmId: 'prune-off',
       candidateArmId: 'prune-on',
       evaluationTaskIds: smallTaskIds,
-      baselineRuns: repeatedRuns(smallTaskIds.map((taskId, index) => completed(taskId, index >= 9))),
-      candidateRuns: repeatedRuns(smallTaskIds.map((taskId, index) => completed(taskId, index >= 9 && index < 19))),
+      baselineRuns: repeatedRuns(
+        smallTaskIds.map((taskId, index) => completed(taskId, index >= 9)),
+      ),
+      candidateRuns: repeatedRuns(
+        smallTaskIds.map((taskId, index) => completed(taskId, index >= 9 && index < 19)),
+      ),
     });
     assert.equal(underpowered.passRateDelta, -0.05);
     assert.equal(underpowered.nonInferiority.method, 'paired_bonferroni_wilson');
-    assert.equal(underpowered.nonInferiority.lowerBound !== null && underpowered.nonInferiority.lowerBound < -0.1, true);
+    assert.equal(
+      underpowered.nonInferiority.lowerBound !== null &&
+        underpowered.nonInferiority.lowerBound < -0.1,
+      true,
+    );
     assert.equal(underpowered.decision, 'not_cleared');
     assert.equal(underpowered.reason, 'non_inferiority_confidence_interval_crosses_margin');
 
@@ -1065,8 +1253,12 @@ describe('summarizeAbComparison', () => {
       baselineArmId: 'prune-off',
       candidateArmId: 'prune-on',
       evaluationTaskIds: inferiorTaskIds,
-      baselineRuns: repeatedRuns(inferiorTaskIds.map((taskId, index) => completed(taskId, index >= 44))),
-      candidateRuns: repeatedRuns(inferiorTaskIds.map((taskId, index) => completed(taskId, index >= 44 && index < 89))),
+      baselineRuns: repeatedRuns(
+        inferiorTaskIds.map((taskId, index) => completed(taskId, index >= 44)),
+      ),
+      candidateRuns: repeatedRuns(
+        inferiorTaskIds.map((taskId, index) => completed(taskId, index >= 44 && index < 89)),
+      ),
     });
     assert.equal(inferior.passRateDelta, -0.11);
     assert.equal(inferior.nonInferiority.method, 'paired_bonferroni_wilson');
@@ -1144,7 +1336,9 @@ describe('summarizeAbComparison', () => {
       baselineArmId: 'prune-off',
       candidateArmId: 'prune-on',
       evaluationTaskIds: taskIds,
-      baselineRuns: [[budgetExhausted('t0'), ...taskIds.slice(1).map((taskId) => completed(taskId, true))]],
+      baselineRuns: [
+        [budgetExhausted('t0'), ...taskIds.slice(1).map((taskId) => completed(taskId, true))],
+      ],
       candidateRuns: [taskIds.map((taskId) => completed(taskId, true))],
     });
 

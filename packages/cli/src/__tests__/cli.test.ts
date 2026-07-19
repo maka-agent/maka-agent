@@ -9,9 +9,11 @@ import { describe, test } from 'node:test';
 import { createSessionStore } from '@maka/storage';
 import {
   parseMakaCliArgs,
+  formatResumeHint,
   formatStartupConnectionError,
   formatMakaCliFatalError,
   resolveMakaCliExitCode,
+  resolveTuiResumeTarget,
 } from '../cli.js';
 
 const execFileAsync = promisify(execFile);
@@ -21,13 +23,18 @@ const legacyCliPath = new URL('../../../headless/dist/cli.js', import.meta.url).
 function runCliProcess(
   entrypoint: string,
   args: string[],
+  env: NodeJS.ProcessEnv = process.env,
 ): Promise<{ code: number | null; stdout: string; stderr: string }> {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [entrypoint, ...args]);
+    const child = spawn(process.execPath, [entrypoint, ...args], { env });
     let stdout = '';
     let stderr = '';
-    child.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString('utf8'); });
-    child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString('utf8'); });
+    child.stdout.on('data', (chunk: Buffer) => {
+      stdout += chunk.toString('utf8');
+    });
+    child.stderr.on('data', (chunk: Buffer) => {
+      stderr += chunk.toString('utf8');
+    });
     child.on('close', (code) => resolve({ code, stdout, stderr }));
     child.stdin.end();
   });
@@ -87,6 +94,43 @@ describe('Maka CLI args', () => {
     });
   });
 
+  test('resumes a session by id through --resume', () => {
+    assert.deepEqual(parseMakaCliArgs(['--resume', 'abc'], '0.1.0'), {
+      kind: 'tui',
+      resumeSessionId: 'abc',
+    });
+  });
+
+  test('rejects --resume without a session id', () => {
+    assert.deepEqual(parseMakaCliArgs(['--resume'], '0.1.0'), {
+      kind: 'error',
+      message: '--resume requires a session id',
+      exitCode: 2,
+    });
+  });
+
+  test('rejects --resume when the next token is another flag', () => {
+    assert.deepEqual(parseMakaCliArgs(['--resume', '--help'], '0.1.0'), {
+      kind: 'error',
+      message: '--resume requires a session id',
+      exitCode: 2,
+    });
+  });
+
+  test('rejects --resume with a trailing extra argument', () => {
+    assert.deepEqual(parseMakaCliArgs(['--resume', 'abc', 'extra'], '0.1.0'), {
+      kind: 'error',
+      message: 'Unexpected argument: extra',
+      exitCode: 2,
+    });
+  });
+
+  test('runs the plain TUI without a resumeSessionId', () => {
+    const command = parseMakaCliArgs([], '0.1.0');
+    assert.deepEqual(command, { kind: 'tui' });
+    assert.equal((command as { resumeSessionId?: string }).resumeSessionId, undefined);
+  });
+
   test('uses the command exit code when no earlier exit reason exists', () => {
     assert.equal(resolveMakaCliExitCode(2, undefined), 2);
   });
@@ -116,7 +160,7 @@ describe('Maka CLI args', () => {
     const child = spawn(process.execPath, ['--input-type=module', '-e', childSource], {
       stdio: 'ignore',
     });
-    const [code, signal] = await once(child, 'exit') as [number | null, NodeJS.Signals | null];
+    const [code, signal] = (await once(child, 'exit')) as [number | null, NodeJS.Signals | null];
 
     assert.equal(signal, null);
     assert.equal(code, 1);
@@ -135,7 +179,7 @@ describe('Maka CLI args', () => {
       stdio: 'ignore',
     });
     const watchdog = setTimeout(() => child.kill('SIGKILL'), 5_000);
-    const [code, signal] = await once(child, 'exit') as [number | null, NodeJS.Signals | null];
+    const [code, signal] = (await once(child, 'exit')) as [number | null, NodeJS.Signals | null];
     clearTimeout(watchdog);
 
     assert.equal(signal, null);
@@ -144,10 +188,7 @@ describe('Maka CLI args', () => {
   });
 
   test('prints version from the executable entrypoint', async () => {
-    const { stdout } = await execFileAsync(process.execPath, [
-      cliPath,
-      '--version',
-    ]);
+    const { stdout } = await execFileAsync(process.execPath, [cliPath, '--version']);
 
     assert.equal(stdout.trim(), '0.1.0');
   });
@@ -156,11 +197,21 @@ describe('Maka CLI args', () => {
     const root = await mkdtemp(join(tmpdir(), 'maka-cli-inspect-'));
     try {
       const session = await createSessionStore(root).create({
-        cwd: '/tmp/workspace', name: 'CLI inspect', backend: 'fake',
-        llmConnectionSlug: 'fake', model: 'fake-model', permissionMode: 'ask',
+        cwd: '/tmp/workspace',
+        name: 'CLI inspect',
+        backend: 'fake',
+        llmConnectionSlug: 'fake',
+        model: 'fake-model',
+        permissionMode: 'ask',
       });
       const result = await runCliProcess(cliPath, [
-        'inspect', session.id, '--store', root, '--kind', 'session', '--json',
+        'inspect',
+        session.id,
+        '--store',
+        root,
+        '--kind',
+        'session',
+        '--json',
       ]);
 
       assert.equal(result.code, 0);
@@ -180,15 +231,23 @@ describe('Maka CLI args', () => {
       await writeFile(join(dir, 'fixture', 'marker.txt'), 'ok', 'utf8');
       const specPath = join(dir, 'spec.json');
       const outDir = join(dir, 'out');
-      await writeFile(specPath, JSON.stringify({
-        configs: [{ id: 'fake-cfg', backend: 'fake', llmConnectionSlug: 'fake', model: 'fake-model' }],
-        tasks: [{
-          id: 't-pass',
-          instruction: 'go',
-          workspaceDir: 'fixture',
-          verification: { command: 'test -f marker.txt', protectedPaths: [] },
-        }],
-      }), 'utf8');
+      await writeFile(
+        specPath,
+        JSON.stringify({
+          configs: [
+            { id: 'fake-cfg', backend: 'fake', llmConnectionSlug: 'fake', model: 'fake-model' },
+          ],
+          tasks: [
+            {
+              id: 't-pass',
+              instruction: 'go',
+              workspaceDir: 'fixture',
+              verification: { command: 'test -f marker.txt', protectedPaths: [] },
+            },
+          ],
+        }),
+        'utf8',
+      );
 
       const result = await runCliProcess(cliPath, ['eval', 'run', specPath, '--out', outDir]);
 
@@ -251,6 +310,55 @@ describe('Maka CLI args', () => {
   });
 });
 
+describe('resolveTuiResumeTarget', () => {
+  test("anchors the resumed session's stored connection and model", async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-cli-resume-target-'));
+    try {
+      const session = await createSessionStore(root).create({
+        cwd: '/tmp/some-workspace',
+        name: 'Resume target',
+        backend: 'ai-sdk',
+        llmConnectionSlug: 'some-connection',
+        model: 'some-model',
+        permissionMode: 'ask',
+      });
+
+      const result = await resolveTuiResumeTarget(root, session.id);
+
+      assert.deepEqual(result, {
+        requestedConnectionSlug: 'some-connection',
+        requestedModel: 'some-model',
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('returns undefined for a session that does not exist, so startup falls back to the default connection', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-cli-resume-target-missing-'));
+    try {
+      const result = await resolveTuiResumeTarget(root, 'nonexistent-session');
+
+      assert.equal(result, undefined);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('formatResumeHint', () => {
+  test('returns null when there is no session to resume', () => {
+    assert.equal(formatResumeHint(null), null);
+  });
+
+  test('formats the exact resume command for a session id', () => {
+    assert.equal(
+      formatResumeHint('session-123'),
+      'Resume this session with:\n  maka --resume session-123',
+    );
+  });
+});
+
 describe('startup connection-error guidance', () => {
   const workspaceRoot = '/tmp/maka-workspace';
 
@@ -281,6 +389,9 @@ describe('startup connection-error guidance', () => {
   });
 
   test('returns null for an unrelated startup error so it propagates unchanged', () => {
-    assert.equal(formatStartupConnectionError(new Error('ENOENT: workspace missing'), workspaceRoot), null);
+    assert.equal(
+      formatStartupConnectionError(new Error('ENOENT: workspace missing'), workspaceRoot),
+      null,
+    );
   });
 });

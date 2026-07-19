@@ -165,17 +165,20 @@ describe('Settings usage dashboard contract', () => {
 
     assert.ok(usagePage, 'Usage settings page block must exist');
     assert.match(usagePage![0], /const persistedUsage = props\.settings\.usage/);
-    assert.match(usagePage![0], /const \[usageDraft, setUsageDraft\] = useState\(persistedUsage\)/);
-    assert.match(usagePage![0], /const usageDraftRef = useRef\(persistedUsage\)/);
     assert.match(
       usagePage![0],
-      /function commitUsageDraft\(next: AppSettings\['usage'\]\) \{[\s\S]*usageDraftRef\.current = next;[\s\S]*setUsageDraft\(next\);[\s\S]*\}/,
-      'Usage controls must update a local draft immediately instead of waiting for settings IPC',
+      /useOptimisticSettingsDraft<AppSettings\['usage'\]>\([\s\S]*persistedUsage,[\s\S]*\(patch\) => props\.onUpdate\(\{ usage: patch \}\)\.then\(\(result\) => result\.settings\.usage\)/,
+      'Usage controls must drive their local draft through the shared optimistic draft hook instead of waiting for settings IPC',
     );
     assert.match(
       usagePage![0],
-      /async function updateUsage\(patch: Partial<AppSettings\['usage'\]>\): Promise<boolean> \{[\s\S]*const nextDraft = \{ \.\.\.usageDraftRef\.current, \.\.\.patch \};[\s\S]*commitUsageDraft\(nextDraft\);[\s\S]*const result = await props\.onUpdate\(\{ usage: patch \}\);[\s\S]*if \(usagePageMountedRef\.current && ticket === usageSaveTicketRef\.current\) \{[\s\S]*commitUsageDraft\(result\.settings\.usage\);[\s\S]*catch \(error\) \{[\s\S]*if \(usagePageMountedRef\.current && ticket === usageSaveTicketRef\.current\) \{[\s\S]*commitUsageDraft\(persistedUsageRef\.current\);/,
-      'Usage settings saves must use latest-response draft sync and roll back on failure',
+      /draft: usageDraft,[\s\S]*draftRef: usageDraftRef,[\s\S]*mountedRef: usagePageMountedRef,[\s\S]*update,/,
+      'Usage must read its rendered draft, synchronous draft ref, and mounted ref from the shared hook',
+    );
+    assert.match(
+      usagePage![0],
+      /\{ onError: \(error\) => toast\.error\('保存使用统计设置失败', settingsActionErrorMessage\(error\)\) \},[\s\S]*function updateUsage\(patch: Partial<AppSettings\['usage'\]>\): Promise<boolean> \{[\s\S]*return update\(patch\);/,
+      'Usage settings saves must route through the shared draft update (latest-response sync + rollback owned by the hook)',
     );
     assert.match(usagePage![0], /<Input value=\{usageDraft\.modelFilter\}/);
     assert.match(usagePage![0], /<SettingsSelect[\s\S]*value=\{usageDraft\.status\}[\s\S]*ariaLabel="请求状态筛选"/);
@@ -191,11 +194,11 @@ describe('Settings usage dashboard contract', () => {
     const usagePage = src.match(/function UsageSettingsPage\([\s\S]*?function UsageTable/);
 
     assert.ok(usagePage, 'Usage settings page block must exist');
-    assert.match(usagePage![0], /async function updateUsage\(patch: Partial<AppSettings\['usage'\]>\): Promise<boolean>/);
+    assert.match(usagePage![0], /function updateUsage\(patch: Partial<AppSettings\['usage'\]>\): Promise<boolean>/);
     assert.match(
       usagePage![0],
-      /try \{[\s\S]*await props\.onUpdate\(\{ usage: patch \}\)[\s\S]*return usagePageMountedRef\.current && ticket === usageSaveTicketRef\.current;[\s\S]*catch \(error\) \{[\s\S]*if \(usagePageMountedRef\.current && ticket === usageSaveTicketRef\.current\) \{[\s\S]*toast\.error\('保存使用统计设置失败', settingsActionErrorMessage\(error\)\)[\s\S]*return false/,
-      'Usage settings updates must toast the latest mounted save failure and report failure to callers',
+      /\{ onError: \(error\) => toast\.error\('保存使用统计设置失败', settingsActionErrorMessage\(error\)\) \},[\s\S]*function updateUsage\(patch: Partial<AppSettings\['usage'\]>\): Promise<boolean> \{[\s\S]*return update\(patch\);/,
+      'Usage settings updates must surface the save failure through the shared hook (which gates on the latest mounted save) and report failure to callers',
     );
     assert.match(
       usagePage![0],
@@ -215,24 +218,17 @@ describe('Settings usage dashboard contract', () => {
 
     assert.match(
       usagePage,
-      /const usagePageMountedRef = useMountedRef\(\);/,
-      'Usage settings page must track mounted ownership for async preference and refresh work',
+      /mountedRef: usagePageMountedRef,/,
+      'Usage settings page must track mounted ownership (from the shared draft hook) for async preference and refresh work',
     );
     assert.match(
       usagePage,
-      /useEffect\(\(\) => \{[\s\S]*return \(\) => \{[\s\S]*usageSaveTicketRef\.current \+= 1;[\s\S]*usageRefreshRunningRef\.current = false;/,
-      'Usage settings cleanup must invalidate saves and release manual refresh ownership',
+      /const usageRefreshGuard = useActionGuard<'refresh'>\(\)/,
+      'Usage settings must hold its manual refresh guard from the shared hook (which releases it on unmount and invalidates saves)',
     );
-    assert.match(
-      usagePage,
-      /const result = await props\.onUpdate\(\{ usage: patch \}\);[\s\S]*if \(usagePageMountedRef\.current && ticket === usageSaveTicketRef\.current\) \{[\s\S]*commitUsageDraft\(result\.settings\.usage\);/,
-      'Usage save success must not sync draft state after unmount or after a newer request',
-    );
-    assert.match(
-      usagePage,
-      /catch \(error\) \{[\s\S]*if \(usagePageMountedRef\.current && ticket === usageSaveTicketRef\.current\) \{[\s\S]*commitUsageDraft\(persistedUsageRef\.current\);[\s\S]*toast\.error\('保存使用统计设置失败', settingsActionErrorMessage\(error\)\);/,
-      'Usage save failure must not rollback or toast after unmount or after a newer request',
-    );
+    // Save-response staleness + rollback after unmount are owned by the shared
+    // optimistic draft hook and covered by its controller unit test; the page
+    // only gates the stats reload on the boolean the shared update returns.
     assert.match(
       usagePage,
       /const saved = await updateUsage\(\{ range \}\);[\s\S]*if \(!saved \|\| !usagePageMountedRef\.current\) return;[\s\S]*await props\.onReload\(range\);/,
@@ -240,7 +236,7 @@ describe('Settings usage dashboard contract', () => {
     );
     assert.match(
       usagePage,
-      /finally \{[\s\S]*usageRefreshRunningRef\.current = false;[\s\S]*if \(usagePageMountedRef\.current\) \{[\s\S]*setRefreshing\(false\);/,
+      /finally \{[\s\S]*usageRefreshGuard\.finish\(\);[\s\S]*if \(usagePageMountedRef\.current\) \{[\s\S]*setRefreshing\(false\);/,
       'Manual usage refresh cleanup must not write React pending state after unmount',
     );
   });
@@ -262,7 +258,7 @@ describe('Settings usage dashboard contract', () => {
     );
     assert.match(
       settingsModal!,
-      /catch \(error\) \{[\s\S]*if \(settingsModalMountedRef\.current && ticket === usageReloadTicketRef\.current\) \{[\s\S]*toast\.error\('载入使用统计失败', settingsActionErrorMessage\(error\)\);[\s\S]*\}/,
+      /catch \(error\) \{[\s\S]*if \(settingsModalMountedRef\.current && ticket === usageReloadTicketRef\.current\) \{[\s\S]*toast\.error\(copy\.usageLoadFailed, settingsActionErrorMessage\(error, locale\)\);[\s\S]*\}/,
       'Stale or unmounted usage reload failures must not toast over a newer range',
     );
   });
@@ -274,18 +270,18 @@ describe('Settings usage dashboard contract', () => {
     assert.ok(usagePage, 'Usage settings page block must exist');
     assert.match(
       usagePage![0],
-      /const usageRefreshRunningRef = useRef\(false\);/,
-      'Manual usage refresh needs a ref gate so fast double-clicks cannot duplicate reloads before React disables the button',
+      /const usageRefreshGuard = useActionGuard<'refresh'>\(\)/,
+      'Manual usage refresh needs a synchronous guard so fast double-clicks cannot duplicate reloads before React disables the button',
     );
     assert.match(
       usagePage![0],
-      /async function refresh\(\) \{\s*if \(usageRefreshRunningRef\.current\) return;[\s\S]*usageRefreshRunningRef\.current = true;[\s\S]*await props\.onReload\(usageDraftRef\.current\.range\)/,
+      /async function refresh\(\) \{\s*if \(!usageRefreshGuard\.begin\('refresh'\)\) return;[\s\S]*await props\.onReload\(usageDraftRef\.current\.range\)/,
       'Manual usage refresh must lock synchronously and read the latest local draft range',
     );
     assert.match(
       usagePage![0],
-      /finally \{[\s\S]*usageRefreshRunningRef\.current = false;[\s\S]*setRefreshing\(false\);[\s\S]*\}/,
-      'Manual usage refresh must release the ref gate after reload settles',
+      /finally \{[\s\S]*usageRefreshGuard\.finish\(\);[\s\S]*setRefreshing\(false\);[\s\S]*\}/,
+      'Manual usage refresh must release the guard after reload settles',
     );
     assert.doesNotMatch(
       usagePage![0],

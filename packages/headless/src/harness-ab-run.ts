@@ -3,20 +3,19 @@ import { runAbComparison } from './ab-run.js';
 import { withAbRunLock } from './ab-run-lock.js';
 import type { AbComparisonSummary } from './ab-types.js';
 import type { Config } from './contracts.js';
+import type { HarborBillingMode } from './harbor-task-runner.js';
 import {
   runFixedPromptController,
   type FixedPromptTask,
   type HarborTaskRunner,
 } from './fixed-prompt-controller.js';
-import {
-  HARNESS_AB_PAIR_CONCURRENCY,
-  type HarnessAbArmId,
-} from './harness-ab-manifest.js';
+import { HARNESS_AB_PAIR_CONCURRENCY, type HarnessAbArmId } from './harness-ab-manifest.js';
 
 export interface HarnessAbRuntimeArm {
   id: HarnessAbArmId;
   config: Config;
   expectedPricingProfile: string;
+  billingMode?: HarborBillingMode;
   harborRunner: HarborTaskRunner;
 }
 
@@ -28,6 +27,7 @@ export interface RunHarnessAbComparisonInput {
   resumeFingerprint: string;
   evaluationTasks: readonly FixedPromptTask[];
   arms: readonly [HarnessAbRuntimeArm, HarnessAbRuntimeArm];
+  pairConcurrency?: number;
   now?: () => number;
   newId?: () => string;
 }
@@ -45,6 +45,10 @@ export function withHarnessAbRunLock<T>(runRoot: string, action: () => Promise<T
 export async function runHarnessAbComparisonUnlocked(
   input: RunHarnessAbComparisonInput,
 ): Promise<AbComparisonSummary> {
+  const pairConcurrency = input.pairConcurrency ?? HARNESS_AB_PAIR_CONCURRENCY;
+  if (!Number.isSafeInteger(pairConcurrency) || pairConcurrency < 1) {
+    throw new Error('pairConcurrency must be a positive integer');
+  }
   return runAbComparison({
     runId: input.runId,
     arms: input.arms.map((arm) => ({
@@ -53,6 +57,7 @@ export async function runHarnessAbComparisonUnlocked(
       fingerprint: buildRunManifestFingerprint({
         config: arm.config,
         expectedPricingProfile: arm.expectedPricingProfile,
+        billingMode: arm.billingMode,
       }),
     })) as unknown as [
       { id: HarnessAbArmId; kind: 'harness'; fingerprint: string },
@@ -60,7 +65,7 @@ export async function runHarnessAbComparisonUnlocked(
     ],
     evaluationTasks: input.evaluationTasks,
     reps: 1,
-    maxConcurrency: HARNESS_AB_PAIR_CONCURRENCY,
+    maxConcurrency: pairConcurrency,
     armExecution: 'parallel',
     runArm: async ({ roundId, arm, task }) => {
       const runtimeArm = input.arms.find((candidate) => candidate.id === arm.id);
@@ -75,7 +80,9 @@ export async function runHarnessAbComparisonUnlocked(
         infraFailurePolicy: 'terminal',
         protectPassAtOne: true,
         requireExecutionIdentity: true,
+        requireFinalUsage: true,
         expectedPricingProfile: runtimeArm.expectedPricingProfile,
+        ...(runtimeArm.billingMode ? { billingMode: runtimeArm.billingMode } : {}),
         resumeFingerprint: input.resumeFingerprint,
         harborRunner: runtimeArm.harborRunner,
         ...(input.now ? { now: input.now } : {}),

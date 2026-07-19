@@ -34,8 +34,11 @@ const HOST_BACKEND_ENV_KEYS = [
 ];
 export async function main(options = {}) {
   const env = process.env;
-  const provider = env.MAKA_PROVIDER || providerFromModel(env.MAKA_MODEL || env.HARBOR_MODEL || 'deepseek/deepseek-v4-flash');
-  const model = env.MAKA_MODEL || stripProvider(env.HARBOR_MODEL || 'deepseek/deepseek-v4-flash', provider);
+  const provider =
+    env.MAKA_PROVIDER ||
+    providerFromModel(env.MAKA_MODEL || env.HARBOR_MODEL || 'deepseek/deepseek-v4-flash');
+  const model =
+    env.MAKA_MODEL || stripProvider(env.HARBOR_MODEL || 'deepseek/deepseek-v4-flash', provider);
   const outputDir = env.MAKA_OUTPUT_DIR || join(process.cwd(), 'agent');
   const storageRoot = env.MAKA_STORAGE_ROOT || join(outputDir, 'maka-storage');
   const contextEnv = normalizeHarborCellContextEnv(env);
@@ -68,15 +71,20 @@ export async function main(options = {}) {
     ...(continuationPolicy ? { continuationPolicy } : {}),
     ...(taskLedgerExperimentPolicy ? { taskToolSummaryEnabled: true } : {}),
     ...(settleAfterMs !== undefined ? { settleAfterMs } : {}),
-    registerBackends: options.registerBackends ?? buildAiSdkCellBackendRegistration({
-      provider,
-      model,
-      env: await backendEnv({ ...env, MAKA_OUTPUT_DIR: outputDir, MAKA_STORAGE_ROOT: storageRoot }, provider),
-      now,
-      newId,
-      ...(maxSteps !== undefined ? { maxSteps } : {}),
-      recordUsageCheckpoint: (usage) => writeHarborCellUsageCheckpoint(outputDir, usage),
-    }),
+    registerBackends:
+      options.registerBackends ??
+      buildAiSdkCellBackendRegistration({
+        provider,
+        model,
+        env: await backendEnv(
+          { ...env, MAKA_OUTPUT_DIR: outputDir, MAKA_STORAGE_ROOT: storageRoot },
+          provider,
+        ),
+        now,
+        newId,
+        ...(maxSteps !== undefined ? { maxSteps } : {}),
+        recordUsageCheckpoint: (usage) => writeHarborCellUsageCheckpoint(outputDir, usage),
+      }),
     realBackendIsolation: {
       kind: 'external',
       label: 'Harbor task container via host adapter',
@@ -86,13 +94,15 @@ export async function main(options = {}) {
     newId,
   });
 
-  console.log(JSON.stringify({
-    status: result.output.status,
-    errorClass: result.output.errorClass,
-    outputPath: result.outputPath,
-    runtimeEventsPath: result.runtimeEventsPath,
-    settledByDeadline: result.settledByDeadline,
-  }));
+  console.log(
+    JSON.stringify({
+      status: result.output.status,
+      errorClass: result.output.errorClass,
+      outputPath: result.outputPath,
+      runtimeEventsPath: result.runtimeEventsPath,
+      settledByDeadline: result.settledByDeadline,
+    }),
+  );
   return result;
 }
 
@@ -108,12 +118,16 @@ export async function backendEnv(env, provider) {
     MAKA_LLM_CONNECTION_SLUG: env.MAKA_LLM_CONNECTION_SLUG || provider,
   };
   const hasHostApiKey = Boolean(env.MAKA_HOST_API_KEY || env.MAKA_HOST_API_KEY_FILE);
-  if (providerAuthRequiresSecret(provider) || (providerAuthSupportsApiKey(provider) && hasHostApiKey)) {
+  if (
+    providerAuthRequiresSecret(provider) ||
+    (providerAuthSupportsApiKey(provider) && hasHostApiKey)
+  ) {
     const keyEnvName = env.MAKA_HOST_API_KEY_ENV_NAME || providerApiKeyEnvName(provider);
     result[keyEnvName] = await hostApiKey(env);
   }
   if (env.MAKA_HOST_BASE_URL) result.MAKA_BASE_URL = env.MAKA_HOST_BASE_URL;
-  if (env.MAKA_HOST_MODEL_API_PROTOCOL) result.MAKA_MODEL_API_PROTOCOL = env.MAKA_HOST_MODEL_API_PROTOCOL;
+  if (env.MAKA_HOST_MODEL_API_PROTOCOL)
+    result.MAKA_MODEL_API_PROTOCOL = env.MAKA_HOST_MODEL_API_PROTOCOL;
   for (const key of HOST_BACKEND_ENV_KEYS) {
     if (env[key] !== undefined) result[key] = env[key];
   }
@@ -123,7 +137,8 @@ export async function backendEnv(env, provider) {
 
 async function hostApiKey(env) {
   if (env.MAKA_HOST_API_KEY) return env.MAKA_HOST_API_KEY;
-  if (env.MAKA_HOST_API_KEY_FILE) return (await readFile(env.MAKA_HOST_API_KEY_FILE, 'utf8')).trim();
+  if (env.MAKA_HOST_API_KEY_FILE)
+    return (await readFile(env.MAKA_HOST_API_KEY_FILE, 'utf8')).trim();
   throw new Error('MAKA_HOST_API_KEY_FILE is required for host-side Harbor cells');
 }
 
@@ -144,7 +159,10 @@ function stripProvider(rawModel, provider) {
 }
 
 function randomId() {
-  return globalThis.crypto?.randomUUID?.() ?? `host_cell_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
+  return (
+    globalThis.crypto?.randomUUID?.() ??
+    `host_cell_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`
+  );
 }
 
 export function hostCellExitCode(result) {

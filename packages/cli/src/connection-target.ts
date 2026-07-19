@@ -1,7 +1,12 @@
 import { isConnectionReady, type ChatConfigurationReason } from '@maka/core/connection-readiness';
 import type { LlmConnection, ProviderType } from '@maka/core/llm-connections';
 import { connectionEnabledModelIds, PROVIDER_DEFAULTS } from '@maka/core/llm-connections';
-import { isOAuthSubscriptionProvider, resolveOAuthSubscriptionTokens, resolveSelectedModelContextWindow, type OAuthSubscriptionTokens } from '@maka/runtime';
+import {
+  isOAuthSubscriptionProvider,
+  resolveOAuthSubscriptionTokens,
+  resolveSelectedModelContextWindow,
+  type OAuthSubscriptionTokens,
+} from '@maka/runtime';
 import type { ConnectionStore, CredentialKind, CredentialStore } from '@maka/storage';
 
 export interface ReadySessionTarget {
@@ -22,15 +27,14 @@ export interface ModelChoice {
   contextWindow?: number;
 }
 
-export function selectableModelIdsForTarget(target: Pick<ReadySessionTarget, 'connection' | 'model'>): string[] {
+export function selectableModelIdsForTarget(
+  target: Pick<ReadySessionTarget, 'connection' | 'model'>,
+): string[] {
   // The picker mirrors the desktop's curated visibility: only the connection's
   // enabled models are offered (legacy connections collapse to their default
   // model, never the full discovered catalog). The session's current model
   // stays selectable even when the user curated it out.
-  const candidates = [
-    target.model,
-    ...connectionEnabledModelIds(target.connection),
-  ];
+  const candidates = [target.model, ...connectionEnabledModelIds(target.connection)];
   const ids: string[] = [];
   const seen = new Set<string>();
   for (const candidate of candidates) {
@@ -82,17 +86,18 @@ async function resolveReadyTargetForConnection(
     : null;
   const oauthTokens = oauthProviderType
     ? await resolveOAuthSubscriptionTokens({
-      providerType: oauthProviderType,
-      slug: connection.slug,
-      credentialStore: input.credentialStore,
-      now: input.now,
-      fetchFn: input.fetchFn,
-    })
+        providerType: oauthProviderType,
+        slug: connection.slug,
+        credentialStore: input.credentialStore,
+        now: input.now,
+        fetchFn: input.fetchFn,
+      })
     : undefined;
   const credentialKind = credentialKindForConnection(connection);
-  const secret = !oauthProviderType && credentialKind
-    ? await input.credentialStore.getSecret(connection.slug, credentialKind)
-    : '';
+  const secret =
+    !oauthProviderType && credentialKind
+      ? await input.credentialStore.getSecret(connection.slug, credentialKind)
+      : '';
   const apiKey = oauthProviderType ? oauthTokens?.access_token : secret;
   const verdict = isConnectionReady({
     connection,
@@ -101,7 +106,9 @@ async function resolveReadyTargetForConnection(
   });
   if (!verdict.ready) throw noRealConnection(verdict.reason);
   return {
-    connection: oauthTokens?.base_url ? { ...connection, baseUrl: oauthTokens.base_url } : connection,
+    connection: oauthTokens?.base_url
+      ? { ...connection, baseUrl: oauthTokens.base_url }
+      : connection,
     apiKey: apiKey ?? '',
     model: verdict.model,
     ...(oauthTokens ? { oauthTokens } : {}),
@@ -135,7 +142,8 @@ export async function listReadyModelChoices(input: {
       const secret = credentialKind
         ? await input.credentialStore.getSecret(connection.slug, credentialKind)
         : '';
-      const hasSecret = credentialKind === null || (typeof secret === 'string' && secret.length > 0);
+      const hasSecret =
+        credentialKind === null || (typeof secret === 'string' && secret.length > 0);
       const verdict = isConnectionReady({ connection, hasSecret });
       if (!verdict.ready) continue;
       for (const model of selectableModelIdsForTarget({ connection, model: verdict.model })) {

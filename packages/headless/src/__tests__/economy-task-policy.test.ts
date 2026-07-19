@@ -33,15 +33,25 @@ describe('economy-task policy', () => {
       triggerReason: 'economy-task mode was not explicitly enabled',
       policyVersion: ECONOMY_TASK_POLICY_VERSION,
     });
-    assert.equal(appendEconomyTaskPolicyToSystemPrompt(baseConfig.systemPrompt, selection), baseConfig.systemPrompt);
+    assert.equal(
+      appendEconomyTaskPolicyToSystemPrompt(baseConfig.systemPrompt, selection),
+      baseConfig.systemPrompt,
+    );
     assert.equal(configWithEconomyTaskPolicy(baseConfig, selection), baseConfig);
   });
 
   test('config enablement records source, reason, and policy version', () => {
-    const selection = resolveEconomyTaskMode({
-      ...baseConfig,
-      economyTaskMode: { enabled: true, reason: 'simple data task', policyVersion: 'custom-policy' },
-    }, baseTask);
+    const selection = resolveEconomyTaskMode(
+      {
+        ...baseConfig,
+        economyTaskMode: {
+          enabled: true,
+          reason: 'simple data task',
+          policyVersion: 'custom-policy',
+        },
+      },
+      baseTask,
+    );
 
     assert.equal(selection.enabled, true);
     assert.equal(selection.triggerSource, 'config');
@@ -64,7 +74,10 @@ describe('economy-task policy', () => {
     const prompt = appendEconomyTaskPolicyToSystemPrompt(baseConfig.systemPrompt, selection) ?? '';
 
     assert.equal(selection.policyVersion, ECONOMY_TASK_POLICY_VERSION);
-    assert.match(prompt, new RegExp(escapeRegExp(`Economy-task benchmark policy (${ECONOMY_TASK_POLICY_VERSION})`)));
+    assert.match(
+      prompt,
+      new RegExp(escapeRegExp(`Economy-task benchmark policy (${ECONOMY_TASK_POLICY_VERSION})`)),
+    );
     assert.doesNotMatch(prompt, /ignore centralized guardrails/);
   });
 
@@ -84,13 +97,16 @@ describe('economy-task policy', () => {
   });
 
   test('explicit config disable wins over task metadata enablement', () => {
-    const selection = resolveEconomyTaskMode({
-      ...baseConfig,
-      economyTaskMode: { enabled: false, reason: 'control group' },
-    }, {
-      ...baseTask,
-      benchmark: { metadata: { economyTask: true } },
-    });
+    const selection = resolveEconomyTaskMode(
+      {
+        ...baseConfig,
+        economyTaskMode: { enabled: false, reason: 'control group' },
+      },
+      {
+        ...baseTask,
+        benchmark: { metadata: { economyTask: true } },
+      },
+    );
 
     assert.equal(selection.enabled, false);
     assert.equal(selection.triggerSource, 'config');
@@ -98,14 +114,20 @@ describe('economy-task policy', () => {
   });
 
   test('heavy-task mode disables economy-task mode', () => {
-    const selection = resolveEconomyTaskMode({
-      ...baseConfig,
-      heavyTaskMode: true,
-      economyTaskMode: true,
-    }, baseTask);
+    const selection = resolveEconomyTaskMode(
+      {
+        ...baseConfig,
+        heavyTaskMode: true,
+        economyTaskMode: true,
+      },
+      baseTask,
+    );
 
     assert.equal(selection.enabled, false);
-    assert.equal(selection.triggerReason, 'heavy-task mode is enabled, so economy-task mode is disabled');
+    assert.equal(
+      selection.triggerReason,
+      'heavy-task mode is enabled, so economy-task mode is disabled',
+    );
   });
 
   test('enabled policy includes compact exploration and verifier-aware stop', () => {

@@ -13,7 +13,12 @@ describe('taskEvidenceRuntimeProvenanceLinks', () => {
         runtimeEvent('call-event', {
           role: 'model',
           author: 'agent',
-          content: { kind: 'function_call', id: 'tool-1', name: 'Bash', args: { command: 'npm test' } },
+          content: {
+            kind: 'function_call',
+            id: 'tool-1',
+            name: 'Bash',
+            args: { command: 'npm test' },
+          },
           refs: { toolCallId: 'tool-1' },
         }),
         runtimeEvent('progress-event', {
@@ -25,7 +30,12 @@ describe('taskEvidenceRuntimeProvenanceLinks', () => {
         runtimeEvent('result-event', {
           role: 'tool',
           author: 'tool',
-          content: { kind: 'function_response', id: 'tool-1', name: 'Bash', result: { exitCode: 0 } },
+          content: {
+            kind: 'function_response',
+            id: 'tool-1',
+            name: 'Bash',
+            result: { exitCode: 0 },
+          },
           refs: { toolCallId: 'tool-1' },
         }),
       ],
@@ -53,12 +63,14 @@ describe('taskEvidenceRuntimeProvenanceLinks', () => {
   test('requires the executor-owned function response before claiming provenance', () => {
     const links = taskEvidenceRuntimeProvenanceLinks({
       ...identity,
-      runtimeEvents: [runtimeEvent('call-event', {
-        role: 'model',
-        author: 'agent',
-        content: { kind: 'function_call', id: 'tool-1', name: 'Bash', args: {} },
-        refs: { toolCallId: 'tool-1' },
-      })],
+      runtimeEvents: [
+        runtimeEvent('call-event', {
+          role: 'model',
+          author: 'agent',
+          content: { kind: 'function_call', id: 'tool-1', name: 'Bash', args: {} },
+          refs: { toolCallId: 'tool-1' },
+        }),
+      ],
       evidence: [toolEvidence()],
     });
 
@@ -66,34 +78,47 @@ describe('taskEvidenceRuntimeProvenanceLinks', () => {
   });
 
   test('keeps evidence from another AgentRun or tool name unlinked', () => {
-    const runtimeEvents = [runtimeEvent('result-event', {
-      role: 'tool',
-      author: 'tool',
-      content: { kind: 'function_response', id: 'tool-1', name: 'Read', result: 'ok' },
-      refs: { toolCallId: 'tool-1' },
-    })];
-
-    assert.deepEqual(taskEvidenceRuntimeProvenanceLinks({
-      ...identity,
-      runtimeEvents,
-      evidence: [toolEvidence({ source: { ...toolEvidence().source, agentRunId: 'run-2' } })],
-    }), []);
-    assert.deepEqual(taskEvidenceRuntimeProvenanceLinks({
-      ...identity,
-      runtimeEvents,
-      evidence: [toolEvidence()],
-    }), []);
-    assert.deepEqual(taskEvidenceRuntimeProvenanceLinks({
-      ...identity,
-      runtimeEvents: [runtimeEvent('foreign-result', {
-        runId: 'run-2',
+    const runtimeEvents = [
+      runtimeEvent('result-event', {
         role: 'tool',
         author: 'tool',
-        content: { kind: 'function_response', id: 'tool-1', name: 'Bash', result: 'ok' },
+        content: { kind: 'function_response', id: 'tool-1', name: 'Read', result: 'ok' },
         refs: { toolCallId: 'tool-1' },
-      })],
-      evidence: [toolEvidence()],
-    }), []);
+      }),
+    ];
+
+    assert.deepEqual(
+      taskEvidenceRuntimeProvenanceLinks({
+        ...identity,
+        runtimeEvents,
+        evidence: [toolEvidence({ source: { ...toolEvidence().source, agentRunId: 'run-2' } })],
+      }),
+      [],
+    );
+    assert.deepEqual(
+      taskEvidenceRuntimeProvenanceLinks({
+        ...identity,
+        runtimeEvents,
+        evidence: [toolEvidence()],
+      }),
+      [],
+    );
+    assert.deepEqual(
+      taskEvidenceRuntimeProvenanceLinks({
+        ...identity,
+        runtimeEvents: [
+          runtimeEvent('foreign-result', {
+            runId: 'run-2',
+            role: 'tool',
+            author: 'tool',
+            content: { kind: 'function_response', id: 'tool-1', name: 'Bash', result: 'ok' },
+            refs: { toolCallId: 'tool-1' },
+          }),
+        ],
+        evidence: [toolEvidence()],
+      }),
+      [],
+    );
   });
 
   test('links legacy evidence by session and turn without inventing an AgentRun source field', () => {
@@ -101,12 +126,14 @@ describe('taskEvidenceRuntimeProvenanceLinks', () => {
     delete legacy.source.agentRunId;
     const links = taskEvidenceRuntimeProvenanceLinks({
       ...identity,
-      runtimeEvents: [runtimeEvent('result-event', {
-        role: 'tool',
-        author: 'tool',
-        content: { kind: 'function_response', id: 'tool-1', name: 'Bash', result: 'ok' },
-        refs: { toolCallId: 'tool-1' },
-      })],
+      runtimeEvents: [
+        runtimeEvent('result-event', {
+          role: 'tool',
+          author: 'tool',
+          content: { kind: 'function_response', id: 'tool-1', name: 'Bash', result: 'ok' },
+          refs: { toolCallId: 'tool-1' },
+        }),
+      ],
       evidence: [legacy],
     });
 

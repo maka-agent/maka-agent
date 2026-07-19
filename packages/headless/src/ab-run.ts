@@ -1,12 +1,5 @@
-import type {
-  AbArmSpec,
-  AbComparisonSummary,
-  RunAbComparisonInput,
-} from './ab-types.js';
-import type {
-  FixedPromptTask,
-  FixedPromptTaskWalEvent,
-} from './fixed-prompt-controller.js';
+import type { AbArmSpec, AbComparisonSummary, RunAbComparisonInput } from './ab-types.js';
+import type { FixedPromptTask, FixedPromptTaskWalEvent } from './fixed-prompt-controller.js';
 import { assertFinitePositive, assertPositiveInt } from './numeric-guards.js';
 import { summarizeAbComparison } from './ab-summary.js';
 
@@ -21,8 +14,12 @@ export async function runAbComparison(input: RunAbComparisonInput): Promise<AbCo
   assertUniqueArmRoundIdSuffixes(input.arms);
   const reps = input.reps ?? 3;
   assertPositiveInt('reps', reps);
-  const maxConcurrency = input.maxConcurrency !== undefined ? assertPositiveInt('maxConcurrency', input.maxConcurrency) : 1;
-  if (input.observedCostStopUsd !== undefined) assertFinitePositive('observedCostStopUsd', input.observedCostStopUsd);
+  const maxConcurrency =
+    input.maxConcurrency !== undefined
+      ? assertPositiveInt('maxConcurrency', input.maxConcurrency)
+      : 1;
+  if (input.observedCostStopUsd !== undefined)
+    assertFinitePositive('observedCostStopUsd', input.observedCostStopUsd);
   const baselineRuns: FixedPromptTaskWalEvent[][] = Array.from({ length: reps }, () => []);
   const candidateRuns: FixedPromptTaskWalEvent[][] = Array.from({ length: reps }, () => []);
   const pairs: { rep: number; taskIndex: number; task: FixedPromptTask }[] = [];
@@ -38,7 +35,11 @@ export async function runAbComparison(input: RunAbComparisonInput): Promise<AbCo
     observedCostUsd += eventCostUsd(event);
     if (isSystemicProviderFailure(event)) {
       stopReason = 'systemic_provider_failure';
-    } else if (!stopReason && input.observedCostStopUsd !== undefined && observedCostUsd >= input.observedCostStopUsd) {
+    } else if (
+      !stopReason &&
+      input.observedCostStopUsd !== undefined &&
+      observedCostUsd >= input.observedCostStopUsd
+    ) {
       stopReason = 'observed_cost_stop_reached';
     }
   };
@@ -46,7 +47,13 @@ export async function runAbComparison(input: RunAbComparisonInput): Promise<AbCo
     while (!stopReason && active.size < maxConcurrency && nextPairIndex < pairs.length) {
       const pairIndex = nextPairIndex;
       const pair = pairs[nextPairIndex++]!;
-      active.set(pairIndex, runComparisonPair(input, pair, observeArmEvent).then((result) => ({ pairIndex, ...result })));
+      active.set(
+        pairIndex,
+        runComparisonPair(input, pair, observeArmEvent).then((result) => ({
+          pairIndex,
+          ...result,
+        })),
+      );
     }
   };
 
@@ -78,21 +85,24 @@ export async function runAbComparison(input: RunAbComparisonInput): Promise<AbCo
     baselineRuns,
     candidateRuns,
     ...(input.budgetMs !== undefined ? { budgetMs: input.budgetMs } : {}),
-    ...(input.nonInferiorityMargin !== undefined ? { nonInferiorityMargin: input.nonInferiorityMargin } : {}),
+    ...(input.nonInferiorityMargin !== undefined
+      ? { nonInferiorityMargin: input.nonInferiorityMargin }
+      : {}),
   });
   return stopReason ? { ...summary, stopReason } : summary;
 }
 
 function eventCostUsd(event: FixedPromptTaskWalEvent): number {
-  return 'tokenSummary' in event ? event.tokenSummary?.costUsd ?? 0 : 0;
+  return 'tokenSummary' in event ? (event.tokenSummary?.costUsd ?? 0) : 0;
 }
 
 function isSystemicProviderFailure(event: FixedPromptTaskWalEvent): boolean {
-  const errorClass = event.type === 'task_infra_failed'
-    ? event.errorClass
-    : event.type === 'task_budget_exhausted'
-      ? event.evidenceErrorClass
-      : undefined;
+  const errorClass =
+    event.type === 'task_infra_failed'
+      ? event.errorClass
+      : event.type === 'task_budget_exhausted'
+        ? event.evidenceErrorClass
+        : undefined;
   return errorClass === 'provider_billing' || errorClass === 'auth';
 }
 
@@ -130,17 +140,19 @@ async function drainParallelArmRuns(
 ): Promise<[FixedPromptTaskWalEvent, FixedPromptTaskWalEvent]> {
   let firstError: unknown;
   let rejected = false;
-  const values = await Promise.all(runs.map(async (run) => {
-    try {
-      return await run;
-    } catch (error) {
-      if (!rejected) {
-        rejected = true;
-        firstError = error;
+  const values = await Promise.all(
+    runs.map(async (run) => {
+      try {
+        return await run;
+      } catch (error) {
+        if (!rejected) {
+          rejected = true;
+          firstError = error;
+        }
+        return undefined;
       }
-      return undefined;
-    }
-  }));
+    }),
+  );
   if (rejected) throw firstError;
   return values as [FixedPromptTaskWalEvent, FixedPromptTaskWalEvent];
 }
@@ -159,12 +171,20 @@ async function runComparisonTaskArm(
     task: pair.task,
     rep: pair.rep,
   });
-  if (event.taskId !== pair.task.id) throw new Error(`A/B arm ${roundId} produced event for ${event.taskId}, expected ${pair.task.id}`);
+  if (event.taskId !== pair.task.id)
+    throw new Error(
+      `A/B arm ${roundId} produced event for ${event.taskId}, expected ${pair.task.id}`,
+    );
   onArmEvent(event);
   return event;
 }
 
-export function buildAbRoundId(prefix: string | undefined, armId: string, rep: number, taskId: string): string {
+export function buildAbRoundId(
+  prefix: string | undefined,
+  armId: string,
+  rep: number,
+  taskId: string,
+): string {
   const normalizedPrefix = prefix ? `${roundIdArmSuffix(prefix)}-` : '';
   return `${normalizedPrefix}ab-${roundIdArmSuffix(armId)}-r${rep}-${roundIdTaskSuffix(taskId)}`;
 }
@@ -179,7 +199,9 @@ function assertUniqueArmRoundIdSuffixes(arms: readonly AbArmSpec[]): void {
     const suffix = roundIdArmSuffix(arm.id);
     const existingArmId = suffixes.get(suffix);
     if (existingArmId !== undefined) {
-      throw new Error(`A/B arm ids must produce unique round id suffixes: ${JSON.stringify(existingArmId)} and ${JSON.stringify(arm.id)} both map to ${JSON.stringify(suffix)}`);
+      throw new Error(
+        `A/B arm ids must produce unique round id suffixes: ${JSON.stringify(existingArmId)} and ${JSON.stringify(arm.id)} both map to ${JSON.stringify(suffix)}`,
+      );
     }
     suffixes.set(suffix, arm.id);
   }

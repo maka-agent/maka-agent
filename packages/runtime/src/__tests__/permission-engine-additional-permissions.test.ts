@@ -124,8 +124,13 @@ describe('PermissionEngine one-shot additional permission requests', () => {
     const proposal = createNetworkProposal({ toolName: 'Write', args });
 
     const tampered = createFixture().engine.evaluate({
-      sessionId: 'session-1', turnId: 'turn-1', toolUseId: 'tool-1',
-      toolName: 'Write', args, mode: 'execute', cwd: '/workspace',
+      sessionId: 'session-1',
+      turnId: 'turn-1',
+      toolUseId: 'tool-1',
+      toolName: 'Write',
+      args,
+      mode: 'execute',
+      cwd: '/workspace',
       additionalPermissionProposal: {
         ...proposal,
         permissionsHash: `sha256:${'0'.repeat(64)}`,
@@ -134,15 +139,25 @@ describe('PermissionEngine one-shot additional permission requests', () => {
     assert.equal(tampered.kind, 'block');
 
     const explore = createFixture().engine.evaluate({
-      sessionId: 'session-1', turnId: 'turn-1', toolUseId: 'tool-1',
-      toolName: 'Write', args, mode: 'explore', cwd: '/workspace',
+      sessionId: 'session-1',
+      turnId: 'turn-1',
+      toolUseId: 'tool-1',
+      toolName: 'Write',
+      args,
+      mode: 'explore',
+      cwd: '/workspace',
       additionalPermissionProposal: proposal,
     });
     assert.equal(explore.kind, 'block');
 
     const denied = createFixture().engine.evaluate({
-      sessionId: 'session-1', turnId: 'turn-1', toolUseId: 'tool-1',
-      toolName: 'Write', args, mode: 'execute', cwd: '/workspace',
+      sessionId: 'session-1',
+      turnId: 'turn-1',
+      toolUseId: 'tool-1',
+      toolName: 'Write',
+      args,
+      mode: 'execute',
+      cwd: '/workspace',
       permissionRules: [{ effect: 'deny', kind: 'tool', toolName: 'Write' }],
       additionalPermissionProposal: proposal,
     });
@@ -152,8 +167,13 @@ describe('PermissionEngine one-shot additional permission requests', () => {
   test('requires an absolute cwd for the approval context', () => {
     const args = { path: '/workspace/output.txt', content: 'ok' };
     const verdict = createFixture().engine.evaluate({
-      sessionId: 'session-1', turnId: 'turn-1', toolUseId: 'tool-1',
-      toolName: 'Write', args, mode: 'execute', cwd: 'workspace',
+      sessionId: 'session-1',
+      turnId: 'turn-1',
+      toolUseId: 'tool-1',
+      toolName: 'Write',
+      args,
+      mode: 'execute',
+      cwd: 'workspace',
       additionalPermissionProposal: createNetworkProposal({ toolName: 'Write', args }),
     });
 
@@ -168,8 +188,13 @@ describe('PermissionEngine one-shot additional permission grants', () => {
     const args = { command: 'curl https://example.test' };
     const proposal = createNetworkProposal({ toolName: 'Bash', args });
     const verdict = engine.evaluate({
-      sessionId: 'session-1', turnId: 'turn-1', toolUseId: 'tool-1',
-      toolName: 'Bash', args, mode: 'ask', cwd: '/workspace',
+      sessionId: 'session-1',
+      turnId: 'turn-1',
+      toolUseId: 'tool-1',
+      toolName: 'Bash',
+      args,
+      mode: 'ask',
+      cwd: '/workspace',
       additionalPermissionProposal: proposal,
     });
     assert.equal(verdict.kind, 'prompt');
@@ -196,13 +221,16 @@ describe('PermissionEngine one-shot additional permission grants', () => {
     assert.equal(Object.isFrozen(grant), true);
     assert.equal(Object.isFrozen(grant.profile), true);
     assert.throws(
-      () => engine.consumeAdditionalPermissionGrant({
-        sessionId: 'session-1', turnId: 'turn-1', toolUseId: 'tool-1',
-        toolName: 'Bash', intentHash: proposal.intentHash,
-      }),
-      (error: unknown) => (
-        error instanceof AdditionalPermissionError && error.reason === 'grant_already_consumed'
-      ),
+      () =>
+        engine.consumeAdditionalPermissionGrant({
+          sessionId: 'session-1',
+          turnId: 'turn-1',
+          toolUseId: 'tool-1',
+          toolName: 'Bash',
+          intentHash: proposal.intentHash,
+        }),
+      (error: unknown) =>
+        error instanceof AdditionalPermissionError && error.reason === 'grant_already_consumed',
     );
   });
 
@@ -211,8 +239,13 @@ describe('PermissionEngine one-shot additional permission grants', () => {
     const args = { path: '/workspace/output.txt', content: 'ok' };
     const proposal = createNetworkProposal({ toolName: 'Write', args });
     const verdict = engine.evaluate({
-      sessionId: 'session-1', turnId: 'turn-1', toolUseId: 'tool-1',
-      toolName: 'Write', args, mode: 'execute', cwd: '/workspace',
+      sessionId: 'session-1',
+      turnId: 'turn-1',
+      toolUseId: 'tool-1',
+      toolName: 'Write',
+      args,
+      mode: 'execute',
+      cwd: '/workspace',
       additionalPermissionProposal: proposal,
     });
     assert.equal(verdict.kind, 'prompt');
@@ -220,18 +253,26 @@ describe('PermissionEngine one-shot additional permission grants', () => {
     engine.recordResponse('turn-1', { requestId: verdict.event.requestId, decision: 'allow' });
 
     assert.throws(
-      () => engine.consumeAdditionalPermissionGrant({
-        sessionId: 'other-session', turnId: 'turn-1', toolUseId: 'tool-1',
-        toolName: 'Write', intentHash: proposal.intentHash,
-      }),
-      (error: unknown) => (
-        error instanceof AdditionalPermissionError && error.reason === 'grant_intent_mismatch'
-      ),
+      () =>
+        engine.consumeAdditionalPermissionGrant({
+          sessionId: 'other-session',
+          turnId: 'turn-1',
+          toolUseId: 'tool-1',
+          toolName: 'Write',
+          intentHash: proposal.intentHash,
+        }),
+      (error: unknown) =>
+        error instanceof AdditionalPermissionError && error.reason === 'grant_intent_mismatch',
     );
-    assert.ok(engine.consumeAdditionalPermissionGrant({
-      sessionId: 'session-1', turnId: 'turn-1', toolUseId: 'tool-1',
-      toolName: 'Write', intentHash: proposal.intentHash,
-    }));
+    assert.ok(
+      engine.consumeAdditionalPermissionGrant({
+        sessionId: 'session-1',
+        turnId: 'turn-1',
+        toolUseId: 'tool-1',
+        toolName: 'Write',
+        intentHash: proposal.intentHash,
+      }),
+    );
   });
 
   test('denial creates no grant and remember-for-turn cannot widen a one-shot request', async () => {
@@ -239,19 +280,25 @@ describe('PermissionEngine one-shot additional permission grants', () => {
     const args = { path: '/workspace/output.txt', content: 'ok' };
     const proposal = createNetworkProposal({ toolName: 'Write', args });
     const verdict = engine.evaluate({
-      sessionId: 'session-1', turnId: 'turn-1', toolUseId: 'tool-1',
-      toolName: 'Write', args, mode: 'execute', cwd: '/workspace',
+      sessionId: 'session-1',
+      turnId: 'turn-1',
+      toolUseId: 'tool-1',
+      toolName: 'Write',
+      args,
+      mode: 'execute',
+      cwd: '/workspace',
       additionalPermissionProposal: proposal,
     });
     assert.equal(verdict.kind, 'prompt');
     if (verdict.kind !== 'prompt') return;
 
     assert.throws(
-      () => engine.recordResponse('turn-1', {
-        requestId: verdict.event.requestId,
-        decision: 'allow',
-        rememberForTurn: true,
-      }),
+      () =>
+        engine.recordResponse('turn-1', {
+          requestId: verdict.event.requestId,
+          decision: 'allow',
+          rememberForTurn: true,
+        }),
       /cannot use rememberForTurn/,
     );
     assert.equal(engine.pendingCount('turn-1'), 1);
@@ -261,22 +308,37 @@ describe('PermissionEngine one-shot additional permission grants', () => {
       decision: 'deny',
     });
     assert.equal((await verdict.parked).decision, 'deny');
-    assert.equal(engine.consumeAdditionalPermissionGrant({
-      sessionId: 'session-1', turnId: 'turn-1', toolUseId: 'tool-1',
-      toolName: 'Write', intentHash: proposal.intentHash,
-    }), undefined);
+    assert.equal(
+      engine.consumeAdditionalPermissionGrant({
+        sessionId: 'session-1',
+        turnId: 'turn-1',
+        toolUseId: 'tool-1',
+        toolName: 'Write',
+        intentHash: proposal.intentHash,
+      }),
+      undefined,
+    );
   });
 
   test('remembered tool approval does not absorb a same-scope one-shot request', async () => {
     const { engine } = createFixture();
     const args = { path: '/workspace/output.txt', content: 'ok' };
     const toolPermission = engine.evaluate({
-      sessionId: 'session-1', turnId: 'turn-1', toolUseId: 'tool-1',
-      toolName: 'Write', args, mode: 'ask',
+      sessionId: 'session-1',
+      turnId: 'turn-1',
+      toolUseId: 'tool-1',
+      toolName: 'Write',
+      args,
+      mode: 'ask',
     });
     const additionalPermission = engine.evaluate({
-      sessionId: 'session-1', turnId: 'turn-1', toolUseId: 'tool-2',
-      toolName: 'Write', args, mode: 'ask', cwd: '/workspace',
+      sessionId: 'session-1',
+      turnId: 'turn-1',
+      toolUseId: 'tool-2',
+      toolName: 'Write',
+      args,
+      mode: 'ask',
+      cwd: '/workspace',
       additionalPermissionProposal: createNetworkProposal({ toolName: 'Write', args }),
     });
     assert.equal(toolPermission.kind, 'prompt');
@@ -303,8 +365,13 @@ describe('PermissionEngine one-shot additional permission grants', () => {
     const args = { path: '/workspace/output.txt', content: 'ok' };
     const proposal = createNetworkProposal({ toolName: 'Write', args });
     const verdict = engine.evaluate({
-      sessionId: 'session-1', turnId: 'turn-1', toolUseId: 'tool-1',
-      toolName: 'Write', args, mode: 'execute', cwd: '/workspace',
+      sessionId: 'session-1',
+      turnId: 'turn-1',
+      toolUseId: 'tool-1',
+      toolName: 'Write',
+      args,
+      mode: 'execute',
+      cwd: '/workspace',
       additionalPermissionProposal: proposal,
     });
     assert.equal(verdict.kind, 'prompt');
@@ -313,13 +380,16 @@ describe('PermissionEngine one-shot additional permission grants', () => {
     setNow(100 + DEFAULT_ADDITIONAL_PERMISSION_GRANT_TTL_MS);
 
     assert.throws(
-      () => engine.consumeAdditionalPermissionGrant({
-        sessionId: 'session-1', turnId: 'turn-1', toolUseId: 'tool-1',
-        toolName: 'Write', intentHash: proposal.intentHash,
-      }),
-      (error: unknown) => (
-        error instanceof AdditionalPermissionError && error.reason === 'grant_expired'
-      ),
+      () =>
+        engine.consumeAdditionalPermissionGrant({
+          sessionId: 'session-1',
+          turnId: 'turn-1',
+          toolUseId: 'tool-1',
+          toolName: 'Write',
+          intentHash: proposal.intentHash,
+        }),
+      (error: unknown) =>
+        error instanceof AdditionalPermissionError && error.reason === 'grant_expired',
     );
   });
 
@@ -327,41 +397,52 @@ describe('PermissionEngine one-shot additional permission grants', () => {
     const first = createFixture();
     const firstArgs = { path: '/workspace/first.txt', content: 'ok' };
     const timed = first.engine.evaluate({
-      sessionId: 'session-1', turnId: 'turn-1', toolUseId: 'tool-1',
-      toolName: 'Write', args: firstArgs, mode: 'execute', cwd: '/workspace',
+      sessionId: 'session-1',
+      turnId: 'turn-1',
+      toolUseId: 'tool-1',
+      toolName: 'Write',
+      args: firstArgs,
+      mode: 'execute',
+      cwd: '/workspace',
       additionalPermissionProposal: createNetworkProposal({ toolName: 'Write', args: firstArgs }),
     });
     assert.equal(timed.kind, 'prompt');
     if (timed.kind !== 'prompt') return;
     const timedRejection = assert.rejects(
       timed.parked,
-      (error: unknown) => (
-        error instanceof AdditionalPermissionError
-        && error.reason === 'additional_permission_timeout'
-      ),
+      (error: unknown) =>
+        error instanceof AdditionalPermissionError &&
+        error.reason === 'additional_permission_timeout',
     );
     first.engine.expireRequest('turn-1', timed.event.requestId, 'permission timed out');
     await timedRejection;
-    assert.equal(first.engine.recordResponse('turn-1', {
-      requestId: timed.event.requestId,
-      decision: 'allow',
-    }), null);
+    assert.equal(
+      first.engine.recordResponse('turn-1', {
+        requestId: timed.event.requestId,
+        decision: 'allow',
+      }),
+      null,
+    );
 
     const second = createFixture();
     const secondArgs = { path: '/workspace/second.txt', content: 'ok' };
     const aborted = second.engine.evaluate({
-      sessionId: 'session-2', turnId: 'turn-2', toolUseId: 'tool-2',
-      toolName: 'Write', args: secondArgs, mode: 'execute', cwd: '/workspace',
+      sessionId: 'session-2',
+      turnId: 'turn-2',
+      toolUseId: 'tool-2',
+      toolName: 'Write',
+      args: secondArgs,
+      mode: 'execute',
+      cwd: '/workspace',
       additionalPermissionProposal: createNetworkProposal({ toolName: 'Write', args: secondArgs }),
     });
     assert.equal(aborted.kind, 'prompt');
     if (aborted.kind !== 'prompt') return;
     const abortedRejection = assert.rejects(
       aborted.parked,
-      (error: unknown) => (
-        error instanceof AdditionalPermissionError
-        && error.reason === 'additional_permission_aborted'
-      ),
+      (error: unknown) =>
+        error instanceof AdditionalPermissionError &&
+        error.reason === 'additional_permission_aborted',
     );
     second.engine.endTurn('turn-2', 'aborted');
     await abortedRejection;
@@ -371,18 +452,24 @@ describe('PermissionEngine one-shot additional permission grants', () => {
     const { engine } = createFixture();
     const args = { path: '/workspace/output.txt', content: 'ok' };
     const verdict = engine.evaluate({
-      sessionId: 'session-1', turnId: 'turn-1', toolUseId: 'tool-1',
-      toolName: 'Write', args, mode: 'execute', cwd: '/workspace',
+      sessionId: 'session-1',
+      turnId: 'turn-1',
+      toolUseId: 'tool-1',
+      toolName: 'Write',
+      args,
+      mode: 'execute',
+      cwd: '/workspace',
       additionalPermissionProposal: createNetworkProposal({ toolName: 'Write', args }),
     });
     assert.equal(verdict.kind, 'prompt');
     if (verdict.kind !== 'prompt') return;
 
     assert.throws(
-      () => engine.recordResponse('turn-1', {
-        requestId: verdict.event.requestId,
-        decision: 'approve',
-      } as unknown as PermissionResponse),
+      () =>
+        engine.recordResponse('turn-1', {
+          requestId: verdict.event.requestId,
+          decision: 'approve',
+        } as unknown as PermissionResponse),
       /Invalid permission response/,
     );
     assert.equal(engine.pendingCount('turn-1'), 1);

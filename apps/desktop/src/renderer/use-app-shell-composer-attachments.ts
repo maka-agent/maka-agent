@@ -1,6 +1,9 @@
 import { useState } from 'react';
-import { attachmentKindFromMimeType, generalizedErrorMessageChinese, guessMimeFromName } from '@maka/core';
+import { attachmentKindFromMimeType, guessMimeFromName } from '@maka/core';
+import { useUiLocale } from '@maka/ui';
 import type { PendingAttachment } from './app-shell-chat-actions';
+import { getDesktopConversationCopy } from './locales/conversation-copy.js';
+import { localizedShellErrorMessage } from './locales/shell-copy.js';
 import {
   appendPending,
   removePending,
@@ -44,6 +47,8 @@ export function useAppShellComposerAttachments(options: {
   draftKey: string;
   toastApi: ToastApi;
 }) {
+  const uiLocale = useUiLocale();
+  const copy = getDesktopConversationCopy(uiLocale).actions;
   const [pendingByKey, setPendingByKey] = useState<PendingByKey<PendingAttachment>>({});
   const pendingAttachments = selectPending(pendingByKey, options.draftKey);
 
@@ -54,7 +59,10 @@ export function useAppShellComposerAttachments(options: {
       if (!result.ok) return;
       setPendingByKey((map) => appendPending(map, ownerKey, result.files.map(approvalToPending)));
     } catch (error) {
-      options.toastApi.error('添加附件失败', generalizedErrorMessageChinese(error, '请稍后重试。'));
+      options.toastApi.error(
+        copy.attachmentFailedTitle,
+        localizedShellErrorMessage(error, copy.tryAgain, uiLocale),
+      );
     }
   }
 

@@ -1,7 +1,11 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { AutomationManager } from '../automation-state.js';
-import { AutomationScheduler, DEFER_WINDOW_MS, type AutomationFireResult } from '../automation-scheduler.js';
+import {
+  AutomationScheduler,
+  DEFER_WINDOW_MS,
+  type AutomationFireResult,
+} from '../automation-scheduler.js';
 
 function createTestSetup() {
   let idCounter = 0;
@@ -13,7 +17,9 @@ function createTestSetup() {
   let canFireThrows = false;
   let injectResult: AutomationFireResult = { runId: 'run-x', ok: true };
   let injectRejects = false;
-  let createFreshRunFn: ((prompt: string, automationId: string) => Promise<AutomationFireResult>) | undefined;
+  let createFreshRunFn:
+    | ((prompt: string, automationId: string) => Promise<AutomationFireResult>)
+    | undefined;
 
   const manager = new AutomationManager({
     generateId: () => `auto-${++idCounter}`,
@@ -33,20 +39,24 @@ function createTestSetup() {
       if (injectRejects) throw new Error('injectTurn error');
       return injectResult;
     },
-    get createFreshRun() { return createFreshRunFn; },
+    get createFreshRun() {
+      return createFreshRunFn;
+    },
     setTimeout: (fn, ms) => {
       const id = ++timerId;
       timers.push({ fn, ms, id });
       return id;
     },
     clearTimeout: (timer) => {
-      const idx = timers.findIndex(t => t.id === timer);
+      const idx = timers.findIndex((t) => t.id === timer);
       if (idx >= 0) timers.splice(idx, 1);
     },
     now: () => time,
   });
 
-  function advanceTime(ms: number) { time += ms; }
+  function advanceTime(ms: number) {
+    time += ms;
+  }
   function fireNextTimer() {
     const timer = timers.shift();
     if (timer) timer.fn();
@@ -56,17 +66,32 @@ function createTestSetup() {
   async function runTick() {
     fireNextTimer();
     for (let i = 0; i < 5; i++) await Promise.resolve();
-    await new Promise(r => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
   }
 
   return {
-    manager, scheduler, fired, timers,
-    advanceTime, fireNextTimer, runTick,
-    setCanFire: (v: boolean) => { canFireResult = v; },
-    setCanFireThrows: (v: boolean) => { canFireThrows = v; },
-    setInjectRejects: (v: boolean) => { injectRejects = v; },
-    setInjectResult: (r: AutomationFireResult) => { injectResult = r; },
-    setCreateFreshRun: (fn: ((prompt: string, automationId: string) => Promise<AutomationFireResult>) | undefined) => {
+    manager,
+    scheduler,
+    fired,
+    timers,
+    advanceTime,
+    fireNextTimer,
+    runTick,
+    setCanFire: (v: boolean) => {
+      canFireResult = v;
+    },
+    setCanFireThrows: (v: boolean) => {
+      canFireThrows = v;
+    },
+    setInjectRejects: (v: boolean) => {
+      injectRejects = v;
+    },
+    setInjectResult: (r: AutomationFireResult) => {
+      injectResult = r;
+    },
+    setCreateFreshRun: (
+      fn: ((prompt: string, automationId: string) => Promise<AutomationFireResult>) | undefined,
+    ) => {
       createFreshRunFn = fn;
     },
     getTime: () => time,
@@ -77,8 +102,11 @@ describe('AutomationScheduler', () => {
   test('fires a heartbeat when time arrives and session is idle', async () => {
     const t = createTestSetup();
     t.manager.create({
-      kind: 'heartbeat', name: 'test', prompt: 'check it',
-      sessionId: 'sess-1', schedule: { type: 'interval', seconds: 30 },
+      kind: 'heartbeat',
+      name: 'test',
+      prompt: 'check it',
+      sessionId: 'sess-1',
+      schedule: { type: 'interval', seconds: 30 },
     });
     t.advanceTime(31000);
     t.scheduler.start();
@@ -90,8 +118,11 @@ describe('AutomationScheduler', () => {
   test('does not fire when session is busy', async () => {
     const t = createTestSetup();
     t.manager.create({
-      kind: 'heartbeat', name: 'test', prompt: 'p',
-      sessionId: 'sess-1', schedule: { type: 'interval', seconds: 30 },
+      kind: 'heartbeat',
+      name: 'test',
+      prompt: 'p',
+      sessionId: 'sess-1',
+      schedule: { type: 'interval', seconds: 30 },
     });
     t.advanceTime(31000);
     t.setCanFire(false);
@@ -106,8 +137,11 @@ describe('AutomationScheduler', () => {
     // mirrors the old wakeup-scheduler's 5s→5min exponential-backoff budget.
     const t = createTestSetup();
     const auto = t.manager.create({
-      kind: 'heartbeat', name: 'test', prompt: 'p',
-      sessionId: 'sess-1', schedule: { type: 'interval', seconds: 60 },
+      kind: 'heartbeat',
+      name: 'test',
+      prompt: 'p',
+      sessionId: 'sess-1',
+      schedule: { type: 'interval', seconds: 60 },
     });
     assert.ok(!('error' in auto));
     const originalNextFire = auto.nextFireAt;
@@ -115,11 +149,21 @@ describe('AutomationScheduler', () => {
     t.setCanFire(false);
     t.scheduler.start();
     // 10 minutes of busy session (5s ticks) — way past the old 120s budget.
-    for (let i = 0; i < 120; i++) { await t.runTick(); t.advanceTime(5000); }
+    for (let i = 0; i < 120; i++) {
+      await t.runTick();
+      t.advanceTime(5000);
+    }
     const deferred = t.manager.get(auto.id);
     assert.equal(deferred?.status, 'active');
-    assert.equal(deferred?.nextFireAt, originalNextFire, 'still pending the SAME fire — not skipped');
-    assert.ok((deferred?.deferredFireCount ?? 0) >= 120, 'deferred attempts are recorded for observability');
+    assert.equal(
+      deferred?.nextFireAt,
+      originalNextFire,
+      'still pending the SAME fire — not skipped',
+    );
+    assert.ok(
+      (deferred?.deferredFireCount ?? 0) >= 120,
+      'deferred attempts are recorded for observability',
+    );
     assert.equal(t.fired.length, 0);
     // Session finally goes idle → the deferred fire executes (never dropped).
     t.setCanFire(true);
@@ -130,8 +174,11 @@ describe('AutomationScheduler', () => {
   test('skips fire and advances schedule only when the defer window is exhausted', async () => {
     const t = createTestSetup();
     const auto = t.manager.create({
-      kind: 'heartbeat', name: 'test', prompt: 'p',
-      sessionId: 'sess-1', schedule: { type: 'interval', seconds: 60 },
+      kind: 'heartbeat',
+      name: 'test',
+      prompt: 'p',
+      sessionId: 'sess-1',
+      schedule: { type: 'interval', seconds: 60 },
     });
     assert.ok(!('error' in auto));
     const originalNextFire = auto.nextFireAt;
@@ -150,15 +197,21 @@ describe('AutomationScheduler', () => {
   test('a transient busy window does NOT terminally expire a once automation', async () => {
     const t = createTestSetup();
     const auto = t.manager.create({
-      kind: 'heartbeat', name: 'remind', prompt: 'p',
-      sessionId: 'sess-1', schedule: { type: 'once', delaySeconds: 10 },
+      kind: 'heartbeat',
+      name: 'remind',
+      prompt: 'p',
+      sessionId: 'sess-1',
+      schedule: { type: 'once', delaySeconds: 10 },
     });
     assert.ok(!('error' in auto));
     t.advanceTime(11000);
     t.setCanFire(false);
     t.scheduler.start();
     // Busy for ~5 minutes of ticks — well past the old 120s budget.
-    for (let i = 0; i < 60; i++) { await t.runTick(); t.advanceTime(5000); }
+    for (let i = 0; i < 60; i++) {
+      await t.runTick();
+      t.advanceTime(5000);
+    }
     assert.equal(t.manager.get(auto.id)?.status, 'active', 'once must keep deferring, not expire');
     // Turn ends → the once fires and completes normally.
     t.setCanFire(true);
@@ -170,8 +223,11 @@ describe('AutomationScheduler', () => {
   test('a once automation expires only when the defer window is exhausted', async () => {
     const t = createTestSetup();
     const auto = t.manager.create({
-      kind: 'heartbeat', name: 'remind', prompt: 'p',
-      sessionId: 'sess-1', schedule: { type: 'once', delaySeconds: 10 },
+      kind: 'heartbeat',
+      name: 'remind',
+      prompt: 'p',
+      sessionId: 'sess-1',
+      schedule: { type: 'once', delaySeconds: 10 },
     });
     assert.ok(!('error' in auto));
     t.advanceTime(11000);
@@ -187,8 +243,11 @@ describe('AutomationScheduler', () => {
   test('canFire throwing does not crash the scheduler', async () => {
     const t = createTestSetup();
     t.manager.create({
-      kind: 'heartbeat', name: 'test', prompt: 'p',
-      sessionId: 'sess-1', schedule: { type: 'interval', seconds: 30 },
+      kind: 'heartbeat',
+      name: 'test',
+      prompt: 'p',
+      sessionId: 'sess-1',
+      schedule: { type: 'interval', seconds: 30 },
     });
     t.advanceTime(31000);
     t.setCanFireThrows(true);
@@ -201,8 +260,11 @@ describe('AutomationScheduler', () => {
   test('a rejected fire marks the automation failed (outcome after stream)', async () => {
     const t = createTestSetup();
     const auto = t.manager.create({
-      kind: 'heartbeat', name: 'test', prompt: 'p',
-      sessionId: 'sess-1', schedule: { type: 'interval', seconds: 30 },
+      kind: 'heartbeat',
+      name: 'test',
+      prompt: 'p',
+      sessionId: 'sess-1',
+      schedule: { type: 'interval', seconds: 30 },
     });
     assert.ok(!('error' in auto));
     t.advanceTime(31000);
@@ -217,8 +279,11 @@ describe('AutomationScheduler', () => {
   test('a fire that resolves ok:false marks failed, not success', async () => {
     const t = createTestSetup();
     const auto = t.manager.create({
-      kind: 'heartbeat', name: 'test', prompt: 'p',
-      sessionId: 'sess-1', schedule: { type: 'interval', seconds: 30 },
+      kind: 'heartbeat',
+      name: 'test',
+      prompt: 'p',
+      sessionId: 'sess-1',
+      schedule: { type: 'interval', seconds: 30 },
     });
     assert.ok(!('error' in auto));
     t.advanceTime(31000);
@@ -233,8 +298,11 @@ describe('AutomationScheduler', () => {
   test('a successful fire records the runId', async () => {
     const t = createTestSetup();
     const auto = t.manager.create({
-      kind: 'heartbeat', name: 'test', prompt: 'p',
-      sessionId: 'sess-1', schedule: { type: 'interval', seconds: 30 },
+      kind: 'heartbeat',
+      name: 'test',
+      prompt: 'p',
+      sessionId: 'sess-1',
+      schedule: { type: 'interval', seconds: 30 },
     });
     assert.ok(!('error' in auto));
     t.advanceTime(31000);
@@ -255,8 +323,11 @@ describe('AutomationScheduler', () => {
   test('does not fire expired automations', async () => {
     const t = createTestSetup();
     const auto = t.manager.create({
-      kind: 'heartbeat', name: 'expiring', prompt: 'p',
-      sessionId: 'sess-1', schedule: { type: 'interval', seconds: 30 },
+      kind: 'heartbeat',
+      name: 'expiring',
+      prompt: 'p',
+      sessionId: 'sess-1',
+      schedule: { type: 'interval', seconds: 30 },
       expiresAt: t.getTime() + 20000,
     });
     assert.ok(!('error' in auto));
@@ -270,8 +341,11 @@ describe('AutomationScheduler', () => {
   test('one-shot fires once then completes (on success)', async () => {
     const t = createTestSetup();
     const auto = t.manager.create({
-      kind: 'heartbeat', name: 'once', prompt: 'p',
-      sessionId: 'sess-1', schedule: { type: 'once', delaySeconds: 10 },
+      kind: 'heartbeat',
+      name: 'once',
+      prompt: 'p',
+      sessionId: 'sess-1',
+      schedule: { type: 'once', delaySeconds: 10 },
     });
     assert.ok(!('error' in auto));
     t.advanceTime(11000);
@@ -293,8 +367,11 @@ describe('AutomationScheduler', () => {
       return { runId: 'fresh-1', ok: true };
     });
     const auto = t.manager.create({
-      kind: 'cron', name: 'daily', prompt: 'review PRs',
-      sessionId: 'sess-1', schedule: { type: 'interval', seconds: 30 },
+      kind: 'cron',
+      name: 'daily',
+      prompt: 'review PRs',
+      sessionId: 'sess-1',
+      schedule: { type: 'interval', seconds: 30 },
     });
     assert.ok(!('error' in auto));
     t.advanceTime(31000);
@@ -310,8 +387,11 @@ describe('AutomationScheduler', () => {
   test('cron is silently ignored when createFreshRun is not provided (no state corruption)', async () => {
     const t = createTestSetup();
     const auto = t.manager.create({
-      kind: 'cron', name: 'daily', prompt: 'review PRs',
-      sessionId: 'sess-1', schedule: { type: 'interval', seconds: 30 },
+      kind: 'cron',
+      name: 'daily',
+      prompt: 'review PRs',
+      sessionId: 'sess-1',
+      schedule: { type: 'interval', seconds: 30 },
     });
     assert.ok(!('error' in auto));
     const originalFireCount = auto.fireCount;
@@ -335,8 +415,11 @@ describe('AutomationScheduler', () => {
   test('expired automations are swept even before nextFireAt', async () => {
     const t = createTestSetup();
     const auto = t.manager.create({
-      kind: 'heartbeat', name: 'expiring', prompt: 'p',
-      sessionId: 'sess-1', schedule: { type: 'interval', seconds: 3600 },
+      kind: 'heartbeat',
+      name: 'expiring',
+      prompt: 'p',
+      sessionId: 'sess-1',
+      schedule: { type: 'interval', seconds: 3600 },
       expiresAt: t.getTime() + 30000,
     });
     assert.ok(!('error' in auto));
@@ -353,30 +436,43 @@ describe('AutomationScheduler', () => {
     // host's copy may be stale. Sweeping the cron here could clobber that store.
     const t = createTestSetup(); // createFreshRun undefined → cron disabled
     const cron = t.manager.create({
-      kind: 'cron', name: 'daily', prompt: 'p',
-      sessionId: 'sess-1', schedule: { type: 'interval', seconds: 3600 },
+      kind: 'cron',
+      name: 'daily',
+      prompt: 'p',
+      sessionId: 'sess-1',
+      schedule: { type: 'interval', seconds: 3600 },
       expiresAt: t.getTime() + 30000,
     });
     assert.ok(!('error' in cron));
     // A heartbeat with the same expiry IS swept (control).
     const beat = t.manager.create({
-      kind: 'heartbeat', name: 'poll', prompt: 'p',
-      sessionId: 'sess-1', schedule: { type: 'interval', seconds: 3600 },
+      kind: 'heartbeat',
+      name: 'poll',
+      prompt: 'p',
+      sessionId: 'sess-1',
+      schedule: { type: 'interval', seconds: 3600 },
       expiresAt: t.getTime() + 30000,
     });
     assert.ok(!('error' in beat));
     t.advanceTime(31000);
     t.scheduler.start();
     await t.runTick();
-    assert.equal(t.manager.get(cron.id)?.status, 'active', 'expired cron must be left untouched on a cron-disabled host');
+    assert.equal(
+      t.manager.get(cron.id)?.status,
+      'active',
+      'expired cron must be left untouched on a cron-disabled host',
+    );
     assert.equal(t.manager.get(beat.id)?.status, 'expired', 'heartbeat is still swept');
   });
 
   test('a failed maxFires=1 fire ends failed/paused, never completed', async () => {
     const t = createTestSetup();
     const auto = t.manager.create({
-      kind: 'heartbeat', name: 'limited', prompt: 'p',
-      sessionId: 'sess-1', schedule: { type: 'interval', seconds: 30 },
+      kind: 'heartbeat',
+      name: 'limited',
+      prompt: 'p',
+      sessionId: 'sess-1',
+      schedule: { type: 'interval', seconds: 30 },
       maxFires: 1,
     });
     assert.ok(!('error' in auto));
@@ -396,21 +492,26 @@ describe('AutomationScheduler', () => {
     // the cadence (the exact concurrency window).
     t.setCreateFreshRun((_p, _id) => {
       dispatches++;
-      return new Promise<AutomationFireResult>((res) => { release = (r) => res(r); });
+      return new Promise<AutomationFireResult>((res) => {
+        release = (r) => res(r);
+      });
     });
     const auto = t.manager.create({
-      kind: 'cron', name: 'slow', prompt: 'p',
-      sessionId: 'sess-1', schedule: { type: 'interval', seconds: 10 },
+      kind: 'cron',
+      name: 'slow',
+      prompt: 'p',
+      sessionId: 'sess-1',
+      schedule: { type: 'interval', seconds: 10 },
     });
     assert.ok(!('error' in auto));
     t.scheduler.start();
     // Fire is due; run it multiple times while the first dispatch is still pending.
     t.advanceTime(11000);
-    await t.runTick();               // dispatch #1 (hangs)
+    await t.runTick(); // dispatch #1 (hangs)
     t.advanceTime(11000);
-    await t.runTick();               // due again — must be skipped (in-flight)
+    await t.runTick(); // due again — must be skipped (in-flight)
     t.advanceTime(11000);
-    await t.runTick();               // still in-flight — skipped
+    await t.runTick(); // still in-flight — skipped
     assert.equal(dispatches, 1, 'only one fire dispatched while the run is in flight');
     // Release the run → next due tick may fire again.
     release({ runId: 'r1', ok: true });
@@ -423,15 +524,21 @@ describe('AutomationScheduler', () => {
   test('maxFires bounds fire ATTEMPTS even when every run fails', async () => {
     const t = createTestSetup();
     const auto = t.manager.create({
-      kind: 'heartbeat', name: 'flaky', prompt: 'p',
-      sessionId: 'sess-1', schedule: { type: 'interval', seconds: 10 },
+      kind: 'heartbeat',
+      name: 'flaky',
+      prompt: 'p',
+      sessionId: 'sess-1',
+      schedule: { type: 'interval', seconds: 10 },
       maxFires: 2,
     });
     assert.ok(!('error' in auto));
     t.setInjectRejects(true); // every fire fails
     t.scheduler.start();
     // Tick well past 2 fire windows.
-    for (let i = 0; i < 6; i++) { t.advanceTime(11000); await t.runTick(); }
+    for (let i = 0; i < 6; i++) {
+      t.advanceTime(11000);
+      await t.runTick();
+    }
     const updated = t.manager.get(auto.id);
     // Fired at most maxFires times (2), NOT up to the consecutive-failure cap (5).
     assert.ok(updated!.fireCount <= 2, `fireCount=${updated!.fireCount} should be <= maxFires(2)`);

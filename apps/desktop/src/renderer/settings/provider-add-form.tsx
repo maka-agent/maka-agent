@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useState, type FormEvent } from 'react';
 import { PROVIDER_DEFAULTS, validateSlug, type ProviderType } from '@maka/core';
 import { providerAuthRequiresSecret, providerAuthSupportsApiKey } from '@maka/core/llm-connections';
 import { Button, Chip, Input, useMountedRef, useUiLocale } from '@maka/ui';
 import { buildCatalogRecommendedDefaultModel } from '../model-catalog-choices';
 import { PasswordInput } from './password-input';
 import { providerDisplay } from './provider-display';
+import { useActionGuard } from './use-action-guard';
 import {
   categoryLabel,
   isWiredOAuthProvider,
@@ -31,7 +32,7 @@ export function AddProviderForm(props: {
   const [apiKey, setApiKey] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const busyRef = useRef(false);
+  const submitGuard = useActionGuard<'submit'>();
   const addProviderMountedRef = useMountedRef();
 
   const isCloudflareWorkersAi = props.providerType === 'cloudflare-workers-ai';
@@ -42,14 +43,8 @@ export function AddProviderForm(props: {
   const requiresApiKey = providerAuthRequiresSecret(props.providerType) && supportsApiKey;
   const usesApiKeyDialog = usesQuickApiKeyDialog(props.providerType);
 
-  useEffect(() => {
-    return () => {
-      busyRef.current = false;
-    };
-  }, []);
-
   async function submit() {
-    if (busyRef.current) return;
+    if (submitGuard.current !== null) return;
     setError(null);
     const slugError = validateSlug(slug);
     if (slugError) return setError(slugError);
@@ -66,7 +61,7 @@ export function AddProviderForm(props: {
         ? '请到账号连接完成登录；登录成功后会自动创建模型连接。'
         : '该账号登录暂未接入聊天发送；请先使用同一家厂商的模型密钥。');
     }
-    busyRef.current = true;
+    submitGuard.begin('submit');
     setBusy(true);
     try {
       const resolvedBaseUrl = isCloudflareWorkersAi
@@ -88,7 +83,7 @@ export function AddProviderForm(props: {
     } catch (err) {
       if (addProviderMountedRef.current) setError(providerPanelActionErrorMessage(err));
     } finally {
-      busyRef.current = false;
+      submitGuard.finish();
       if (addProviderMountedRef.current) setBusy(false);
     }
   }

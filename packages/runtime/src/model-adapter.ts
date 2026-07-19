@@ -6,13 +6,14 @@ import type {
   CompleteEvent,
 } from '@maka/core/events';
 import { providerAuthRequiresSecret, type LlmConnection } from '@maka/core/llm-connections';
+import { lookupModelMetadata } from '@maka/core/model-metadata';
 import { generalizedErrorMessage } from '@maka/core/redaction';
 import type { CacheMissInputSource } from '@maka/core/usage-stats/types';
 import type { ModelMessage } from 'ai';
 
 import type { AsyncEventQueue } from './async-queue.js';
 import { resolveModelRuntime } from './model-runtime.js';
-import { classifyError, errorPresentationFromClass } from './tool-runtime.js';
+import { classifyError, errorPresentationFromClass } from './provider-error-classification.js';
 
 /**
  * Build an ai-sdk LanguageModel from a single input object.
@@ -64,7 +65,12 @@ export interface PrepareStepLike {
    * provider-visible tool schema for the step.
    */
   activeTools?: readonly string[];
-  experimental_context: unknown;
+  instructions?: unknown;
+  initialInstructions?: unknown;
+  initialMessages?: ModelMessage[];
+  responseMessages?: unknown[];
+  runtimeContext?: unknown;
+  toolsContext?: unknown;
 }
 
 export interface PrepareStepResultLike {
@@ -72,9 +78,10 @@ export interface PrepareStepResultLike {
   messages?: ModelMessage[];
   model?: unknown;
   toolChoice?: unknown;
-  system?: unknown;
+  instructions?: unknown;
   providerOptions?: Record<string, unknown>;
-  experimental_context?: unknown;
+  runtimeContext?: unknown;
+  toolsContext?: unknown;
 }
 
 export type PrepareStepFunctionLike = (
@@ -165,18 +172,23 @@ export class ModelAdapter {
 
   async startStream(input: ModelAdapterStreamInput): Promise<StreamTextResult> {
     const ai = await import('ai').catch((err) => {
-      throw new Error(`Failed to load 'ai' package. Run \`npm install ai\`. Inner: ${(err as Error).message}`);
+      throw new Error(
+        `Failed to load 'ai' package. Run \`npm install ai\`. Inner: ${(err as Error).message}`,
+      );
     });
-    const { streamText, stepCountIs, isLoopFinished } = ai as unknown as {
+    const { streamText, isStepCount, isLoopFinished } = ai as unknown as {
       streamText: (opts: Record<string, unknown>) => StreamTextResult;
-      stepCountIs: (n: number) => unknown;
+      isStepCount: (n: number) => unknown;
       isLoopFinished: () => unknown;
     };
 
     const maxSteps = input.maxSteps ?? this.input.maxSteps;
-    const configuredStop = maxSteps === undefined
-      ? isLoopFinished()
-      : stepCountIs(maxSteps);
+    const maxOutputTokens = selectedModelMaxOutputTokens(
+      this.input.connection,
+      this.input.modelId,
+      this.input.providerOptions,
+    );
+    const configuredStop = maxSteps === undefined ? isLoopFinished() : isStepCount(maxSteps);
     const stopAfterStep = input.stopAfterStep;
     return streamText({
       model: input.model,
@@ -184,18 +196,17 @@ export class ModelAdapter {
       tools: input.tools,
       activeTools: input.activeTools,
       ...(input.prepareStep ? { prepareStep: input.prepareStep } : {}),
-      experimental_repairToolCall: input.repairToolCall,
-      system: input.system,
+      repairToolCall: input.repairToolCall,
+      ...(input.system ? { instructions: input.system } : {}),
+      ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
       providerOptions: this.input.providerOptions,
       // streamText defaults to one step when stopWhen is omitted. Its exported
       // non-stopping condition is required for an unbounded tool loop.
-      stopWhen: stopAfterStep
-        ? [configuredStop, () => stopAfterStep()]
-        : configuredStop,
+      stopWhen: stopAfterStep ? [configuredStop, () => stopAfterStep()] : configuredStop,
       abortSignal: input.abortSignal,
       // The SDK default onError console.errors the raw error object (stack,
       // request bodies), which lands on the terminal outside the TUI
-      // transcript. Stream failures already surface through the fullStream
+      // transcript. Stream failures already surface through the stream
       // `error` chunk → ErrorEvent path, so silence the default.
       onError: () => {},
     });
@@ -203,34 +214,39 @@ export class ModelAdapter {
 
   async generateCompactSummary(input: CompactSummaryRequest): Promise<CompactSummaryResult> {
     const ai = await import('ai').catch((err) => {
-      throw new Error(`Failed to load 'ai' package. Run \`npm install ai\`. Inner: ${(err as Error).message}`);
+      throw new Error(
+        `Failed to load 'ai' package. Run \`npm install ai\`. Inner: ${(err as Error).message}`,
+      );
     });
     const { generateText } = ai as unknown as {
       generateText: (opts: Record<string, unknown>) => Promise<{
         text?: string;
         usage?: AiSdkUsageLike;
-        totalUsage?: AiSdkUsageLike;
         finishReason?: unknown;
         providerMetadata?: unknown;
-        response?: { id?: string };
+        finalStep?: { response?: { id?: string } };
       }>;
     };
 
     const result = await generateText({
       model: input.model,
-      system: input.system,
+      instructions: input.system,
       messages: input.messages,
       maxOutputTokens: input.maxOutputTokens,
       abortSignal: input.abortSignal,
     });
-    const usage = normalizeAiSdkUsage(result.totalUsage ?? result.usage, {
+    const usage = normalizeAiSdkUsage(result.usage, {
       rawFinishReason: result.finishReason,
     });
     return {
       text: result.text ?? '',
       ...(usage ? { usage } : {}),
-      ...(result.finishReason !== undefined ? { finishReason: rawFinishReasonString(result.finishReason) } : {}),
-      ...(typeof result.response?.id === 'string' ? { providerRequestId: result.response.id } : {}),
+      ...(result.finishReason !== undefined
+        ? { finishReason: rawFinishReasonString(result.finishReason) }
+        : {}),
+      ...(typeof result.finalStep?.response?.id === 'string'
+        ? { providerRequestId: result.finalStep.response.id }
+        : {}),
     };
   }
 
@@ -284,14 +300,14 @@ export class ModelAdapter {
       }
       case 'reasoning-start':
         break;
-      // Step boundaries (AI SDK v6 emits `start-step` / `finish-step`; older
-      // `step-finish` kept for compatibility) and the terminal `finish` carry no
+      // Step boundaries (`start-step` / `finish-step`) and the terminal
+      // `finish` carry no
       // text/thinking to stream. The backend owns step accounting: it counts and
       // flushes one AssistantMessage per step and rotates the messageId at each
       // `finish-step`. Handling them here would double-count, so they are no-ops.
       case 'start-step':
       case 'finish-step':
-      case 'step-finish':
+      case 'step-finish': // legacy replay fixture compatibility
       case 'finish':
         break;
       case 'tool-call':
@@ -309,9 +325,8 @@ export class ModelAdapter {
     const errorClass = classifyError(err);
     const presentation = errorPresentationFromClass(errorClass);
     const message = presentation.message ?? generalizedErrorMessage(err);
-    const code = err instanceof Error && 'code' in err
-      ? String((err as { code?: unknown }).code)
-      : undefined;
+    const code =
+      err instanceof Error && 'code' in err ? String((err as { code?: unknown }).code) : undefined;
     return {
       type: 'error',
       id: this.input.newId(),
@@ -330,14 +345,49 @@ export class ModelAdapter {
 
   mapFinishReason(reason: unknown): CompleteEvent['stopReason'] {
     switch (reason) {
-      case 'stop':           return 'end_turn';
-      case 'length':         return 'max_tokens';
-      case 'content-filter': return 'error';
-      case 'error':          return 'error';
-      case 'tool-calls':     return 'end_turn';
-      default:               return 'end_turn';
+      case 'stop':
+        return 'end_turn';
+      case 'length':
+        return 'max_tokens';
+      case 'content-filter':
+        return 'error';
+      case 'error':
+        return 'error';
+      case 'tool-calls':
+        return 'end_turn';
+      default:
+        return 'end_turn';
     }
   }
+}
+
+function selectedModelMaxOutputTokens(
+  connection: LlmConnection,
+  modelId: string,
+  providerOptions: Record<string, unknown> | undefined,
+): number | undefined {
+  const { adapter, apiProtocol } = resolveModelRuntime(connection, modelId);
+  const usesAnthropicMessages =
+    adapter.kind === 'anthropic' ||
+    adapter.kind === 'claude-subscription' ||
+    (adapter.kind === 'github-copilot' && apiProtocol === 'anthropic-messages');
+  if (!usesAnthropicMessages) return undefined;
+  const wireOutputLimit =
+    connection.models?.find((model) => model.id === modelId)?.maxOutputTokens ??
+    lookupModelMetadata(connection.providerType, modelId).maxOutputTokens;
+  if (wireOutputLimit === undefined) return undefined;
+  return wireOutputLimit - fixedAnthropicThinkingBudget(providerOptions);
+}
+
+function fixedAnthropicThinkingBudget(
+  providerOptions: Record<string, unknown> | undefined,
+): number {
+  const anthropic = providerOptions?.anthropic;
+  if (!anthropic || typeof anthropic !== 'object' || Array.isArray(anthropic)) return 0;
+  const thinking = (anthropic as { thinking?: unknown }).thinking;
+  if (!thinking || typeof thinking !== 'object' || Array.isArray(thinking)) return 0;
+  const { type, budgetTokens } = thinking as { type?: unknown; budgetTokens?: unknown };
+  return type === 'enabled' && typeof budgetTokens === 'number' ? budgetTokens : 0;
 }
 
 export interface ModelAdapterRuntimeEventReplaySupport {
@@ -377,9 +427,9 @@ function reasoningSignatureFromChunk(chunk: AiSdkStreamChunk): string | undefine
 }
 
 export interface StreamTextResult {
-  fullStream: AsyncIterable<AiSdkStreamChunk>;
+  stream: AsyncIterable<AiSdkStreamChunk>;
   usage: Promise<AiSdkUsageLike | undefined>;
-  totalUsage?: Promise<AiSdkUsageLike | undefined>;
+  finalStep: Promise<{ usage?: AiSdkUsageLike } | undefined>;
   finishReason: Promise<unknown>;
 }
 
@@ -466,85 +516,84 @@ export function normalizeAiSdkUsage(
 ): NormalizedAiSdkUsage | undefined {
   if (!usage) return undefined;
   const reportedInputTokens =
-    finiteTokenFromValueOrBreakdown(usage.inputTokens, 'total')
-    ?? finiteTokenBreakdownSum(usage.inputTokens, ['noCache', 'cacheRead', 'cacheWrite'])
-    ?? finiteToken(usage.promptTokens)
-    ?? finiteToken(usage.raw?.prompt_tokens)
-    ?? finiteToken(usage.prompt_tokens)
-    ?? finiteTokenSum([
+    finiteTokenFromValueOrBreakdown(usage.inputTokens, 'total') ??
+    finiteTokenBreakdownSum(usage.inputTokens, ['noCache', 'cacheRead', 'cacheWrite']) ??
+    finiteToken(usage.promptTokens) ??
+    finiteToken(usage.raw?.prompt_tokens) ??
+    finiteToken(usage.prompt_tokens) ??
+    finiteTokenSum([
       usage.inputTokenDetails?.noCacheTokens,
       usage.inputTokenDetails?.cacheReadTokens,
       usage.inputTokenDetails?.cacheWriteTokens,
     ]);
   const reportedOutputTokens =
-    finiteTokenFromValueOrBreakdown(usage.outputTokens, 'total')
-    ?? finiteTokenBreakdownSum(usage.outputTokens, ['text', 'reasoning'])
-    ?? finiteToken(usage.completionTokens)
-    ?? finiteToken(usage.raw?.completion_tokens)
-    ?? finiteToken(usage.completion_tokens)
-    ?? finiteTokenSum([
+    finiteTokenFromValueOrBreakdown(usage.outputTokens, 'total') ??
+    finiteTokenBreakdownSum(usage.outputTokens, ['text', 'reasoning']) ??
+    finiteToken(usage.completionTokens) ??
+    finiteToken(usage.raw?.completion_tokens) ??
+    finiteToken(usage.completion_tokens) ??
+    finiteTokenSum([
       usage.outputTokenDetails?.textTokens,
       usage.outputTokenDetails?.reasoningTokens,
     ]);
   const reportedCacheHitInputTokens =
-    finiteToken(usage.cacheHitInputTokens)
-    ?? finiteToken(usage.cachedInputTokens)
-    ?? finiteToken(usage.cacheReadInputTokens)
-    ?? finiteToken(usage.raw?.prompt_cache_hit_tokens)
-    ?? finiteToken(usage.prompt_cache_hit_tokens)
-    ?? finiteToken(usage.raw?.prompt_tokens_details?.cached_tokens)
-    ?? finiteToken(usage.prompt_tokens_details?.cached_tokens)
-    ?? finiteTokenFromBreakdown(usage.inputTokens, 'cacheRead')
-    ?? finiteToken(usage.inputTokenDetails?.cacheReadTokens)
-    ?? finiteToken(usage.inputTokenDetails?.cachedTokens);
+    finiteToken(usage.cacheHitInputTokens) ??
+    finiteToken(usage.cachedInputTokens) ??
+    finiteToken(usage.cacheReadInputTokens) ??
+    finiteToken(usage.raw?.prompt_cache_hit_tokens) ??
+    finiteToken(usage.prompt_cache_hit_tokens) ??
+    finiteToken(usage.raw?.prompt_tokens_details?.cached_tokens) ??
+    finiteToken(usage.prompt_tokens_details?.cached_tokens) ??
+    finiteTokenFromBreakdown(usage.inputTokens, 'cacheRead') ??
+    finiteToken(usage.inputTokenDetails?.cacheReadTokens) ??
+    finiteToken(usage.inputTokenDetails?.cachedTokens);
   const reportedCacheWriteInputTokens =
-    finiteToken(usage.cacheWriteInputTokens)
-    ?? finiteToken(usage.cacheCreationInputTokens)
-    ?? finiteTokenFromBreakdown(usage.inputTokens, 'cacheWrite')
-    ?? finiteToken(usage.inputTokenDetails?.cacheWriteTokens);
+    finiteToken(usage.cacheWriteInputTokens) ??
+    finiteToken(usage.cacheCreationInputTokens) ??
+    finiteTokenFromBreakdown(usage.inputTokens, 'cacheWrite') ??
+    finiteToken(usage.inputTokenDetails?.cacheWriteTokens);
   const explicitCacheMissInputTokens =
-    finiteToken(usage.cacheMissInputTokens)
-    ?? finiteToken(usage.raw?.prompt_cache_miss_tokens)
-    ?? finiteToken(usage.prompt_cache_miss_tokens)
-    ?? finiteTokenFromBreakdown(usage.inputTokens, 'noCache')
-    ?? finiteToken(usage.inputTokenDetails?.noCacheTokens)
-    ?? finiteToken(usage.inputTokenDetails?.cacheMissTokens);
+    finiteToken(usage.cacheMissInputTokens) ??
+    finiteToken(usage.raw?.prompt_cache_miss_tokens) ??
+    finiteToken(usage.prompt_cache_miss_tokens) ??
+    finiteTokenFromBreakdown(usage.inputTokens, 'noCache') ??
+    finiteToken(usage.inputTokenDetails?.noCacheTokens) ??
+    finiteToken(usage.inputTokenDetails?.cacheMissTokens);
   const reportedReasoningTokens =
-    finiteToken(usage.reasoningTokens)
-    ?? finiteTokenFromBreakdown(usage.outputTokens, 'reasoning')
-    ?? finiteToken(usage.outputTokenDetails?.reasoningTokens)
-    ?? finiteToken(usage.raw?.completion_tokens_details?.reasoning_tokens)
-    ?? finiteToken(usage.completion_tokens_details?.reasoning_tokens)
-    ?? finiteToken(usage.inputTokenDetails?.reasoningTokens);
+    finiteToken(usage.reasoningTokens) ??
+    finiteTokenFromBreakdown(usage.outputTokens, 'reasoning') ??
+    finiteToken(usage.outputTokenDetails?.reasoningTokens) ??
+    finiteToken(usage.raw?.completion_tokens_details?.reasoning_tokens) ??
+    finiteToken(usage.completion_tokens_details?.reasoning_tokens) ??
+    finiteToken(usage.inputTokenDetails?.reasoningTokens);
   const reportedTotalTokens =
-    finiteToken(usage.totalTokens)
-    ?? finiteToken(usage.raw?.total_tokens)
-    ?? finiteToken(usage.total_tokens);
-  const inputTokens = reportedInputTokens ?? (
-    reportedTotalTokens !== undefined
-    && reportedOutputTokens !== undefined
-    && reportedTotalTokens >= reportedOutputTokens
+    finiteToken(usage.totalTokens) ??
+    finiteToken(usage.raw?.total_tokens) ??
+    finiteToken(usage.total_tokens);
+  const inputTokens =
+    reportedInputTokens ??
+    (reportedTotalTokens !== undefined &&
+    reportedOutputTokens !== undefined &&
+    reportedTotalTokens >= reportedOutputTokens
       ? reportedTotalTokens - reportedOutputTokens
-      : undefined
-  );
-  const outputTokens = reportedOutputTokens ?? (
-    reportedTotalTokens !== undefined
-    && reportedInputTokens !== undefined
-    && reportedTotalTokens >= reportedInputTokens
+      : undefined);
+  const outputTokens =
+    reportedOutputTokens ??
+    (reportedTotalTokens !== undefined &&
+    reportedInputTokens !== undefined &&
+    reportedTotalTokens >= reportedInputTokens
       ? reportedTotalTokens - reportedInputTokens
-      : undefined
-  );
+      : undefined);
   if (inputTokens === undefined || outputTokens === undefined) return undefined;
   const cacheHitInputTokens = reportedCacheHitInputTokens ?? 0;
   const cacheWriteInputTokens = reportedCacheWriteInputTokens ?? 0;
   const cacheMissInputTokens =
-    explicitCacheMissInputTokens
-    ?? Math.max(0, inputTokens - cacheHitInputTokens - cacheWriteInputTokens);
+    explicitCacheMissInputTokens ??
+    Math.max(0, inputTokens - cacheHitInputTokens - cacheWriteInputTokens);
   const cacheMissInputSource: CacheMissInputSource =
     explicitCacheMissInputTokens !== undefined ? 'explicit' : 'derived';
   const reasoningTokens = reportedReasoningTokens ?? 0;
-  const totalTokens =
-    reportedTotalTokens ?? inputTokens + outputTokens;
+  const totalTokens = reportedTotalTokens ?? inputTokens + outputTokens;
   const raw = rawUsageFields(usage);
   const rawFinishReason = rawFinishReasonString(options.rawFinishReason);
   return {
@@ -601,33 +650,26 @@ function finiteTokenSum(values: readonly unknown[]): number | undefined {
 
 function rawUsageFields(usage: AiSdkUsageLike): AiSdkRawUsageFields | undefined {
   const raw: AiSdkRawUsageFields = {};
-  const promptTokens =
-    finiteToken(usage.prompt_tokens)
-    ?? finiteToken(usage.raw?.prompt_tokens);
+  const promptTokens = finiteToken(usage.prompt_tokens) ?? finiteToken(usage.raw?.prompt_tokens);
   if (promptTokens !== undefined) raw.prompt_tokens = promptTokens;
   const completionTokens =
-    finiteToken(usage.completion_tokens)
-    ?? finiteToken(usage.raw?.completion_tokens);
+    finiteToken(usage.completion_tokens) ?? finiteToken(usage.raw?.completion_tokens);
   if (completionTokens !== undefined) raw.completion_tokens = completionTokens;
-  const totalTokens =
-    finiteToken(usage.total_tokens)
-    ?? finiteToken(usage.raw?.total_tokens);
+  const totalTokens = finiteToken(usage.total_tokens) ?? finiteToken(usage.raw?.total_tokens);
   if (totalTokens !== undefined) raw.total_tokens = totalTokens;
   const promptCacheHitTokens =
-    finiteToken(usage.prompt_cache_hit_tokens)
-    ?? finiteToken(usage.raw?.prompt_cache_hit_tokens);
+    finiteToken(usage.prompt_cache_hit_tokens) ?? finiteToken(usage.raw?.prompt_cache_hit_tokens);
   if (promptCacheHitTokens !== undefined) raw.prompt_cache_hit_tokens = promptCacheHitTokens;
   const promptCacheMissTokens =
-    finiteToken(usage.prompt_cache_miss_tokens)
-    ?? finiteToken(usage.raw?.prompt_cache_miss_tokens);
+    finiteToken(usage.prompt_cache_miss_tokens) ?? finiteToken(usage.raw?.prompt_cache_miss_tokens);
   if (promptCacheMissTokens !== undefined) raw.prompt_cache_miss_tokens = promptCacheMissTokens;
   const cachedTokens =
-    finiteToken(usage.prompt_tokens_details?.cached_tokens)
-    ?? finiteToken(usage.raw?.prompt_tokens_details?.cached_tokens);
+    finiteToken(usage.prompt_tokens_details?.cached_tokens) ??
+    finiteToken(usage.raw?.prompt_tokens_details?.cached_tokens);
   if (cachedTokens !== undefined) raw.prompt_tokens_details = { cached_tokens: cachedTokens };
   const reasoningTokens =
-    finiteToken(usage.completion_tokens_details?.reasoning_tokens)
-    ?? finiteToken(usage.raw?.completion_tokens_details?.reasoning_tokens);
+    finiteToken(usage.completion_tokens_details?.reasoning_tokens) ??
+    finiteToken(usage.raw?.completion_tokens_details?.reasoning_tokens);
   if (reasoningTokens !== undefined) {
     raw.completion_tokens_details = { reasoning_tokens: reasoningTokens };
   }

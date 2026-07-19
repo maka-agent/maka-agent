@@ -32,13 +32,7 @@ export interface ToolActivityItem {
   activityKind?: ToolActivityKind;
   displayName?: string;
   intent?: string;
-  status:
-    | 'pending'
-    | 'waiting_permission'
-    | 'running'
-    | 'completed'
-    | 'errored'
-    | 'interrupted';
+  status: 'pending' | 'waiting_permission' | 'running' | 'completed' | 'errored' | 'interrupted';
   args: unknown;
   result?: ToolResultContent;
   isError?: boolean;

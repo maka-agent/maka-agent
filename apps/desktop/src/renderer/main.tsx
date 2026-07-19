@@ -1,8 +1,11 @@
 import { createRoot } from 'react-dom/client';
 import { App } from './app';
 import { applyCachedThemeBeforeMount } from './cached-theme-bootstrap';
-import type { OnboardingSnapshot } from '../global';
+import type { OnboardingSnapshot } from '../preload/bridge-contract.js';
 import './styles.css';
+
+const ONBOARDING_SNAPSHOT_RETRY_DELAY_MS = 150;
+const ONBOARDING_SNAPSHOT_TIMEOUT_MS = 2_500;
 
 applyCachedThemeBeforeMount();
 
@@ -23,7 +26,7 @@ async function prefetchOnboardingSnapshot(): Promise<OnboardingSnapshot | null> 
     try {
       return await window.maka.onboarding.getSnapshot();
     } catch {
-      await new Promise((resolve) => setTimeout(resolve, 150));
+      await new Promise((resolve) => setTimeout(resolve, ONBOARDING_SNAPSHOT_RETRY_DELAY_MS));
       try {
         return await window.maka.onboarding.getSnapshot();
       } catch {
@@ -31,7 +34,7 @@ async function prefetchOnboardingSnapshot(): Promise<OnboardingSnapshot | null> 
       }
     }
   };
-  const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 2500));
+  const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), ONBOARDING_SNAPSHOT_TIMEOUT_MS));
   return Promise.race([attempt(), timeout]);
 }
 

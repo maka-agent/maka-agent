@@ -12,9 +12,10 @@ import { previewVariants } from '../primitives/chat.js';
 import { redactSecrets } from '../redact.js';
 import { useUiLocale } from '../locale-context.js';
 import { cn } from '../ui.js';
-import { ExploreAgentPreview, SubagentPreview } from './agent-preview.js';
+import { AgentSwarmPreview, ExploreAgentPreview, SubagentPreview } from './agent-preview.js';
 import { formatQuietJsonValue } from './builtin-preview.js';
 import { TOOL_LINE_CAP, capLines, formatUserVisibleToolText } from './preview-utils.js';
+import { getToolActivityCopy } from './copy.js';
 
 /**
  * Shared Codex-like tool output well — one surface for live and settled
@@ -95,6 +96,10 @@ export function ToolResultPreview(props: {
     return <SubagentPreview result={content} />;
   }
 
+  if (content.kind === 'agent_swarm') {
+    return <AgentSwarmPreview result={content} />;
+  }
+
   if (content.kind === 'rive_workflow') {
     return <RiveWorkflowPreview result={content} />;
   }
@@ -105,19 +110,20 @@ export function ToolResultPreview(props: {
     return (
       <div className="grid gap-1.5" data-kind="json">
         {quiet.headline ? (
-          <code className={TOOL_OUTPUT_COMMAND_CLASS}>{formatUserVisibleToolText(quiet.headline)}</code>
+          <code className={TOOL_OUTPUT_COMMAND_CLASS}>{formatUserVisibleToolText(quiet.headline, locale)}</code>
         ) : null}
-        <pre className={TOOL_OUTPUT_BODY_CLASS}>{formatUserVisibleToolText(quiet.body)}</pre>
+        <pre className={TOOL_OUTPUT_BODY_CLASS}>{formatUserVisibleToolText(quiet.body, locale)}</pre>
       </div>
     );
   }
 
   if (content.kind === 'text') {
-    const { body, capped } = capLines(formatUserVisibleToolText(redactSecrets(content.text)));
+    const copy = getToolActivityCopy(locale).result;
+    const { body, capped } = capLines(formatUserVisibleToolText(redactSecrets(content.text), locale));
     return (
       <pre className={TOOL_OUTPUT_BODY_CLASS} data-kind="text">
         {body}
-        {capped > 0 && `\n\n… 已隐藏 ${capped} 行`}
+        {capped > 0 && `\n\n${copy.hiddenLines(capped)}`}
       </pre>
     );
   }
@@ -135,36 +141,37 @@ function PtyControlPreview(props: {
   result: Extract<ToolResultContent, { kind: 'shell_run' }>;
   args?: unknown;
 }) {
+  const copy = getToolActivityCopy(useUiLocale()).result;
   const operation = props.result.operation;
   if (operation?.kind !== 'pty_control') {
-    return <p className={cn(TOOL_OUTPUT_NOTE_CLASS, 'text-[color:var(--destructive)]')}>后台终端交互失败</p>;
+    return <p className={cn(TOOL_OUTPUT_NOTE_CLASS, 'text-[color:var(--destructive)]')}>{copy.ptyFailed}</p>;
   }
   const parts: string[] = [];
   if (operation.input) {
     const preview = readWriteStdinInputPreview(props.args);
-    const action = operation.input.queued ? '已排队' : '未排队';
+    const action = operation.input.queued ? copy.queued : copy.notQueued;
     if (preview) {
       parts.push(preview.truncated
-        ? `${action}：${preview.text}… · 共 ${operation.input.bytes} 字节`
-        : `${action}：${preview.text}`);
+        ? copy.queuedPreview(action, preview.text, operation.input.bytes)
+        : copy.queuedPreview(action, preview.text));
     } else {
-      parts.push(`${action} ${operation.input.bytes} 字节`);
+      parts.push(copy.byteCount(action, operation.input.bytes));
     }
   }
   if (operation.resize) {
     const size = `${operation.resize.cols}x${operation.resize.rows}`;
-    if (!operation.resize.applied) parts.push(`未调整为 ${size}`);
-    else if (operation.resize.changed) parts.push(`已调整为 ${size}`);
-    else if (!operation.input) parts.push(`尺寸已是 ${size}`);
+    if (!operation.resize.applied) parts.push(copy.resizeNotApplied(size));
+    else if (operation.resize.changed) parts.push(copy.resized(size));
+    else if (!operation.input) parts.push(copy.sizeUnchanged(size));
   }
-  if (operation.failed) parts.push('后台终端交互失败');
+  if (operation.failed) parts.push(copy.ptyFailed);
   return (
     <p className={cn(
       TOOL_OUTPUT_NOTE_CLASS,
       'min-w-0 [overflow-wrap:anywhere]',
       operation.failed && 'text-[color:var(--destructive)]',
     )}>
-      {parts.join(' · ') || '后台终端交互已完成'}
+      {parts.join(' · ') || copy.ptyCompleted}
     </p>
   );
 }
@@ -176,6 +183,7 @@ function PtyControlPreview(props: {
  * that to a future inline editor view; this is just a readable preview.
  */
 function FileDiffPreview(props: { diff: string; paths: string[] }) {
+  const copy = getToolActivityCopy(useUiLocale()).result;
   // Apply UI-level redaction then cap the displayed lines. Both are
   // @kenji's PR76 review items: never echo a token a tool happened to dump
   // into a diff (commit body, .env file diff, etc.), and never let a
@@ -206,7 +214,7 @@ function FileDiffPreview(props: { diff: string; paths: string[] }) {
         ))}
         {capped > 0 && (
           <span className={previewVariants({ part: 'diff-line' })} data-line="meta">
-            {`\n… 已隐藏 ${capped} 行\n`}
+            {`\n${copy.hiddenLines(capped)}\n`}
           </span>
         )}
       </pre>
@@ -234,6 +242,7 @@ function TerminalPreview(props: {
   failureMessage?: string;
   output?: ShellOutput;
 }) {
+  const copy = getToolActivityCopy(useUiLocale()).result;
   const cancelled = isCancelledStatus(props.status);
   const timedOut = props.status === 'timed_out';
   const succeeded = props.status === 'completed';
@@ -254,7 +263,7 @@ function TerminalPreview(props: {
       {props.output ? (
         <ShellOutputBody output={props.output} failed={!succeeded} />
       ) : (
-        <p className={TOOL_OUTPUT_NOTE_CLASS}>终端输出不可用</p>
+        <p className={TOOL_OUTPUT_NOTE_CLASS}>{copy.terminalUnavailable}</p>
       )}
       {props.failureMessage && (
         <p className={cn(TOOL_OUTPUT_NOTE_CLASS, 'text-[color:var(--destructive)]')}>
@@ -263,17 +272,17 @@ function TerminalPreview(props: {
       )}
       {cancelled && (
         <p className={cn(TOOL_OUTPUT_NOTE_CLASS, 'text-[color:var(--destructive)]')}>
-          {props.exitCode !== undefined ? `已取消 · 退出码 ${props.exitCode}` : '已取消'}
+          {props.exitCode !== undefined ? `${copy.cancelled} · ${copy.exitCode(props.exitCode)}` : copy.cancelled}
         </p>
       )}
       {timedOut && !cancelled && (
         <p className={cn(TOOL_OUTPUT_NOTE_CLASS, 'text-[color:var(--destructive)]')}>
-          {props.exitCode !== undefined ? `已超时 · 退出码 ${props.exitCode}` : '已超时'}
+          {props.exitCode !== undefined ? `${copy.timedOut} · ${copy.exitCode(props.exitCode)}` : copy.timedOut}
         </p>
       )}
       {!succeeded && !cancelled && !timedOut && (
         <p className={cn(TOOL_OUTPUT_NOTE_CLASS, 'text-[color:var(--destructive)]')}>
-          {props.exitCode !== undefined ? `失败 · 退出码 ${props.exitCode}` : '失败'}
+          {props.exitCode !== undefined ? `${copy.failed} · ${copy.exitCode(props.exitCode)}` : copy.failed}
         </p>
       )}
     </div>
@@ -286,6 +295,8 @@ function ShellRunPreview(props: {
   result: Extract<ToolResultContent, { kind: 'shell_run' }>;
   source?: 'owned' | 'unavailable';
 }) {
+  const locale = useUiLocale();
+  const copy = getToolActivityCopy(locale).result;
   const { result } = props;
   const safeCmd = redactSecrets(result.cmd);
   const output = isShellOutput(result.output) ? result.output : undefined;
@@ -304,8 +315,8 @@ function ShellRunPreview(props: {
   }
   const safeRef = redactSecrets(result.ref);
   const statusLabel = props.source === 'owned'
-    ? '由源会话管理'
-    : props.source === 'unavailable' ? '源会话不可用' : shellRunStatusLabel(result.status);
+    ? copy.managedBySource
+    : props.source === 'unavailable' ? copy.sourceUnavailable : shellRunStatusLabel(result.status, locale);
   const pipeOutput = output?.mode === 'pipes' ? output : undefined;
 
   return (
@@ -319,7 +330,7 @@ function ShellRunPreview(props: {
       )}
       <p className={TOOL_OUTPUT_NOTE_CLASS}>
         {statusLabel}
-        {result.exitCode !== undefined ? ` · 退出码 ${result.exitCode}` : ''}
+        {result.exitCode !== undefined ? ` · ${copy.exitCode(result.exitCode)}` : ''}
         {safeRef ? ` · ${safeRef}` : ''}
       </p>
       {result.failureMessage && (
@@ -333,7 +344,7 @@ function ShellRunPreview(props: {
           failed={result.status === 'failed' || result.status === 'orphaned'}
         />
       ) : (
-        <p className={TOOL_OUTPUT_NOTE_CLASS}>（尚无输出）</p>
+        <p className={TOOL_OUTPUT_NOTE_CLASS}>{copy.noOutputYet}</p>
       )}
     </div>
   );
@@ -346,6 +357,7 @@ function PtyShellSurface(props: {
   attention: boolean;
   source?: 'owned' | 'unavailable';
 }) {
+  const copy = getToolActivityCopy(useUiLocale()).result;
   const { result, output } = props;
   return (
     <div
@@ -374,8 +386,8 @@ function PtyShellSurface(props: {
         ) : (
           <p className={TOOL_OUTPUT_NOTE_CLASS}>
             {result.status === 'failed' || result.status === 'orphaned'
-              ? '（无可用终端画面）'
-              : '（尚无输出）'}
+              ? copy.noTerminalFrame
+              : copy.noOutputYet}
           </p>
         )}
         {result.failureMessage && (
@@ -396,37 +408,39 @@ function ShellRunStatus(props: {
   exitCode?: number;
   source?: 'owned' | 'unavailable';
 }) {
-  if (props.source === 'owned') return <><GitBranch size={15} aria-hidden="true" />由源会话管理</>;
-  if (props.source === 'unavailable') return <><GitBranch size={15} aria-hidden="true" />源会话不可用</>;
-  const suffix = props.exitCode !== undefined && props.exitCode !== 0 ? ` · 退出码 ${props.exitCode}` : '';
+  const copy = getToolActivityCopy(useUiLocale()).result;
+  if (props.source === 'owned') return <><GitBranch size={15} aria-hidden="true" />{copy.managedBySource}</>;
+  if (props.source === 'unavailable') return <><GitBranch size={15} aria-hidden="true" />{copy.sourceUnavailable}</>;
+  const suffix = props.exitCode !== undefined && props.exitCode !== 0 ? ` · ${copy.exitCode(props.exitCode)}` : '';
   switch (props.status) {
     case 'running':
-      return <><Loader2 size={15} aria-hidden="true" className="animate-spin" />运行中</>;
+      return <><Loader2 size={15} aria-hidden="true" className="animate-spin" />{copy.running}</>;
     case 'completed':
-      return <><Check size={15} aria-hidden="true" />成功</>;
+      return <><Check size={15} aria-hidden="true" />{copy.success}</>;
     case 'failed':
-      return <><AlertCircle size={15} aria-hidden="true" />失败{suffix}</>;
+      return <><AlertCircle size={15} aria-hidden="true" />{copy.failed}{suffix}</>;
     case 'timed_out':
-      return <><Clock size={15} aria-hidden="true" />已超时{suffix}</>;
+      return <><Clock size={15} aria-hidden="true" />{copy.timedOut}{suffix}</>;
     case 'cancelled':
-      return <><Ban size={15} aria-hidden="true" />已取消{suffix}</>;
+      return <><Ban size={15} aria-hidden="true" />{copy.cancelled}{suffix}</>;
     case 'orphaned':
-      return <><Plug size={15} aria-hidden="true" />已断开</>;
+      return <><Plug size={15} aria-hidden="true" />{copy.disconnected}</>;
   }
 }
 
 function ShellOutputBody(props: { output: ShellOutput; failed: boolean }) {
+  const copy = getToolActivityCopy(useUiLocale()).result;
   if (props.output.mode === 'pty') {
     const text = redactSecrets(ptyHumanTerminalText(props.output));
     return (
       <>
         {text ? <PtyTerminalSurface text={text} /> : (
           <p className={TOOL_OUTPUT_NOTE_CLASS}>
-            {props.failed ? '（无可用终端画面）' : '（尚无输出）'}
+            {props.failed ? copy.noTerminalFrame : copy.noOutputYet}
           </p>
         )}
-        {props.output.truncated && <p className={TOOL_OUTPUT_NOTE_CLASS}>终端输出已截断</p>}
-        {props.output.redacted && <p className={TOOL_OUTPUT_NOTE_CLASS}>终端输出已脱敏</p>}
+        {props.output.truncated && <p className={TOOL_OUTPUT_NOTE_CLASS}>{copy.terminalTruncated}</p>}
+        {props.output.redacted && <p className={TOOL_OUTPUT_NOTE_CLASS}>{copy.terminalRedacted}</p>}
       </>
     );
   }
@@ -437,25 +451,25 @@ function ShellOutputBody(props: { output: ShellOutput; failed: boolean }) {
   const hasOutput = props.output.stdout.length > 0 || props.output.stderr.length > 0;
   return (
     <>
-      {!hasOutput && <p className={TOOL_OUTPUT_NOTE_CLASS}>（无输出）</p>}
+      {!hasOutput && <p className={TOOL_OUTPUT_NOTE_CLASS}>{copy.noOutput}</p>}
       {props.output.stdout.length > 0 && (
         <pre className={TOOL_OUTPUT_BODY_CLASS} data-stream="stdout">
           {stdout.body}
-          {stdout.capped > 0 && `\n\n… stdout 已隐藏 ${stdout.capped} 行`}
+          {stdout.capped > 0 && `\n\n${copy.streamHidden('stdout', stdout.capped)}`}
         </pre>
       )}
       {props.output.stderr.length > 0 && (
         <pre className={cn(TOOL_OUTPUT_BODY_CLASS, 'text-[color:var(--destructive)]')} data-stream="stderr">
           {stderr.body}
-          {stderr.capped > 0 && `\n\n… stderr 已隐藏 ${stderr.capped} 行`}
+          {stderr.capped > 0 && `\n\n${copy.streamHidden('stderr', stderr.capped)}`}
         </pre>
       )}
       {(runtimeTruncated || hiddenLines > 0) && (
         <p className={TOOL_OUTPUT_NOTE_CLASS}>
-          {hiddenLines > 0 ? `输出已截断 · 每路仅展示前 ${TOOL_LINE_CAP} 行` : '输出已截断'}
+          {hiddenLines > 0 ? copy.streamsTruncated(TOOL_LINE_CAP) : copy.outputTruncated}
         </p>
       )}
-      {props.output.redacted && <p className={TOOL_OUTPUT_NOTE_CLASS}>输出已脱敏</p>}
+      {props.output.redacted && <p className={TOOL_OUTPUT_NOTE_CLASS}>{copy.outputRedacted}</p>}
     </>
   );
 }
@@ -487,36 +501,25 @@ function isCancelledStatus(status: string | undefined): boolean {
   return status === 'cancelled';
 }
 
-function shellRunStatusLabel(status: string): string {
-  switch (status) {
-    case 'running':
-      return '后台运行中';
-    case 'completed':
-      return '后台已完成';
-    case 'failed':
-      return '后台失败';
-    case 'timed_out':
-      return '后台超时';
-    case 'cancelled':
-      return '后台已取消';
-    case 'orphaned':
-      return '后台任务已断开';
-    default:
-      return `后台 · ${status}`;
-  }
+function shellRunStatusLabel(status: string, locale: import('@maka/core').UiLocale): string {
+  const copy = getToolActivityCopy(locale).result;
+  const label = (copy.backgroundStatus as Readonly<Record<string, string>>)[status];
+  return label ?? copy.backgroundUnknown(status);
 }
 
 function OfficeDocumentPreview(props: {
   result: Extract<ToolResultContent, { kind: 'office_document' }>;
 }) {
+  const locale = useUiLocale();
+  const copy = getToolActivityCopy(locale).result;
   const { result } = props;
   const stdout = capLines(redactSecrets(result.stdout ?? ''));
   const stderr = capLines(redactSecrets(result.stderr ?? ''));
   const message = result.message ? redactSecrets(result.message) : '';
   const args = result.args?.map((arg) => redactSecrets(arg)).join(' ');
-  const title = result.path ? redactSecrets(result.path) : 'Office 文档';
-  const operation = result.operation ? redactSecrets(result.operation) : '未执行';
-  const reason = presentOfficeDocumentReason(result.reason);
+  const title = result.path ? redactSecrets(result.path) : copy.officeDocument;
+  const operation = result.operation ? redactSecrets(result.operation) : copy.notExecuted;
+  const reason = presentOfficeDocumentReason(result.reason, locale);
   const hasOutput = stdout.body.length > 0 || stderr.body.length > 0;
 
   return (
@@ -525,76 +528,48 @@ function OfficeDocumentPreview(props: {
         <strong className="text-[length:var(--font-size-base)] text-[color:var(--foreground)]">{title}</strong>
         <small className="text-[length:var(--font-size-base)] text-[color:var(--muted-foreground)]">
           {operation}
-          {result.ok ? ' · 已完成' : ' · 未完成'}
-          {result.truncated ? ' · 输出已截断' : ''}
+          {result.ok ? copy.completedSuffix : copy.incompleteSuffix}
+          {result.truncated ? copy.truncatedSuffix : ''}
         </small>
       </header>
       {args && <code className={TOOL_OUTPUT_COMMAND_CLASS}>officecli {args}</code>}
       {!result.ok && (
         <div className="grid gap-0.5 text-[length:var(--font-size-base)] text-[color:var(--destructive)]" role="note">
-          <span>{message || 'Office 文档操作未完成。'}</span>
-          {reason && <small className="text-[color:var(--muted-foreground)]">诊断：{reason}</small>}
+          <span>{message || copy.officeIncomplete}</span>
+          {reason && <small className="text-[color:var(--muted-foreground)]">{copy.diagnostic(reason)}</small>}
         </div>
       )}
-      {result.ok && !hasOutput && <p className={TOOL_OUTPUT_NOTE_CLASS}>（无输出）</p>}
+      {result.ok && !hasOutput && <p className={TOOL_OUTPUT_NOTE_CLASS}>{copy.noOutput}</p>}
       {stdout.body.length > 0 && (
         <pre className={TOOL_OUTPUT_BODY_CLASS} data-stream="stdout">
           {stdout.body}
-          {stdout.capped > 0 && `\n\n… stdout 已隐藏 ${stdout.capped} 行`}
+          {stdout.capped > 0 && `\n\n${copy.streamHidden('stdout', stdout.capped)}`}
         </pre>
       )}
       {stderr.body.length > 0 && (
         <pre className={cn(TOOL_OUTPUT_BODY_CLASS, 'text-[color:var(--destructive)]')} data-stream="stderr">
           {stderr.body}
-          {stderr.capped > 0 && `\n\n… stderr 已隐藏 ${stderr.capped} 行`}
+          {stderr.capped > 0 && `\n\n${copy.streamHidden('stderr', stderr.capped)}`}
         </pre>
       )}
     </div>
   );
 }
 
-function presentOfficeDocumentReason(reason: string | undefined): string | undefined {
-  switch (reason) {
-    case 'invalid_operation':
-      return '操作不支持';
-    case 'invalid_path':
-      return '路径无效';
-    case 'unsupported_extension':
-      return '文件类型不支持';
-    case 'missing_file':
-      return '文件不存在';
-    case 'not_file':
-      return '不是文件';
-    case 'symlink_escape':
-      return '符号链接被拒绝';
-    case 'invalid_selector':
-      return '选择器无效';
-    case 'invalid_query':
-      return '查询表达式无效';
-    case 'invalid_props':
-      return '属性无效';
-    case 'file_exists':
-      return '文件已存在';
-    case 'officecli_missing':
-      return 'officecli 未安装';
-    case 'officecli_timeout':
-      return '操作超时';
-    case 'officecli_failed':
-      return '操作失败';
-    case undefined:
-      return undefined;
-    default:
-      return '未知诊断';
-  }
+function presentOfficeDocumentReason(reason: string | undefined, locale: import('@maka/core').UiLocale): string | undefined {
+  if (reason === undefined) return undefined;
+  const copy = getToolActivityCopy(locale).result;
+  return (copy.officeReason as Readonly<Record<string, string>>)[reason] ?? copy.unknownDiagnostic;
 }
 
 function RiveWorkflowPreview(props: {
   result: Extract<ToolResultContent, { kind: 'rive_workflow' }>;
 }) {
+  const copy = getToolActivityCopy(useUiLocale()).result;
   const { result } = props;
   const rows = [
-    ['动作', result.action],
-    ['状态', result.state ?? result.projection?.state],
+    [copy.workflow.action, result.action],
+    [copy.workflow.status, result.state ?? result.projection?.state],
     ['workflow_run', result.ids.workflowRunId ?? result.projection?.workflowRunId],
     ['scheduler_run', result.ids.schedulerRunId ?? result.projection?.schedulerRunId],
     ['root_work', result.ids.rootWorkNodeId ?? result.projection?.rootWorkNodeId],
@@ -605,7 +580,7 @@ function RiveWorkflowPreview(props: {
   const failureLines = result.error
     ? [
         '',
-        '错误',
+        copy.workflow.error,
         `reason: ${result.error.reason}`,
         `message: ${result.error.message}`,
         result.error.code ? `code: ${result.error.code}` : '',
@@ -621,15 +596,15 @@ function RiveWorkflowPreview(props: {
     result.summary,
     '',
     ...rows.map(([label, value]) => `${label}: ${value}`),
-    ...(nodes.length > 0 ? ['', '节点摘要', ...nodes.map(formatRiveWorkflowNode)] : []),
+    ...(nodes.length > 0 ? ['', copy.workflow.nodes, ...nodes.map(formatRiveWorkflowNode)] : []),
     ...failureLines,
-    ...(diagnosticLines.length > 0 ? ['', '诊断片段', ...diagnosticLines] : []),
+    ...(diagnosticLines.length > 0 ? ['', copy.workflow.diagnostics, ...diagnosticLines] : []),
   ].join('\n');
   const cappedPreview = capLines(redactSecrets(body));
   return (
     <pre className={TOOL_OUTPUT_BODY_CLASS} data-kind="rive_workflow">
       {cappedPreview.body}
-      {cappedPreview.capped > 0 && `\n\n… 已隐藏 ${cappedPreview.capped} 行`}
+      {cappedPreview.capped > 0 && `\n\n${copy.hiddenLines(cappedPreview.capped)}`}
     </pre>
   );
 }
@@ -657,6 +632,7 @@ function WebSearchPreview(props: {
   provider: string;
   rows: ReadonlyArray<{ title: string; url: string; snippet: string; source: string }>;
 }) {
+  const copy = getToolActivityCopy(useUiLocale()).result;
   const rows = props.rows
     .map((row) => {
       const normalizedUrl = normalizeSearchUrl(row.url);
@@ -670,7 +646,7 @@ function WebSearchPreview(props: {
       <div className="grid gap-1.5 [font-family:var(--font-sans)]" data-kind="web_search">
         <header className="grid gap-0.5">
           <strong className="text-[length:var(--font-size-base)] text-[color:var(--foreground)]">{redactSecrets(props.query)}</strong>
-          <small className="text-[length:var(--font-size-base)] text-[color:var(--muted-foreground)]">{props.provider} · 没有结果</small>
+          <small className="text-[length:var(--font-size-base)] text-[color:var(--muted-foreground)]">{props.provider} · {copy.webNoResults}</small>
         </header>
       </div>
     );
@@ -680,7 +656,7 @@ function WebSearchPreview(props: {
       <header className="grid gap-0.5">
         <strong className="text-[length:var(--font-size-base)] text-[color:var(--foreground)]">{redactSecrets(props.query)}</strong>
         <small className="text-[length:var(--font-size-base)] text-[color:var(--muted-foreground)]">
-          {props.provider} · {rows.length} 条结果
+          {props.provider} · {copy.webResults(rows.length)}
         </small>
       </header>
       <ul className="m-0 grid list-none gap-2 p-0">
@@ -710,33 +686,34 @@ function WebSearchErrorPreview(props: {
   message: string;
   credentialSource?: string;
 }) {
+  const copy = getToolActivityCopy(useUiLocale()).result;
   const sourceCopy =
     props.credentialSource === 'env'
-      ? '环境变量'
+      ? copy.credentialSource.env
       : props.credentialSource === 'saved'
-        ? '本机已保存 key'
+        ? copy.credentialSource.settings
         : props.credentialSource === 'none'
-          ? '未配置'
-          : '来源未知';
+          ? copy.credentialSource.missing
+          : copy.credentialSource.unknown;
   const repairCopy =
     props.reason === 'invalid_credentials' && props.credentialSource === 'env'
-      ? '请检查 TAVILY_API_KEY / MAKA_TAVILY_API_KEY 后重启。'
+      ? copy.webGuidance.env
       : props.reason === 'invalid_credentials'
-        ? '请在 设置 · 联网搜索 中更新 Tavily key。'
+        ? copy.webGuidance.settings
         : props.reason === 'rate_limited'
-          ? 'Tavily 当前限流，请稍后重试或更换可用凭据。'
+          ? copy.webGuidance.rate_limited
           : props.reason === 'not_configured'
-            ? '请先完成联网搜索配置后再重试。'
+            ? copy.webGuidance.not_configured
             : props.reason === 'timeout'
-              ? '请求超时，请稍后重试。'
+              ? copy.webGuidance.timed_out
               : props.reason === 'incognito_active'
-                ? '隐私模式下不会发起联网搜索。'
-                : '请检查网络或稍后重试。';
+                ? copy.webGuidance.privacy_mode
+                : copy.webGuidance.unknown;
   return (
     <div className="grid gap-1.5 [font-family:var(--font-sans)]" data-kind="web_search_error">
       <header className="grid gap-0.5">
-        <strong className="text-[length:var(--font-size-base)] text-[color:var(--foreground)]">{redactSecrets(props.query ?? '联网搜索')}</strong>
-        <small className="text-[length:var(--font-size-base)] text-[color:var(--muted-foreground)]">{redactSecrets(props.provider)} · 搜索失败 · {sourceCopy}</small>
+        <strong className="text-[length:var(--font-size-base)] text-[color:var(--foreground)]">{redactSecrets(props.query ?? copy.webSearch)}</strong>
+        <small className="text-[length:var(--font-size-base)] text-[color:var(--muted-foreground)]">{redactSecrets(props.provider)} · {copy.webFailure} · {sourceCopy}</small>
       </header>
       <p className="m-0 text-[length:var(--font-size-base)] text-[color:var(--destructive)]">{redactSecrets(props.message)}</p>
       <p className="m-0 text-[length:var(--font-size-base)] text-[color:var(--muted-foreground)]">{repairCopy}</p>

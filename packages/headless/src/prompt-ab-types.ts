@@ -105,11 +105,12 @@ export interface PromptAbRunManifestInput {
   nonInferiorityMargin?: number;
 }
 
-export type PromptAbRunManifest = PromptAbRunManifestInput & Omit<AbRunManifest, 'schemaVersion' | 'arms'> & {
-  schemaVersion: 'maka.prompt_ab.run_manifest.v1';
-  fingerprint: string;
-  experimentKind: 'prompt';
-  arms: [AbArmSpec, AbArmSpec];
-  evaluationTaskIds: string[];
-  candidateTaskIds?: string[];
-};
+export type PromptAbRunManifest = PromptAbRunManifestInput &
+  Omit<AbRunManifest, 'schemaVersion' | 'arms'> & {
+    schemaVersion: 'maka.prompt_ab.run_manifest.v1';
+    fingerprint: string;
+    experimentKind: 'prompt';
+    arms: [AbArmSpec, AbArmSpec];
+    evaluationTaskIds: string[];
+    candidateTaskIds?: string[];
+  };

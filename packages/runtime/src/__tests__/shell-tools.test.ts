@@ -7,7 +7,11 @@ import {
 } from '../shell-tools.js';
 import type { ShellPlan } from '../shell-detect.js';
 
-const pwshPlan: ShellPlan = { kind: 'pwsh', displayName: 'PowerShell 7 (pwsh)', exe: 'C:\\pf\\pwsh.exe' };
+const pwshPlan: ShellPlan = {
+  kind: 'pwsh',
+  displayName: 'PowerShell 7 (pwsh)',
+  exe: 'C:\\pf\\pwsh.exe',
+};
 
 describe('Bash tool description declares the executing shell', () => {
   test('foreground and background variants declare command activity', () => {
@@ -26,7 +30,10 @@ describe('Bash tool description declares the executing shell', () => {
 
   test('foreground tool description is unchanged on POSIX', () => {
     const tool = buildLocalForegroundBashTool({ shell: { kind: 'posix', displayName: '/bin/sh' } });
-    assert.equal(tool.description, 'Run a shell command in the session cwd. Subject to permission policy.');
+    assert.equal(
+      tool.description,
+      'Run a shell command in the session cwd. Subject to permission policy.',
+    );
   });
 
   test('background tool tells the model commands run under PowerShell 7', () => {
@@ -46,12 +53,13 @@ describe('Bash tool shell is threaded through to execution, not just the descrip
     const tool = buildLocalForegroundBashTool({
       shell: { kind: 'pwsh', displayName: 'PowerShell 7 (pwsh)', exe: '/bin/echo' },
     });
-    const result = await tool.impl(
-      { command: 'echo wired-marker' },
-      fakeToolContext(),
-    ) as { output: { stdout: string } };
+    const result = (await tool.impl({ command: 'echo wired-marker' }, fakeToolContext())) as {
+      output: { stdout: string };
+    };
     assert.ok(
-      result.output.stdout.startsWith('-NoLogo -NoProfile -NonInteractive -Command echo wired-marker\n'),
+      result.output.stdout.startsWith(
+        '-NoLogo -NoProfile -NonInteractive -Command echo wired-marker\n',
+      ),
       `expected declared shell to execute, got: ${result.output.stdout}`,
     );
   });

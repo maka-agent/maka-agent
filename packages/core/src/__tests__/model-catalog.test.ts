@@ -18,12 +18,10 @@ describe('ModelCatalogEntry', () => {
       },
     });
 
-    assert.deepEqual(entries.map((entry) => entry.id), [
-      'step-3.7-flash',
-      'step-3.5-flash-2603',
-      'step-3.5-flash',
-      'step-router-v1',
-    ]);
+    assert.deepEqual(
+      entries.map((entry) => entry.id),
+      ['step-3.7-flash', 'step-3.5-flash-2603', 'step-3.5-flash', 'step-router-v1'],
+    );
     assert.equal(entries[0]?.source, 'static_catalog');
     assert.equal(entries[0]?.provenance.modelSource, 'fallback');
     assert.equal(entries[0]?.contextWindow, 256_000);
@@ -48,11 +46,10 @@ describe('ModelCatalogEntry', () => {
       },
     });
 
-    assert.deepEqual(entries.map((entry) => entry.id), [
-      'step-3.7-flash',
-      'step-3.5-flash-2603',
-      'step-3.5-flash',
-    ]);
+    assert.deepEqual(
+      entries.map((entry) => entry.id),
+      ['step-3.7-flash', 'step-3.5-flash-2603', 'step-3.5-flash'],
+    );
     assert.equal(entries[0]?.source, 'static_catalog');
     assert.equal(entries[0]?.provenance.modelSource, 'fallback');
     assert.equal(entries[0]?.contextWindow, 256_000);
@@ -84,7 +81,10 @@ describe('ModelCatalogEntry', () => {
         connection: { slug: providerType, providerType, defaultModel: 'qwen3.7-plus' },
       });
 
-      assert.deepEqual(entries.map((entry) => entry.id), expectedIds);
+      assert.deepEqual(
+        entries.map((entry) => entry.id),
+        expectedIds,
+      );
       assert.equal(entries[0]?.source, 'static_catalog');
       assert.equal(entries[0]?.provenance.modelSource, 'fallback');
       assert.equal(entries[0]?.contextWindow, 1_000_000);
@@ -106,25 +106,36 @@ describe('ModelCatalogEntry', () => {
       },
     });
 
-    assert.deepEqual(entries.map((entry) => entry.id), [
-      'qwen3.7-max',
-      'qwen3.7-plus',
-      'qwen3.6-plus',
-      'qwen3.6-flash',
-      'deepseek-v4-pro',
-      'deepseek-v4-flash',
-      'deepseek-v3.2',
-      'kimi-k2.7-code',
-      'kimi-k2.6',
-      'kimi-k2.5',
-      'glm-5.2',
-      'glm-5.1',
-      'glm-5',
-      'MiniMax-M2.5',
-    ]);
+    assert.deepEqual(
+      entries.map((entry) => entry.id),
+      [
+        'qwen3.7-max',
+        'qwen3.7-plus',
+        'qwen3.6-plus',
+        'qwen3.6-flash',
+        'deepseek-v4-pro',
+        'deepseek-v4-flash',
+        'deepseek-v3.2',
+        'kimi-k2.7-code',
+        'kimi-k2.6',
+        'kimi-k2.5',
+        'glm-5.2',
+        'glm-5.1',
+        'glm-5',
+        'MiniMax-M2.5',
+      ],
+    );
     // The plan's image models (qwen-image / wan) are not tool-callable and are absent.
-    for (const imageModel of ['qwen-image-2.0', 'qwen-image-2.0-pro', 'wan2.7-image', 'wan2.7-image-pro']) {
-      assert.ok(!entries.some((entry) => entry.id === imageModel), `${imageModel} must not be catalogued`);
+    for (const imageModel of [
+      'qwen-image-2.0',
+      'qwen-image-2.0-pro',
+      'wan2.7-image',
+      'wan2.7-image-pro',
+    ]) {
+      assert.ok(
+        !entries.some((entry) => entry.id === imageModel),
+        `${imageModel} must not be catalogued`,
+      );
     }
     assert.equal(entries[0]?.displayName, 'Qwen3.7 Max');
     assert.equal(entries[0]?.source, 'static_catalog');
@@ -151,7 +162,10 @@ describe('ModelCatalogEntry', () => {
         },
       });
 
-      assert.deepEqual(entries.map((entry) => entry.id), ['mimo-v2.5-pro', 'mimo-v2.5']);
+      assert.deepEqual(
+        entries.map((entry) => entry.id),
+        ['mimo-v2.5-pro', 'mimo-v2.5'],
+      );
       assert.equal(entries[0]?.source, 'static_catalog');
       assert.equal(entries[0]?.provenance.modelSource, 'fallback');
       assert.equal(entries[0]?.contextWindow, 1_048_576);
@@ -175,11 +189,10 @@ describe('ModelCatalogEntry', () => {
       },
     });
 
-    assert.deepEqual(entries.map((entry) => entry.id), [
-      'step-3.7-flash',
-      'step-3.5-flash-2603',
-      'step-3.5-flash',
-    ]);
+    assert.deepEqual(
+      entries.map((entry) => entry.id),
+      ['step-3.7-flash', 'step-3.5-flash-2603', 'step-3.5-flash'],
+    );
     assert.equal(entries[0]?.source, 'static_catalog');
     assert.equal(entries[0]?.provenance.modelSource, 'fallback');
     assert.equal(entries[0]?.contextWindow, 256_000);
@@ -200,7 +213,10 @@ describe('ModelCatalogEntry', () => {
       },
     });
 
-    assert.deepEqual(entries.map((entry) => entry.id), ['doubao-seed-2-0-pro-260215']);
+    assert.deepEqual(
+      entries.map((entry) => entry.id),
+      ['doubao-seed-2-0-pro-260215'],
+    );
     assert.equal(entries[0]?.displayName, 'Doubao Seed 2.0 Pro');
     assert.equal(entries[0]?.source, 'static_catalog');
     assert.equal(entries[0]?.provenance.modelSource, 'fallback');
@@ -219,13 +235,10 @@ describe('ModelCatalogEntry', () => {
       },
     });
 
-    assert.deepEqual(entries.map((entry) => entry.id), [
-      'step-3.7-flash',
-      'step-3.5-flash-2603',
-      'step-3.5-flash',
-      'step-1-32k',
-      'step-2-16k',
-    ]);
+    assert.deepEqual(
+      entries.map((entry) => entry.id),
+      ['step-3.7-flash', 'step-3.5-flash-2603', 'step-3.5-flash', 'step-1-32k', 'step-2-16k'],
+    );
     assert.equal(entries[0]?.source, 'static_catalog');
     assert.equal(entries[0]?.provenance.modelSource, 'fallback');
     assert.equal(entries[0]?.contextWindow, 256_000);
@@ -246,7 +259,10 @@ describe('ModelCatalogEntry', () => {
       },
     });
 
-    assert.deepEqual(entries.map((entry) => entry.id), ['hy3', 'hy3-preview']);
+    assert.deepEqual(
+      entries.map((entry) => entry.id),
+      ['hy3', 'hy3-preview'],
+    );
     assert.equal(entries[0]?.source, 'static_catalog');
     assert.equal(entries[0]?.provenance.modelSource, 'fallback');
     assert.equal(entries[0]?.contextWindow, 256_000);
@@ -457,13 +473,16 @@ describe('ModelCatalogEntry', () => {
       },
     });
 
-    assert.deepEqual(entries.map((entry) => entry.id), [
-      'grok-4.5',
-      'grok-4.20-0309-non-reasoning',
-      'grok-4.20-0309-reasoning',
-      'grok-4.3',
-      'grok-build-0.1',
-    ]);
+    assert.deepEqual(
+      entries.map((entry) => entry.id),
+      [
+        'grok-4.5',
+        'grok-4.20-0309-non-reasoning',
+        'grok-4.20-0309-reasoning',
+        'grok-4.3',
+        'grok-build-0.1',
+      ],
+    );
     assert.equal(entries[0]?.source, 'static_catalog');
     assert.equal(entries[0]?.provenance.modelSource, 'fallback');
     assert.deepEqual(entries[0]?.capabilities, {
@@ -482,11 +501,10 @@ describe('ModelCatalogEntry', () => {
       },
     });
 
-    assert.deepEqual(entries.map((entry) => entry.id), [
-      'gpt-oss-120b',
-      'gemma-4-31b',
-      'zai-glm-4.7',
-    ]);
+    assert.deepEqual(
+      entries.map((entry) => entry.id),
+      ['gpt-oss-120b', 'gemma-4-31b', 'zai-glm-4.7'],
+    );
     assert.equal(entries[0]?.source, 'static_catalog');
     assert.equal(entries[0]?.provenance.modelSource, 'fallback');
     assert.deepEqual(entries[0]?.capabilities, {
@@ -565,7 +583,11 @@ describe('ModelCatalogEntry', () => {
       { id: 'glm-4.5' },
       { id: 'glm-4.5-air' },
       { id: 'glm-4.6' },
-      { id: 'glm-4.7', capabilities: { reasoning: true, functionCalling: true }, contextWindow: 128_000 },
+      {
+        id: 'glm-4.7',
+        capabilities: { reasoning: true, functionCalling: true },
+        contextWindow: 128_000,
+      },
       { id: 'glm-5' },
       { id: 'glm-5-turbo' },
       { id: 'glm-5.1' },
@@ -581,15 +603,10 @@ describe('ModelCatalogEntry', () => {
     });
 
     assert.equal(entries.length, 7);
-    assert.deepEqual(entries.map((entry) => entry.id), [
-      'glm-4.5',
-      'glm-4.5-air',
-      'glm-4.6',
-      'glm-4.7',
-      'glm-5',
-      'glm-5-turbo',
-      'glm-5.1',
-    ]);
+    assert.deepEqual(
+      entries.map((entry) => entry.id),
+      ['glm-4.5', 'glm-4.5-air', 'glm-4.6', 'glm-4.7', 'glm-5', 'glm-5-turbo', 'glm-5.1'],
+    );
     assert.equal(entries[0]?.source, 'provider_api');
     assert.equal(entries[0]?.capabilitySource, 'unknown');
     assert.deepEqual(entries[0]?.capabilities, {});
@@ -704,12 +721,14 @@ describe('ModelCatalogEntry', () => {
     const [entry] = buildModelCatalogEntries({
       providerType: 'deepseek',
       defaultModel: 'deepseek-v4-pro',
-      models: [{
-        id: 'deepseek-v4-pro',
-        contextWindow: 128_000,
-        maxOutputTokens: 8_192,
-        capabilities: { reasoning: false, functionCalling: false },
-      }],
+      models: [
+        {
+          id: 'deepseek-v4-pro',
+          contextWindow: 128_000,
+          maxOutputTokens: 8_192,
+          capabilities: { reasoning: false, functionCalling: false },
+        },
+      ],
       modelSource: 'fetched',
     });
 
@@ -732,15 +751,19 @@ describe('ModelCatalogEntry', () => {
   });
 
   it('keeps OpenAI OAuth limits provider-specific instead of reusing OpenAI API context', () => {
-    const [[openaiEntry], [oauthEntry]] = ([
-      ['openai', 'gpt-5.5'],
-      ['openai-codex', 'gpt-5.5'],
-    ] as const).map(([providerType, model]) => buildModelCatalogEntries({
-      providerType,
-      defaultModel: model,
-      models: [{ id: model }],
-      modelSource: 'fetched',
-    }));
+    const [[openaiEntry], [oauthEntry]] = (
+      [
+        ['openai', 'gpt-5.5'],
+        ['openai-codex', 'gpt-5.5'],
+      ] as const
+    ).map(([providerType, model]) =>
+      buildModelCatalogEntries({
+        providerType,
+        defaultModel: model,
+        models: [{ id: model }],
+        modelSource: 'fetched',
+      }),
+    );
 
     assert.equal(openaiEntry?.contextWindow, 1_050_000);
     assert.equal(oauthEntry?.contextWindow, 272_000);
@@ -761,15 +784,19 @@ describe('ModelCatalogEntry', () => {
   });
 
   it('keeps Claude subscription limits unknown instead of reusing Anthropic API context', () => {
-    const [[apiEntry], [subscriptionEntry]] = ([
-      ['anthropic', 'claude-sonnet-4-6'],
-      ['claude-subscription', 'claude-sonnet-4-6'],
-    ] as const).map(([providerType, model]) => buildModelCatalogEntries({
-      providerType,
-      defaultModel: model,
-      models: [{ id: model }],
-      modelSource: 'fetched',
-    }));
+    const [[apiEntry], [subscriptionEntry]] = (
+      [
+        ['anthropic', 'claude-sonnet-4-6'],
+        ['claude-subscription', 'claude-sonnet-4-6'],
+      ] as const
+    ).map(([providerType, model]) =>
+      buildModelCatalogEntries({
+        providerType,
+        defaultModel: model,
+        models: [{ id: model }],
+        modelSource: 'fetched',
+      }),
+    );
 
     assert.equal(apiEntry?.contextWindow, 1_000_000);
     assert.equal(apiEntry?.maxOutputTokens, 128_000);
@@ -873,7 +900,12 @@ describe('ModelCatalogEntry', () => {
     });
 
     assert.deepEqual(
-      entries.map((entry) => [entry.id, entry.unavailableReason, entry.availability, entry.canUseAsChatDefault]),
+      entries.map((entry) => [
+        entry.id,
+        entry.unavailableReason,
+        entry.availability,
+        entry.canUseAsChatDefault,
+      ]),
       [
         ['custom-default', 'not_in_live_list', 'blocked', false],
         ['relay-static-model', 'none', 'available', true],
@@ -1016,12 +1048,10 @@ describe('ModelCatalogEntry', () => {
       now: 1_800_000_001_000,
     });
 
-    assert.deepEqual(entries.map((entry) => entry.id), [
-      'glm-saved',
-      'glm-4.7',
-      'glm-session',
-      'glm-daily-review',
-    ]);
+    assert.deepEqual(
+      entries.map((entry) => entry.id),
+      ['glm-saved', 'glm-4.7', 'glm-session', 'glm-daily-review'],
+    );
     assert.equal(entries[0]?.connectionSlug, 'zai-live');
     assert.equal(entries[0]?.unavailableReason, 'not_in_live_list');
     assert.equal(entries[0]?.isDefault, true);
@@ -1103,17 +1133,19 @@ describe('ModelCatalogEntry', () => {
 
   it('enriches provider model ids with models.dev display names', () => {
     assert.deepEqual(
-      ([
-        ['anthropic', 'claude-sonnet-4-6'],
-        ['claude-subscription', 'claude-opus-4-8'],
-        ['openai', 'gpt-5.5-pro'],
-        ['openai', 'gpt-4o-mini'],
-        ['google', 'gemini-3.5-flash'],
-        ['gemini-cli', 'gemini-2.5-pro'],
-        ['deepseek', 'deepseek-v4-flash'],
-        ['zai-coding-plan', 'glm-5.2'],
-        ['openai-codex', 'gpt-5.3-codex-spark'],
-      ] as Array<[ProviderType, string]>).map(([providerType, model]) => {
+      (
+        [
+          ['anthropic', 'claude-sonnet-4-6'],
+          ['claude-subscription', 'claude-opus-4-8'],
+          ['openai', 'gpt-5.5-pro'],
+          ['openai', 'gpt-4o-mini'],
+          ['google', 'gemini-3.5-flash'],
+          ['gemini-cli', 'gemini-2.5-pro'],
+          ['deepseek', 'deepseek-v4-flash'],
+          ['zai-coding-plan', 'glm-5.2'],
+          ['openai-codex', 'gpt-5.3-codex-spark'],
+        ] as Array<[ProviderType, string]>
+      ).map(([providerType, model]) => {
         const [entry] = buildModelCatalogEntries({
           providerType,
           defaultModel: model,
@@ -1149,10 +1181,12 @@ describe('ModelCatalogEntry', () => {
 
   it('does not invent provider metadata when models.dev has no matching model id', () => {
     assert.deepEqual(
-      ([
-        ['google', 'gemini-1.5-pro'],
-        ['moonshot', 'moonshot-v1-8k'],
-      ] as const).map(([providerType, model]) => {
+      (
+        [
+          ['google', 'gemini-1.5-pro'],
+          ['moonshot', 'moonshot-v1-8k'],
+        ] as const
+      ).map(([providerType, model]) => {
         const [entry] = buildModelCatalogEntries({
           providerType,
           defaultModel: model,
@@ -1215,10 +1249,12 @@ describe('ModelCatalogEntry', () => {
 
   it('does not apply provider metadata to custom or local model ids', () => {
     assert.deepEqual(
-      ([
-        ['openai-compatible', 'gpt-4o-mini'],
-        ['ollama', 'gemini-2.5-pro'],
-      ] as const).map(([providerType, model]) => {
+      (
+        [
+          ['openai-compatible', 'gpt-4o-mini'],
+          ['ollama', 'gemini-2.5-pro'],
+        ] as const
+      ).map(([providerType, model]) => {
         const [entry] = buildModelCatalogEntries({
           providerType,
           defaultModel: model,
