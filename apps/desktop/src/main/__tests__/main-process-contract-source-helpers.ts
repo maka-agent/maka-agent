@@ -7,6 +7,7 @@ const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');
 export const MAIN_PROCESS_SOURCE_REPO_PATHS: readonly string[] = [
   'apps/desktop/src/main/main.ts',
   'apps/desktop/src/main/app-ipc-main.ts',
+  'apps/desktop/src/main/app-lifecycle.ts',
   'apps/desktop/src/main/bot-incoming-main.ts',
   'apps/desktop/src/main/browser-ipc-main.ts',
   'apps/desktop/src/main/config-ipc-main.ts',

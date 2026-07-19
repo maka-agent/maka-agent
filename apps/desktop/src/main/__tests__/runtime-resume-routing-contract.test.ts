@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import { readRendererShellSource } from './renderer-shell-source-helpers.js';
+import { readMainProcessCombinedSource } from './main-process-contract-source-helpers.js';
 
 const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');
 
@@ -53,8 +54,11 @@ describe('runtime resume desktop routing contract', () => {
   });
 
   it('startup recovery auto-continues only behind the safe-boundary feature flag', async () => {
-    const main = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/main/main.ts'), 'utf8');
-    const recovery = main.match(/async function recoverInterruptedSessionsOnStartup\(\): Promise<void> \{[\s\S]*?\n\}/)?.[0] ?? '';
+    // R6: recoverInterruptedSessionsOnStartup moved to app-lifecycle.ts (nested
+    // in wireAppLifecycle), so read the combined source and tolerate the now
+    // in-function indented block closer.
+    const main = await readMainProcessCombinedSource();
+    const recovery = main.match(/async function recoverInterruptedSessionsOnStartup\(\): Promise<void> \{[\s\S]*?\n  \}/)?.[0] ?? '';
 
     assert.match(recovery, /MAKA_RUNTIME_SAFE_BOUNDARY_RESUME !== '1'/);
     assert.match(recovery, /runtime\.planLatestAuthoritativeSafeBoundaryContinuation\(session\.id\)/);
