@@ -207,6 +207,30 @@ describe('foreign session store — Claude scan', () => {
     assert.equal(all[0]!.cwd, '/repo');
   });
 
+  it('sanitizes and redacts cwd / gitBranch in the returned summary', async () => {
+    const home = await tempHome();
+    const dir = join(home, '.claude', 'projects', '-repo');
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      join(dir, '0fb0463a-ec8e-4d50-896d-c825c3148ae7.jsonl'),
+      claudeLine({
+        type: 'user',
+        // A cwd carrying a bidi override and a branch carrying a secret must
+        // not reach a TUI consumer verbatim.
+        cwd: '/repo' + '\u202E' + 'spoof',
+        gitBranch: 'feat-AIzaSyA1234567890abcdefghijklmnop',
+        isSidechain: false,
+        message: { content: 'hi' },
+      }),
+      'utf8',
+    );
+    const store = createForeignSessionStore({ homeDir: home, env: {} });
+    const [session] = await store.listSessions();
+    assert.ok(session);
+    assert.ok(!session.cwd.includes('\u202E'), 'bidi override must be stripped from summary cwd');
+    assert.ok(!session.gitBranch!.includes('AIzaSyA1234567890abcdefghijklmnop'), 'secret must be redacted from branch');
+  });
+
   it('drops a session whose transcript filename is not a safe id', async () => {
     const home = await tempHome();
     const dir = join(home, '.claude', 'projects', '-repo');
@@ -272,6 +296,13 @@ describe('foreign session store — Codex scan', () => {
     const store = createForeignSessionStore({ homeDir: home, env: {} });
     const found = await store.listSessions({ cwd: '/target' });
     assert.deepEqual(found.map((s) => s.id), ['target']);
+  });
+
+  it('matches a stored trailing-slash cwd against a caller path without one', async () => {
+    const home = await tempHome();
+    await seedCodexSqlite(home, [{ id: 'ts', cwd: '/target/', title: 'trailing slash' }]);
+    const store = createForeignSessionStore({ homeDir: home, env: {} });
+    assert.deepEqual((await store.listSessions({ cwd: '/target' })).map((s) => s.id), ['ts']);
   });
 
   it('treats the first usable DB as authoritative: an all-archived newest gen does not resurface older rows', async () => {

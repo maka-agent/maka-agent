@@ -770,6 +770,7 @@ export {
   createDigestAccumulator,
   finishDigest,
   isSafeForeignId,
+  isSyntheticClaudeUserText,
   normalizeCodexThreadRow,
   parseForeignJsonLine,
   pickClaudeTitle,

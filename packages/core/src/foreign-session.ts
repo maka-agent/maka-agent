@@ -251,9 +251,21 @@ export function claudeFirstPromptCandidate(record: Record<string, unknown>): str
   const bashInput = raw.match(/<bash-input>([^<]+)<\/bash-input>/);
   if (bashInput) return `! ${bashInput[1]!.trim()}`;
   const text = raw.trim();
-  if (text.startsWith('[Request interrupted by user')) return undefined;
-  if (/^<[a-z]/.test(text)) return undefined;
+  if (isSyntheticClaudeUserText(text)) return undefined;
   return text.length > 0 ? text : undefined;
+}
+
+/**
+ * True when a `user` record's text is synthetic — not something the human
+ * typed. Covers interrupt notices (`[Request interrupted by user …]`) and any
+ * text opening with a `<lowercase` tag (command output like
+ * `<local-command-stdout>…`, hook results, injected markup). Shared by the
+ * title picker and the digest so neither surface can attribute Claude's own
+ * generated/tool content to the user.
+ */
+export function isSyntheticClaudeUserText(text: string): boolean {
+  const t = text.trimStart();
+  return t.startsWith('[Request interrupted by user') || /^<[a-z]/.test(t);
 }
 
 export function pickClaudeTitle(titles: ClaudeTitleCandidates): string {
@@ -293,7 +305,12 @@ export function claudeUserMessageText(record: Record<string, unknown>): string |
  */
 export function claudeUserAuthoredText(record: Record<string, unknown>): string | undefined {
   if (record.isMeta === true || record.isCompactSummary === true) return undefined;
-  return claudeUserMessageText(record);
+  const text = claudeUserMessageText(record);
+  if (text === undefined) return undefined;
+  // Drop synthetic user records (command output, interrupt notices) so only
+  // human-authored text enters the handoff — the same provenance check the
+  // title picker uses.
+  return isSyntheticClaudeUserText(text) ? undefined : text;
 }
 
 /** Assistant text blocks from a Claude `assistant` record (no tool calls). */

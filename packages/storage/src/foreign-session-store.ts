@@ -48,6 +48,7 @@ import {
   pickClaudeTitle,
   pushDigestFile,
   pushDigestMessage,
+  sanitizeForeignMessage,
   sanitizeForeignTitle,
   type ClaudeTitleCandidates,
   type ClaudeTranscriptMeta,
@@ -126,7 +127,17 @@ class FileForeignSessionStore implements ForeignSessionStore {
       results.push(...(await this.listCodexSessions(options, now)));
     }
     results.sort((a, b) => b.updatedAtMs - a.updatedAtMs);
-    return results.slice(0, FOREIGN_SESSION_SCAN_MAX_SESSIONS);
+    // Sanitize + redact display metadata at the single return choke point.
+    // cwd matching upstream used the raw values, so it is safe to scrub the
+    // returned cwd/gitBranch here — a TUI consumer must never receive terminal
+    // control characters, bidi overrides, or secrets in these fields. (title
+    // and id are already gated at their source; transcriptPath stays raw as an
+    // internal lookup key confined to the source roots.)
+    return results.slice(0, FOREIGN_SESSION_SCAN_MAX_SESSIONS).map((s) => ({
+      ...s,
+      cwd: sanitizeForeignMessage(s.cwd),
+      ...(s.gitBranch !== undefined ? { gitBranch: sanitizeForeignTitle(s.gitBranch) } : {}),
+    }));
   }
 
   /* ------------------------------ Claude ------------------------------ */
@@ -530,9 +541,14 @@ async function readCodexThreadRows(dbPath: string, cwdFilter?: string): Promise<
       // Filter cwd IN SQL, before LIMIT: otherwise a multi-project store with
       // many newer threads from other directories fills the LIMIT window and
       // the target project's older thread never reaches the JS-side filter.
+      // This is a COARSE pre-filter — the exact normalized path or its
+      // trailing-separator variant — so a stored `/target/` isn't dropped
+      // before the authoritative two-sided normalizePath() comparison in
+      // codexRowsToSummaries(); SQL cannot run normalizePath on the stored side.
       if (cwdFilter !== undefined && columns.has('cwd')) {
-        where.push('cwd = ?');
-        params.push(normalizePath(cwdFilter));
+        const norm = normalizePath(cwdFilter);
+        where.push('(cwd = ? OR cwd = ?)');
+        params.push(norm, norm + sep);
       }
       const orderColumn = columns.has('updated_at_ms')
         ? 'updated_at_ms'
