@@ -38,9 +38,6 @@ export function BotOnboardingModal(props: {
   // subsequent polls keep showing the QR without re-sending it over IPC.
   const qrCacheRef = useRef<string | null>(null);
   const copy = providerCopy(props.provider, props.brand, onboardingCopy);
-  const accessibleTitle = props.provider === 'feishu' && props.brand === 'lark'
-    ? `${copy.title} `
-    : copy.title;
 
   const cancelCurrent = useCallback(() => {
     generationRef.current += 1;
@@ -144,7 +141,7 @@ export function BotOnboardingModal(props: {
     <DialogRoot open onOpenChange={(open) => { if (!open) close(); }}>
       <DialogContent
         className="settingsBotOnboardingModal"
-        aria-label={onboardingCopy.accessAria(accessibleTitle)}
+        aria-label={copy.ariaLabel}
         showClose={false}
       >
         <div className="settingsBotOnboardingBrand" aria-hidden="true">
@@ -154,7 +151,7 @@ export function BotOnboardingModal(props: {
         <div className="settingsBotOnboardingBody" aria-live="polite">
           <div className="settingsBotOnboardingQrFrame" data-state={snapshot?.state ?? (starting ? 'starting' : 'error')}>
             {showQr ? (
-              <img src={qrDataUrl ?? undefined} alt={onboardingCopy.qrAlt(accessibleTitle)} />
+              <img src={qrDataUrl ?? undefined} alt={copy.qrAlt} />
             ) : starting || snapshot?.state === 'connecting' ? (
               <Spinner size={28} aria-label={onboardingCopy.generatingAria} />
             ) : snapshot?.state === 'connected' ? (
