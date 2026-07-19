@@ -7,14 +7,21 @@ import { readRendererShellSource } from './renderer-shell-source-helpers.js';
 const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');
 
 describe('runtime resume desktop routing contract', () => {
-  it('renderer exposes an exact /resume command and reports parked diagnostics', async () => {
+  it('renderer routes interrupted-banner resume and reports parked diagnostics', async () => {
     const shell = await readRendererShellSource('app-shell.tsx');
     const send = shell.match(/async function sendWithAttachments\(text: string\): Promise<boolean \| void> \{[\s\S]*?\n  \}/)?.[0] ?? '';
 
-    assert.match(send, /if \(text\.trim\(\) === '\/resume'\) \{/);
-    assert.match(send, /window\.maka\.sessions\.resumeLatest\(activeId\)/);
-    assert.match(send, /result\.disposition === 'park'/);
-    assert.match(send, /result\.rejectionReasons\.join/);
+    assert.doesNotMatch(send, /text\.trim\(\) === '\/resume'/);
+    assert.match(shell, /async function resumeInterruptedSession\(\)/);
+    assert.match(shell, /window\.maka\.sessions\.resumeLatest\(sessionId\)/);
+    assert.match(shell, /resumeParkToastCopy\(result\.rejectionReasons\)/);
+    assert.doesNotMatch(shell, /result\.rejectionReasons\.join/);
+    assert.match(shell, /safeResumeAction=/);
+
+    const turn = await readFile(resolve(REPO_ROOT, 'packages/ui/src/chat-turn.tsx'), 'utf8');
+    assert.match(turn, /safeResumeAction/);
+    assert.match(turn, /maka-turn-failed-resume/);
+    assert.match(turn, /安全恢复/);
   });
 
   it('main plans from authoritative state and streams only an approved latest continuation', async () => {

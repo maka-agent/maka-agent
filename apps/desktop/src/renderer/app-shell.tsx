@@ -33,6 +33,7 @@ import {
   type TurnFooterActionMeta,
   useToast,
   activeInteractionFor,
+  resumeParkToastCopy,
 } from '@maka/ui';
 import { useKeyboardHelp } from './keyboard-help';
 import { useCommandPalette } from './command-palette';
@@ -257,6 +258,8 @@ export function AppShell({
     });
   }
   const composerRef = useRef<ComposerHandle>(null);
+  const [resumePendingSessionId, setResumePendingSessionId] = useState<string | null>(null);
+  const [resumeParkDescriptionBySession, setResumeParkDescriptionBySession] = useState<Record<string, string>>({});
   const rendererMountedRef = useRef(true);
   // Active autonomous goal for the current session drives the header
   // kill-switch pill (visible indicator + one-click clear).
@@ -470,6 +473,7 @@ export function AppShell({
     turnFailedReasonLabels,
     turnFailedRecoveryLabels,
     turnLineageBadgesByTurn,
+    resumeCandidateTurnId,
   } = useMemo(
     () => deriveAppShellTurnViewModel({
       activeId,
@@ -838,25 +842,38 @@ export function AppShell({
     upsertSessionSummary,
   });
 
-  async function sendWithAttachments(text: string): Promise<boolean | void> {
-    if (text.trim() === '/resume') {
-      if (activeId) {
-        try {
-          const result = await window.maka.sessions.resumeLatest(activeId);
-          if (result.disposition === 'park') {
-            toastApi.error('无法安全恢复', result.rejectionReasons.join(', '));
-          } else {
-            toastApi.info('已开始安全恢复', '正在从最后一个完整执行边界继续');
-          }
-        } catch (error) {
-          toastApi.error(
-            '恢复失败',
-            generalizedErrorMessageChinese(error, '无法启动安全恢复，请检查会话状态后重试。'),
-          );
-        }
+  async function resumeInterruptedSession(): Promise<void> {
+    const sessionId = activeId;
+    if (!sessionId || resumePendingSessionId !== null) return;
+    setResumePendingSessionId(sessionId);
+    try {
+      const result = await window.maka.sessions.resumeLatest(sessionId);
+      if (result.disposition === 'park') {
+        const parkCopy = resumeParkToastCopy(result.rejectionReasons);
+        setResumeParkDescriptionBySession((current) => ({
+          ...current,
+          [sessionId]: parkCopy.description,
+        }));
+        toastApi.error(parkCopy.title, parkCopy.description);
+      } else {
+        setResumeParkDescriptionBySession((current) => {
+          const { [sessionId]: _removed, ...remaining } = current;
+          void _removed;
+          return remaining;
+        });
+        toastApi.info('已开始安全恢复', '正在从最后一个完整执行边界继续');
       }
-      return true;
+    } catch (error) {
+      toastApi.error(
+        '恢复失败',
+        generalizedErrorMessageChinese(error, '无法启动安全恢复，请检查会话状态后重试。'),
+      );
+    } finally {
+      setResumePendingSessionId((current) => current === sessionId ? null : current);
     }
+  }
+
+  async function sendWithAttachments(text: string): Promise<boolean | void> {
     if (text.trim() === '/compact') {
       if (activeId) await window.maka.sessions.compact(activeId);
       return true;
@@ -1402,6 +1419,12 @@ export function AppShell({
                 onTurnFooterAction={handleTurnFooterAction}
                 turnFailedReasonLabels={turnFailedReasonLabels}
                 turnFailedRecoveryLabels={turnFailedRecoveryLabels}
+                safeResumeAction={activeId && resumeCandidateTurnId ? {
+                  turnId: resumeCandidateTurnId,
+                  pending: resumePendingSessionId === activeId,
+                  detail: resumeParkDescriptionBySession[activeId],
+                  onResume: () => { void resumeInterruptedSession(); },
+                } : undefined}
                 turnLineageBadgesByTurn={turnLineageBadgesByTurn}
                 onLineageBadgeClick={handleLineageBadgeClick}
                 scrollTargetTurn={

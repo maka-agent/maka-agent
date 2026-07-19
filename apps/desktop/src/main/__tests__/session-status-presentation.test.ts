@@ -369,6 +369,18 @@ describe('describeTurnErrorClass (PR109e-d @kenji gate #3)', () => {
 });
 
 describe('deriveFailedTurnRecovery (PawWork run-incident lite)', () => {
+  it('routes app restart failures to safe resume instead of blind retry', () => {
+    const result = deriveFailedTurnRecovery({
+      errorClass: 'app_restarted',
+      partialOutputRetained: false,
+      toolActivityCount: 0,
+      erroredToolCount: 0,
+    });
+
+    assert.equal(result.action, 'continue');
+    assert.match(result.label, /安全恢复/);
+  });
+
   it('asks the user to inspect tool output when a tool failed', () => {
     const result = deriveFailedTurnRecovery({
       errorClass: 'tool_failed',

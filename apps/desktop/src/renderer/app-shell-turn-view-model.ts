@@ -9,12 +9,14 @@ import {
 import { deriveFailedTurnRecovery, describeTurnErrorClass } from './session-status-presentation';
 import { deriveTurnFooterActions } from './turn-footer-actions';
 import { deriveTurnLineageBadges } from './derive-turn-lineage-badges';
+import { latestInterruptedResumeTurnId } from './interrupted-resume';
 
 export interface AppShellTurnViewModel {
   turnFooterActionsByTurn: Record<string, ReadonlyArray<TurnFooterActionMeta>>;
   turnFailedReasonLabels: Record<string, string>;
   turnFailedRecoveryLabels: Record<string, string>;
   turnLineageBadgesByTurn: Record<string, TurnLineageBadge[]>;
+  resumeCandidateTurnId?: string;
 }
 
 export function deriveAppShellTurnViewModel(input: {
@@ -24,6 +26,7 @@ export function deriveAppShellTurnViewModel(input: {
   pendingKeyOf(sessionId: string, turnId: string, actionId: TurnFooterActionMeta['id']): string;
 }): AppShellTurnViewModel {
   const turnsForLineage = materializeTurns(input.messages);
+  const resumeCandidateTurnId = latestInterruptedResumeTurnId(turnsForLineage);
   const lineage = deriveTurnLineageMap(turnsForLineage);
   const turnsById = new Map(turnsForLineage.map((turn) => [turn.turnId, turn]));
   const footer: Record<string, ReadonlyArray<TurnFooterActionMeta>> = {};
@@ -82,5 +85,6 @@ export function deriveAppShellTurnViewModel(input: {
     turnFailedReasonLabels: failedLabels,
     turnFailedRecoveryLabels: failedRecoveryLabels,
     turnLineageBadgesByTurn: badges,
+    ...(resumeCandidateTurnId ? { resumeCandidateTurnId } : {}),
   };
 }

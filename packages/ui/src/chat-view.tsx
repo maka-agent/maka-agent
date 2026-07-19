@@ -113,6 +113,12 @@ export function ChatView(props: {
    */
   turnFailedReasonLabels?: Record<string, string>;
   turnFailedRecoveryLabels?: Record<string, string>;
+  safeResumeAction?: {
+    turnId: string;
+    pending: boolean;
+    detail?: string;
+    onResume(): void;
+  };
   turnLineageBadgesByTurn?: Record<string, TurnLineageBadge[]>;
   onLineageBadgeClick?: (targetTurnId: string) => void;
   /**
@@ -384,6 +390,9 @@ export function ChatView(props: {
                 onFooterAction={stableTurnFooterAction}
                 failedReasonLabel={props.turnFailedReasonLabels?.[turn.turnId]}
                 failedRecoveryLabel={props.turnFailedRecoveryLabels?.[turn.turnId]}
+                safeResumeAction={props.safeResumeAction?.turnId === turn.turnId
+                  ? props.safeResumeAction
+                  : undefined}
                 lineageBadges={props.turnLineageBadgesByTurn?.[turn.turnId]}
                 onLineageBadgeClick={stableLineageBadgeClick}
                 searchHighlighted={highlightedTurnId === turn.turnId}

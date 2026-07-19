@@ -148,6 +148,9 @@ export interface FailedTurnRecoveryInput {
  */
 export function deriveFailedTurnRecovery(input: FailedTurnRecoveryInput): FailedTurnRecoveryPresentation {
   const lower = input.errorClass?.toLowerCase() ?? '';
+  if (lower === 'app_restarted') {
+    return { action: 'continue', label: '检查当前状态后，可尝试安全恢复' };
+  }
   if (lower === 'tool_step_cap_reached') {
     return { action: 'continue', label: '任务可能尚未完成，可以继续' };
   }

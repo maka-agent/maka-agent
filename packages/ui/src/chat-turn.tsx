@@ -258,6 +258,11 @@ export const TurnView = memo(function TurnView(props: {
    * output first".
    */
   failedRecoveryLabel?: string;
+  safeResumeAction?: {
+    pending: boolean;
+    detail?: string;
+    onResume(): void;
+  };
   /**
    * PR109e-e: forward + reverse lineage badges. The renderer
    * computes the labels (with short turn ids) and click targets;
@@ -389,8 +394,22 @@ export const TurnView = memo(function TurnView(props: {
                   <AlertOctagon size={14} />
                 </Marker>
                 <span>{props.failedReasonLabel}</span>
-                {props.failedRecoveryLabel && (
-                  <Marker as="span" variant="failed-recovery">{props.failedRecoveryLabel}</Marker>
+                {(props.safeResumeAction?.detail ?? props.failedRecoveryLabel) && (
+                  <Marker as="span" variant="failed-recovery">
+                    {props.safeResumeAction?.detail ?? props.failedRecoveryLabel}
+                  </Marker>
+                )}
+                {props.safeResumeAction && (
+                  <UiButton
+                    type="button"
+                    variant="quiet"
+                    size="sm"
+                    className="maka-turn-failed-resume"
+                    disabled={props.safeResumeAction.pending}
+                    onClick={props.safeResumeAction.onResume}
+                  >
+                    {props.safeResumeAction.pending ? '正在验证…' : '安全恢复'}
+                  </UiButton>
                 )}
               </Marker>
             )}

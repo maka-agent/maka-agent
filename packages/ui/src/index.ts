@@ -9,6 +9,7 @@ export type { SessionHistoryStatusGroup } from './session-history-list.js';
 export * from './session-status-presentation.js';
 export * from './composer-helpers.js';
 export * from './chat-input-behavior.js';
+export * from './runtime-resume-copy.js';
 export * from './input-history.js';
 export * from './daily-review-helpers.js';
 export * from './locale-helpers.js';
