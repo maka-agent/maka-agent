@@ -166,6 +166,25 @@ Current boundaries that matter:
 
 Read [SECURITY.md](./SECURITY.md) for security reporting and policy, and [docs/README.md](./docs/README.md) for current privacy and sandbox contracts.
 
+## Experimental runtime recovery flags
+
+Runtime recovery remains opt-in. Both flags below are disabled by default:
+
+- `MAKA_RUNTIME_SQLITE_CANONICAL=1` migrates the current workspace's canonical
+  RuntimeEvent store to `runtime.sqlite`. This is a **one-way, sticky migration
+  trigger**, not a reversible backend selector: after `runtime.sqlite` exists,
+  disabling the variable does not switch the workspace back to JSONL. Automatic
+  pre-migration backup and populated v2-to-v4 upgrade coverage are not complete,
+  so back up the workspace before enabling this flag.
+- `MAKA_RUNTIME_SAFE_BOUNDARY_RESUME=1` enables the Desktop interrupted-turn
+  **Safe resume** action, CLI/TUI `/resume`, and Desktop startup auto-resume.
+  These paths may call the configured model provider and consume tokens. Enable
+  the flag only when that behavior is explicitly desired.
+
+Phase 2 provides the durable write-side boundary and fail-closed safe-boundary
+continuation. Phase 3 reconciliation for indeterminate tool side effects is not
+implemented yet; ambiguous tool outcomes remain parked rather than retried.
+
 ## Development and verification
 
 Common repository-level commands:

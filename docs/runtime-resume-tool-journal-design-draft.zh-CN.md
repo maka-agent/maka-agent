@@ -4,7 +4,7 @@ title: "Runtime Resume 与 Tool Journal：从事件回放到安全续跑"
 language: zh-CN
 implementation_status: phase_2_feature_flagged
 document_status: draft
-last_verified: 2026-07-16
+last_verified: 2026-07-19
 owners:
   - maka-backend
 ---
@@ -20,7 +20,7 @@ owners:
 截至 2026-07-17：
 
 - Phase 0 的恢复语义、replay gate 与真实进程 crash harness 已实现；
-- Phase 1 的 safe-boundary continuation 已实现，并由 `MAKA_RUNTIME_SAFE_BOUNDARY_RESUME=1` 控制自动启动；continuation lineage 会回溯拼装 user-anchored provider history，普通后续 Turn 也会包含 continuation Run；
+- Phase 1 的 safe-boundary continuation 已实现，并由 `MAKA_RUNTIME_SAFE_BOUNDARY_RESUME=1` 控制 Desktop 中断横幅手动恢复、CLI/TUI `/resume` 与 Desktop 自动启动；continuation lineage 会回溯拼装 user-anchored provider history，普通后续 Turn 也会包含 continuation Run；
 - Phase 2 的 SQLite schema、Tool Journal、T1/T2、operationId、CAS、partial snapshot、带 source marker 的批量 JSONL 导入、显式导出及 CLI/Desktop 单一 canonical writer 接线已实现；
 - `MAKA_RUNTIME_SQLITE_CANONICAL=1` 是 workspace 的迁移触发器而非可随意来回切换的读写开关：workspace 一旦存在 `runtime.sqlite`，后续即使关闭环境变量也继续使用 SQLite canonical，避免 SQLite-only 事件突然不可见；系统不会双写两个 RuntimeEvent 真相源；
 - Phase 2 已实现 write-side durable boundary；崩溃留下的 unmatched function call 会沿用 Phase 0 gate 安全 park，但 journal 的 `indeterminate/reconciled/parked` 状态写入与专用 reconciler 属于 Phase 3；
@@ -1152,6 +1152,20 @@ UI 至少区分：
 不要把 indeterminate 显示成普通“工具失败”。用户需要知道系统不知道结果、为什么不能重试、可以检查什么，以及继续的风险。
 
 ## 二十三、发布、回滚与 feature flags
+
+当前实现层对外提供两个环境变量，默认都关闭：
+
+| 环境变量 | 当前语义 | 为什么默认关闭 |
+| --- | --- | --- |
+| `MAKA_RUNTIME_SQLITE_CANONICAL=1` | 触发当前 workspace 迁移到 SQLite canonical；`runtime.sqlite` 一旦存在便 sticky | 它是不可通过关闭 flag 回退的数据迁移；自动备份和有存量数据的 v2→v4 升级测试尚未补齐 |
+| `MAKA_RUNTIME_SAFE_BOUNDARY_RESUME=1` | 开启 Desktop 中断横幅“安全恢复”、CLI/TUI `/resume` 与 Desktop 启动自动续跑 | 会产生用户可见行为，并可能自动调用 provider、消耗 token；后续应拆分手动与自动开关，先灰度手动路径 |
+
+当前 Phase 2 已知限制（不阻断写侧地基评审）：
+
+- legacy RuntimeEvent 导入后的 tool projection 重建仍需保留兼容警惕，不应把投影行误当成第二个恢复事实源；
+- SQLite v2→v4 的有存量数据升级测试与自动迁移前备份尚未实现；
+- crash harness 以 Linux/macOS 为主要支持目标，Windows 仍是有限支持；
+- `definitely_not_dispatched` 只是 resolver 的可证明分类，其 Phase 3 自动恢复策略尚未实现。
 
 建议 flags：
 

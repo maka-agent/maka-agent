@@ -166,6 +166,23 @@ Maka 默认把 workspace 数据放在 Electron `userData` 下：
 
 安全问题请阅读 [SECURITY.md](./SECURITY.md)，当前隐私和 sandbox contract 见 [docs/README.md](./docs/README.md)。
 
+## 实验性 Runtime 恢复开关
+
+Runtime 恢复目前仍需显式开启，以下两个开关默认都是关闭的：
+
+- `MAKA_RUNTIME_SQLITE_CANONICAL=1` 会把当前 workspace 的 canonical
+  RuntimeEvent store 迁移到 `runtime.sqlite`。这是一个**单向、sticky 的迁移触发器**，
+  不是可来回切换的存储开关：一旦 workspace 中出现 `runtime.sqlite`，之后即使
+  关闭环境变量，也不会切回 JSONL。自动迁移前备份和有存量数据的 v2→v4 升级覆盖
+  尚未补齐，开启前请先备份 workspace。
+- `MAKA_RUNTIME_SAFE_BOUNDARY_RESUME=1` 会开启 Desktop 中断横幅的“安全恢复”按钮、
+  CLI/TUI 的 `/resume` 命令和 Desktop 启动时自动续跑。这些路径都可能调用已配置的模型 provider 并消耗 token，
+  只应在你明确需要这一行为时开启。
+
+Phase 2 交付的是 durable 写侧边界和 fail-closed 的 safe-boundary continuation。
+Phase 3 针对不确定工具副作用的 reconcile 尚未实现；结果不明的工具调用会 park，
+不会被盲目重试。
+
 ## 开发与验证
 
 常用仓库级命令：
