@@ -10,6 +10,10 @@
  */
 
 import type { RuntimeEvent } from '@maka/core/runtime-event';
+import type {
+  BackendCompactHistoryInput,
+  BackendCompactHistoryResult,
+} from '@maka/core/backend-types';
 import type { ContextBudgetDiagnostic } from '@maka/core/usage-stats/types';
 
 import type { AiSdkBackendInput } from './ai-sdk-backend.js';
@@ -18,7 +22,10 @@ import {
   historyCompactBlockToCompactionBoundary,
 } from './compaction-boundary.js';
 import {
+  applyRuntimeEventContextBudget,
+  buildContextBudgetDiagnosticShell,
   estimateRuntimeEventsTokens,
+  mergeContextBudgetDiagnostic,
   type ArchiveRetrievalMode,
   type ContextBudgetPolicy,
   type HistoryCompactBlock,
@@ -43,11 +50,17 @@ export class AiSdkCompaction {
   private readonly input: AiSdkBackendInput;
   private readonly sessionId: string;
   private readonly now: () => number;
+  private historyCompactAbortController: AbortController | null = null;
 
   constructor(deps: AiSdkCompactionDeps) {
     this.input = deps.input;
     this.sessionId = deps.sessionId;
     this.now = deps.now;
+  }
+
+  /** Abort an in-flight manual history compaction (called by AiSdkBackend.stop). */
+  public abortHistoryCompact(): void {
+    this.historyCompactAbortController?.abort();
   }
 
   public async loadHistoryCompactBlocks(
@@ -619,6 +632,145 @@ export class AiSdkCompaction {
         },
       };
     }
+  }
+
+  public async compactHistory(
+    input: BackendCompactHistoryInput,
+    requestShapeHashBefore?: string,
+  ): Promise<BackendCompactHistoryResult> {
+    const historyCompactAbortController = new AbortController();
+    this.historyCompactAbortController = historyCompactAbortController;
+    try {
+      const runtimeContext = input.runtimeContext.filter((event) => event.turnId !== input.turnId);
+      const policy = this.buildManualHistoryCompactPolicy(runtimeContext);
+      if (!policy) return {};
+
+      const contextBudget = policy;
+      const budgeted = applyRuntimeEventContextBudget(runtimeContext, contextBudget, {
+        historyCompactProtocol: this.hasHistoryCompactCheckpointWriter()
+          ? 'checkpoint_v2'
+          : 'legacy_v1',
+      });
+      let contextBudgetDiagnostic = budgeted?.diagnostic;
+
+      if (
+        budgeted?.historyCompactBlocks?.length &&
+        contextBudget.historyCompact?.mode === 'read_write' &&
+        this.hasHistoryCompactWriter()
+      ) {
+        const loadedBlockIds = new Set(
+          (contextBudget.historyCompact.blocks ?? []).map((block) => block.blockId),
+        );
+        const draftBlocks = budgeted.historyCompactBlocks.filter(
+          (block) => !loadedBlockIds.has(block.blockId),
+        );
+        if (draftBlocks.length > 0) {
+          if (this.input.summarizeHistoryCompact && this.input.recordHistoryCompactCheckpoint) {
+            let writeContextBudget = contextBudget;
+            try {
+              const checkpoint = await Promise.resolve(this.input.loadHistoryCompactCheckpoint?.());
+              if (checkpoint) {
+                writeContextBudget = {
+                  ...contextBudget,
+                  historyCompact: { ...contextBudget.historyCompact!, checkpoint },
+                };
+              }
+            } catch {
+              // A missing previous checkpoint only loses rolling reuse; the current fold remains safe to summarize.
+            }
+            const writePatch = await this.writeHistoryCompactCheckpoint({
+              turnId: input.turnId,
+              contextBudget: writeContextBudget,
+              priorRuntimeContext: runtimeContext,
+              draftBlock: draftBlocks[0]!,
+              abortSignal: historyCompactAbortController.signal,
+              requestShapeHashBefore,
+            });
+            if (historyCompactAbortController.signal.aborted) return {};
+            contextBudgetDiagnostic = mergeContextBudgetDiagnostic(
+              contextBudgetDiagnostic ??
+                buildContextBudgetDiagnosticShell(runtimeContext, budgeted.events, contextBudget),
+              writePatch.diagnosticPatch,
+            );
+          } else {
+            const writePatch = await this.writeHistoryCompactBlocks({
+              turnId: input.turnId,
+              contextBudget,
+              priorRuntimeContext: runtimeContext,
+              draftBlocks,
+              abortSignal: historyCompactAbortController.signal,
+              requestShapeHashBefore,
+            });
+            if (historyCompactAbortController.signal.aborted) return {};
+            if (writePatch.replacementBlocks.length === 0) {
+              contextBudgetDiagnostic = buildContextBudgetDiagnosticShell(
+                runtimeContext,
+                runtimeContext,
+                contextBudget,
+              );
+            }
+            contextBudgetDiagnostic = mergeContextBudgetDiagnostic(
+              contextBudgetDiagnostic ??
+                buildContextBudgetDiagnosticShell(runtimeContext, budgeted.events, contextBudget),
+              writePatch.diagnosticPatch,
+            );
+          }
+        }
+      }
+
+      return contextBudgetDiagnostic ? { contextBudget: contextBudgetDiagnostic } : {};
+    } finally {
+      if (this.historyCompactAbortController === historyCompactAbortController) {
+        this.historyCompactAbortController = null;
+      }
+    }
+  }
+
+  private buildManualHistoryCompactPolicy(
+    runtimeContext: readonly RuntimeEvent[],
+  ): ContextBudgetPolicy | undefined {
+    if (runtimeContext.length === 0 || !this.input.contextBudget || !this.hasHistoryCompactWriter())
+      return undefined;
+    const base = this.input.contextBudget;
+    const charsPerToken = base.charsPerToken ?? 4;
+    const estimatedTokens = Math.max(1, estimateRuntimeEventsTokens(runtimeContext, charsPerToken));
+    const current = base.historyCompact;
+    const currentWithoutBlocks = { ...current };
+    delete currentWithoutBlocks.blocks;
+    delete currentWithoutBlocks.checkpoint;
+    const maxHistoryEstimatedTokens =
+      base.maxHistoryEstimatedTokens ?? Math.max(estimatedTokens, 32_000);
+    return {
+      name: base.name ?? 'manual-history-compact',
+      ...(base.charsPerToken !== undefined ? { charsPerToken: base.charsPerToken } : {}),
+      maxHistoryEstimatedTokens,
+      minRecentTurns: current?.minRecentTurns ?? base.minRecentTurns ?? 1,
+      historyCompact: {
+        ...currentWithoutBlocks,
+        enabled: true,
+        mode: 'read_write',
+        highWaterRatio: 0.000001,
+        targetRatio: current?.targetRatio ?? 0.2,
+        tailEstimatedTokens: 1,
+        minRecentTurns: current?.minRecentTurns ?? base.minRecentTurns ?? 1,
+        maxBlocks: current?.maxBlocks ?? 1,
+        maxEstimatedTokens: current?.maxEstimatedTokens ?? 2048,
+        maxBlockEstimatedTokens:
+          current?.maxBlockEstimatedTokens ?? current?.maxSummaryEstimatedTokens ?? 1024,
+        highWaterName: current?.highWaterName ?? `${base.name ?? 'manual'}-manual-history-compact`,
+      },
+    };
+  }
+
+  public hasHistoryCompactWriter(): boolean {
+    return Boolean(
+      this.input.writeHistoryCompact ||
+        (this.input.summarizeHistoryCompact && this.input.recordHistoryCompactCheckpoint),
+    );
+  }
+
+  public hasHistoryCompactCheckpointWriter(): boolean {
+    return Boolean(this.input.summarizeHistoryCompact && this.input.recordHistoryCompactCheckpoint);
   }
 }
 
