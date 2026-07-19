@@ -113,8 +113,42 @@ workspaces are exit 0 today; R1 makes them also report ZERO hints. Storybook sto
   AUDIT_PORT_BASE=24500 alignment auditor exit 0 (all 11 fixtures clean — full-app boot
   proves main.ts still assembles), turn-narrative CDP smoke renders the chat surface (10
   turns + composer). R5/R6 line boundaries below shift up by ~247.
-- [ ] **R5 — main.ts settings-runtime-effects + session-stream core splits (~L1360–1642).
-  Requires maintainer-approved contract re-pin.** Same direct-pin constraint as R4.
+- [x] **R5 — main.ts settings-runtime-effects + session-stream core splits (shipped
+  `chore/arch-round-5`, main.ts 1656 → 1372, −284).** Two pure-move modules under
+  `apps/desktop/src/main/` (one commit each). Post-R4 the clusters had shifted far from
+  the map's pre-R4 estimates — session-stream sat EARLY (modelSupportsVision + the ai-sdk
+  register at ~L720–861, before registerIpc), settings runtime-effects at ~L1145–1204;
+  true ranges were re-read at implementation time.
+  `settings-runtime-effects.ts` (127 lines) exports `createSettingsRuntimeEffects(deps)`
+  → `{ normalizeSettingsPatch, applySettingsRuntimeEffects, handleExternalSettingsChange }`
+  (internal `syncDefaultPermissionModeToSessions`); deps = settingsStore / botRegistry /
+  openGateway / keepSystemAwake / runtime / safeSendToRenderer / emitSessionsChanged.
+  The keep-awake runtime-effect (#1207) rides `applySettingsRuntimeEffects` byte-identical.
+  `session-stream.ts` (409 lines) exports `createAiSdkBackendFactory(deps): BackendFactory`
+  (the entire `backends.register('ai-sdk', …)` closure + the internal `modelSupportsVision`)
+  and `createSessionStreamer(deps): StreamEvents` (`streamEvents` + the two event
+  classifiers + StreamEventsOptions/Result). Entanglement seams handled without behavior
+  change: `getRuntime: () => runtime` (SessionManager is constructed AFTER the register
+  point — the register call stays put so registry-construction order is preserved) and
+  `getLookupPricing: () => lookupPricing` (the module-`let` is reassigned by usage IPC +
+  startup; used in BOTH the snapshot `lookupPricing` field and the live-read
+  `recordLlmCall` closure — a single accessor reproduces both exactly). `desktopSessionSkillHosts`
+  Map + `sessionActivities` + the `lookupPricing` let + `runtime` + the fake/e2e backend
+  registers + every `streamEvents` call site stay in main.ts. Contract re-pins
+  (maintainer-authorized): added both module paths to the
+  `main-process-contract-source-helpers` aggregator; switched three direct-main.ts readers
+  to the combined source keeping every assertion — `attachment-frontend-contract`
+  (modelSupportsVision + `const supportsVision` + `supportsVision,` vision pin, which was
+  main.ts-anchored → re-pinned to the aggregator), `ipc-surface-contract` (memoryPromptSnapshot
+  + buildBackendSystemPrompt childInstruction), `web-search-telemetry-scrub-contract`
+  (argsSummary scrub); allowlisted the moved `[config-watcher]` console.error at its new
+  path in check-console.mjs. `main-process-wiring-contract` (registerIpc anchor) untouched.
+  Gates: desktop 2744 + ui 196 suites green, 4-tsconfig + ui typecheck clean, check-dead-css
+  clean, knip ×2 exit 0 (zero hints), AUDIT_PORT_BASE=24700 alignment auditor exit 0 (all 11
+  fixtures clean — full-app boot proves main.ts still assembles + registers the ai-sdk
+  backend), CDP smoke: turn-narrative renders chat turns + composer + textarea (the hot
+  path), settings-general renders 65 interactive controls (settings-runtime-effects feeds
+  it). R6 line boundary below shifts up by ~284.
 - [ ] **R6 — main.ts startup/lifecycle module (~L1642–1865). Requires maintainer-approved
   contract re-pin.** The post-`registerIpc()` startup/lifecycle tail. Same constraint.
   (main.ts is 1871 lines total; R4–R6 line boundaries are the audit's approximate ranges
