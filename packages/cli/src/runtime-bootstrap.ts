@@ -24,6 +24,7 @@ import {
   FilesystemWorkerClient,
   buildDefaultContextBudgetPolicy,
   buildSkillAgentTool,
+  SKILL_TOOL_NAME,
   buildGoalTools,
   buildParentAgentTools,
   assertProductBindingCatalogClean,
@@ -520,7 +521,7 @@ export async function createMakaCliRuntimeContext(
     ...surfaceTools,
   ].map((tool) => tool.name);
   // Skill is always registered on this host; include it before the instance exists.
-  const cliBoundToolNamesWithSkill = [...cliBoundToolNames, 'Skill'];
+  const cliBoundToolNamesWithSkill = [...cliBoundToolNames, SKILL_TOOL_NAME];
   assertProductBindingCatalogClean('cli', cliBoundToolNamesWithSkill);
   const host: HostCapabilities = buildHostCapabilitiesFromBinding(cliBoundToolNamesWithSkill);
   const toolAvailability: ToolAvailabilityConfig | undefined =

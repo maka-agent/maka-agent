@@ -59,6 +59,7 @@ import {
   assertProductBindingCatalogClean,
   buildDeferredToolGroupsFromCatalog,
   buildHostCapabilitiesFromBinding,
+  SKILL_TOOL_NAME,
   createLocalContinuationSafetyInspector,
   getAIModel,
   generateSessionTitle as generateRuntimeSessionTitle,
@@ -763,7 +764,7 @@ const toolsAfterSkill: MakaTool[] = [
 // is built (so requiredTools gates and capability tags stay complete).
 const desktopBoundToolNames = [
   ...toolsBeforeSkill.map((tool) => tool.name),
-  'Skill',
+  SKILL_TOOL_NAME,
   ...toolsAfterSkill.map((tool) => tool.name),
 ];
 assertProductBindingCatalogClean('desktop', desktopBoundToolNames);

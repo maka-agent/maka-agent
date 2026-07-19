@@ -631,19 +631,22 @@ export function loadSkillInstructionsFromScan(
   return { ok: false, reason: 'not_found', availableSkills };
 }
 
+/** Name of the always-on Skill tool, for hosts that bind it before the instance exists. */
+export const SKILL_TOOL_NAME = 'Skill';
+
 export function buildSkillAgentTool(
   source: SkillSource | SkillSourceResolver,
   host?: HostCapabilities,
 ): MakaTool<{ name: string }, LoadSkillInstructionsResult> {
   return {
-    name: 'Skill',
+    name: SKILL_TOOL_NAME,
     description:
       'Load full instructions for one available local skill by id or name. Use only after the user request matches an available skill.',
     parameters: z.object({
       name: z.string().describe('The skill id or name from the available local skills list.'),
     }),
     permissionRequired: false,
-    displayName: 'Skill',
+    displayName: SKILL_TOOL_NAME,
     impl: async ({ name }, ctx) =>
       loadSkillInstructions(typeof source === 'function' ? source(ctx) : source, name, host),
   };

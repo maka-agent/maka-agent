@@ -1198,6 +1198,7 @@ export {
   buildSkillsPromptFragment,
   loadSkillInstructions,
   buildSkillAgentTool,
+  SKILL_TOOL_NAME,
   gateSkillsByHostCapabilities,
   parseSkillFrontMatter,
   validateSkillMetadata,
