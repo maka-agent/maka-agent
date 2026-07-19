@@ -1,7 +1,7 @@
-import { app, ipcMain, nativeImage, powerMonitor, powerSaveBlocker, safeStorage, shell } from 'electron';
+import { app, ipcMain, nativeImage, powerSaveBlocker, safeStorage, shell } from 'electron';
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, realpath } from 'node:fs/promises';
-import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { mkdir } from 'node:fs/promises';
+import { join } from 'node:path';
 import { startConfigFileWatcher, type ConfigFileWatcher } from './config-file-watcher.js';
 import {
   DEFAULT_SESSION_NAME,
@@ -23,13 +23,10 @@ import type {
   UpdateAppSettingsInput,
 } from '@maka/core';
 import { deriveBotStatusPersistenceUpdate } from './bot-status-persistence.js';
-import { buildWebSearchAgentTool, WEB_SEARCH_TOOL_NAME } from './web-search/agent-tool.js';
-import { buildRiveWorkflowTool } from './rive-workflow-tool.js';
+import { WEB_SEARCH_TOOL_NAME } from './web-search/agent-tool.js';
 import { runThreadSearch } from './search/thread-search.js';
-import {
-  persistArchivedToolResultToArtifacts,
-  readArchivedToolResultFromArtifacts,
-} from './tool-result-archive-artifacts.js';
+import { assembleDesktopTools } from './tool-assembly.js';
+import { createToolArtifactPersistence } from './tool-artifact-persistence.js';
 import { ClaudeSubscriptionService } from './oauth/claude-subscription-service.js';
 import { OpenAiCodexService } from './oauth/openai-codex-service.js';
 import { GitHubCopilotSubscriptionService } from './oauth/github-copilot-subscription-service.js';
@@ -45,21 +42,8 @@ import {
   FakeBackend,
   PermissionEngine,
   SessionManager,
-  buildBuiltinTools,
   buildMcpTools,
-  buildAskUserQuestionTool,
-  createBuiltinSandboxManager,
-  createFilesystemWorkerLaunchSpecProvider,
-  FilesystemWorkerClient,
-  buildChildAgentTools,
-  buildAgentTeamChildTools,
-  buildAgentTeamLeadTools,
   buildExpertDispatchToolForTeamId,
-  buildParentAgentTools,
-  assertProductBindingCatalogClean,
-  buildDeferredToolGroupsFromCatalog,
-  buildHostCapabilitiesFromBinding,
-  SKILL_TOOL_NAME,
   createLocalContinuationSafetyInspector,
   getAIModel,
   generateSessionTitle as generateRuntimeSessionTitle,
@@ -78,9 +62,7 @@ import type {
   GoalTurnOutcome,
   HostCapabilities,
   HostCapabilitiesResolver,
-  MakaTool,
   SessionActivityLease,
-  ToolAvailabilityConfig,
   ToolArtifactRecorderInput,
   ToolResultArchiveReaderInput,
   ToolResultArchiveReadResult,
@@ -114,12 +96,8 @@ import {
 import { createFileCredentialStore, migrateLegacyCredentials } from './credential-store.js';
 import { bindOnboardingDeps, createOnboardingService } from './onboarding-service.js';
 import { handleQuickChatStart as runQuickChatStart, type QuickChatResult } from './quick-chat.js';
-import { resolveSkillDiscoveryPaths } from '@maka/runtime';
 import { createDailyReviewArchiveStore } from './daily-review-archive-store.js';
 import { preserveSensitivePlaceholders } from './settings-ipc-helpers.js';
-import {
-  buildSkillAgentTool,
-} from './skills.js';
 import { resolveDefaultPermissionMode } from './permission-mode-default.js';
 import {
   resolveVisualSmokeFixture,
@@ -129,8 +107,6 @@ import { resolveBuildInfo } from './build-info.js';
 import { OpenGatewayService } from './open-gateway.js';
 import { LocalMemoryService } from './local-memory-service.js';
 import { createAttachmentApprovalRegistry } from './attachment-approval.js';
-import { buildExploreAgentTool } from './explore-agent-tool.js';
-import { buildOfficeDocumentEditTool, buildOfficeDocumentTool } from './office-document-tool.js';
 import {
   buildLlmHistorySummarizer,
   cleanupLegacyHistoryCompactArtifacts,
@@ -138,21 +114,11 @@ import {
   loadSynthesisCacheBlocksFromArtifacts,
   persistSynthesisCacheBlocksToArtifacts,
 } from '@maka/runtime';
-import { buildBrowserTools } from './browser/browser-tools.js';
-import {
-  computerUseServiceHealth,
-  createComputerUseHost,
-} from './computer-use-host.js';
-import { createCursorOverlayController } from './computer-use/cursor-overlay-window.js';
-import {
-  applyComputerUseRealModelPolicy,
-  parseComputerUseRealModelPolicy,
-} from './computer-use-real-model-policy.js';
+import { computerUseServiceHealth } from './computer-use-host.js';
 import {
   computerUseAvailabilityForModel,
   computerUseToolsForModel,
 } from './computer-use-model-tools.js';
-import { createComputerUseOverlayHook } from '@maka/computer-use';
 import { createMainWindowController } from './main-window.js';
 import { createDailyReviewMainService } from './daily-review-main.js';
 import { createPlanReminderMainService } from './plan-reminders-main.js';
@@ -637,161 +603,41 @@ const shellRuns = new ShellRunProcessManager({
     safeSendToRenderer('shell-runs:update', update);
   },
 });
-const sandboxManager = createBuiltinSandboxManager();
-const filesystemWorker = process.platform === 'darwin' && sandboxManager
-  ? new FilesystemWorkerClient({
-      sandboxManager,
-      getLaunchSpec: createFilesystemWorkerLaunchSpecProvider({
-        runtime: 'electron',
-        executable: process.execPath,
-        resourceLocation: app.isPackaged
-          ? { kind: 'desktop-packaged', resourcesPath: process.resourcesPath }
-          : { kind: 'runtime' },
-      }),
-    })
-  : undefined;
-// Unified tool availability (issue #37). Deferred capability groups (Rive,
-// Office, browser, agent orchestration) are withheld from the
-// per-turn prompt and loaded on demand via `load_tools`, keeping their schemas
-// off the wire until needed. Everything else (ungrouped) stays always-on.
-// Kill-switch: set MAKA_DISABLE_DEFERRED_TOOLS to any value to turn economy off
-// and advertise every tool every turn (legacy behavior).
-const economyEnabled = !process.env.MAKA_DISABLE_DEFERRED_TOOLS;
-const riveTools: MakaTool[] = [buildRiveWorkflowTool()];
-const officeTools: MakaTool[] = [buildOfficeDocumentTool(), buildOfficeDocumentEditTool()];
-// Embedded-browser observe→act tools. They drive the conversation's own
-// WebContentsView via the BrowserViewHost the desktop provides in registerIpc;
-// outside the app (no host) they report the browser as unavailable.
-const browserTools: MakaTool[] = buildBrowserTools();
-const computerUseOverlay = createCursorOverlayController();
-onMainWindowClose = () => computerUseOverlay.destroyAll();
-const computerUseHost = createComputerUseHost({
-  isPackaged: app.isPackaged,
-  resourcesPath: process.resourcesPath,
-  compressFrame: (base64) => {
-    try {
-      const image = nativeImage.createFromBuffer(Buffer.from(base64, 'base64'));
-      return image.isEmpty()
-        ? { base64, mimeType: 'image/png' }
-        : {
-            base64: image.toJPEG(82).toString('base64'),
-            mimeType: 'image/jpeg',
-          };
-    } catch {
-      return { base64, mimeType: 'image/png' };
-    }
-  },
-  physicalInputRecentlyActive: () => powerMonitor.getSystemIdleTime() < 1,
-  ...(isComputerUseRealModelE2e
-    ? {
-        onTrace: (event) => {
-          const tracePath = process.env.MAKA_CU_REAL_MODEL_TRACE;
-          if (!tracePath) return;
-          void import('node:fs/promises').then(({ appendFile }) =>
-            appendFile(tracePath, `${JSON.stringify(event)}\n`, {
-              encoding: 'utf8',
-              mode: 0o600,
-            }),
-          ).catch(() => {});
-        },
-      }
-    : {}),
-  overlay: createComputerUseOverlayHook(computerUseOverlay),
-});
-const computerUse = computerUseHost.selected;
-const computerUseTools = applyComputerUseRealModelPolicy(
-  computerUse.tools,
-  isComputerUseRealModelE2e
-    ? parseComputerUseRealModelPolicy(
-        process.env.MAKA_CU_REAL_MODEL_POLICY,
-      )
-    : undefined,
-);
-const agentTools: MakaTool[] = buildParentAgentTools({
-  taskLedger: taskLedgerStore,
-});
-const agentTeamLeadTools = buildAgentTeamLeadTools({
-  mailbox: agentMailboxStore,
-  taskLedger: taskLedgerStore,
-});
-const agentTeamChildTools = buildAgentTeamChildTools({
-  mailbox: agentMailboxStore,
-  taskLedger: taskLedgerStore,
-});
-const deferredTools: MakaTool[] = [
-  ...riveTools,
-  ...officeTools,
-  ...browserTools,
-  ...computerUseTools,
-  ...agentTools,
-];
-const webSearchTool = buildWebSearchAgentTool({
+const {
+  persistToolArtifacts,
+  snapshotReadImage,
+  persistArchivedToolResult,
+  readArchivedToolResult,
+} = createToolArtifactPersistence({ artifactStore, storeReadImage, safeSendToRenderer });
+
+const {
+  riveTools,
+  officeTools,
+  browserTools,
+  computerUse,
+  computerUseOverlay,
+  computerUseTools,
+  agentTeamLeadTools,
+  desktopHostCapabilities,
+  builtinTools,
+  toolAvailability,
+  childAgentTools,
+} = assembleDesktopTools({
+  isComputerUseRealModelE2e,
+  workspaceRoot,
+  taskLedgerStore,
+  taskLedgerWiring,
+  automationWiring,
+  goalWiring,
+  agentMailboxStore,
   settingsStore,
-  getPrivacyContext: getWorkspacePrivacyContext,
-});
-// Assemble product tools first, then derive skill host + deferred groups from
-// the shared catalog ∩ this binding (#1099 S2). Skill listing uses the same host.
-const toolsBeforeSkill: MakaTool[] = [
-  buildAskUserQuestionTool(),
-  ...buildBuiltinTools({
-    shellRuns,
-    runtimeResources: shellRuns,
-    backgroundTasks: shellRuns,
-    ptyControls: shellRuns,
-    snapshotImage: snapshotReadImage,
-    ...(sandboxManager ? { sandboxManager } : {}),
-    ...(filesystemWorker ? {
-      filesystemWorker,
-      enableBashAdditionalPermissions: true,
-      enableFileToolAdditionalPermissions: true,
-    } : {}),
-  }).filter((tool: MakaTool) => tool.name !== 'Edit'),
-];
-const toolsAfterSkill: MakaTool[] = [
-  // External reference plan-mode borrow: a bounded read-only local worker for
-  // self-contained code/repo investigations. The tool advertises the
-  // `subagent` category; explore mode allows it, but the implementation
-  // itself only reads filenames/text snippets under the session cwd.
-  buildExploreAgentTool(),
-  // PR-AGENT-WEB-SEARCH-TOOL-0: Tavily-backed WebSearch tool. Closed
-  // over settingsStore so the renderer never sees the API key; the
-  // permission engine routes it through the `web_read` policy which
-  // prompts the user in explore / ask modes.
-  webSearchTool,
-  // Session task ledger: model manages a flat task list; the current list is
-  // re-injected each turn tail. Pure local state, so no permission gate.
-  ...taskLedgerWiring.tools,
-  // Unified Automation: heartbeat (session-internal polling) + cron (standalone scheduled runs).
-  ...automationWiring.tools,
-  // Goal execution: GoalSet/Clear/Status/Pause/Resume — autonomous turn-boundary continuation.
-  ...goalWiring.tools,
-  // The `load_tools` connector is built by ToolAvailabilityRuntime; deferred
-  // group tools just need to be present so they are dispatchable once loaded.
-  ...deferredTools,
-];
-// Always-on Skill name is part of the host surface even before the tool instance
-// is built (so requiredTools gates and capability tags stay complete).
-const desktopBoundToolNames = [
-  ...toolsBeforeSkill.map((tool) => tool.name),
-  SKILL_TOOL_NAME,
-  ...toolsAfterSkill.map((tool) => tool.name),
-];
-assertProductBindingCatalogClean('desktop', desktopBoundToolNames);
-const desktopHostCapabilities = buildHostCapabilitiesFromBinding(desktopBoundToolNames);
-// External reference lazy-skill pattern: the prompt lists available skills,
-// and this read-only tool loads the full SKILL.md only when the task matches.
-// Resolve per-call from the session cwd so skills at all 5 standard paths
-// (cwd/.maka, cwd/.agents, workspaceRoot/skills, ~/.maka, ~/.agents) are
-// discovered — matching the CLI and the Agent Skills spec (#1068).
-const skillTool = buildSkillAgentTool(
-  ({ cwd }) => resolveSkillDiscoveryPaths(cwd, workspaceRoot),
+  shellRuns,
+  snapshotReadImage,
+  getWorkspacePrivacyContext,
   resolveDesktopSkillHost,
-);
-const builtinTools: MakaTool[] = [...toolsBeforeSkill, skillTool, ...toolsAfterSkill];
-const toolAvailability: ToolAvailabilityConfig = {
-  economy: economyEnabled,
-  groups: buildDeferredToolGroupsFromCatalog('desktop', desktopBoundToolNames),
-};
+});
+// Cursor-overlay teardown assigns a module-scoped `let`, so it stays in main.ts.
+onMainWindowClose = () => computerUseOverlay.destroyAll();
 const systemPromptService = createSystemPromptMainService({
   settingsStore,
   workspaceRoot,
@@ -800,21 +646,6 @@ const systemPromptService = createSystemPromptMainService({
   goalManager: goalWiring.manager,
   hostCapabilities: desktopHostCapabilities,
 });
-// Child agents stay file-only for local reads; parent runtime refs such as
-// maka://runtime/background-tasks/<id> are not part of their tool surface.
-const childAgentTools = buildChildAgentTools([
-  ...buildBuiltinTools({
-    snapshotImage: snapshotReadImage,
-    ...(sandboxManager ? { sandboxManager } : {}),
-    ...(filesystemWorker ? {
-      filesystemWorker,
-      enableBashAdditionalPermissions: true,
-      enableFileToolAdditionalPermissions: true,
-    } : {}),
-  }).filter((tool: MakaTool) => tool.name !== 'Edit'),
-  webSearchTool,
-  ...agentTeamChildTools,
-]);
 let lookupPricing = buildPricingLookup();
 // Track the last status fields that affect persisted diagnostics. The reason
 // is part of the key because a running bridge can remain degraded while a
@@ -891,84 +722,6 @@ const planReminders = createPlanReminderMainService({
 });
 
 app.setName('Maka');
-
-async function persistToolArtifacts(cwd: string, event: ToolArtifactRecorderInput): Promise<void> {
-  for (const candidate of event.candidates) {
-    let content = candidate.content;
-    if (content === undefined && candidate.sourcePath) {
-      const sourcePath = await resolveToolArtifactSourcePath(cwd, candidate.sourcePath);
-      if (!sourcePath) continue;
-      content = await readFile(sourcePath);
-    }
-    if (content === undefined) continue;
-    const artifact = await artifactStore.create({
-      sessionId: event.sessionId,
-      turnId: event.turnId,
-      name: candidate.name,
-      kind: candidate.kind,
-      content,
-      ...(candidate.mimeType ? { mimeType: candidate.mimeType } : {}),
-      source: candidate.source ?? 'tool_result',
-      ...(candidate.summary ? { summary: candidate.summary } : {}),
-    });
-    safeSendToRenderer('artifacts:changed', {
-      reason: 'created',
-      artifactId: artifact.id,
-      sessionId: artifact.sessionId,
-      ts: Date.now(),
-    });
-  }
-}
-
-async function snapshotReadImage(input: {
-  sessionId: string;
-  turnId: string;
-  name: string;
-  bytes: Uint8Array;
-  mimeType: string;
-}) {
-  const ref = await storeReadImage(input);
-  safeSendToRenderer('artifacts:changed', {
-    reason: 'created',
-    artifactId: ref.relativePath,
-    sessionId: ref.sessionId,
-    ts: Date.now(),
-  });
-  return ref;
-}
-
-async function persistArchivedToolResult(
-  event: ToolResultArchiveRecorderInput,
-): Promise<{ artifactId: string }> {
-  return persistArchivedToolResultToArtifacts(artifactStore, event);
-}
-
-async function readArchivedToolResult(
-  event: ToolResultArchiveReaderInput,
-): Promise<ToolResultArchiveReadResult> {
-  return readArchivedToolResultFromArtifacts(artifactStore, event);
-}
-
-async function resolveToolArtifactSourcePath(cwd: string, sourcePath: string): Promise<string | null> {
-  const candidate = isAbsolute(sourcePath) ? sourcePath : resolve(cwd, sourcePath);
-  let root: string;
-  let target: string;
-  try {
-    [root, target] = await Promise.all([
-      realpath(cwd),
-      realpath(candidate),
-    ]);
-  } catch {
-    return null;
-  }
-  return isInsideOrSamePath(root, target) ? target : null;
-}
-
-function isInsideOrSamePath(root: string, target: string): boolean {
-  if (target === root) return true;
-  const rel = relative(root, target);
-  return rel !== '' && !rel.startsWith('..') && rel !== '..' && !rel.includes(`..${sep}`) && !rel.startsWith(sep);
-}
 
 function modelSupportsVision(connection: LlmConnection, model: string): boolean {
   return resolveModelVisionSupport(connection.providerType, connection.models, model);
