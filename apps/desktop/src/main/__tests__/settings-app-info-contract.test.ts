@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { readSettingsCombinedSourceSync } from './settings-contract-source-helpers.js';
 import { getSettingsPreferencesCopy } from '../../renderer/locales/settings-preferences-copy.js';
+import { getDataSettingsCopy } from '../../renderer/locales/settings-data-copy.js';
 
 const settingsSource = readSettingsCombinedSourceSync();
 
@@ -38,29 +39,32 @@ describe('Settings app-info loading contract', () => {
     assert.match(dataBlock, /const \[infoError, setInfoError\] = useState<string \| null>\(null\)/);
     assert.match(
       dataBlock,
-      /catch\(\(error\) => \{[\s\S]*const message = settingsActionErrorMessage\(error\);[\s\S]*setInfo\(null\);[\s\S]*setInfoError\(message\);[\s\S]*toast\.error\('载入数据目录失败', message\);/,
+      /catch\(\(error\) => \{[\s\S]*const message = settingsActionErrorMessage\(error, locale\);[\s\S]*setInfo\(null\);[\s\S]*setInfoError\(message\);[\s\S]*toast\.error\(copy\.loadFailed, message\);/,
       'Data page app.info failures must be visible to the user',
     );
     assert.match(
       dataBlock,
-      /value=\{info\?\.workspacePath \?\? \(infoError \? '载入失败' : '正在加载…'\)\}/,
+      /value=\{info\?\.workspacePath \?\? \(infoError \? copy\.rows\.loadValueFailed : copy\.rows\.loading\)\}/,
       'Data page should stop presenting the workspace path as still loading after failure',
     );
     assert.match(
       dataBlock,
-      /<Alert variant="info">[\s\S]*无法载入工作区路径：\{infoError\}/,
+      /<Alert variant="info" role="alert">[\s\S]*copy\.pathLoadFailed\(infoError\)/,
       'Data page should render an alert with the workspace-path load failure',
     );
   });
 
-  it('keeps Data page copy Mac-polished and Chinese-first', () => {
+  it('keeps Data page copy Mac-polished and locale-complete', () => {
     const dataBlock = blockBetween('function DataSettingsPage', 'function PersonalizationSettingsPage');
+    const zh = getDataSettingsCopy('zh');
+    const en = getDataSettingsCopy('en');
 
-    assert.match(dataBlock, /打开工作区文件夹/);
-    assert.match(dataBlock, /会话、设置、凭据和技能文件/);
-    assert.match(dataBlock, /会话记录、外观与账号设置、本地使用统计，以及本机凭据文件/);
-    assert.match(dataBlock, /模型连接凭据随工作区恢复后需要重新测试/);
-    assert.doesNotMatch(dataBlock, /资源管理器/);
+    assert.match(dataBlock, /copy\.openWorkspace/);
+    assert.match(zh.rows.workspaceDetail, /会话、设置、凭据和技能文件/);
+    assert.match(zh.rows.storageDetail, /会话记录、外观与账号设置、本地使用统计，以及本机凭据文件/);
+    assert.match(zh.backupNotice, /模型连接凭据随工作区恢复后需要重新测试/);
+    assert.doesNotMatch(JSON.stringify(zh), /资源管理器/);
+    assert.doesNotMatch(JSON.stringify(en), /[\u3400-\u9fff]/u);
     assert.doesNotMatch(dataBlock, /credentials/);
     assert.doesNotMatch(dataBlock, /usage stats/);
     assert.doesNotMatch(dataBlock, /settings\.json/);
@@ -86,13 +90,13 @@ describe('Settings app-info loading contract', () => {
     );
     assert.match(
       dataBlock,
-      /await navigator\.clipboard\.writeText\(info\.workspacePath\);[\s\S]*if \(dataPageMountedRef\.current\) \{[\s\S]*toast\.success\('已复制工作区路径'\);[\s\S]*\}[\s\S]*catch \{[\s\S]*if \(dataPageMountedRef\.current\) \{[\s\S]*toast\.error\('复制失败', '剪贴板不可用或被系统拒绝。'\)/,
+      /await navigator\.clipboard\.writeText\(info\.workspacePath\);[\s\S]*if \(dataPageMountedRef\.current\) \{[\s\S]*toast\.success\(copy\.pathCopied\);[\s\S]*\}[\s\S]*catch \{[\s\S]*if \(dataPageMountedRef\.current\) \{[\s\S]*toast\.error\(copy\.copyFailed, copy\.copyFailedDetail\)/,
       'Late workspace-path copy success/failure toasts must not fire after Settings is closed',
     );
     assert.match(dataBlock, /disabled=\{!info \|\| dataActionDisabled\}/);
-    assert.match(dataBlock, /isDataActionPending\('workspace:open'\) \? '打开中…' : '打开工作区文件夹'/);
-    assert.match(dataBlock, /isDataActionPending\('workspace:path:copy'\) \? '复制中…' : '复制路径'/);
-    assert.match(dataBlock, /toast\.error\('复制失败', '剪贴板不可用或被系统拒绝。'\)/);
+    assert.match(dataBlock, /isDataActionPending\('workspace:open'\) \? copy\.opening : copy\.openWorkspace/);
+    assert.match(dataBlock, /isDataActionPending\('workspace:path:copy'\) \? copy\.copying : copy\.copyPath/);
+    assert.match(dataBlock, /toast\.error\(copy\.copyFailed, copy\.copyFailedDetail\)/);
     assert.doesNotMatch(dataBlock, /toast\.error\('复制失败', '剪贴板不可用'\)/);
   });
 
@@ -101,7 +105,7 @@ describe('Settings app-info loading contract', () => {
 
     assert.match(
       dataBlock,
-      /<div className="settingsActionRow" role="group" aria-label="工作区数据操作">/,
+      /<div className="settingsActionRow" role="group" aria-label=\{copy\.actionsAria\}>/,
       'Data page workspace open/copy actions must expose a shared group name',
     );
     assert.doesNotMatch(

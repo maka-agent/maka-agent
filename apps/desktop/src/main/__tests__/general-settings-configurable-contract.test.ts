@@ -54,7 +54,7 @@ describe('General settings configurable contract', () => {
     );
     assert.match(
       src,
-      /<GeneralDefaultsCard\s+connections=\{props\.connections\}\s+defaultSlug=\{props\.defaultSlug\}\s+onRefresh=\{props\.onRefreshConnections\}/,
+      /<GeneralDefaultsCard\s+connections=\{props\.connections\}\s+defaultSlug=\{props\.defaultSlug\}\s+onRefresh=\{props\.onRefreshConnections\}[\s\S]*permissionMode=\{props\.settings\.chatDefaults\.permissionMode\}[\s\S]*onUpdate=\{props\.onUpdate\}/,
       '<GeneralDefaultsCard> must be mounted by the General-page render branch with connections / defaultSlug / onRefresh wired through',
     );
     // The actual picker + persistence must use the shared searchable
@@ -70,7 +70,7 @@ describe('General settings configurable contract', () => {
     );
     assert.match(
       src,
-      /buildCatalogChatModelChoices\(props\.connections\)[\s\S]*modelMenuGroups\(modelChoices\)[\s\S]*modelChoiceValue\(choice\.connectionSlug, choice\.model\)/,
+      /buildCatalogChatModelChoices\(props\.connections\)[\s\S]*modelMenuGroups\(modelChoices, locale\)[\s\S]*modelChoiceValue\(choice\.connectionSlug, choice\.model\)/,
       'GeneralDefaultsCard must derive grouped connection/model choices from the safe model catalog',
     );
     assert.doesNotMatch(

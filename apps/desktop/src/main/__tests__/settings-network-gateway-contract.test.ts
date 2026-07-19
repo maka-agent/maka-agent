@@ -187,17 +187,17 @@ describe('Settings network and gateway persistence contract', () => {
     );
     assert.match(
       gatewayBlock,
-      /<div className="settingsUsageSummary" role="group" aria-label="开放网关状态">/,
+      /<div className="settingsUsageSummary" role="group" aria-label=\{copy\.summary\.aria\}>/,
       'Open Gateway runtime metric cards must expose an accessible group name',
     );
     assert.match(
       gatewayBlock,
-      /<div className="settingsActionRow" role="group" aria-label="开放网关操作">/,
+      /<div className="settingsActionRow" role="group" aria-label=\{copy\.actions\.aria\}>/,
       'Open Gateway token and curl actions must expose an accessible group name',
     );
     assert.doesNotMatch(
       gatewayBlock,
-      /<div className="settingsUsageSummary" aria-label="开放网关状态">/,
+      /<div className="settingsUsageSummary" aria-label=\{copy\.summary\.aria\}>/,
       'Open Gateway runtime metrics must not regress to an anonymous status summary',
     );
     assert.doesNotMatch(
@@ -207,12 +207,12 @@ describe('Settings network and gateway persistence contract', () => {
     );
     assert.match(
       gatewayBlock,
-      /onError: \(error\) => toast\.error\('保存开放网关设置失败', settingsActionErrorMessage\(error\)\),[\s\S]*onReconcile: \(next\) => setTokenDraft\(next\.token\),[\s\S]*function updateGateway\(patch: Partial<AppSettings\['openGateway'\]>\): Promise<boolean> \{[\s\S]*return update\(patch\);/,
+      /onError: \(error\) => toast\.error\(copy\.errors\.save, settingsActionErrorMessage\(error, locale\)\),[\s\S]*onReconcile: \(next\) => setTokenDraft\(next\.token\),[\s\S]*function updateGateway\(patch: Partial<AppSettings\['openGateway'\]>\): Promise<boolean> \{[\s\S]*return update\(patch\);/,
       'Open Gateway settings updates must return the shared update result, mirror authoritative tokens, and surface failures',
     );
     assert.match(
       gatewayBlock,
-      /<SettingsSelect[\s\S]*value=\{gatewayDraft\.host\}[\s\S]*ariaLabel="开放网关监听地址"[\s\S]*onChange=\{\(host\) => void updateGateway\(\{ host \}\)\}/,
+      /<SettingsSelect[\s\S]*value=\{gatewayDraft\.host\}[\s\S]*ariaLabel=\{copy\.form\.hostAria\}[\s\S]*onChange=\{\(host\) => void updateGateway\(\{ host \}\)\}/,
       'Open Gateway host select must render from the local draft while persisting in the background',
     );
     assert.match(
@@ -222,17 +222,17 @@ describe('Settings network and gateway persistence contract', () => {
     );
     assert.doesNotMatch(
       gatewayBlock,
-      /aria-label="开放网关端口"[\s\S]{0,180}disabled=\{saving\}/,
+      /aria-label=\{copy\.form\.portAria\}[\s\S]{0,180}disabled=\{saving\}/,
       'Open Gateway port input must not lock after each digit while background save is pending',
     );
     assert.match(
       gatewayBlock,
-      /const saved = await updateGateway\(\{ token: nextToken \}\);[\s\S]*if \(!saved \|\| !openGatewayMountedRef\.current\) return;[\s\S]*toast\.success\(nextToken \? '网关 token 已保存' : '网关 token 已清空'\)/,
+      /const saved = await updateGateway\(\{ token: nextToken \}\);[\s\S]*if \(!saved \|\| !openGatewayMountedRef\.current\) return;[\s\S]*toast\.success\(nextToken \? copy\.toast\.tokenSaved : copy\.toast\.tokenCleared\)/,
       'Saving or clearing the gateway token must not show success after a failed save',
     );
     assert.match(
       gatewayBlock,
-      /const saved = await updateGateway\(\{ token \}\);[\s\S]*if \(!saved \|\| !openGatewayMountedRef\.current\) return;[\s\S]*toast\.success\('网关 token 已生成'/,
+      /const saved = await updateGateway\(\{ token \}\);[\s\S]*if \(!saved \|\| !openGatewayMountedRef\.current\) return;[\s\S]*toast\.success\(copy\.toast\.tokenGenerated/,
       'Generated gateway tokens must not show success after a failed save',
     );
     assert.doesNotMatch(
@@ -270,12 +270,12 @@ describe('Settings network and gateway persistence contract', () => {
     );
     assert.match(
       gatewayBlock,
-      /const saved = await updateGateway\(\{ token: nextToken \}\);[\s\S]*if \(!saved \|\| !openGatewayMountedRef\.current\) return;[\s\S]*toast\.success\(nextToken \? '网关 token 已保存'/,
+      /const saved = await updateGateway\(\{ token: nextToken \}\);[\s\S]*if \(!saved \|\| !openGatewayMountedRef\.current\) return;[\s\S]*toast\.success\(nextToken \? copy\.toast\.tokenSaved/,
       'Open Gateway token save success toast must only fire while the page is still mounted',
     );
     assert.match(
       gatewayBlock,
-      /const saved = await updateGateway\(\{ token \}\);[\s\S]*if \(!saved \|\| !openGatewayMountedRef\.current\) return;[\s\S]*toast\.success\('网关 token 已生成'/,
+      /const saved = await updateGateway\(\{ token \}\);[\s\S]*if \(!saved \|\| !openGatewayMountedRef\.current\) return;[\s\S]*toast\.success\(copy\.toast\.tokenGenerated/,
       'Open Gateway token generate success toast must only fire while the page is still mounted',
     );
   });
@@ -284,8 +284,8 @@ describe('Settings network and gateway persistence contract', () => {
     const helper = blockBetween('function gatewayErrorCopy', 'function generateGatewayToken');
 
     assert.match(helper, /error === 'start_failed'/);
-    assert.match(helper, /开放网关暂时无法启动，请检查监听地址和端口。/);
-    assert.match(helper, /EADDRINUSE[\s\S]*端口已被占用/);
+    assert.match(helper, /error === 'start_failed'[\s\S]*return copy\.errors\.start/);
+    assert.match(helper, /EADDRINUSE[\s\S]*copy\.errors\.portInUse/);
     assert.doesNotMatch(
       helper,
       /return error;/,

@@ -73,7 +73,7 @@ describe('PR-SESSION-STICKY-MODEL-0 contract', () => {
     assert.match(renderer, /normalizeActiveChatModel\(activeSession, activeConnection, chatModelChoices\)/);
     assert.match(ui, /copy\.pinnedSession\(props\.activeConnectionLabel, props\.activeModelLabel\)/);
     assert.match(ui, /copy\.switchTitle\(currentSessionModelTitle\)/);
-    assert.match(providers, /勾选的模型会出现在模型选择器中/);
+    assert.match(providers, /copy\.enabledModelsHelp/);
   });
 
   it('lets the user explicitly switch the current session model from the chat header', async () => {

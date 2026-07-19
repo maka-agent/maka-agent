@@ -11,6 +11,8 @@ import { getVoiceSettingsCopy } from '../../renderer/locales/settings-voice-copy
 import { getDataSettingsCopy } from '../../renderer/locales/settings-data-copy.js';
 import { getOpenGatewaySettingsCopy } from '../../renderer/locales/settings-open-gateway-copy.js';
 import { getPermissionCenterCopy } from '../../renderer/locales/permission-center-copy.js';
+import { getBotSettingsCopy } from '../../renderer/locales/settings-bot-copy.js';
+import { getProviderSettingsCopy } from '../../renderer/locales/settings-provider-copy.js';
 
 const repoRoot = process.cwd().endsWith('apps/desktop')
   ? join(process.cwd(), '..', '..')
@@ -48,9 +50,10 @@ describe('Settings coming-soon cleanup contract', () => {
     assert.doesNotMatch(providers, /providerComingSoon|未开放配置|聊天发送未开放|未进入配置入口/, 'ProvidersPanel must use product-state account copy instead of coming-soon configuration copy');
     assert.match(
       providers,
-      /<div className="enabledEmptyChip" role="note">[\s\S]*还没有模型连接[\s\S]*从下方选择一种连接方式开始[\s\S]*<\/div>/,
+      /<div className="enabledEmptyChip" role="note">[\s\S]*\{copy\.empty\}[\s\S]*\{copy\.emptyHelp\}[\s\S]*<\/div>/,
       'ProvidersPanel empty state should stay passive and frame setup as an add-connection action',
     );
+    assert.equal(getProviderSettingsCopy('zh').panel.empty, '还没有模型连接');
     assert.doesNotMatch(providers, /还没有供应商/, 'ProvidersPanel empty state should not read like unfinished product setup');
     assert.doesNotMatch(providerCatalog, /catalogBadge:\s*'Soon'|future phase/, 'provider catalog metadata must not keep soon/future-phase copy');
     assert.doesNotMatch(styles, /ComingSoonPage|roadmap banner|providerComingSoon|providerCatalogSoon/, 'Settings CSS must not keep stale coming-soon/provider-roadmap naming');
@@ -157,9 +160,8 @@ describe('Settings coming-soon cleanup contract', () => {
   it('keeps planned bot platforms out of the credentials-readiness flow', async () => {
     const settings = await readSettingsCombinedSource();
 
-    assert.match(settings, /const BOT_PLANNED_COPY\b/, 'Settings bot page needs a dedicated planned-platform copy contract');
     assert.match(settings, /function botReadinessCopyForSupport\b/, 'Settings bot page must route readiness copy through support-aware presentation');
-    assert.match(settings, /if \(support === 'planned'\) return BOT_PLANNED_COPY;/, 'planned bot platforms must not reuse credential-readiness copy');
+    assert.match(settings, /if \(support === 'planned'\) return copy\.planned;/, 'planned bot platforms must not reuse credential-readiness copy');
     assert.match(settings, /wechat:[\s\S]*support:\s*'credentials'/, 'WeChat should expose credential probing rather than stay in the planned-only bucket');
     assert.match(settings, /provider === 'wechat'/, 'WeChat needs visible App ID / App Secret credential fields');
     assert.doesNotMatch(settings, /机器人运行时尚未接入|代码中还没有这个平台的运行时|平台运行时尚未接入|运行时未开放|可用运行时|开放前|收发 smoke/, 'planned bot copy must not expose implementation-status placeholder language');
@@ -168,13 +170,14 @@ describe('Settings coming-soon cleanup contract', () => {
 
   it('keeps runtime bot platform copy aligned with shipped receive and send paths', async () => {
     const settings = await readSettingsCombinedSource();
+    const botCopy = getBotSettingsCopy('zh');
 
     // PR-BOT-WECHAT-SCAN-LOGIN-0 (WAWQAQ msg `2fa6ada6`): per-platform
     // help text now lives in BOT_LABELS to match the reference design's
     // single short sentence. The per-platform section detail no longer
     // duplicates a runtime narrative — that's intentional.
-    assert.match(settings, /discord:\s*\{[\s\S]*?help:\s*'在 Discord Developer Portal 创建 Bot'/);
-    assert.match(settings, /qq:\s*\{[\s\S]*?help:\s*'在 QQ 开放平台创建机器人并获取 AppID 和 AppSecret'/);
+    assert.match(botCopy.providers.discord.help, /Discord Developer Portal 创建 Bot/);
+    assert.match(botCopy.providers.qq.help, /QQ 开放平台创建机器人并获取 AppID 和 AppSecret/);
     assert.doesNotMatch(
       settings,
       /事件接入需要|独立后续|凭据有效不代表运行可用/,
@@ -184,10 +187,11 @@ describe('Settings coming-soon cleanup contract', () => {
 
   it('keeps bot credential follow-up copy action-oriented', async () => {
     const settings = await readSettingsCombinedSource();
+    const botCopy = getBotSettingsCopy('zh');
 
-    assert.match(settings, /case 'no-token': return '等待填写 Bot Token'/);
-    assert.match(settings, /case 'missing-feishu-credentials': return '等待填写飞书 App ID 或 App Secret'/);
-    assert.match(settings, /飞书凭据有效，等待填写事件订阅域名/);
+    assert.match(settings, /case 'no-token': return copy\.noToken/);
+    assert.match(settings, /case 'missing-feishu-credentials': return copy\.missingFeishuCredentials/);
+    assert.match(botCopy.status.feishuDomainRequired, /飞书凭据有效，等待填写事件订阅域名/);
     assert.doesNotMatch(
       settings,
       /缺少 Bot Token|缺少飞书 App ID|飞书凭据有效，但还没有事件订阅域名/,
@@ -282,9 +286,10 @@ describe('Settings coming-soon cleanup contract', () => {
 
   it('keeps bot readiness waiting states action-oriented', async () => {
     const settings = await readSettingsCombinedSource();
+    const botCopy = getBotSettingsCopy('zh');
 
-    assert.match(settings, /scaffolded:\s*\{\s*label:\s*'待配置',\s*detail:\s*'等待补齐这个平台需要的凭据配置。'/);
-    assert.match(settings, /configured:\s*\{\s*label:\s*'已配置',\s*detail:\s*'已填写配置；等待完成凭据或运行态验证。'/);
+    assert.deepEqual(botCopy.readiness.scaffolded, { label: '待配置', detail: '等待补齐这个平台需要的凭据配置。', tone: 'neutral' });
+    assert.deepEqual(botCopy.readiness.configured, { label: '已配置', detail: '已填写配置；等待完成凭据或运行态验证。', tone: 'info' });
     assert.doesNotMatch(
       settings,
       /还没有完成这个平台需要的凭据配置|还没有证明凭据或运行态可用/,

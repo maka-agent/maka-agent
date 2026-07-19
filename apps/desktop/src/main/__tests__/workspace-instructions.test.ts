@@ -155,7 +155,7 @@ describe('workspace instructions prompt fragment', () => {
     assert.match(preload, /createFile\(file: string\)/);
     assert.match(settings, /file\.status === 'missing'/);
     assert.match(settings, /props\.onCreate\(file\.file\)/);
-    assert.match(settings, /props\.isActionPending\(`instruction:\$\{file\.file\}:create`\) \? '创建中…' : '创建'/);
+    assert.match(settings, /props\.isActionPending\(`instruction:\$\{file\.file\}:create`\) \? props\.copy\.text\.creating : props\.copy\.text\.instructionCreate/);
   });
 });
 

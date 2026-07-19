@@ -50,25 +50,25 @@ describe('Office document capability contract', () => {
       readAllRendererCss(),
     ]);
 
-    assert.match(settings, /capability\.guidance\.length > 0/);
-    assert.match(settings, /处理建议/);
+    assert.match(settings, /guidance\.length > 0/);
+    assert.match(settings, /copy\.guidance/);
     assert.match(settings, /OFFICECLI_INSTALL_COMMAND/);
-    assert.match(settings, /复制 macOS\/Linux 安装命令/);
-    assert.match(settings, /<div className="settingsCapabilityGuidanceActions" role="group" aria-label="Office 文档安装辅助">/);
-    assert.doesNotMatch(settings, /<div className="settingsCapabilityGuidanceActions" aria-label="Office 文档安装辅助">/);
+    assert.match(settings, /copy\.copyInstall/);
+    assert.match(settings, /<div className="settingsCapabilityGuidanceActions" role="group" aria-label=\{copy\.officeAria\}>/);
+    assert.doesNotMatch(settings, /<div className="settingsCapabilityGuidanceActions" aria-label=\{copy\.officeAria\}>/);
     assert.match(settings, /const copyOfficeCliInstallGuard = useActionGuard<'copy'>\(\)/, 'OfficeCLI install copy action must have a guard-backed double-click guard from the shared hook');
     assert.match(settings, /if \(!copyOfficeCliInstallGuard\.begin\('copy'\)\) return;/);
     assert.match(settings, /const capabilityRowMountedRef = useMountedRef\(\);/);
     assert.match(settings, /disabled=\{copyingOfficeCliInstall\}/);
-    assert.match(settings, /copyingOfficeCliInstall \? '复制中…' : '复制 macOS\/Linux 安装命令'/);
+    assert.match(settings, /copyingOfficeCliInstall \? copy\.copying : copy\.copyInstall/);
     assert.match(
       settings,
-      /await navigator\.clipboard\.writeText\(OFFICECLI_INSTALL_COMMAND\);[\s\S]*if \(capabilityRowMountedRef\.current\) \{[\s\S]*toast\.success\('已复制安装命令', '在终端执行后点击刷新重新探测。'\);/,
+      /await navigator\.clipboard\.writeText\(OFFICECLI_INSTALL_COMMAND\);[\s\S]*if \(capabilityRowMountedRef\.current\) \{[\s\S]*toast\.success\(copy\.installCopied, copy\.installCopiedDetail\);/,
       'OfficeCLI install copy success toast must not fire after the row unmounts',
     );
     assert.match(
       settings,
-      /catch \{[\s\S]*if \(capabilityRowMountedRef\.current\) \{[\s\S]*toast\.error\('复制失败', '剪贴板不可用或被系统拒绝。'\);/,
+      /catch \{[\s\S]*if \(capabilityRowMountedRef\.current\) \{[\s\S]*toast\.error\(copy\.copyFailed, copy\.copyFailedDetail\);/,
       'OfficeCLI install copy failure toast must not fire after the row unmounts',
     );
     assert.match(

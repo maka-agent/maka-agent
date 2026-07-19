@@ -17,7 +17,7 @@ describe('renderer utility surfaces use shared UI primitives', () => {
     assert.doesNotMatch(source, /const full = \/\^\[a-z\]\+/, 'BrowserPanel must not keep renderer-only address prefix regex');
     assert.match(
       source,
-      /const result = normalizeBrowserAddressInput\(address\);[\s\S]*if \(!result\.ok\) \{[\s\S]*toast\.error\('无法打开地址', browserAddressFailureCopy\(result\.reason\)\);[\s\S]*return;[\s\S]*const ownerSessionId = sessionId;[\s\S]*window\.maka\.browser\.navigate\(ownerSessionId, result\.url\)/,
+      /const result = normalizeBrowserAddressInput\(address\);[\s\S]*if \(!result\.ok\) \{[\s\S]*toast\.error\(copy\.openFailed, browserAddressFailureCopy\(result\.reason, copy\)\);[\s\S]*return;[\s\S]*const ownerSessionId = sessionId;[\s\S]*window\.maka\.browser\.navigate\(ownerSessionId, result\.url\)/,
       'BrowserPanel must validate addresses with the shared helper before invoking browser navigation',
     );
     assert.match(source, /const browserPanelMountedRef = useMountedRef\(\)/);
@@ -30,25 +30,21 @@ describe('renderer utility surfaces use shared UI primitives', () => {
     );
     assert.match(
       source,
-      /window\.maka\.browser\.navigate\(ownerSessionId, result\.url\)\.catch\(\(\) => \{[\s\S]*if \(isBrowserPanelSessionCurrent\(ownerSessionId\)\) \{[\s\S]*toast\.error\('浏览器导航失败', '页面暂时无法打开，请稍后重试。'\);[\s\S]*\}/,
+      /window\.maka\.browser\.navigate\(ownerSessionId, result\.url\)\.catch\(\(\) => \{[\s\S]*if \(isBrowserPanelSessionCurrent\(ownerSessionId\)\) \{[\s\S]*toast\.error\(copy\.navigationFailed, copy\.navigationFailedDetail\);[\s\S]*\}/,
       'BrowserPanel must not toast a stale navigation failure after switching sessions or unmounting.',
     );
-    assert.match(source, /嵌入式浏览器只支持打开 HTTP\/HTTPS 网页地址。/);
-    assert.match(source, /这个地址无法识别，请检查网址后重试。/);
-    for (const label of [
-      '浏览器后退',
-      '浏览器前进',
-      '关闭浏览器页面',
-    ]) {
+    assert.match(source, /copy\.unsupportedScheme/);
+    assert.match(source, /copy\.invalidUrl/);
+    for (const label of ['backAria', 'forwardAria', 'closeAria']) {
       assert.match(
         source,
-        new RegExp(`aria-label=\\{?["']${label}["']?\\}?`),
+        new RegExp(`aria-label=\\{copy\\.${label}\\}`),
         `BrowserPanel icon-only toolbar action must expose accessible name: ${label}`,
       );
     }
     assert.match(
       source,
-      /aria-label=\{state\.loading \? '停止加载页面' : '刷新页面'\}/,
+      /aria-label=\{state\.loading \? copy\.stopAria : copy\.refreshAria\}/,
       'BrowserPanel reload/stop icon-only action must expose a state-specific accessible name',
     );
     assert.match(
@@ -66,7 +62,7 @@ describe('renderer utility surfaces use shared UI primitives', () => {
   it('keeps unsupported artifact preview CTA on Button without legacy classes', async () => {
     const source = await readFile(join(process.cwd(), 'src/renderer/artifact-preview-registry-shell.tsx'), 'utf8');
 
-    assert.match(source, /import \{ Button, Spinner \} from '@maka\/ui';/);
+    assert.match(source, /import \{[^}]*\bButton\b[^}]*\bSpinner\b[^}]*\} from '@maka\/ui';/);
     assert.doesNotMatch(source, /<button\b/, 'unsupported artifact preview CTA must use shared Button');
     assert.doesNotMatch(source, /className="maka-button/, 'artifact preview CTA must not keep legacy maka-button styling');
     assert.match(source, /<Button[\s\S]*variant="secondary"[\s\S]*className="maka-artifact-preview-unsupported-cta"/);
@@ -104,7 +100,7 @@ describe('renderer utility surfaces use shared UI primitives', () => {
     assert.match(source, /import \{ Button as BaseButton \} from '@base-ui\/react\/button';/);
     assert.doesNotMatch(source, /<button\b/, 'ArtifactPane controls must use shared Button or the semantic Base UI row seam');
     assert.doesNotMatch(source, /role="toolbar"/, 'ArtifactPane toolbar semantics must come from shared primitive Toolbar');
-    assert.match(source, /<Toolbar className="maka-artifact-toolbar" aria-label="生成文件操作">/);
+    assert.match(source, /<Toolbar className="maka-artifact-toolbar" aria-label=\{copy\.pane\.actionsAria\}>/);
     assert.match(source, /<ToolbarSeparator className="maka-artifact-toolbar-separator" orientation="vertical" \/>/);
     assert.match(source, /<Button\s+variant="secondary"\s+size="sm"[\s\S]*retryArtifactListRefresh/);
     assert.match(source, /<BaseButton[\s\S]*className="maka-artifact-row"/);
@@ -216,11 +212,11 @@ describe('renderer utility surfaces use shared UI primitives', () => {
     assert.match(source, /<Button[\s\S]*variant=\{destructive \? 'destructive' : 'default'\}/);
   });
 
-  it('keeps shared primitive default labels Chinese-first', async () => {
+  it('keeps shared primitive default labels locale-aware', async () => {
     const spinner = await readFile(join(repoRoot, 'packages/ui/src/primitives/spinner.tsx'), 'utf8');
 
-    assert.doesNotMatch(spinner, /aria-label="Loading"/);
-    assert.match(spinner, /aria-label="加载中"/);
+    assert.match(spinner, /getSharedUiCopy\(useUiLocale\(\)\)\.primitives/);
+    assert.match(spinner, /aria-label=\{ariaLabel \?\? copy\.loading\}/);
   });
 
   it('keeps multiline prompt suggestions on their semantic Base UI row seam', async () => {

@@ -41,22 +41,14 @@ describe('Settings destructive confirm contract', () => {
     ]);
     const providerSources = `${providers}\n${loginFlowHook}`;
 
-    for (const title of [
-      '退出 ${display.name} 登录？',
-      '删除供应商 ${connection.name}？',
-      '退出 Claude Code 登录？',
-    ]) {
-      assert.ok(providerSources.includes(`title: \`${title}\``) || providerSources.includes(`title: '${title}'`));
-    }
+    assert.match(loginFlowHook, /title: copy\.logoutTitle\(display\.name\)/);
+    assert.match(providers, /title: copy\.deleteProviderTitle\(connection\.name(?: \|\| connection\.slug)?\)/);
+    assert.match(providers, /title: copy\.logoutTitle/);
     assert.match(loginFlowHook, /destructive:\s*true/, 'shared OAuth logout confirm must use destructive styling');
 
-    for (const title of [
-      '恢复上一版 MEMORY.md？',
-      '恢复这个 MEMORY.md 备份？',
-      '断开微信登录？',
-    ]) {
-      assert.ok(settings.includes(`title: '${title}'`), `SettingsModal must confirm "${title}" with the themed dialog`);
-    }
+    assert.match(settings, /title: copy\.text\.restoreLatestTitle/);
+    assert.match(settings, /title: copy\.text\.restoreCandidateTitle/);
+    assert.match(settings, /title: copy\.disconnectTitle/);
 
     assert.match(providers, /destructive:\s*true/, 'provider destructive confirms must use destructive styling');
     assert.match(settings, /destructive:\s*true/, 'settings destructive confirms must use destructive styling');

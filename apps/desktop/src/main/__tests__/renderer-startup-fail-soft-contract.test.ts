@@ -53,13 +53,13 @@ describe('renderer startup fail-soft contract', () => {
     );
     assert.match(
       refreshConnections,
-      /try \{[\s\S]*window\.maka\.connections\.list\(\)[\s\S]*window\.maka\.connections\.getDefault\(\)[\s\S]*setConnections\((?:next|\(prev\) => connectionsEqual\(prev, next\) \? prev : next)\)[\s\S]*setDefaultConnection\(nextDefault\)[\s\S]*\} catch \(error\) \{[\s\S]*toastApi\.error\('刷新模型连接失败', generalizedErrorMessageChinese\(error, '模型连接暂时无法刷新，请稍后重试。'\)\)/,
+      /try \{[\s\S]*window\.maka\.connections\.list\(\)[\s\S]*window\.maka\.connections\.getDefault\(\)[\s\S]*setConnections\((?:next|\(prev\) => connectionsEqual\(prev, next\) \? prev : next)\)[\s\S]*setDefaultConnection\(nextDefault\)[\s\S]*\} catch \(error\) \{[\s\S]*toastApi\.error\(copy\.refreshFailed, localizedShellErrorMessage\(error, copy\.refreshFallback, uiLocale\)\)/,
       'startup / connections:event refreshConnections is fire-and-forget and must catch IPC failures without exposing raw provider/storage details',
     );
     assert.doesNotMatch(refreshConnections, /toastApi\.error\('刷新模型连接失败', cleanErrorMessage\(error\)\)/);
     assert.match(
       refreshPlanReminders,
-      /try \{[\s\S]*window\.maka\.plans\.list\(\)[\s\S]*setPlanReminders\(next\)[\s\S]*\} catch \(error\) \{[\s\S]*if \(options\.shouldShowError\?\.\(\) \?\? true\) \{[\s\S]*toastApi\.error\('刷新计划失败', generalizedErrorMessageChinese\(error, '刷新计划提醒失败，请稍后重试。'\)\);[\s\S]*\}/,
+      /try \{[\s\S]*window\.maka\.plans\.list\(\)[\s\S]*setPlanReminders\(next\)[\s\S]*\} catch \(error\) \{[\s\S]*if \(options\.shouldShowError\?\.\(\) \?\? true\) \{[\s\S]*toastApi\.error\(copy\.refreshFailed, localizedShellErrorMessage\(error, copy\.refreshFallback, uiLocale\)\);[\s\S]*\}/,
       'plan reminder refresh failures must be visible and must preserve the existing list',
     );
     assert.doesNotMatch(
@@ -86,14 +86,14 @@ describe('renderer startup fail-soft contract', () => {
 
     assert.match(
       dataPage,
-      /window\.maka\.app\.info\(\)\.then\([\s\S]*?\.catch\(\(error\) => \{[\s\S]*const message = settingsActionErrorMessage\(error\);[\s\S]*setInfo\(null\);[\s\S]*setInfoError\(message\);[\s\S]*toast\.error\('载入数据目录失败', message\)/,
+      /window\.maka\.app\.info\(\)\.then\([\s\S]*?\.catch\(\(error\) => \{[\s\S]*const message = settingsActionErrorMessage\(error, locale\);[\s\S]*setInfo\(null\);[\s\S]*setInfoError\(message\);[\s\S]*toast\.error\(copy\.loadFailed, message\)/,
       'Data settings app-info load failure must surface visibly instead of leaving the path row loading forever',
     );
-    assert.match(dataPage, /<Alert variant="info">[\s\S]*无法载入工作区路径：\{infoError\}/);
-    assert.match(dataPage, /catch \(error\) \{[\s\S]*toast\.error\(`无法打开\$\{openPathActionLabel\('workspace', locale\)\}`, settingsActionErrorMessage\(error\)\)/);
+    assert.match(dataPage, /<Alert variant="info">[\s\S]*copy\.pathLoadFailed\(infoError\)/);
+    assert.match(dataPage, /catch \(error\) \{[\s\S]*toast\.error\(copy\.openFailed\(openPathActionLabel\('workspace', locale\)\), settingsActionErrorMessage\(error, locale\)\)/);
     assert.match(
       botPage,
-      /window\.maka\.settings\.bots\.listStatuses\(\)\.then\([\s\S]*?setStatuses\(next\)[\s\S]*?setStatusLoadError\(null\)[\s\S]*?\.catch\(\(error\) => \{[\s\S]*const message = settingsActionErrorMessage\(error\);[\s\S]*setStatusLoadError\(message\);[\s\S]*toast\.error\('载入远程接入状态失败', message\)/,
+      /window\.maka\.settings\.bots\.listStatuses\(\)\.then\([\s\S]*?setStatuses\(next\)[\s\S]*?setStatusLoadError\(null\)[\s\S]*?\.catch\(\(error\) => \{[\s\S]*const message = settingsActionErrorMessage\(error, locale\);[\s\S]*setStatusLoadError\(message\);[\s\S]*toast\.error\(copy\.loadFailed, message\)/,
       'bot status probe failures must surface visibly instead of rendering unknown runtime state as stopped',
     );
     assert.doesNotMatch(
@@ -103,11 +103,11 @@ describe('renderer startup fail-soft contract', () => {
     );
     // #1042: the overview/detail views render the page's statusLoadError
     // via props after the bot-chat split.
-    assert.match(botPage, /<Alert variant="error">[\s\S]*<AlertTitle>远程接入状态载入失败<\/AlertTitle>[\s\S]*<AlertDescription>\{props\.statusLoadError\}<\/AlertDescription>/);
-    assert.match(botPage, /<Alert variant="error">[\s\S]*<AlertTitle>运行状态刷新失败<\/AlertTitle>[\s\S]*<AlertDescription>\{props\.statusLoadError\}<\/AlertDescription>/);
+    assert.match(botPage, /<Alert variant="error">[\s\S]*<AlertTitle>\{copy\.loadFailed\}<\/AlertTitle>[\s\S]*<AlertDescription>\{props\.statusLoadError\}<\/AlertDescription>/);
+    assert.match(botPage, /<Alert variant="error">[\s\S]*<AlertTitle>\{detailCopy\.statusRefreshFailed\}<\/AlertTitle>[\s\S]*<AlertDescription>\{props\.statusLoadError\}<\/AlertDescription>/);
     assert.match(
       botPage,
-      /async function refreshBotStatuses\(\): Promise<boolean> \{[\s\S]*try \{[\s\S]*window\.maka\.settings\.bots\.listStatuses\(\)[\s\S]*setStatuses\(nextStatuses\)[\s\S]*setStatusLoadError\(null\)[\s\S]*return true;[\s\S]*\} catch \(error\) \{[\s\S]*setStatusLoadError\(message\);[\s\S]*toast\.error\('刷新远程接入状态失败', message\)[\s\S]*return false;/,
+      /async function refreshBotStatuses\(\): Promise<boolean> \{[\s\S]*try \{[\s\S]*window\.maka\.settings\.bots\.listStatuses\(\)[\s\S]*setStatuses\(nextStatuses\)[\s\S]*setStatusLoadError\(null\)[\s\S]*return true;[\s\S]*\} catch \(error\) \{[\s\S]*setStatusLoadError\(message\);[\s\S]*toast\.error\(copy\.refreshFailed, message\)[\s\S]*return false;/,
       'manual bot status refresh must catch failures so QR-login callbacks cannot create unhandled rejections',
     );
   });

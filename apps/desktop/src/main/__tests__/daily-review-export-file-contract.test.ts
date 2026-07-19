@@ -50,7 +50,7 @@ describe('Daily Review export-to-file contract (PR-DAILY-REVIEW-EXPORT-FILE-0)',
     // is not hidden behind command palette muscle memory.
     assert.doesNotMatch(sessionListPanel, /onSaveDailyReviewMarkdown\?\(input:\s*DailyReviewMarkdownActionInput\)/);
     assert.match(modulePages, /onSaveMarkdown\?: \(input: DailyReviewMarkdownActionInput\)/);
-    assert.match(ui, /maka-daily-review-save[\s\S]*保存/);
+    assert.match(ui, /maka-daily-review-save[\s\S]*copy\.export\.saving[\s\S]*copy\.export\.save/);
     assert.match(css, /\.maka-daily-review-actions/);
   });
 

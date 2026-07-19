@@ -557,7 +557,7 @@ describe('chat markdown copy feedback contract', () => {
     );
   });
 
-  it('gates code-block copy and keeps code-copy accessibility copy Chinese-first', async () => {
+  it('gates code-block copy and keeps code-copy accessibility copy locale-aware', async () => {
     // PR-UI-LIB-EXTRACT-6 (round 7/10): `CodeBlock` moved out of
     // `components.tsx` into `markdown.tsx` (along with `Markdown`,
     // `MarkdownLink`, and the helper functions). A later lazy-load
@@ -573,9 +573,9 @@ describe('chat markdown copy feedback contract', () => {
 
     assert.match(block, /useClipboardCopyFeedback\(1400, \{ redact: false \}\)/, 'Code copy should preserve raw code text.');
     assert.match(block, /await copyFeedback\.copy\('code', text\)/, 'Code copy should route through the guarded helper.');
-    assert.match(block, /复制代码中/, 'Code copy should expose pending feedback.');
-    assert.match(block, /已复制代码/, 'Code copy should expose success feedback.');
-    assert.match(block, /复制代码失败/, 'Code copy should expose failure feedback.');
+    assert.match(block, /codeCopy\.copyingCode/, 'Code copy should expose pending feedback.');
+    assert.match(block, /codeCopy\.copiedCode/, 'Code copy should expose success feedback.');
+    assert.match(block, /codeCopy\.copyCodeFailed/, 'Code copy should expose failure feedback.');
     assert.match(block, /aria-busy=\{copyPending \? 'true' : undefined\}/, 'Code copy should expose busy state.');
     assert.match(block, /disabled=\{copyPending\}/, 'Code copy should disable while pending.');
     assert.match(block, /data-copy-feedback=\{copyPhase \?\? undefined\}/, 'Code copy should expose stable copy state.');

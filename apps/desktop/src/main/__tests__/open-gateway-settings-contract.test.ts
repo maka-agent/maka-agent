@@ -1,28 +1,26 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { readSettingsCombinedSourceSync } from './settings-contract-source-helpers.js';
 
 const settingsSource = readSettingsCombinedSourceSync();
+const REPO_ROOT = resolve(process.cwd(), '..', '..');
+const copySource = readFileSync(join(REPO_ROOT, 'apps', 'desktop', 'src', 'renderer', 'locales', 'settings-open-gateway-copy.ts'), 'utf8');
 
 describe('Open Gateway Settings endpoint contract', () => {
   it('lists every shipped gateway endpoint instead of stale capability copy', () => {
-    assert.match(settingsSource, /19 个端点/);
-    assert.doesNotMatch(settingsSource, /18 个端点/);
-    assert.doesNotMatch(settingsSource, /17 个端点/);
-    assert.doesNotMatch(settingsSource, /16 个端点/);
-    assert.doesNotMatch(settingsSource, /15 个端点/);
-    assert.doesNotMatch(settingsSource, /14 个端点/);
-    assert.doesNotMatch(settingsSource, /13 个端点/);
-    assert.doesNotMatch(settingsSource, /12 个端点/);
-    assert.doesNotMatch(settingsSource, /11 个端点/);
-    assert.doesNotMatch(settingsSource, /6 类端点/);
-    assert.match(settingsSource, /最近失败计数/);
-    assert.match(settingsSource, /复制总览 curl/);
-    assert.match(settingsSource, /复制接口说明 curl/);
-    assert.match(settingsSource, /复制单会话状态 curl/);
-    assert.match(settingsSource, /复制事件流 curl/);
-    assert.match(settingsSource, /复制最近事件 curl/);
-    assert.match(settingsSource, /复制最近请求 curl/);
+    assert.match(settingsSource, /value=\{copy\.summary\.endpointCount\}/);
+    assert.match(copySource, /endpointCount: '19 个端点'/);
+    assert.match(copySource, /endpointCount: '19 endpoints'/);
+    assert.doesNotMatch(copySource, /endpointCount: '(?:18|17|16|15|14|13|12|11) 个端点'|endpointCount: '6 类端点'/);
+    assert.match(settingsSource, /copy\.endpoints\.sessionsState\.detail/);
+    assert.match(settingsSource, /copy\.endpoints\.overview\.copyAria/);
+    assert.match(settingsSource, /copy\.endpoints\.openApi\.copyAria/);
+    assert.match(settingsSource, /copy\.endpoints\.sessionState\.copyAria/);
+    assert.match(settingsSource, /copy\.endpoints\.events\.copyAria/);
+    assert.match(settingsSource, /copy\.endpoints\.recentEvents\.copyAria/);
+    assert.match(settingsSource, /copy\.endpoints\.recentRequests\.copyAria/);
     assert.match(settingsSource, /Authorization: Bearer/);
     assert.ok(settingsSource.includes('/v1/sessions/${sessionId}/state'));
     assert.ok(settingsSource.includes('/v1/sessions/${sessionId}/events/recent'));
@@ -61,8 +59,7 @@ describe('Open Gateway Settings endpoint contract', () => {
     assert.match(helper, /setCopyingGatewayAction\(action\)/);
     assert.match(helper, /if \(openGatewayMountedRef\.current\) \{[\s\S]*setCopyingGatewayAction\(null\)/);
     assert.match(helper, /try \{[\s\S]*navigator\.clipboard\.writeText\(text\)[\s\S]*if \(openGatewayMountedRef\.current\) \{[\s\S]*toast\.success\(successTitle, successDetail\)/);
-    assert.match(helper, /catch \{[\s\S]*if \(openGatewayMountedRef\.current\) \{[\s\S]*toast\.error\('复制失败', '剪贴板不可用或被系统拒绝。'\)/);
-    assert.match(helper, /剪贴板不可用或被系统拒绝。/);
+    assert.match(helper, /catch \{[\s\S]*if \(openGatewayMountedRef\.current\) \{[\s\S]*toast\.error\(copy\.errors\.copyTitle, copy\.errors\.copyDetail\)/);
     assert.doesNotMatch(
       helper,
       /error instanceof Error|error\.message|String\(error\)/,
@@ -70,24 +67,24 @@ describe('Open Gateway Settings endpoint contract', () => {
     );
 
     const gatewayBlock = settingsSource.match(/function OpenGatewaySettingsPage[\s\S]*?function presentGatewayStatus/)?.[0] ?? '';
-    assert.match(gatewayBlock, /copyGatewayText\('base-url', baseUrl, '已复制网关地址'/);
-    assert.match(gatewayBlock, /copyGatewayText\('overview-curl', command, '已复制总览 curl'/);
-    assert.match(gatewayBlock, /copyGatewayText\('openapi-curl', command, '已复制接口说明 curl'/);
-    assert.match(gatewayBlock, /copyGatewayText\('session-state-curl', command, '已复制单会话状态 curl'/);
-    assert.match(gatewayBlock, /copyGatewayText\('event-stream-curl', command, '已复制事件流 curl'/);
-    assert.match(gatewayBlock, /copyGatewayText\('recent-events-curl', command, '已复制最近事件 curl'/);
-    assert.match(gatewayBlock, /copyGatewayText\('recent-requests-curl', command, '已复制最近请求 curl'/);
+    assert.match(gatewayBlock, /copyGatewayText\('base-url', baseUrl, copy\.toast\.baseUrlCopied/);
+    assert.match(gatewayBlock, /copyGatewayText\('overview-curl', command, copy\.toast\.overviewCopied/);
+    assert.match(gatewayBlock, /copyGatewayText\('openapi-curl', command, copy\.toast\.openApiCopied/);
+    assert.match(gatewayBlock, /copyGatewayText\('session-state-curl', command, copy\.toast\.sessionStateCopied/);
+    assert.match(gatewayBlock, /copyGatewayText\('event-stream-curl', command, copy\.toast\.eventStreamCopied/);
+    assert.match(gatewayBlock, /copyGatewayText\('recent-events-curl', command, copy\.toast\.recentEventsCopied/);
+    assert.match(gatewayBlock, /copyGatewayText\('recent-requests-curl', command, copy\.toast\.recentRequestsCopied/);
     assert.match(gatewayBlock, /const gatewayCopyDisabled = Boolean\(copyingGatewayAction\)/);
     assert.match(gatewayBlock, /disabled=\{gatewayCopyDisabled\}/);
     assert.match(gatewayBlock, /disabled=\{!gatewayDraft\.token \|\| gatewayCopyDisabled\}/);
-    assert.match(gatewayBlock, /isCopyingGatewayAction\('base-url'\) \? '复制中…' : '复制地址'/);
+    assert.match(gatewayBlock, /isCopyingGatewayAction\('base-url'\) \? copy\.actions\.copying : copy\.actions\.copyAddress/);
     // Round 11: the seven page-level curl buttons collapsed into per-endpoint
     // row actions — each endpoint row carries its own 复制 curl button, so the
     // busy label is the shared '复制 curl' form on the row.
-    assert.match(gatewayBlock, /isCopyingGatewayAction\('recent-requests-curl'\) \? '复制中…' : '复制 curl'/);
+    assert.match(gatewayBlock, /isCopyingGatewayAction\('recent-requests-curl'\) \? copy\.actions\.copying : copy\.actions\.copyCurl/);
     assert.doesNotMatch(
       gatewayBlock,
-      /'复制最近请求 curl'|'复制总览 curl'/,
+      /'复制最近请求 curl'|'复制总览 curl'|'Copy recent requests curl'|'Copy overview curl'/,
       'curl copies live on their endpoint rows, not in a page-level button wall',
     );
   });
@@ -108,7 +105,7 @@ describe('Open Gateway Settings endpoint contract', () => {
     );
     assert.match(
       helper,
-      /catch \{[\s\S]*if \(openGatewayMountedRef\.current\) \{[\s\S]*toast\.error\('复制失败', '剪贴板不可用或被系统拒绝。'\);/,
+      /catch \{[\s\S]*if \(openGatewayMountedRef\.current\) \{[\s\S]*toast\.error\(copy\.errors\.copyTitle, copy\.errors\.copyDetail\);/,
       'Open Gateway copy failure toast must only fire while the page is still mounted',
     );
     assert.match(
@@ -127,7 +124,7 @@ describe('Open Gateway Settings endpoint contract', () => {
     );
     assert.match(
       gatewayBlock,
-      /window\.maka\.gateway[\s\S]*\.status\(\)[\s\S]*catch\(\(error\) => \{[\s\S]*settingsActionErrorMessage\(error\)[\s\S]*setStatusLoadError\(message\)[\s\S]*toast\.error\('读取开放网关状态失败', message\)/,
+      /window\.maka\.gateway[\s\S]*\.status\(\)[\s\S]*catch\(\(error\) => \{[\s\S]*settingsActionErrorMessage\(error, locale\)[\s\S]*setStatusLoadError\(message\)[\s\S]*toast\.error\(copy\.errors\.loadStatus, message\)/,
       'initial gateway.status() failures must surface visibly instead of being swallowed',
     );
     assert.match(
@@ -137,7 +134,7 @@ describe('Open Gateway Settings endpoint contract', () => {
     );
     assert.match(
       gatewayBlock,
-      /role="alert"[\s\S]*开放网关运行状态读取失败：\{statusLoadError\}/,
+      /role="alert"[\s\S]*copy\.status\.loadFailed\(statusLoadError\)/,
       'status-load failures must render an accessible inline alert',
     );
     assert.doesNotMatch(

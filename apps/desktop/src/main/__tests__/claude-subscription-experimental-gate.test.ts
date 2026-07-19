@@ -155,7 +155,7 @@ describe('experimental kill-switch (kenji 1da909d5 + 45b31e16)', () => {
     );
     assert.match(
       src,
-      /experimentalGateError[\s\S]*role="alert"[\s\S]*Claude 登录开关读取失败[\s\S]*refreshExperimentalGate\(\)/,
+      /experimentalGateError[\s\S]*role="alert"[\s\S]*copy\.gateError[\s\S]*refreshExperimentalGate\(\)/,
       'experimental-gate probe failures must render a visible retryable error instead of an empty modal',
     );
   });
@@ -237,8 +237,8 @@ describe('experimental kill-switch (kenji 1da909d5 + 45b31e16)', () => {
     // ProvidersPanel now; SettingsModal only contains the modal
     // for Codex/Cursor/Antigravity.
     const src = await readProviderSettingsCombinedSource();
-    assert.match(src, /无法开始登录/, 'authorization failure toast should describe the concrete failed action');
-    assert.match(src, /等待获取配额/, 'quota_unavailable state should read as a refreshable account state');
+    assert.match(src, /copy\.startFailed/, 'authorization failure toast should describe the concrete failed action');
+    assert.match(src, /copy\.quotaUnavailable/, 'quota_unavailable state should read as a refreshable account state');
     assert.doesNotMatch(
       src,
       /登录暂不可用|配额暂不可用|配额接口暂时无法访问/,
@@ -467,6 +467,6 @@ describe('Claude OAuth model connection bridge', () => {
     assert.match(src, /const supportsApiKey = providerAuthSupportsApiKey\(connection\.providerType\)/, 'ConnectionDetail must distinguish API key providers');
     assert.match(src, /const needsOAuth = defaults\.authKind === 'oauth_token'/, 'ConnectionDetail must distinguish OAuth providers');
     assert.match(src, /\{supportsApiKey && \([\s\S]*<PasswordInput/, 'PasswordInput must only render for API-key connections');
-    assert.match(src, /\{needsOAuth && \([\s\S]*OAuth 已登录[\s\S]*等待 OAuth 登录/, 'OAuth connections must render login-state copy instead of a token input');
+    assert.match(src, /\{needsOAuth && \([\s\S]*copy\.oauthLoggedIn[\s\S]*copy\.oauthWaiting/, 'OAuth connections must render login-state copy instead of a token input');
   });
 });

@@ -169,8 +169,8 @@ describe('Settings form accessibility labels', () => {
     assert.doesNotMatch(providersPanel, /<textarea\b/, 'ProvidersPanel must use the shared Textarea primitive for Settings text areas');
     assert.doesNotMatch(providersPanel, /<select\b/, 'ProvidersPanel must use the Base UI Select primitive for Settings selects');
     assert.doesNotMatch(providersPanel, /className="maka-button/, 'ProvidersPanel governed Buttons must not layer the legacy maka-button class (inert under the @maka/ui Button utilities, so it is dead weight)');
-    assert.match(providersPanel, /aria-label="搜索模型"/);
-    assert.match(providersPanel, /className="providerModelChoiceList"\s+aria-label="模型列表"/);
+    assert.match(providersPanel, /aria-label=\{copy\.searchModels\}/);
+    assert.match(providersPanel, /className="providerModelChoiceList"\s+aria-label=\{copy\.modelListAria\}/);
     // `Item` rows become real buttons through Base UI's polymorphic
     // `render={<button .../>}` prop, which is a primitive render target rather
     // than a hand-rolled control. Strip those before asserting no raw <button>
@@ -237,40 +237,30 @@ describe('Settings form accessibility labels', () => {
     const settings = await readSettingsCombinedSource();
     const providers = await readProviderSettingsCombinedSource();
 
-    for (const label of [
-      'Telegram 代理地址',
-      'Discord 代理地址',
-      '允许的用户 ID',
-      '联网搜索真实查询',
-      '代理服务器地址',
-      '代理端口',
-      '开放网关监听地址',
-      '开放网关端口',
-      '开放网关会话 sessionId',
-      '按模型或工具筛选请求记录',
-      '请求状态筛选',
-      'MEMORY.md 内容',
-    ]) {
-      assert.ok(
-        // #1042: bot credential fields moved into a field-descriptor table,
-        // so their accessible names sit in `ariaLabel: '…'` entries rather
-        // than inline JSX attributes.
-        settings.includes(`aria-label="${label}"`) ||
-          settings.includes(`ariaLabel="${label}"`) ||
-        settings.includes(`ariaLabel: '${label}'`) ||
-          (label === '代理服务器地址' && settings.includes('aria-label={copy.proxyServerAddress}') && settings.includes("proxyServerAddress: '代理服务器地址'")) ||
-          (label === '代理端口' && settings.includes('aria-label={copy.proxyPort}') && settings.includes("proxyPort: '代理端口'")),
-        `SettingsModal must label ${label}`,
-      );
+    for (const [label, pattern] of [
+      ['Telegram proxy address', /ariaLabel: copy\.telegramProxyAria/],
+      ['Discord proxy address', /ariaLabel: copy\.discordProxyAria/],
+      ['allowed user IDs', /aria-label=\{copy\.allowedUsersAria\}/],
+      ['web-search query', /aria-label=\{copy\.queryAria\}/],
+      ['proxy server address', /aria-label=\{copy\.proxyServerAddress\}/],
+      ['proxy port', /aria-label=\{copy\.proxyPort\}/],
+      ['Open Gateway host', /ariaLabel=\{copy\.form\.hostAria\}/],
+      ['Open Gateway port', /aria-label=\{copy\.form\.portAria\}/],
+      ['Open Gateway session ID', /aria-label=\{copy\.form\.sessionAria\}/],
+      ['usage request filter', /aria-label=\{copy\.filterAria\}/],
+      ['usage status filter', /ariaLabel=\{copy\.statusAria\}/],
+      ['MEMORY.md content', /aria-label=\{copy\.text\.contentEditorAria\}/],
+    ] as const) {
+      assert.match(settings, pattern, `SettingsModal must label ${label}`);
     }
 
-    for (const label of [
-      '模型供应商连接标识',
-      '模型供应商显示名称',
-      '模型供应商服务地址',
-      '搜索模型',
-    ]) {
-      assert.ok(providers.includes(`aria-label="${label}"`), `ProvidersPanel must label ${label}`);
+    for (const [label, pattern] of [
+      ['provider slug', /aria-label=\{copy\.slugAria\}/],
+      ['provider display name', /aria-label=\{copy\.nameAria\}/],
+      ['provider endpoint', /aria-label=\{copy\.endpointAria\}/],
+      ['model search', /aria-label=\{copy\.searchModels\}/],
+    ] as const) {
+      assert.match(providers, pattern, `ProvidersPanel must label ${label}`);
     }
   });
 

@@ -58,7 +58,7 @@ describe('BrowserPanel renderer chrome source contract (#819)', () => {
     // state.loading — all three must branch on the same flag.
     assert.match(
       source,
-      /aria-label=\{state\.loading\s*\?\s*'停止加载页面'\s*:\s*'刷新页面'\}/,
+      /aria-label=\{state\.loading\s*\?\s*copy\.stopAria\s*:\s*copy\.refreshAria\}/,
       'reload/stop aria-label must swap with state.loading',
     );
     assert.match(

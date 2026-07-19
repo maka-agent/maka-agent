@@ -31,7 +31,7 @@ describe('desktop task ledger contract', () => {
     assert.match(hook, /revisionRef\.current/);
     assert.match(hook, /event\.sessionId === sessionId/);
     assert.match(hook, /window\.maka\.tasks\.list\(targetSessionId\)/);
-    assert.match(hook, /generalizedErrorMessageChinese\(error, '任务载入失败，请重试。'\)/);
+    assert.match(hook, /locale === 'zh'[\s\S]*generalizedErrorMessageChinese\(error, copy\.loadFailed\)[\s\S]*generalizedErrorMessage\(error, copy\.loadFailed\)/);
     assert.match(hook, /const unsubscribe = window\.maka\.tasks\.subscribeChanges[\s\S]*?load\(sessionId, false\)/);
     assert.doesNotMatch(hook, /StoredMessage|tool_result|parse.*message/i);
   });

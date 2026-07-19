@@ -104,8 +104,8 @@ describe('renderer style layer cascade contract', () => {
       readFile('src/renderer/settings/password-input.tsx', 'utf8'),
     ]);
 
-    assert.match(permission, /<Button\s+type="button"\s+variant="secondary"\s+size="sm"[\s\S]*?>\s*重新检测/);
-    assert.match(health, /<Button\s+type="button"\s+variant="secondary"\s+size="sm"[\s\S]*?>\s*刷新/);
+    assert.match(permission, /<Button\s+type="button"\s+variant="secondary"\s+size="sm"[\s\S]*?>\s*\{copy\.detectAgain\}/);
+    assert.match(health, /<Button\s+type="button"\s+variant="secondary"\s+size="sm"[\s\S]*?>\s*\{copy\.refresh\}/);
     assert.equal(password.match(/variant="quiet"\s+size="icon-sm"/g)?.length, 2);
 
     for (const legacyClass of ['settingsPermissionRefresh', 'settingsHealthRefresh', 'settingsPasswordToggle']) {

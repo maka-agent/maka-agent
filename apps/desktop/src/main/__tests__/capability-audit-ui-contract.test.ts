@@ -5,7 +5,7 @@ import { describe, it } from 'node:test';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { deriveCapabilityAuditReport } from '@maka/core';
-import { CapabilityAuditStrip } from '@maka/ui';
+import { CapabilityAuditStrip, LocaleProvider } from '@maka/ui';
 import { readRendererContractCss } from './contract-css-helpers.js';
 
 const repoRoot = process.cwd().endsWith('apps/desktop')
@@ -47,7 +47,10 @@ describe('capability audit visible system contract', () => {
     // automation it renders ONE warning line; the retired metrics band
     // (能力审计 kicker, 声明工具 jargon, 来源/技能/自动化 dl) must not
     // come back — the page tabs already carry those counts.
-    const markup = renderToStaticMarkup(createElement(CapabilityAuditStrip, { report }));
+    const markup = renderToStaticMarkup(createElement(LocaleProvider, {
+      locale: 'zh',
+      children: createElement(CapabilityAuditStrip, { report }),
+    }));
 
     assert.match(markup, /aria-label="能力风险提示"/);
     assert.match(markup, /1 个自动化上次失败/);
@@ -69,7 +72,10 @@ describe('capability audit visible system contract', () => {
       planReminders: [],
     });
     assert.equal(
-      renderToStaticMarkup(createElement(CapabilityAuditStrip, { report: healthyReport })),
+      renderToStaticMarkup(createElement(LocaleProvider, {
+        locale: 'zh',
+        children: createElement(CapabilityAuditStrip, { report: healthyReport }),
+      })),
       '',
       'healthy capability report must render nothing',
     );

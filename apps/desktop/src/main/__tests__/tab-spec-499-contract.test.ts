@@ -132,7 +132,7 @@ describe('issue #499 P0-3 tab spec contract', () => {
     );
     assert.match(
       panel,
-      /id: 'recommended'[\s\S]*id: 'plans'[\s\S]*id: 'api'[\s\S]*id: 'aggregators'[\s\S]*id: 'local'/,
+      /const CATALOG_TABS: CatalogCategory\[\] = \['recommended', 'accounts', 'plans', 'api', 'aggregators', 'local'\]/,
       'catalog categories must cover recommended / plans / api / aggregators / local',
     );
     // data-active hand-written boolean removed (Base UI sets data-active on the
@@ -145,8 +145,8 @@ describe('issue #499 P0-3 tab spec contract', () => {
     );
     assert.match(
       panel,
-      /data-catalog-tab=\{tab\.id\}/,
-      'data-catalog-tab={tab.id} must stay (tab identifier used by model-oauth contract)',
+      /data-catalog-tab=\{tab\}/,
+      'data-catalog-tab={tab} must stay (tab identifier used by model-oauth contract)',
     );
 
     const modelsCss = stripCssComments(await readFile(MODELS_CSS_FILE, 'utf8'));
