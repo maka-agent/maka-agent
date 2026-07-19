@@ -99,11 +99,13 @@ const STROKE_EXCEPTION_FILES = new Set([
 //     byte-provenance-pinned above to an upstream brand package.
 //   - apps/desktop/src/renderer/mcp-brand-marks.tsx — the MCP catalog brand
 //     marks. This is the SANCTIONED pattern for library-sourced marks: the
-//     `<svg>` is an inert MOUNTING SHELL that wraps a `<path d={si.path}/>`
-//     whose geometry comes straight from the `simple-icons` library (official
-//     brand paths, not hand-drawn art). Lucide ships no brand icons, so these
-//     marks cannot route through @maka/ui/icons. The rot-guard below still
-//     holds because the file genuinely contains an inline `<svg>`.
+//     `<svg>` is an inert MOUNTING SHELL that wraps `<path>` children whose
+//     geometry comes straight from a brand library (simple-icons, plus
+//     @ant-design/icons-svg for DingTalk and the vendored @douyinfe/semi-icons
+//     Feishu mark) — official brand paths, not hand-drawn art. Lucide ships no
+//     brand icons, so these marks cannot route through @maka/ui/icons. The
+//     rot-guard below still holds because the file genuinely contains an inline
+//     `<svg>`.
 // packages/ui/src/icons.tsx is NOT listed: it is a pure lucide re-export with
 // zero `<svg>` literals, so it needs no exemption. Any NEW raw `<svg>` under
 // the two source trees must fail this suite and move to @maka/ui/icons — unless

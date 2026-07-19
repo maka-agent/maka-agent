@@ -212,17 +212,6 @@
   fill: currentColor;
 }
 
-/* Text-mark brands with no library mark (钉钉/飞书) keep their tinted plate. */
-.maka-mcp-market-icon[data-brand="dingtalk"] {
-  background: color-mix(in oklab, var(--brand-dingtalk) 12%, var(--background));
-  color: color-mix(in oklab, var(--brand-dingtalk) 72%, var(--foreground));
-}
-
-.maka-mcp-market-icon[data-brand="feishu"] {
-  background: color-mix(in oklab, var(--brand-feishu) 12%, var(--background));
-  color: color-mix(in oklab, var(--brand-feishu) 72%, var(--foreground));
-}
-
 .maka-mcp-market-copy {
   min-width: 0;
   display: grid;

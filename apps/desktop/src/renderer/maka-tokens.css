@@ -127,13 +127,10 @@
   --brand-deep-hover: oklch(from var(--accent) calc(l - 0.06) c h);
   /* Fixed external channel identity; unlike palette-derived Maka accents. */
   --brand-wechat: #07c160;
-  /* Fixed service identities for MCP market tiles that fall back to a text mark
-     because simple-icons carries no library mark for them (钉钉/飞书 are absent
-     from every simple-icons release). Brands with a simple-icons mark — Slack,
-     LINE, Google Calendar, Figma, Vercel, Supabase, Notion — render the real
-     mark on a neutral plate (mcp-brand-marks.tsx), so they need no tint token. */
-  --brand-dingtalk: #1677ff;
-  --brand-feishu: #3370ff;
+  /* Every MCP market tile now renders a real library brand mark on a neutral
+     plate (mcp-brand-marks.tsx: simple-icons + @ant-design/icons-svg DingTalk +
+     the vendored Feishu mark), so no per-brand plate-tint tokens are needed —
+     a colourful logo already supplies the brand identity. */
   --bot-brand-default: var(--accent);
   /* PALETTE-LEAK-0: semantic alias for informational system banners (the
      plan-reminders 系统提醒 banner) — component CSS derives its tint family
