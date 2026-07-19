@@ -24,20 +24,11 @@
  */
 
 import { Sparkles } from './icons.js';
-import {
-  DEEP_RESEARCH_EVIDENCE_CHECKLIST,
-  DEEP_RESEARCH_PROGRESS_CHECKPOINTS,
-  DEEP_RESEARCH_REPORT_SECTIONS,
-  DEEP_RESEARCH_SCOPE_OPTIONS,
-  DEEP_RESEARCH_STARTER_PROMPTS,
-  DEEP_RESEARCH_WORKFLOW_STEPS,
-  type UiCatalog,
-} from '@maka/core';
 import { Button as BaseButton } from '@base-ui/react/button';
 
 import { useUiLocale } from './locale-context.js';
-
-export type DayPeriod = 'morning' | 'noon' | 'afternoon' | 'evening';
+import { getConversationCopy, type DayPeriod } from './conversation-copy.js';
+export type { DayPeriod } from './conversation-copy.js';
 
 /**
  * PR-UI-LAYOUT-4 / B1-a1 review fixup (@kenji msg 1d7ba56c):
@@ -63,63 +54,6 @@ export function detectDayPeriod(nowMs: number = Date.now()): DayPeriod {
   return 'evening';
 }
 
-const EMPTY_HERO_COPY_BY_LOCALE: UiCatalog<{
-  ariaLabel: string;
-  /** Time-of-day prefix: "早上好" / "Good morning" etc. */
-  greeting: Record<DayPeriod, string>;
-  /** Soft contextual phrase appended when no userLabel is set
-   *  (e.g. "安静的夜晚适合深度思考"). */
-  greetingTail: Record<DayPeriod, string>;
-  /** Compose the headline when the user has a display name. */
-  headlineWithLabel: (greeting: string, label: string) => string;
-  /** Compose the headline when no name (greeting + tail). */
-  headlineFallback: (greeting: string, tail: string) => string;
-  primaryBubble: string;
-  secondaryBubble: string;
-  intro: string;
-}> = {
-  zh: {
-    ariaLabel: '开始对话',
-    greeting: {
-      morning: '早上好',
-      noon: '中午好',
-      afternoon: '下午好',
-      evening: '晚上好',
-    },
-    greetingTail: {
-      morning: '清醒的早晨适合理清思路',
-      noon: '专注的午间适合一鼓作气',
-      afternoon: '舒缓的下午适合慢慢推进',
-      evening: '安静的夜晚适合深度思考',
-    },
-    headlineWithLabel: (greeting, label) => `${greeting} ${label}，今天想做点什么？`,
-    headlineFallback: (greeting, tail) => `${greeting}，${tail}。`,
-    primaryBubble: '好，我来帮你理清楚。',
-    secondaryBubble: '为这个任务起草计划',
-    intro: '自主规划，陪你把事做完的智能个人助手。',
-  },
-  en: {
-    ariaLabel: 'Start a conversation',
-    greeting: {
-      morning: 'Good morning',
-      noon: 'Good afternoon',
-      afternoon: 'Good afternoon',
-      evening: 'Good evening',
-    },
-    greetingTail: {
-      morning: 'A clear morning is good for untangling ideas',
-      noon: 'A focused midday is good for a single big push',
-      afternoon: 'A calm afternoon is good for steady progress',
-      evening: 'A quiet evening is good for deep thinking',
-    },
-    headlineWithLabel: (greeting, label) => `${greeting} ${label} — what shall we tackle today?`,
-    headlineFallback: (greeting, tail) => `${greeting} — ${tail}.`,
-    primaryBubble: 'Sure. I can organize that.',
-    secondaryBubble: 'Draft a plan for this task',
-    intro: 'Describe what you want to change, ask, or look up. Type it in the composer below and Maka will start from there.',
-  },
-};
-
 export function EmptyChatHero(props: { onPromptSuggestion?(prompt: string): void; userLabel?: string }) {
   // Greet the user by name when they've set one in Personalization Settings.
   // Falls back to a neutral title so first-run users don't see "Hi 你, …".
@@ -132,7 +66,7 @@ export function EmptyChatHero(props: { onPromptSuggestion?(prompt: string): void
   // renders suggestions; Deep Research keeps its specialized starters.
   const label = props.userLabel?.trim();
   const locale = useUiLocale();
-  const copy = EMPTY_HERO_COPY_BY_LOCALE[locale];
+  const copy = getConversationCopy(locale).empty;
   // PR-UI-LAYOUT-4: time-of-day greeting prefix. `detectDayPeriod`
   // reads the user's local clock at render time; we don't memo
   // because the hero is short-lived and React will re-render when
@@ -163,30 +97,29 @@ export function EmptyChatHero(props: { onPromptSuggestion?(prompt: string): void
 }
 
 export function DeepResearchEmptyHero(props: { onPromptSuggestion?(prompt: string): void }) {
+  const copy = getConversationCopy(useUiLocale()).deepResearchEmpty;
   return (
-    <section className="maka-hero maka-hero-empty-chat maka-hero-deep-research" aria-label="深度研究空会话">
+    <section className="maka-hero maka-hero-empty-chat maka-hero-deep-research" aria-label={copy.ariaLabel}>
       <header>
         <span className="maka-hero-eyebrow">
           <Sparkles size={12} aria-hidden="true" />
-          <span>深度研究 · 只读探索</span>
+          <span>{copy.eyebrow}</span>
         </span>
-        <h1>先把项目读透，再决定怎么改。</h1>
-        <p>
-          这个会话固定在只读权限：优先阅读、搜索和分析代码；需要动手实现时，先输出文件、风险和验证命令。
-        </p>
+        <h1>{copy.title}</h1>
+        <p>{copy.intro}</p>
       </header>
-      <ol className="maka-deep-research-workflow" aria-label="深度研究流程">
-        {DEEP_RESEARCH_WORKFLOW_STEPS.map((step) => (
+      <ol className="maka-deep-research-workflow" aria-label={copy.workflowAriaLabel}>
+        {copy.workflow.map((step) => (
           <li key={step.title}>
             <span className="maka-deep-research-workflow-title">{step.title}</span>
             <span className="maka-deep-research-workflow-body">{step.body}</span>
           </li>
         ))}
       </ol>
-      <section className="maka-deep-research-report" aria-label="深度研究输出结构">
-        <h2>输出必须能直接落地</h2>
+      <section className="maka-deep-research-report" aria-label={copy.reportAriaLabel}>
+        <h2>{copy.reportTitle}</h2>
         <ul>
-          {DEEP_RESEARCH_REPORT_SECTIONS.map((section) => (
+          {copy.report.map((section) => (
             <li key={section.title}>
               <span className="maka-deep-research-report-title">{section.title}</span>
               <span className="maka-deep-research-report-body">{section.body}</span>
@@ -194,10 +127,10 @@ export function DeepResearchEmptyHero(props: { onPromptSuggestion?(prompt: strin
           ))}
         </ul>
       </section>
-      <section className="maka-deep-research-scope" aria-label="深度研究范围">
-        <h2>默认按标准深度研究</h2>
+      <section className="maka-deep-research-scope" aria-label={copy.scopeAriaLabel}>
+        <h2>{copy.scopeTitle}</h2>
         <ul>
-          {DEEP_RESEARCH_SCOPE_OPTIONS.map((option) => (
+          {copy.scope.map((option) => (
             <li key={option.label}>
               <span className="maka-deep-research-scope-label">{option.label}</span>
               <span className="maka-deep-research-scope-body">{option.body}</span>
@@ -205,10 +138,10 @@ export function DeepResearchEmptyHero(props: { onPromptSuggestion?(prompt: strin
           ))}
         </ul>
       </section>
-      <section className="maka-deep-research-evidence" aria-label="深度研究证据清单">
-        <h2>每次研究都要留证据</h2>
+      <section className="maka-deep-research-evidence" aria-label={copy.evidenceAriaLabel}>
+        <h2>{copy.evidenceTitle}</h2>
         <ul>
-          {DEEP_RESEARCH_EVIDENCE_CHECKLIST.map((item) => (
+          {copy.evidence.map((item) => (
             <li key={item.title}>
               <span className="maka-deep-research-evidence-title">{item.title}</span>
               <span className="maka-deep-research-evidence-body">{item.body}</span>
@@ -216,10 +149,10 @@ export function DeepResearchEmptyHero(props: { onPromptSuggestion?(prompt: strin
           ))}
         </ul>
       </section>
-      <section className="maka-deep-research-progress" aria-label="深度研究检查点">
-        <h2>多步研究要按检查点推进</h2>
+      <section className="maka-deep-research-progress" aria-label={copy.progressAriaLabel}>
+        <h2>{copy.progressTitle}</h2>
         <ul>
-          {DEEP_RESEARCH_PROGRESS_CHECKPOINTS.map((item) => (
+          {copy.progress.map((item) => (
             <li key={item.title}>
               <span className="maka-deep-research-progress-title">{item.title}</span>
               <span className="maka-deep-research-progress-body">{item.body}</span>
@@ -228,8 +161,8 @@ export function DeepResearchEmptyHero(props: { onPromptSuggestion?(prompt: strin
         </ul>
       </section>
       {props.onPromptSuggestion && (
-        <ul className="maka-prompt-suggestions" aria-label="深度研究起手式">
-          {DEEP_RESEARCH_STARTER_PROMPTS.map((suggestion) => (
+        <ul className="maka-prompt-suggestions" aria-label={copy.startersAriaLabel}>
+          {copy.starters.map((suggestion) => (
             <li key={suggestion.label}>
               <BaseButton
                 type="button"

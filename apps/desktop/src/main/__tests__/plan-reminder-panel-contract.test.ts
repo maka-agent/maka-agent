@@ -71,4 +71,62 @@ describe('Plan Reminder panel async action contract', () => {
     assert.match(panelBlock, /disabled=\{!props\.onRefresh \|\| refreshPending\}/);
     assert.match(panelBlock, /aria-busy=\{refreshPending \? 'true' : undefined\}/);
   });
+
+  it('keeps the 保持系统唤醒 toggle optimistic, revert-on-error, and unmount-safe', async () => {
+    const ui = await readFile(resolve(REPO_ROOT, 'packages/ui/src/plan-reminder-panel.tsx'), 'utf8');
+    const panelBlock = extractFunctionBlock(ui, 'PlanReminderPanel');
+    const toggleBlock = blockBetween(panelBlock, 'async function toggleKeepSystemAwake', 'function openReminderDialog');
+
+    // Pending owner is a ref (sync guard) + React state (disables the switch).
+    assert.match(panelBlock, /const \[keepSystemAwakePending, setKeepSystemAwakePending\] = useState\(false\)/);
+    assert.match(panelBlock, /const keepSystemAwakePendingRef = useRef\(false\)/);
+
+    // The capability is gated on the host wiring BOTH the value and the setter;
+    // otherwise the row hides entirely (fail-soft on an older main / no bridge).
+    assert.match(
+      panelBlock,
+      /const keepSystemAwakeSupported =\s*props\.keepSystemAwake !== undefined && typeof props\.onKeepSystemAwakeChange === 'function';/,
+    );
+    assert.match(panelBlock, /\{keepSystemAwakeSupported && \(/);
+
+    // The unmount cleanup must also release the keep-awake pending owner so a
+    // slow IPC write cannot write state after the panel is gone.
+    assert.match(
+      panelBlock,
+      /refreshPendingRef\.current = false;\s*pendingActionKeysRef\.current = new Set\(\);\s*keepSystemAwakePendingRef\.current = false;/,
+      'keep-awake pending owner must be released on unmount alongside the refresh/action owners',
+    );
+
+    // Toggle: synchronous duplicate-guard, optimistic flip, revert + Chinese
+    // toast on failure, mounted-guarded state writes in finally.
+    assert.match(
+      toggleBlock,
+      /if \(!props\.onKeepSystemAwakeChange \|\| keepSystemAwakePendingRef\.current\) return;\s*keepSystemAwakePendingRef\.current = true;/,
+      'keep-awake toggle must synchronously reject a duplicate/absent-handler flip before awaiting the write',
+    );
+    assert.match(toggleBlock, /setKeepSystemAwakeChecked\(next\); \/\/ optimistic/);
+    // Revert + toast on failure (asserted individually so an explanatory
+    // comment between the catch and the revert does not brittle-break the pin).
+    assert.match(toggleBlock, /catch \(error\) \{/);
+    assert.match(
+      toggleBlock,
+      /if \(planReminderMountedRef\.current\) setKeepSystemAwakeChecked\(!next\);/,
+      'a failed write must revert the optimistic switch',
+    );
+    assert.match(
+      toggleBlock,
+      /toast\.error\(\s*'无法更新保持系统唤醒',/,
+      'a failed write must surface a Chinese error toast',
+    );
+    assert.match(
+      toggleBlock,
+      /finally \{\s*keepSystemAwakePendingRef\.current = false;\s*if \(planReminderMountedRef\.current\) setKeepSystemAwakePending\(false\);/,
+      'keep-awake toggle owner must release without writing React state after unmount',
+    );
+
+    // The switch reflects the optimistic state and disables while a write runs.
+    assert.match(panelBlock, /checked=\{keepSystemAwakeChecked\}/);
+    assert.match(panelBlock, /disabled=\{keepSystemAwakePending\}/);
+    assert.match(panelBlock, /onChange=\{\(next\) => void toggleKeepSystemAwake\(next\)\}/);
+  });
 });

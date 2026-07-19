@@ -55,9 +55,9 @@ export async function prepareRuntimeHostEndpoint(
         await chmod(path, 0o600);
         const endpointStat = await lstat(path);
         if (
-          !endpointStat.isSocket()
-          || endpointStat.uid !== currentUid()
-          || (endpointStat.mode & 0o077) !== 0
+          !endpointStat.isSocket() ||
+          endpointStat.uid !== currentUid() ||
+          (endpointStat.mode & 0o077) !== 0
         ) {
           throw new RuntimeHostEndpointError(
             'insecure_endpoint_directory',
@@ -93,26 +93,29 @@ function endpointDirectoryPrefix(rootId: string): string {
 
 async function removeStaleEndpointDirectories(prefix: string): Promise<void> {
   const entries = await readdir(POSIX_ENDPOINT_ROOT, { withFileTypes: true });
-  await Promise.all(entries.map(async (entry) => {
-    if (
-      !entry.isDirectory()
-      || !entry.name.startsWith(prefix)
-      || entry.name.length !== prefix.length + 6
-    ) return;
-    const path = join(POSIX_ENDPOINT_ROOT, entry.name);
-    const directoryStat = await lstat(path).catch(() => undefined);
-    if (!directoryStat?.isDirectory() || directoryStat.uid !== currentUid()) return;
-    await rm(path, { recursive: true, force: true });
-  }));
+  await Promise.all(
+    entries.map(async (entry) => {
+      if (
+        !entry.isDirectory() ||
+        !entry.name.startsWith(prefix) ||
+        entry.name.length !== prefix.length + 6
+      )
+        return;
+      const path = join(POSIX_ENDPOINT_ROOT, entry.name);
+      const directoryStat = await lstat(path).catch(() => undefined);
+      if (!directoryStat?.isDirectory() || directoryStat.uid !== currentUid()) return;
+      await rm(path, { recursive: true, force: true });
+    }),
+  );
 }
 
 async function ensurePrivateEndpointDirectory(path: string): Promise<void> {
   await chmod(path, 0o700);
   const directoryStat = await lstat(path);
   if (
-    !directoryStat.isDirectory()
-    || directoryStat.uid !== currentUid()
-    || (directoryStat.mode & 0o077) !== 0
+    !directoryStat.isDirectory() ||
+    directoryStat.uid !== currentUid() ||
+    (directoryStat.mode & 0o077) !== 0
   ) {
     throw new RuntimeHostEndpointError(
       'insecure_endpoint_directory',
@@ -132,7 +135,7 @@ function currentUid(): number {
 }
 
 function isNodeError(error: unknown, code: string): boolean {
-  return error instanceof Error
-    && 'code' in error
-    && (error as NodeJS.ErrnoException).code === code;
+  return (
+    error instanceof Error && 'code' in error && (error as NodeJS.ErrnoException).code === code
+  );
 }

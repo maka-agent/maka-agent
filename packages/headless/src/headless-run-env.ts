@@ -66,7 +66,9 @@ export function resolveMinStable(
   if (explicitRaw !== undefined && explicitRaw !== '') {
     const explicit = envNonNegativeInt(name, explicitRaw, 1);
     if (explicit < 1) {
-      throw new Error(`${name} must be a positive integer; a floor of 0 disables the stable-task guard (got "${explicitRaw}")`);
+      throw new Error(
+        `${name} must be a positive integer; a floor of 0 disables the stable-task guard (got "${explicitRaw}")`,
+      );
     }
     return explicit;
   }
@@ -111,7 +113,8 @@ export function numericEnv(raw: string | undefined): number | undefined {
 export function positiveIntEnv(raw: string | undefined, name: string): number | undefined {
   const value = raw?.trim();
   if (value === undefined || value === '') return undefined;
-  if (!/^[1-9]\d*$/.test(value)) throw new Error(`${name} must be a positive integer, got ${JSON.stringify(raw)}`);
+  if (!/^[1-9]\d*$/.test(value))
+    throw new Error(`${name} must be a positive integer, got ${JSON.stringify(raw)}`);
   return Number(value);
 }
 

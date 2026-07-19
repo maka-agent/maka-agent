@@ -104,21 +104,22 @@ export type GoalTurnSettlementInput =
   | (GoalTurnSettlementBase & {
       readonly verdict: 'impossible';
     })
-  | (GoalTurnSettlementBase & (
-      | {
-          readonly verdict: 'continue';
-          readonly waiting: true;
-          readonly madeProgress?: never;
-          readonly tokensNow?: number;
-        }
-      | {
-          readonly verdict: 'continue';
-          readonly waiting?: false;
-          /** Undefined is neutral: neither advances nor resets the no-progress streak. */
-          readonly madeProgress?: boolean;
-          readonly tokensNow?: number;
-        }
-    ));
+  | (GoalTurnSettlementBase &
+      (
+        | {
+            readonly verdict: 'continue';
+            readonly waiting: true;
+            readonly madeProgress?: never;
+            readonly tokensNow?: number;
+          }
+        | {
+            readonly verdict: 'continue';
+            readonly waiting?: false;
+            /** Undefined is neutral: neither advances nor resets the no-progress streak. */
+            readonly madeProgress?: boolean;
+            readonly tokensNow?: number;
+          }
+      ));
 
 export interface GoalManagerDeps {
   generateId: () => string;
@@ -145,10 +146,9 @@ export interface GoalPauseOptions {
   readonly reason?: string;
 }
 
-type GoalStatePatch = Partial<Omit<
-  GoalState,
-  'id' | 'revision' | 'sessionId' | 'condition' | 'setAt'
->>;
+type GoalStatePatch = Partial<
+  Omit<GoalState, 'id' | 'revision' | 'sessionId' | 'condition' | 'setAt'>
+>;
 
 export class GoalManager {
   private goals = new Map<string, GoalRecord>();
@@ -183,12 +183,16 @@ export class GoalManager {
     return committed;
   }
 
-  create(sessionId: string, condition: string, opts?: {
-    maxIterations?: number;
-    blockCap?: number;
-    tokenBudget?: number;
-    tokensAtStart?: number;
-  }): GoalCreateResult {
+  create(
+    sessionId: string,
+    condition: string,
+    opts?: {
+      maxIterations?: number;
+      blockCap?: number;
+      tokenBudget?: number;
+      tokensAtStart?: number;
+    },
+  ): GoalCreateResult {
     const existing = this.goals.get(sessionId)?.state;
     if (existing && !TERMINAL_GOAL_STATUSES.has(existing.status)) {
       return { kind: 'unfinished', goal: existing };
@@ -239,9 +243,11 @@ export class GoalManager {
 
   matchesActive(sessionId: string, checkpoint: GoalCheckpoint): boolean {
     const goal = this.goals.get(sessionId)?.state;
-    return goal?.status === 'active'
-      && goal.id === checkpoint.goalId
-      && goal.revision === checkpoint.revision;
+    return (
+      goal?.status === 'active' &&
+      goal.id === checkpoint.goalId &&
+      goal.revision === checkpoint.revision
+    );
   }
 
   matches(sessionId: string, checkpoint: GoalCheckpoint): boolean {
@@ -289,8 +295,8 @@ export class GoalManager {
         } else {
           tokensNow = Math.max(tokensNow, input.tokensNow);
           if (
-            current.tokenBudget !== undefined
-            && tokensNow - tokensAtStart >= current.tokenBudget
+            current.tokenBudget !== undefined &&
+            tokensNow - tokensAtStart >= current.tokenBudget
           ) {
             status = 'budget_limited';
             lastReason = `Token budget exhausted (${current.tokenBudget} tokens)`;
@@ -365,11 +371,7 @@ export class GoalManager {
 
   wakeWaiting(sessionId: string, checkpoint: GoalCheckpoint): GoalState | undefined {
     const record = this.goals.get(sessionId);
-    if (
-      !record
-      || record.state.status !== 'waiting'
-      || !this.matches(sessionId, checkpoint)
-    ) {
+    if (!record || record.state.status !== 'waiting' || !this.matches(sessionId, checkpoint)) {
       return undefined;
     }
     return this.commit(record, { status: 'active' });

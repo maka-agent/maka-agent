@@ -29,9 +29,7 @@ const DISCORD_INTENT_GUILD_MESSAGES = 1 << 9;
 const DISCORD_INTENT_DIRECT_MESSAGES = 1 << 12;
 const DISCORD_INTENT_MESSAGE_CONTENT = 1 << 15;
 export const DISCORD_INTENTS =
-  DISCORD_INTENT_GUILD_MESSAGES |
-  DISCORD_INTENT_DIRECT_MESSAGES |
-  DISCORD_INTENT_MESSAGE_CONTENT;
+  DISCORD_INTENT_GUILD_MESSAGES | DISCORD_INTENT_DIRECT_MESSAGES | DISCORD_INTENT_MESSAGE_CONTENT;
 
 const RECONNECT_DELAY_MIN_MS = 1_000;
 const RECONNECT_DELAY_MAX_MS = 30_000;
@@ -82,10 +80,7 @@ export type DiscordCloseDecision =
   | { kind: 'fatal'; code: number }
   | { kind: 'reconnect'; resumable: boolean };
 
-export function decideDiscordClose(
-  code: number,
-  explicitlyStopped: boolean,
-): DiscordCloseDecision {
+export function decideDiscordClose(code: number, explicitlyStopped: boolean): DiscordCloseDecision {
   if (explicitlyStopped) return { kind: 'stopped' };
   if (FATAL_CLOSE_CODES.has(code)) return { kind: 'fatal', code };
   // 4000-4003, 4005-4009 are recoverable per Discord docs; treat
@@ -169,8 +164,7 @@ export function classifyDiscordSendResponse(
       delayMs: Math.min(Math.max(ms, SEND_RETRY_DELAY_MIN_MS), SEND_RETRY_DELAY_MAX_MS),
     };
   }
-  const message =
-    (bodyJson as { message?: unknown } | null)?.message;
+  const message = (bodyJson as { message?: unknown } | null)?.message;
   return {
     kind: 'fatal',
     description: typeof message === 'string' && message.length > 0 ? message : `HTTP ${status}`,
@@ -183,7 +177,10 @@ export function classifyDiscordSendResponse(
  * should silently ignore (its own messages, other bot messages,
  * webhook system messages with no author).
  */
-export function discordMessageToEvent(d: DiscordMessagePayload, receivedAt: number): {
+export function discordMessageToEvent(
+  d: DiscordMessagePayload,
+  receivedAt: number,
+): {
   platform: 'discord';
   userId: string;
   userName: string;
@@ -253,7 +250,11 @@ export class DiscordBotBridge extends BaseBotAdapter implements SendCapable {
     this.clearHeartbeat();
     this.clearReconnect();
     if (this.ws) {
-      try { this.ws.close(1000); } catch { /* swallow */ }
+      try {
+        this.ws.close(1000);
+      } catch {
+        /* swallow */
+      }
       this.ws = null;
     }
     this.reason = 'stopped';
@@ -267,7 +268,11 @@ export class DiscordBotBridge extends BaseBotAdapter implements SendCapable {
    * `message_reference`. 429 retry once with the API-provided
    * `retry_after`.
    */
-  async sendMessage(chatId: string, text: string, options?: BotSendOptions): Promise<string | null> {
+  async sendMessage(
+    chatId: string,
+    text: string,
+    options?: BotSendOptions,
+  ): Promise<string | null> {
     if (this.platform !== 'discord' || !this.running) return null;
     const channelId = normalizeDiscordChannelId(chatId);
     if (!channelId) return null;
@@ -283,8 +288,7 @@ export class DiscordBotBridge extends BaseBotAdapter implements SendCapable {
       }
       if (classification.kind !== 'ok') {
         this.readiness = this.readiness === 'operational' ? 'degraded' : 'credentials_valid';
-        this.reason =
-          classification.kind === 'retry' ? 'rate-limited' : classification.description;
+        this.reason = classification.kind === 'retry' ? 'rate-limited' : classification.description;
         this.emitStatusChange();
         return null;
       }
@@ -317,7 +321,10 @@ export class DiscordBotBridge extends BaseBotAdapter implements SendCapable {
     return 'gateway';
   }
 
-  private async performSend(chatId: string, body: Record<string, unknown>): Promise<DiscordSendClassification> {
+  private async performSend(
+    chatId: string,
+    body: Record<string, unknown>,
+  ): Promise<DiscordSendClassification> {
     try {
       const response = await proxiedFetch(`${DISCORD_API}/channels/${chatId}/messages`, {
         method: 'POST',
@@ -564,7 +571,11 @@ export class DiscordBotBridge extends BaseBotAdapter implements SendCapable {
       this.seq = null;
     }
     if (this.ws) {
-      try { this.ws.close(); } catch { /* swallow */ }
+      try {
+        this.ws.close();
+      } catch {
+        /* swallow */
+      }
       this.ws = null;
     }
     this.clearHeartbeat();

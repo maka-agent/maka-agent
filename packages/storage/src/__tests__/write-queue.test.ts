@@ -22,8 +22,14 @@ describe('chainWrite', () => {
     const queues = new Map<string, Promise<void>>();
     let resolveOp1!: () => void;
     let resolveOp2!: () => void;
-    const op1 = () => new Promise<void>((resolve) => { resolveOp1 = resolve; });
-    const op2 = () => new Promise<void>((resolve) => { resolveOp2 = resolve; });
+    const op1 = () =>
+      new Promise<void>((resolve) => {
+        resolveOp1 = resolve;
+      });
+    const op2 = () =>
+      new Promise<void>((resolve) => {
+        resolveOp2 = resolve;
+      });
 
     const p1 = chainWrite(queues, 'k', op1);
     const p2 = chainWrite(queues, 'k', op2); // queues behind op1; overwrites map entry
@@ -56,8 +62,22 @@ describe('chainWrite', () => {
     const queues = new Map<string, Promise<void>>();
     let rejectOp1!: (e: Error) => void;
     let resolveOp2!: () => void;
-    const p1 = chainWrite(queues, 'k', () => new Promise<void>((_, rej) => { rejectOp1 = rej; }));
-    const p2 = chainWrite(queues, 'k', () => new Promise<void>((res) => { resolveOp2 = res; }));
+    const p1 = chainWrite(
+      queues,
+      'k',
+      () =>
+        new Promise<void>((_, rej) => {
+          rejectOp1 = rej;
+        }),
+    );
+    const p2 = chainWrite(
+      queues,
+      'k',
+      () =>
+        new Promise<void>((res) => {
+          resolveOp2 = res;
+        }),
+    );
 
     // op1's body runs and parks on rejectOp1; op2 stays queued behind it.
     await flushMicrotasks();
@@ -78,7 +98,11 @@ describe('chainWrite', () => {
     const order: number[] = [];
     const promises: Promise<void>[] = [];
     for (let i = 0; i < 5; i++) {
-      promises.push(chainWrite(queues, 'k', async () => { order.push(i); }));
+      promises.push(
+        chainWrite(queues, 'k', async () => {
+          order.push(i);
+        }),
+      );
     }
     await Promise.all(promises);
     assert.deepEqual(order, [0, 1, 2, 3, 4]);
@@ -87,13 +111,17 @@ describe('chainWrite', () => {
   it('propagates rejection to the caller and keeps the chain alive', async () => {
     const queues = new Map<string, Promise<void>>();
     await assert.rejects(
-      chainWrite(queues, 'k', async () => { throw new Error('boom'); }),
+      chainWrite(queues, 'k', async () => {
+        throw new Error('boom');
+      }),
       /boom/,
     );
     // The Map-held chain swallowed the rejection; a subsequent write
     // under the same key must still run.
     let ran = false;
-    await chainWrite(queues, 'k', async () => { ran = true; });
+    await chainWrite(queues, 'k', async () => {
+      ran = true;
+    });
     assert.equal(ran, true);
     await flushMicrotasks();
     assert.equal(queues.size, 0);

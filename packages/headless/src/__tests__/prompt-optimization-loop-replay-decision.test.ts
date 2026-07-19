@@ -2,7 +2,14 @@ import assert from 'node:assert/strict';
 import { writeFile } from 'node:fs/promises';
 import { describe, test } from 'node:test';
 import { readFixedPromptWal } from '../fixed-prompt-controller.js';
-import { execFileAsync, fakeMetaAgent, makeTasks, runLoop, taskIndex, withHarness } from './helpers/prompt-optimization-loop-harness.js';
+import {
+  execFileAsync,
+  fakeMetaAgent,
+  makeTasks,
+  runLoop,
+  taskIndex,
+  withHarness,
+} from './helpers/prompt-optimization-loop-harness.js';
 
 describe('runPromptOptimizationLoop replay decision guards', () => {
   test('replays a decided discard round with infra-failed task evidence', async () => {
@@ -26,7 +33,9 @@ describe('runPromptOptimizationLoop replay decision guards', () => {
       });
       assert.equal(first.decisions[0]?.decision, 'discard');
       const events = await readFixedPromptWal(harness.resultsJsonlPath);
-      assert.ok(events.some((event) => event.type === 'task_infra_failed' && event.roundId === 'round-0'));
+      assert.ok(
+        events.some((event) => event.type === 'task_infra_failed' && event.roundId === 'round-0'),
+      );
 
       const taskRuns: string[] = [];
       const resumed = await runLoop(harness, {
@@ -64,18 +73,29 @@ describe('runPromptOptimizationLoop replay decision guards', () => {
         shouldThrowInfra: (roundId, taskId) => roundId === 'round-0' && taskId === 'hin-0',
       });
       const tornEvents = await readFixedPromptWal(harness.resultsJsonlPath);
-      const committed = tornEvents.find((event): event is Extract<typeof event, { type: 'prompt_candidate_committed' }> =>
-        event.type === 'prompt_candidate_committed' && event.roundId === 'round-0');
-      const infraIndex = tornEvents.findIndex((event) =>
-        event.type === 'task_infra_failed' && event.roundId === 'round-0' && event.taskId === 'hin-0');
+      const committed = tornEvents.find(
+        (event): event is Extract<typeof event, { type: 'prompt_candidate_committed' }> =>
+          event.type === 'prompt_candidate_committed' && event.roundId === 'round-0',
+      );
+      const infraIndex = tornEvents.findIndex(
+        (event) =>
+          event.type === 'task_infra_failed' &&
+          event.roundId === 'round-0' &&
+          event.taskId === 'hin-0',
+      );
       assert.ok(committed);
       assert.ok(infraIndex > -1);
       await writeFile(
         harness.resultsJsonlPath,
-        `${tornEvents.slice(0, infraIndex + 1).map((event) => JSON.stringify(event)).join('\n')}\n`,
+        `${tornEvents
+          .slice(0, infraIndex + 1)
+          .map((event) => JSON.stringify(event))
+          .join('\n')}\n`,
         'utf8',
       );
-      await execFileAsync('git', ['reset', '--hard', committed.commitSha], { cwd: harness.repoDir });
+      await execFileAsync('git', ['reset', '--hard', committed.commitSha], {
+        cwd: harness.repoDir,
+      });
 
       await runLoop(harness, {
         heldInTasks,
@@ -85,10 +105,22 @@ describe('runPromptOptimizationLoop replay decision guards', () => {
         baselineRuns: 1,
       });
       const completedEvents = await readFixedPromptWal(harness.resultsJsonlPath);
-      assert.ok(completedEvents.some((event) =>
-        event.type === 'task_infra_failed' && event.roundId === 'round-0' && event.taskId === 'hin-0'));
-      assert.ok(completedEvents.some((event) =>
-        event.type === 'task_completed' && event.roundId === 'round-0' && event.taskId === 'hin-0'));
+      assert.ok(
+        completedEvents.some(
+          (event) =>
+            event.type === 'task_infra_failed' &&
+            event.roundId === 'round-0' &&
+            event.taskId === 'hin-0',
+        ),
+      );
+      assert.ok(
+        completedEvents.some(
+          (event) =>
+            event.type === 'task_completed' &&
+            event.roundId === 'round-0' &&
+            event.taskId === 'hin-0',
+        ),
+      );
 
       const taskRuns: string[] = [];
       const resumed = await runLoop(harness, {
@@ -113,7 +145,7 @@ describe('runPromptOptimizationLoop replay decision guards', () => {
         const index = taskIndex(taskId);
         if (taskId.startsWith('hout-')) return index < 4 ? 1 : 0;
         if (roundId.startsWith('baseline-')) return index < 10 ? 1 : 0;
-        return taskId.startsWith('hin-') ? 1 : (index < 4 ? 1 : 0);
+        return taskId.startsWith('hin-') ? 1 : index < 4 ? 1 : 0;
       };
 
       await runLoop(harness, {
@@ -124,8 +156,14 @@ describe('runPromptOptimizationLoop replay decision guards', () => {
         baselineRuns: 1,
       });
       const events = await readFixedPromptWal(harness.resultsJsonlPath);
-      const missingHeldOut = events.filter((event) =>
-        !(event.type === 'task_completed' && event.roundId === 'round-0' && event.taskId.startsWith('hout-')));
+      const missingHeldOut = events.filter(
+        (event) =>
+          !(
+            event.type === 'task_completed' &&
+            event.roundId === 'round-0' &&
+            event.taskId.startsWith('hout-')
+          ),
+      );
       await writeFile(
         harness.resultsJsonlPath,
         `${missingHeldOut.map((event) => JSON.stringify(event)).join('\n')}\n`,
@@ -159,7 +197,7 @@ describe('runPromptOptimizationLoop replay decision guards', () => {
         const index = taskIndex(taskId);
         if (taskId.startsWith('hout-')) return index < 4 ? 1 : 0;
         if (roundId.startsWith('baseline-')) return index < 10 ? 1 : 0;
-        return taskId.startsWith('hin-') ? 1 : (index < 4 ? 1 : 0);
+        return taskId.startsWith('hin-') ? 1 : index < 4 ? 1 : 0;
       };
 
       await runLoop(harness, {
@@ -170,16 +208,22 @@ describe('runPromptOptimizationLoop replay decision guards', () => {
         baselineRuns: 1,
       });
       const events = await readFixedPromptWal(harness.resultsJsonlPath);
-      const heldOutIndex = events.findIndex((event) =>
-        event.type === 'task_completed' && event.roundId === 'round-0' && event.taskId === 'hout-0');
-      const decisionIndex = events.findIndex((event) =>
-        event.type === 'prompt_candidate_decided' && event.roundId === 'round-0');
+      const heldOutIndex = events.findIndex(
+        (event) =>
+          event.type === 'task_completed' &&
+          event.roundId === 'round-0' &&
+          event.taskId === 'hout-0',
+      );
+      const decisionIndex = events.findIndex(
+        (event) => event.type === 'prompt_candidate_decided' && event.roundId === 'round-0',
+      );
       assert.ok(heldOutIndex > -1);
       assert.ok(decisionIndex > heldOutIndex);
       const heldOutEvent = events[heldOutIndex]!;
       const reordered = events.filter((_event, index) => index !== heldOutIndex);
-      const shiftedDecisionIndex = reordered.findIndex((event) =>
-        event.type === 'prompt_candidate_decided' && event.roundId === 'round-0');
+      const shiftedDecisionIndex = reordered.findIndex(
+        (event) => event.type === 'prompt_candidate_decided' && event.roundId === 'round-0',
+      );
       reordered.splice(shiftedDecisionIndex + 1, 0, heldOutEvent);
       await writeFile(
         harness.resultsJsonlPath,
@@ -226,8 +270,14 @@ describe('runPromptOptimizationLoop replay decision guards', () => {
       });
       assert.equal(first.decisions[0]?.reason, 'held_out_regressed');
       const events = await readFixedPromptWal(harness.resultsJsonlPath);
-      const missingHeldOut = events.filter((event) =>
-        !(event.type === 'task_completed' && event.roundId === 'round-0' && event.taskId.startsWith('hout-')));
+      const missingHeldOut = events.filter(
+        (event) =>
+          !(
+            event.type === 'task_completed' &&
+            event.roundId === 'round-0' &&
+            event.taskId.startsWith('hout-')
+          ),
+      );
       await writeFile(
         harness.resultsJsonlPath,
         `${missingHeldOut.map((event) => JSON.stringify(event)).join('\n')}\n`,
@@ -321,11 +371,11 @@ describe('runPromptOptimizationLoop replay decision guards', () => {
         baselineRuns: 1,
       });
       const events = await readFixedPromptWal(harness.resultsJsonlPath);
-      const tamperedDecision = events.map((event) => (
+      const tamperedDecision = events.map((event) =>
         event.type === 'prompt_candidate_decided' && event.roundId === 'round-0'
           ? { ...event, metrics: { tampered: true } }
-          : event
-      ));
+          : event,
+      );
       await writeFile(
         harness.resultsJsonlPath,
         `${tamperedDecision.map((event) => JSON.stringify(event)).join('\n')}\n`,
@@ -350,5 +400,4 @@ describe('runPromptOptimizationLoop replay decision guards', () => {
       assert.equal(nextRoundPrompted, false);
     });
   });
-
 });

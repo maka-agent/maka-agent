@@ -7,9 +7,7 @@ import { createReadOnlyPermissionProfile } from '@maka/core/permission-profile';
 
 import { buildBuiltinTools } from '../builtin-tools.js';
 import type { AdditionalPermissionGrant } from '../additional-permissions.js';
-import type {
-  FilesystemWorkerExecuteInput,
-} from '../filesystem-worker/client.js';
+import type { FilesystemWorkerExecuteInput } from '../filesystem-worker/client.js';
 
 const cleanup: string[] = [];
 
@@ -24,22 +22,19 @@ describe('builtin file tools use the sandboxed worker', () => {
       /require a sandboxed filesystem worker/,
     );
     assert.throws(
-      () => buildBuiltinTools({
-        filesystemWorker: { execute: async () => ({ kind: 'read', content: '' }) },
-        enableFileToolAdditionalPermissions: true,
-        sandboxPlatform: 'linux',
-      }),
+      () =>
+        buildBuiltinTools({
+          filesystemWorker: { execute: async () => ({ kind: 'read', content: '' }) },
+          enableFileToolAdditionalPermissions: true,
+          sandboxPlatform: 'linux',
+        }),
       /supported only on macOS/,
     );
   });
 
   test('plans the minimum one-call permission for an outside Write', async () => {
     const cwd = await temporaryDirectory('maka-file-plan-cwd-');
-    const path = join(
-      parse(cwd).root,
-      `maka-file-plan-outside-${process.pid}`,
-      'created.txt',
-    );
+    const path = join(parse(cwd).root, `maka-file-plan-outside-${process.pid}`, 'created.txt');
     const write = buildBuiltinTools({
       filesystemWorker: { execute: async () => ({ kind: 'read', content: '' }) },
       enableFileToolAdditionalPermissions: true,
@@ -60,11 +55,13 @@ describe('builtin file tools use the sandboxed worker', () => {
     });
     assert.equal(plan.kind, 'request');
     if (plan.kind === 'request') {
-      assert.deepEqual(plan.proposal.profile.fileSystem?.entries, [{
-        path,
-        access: 'write',
-        scope: 'exact',
-      }]);
+      assert.deepEqual(plan.proposal.profile.fileSystem?.entries, [
+        {
+          path,
+          access: 'write',
+          scope: 'exact',
+        },
+      ]);
       assert.equal(plan.proposal.risk.outsideWorkspace, true);
     }
   });
@@ -79,18 +76,35 @@ describe('builtin file tools use the sandboxed worker', () => {
         execute: async (input) => {
           calls.push(input);
           switch (input.operation.kind) {
-            case 'read': return { kind: 'read', content: 'worker-content' };
-            case 'write': return { kind: 'write', ok: true, path: input.operation.path, bytes: 7 };
-            case 'edit': return {
-              kind: 'edit', ok: true, path: input.operation.path, replacements: 1,
-              matchedVia: 'exact', startLine: 1, endLine: 1,
-            };
-            case 'format_json': return {
-              kind: 'format_json', ok: true, valid: true, path: input.operation.path,
-              bytesBefore: 2, bytesAfter: 3, byteDelta: 1, changed: true,
-            };
-            case 'glob': return { kind: 'glob', files: ['worker.ts'] };
-            case 'grep': return { kind: 'grep', matches: ['worker.ts:1:value'] };
+            case 'read':
+              return { kind: 'read', content: 'worker-content' };
+            case 'write':
+              return { kind: 'write', ok: true, path: input.operation.path, bytes: 7 };
+            case 'edit':
+              return {
+                kind: 'edit',
+                ok: true,
+                path: input.operation.path,
+                replacements: 1,
+                matchedVia: 'exact',
+                startLine: 1,
+                endLine: 1,
+              };
+            case 'format_json':
+              return {
+                kind: 'format_json',
+                ok: true,
+                valid: true,
+                path: input.operation.path,
+                bytesBefore: 2,
+                bytesAfter: 3,
+                byteDelta: 1,
+                changed: true,
+              };
+            case 'glob':
+              return { kind: 'glob', files: ['worker.ts'] };
+            case 'grep':
+              return { kind: 'grep', matches: ['worker.ts:1:value'] };
           }
         },
       },
@@ -100,17 +114,33 @@ describe('builtin file tools use the sandboxed worker', () => {
 
     await runTool(tools, 'Read', { path: 'read.txt' }, cwd, grant);
     await runTool(tools, 'Write', { path: 'write.txt', content: 'content' }, cwd, grant);
-    await runTool(tools, 'Edit', { path: 'edit.txt', old_string: 'a', new_string: 'b' }, cwd, grant);
+    await runTool(
+      tools,
+      'Edit',
+      { path: 'edit.txt', old_string: 'a', new_string: 'b' },
+      cwd,
+      grant,
+    );
     await runTool(tools, 'FormatJson', { path: 'data.json' }, cwd, grant);
     await runTool(tools, 'Glob', { pattern: '**/*.ts' }, cwd, grant);
     await runTool(tools, 'Grep', { pattern: 'value' }, cwd, grant);
 
-    assert.deepEqual(calls.map((call) => call.operation.kind), [
-      'read', 'write', 'edit', 'format_json', 'glob', 'grep',
-    ]);
-    assert.equal(calls.every((call) => call.additionalGrant === grant), true);
-    assert.equal(calls.every((call) => call.mode === 'ask' && call.cwd === cwd), true);
-    assert.equal(calls.every((call) => call.permissionProfile === permissionProfile), true);
+    assert.deepEqual(
+      calls.map((call) => call.operation.kind),
+      ['read', 'write', 'edit', 'format_json', 'glob', 'grep'],
+    );
+    assert.equal(
+      calls.every((call) => call.additionalGrant === grant),
+      true,
+    );
+    assert.equal(
+      calls.every((call) => call.mode === 'ask' && call.cwd === cwd),
+      true,
+    );
+    assert.equal(
+      calls.every((call) => call.permissionProfile === permissionProfile),
+      true,
+    );
   });
 
   test('uses one worker read operation for image paths', async () => {
@@ -162,18 +192,26 @@ describe('builtin file tools use the sandboxed worker', () => {
     const filePlan = await planFileTool(grep, fileArgs, workspace, 'ask');
     assert.equal(filePlan.kind, 'request');
     if (filePlan.kind === 'request') {
-      assert.deepEqual(filePlan.proposal.profile.fileSystem?.entries, [{
-        path: join(outside, 'outside.ts'), access: 'read', scope: 'exact',
-      }]);
+      assert.deepEqual(filePlan.proposal.profile.fileSystem?.entries, [
+        {
+          path: join(outside, 'outside.ts'),
+          access: 'read',
+          scope: 'exact',
+        },
+      ]);
     }
 
     const directoryArgs = { pattern: 'outside', path: outside };
     const directoryPlan = await planFileTool(grep, directoryArgs, workspace, 'ask');
     assert.equal(directoryPlan.kind, 'request');
     if (directoryPlan.kind === 'request') {
-      assert.deepEqual(directoryPlan.proposal.profile.fileSystem?.entries, [{
-        path: outside, access: 'read', scope: 'subtree',
-      }]);
+      assert.deepEqual(directoryPlan.proposal.profile.fileSystem?.entries, [
+        {
+          path: outside,
+          access: 'read',
+          scope: 'subtree',
+        },
+      ]);
     }
   });
 
@@ -194,13 +232,14 @@ describe('builtin file tools use the sandboxed worker', () => {
     assert.ok(read?.planAdditionalPermissions);
     assert.ok(grep?.planAdditionalPermissions);
 
-    assert.equal((await planFileTool(read, { path: 'inside.ts' }, alias, 'explore')).kind, 'not_required');
-    assert.equal((await planFileTool(
-      grep,
-      { pattern: 'inside', path: 'inside.ts' },
-      alias,
-      'explore',
-    )).kind, 'not_required');
+    assert.equal(
+      (await planFileTool(read, { path: 'inside.ts' }, alias, 'explore')).kind,
+      'not_required',
+    );
+    assert.equal(
+      (await planFileTool(grep, { pattern: 'inside', path: 'inside.ts' }, alias, 'explore')).kind,
+      'not_required',
+    );
   });
 
   test('serializes writes through real and symlinked cwd paths', async () => {
@@ -222,8 +261,13 @@ describe('builtin file tools use the sandboxed worker', () => {
           await new Promise((resolve) => setTimeout(resolve, 20));
           active -= 1;
           return {
-            kind: 'edit', ok: true, path: input.operation.path, replacements: 1,
-            matchedVia: 'exact', startLine: 1, endLine: 1,
+            kind: 'edit',
+            ok: true,
+            path: input.operation.path,
+            replacements: 1,
+            matchedVia: 'exact',
+            startLine: 1,
+            endLine: 1,
           };
         },
       },
@@ -231,12 +275,25 @@ describe('builtin file tools use the sandboxed worker', () => {
     });
 
     await Promise.all([
-      runTool(tools, 'Edit', { path: 'shared.txt', old_string: 'before', new_string: 'real' }, workspace),
-      runTool(tools, 'Edit', { path: 'shared.txt', old_string: 'before', new_string: 'alias' }, alias),
+      runTool(
+        tools,
+        'Edit',
+        { path: 'shared.txt', old_string: 'before', new_string: 'real' },
+        workspace,
+      ),
+      runTool(
+        tools,
+        'Edit',
+        { path: 'shared.txt', old_string: 'before', new_string: 'alias' },
+        alias,
+      ),
     ]);
 
     assert.equal(maxActive, 1);
-    assert.deepEqual(calls.map((call) => call.cwd), [workspace, workspace]);
+    assert.deepEqual(
+      calls.map((call) => call.cwd),
+      [workspace, workspace],
+    );
   });
 });
 

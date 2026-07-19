@@ -54,10 +54,7 @@ interface ResolvedEventCtx {
   newId: () => string;
 }
 
-function resolveCtx(
-  ctx: StoredMessageEventContext,
-  message: StoredMessage,
-): ResolvedEventCtx {
+function resolveCtx(ctx: StoredMessageEventContext, message: StoredMessage): ResolvedEventCtx {
   return {
     sessionId: ctx.sessionId,
     invocationId: ctx.invocationId,

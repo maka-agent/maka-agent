@@ -6,7 +6,12 @@
  * is enforced by the storage implementation.
  */
 
-import { TOOL_ACTIVITY_KINDS, type AttachmentRef, type ToolActivityKind, type ToolResultContent } from './events.js';
+import {
+  TOOL_ACTIVITY_KINDS,
+  type AttachmentRef,
+  type ToolActivityKind,
+  type ToolResultContent,
+} from './events.js';
 import type { PermissionMode } from './permission.js';
 import type {
   CacheMissInputSource,
@@ -14,7 +19,13 @@ import type {
   PrefixChangeReason,
   PromptSegmentEstimate,
 } from './usage-stats/types.js';
-import { defineObjectShape, hasExactShape, isFiniteNumber, isOptionalString, isRecord } from './record-schema.js';
+import {
+  defineObjectShape,
+  hasExactShape,
+  isFiniteNumber,
+  isOptionalString,
+  isRecord,
+} from './record-schema.js';
 import { isAttachmentRef, isPermissionDecisionFields } from './interaction-record-schema.js';
 import { isTokenUsageFields } from './usage-record-schema.js';
 import {
@@ -33,7 +44,7 @@ export const SESSION_STATUSES = [
   'aborted',
 ] as const;
 
-export type SessionStatus = typeof SESSION_STATUSES[number];
+export type SessionStatus = (typeof SESSION_STATUSES)[number];
 
 export const SESSION_BLOCKED_REASONS = [
   'NO_REAL_CONNECTION',
@@ -43,23 +54,20 @@ export const SESSION_BLOCKED_REASONS = [
   'unknown',
 ] as const;
 
-export type SessionBlockedReason = typeof SESSION_BLOCKED_REASONS[number];
+export type SessionBlockedReason = (typeof SESSION_BLOCKED_REASONS)[number];
 
-export const TURN_STATUSES = [
-  'running',
-  'completed',
-  'aborted',
-  'failed',
-] as const;
+export const TURN_STATUSES = ['running', 'completed', 'aborted', 'failed'] as const;
 
-export type TurnStatus = typeof TURN_STATUSES[number];
+export type TurnStatus = (typeof TURN_STATUSES)[number];
 
 export function isSessionStatus(value: unknown): value is SessionStatus {
   return typeof value === 'string' && (SESSION_STATUSES as readonly string[]).includes(value);
 }
 
 export function isSessionBlockedReason(value: unknown): value is SessionBlockedReason {
-  return typeof value === 'string' && (SESSION_BLOCKED_REASONS as readonly string[]).includes(value);
+  return (
+    typeof value === 'string' && (SESSION_BLOCKED_REASONS as readonly string[]).includes(value)
+  );
 }
 
 export function isTurnStatus(value: unknown): value is TurnStatus {
@@ -75,6 +83,8 @@ export interface SessionHeader {
   id: string;
   workspaceRoot: string;
   cwd: string;
+  /** One-shot model context to inject after a CLI session cwd move. */
+  pendingCwdReminder?: { from: string; to: string };
 
   // Lifecycle timestamps
   createdAt: number;
@@ -83,6 +93,7 @@ export interface SessionHeader {
 
   // User metadata
   name: string;
+  titleIsManual: boolean;
   isFlagged: boolean;
   labels: string[];
 
@@ -118,6 +129,8 @@ export type BackendKind = 'ai-sdk' | 'fake' | 'pi-agent';
 export interface SessionSummary {
   id: string;
   cwd?: string;
+  /** One-shot model context to inject after a CLI session cwd move. */
+  pendingCwdReminder?: { from: string; to: string };
   name: string;
   isFlagged: boolean;
   isArchived: boolean;
@@ -483,7 +496,9 @@ function decodeStoredMessage(
         (message.thinking === undefined || isAssistantThinking(message.thinking)) &&
         (message.contentOrder === undefined ||
           (Array.isArray(message.contentOrder) &&
-            message.contentOrder.every((item) => item === 'thinking' || item === 'text' || item === 'tools')))
+            message.contentOrder.every(
+              (item) => item === 'thinking' || item === 'text' || item === 'tools',
+            )))
       )
         return message as unknown as AssistantMessage;
       break;
@@ -572,7 +587,9 @@ function decodeStoredMessageContent(
 
 function hasMessageEnvelope(value: Record<string, unknown>, turnRequired: boolean): boolean {
   return (
-    typeof value.id === 'string' && isFiniteNumber(value.ts) && (turnRequired ? typeof value.turnId === 'string' : true)
+    typeof value.id === 'string' &&
+    isFiniteNumber(value.ts) &&
+    (turnRequired ? typeof value.turnId === 'string' : true)
   );
 }
 
@@ -619,17 +636,22 @@ export function deriveTurnRecords(messages: readonly StoredMessage[]): TurnRecor
     const latestState = bucket
       .filter((message): message is TurnStateMessage => message.type === 'turn_state')
       .at(-1);
-    const partialOutputRetained = bucket.some((message) =>
-      (message.type === 'assistant' && message.text.trim().length > 0) ||
-      message.type === 'tool_result',
+    const partialOutputRetained = bucket.some(
+      (message) =>
+        (message.type === 'assistant' && message.text.trim().length > 0) ||
+        message.type === 'tool_result',
     );
     if (latestState) {
       return {
         turnId,
         status: latestState.status,
         ...(latestState.parentTurnId ? { parentTurnId: latestState.parentTurnId } : {}),
-        ...(latestState.retriedFromTurnId ? { retriedFromTurnId: latestState.retriedFromTurnId } : {}),
-        ...(latestState.regeneratedFromTurnId ? { regeneratedFromTurnId: latestState.regeneratedFromTurnId } : {}),
+        ...(latestState.retriedFromTurnId
+          ? { retriedFromTurnId: latestState.retriedFromTurnId }
+          : {}),
+        ...(latestState.regeneratedFromTurnId
+          ? { regeneratedFromTurnId: latestState.regeneratedFromTurnId }
+          : {}),
         ...(latestState.branchOfTurnId ? { branchOfTurnId: latestState.branchOfTurnId } : {}),
         ...(latestState.parentSessionId ? { parentSessionId: latestState.parentSessionId } : {}),
         ...(latestState.abortedAt !== undefined ? { abortedAt: latestState.abortedAt } : {}),
@@ -647,8 +669,10 @@ export function deriveTurnRecords(messages: readonly StoredMessage[]): TurnRecor
 }
 
 function inferLegacyTurnStatus(messages: readonly StoredMessage[]): TurnStatus {
-  if (messages.some((message) => message.type === 'system_note' && message.kind === 'abort')) return 'aborted';
+  if (messages.some((message) => message.type === 'system_note' && message.kind === 'abort'))
+    return 'aborted';
   if (messages.some((message) => message.type === 'assistant')) return 'completed';
-  if (messages.some((message) => message.type === 'tool_result' && message.isError)) return 'failed';
+  if (messages.some((message) => message.type === 'tool_result' && message.isError))
+    return 'failed';
   return 'completed';
 }

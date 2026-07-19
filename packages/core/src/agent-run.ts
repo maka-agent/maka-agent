@@ -1,6 +1,12 @@
 import { isPermissionMode, type PermissionMode } from './permission.js';
 import type { BackendKind } from './session.js';
-import { defineObjectShape, hasExactShape, isFiniteNumber, isOptionalString, isRecord } from './record-schema.js';
+import {
+  defineObjectShape,
+  hasExactShape,
+  isFiniteNumber,
+  isOptionalString,
+  isRecord,
+} from './record-schema.js';
 
 export const AGENT_RUN_STATUSES = [
   'created',
@@ -11,7 +17,7 @@ export const AGENT_RUN_STATUSES = [
   'cancelled',
 ] as const;
 
-export type AgentRunStatus = typeof AGENT_RUN_STATUSES[number];
+export type AgentRunStatus = (typeof AGENT_RUN_STATUSES)[number];
 
 export interface AgentRunHeader {
   runId: string;
@@ -208,7 +214,12 @@ export interface AgentRunStore {
   ): Promise<AgentRunHeader>;
   readRun(sessionId: string, runId: string): Promise<AgentRunHeader>;
   listSessionRuns(sessionId: string): Promise<AgentRunHeader[]>;
-  appendEvent(sessionId: string, runId: string, event: AgentRunEvent, options?: { durable?: boolean }): Promise<void>;
+  appendEvent(
+    sessionId: string,
+    runId: string,
+    event: AgentRunEvent,
+    options?: { durable?: boolean },
+  ): Promise<void>;
   readEvents(sessionId: string, runId: string): Promise<AgentRunEvent[]>;
   /** `undefined` means uninitialized; `null` is an initialized empty projection. */
   readEventProjection?(

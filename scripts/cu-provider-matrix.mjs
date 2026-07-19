@@ -9,15 +9,8 @@ const EVIDENCE_CLASSES = new Set([
   'hermetic-protocol',
   'static-contract',
 ]);
-const REAL_REPORT_PRODUCERS = new Set([
-  'cu-real-model-launcher',
-  'cu-real-ax-model-e2e',
-]);
-const ACTIONS_WITHOUT_TARGET_OWNERSHIP = new Set([
-  'list_apps',
-  'wait',
-  'cursor_position',
-]);
+const REAL_REPORT_PRODUCERS = new Set(['cu-real-model-launcher', 'cu-real-ax-model-e2e']);
+const ACTIONS_WITHOUT_TARGET_OWNERSHIP = new Set(['list_apps', 'wait', 'cursor_position']);
 const ACTIONS_WITHOUT_OBSERVATION_LINEAGE = new Set([
   'list_apps',
   'observe',
@@ -64,9 +57,9 @@ function select(value, scenarioId) {
 
 function renderTemplate(value, variables) {
   if (typeof value === 'string') {
-    return value.replace(/\{([a-zA-Z][a-zA-Z0-9]*)\}/g, (match, name) => (
-      Object.hasOwn(variables, name) ? String(variables[name]) : match
-    ));
+    return value.replace(/\{([a-zA-Z][a-zA-Z0-9]*)\}/g, (match, name) =>
+      Object.hasOwn(variables, name) ? String(variables[name]) : match,
+    );
   }
   if (Array.isArray(value)) {
     return value.map((part) => renderTemplate(part, variables));
@@ -76,10 +69,12 @@ function renderTemplate(value, variables) {
 
 function displayCommand(command) {
   if (Array.isArray(command)) {
-    return command.map((part) => {
-      const text = String(part);
-      return /^[a-zA-Z0-9_./:=+-]+$/.test(text) ? text : JSON.stringify(text);
-    }).join(' ');
+    return command
+      .map((part) => {
+        const text = String(part);
+        return /^[a-zA-Z0-9_./:=+-]+$/.test(text) ? text : JSON.stringify(text);
+      })
+      .join(' ');
   }
   return typeof command === 'string' ? command : null;
 }
@@ -120,22 +115,24 @@ function valuesAtPath(value, path) {
 
 function deepSubsetEqual(actual, expected) {
   if (Array.isArray(expected)) {
-    return Array.isArray(actual)
-      && expected.length === actual.length
-      && expected.every((value, index) => deepSubsetEqual(actual[index], value));
+    return (
+      Array.isArray(actual) &&
+      expected.length === actual.length &&
+      expected.every((value, index) => deepSubsetEqual(actual[index], value))
+    );
   }
   if (expected && typeof expected === 'object') {
-    return actual != null
-      && typeof actual === 'object'
-      && Object.entries(expected).every(([key, value]) => deepSubsetEqual(actual[key], value));
+    return (
+      actual != null &&
+      typeof actual === 'object' &&
+      Object.entries(expected).every(([key, value]) => deepSubsetEqual(actual[key], value))
+    );
   }
   return Object.is(actual, expected);
 }
 
 function normalizeFixture(report, scenario) {
-  const assertions = Array.isArray(scenario.expectedState)
-    ? scenario.expectedState
-    : [];
+  const assertions = Array.isArray(scenario.expectedState) ? scenario.expectedState : [];
   if (assertions.length === 0) {
     return { status: 'not-defined', expected: [], actual: report.fixtureState ?? null };
   }
@@ -143,10 +140,7 @@ function normalizeFixture(report, scenario) {
     return { status: 'unknown', expected: assertions, actual: null };
   }
   const results = assertions.map((assertion) => {
-    const actual = valuesAtPath(
-      report.fixtureState?.[assertion.windowId],
-      assertion.path,
-    );
+    const actual = valuesAtPath(report.fixtureState?.[assertion.windowId], assertion.path);
     return {
       ...assertion,
       actual,
@@ -196,11 +190,10 @@ function normalizeForbiddenEffects(report, scenario) {
       continue;
     }
     if (definition.path) {
-      const actual = valuesAtPath(
-        report.fixtureState?.[definition.windowId],
-        definition.path,
-      );
-      const safeValue = Object.hasOwn(definition, 'equals') ? definition.equals : definition.allowed;
+      const actual = valuesAtPath(report.fixtureState?.[definition.windowId], definition.path);
+      const safeValue = Object.hasOwn(definition, 'equals')
+        ? definition.equals
+        : definition.allowed;
       if (actual === undefined) {
         missingEvidence = true;
       } else if (safeValue !== undefined && !deepSubsetEqual(actual, safeValue)) {
@@ -221,13 +214,14 @@ function normalizeForbiddenEffects(report, scenario) {
     violations.push(...reportedViolations);
   }
   return {
-    status: definitions.length === 0 && reported == null
-      ? 'not-defined'
-      : missingEvidence
-        ? 'unknown'
-        : violations.length > 0
-        ? 'fail'
-        : 'pass',
+    status:
+      definitions.length === 0 && reported == null
+        ? 'not-defined'
+        : missingEvidence
+          ? 'unknown'
+          : violations.length > 0
+            ? 'fail'
+            : 'pass',
     forbidden: definitions,
     observed,
     violations,
@@ -249,20 +243,24 @@ export function normalizeReport(report, scenario) {
     (action) => action?.toolLatencyMs ?? action?.toolLatency ?? action?.durationMs,
   );
   const actionDisplayValues = actions.map((action) => action?.displayLagMs ?? action?.displayLag);
-  const modelValues = finiteNumbers(actionModelValues).length > 0
-    ? actionModelValues
-    : [report.modelLatencyMs, report.modelLatency];
-  const toolValues = finiteNumbers(actionToolValues).length > 0
-    ? actionToolValues
-    : [report.toolLatencyMs, report.toolLatency];
-  const displayValues = finiteNumbers(actionDisplayValues).length > 0
-    ? actionDisplayValues
-    : [report.displayLagMs, report.displayLag];
+  const modelValues =
+    finiteNumbers(actionModelValues).length > 0
+      ? actionModelValues
+      : [report.modelLatencyMs, report.modelLatency];
+  const toolValues =
+    finiteNumbers(actionToolValues).length > 0
+      ? actionToolValues
+      : [report.toolLatencyMs, report.toolLatency];
+  const displayValues =
+    finiteNumbers(actionDisplayValues).length > 0
+      ? actionDisplayValues
+      : [report.displayLagMs, report.displayLag];
   return {
     evidenceClass: EVIDENCE_CLASSES.has(report.evidenceClass) ? report.evidenceClass : null,
-    policyMode: report.policyMode === 'enforced' || report.policyMode === 'bypassed'
-      ? report.policyMode
-      : null,
+    policyMode:
+      report.policyMode === 'enforced' || report.policyMode === 'bypassed'
+        ? report.policyMode
+        : null,
     modelLatency: summarizeLatency(modelValues),
     toolLatency: summarizeLatency(toolValues),
     displayLag: summarizeLatency(displayValues),
@@ -282,17 +280,22 @@ export function validateRealReport(report, provider, scenario) {
   }
   const generatedAt = Date.parse(report.generatedAt);
   if (
-    typeof report.generatedAt !== 'string'
-    || !Number.isFinite(generatedAt)
-    || new Date(generatedAt).toISOString() !== report.generatedAt
-  ) errors.push('generatedAt missing or invalid');
+    typeof report.generatedAt !== 'string' ||
+    !Number.isFinite(generatedAt) ||
+    new Date(generatedAt).toISOString() !== report.generatedAt
+  )
+    errors.push('generatedAt missing or invalid');
   if (
-    report.contentLineage?.generator !== `scripts/${report.producer === 'cu-real-model-launcher'
-      ? 'cu-real-model-launcher.mjs'
-      : 'cu-real-ax-model-e2e.mjs'}`
-    || report.contentLineage?.gitRevision !== report.gitRevision
-    || report.contentLineage?.generatedAt !== report.generatedAt
-  ) errors.push('contentLineage mismatch');
+    report.contentLineage?.generator !==
+      `scripts/${
+        report.producer === 'cu-real-model-launcher'
+          ? 'cu-real-model-launcher.mjs'
+          : 'cu-real-ax-model-e2e.mjs'
+      }` ||
+    report.contentLineage?.gitRevision !== report.gitRevision ||
+    report.contentLineage?.generatedAt !== report.generatedAt
+  )
+    errors.push('contentLineage mismatch');
   if (report.evidenceClass !== 'real-runtime') errors.push('evidenceClass must be real-runtime');
   if (report.scenarioId !== scenario.id) errors.push('scenarioId mismatch');
   if (report.status !== 'pass') errors.push('report status must be pass');
@@ -309,50 +312,61 @@ export function validateRealReport(report, provider, scenario) {
   const expectedModel = select(provider.model ?? provider.modelId, scenario.id);
   if (typeof expectedModel !== 'string' || !expectedModel) errors.push('expected model missing');
   else if (report.model !== expectedModel) errors.push('model mismatch');
-  if (
-    report.terminal?.type !== 'complete'
-    || report.terminal?.stopReason !== 'end_turn'
-  ) errors.push('terminal must be complete/end_turn');
+  if (report.terminal?.type !== 'complete' || report.terminal?.stopReason !== 'end_turn')
+    errors.push('terminal must be complete/end_turn');
   const actions = Array.isArray(report.actions) ? report.actions : [];
   const ledgerCounts = actionCounts(actions);
   if (report.actionAttempts !== actions.length) errors.push('actionAttempts mismatch');
   if (report.actionCount !== actions.length) errors.push('actionCount mismatch');
-  if (!deepSubsetEqual(report.actionCounts, ledgerCounts)
-    || Object.keys(report.actionCounts ?? {}).length !== Object.keys(ledgerCounts).length) {
+  if (
+    !deepSubsetEqual(report.actionCounts, ledgerCounts) ||
+    Object.keys(report.actionCounts ?? {}).length !== Object.keys(ledgerCounts).length
+  ) {
     errors.push('actionCounts mismatch');
   }
   if (report.minimumActionsPassed !== true) errors.push('minimumActionsPassed must be true');
   if (report.actionsWithinBudget !== true) errors.push('actionsWithinBudget must be true');
-  if (actions.some((action) =>
-    !scenario.allowedActions.includes(action.type)
-    || !actionResultAllowed(action, scenario))) {
+  if (
+    actions.some(
+      (action) =>
+        !scenario.allowedActions.includes(action.type) || !actionResultAllowed(action, scenario),
+    )
+  ) {
     errors.push('actions must be successful or scenario-authorized expected failures, and allowed');
   }
-  if (actions.some((action) =>
-    !ACTIONS_WITHOUT_TARGET_OWNERSHIP.has(action.type)
-    && !actionHasOwnedFixtureTrace(action, report.fixtureIdentity))) {
+  if (
+    actions.some(
+      (action) =>
+        !ACTIONS_WITHOUT_TARGET_OWNERSHIP.has(action.type) &&
+        !actionHasOwnedFixtureTrace(action, report.fixtureIdentity),
+    )
+  ) {
     errors.push('target ownership requires fixture PID/window trace evidence');
   }
   if (!actionLineageValid(actions)) {
     errors.push('action observation lineage is incomplete or out of order');
   }
   if (
-    scenario.expectedFailures?.some((expected) =>
-      expected.action === 'set_value' && expected.error === 'target_missing')
-    && !restartRecoveryValid(actions, report.driverTraces)
+    scenario.expectedFailures?.some(
+      (expected) => expected.action === 'set_value' && expected.error === 'target_missing',
+    ) &&
+    !restartRecoveryValid(actions, report.driverTraces)
   ) {
-    errors.push('restart recovery requires target_missing, fresh observation, and successful AX retry');
+    errors.push(
+      'restart recovery requires target_missing, fresh observation, and successful AX retry',
+    );
   }
   if (
-    Array.isArray(scenario.expectedActionSequence)
-    && !deepSubsetEqual(actions.map((action) => action.type), scenario.expectedActionSequence)
+    Array.isArray(scenario.expectedActionSequence) &&
+    !deepSubsetEqual(
+      actions.map((action) => action.type),
+      scenario.expectedActionSequence,
+    )
   ) {
     errors.push('action sequence mismatch');
   }
-  if (
-    Number.isInteger(scenario.maxTotalActions)
-    && actions.length > scenario.maxTotalActions
-  ) errors.push('total action budget exceeded');
+  if (Number.isInteger(scenario.maxTotalActions) && actions.length > scenario.maxTotalActions)
+    errors.push('total action budget exceeded');
   for (const [action, maximum] of Object.entries(scenario.maxActionCounts ?? {})) {
     if (actions.filter((entry) => entry.type === action).length > maximum) {
       errors.push(`${action} action budget exceeded`);
@@ -363,21 +377,25 @@ export function validateRealReport(report, provider, scenario) {
       errors.push(`${action} minimum action count missing`);
     }
   }
-  const mutationActions = actions.filter((action) =>
-    action.success === true
-    && !['list_apps', 'observe', 'screenshot', 'cursor_position', 'wait'].includes(action.type));
+  const mutationActions = actions.filter(
+    (action) =>
+      action.success === true &&
+      !['list_apps', 'observe', 'screenshot', 'cursor_position', 'wait'].includes(action.type),
+  );
   if (mutationActions.length > 0) {
     const traces = Array.isArray(report.driverTraces) ? report.driverTraces : [];
     const consumed = new Set();
     const missingDispatch = mutationActions.find((action) => {
-      const index = traces.findIndex((trace, traceIndex) =>
-        !consumed.has(traceIndex)
-        && trace.type === 'dispatch'
-        && trace.toolCallId === action.toolCallId
-        && trace.actionType === action.type
-        && trace.pid === action.targetPid
-        && trace.windowId === action.targetWindowId
-        && (trace.address === 'ax' || trace.address === 'semantic'));
+      const index = traces.findIndex(
+        (trace, traceIndex) =>
+          !consumed.has(traceIndex) &&
+          trace.type === 'dispatch' &&
+          trace.toolCallId === action.toolCallId &&
+          trace.actionType === action.type &&
+          trace.pid === action.targetPid &&
+          trace.windowId === action.targetWindowId &&
+          (trace.address === 'ax' || trace.address === 'semantic'),
+      );
       if (index < 0) return true;
       consumed.add(index);
       return false;
@@ -400,56 +418,71 @@ function actionCounts(actions) {
 }
 
 function restartRecoveryValid(actions, traces) {
-  const staleIndex = actions.findIndex((action) =>
-    action.type === 'set_value'
-    && action.success === false
-    && action.expectedFailure === true
-    && action.resultCode === 'target_missing');
+  const staleIndex = actions.findIndex(
+    (action) =>
+      action.type === 'set_value' &&
+      action.success === false &&
+      action.expectedFailure === true &&
+      action.resultCode === 'target_missing',
+  );
   if (staleIndex < 0) return false;
   const stale = actions[staleIndex];
-  const freshIndex = actions.findIndex((action, index) =>
-    index > staleIndex
-    && action.type === 'observe'
-    && action.success === true
-    && typeof action.resultObservationId === 'string'
-    && (
-      action.targetPid !== stale.targetPid
-      || action.targetWindowId !== stale.targetWindowId
-    ));
+  const freshIndex = actions.findIndex(
+    (action, index) =>
+      index > staleIndex &&
+      action.type === 'observe' &&
+      action.success === true &&
+      typeof action.resultObservationId === 'string' &&
+      (action.targetPid !== stale.targetPid || action.targetWindowId !== stale.targetWindowId),
+  );
   if (freshIndex < 0) return false;
   const fresh = actions[freshIndex];
-  const retry = actions.find((action, index) =>
-    index > freshIndex
-    && action.type === 'set_value'
-    && action.success === true
-    && action.sourceObservationId === fresh.resultObservationId
-    && action.targetPid === fresh.targetPid
-    && action.targetWindowId === fresh.targetWindowId);
+  const retry = actions.find(
+    (action, index) =>
+      index > freshIndex &&
+      action.type === 'set_value' &&
+      action.success === true &&
+      action.sourceObservationId === fresh.resultObservationId &&
+      action.targetPid === fresh.targetPid &&
+      action.targetWindowId === fresh.targetWindowId,
+  );
   if (!retry) return false;
-  return Array.isArray(traces) && traces.some((trace) =>
-    trace.type === 'dispatch'
-    && trace.toolCallId === retry.toolCallId
-    && trace.actionType === 'set_value'
-    && trace.pid === retry.targetPid
-    && trace.windowId === retry.targetWindowId
-    && trace.address === 'ax');
+  return (
+    Array.isArray(traces) &&
+    traces.some(
+      (trace) =>
+        trace.type === 'dispatch' &&
+        trace.toolCallId === retry.toolCallId &&
+        trace.actionType === 'set_value' &&
+        trace.pid === retry.targetPid &&
+        trace.windowId === retry.targetWindowId &&
+        trace.address === 'ax',
+    )
+  );
 }
 
 function actionHasOwnedFixtureTrace(action, fixtureIdentity) {
-  return action.targetOwned === true
-    && Array.isArray(fixtureIdentity?.instances)
-    && fixtureIdentity.instances.some((instance) =>
-      action.targetPid === instance.pid
-      && Array.isArray(instance.windowIds)
-      && instance.windowIds.includes(action.targetWindowId));
+  return (
+    action.targetOwned === true &&
+    Array.isArray(fixtureIdentity?.instances) &&
+    fixtureIdentity.instances.some(
+      (instance) =>
+        action.targetPid === instance.pid &&
+        Array.isArray(instance.windowIds) &&
+        instance.windowIds.includes(action.targetWindowId),
+    )
+  );
 }
 
 function actionResultAllowed(action, scenario) {
   if (action.success === true) return true;
   if (action.expectedFailure !== true || typeof action.resultCode !== 'string') return false;
-  return Array.isArray(scenario.expectedFailures)
-    && scenario.expectedFailures.some((expected) =>
-      expected.action === action.type && expected.error === action.resultCode);
+  return (
+    Array.isArray(scenario.expectedFailures) &&
+    scenario.expectedFailures.some(
+      (expected) => expected.action === action.type && expected.error === action.resultCode,
+    )
+  );
 }
 
 function actionLineageValid(actions) {
@@ -457,13 +490,11 @@ function actionLineageValid(actions) {
   let latestTarget;
   for (const action of actions) {
     if (
-      !ACTIONS_WITHOUT_OBSERVATION_LINEAGE.has(action.type)
-      && (
-        typeof action.sourceObservationId !== 'string'
-        || action.sourceObservationId !== latestObservationId
-        || action.targetPid !== latestTarget?.pid
-        || action.targetWindowId !== latestTarget?.windowId
-      )
+      !ACTIONS_WITHOUT_OBSERVATION_LINEAGE.has(action.type) &&
+      (typeof action.sourceObservationId !== 'string' ||
+        action.sourceObservationId !== latestObservationId ||
+        action.targetPid !== latestTarget?.pid ||
+        action.targetWindowId !== latestTarget?.windowId)
     ) {
       return false;
     }
@@ -485,14 +516,10 @@ function rowStatus(readiness, report, metrics) {
   if (readiness === 'unsupported') return 'unsupported';
   if (readiness === 'contract') return 'contract-only';
   if (!report) return 'missing-report';
-  if (
-    metrics.fixture.status === 'fail'
-    || metrics.forbiddenEffects.status === 'fail'
-  ) return 'fail';
-  if (
-    metrics.fixture.status === 'unknown'
-    || metrics.forbiddenEffects.status === 'unknown'
-  ) return 'inconclusive';
+  if (metrics.fixture.status === 'fail' || metrics.forbiddenEffects.status === 'fail')
+    return 'fail';
+  if (metrics.fixture.status === 'unknown' || metrics.forbiddenEffects.status === 'unknown')
+    return 'inconclusive';
   if (report.policyMode === 'bypassed') return 'pass-policy-bypassed';
   return 'pass';
 }
@@ -507,10 +534,12 @@ function resolveReportPath(rawPath, baseDir) {
 }
 
 function reportTemplateFor(provider, scenario) {
-  return scenario.reports?.[provider.id]
-    ?? select(provider.reports, scenario.id)
-    ?? select(provider.reportTemplate ?? provider.report, scenario.id)
-    ?? select(scenario.reportTemplate ?? scenario.report, provider.id);
+  return (
+    scenario.reports?.[provider.id] ??
+    select(provider.reports, scenario.id) ??
+    select(provider.reportTemplate ?? provider.report, scenario.id) ??
+    select(scenario.reportTemplate ?? scenario.report, provider.id)
+  );
 }
 
 export async function buildProviderMatrix({
@@ -572,39 +601,38 @@ export async function buildProviderMatrix({
       if (readiness === 'real' && reportPath) {
         try {
           report = await loadReport(reportPath);
-          const validationErrors = validateRealReport(
-            report,
-            provider,
-            scenario,
-          );
+          const validationErrors = validateRealReport(report, provider, scenario);
           if (validationErrors.length > 0) {
             reportError = validationErrors.join('; ');
             report = null;
           }
         } catch (error) {
-          if (error?.code !== 'ENOENT') reportError = error instanceof Error ? error.message : String(error);
+          if (error?.code !== 'ENOENT')
+            reportError = error instanceof Error ? error.message : String(error);
         }
       }
-      const metrics = report ? normalizeReport(report, scenario) : {
-        evidenceClass: null,
-        policyMode: null,
-        modelLatency: null,
-        toolLatency: null,
-        displayLag: null,
-        actionCount: null,
-        retries: null,
-        fixture: {
-          status: scenario.fixture == null ? 'not-defined' : 'unknown',
-          expected: scenario.fixture?.expected ?? scenario.fixture ?? null,
-          actual: null,
-        },
-        forbiddenEffects: {
-          status: scenario.forbiddenEffects == null ? 'not-defined' : 'unknown',
-          forbidden: scenario.forbiddenEffects ?? [],
-          observed: [],
-          violations: [],
-        },
-      };
+      const metrics = report
+        ? normalizeReport(report, scenario)
+        : {
+            evidenceClass: null,
+            policyMode: null,
+            modelLatency: null,
+            toolLatency: null,
+            displayLag: null,
+            actionCount: null,
+            retries: null,
+            fixture: {
+              status: scenario.fixture == null ? 'not-defined' : 'unknown',
+              expected: scenario.fixture?.expected ?? scenario.fixture ?? null,
+              actual: null,
+            },
+            forbiddenEffects: {
+              status: scenario.forbiddenEffects == null ? 'not-defined' : 'unknown',
+              forbidden: scenario.forbiddenEffects ?? [],
+              observed: [],
+              violations: [],
+            },
+          };
       rows.push({
         providerId: provider.id,
         provider: provider.label ?? provider.name ?? provider.id,
@@ -621,7 +649,10 @@ export async function buildProviderMatrix({
   }
 
   const readinessCounts = Object.fromEntries(
-    [...READINESS].map((readiness) => [readiness, rows.filter((row) => row.readiness === readiness).length]),
+    [...READINESS].map((readiness) => [
+      readiness,
+      rows.filter((row) => row.readiness === readiness).length,
+    ]),
   );
   const statusCounts = {};
   for (const row of rows) statusCounts[row.status] = (statusCounts[row.status] ?? 0) + 1;
@@ -644,7 +675,9 @@ function latencyCell(summary) {
 }
 
 function escapeCell(value) {
-  return String(value ?? '-').replace(/\|/g, '\\|').replace(/\r?\n/g, '<br>');
+  return String(value ?? '-')
+    .replace(/\|/g, '\\|')
+    .replace(/\r?\n/g, '<br>');
 }
 
 export function renderMarkdown(matrix) {
@@ -659,25 +692,33 @@ export function renderMarkdown(matrix) {
     '| --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- |',
   ];
   for (const row of matrix.rows) {
-    lines.push([
-      row.provider,
-      row.scenario,
-      row.readiness,
-      row.evidenceClass,
-      row.policyMode,
-      row.status,
-      latencyCell(row.modelLatency),
-      latencyCell(row.toolLatency),
-      latencyCell(row.displayLag),
-      row.actionCount,
-      row.retries,
-      row.fixture.status,
-      row.forbiddenEffects.status,
-    ].map(escapeCell).join(' | ').replace(/^/, '| ').replace(/$/, ' |'));
+    lines.push(
+      [
+        row.provider,
+        row.scenario,
+        row.readiness,
+        row.evidenceClass,
+        row.policyMode,
+        row.status,
+        latencyCell(row.modelLatency),
+        latencyCell(row.toolLatency),
+        latencyCell(row.displayLag),
+        row.actionCount,
+        row.retries,
+        row.fixture.status,
+        row.forbiddenEffects.status,
+      ]
+        .map(escapeCell)
+        .join(' | ')
+        .replace(/^/, '| ')
+        .replace(/$/, ' |'),
+    );
   }
   lines.push('', '## Commands', '');
   for (const row of matrix.rows) {
-    lines.push(`- **${row.provider} / ${row.scenario}**: ${row.command ? `\`${row.command.replace(/`/g, '\\`')}\`` : '_none_'}`);
+    lines.push(
+      `- **${row.provider} / ${row.scenario}**: ${row.command ? `\`${row.command.replace(/`/g, '\\`')}\`` : '_none_'}`,
+    );
   }
   lines.push('');
   return `${lines.join('\n')}\n`;
@@ -686,8 +727,8 @@ export function renderMarkdown(matrix) {
 export async function runCli(argv = process.argv.slice(2)) {
   if (argv.includes('--help') || argv.includes('-h')) {
     process.stdout.write(
-      'Usage: node scripts/cu-provider-matrix.mjs --scenarios scenarios.json '
-      + '--providers providers.json --json matrix.json --markdown matrix.md\n',
+      'Usage: node scripts/cu-provider-matrix.mjs --scenarios scenarios.json ' +
+        '--providers providers.json --json matrix.json --markdown matrix.md\n',
     );
     return;
   }
@@ -714,13 +755,17 @@ export async function runCli(argv = process.argv.slice(2)) {
     writeFile(jsonPath, `${JSON.stringify(matrix, null, 2)}\n`, 'utf8'),
     writeFile(markdownPath, renderMarkdown(matrix), 'utf8'),
   ]);
-  process.stdout.write(`Computer Use provider matrix: ${jsonPath}\nMarkdown report: ${markdownPath}\n`);
+  process.stdout.write(
+    `Computer Use provider matrix: ${jsonPath}\nMarkdown report: ${markdownPath}\n`,
+  );
 }
 
 const isMain = process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
 if (isMain) {
   runCli().catch((error) => {
-    console.error(`Computer Use provider matrix failed: ${error instanceof Error ? error.message : error}`);
+    console.error(
+      `Computer Use provider matrix failed: ${error instanceof Error ? error.message : error}`,
+    );
     process.exitCode = 1;
   });
 }

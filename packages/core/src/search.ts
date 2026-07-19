@@ -47,7 +47,12 @@ export type SearchSourceSnapshot =
   | { kind: 'activity'; provider: 'local'; enabled: boolean; permissionRequired: true }
   | { kind: 'tool'; provider: 'local' | 'api'; enabled: boolean }
   | { kind: 'web'; provider: SearchProviderKind; enabled: boolean; hasCredentials?: boolean }
-  | { kind: 'web_fetch'; provider: 'browser_scrape' | 'api'; enabled: boolean; authenticatedBrowser?: boolean };
+  | {
+      kind: 'web_fetch';
+      provider: 'browser_scrape' | 'api';
+      enabled: boolean;
+      authenticatedBrowser?: boolean;
+    };
 
 export interface SearchRequest {
   source: SearchSourceKind;
@@ -84,8 +89,7 @@ export interface WebFetchRequest {
  * route via the existing renderer-side session-pane state (sessionId →
  * load session, turnId → scroll-into-view), NOT via a URL router.
  */
-export type SearchResultTarget =
-  | { kind: 'thread'; sessionId: string; turnId?: string };
+export type SearchResultTarget = { kind: 'thread'; sessionId: string; turnId?: string };
 
 export interface SearchResult {
   source: SearchSourceKind;
@@ -131,7 +135,10 @@ export function normalizeSearchQuery(input: unknown): SearchNormalizeResult<stri
     return invalid('invalid_query', 'Search query cannot be empty');
   }
   if (Array.from(value).length > SEARCH_QUERY_MAX_CHARS) {
-    return invalid('invalid_query', `Search query must be ${SEARCH_QUERY_MAX_CHARS} characters or fewer`);
+    return invalid(
+      'invalid_query',
+      `Search query must be ${SEARCH_QUERY_MAX_CHARS} characters or fewer`,
+    );
   }
   return { ok: true, value };
 }
@@ -164,10 +171,15 @@ export function normalizeSearchDomain(input: unknown): SearchNormalizeResult<str
     return invalid('invalid_domain', 'Search domain cannot be empty');
   }
   if (trimmed.length > SEARCH_DOMAIN_MAX_CHARS) {
-    return invalid('invalid_domain', `Search domain must be ${SEARCH_DOMAIN_MAX_CHARS} characters or fewer`);
+    return invalid(
+      'invalid_domain',
+      `Search domain must be ${SEARCH_DOMAIN_MAX_CHARS} characters or fewer`,
+    );
   }
   try {
-    const hostname = (trimmed.includes('://') ? new URL(trimmed) : new URL(`https://${trimmed}`)).hostname
+    const hostname = (
+      trimmed.includes('://') ? new URL(trimmed) : new URL(`https://${trimmed}`)
+    ).hostname
       .toLowerCase()
       .replace(/\.$/, '');
     if (!hostname || hostname.includes('..')) {
@@ -206,7 +218,9 @@ export function searchDomainMatches(hostname: string, domains: readonly string[]
   if (!normalized.ok) {
     return false;
   }
-  return domains.some((domain) => normalized.value === domain || normalized.value.endsWith(`.${domain}`));
+  return domains.some(
+    (domain) => normalized.value === domain || normalized.value.endsWith(`.${domain}`),
+  );
 }
 
 export function normalizeSearchUrl(input: unknown): SearchNormalizeResult<string> {
@@ -236,7 +250,10 @@ export function stripSearchTrackingParams(url: URL): URL {
   const next = new URL(url.toString());
   for (const key of Array.from(next.searchParams.keys())) {
     const lower = key.toLowerCase();
-    if (TRACKING_PARAM_NAMES.has(lower) || TRACKING_PARAM_PREFIXES.some((prefix) => lower.startsWith(prefix))) {
+    if (
+      TRACKING_PARAM_NAMES.has(lower) ||
+      TRACKING_PARAM_PREFIXES.some((prefix) => lower.startsWith(prefix))
+    ) {
       next.searchParams.delete(key);
     }
   }

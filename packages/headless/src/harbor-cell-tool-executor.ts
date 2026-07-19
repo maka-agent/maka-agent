@@ -5,11 +5,7 @@
 // the shell plumbing in one place.
 import { exec as nodeExec } from 'node:child_process';
 import { promisify } from 'node:util';
-import {
-  defaultShellPlan,
-  runShellWithBoundedTail,
-  type MakaTool,
-} from '@maka/runtime';
+import { defaultShellPlan, runShellWithBoundedTail, type MakaTool } from '@maka/runtime';
 import { numericEnv, type RunHarborCellEnv } from './headless-run-env.js';
 import type { IsolatedToolExecutor } from './isolation.js';
 import { ISOLATED_HEADLESS_TOOL_NAMES } from './isolation.js';
@@ -25,21 +21,20 @@ export function buildHarborCellAiSdkTools(
   options: BuildIsolatedHeadlessToolsOptions = {},
 ): MakaTool[] {
   const nonInteractiveToolNames = new Set<string>(ISOLATED_HEADLESS_TOOL_NAMES);
-  return buildIsolatedHeadlessTools(executor, options).map((tool) => (
-    nonInteractiveToolNames.has(tool.name)
-      ? { ...tool, permissionRequired: false }
-      : tool
-  ));
+  return buildIsolatedHeadlessTools(executor, options).map((tool) =>
+    nonInteractiveToolNames.has(tool.name) ? { ...tool, permissionRequired: false } : tool,
+  );
 }
 
-export function createHarborHttpToolExecutor(env: RunHarborCellEnv = process.env): IsolatedToolExecutor {
+export function createHarborHttpToolExecutor(
+  env: RunHarborCellEnv = process.env,
+): IsolatedToolExecutor {
   const baseUrl = requiredHarborEnv(env, 'MAKA_HARBOR_TOOL_EXECUTOR_URL');
   const token = requiredHarborEnv(env, 'MAKA_HARBOR_TOOL_EXECUTOR_TOKEN');
   return {
     exec: async (input, control) => {
-      const timeoutSec = input.timeoutMs === undefined
-        ? undefined
-        : Math.max(1, Math.ceil(input.timeoutMs / 1000));
+      const timeoutSec =
+        input.timeoutMs === undefined ? undefined : Math.max(1, Math.ceil(input.timeoutMs / 1000));
       const response = await fetch(new URL('/exec', baseUrl), {
         method: 'POST',
         headers: {
@@ -55,7 +50,8 @@ export function createHarborHttpToolExecutor(env: RunHarborCellEnv = process.env
       const body = await response.text();
       if (!response.ok) return { exitCode: 1, stdout: '', stderr: body };
       const parsed: unknown = JSON.parse(body);
-      if (!isRecord(parsed)) return { exitCode: 1, stdout: '', stderr: 'Harbor bridge returned a non-object response' };
+      if (!isRecord(parsed))
+        return { exitCode: 1, stdout: '', stderr: 'Harbor bridge returned a non-object response' };
       const exitCode = parsed.exitCode ?? parsed.returnCode;
       return {
         exitCode: typeof exitCode === 'number' && Number.isInteger(exitCode) ? exitCode : 1,
@@ -66,12 +62,15 @@ export function createHarborHttpToolExecutor(env: RunHarborCellEnv = process.env
   };
 }
 
-export function createHarborCellLocalToolExecutor(env: RunHarborCellEnv = process.env): IsolatedToolExecutor {
+export function createHarborCellLocalToolExecutor(
+  env: RunHarborCellEnv = process.env,
+): IsolatedToolExecutor {
   const childEnv = childProcessEnv(env);
   // A command that does not request its own timeout falls back to this. Some
   // Terminal-Bench tasks build or test for longer than the 2-minute default, so
   // the floor is operator-configurable instead of a hard-coded failure source.
-  const defaultTimeoutMs = numericEnv(env.MAKA_CELL_COMMAND_TIMEOUT_MS) ?? HARBOR_CELL_DEFAULT_COMMAND_TIMEOUT_MS;
+  const defaultTimeoutMs =
+    numericEnv(env.MAKA_CELL_COMMAND_TIMEOUT_MS) ?? HARBOR_CELL_DEFAULT_COMMAND_TIMEOUT_MS;
   // The shell this executor spawns in (PowerShell on Windows). Exposed as
   // `shell` so buildIsolatedBashTool DECLARES the dialect to the model, and
   // passed to runShellWithBoundedTail so the declaration matches execution —

@@ -28,11 +28,16 @@ async function verifyRunnableVersion(binaryPath, expectedVersion) {
     env: { ...process.env, OFFICECLI_SKIP_UPDATE: '1' },
   });
   if (!officeCliVersionMatches(stdout, expectedVersion)) {
-    throw new Error(`OfficeCLI bundle version mismatch: expected ${expectedVersion}, got ${stdout.trim()}`);
+    throw new Error(
+      `OfficeCLI bundle version mismatch: expected ${expectedVersion}, got ${stdout.trim()}`,
+    );
   }
 }
 
-export async function checkOfficeCliBundle(targetPlatform = process.platform, targetArch = process.arch) {
+export async function checkOfficeCliBundle(
+  targetPlatform = process.platform,
+  targetArch = process.arch,
+) {
   const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
   const asset = assetForTarget(targetPlatform, targetArch);
   const binaryName = binaryNameForPlatform(targetPlatform);
@@ -44,7 +49,7 @@ export async function checkOfficeCliBundle(targetPlatform = process.platform, ta
   } catch {
     throw new Error(
       `OfficeCLI bundle missing for ${targetPlatform}-${targetArch} (${asset}). ` +
-      `Run \`npm run prepare:officecli -- --platform ${targetPlatform} --arch ${targetArch}\` before packaging.`,
+        `Run \`npm run prepare:officecli -- --platform ${targetPlatform} --arch ${targetArch}\` before packaging.`,
     );
   }
 
@@ -68,5 +73,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const platform = readArg('--platform') ?? process.platform;
   const arch = readArg('--arch') ?? process.arch;
   const result = await checkOfficeCliBundle(platform, arch);
-  process.stdout.write(`Verified OfficeCLI ${result.version} bundle for ${platform}-${arch}: ${result.binaryPath}\n`);
+  process.stdout.write(
+    `Verified OfficeCLI ${result.version} bundle for ${platform}-${arch}: ${result.binaryPath}\n`,
+  );
 }

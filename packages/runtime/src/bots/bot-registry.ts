@@ -7,7 +7,14 @@ import { FeishuBotBridge } from './feishu-bridge.js';
 import { DiscordBotBridge } from './discord-bridge.js';
 import { QQBotBridge } from './qq-bridge.js';
 import { SimpleBotBridge } from './simple-bridge.js';
-import type { BotBridge, BotIncomingMessage, BotPlatform, BotSendOptions, BotStatus, SendCapable } from './types.js';
+import type {
+  BotBridge,
+  BotIncomingMessage,
+  BotPlatform,
+  BotSendOptions,
+  BotStatus,
+  SendCapable,
+} from './types.js';
 import { WechatBridge } from './wechat-bridge.js';
 import { WeComBotBridge } from './wecom-bridge.js';
 
@@ -35,11 +42,17 @@ export class BotRegistry extends EventEmitter {
   }
 
   getStatus(platform: BotPlatform): BotStatus {
-    return this.bridges.get(platform)?.getStatus() ?? this.statuses.get(platform) ?? defaultStatus(platform);
+    return (
+      this.bridges.get(platform)?.getStatus() ??
+      this.statuses.get(platform) ??
+      defaultStatus(platform)
+    );
   }
 
   allStatuses(): Record<BotProvider, BotStatus> {
-    return Object.fromEntries(BOT_PROVIDERS.map((provider) => [provider, this.getStatus(provider)])) as Record<BotProvider, BotStatus>;
+    return Object.fromEntries(
+      BOT_PROVIDERS.map((provider) => [provider, this.getStatus(provider)]),
+    ) as Record<BotProvider, BotStatus>;
   }
 
   async sendMessage(
@@ -75,7 +88,9 @@ export class BotRegistry extends EventEmitter {
   }
 
   private async applySettingsNow(settings: BotChatSettings): Promise<void> {
-    await Promise.all(BOT_PROVIDERS.map((provider) => this.reconcileOne(provider, settings.channels[provider])));
+    await Promise.all(
+      BOT_PROVIDERS.map((provider) => this.reconcileOne(provider, settings.channels[provider])),
+    );
   }
 
   private async stopAllNow(): Promise<void> {
@@ -104,7 +119,9 @@ export class BotRegistry extends EventEmitter {
     }
 
     if (existing) {
-      const update = (existing as { updateSettings?: (next: BotChannelSettings) => { needsRestart: boolean } }).updateSettings;
+      const update = (
+        existing as { updateSettings?: (next: BotChannelSettings) => { needsRestart: boolean } }
+      ).updateSettings;
       if (update && !update.call(existing, settings).needsRestart) return;
       await existing.stop().catch(() => {});
       // Drop our 'message' / 'statusChange' listeners on the old
@@ -138,7 +155,11 @@ export class BotRegistry extends EventEmitter {
                   : new SimpleBotBridge(platform, settings);
     this.wire(bridge);
     this.bridges.set(platform, bridge);
-    await bridge.start().catch((error) => console.error(`[BotRegistry] ${platform} start failed: ${generalizedErrorMessage(error)}`));
+    await bridge
+      .start()
+      .catch((error) =>
+        console.error(`[BotRegistry] ${platform} start failed: ${generalizedErrorMessage(error)}`),
+      );
   }
 
   private wire(bridge: BotBridge): void {
@@ -191,9 +212,10 @@ function scaffoldStatus(platform: BotPlatform, settings: BotChannelSettings): Bo
     platform,
     running: false,
     readiness: readinessFromSettings(settings),
-    reason: settings.token.trim() || settings.appId || settings.appSecret
-      ? 'scaffold-only'
-      : 'unimplemented',
+    reason:
+      settings.token.trim() || settings.appId || settings.appSecret
+        ? 'scaffold-only'
+        : 'unimplemented',
     connection: 'none',
   };
 }

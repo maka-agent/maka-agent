@@ -50,21 +50,66 @@ export function planMatrixRetry(
       }
       const taxonomy = taxonomyFromResultRecord(prior);
       if (only && !only.has(taxonomy)) {
-        decisions.push({ task, config, key, prior, taxonomy, action: 'skip', reason: `taxonomy ${taxonomy} not selected` });
+        decisions.push({
+          task,
+          config,
+          key,
+          prior,
+          taxonomy,
+          action: 'skip',
+          reason: `taxonomy ${taxonomy} not selected`,
+        });
         continue;
       }
       if (prior.passed) {
-        decisions.push({ task, config, key, prior, taxonomy, action: 'skip', reason: 'already passed' });
+        decisions.push({
+          task,
+          config,
+          key,
+          prior,
+          taxonomy,
+          action: 'skip',
+          reason: 'already passed',
+        });
         continue;
       }
-      if (!options.retryFailed && prior.status === 'completed' && prior.scored !== false && prior.eligible !== false) {
-        decisions.push({ task, config, key, prior, taxonomy, action: 'skip', reason: 'completed benchmark result already recorded' });
+      if (
+        !options.retryFailed &&
+        prior.status === 'completed' &&
+        prior.scored !== false &&
+        prior.eligible !== false
+      ) {
+        decisions.push({
+          task,
+          config,
+          key,
+          prior,
+          taxonomy,
+          action: 'skip',
+          reason: 'completed benchmark result already recorded',
+        });
         continue;
       }
       if (isRetryableTaxonomy(taxonomy)) {
-        decisions.push({ task, config, key, prior, taxonomy, action: 'retry', reason: `retryable taxonomy ${taxonomy}` });
+        decisions.push({
+          task,
+          config,
+          key,
+          prior,
+          taxonomy,
+          action: 'retry',
+          reason: `retryable taxonomy ${taxonomy}`,
+        });
       } else {
-        decisions.push({ task, config, key, prior, taxonomy, action: 'skip', reason: `non-retryable taxonomy ${taxonomy}` });
+        decisions.push({
+          task,
+          config,
+          key,
+          prior,
+          taxonomy,
+          action: 'skip',
+          reason: `non-retryable taxonomy ${taxonomy}`,
+        });
       }
     }
   }
@@ -72,11 +117,13 @@ export function planMatrixRetry(
 }
 
 export function isRetryableTaxonomy(taxonomy: AutonomousResultTaxonomy): boolean {
-  return taxonomy === 'verification_failed' ||
+  return (
+    taxonomy === 'verification_failed' ||
     taxonomy === 'verification_error' ||
     taxonomy === 'agent_failed' ||
     taxonomy === 'agent_incomplete' ||
-    taxonomy === 'budget_exhausted';
+    taxonomy === 'budget_exhausted'
+  );
 }
 
 export async function readMatrixPriorRecords(inputPath: string): Promise<ResultRecord[]> {
@@ -109,7 +156,8 @@ export async function readTaskRunStoreRecords(storageRoot: string): Promise<Resu
     if (!entry.endsWith('.jsonl')) continue;
     const taskRunId = entry.slice(0, -'.jsonl'.length);
     const projection = await store.project(taskRunId);
-    if (!isTerminalTaskRunStatus(projection.status) && projection.status !== 'needs_approval') continue;
+    if (!isTerminalTaskRunStatus(projection.status) && projection.status !== 'needs_approval')
+      continue;
     records.push(resultRecordFromTaskRunProjection(projection));
   }
   return records;
@@ -124,5 +172,7 @@ function latestRecordsByCell(records: readonly ResultRecord[]): Map<string, Resu
 }
 
 function isNotFound(error: unknown): boolean {
-  return typeof error === 'object' && error !== null && (error as { code?: string }).code === 'ENOENT';
+  return (
+    typeof error === 'object' && error !== null && (error as { code?: string }).code === 'ENOENT'
+  );
 }

@@ -78,7 +78,12 @@ export function negotiateProtocol(client: ProtocolRange, host: ProtocolRange): n
 }
 
 export function validateProtocolRange(range: ProtocolRange): void {
-  if (!Number.isSafeInteger(range.min) || !Number.isSafeInteger(range.max) || range.min < 1 || range.max < range.min) {
+  if (
+    !Number.isSafeInteger(range.min) ||
+    !Number.isSafeInteger(range.max) ||
+    range.min < 1 ||
+    range.max < range.min
+  ) {
     throw invalidFrame('Invalid protocol range');
   }
 }
@@ -164,7 +169,10 @@ export function decodeHostRegistration(value: unknown): HostRegistration {
 export function encodeProtocolFrame(value: ClientFrame | HostFrame): Buffer {
   const encoded = Buffer.from(`${JSON.stringify(value)}\n`, 'utf8');
   if (encoded.byteLength > RUNTIME_HOST_MAX_FRAME_BYTES) {
-    throw new RuntimeHostProtocolError('frame_too_large', 'Runtime Host frame exceeds the byte limit');
+    throw new RuntimeHostProtocolError(
+      'frame_too_large',
+      'Runtime Host frame exceeds the byte limit',
+    );
   }
   return encoded;
 }
@@ -181,8 +189,14 @@ export class ProtocolFrameDecoder {
       const end = newline === -1 ? chunk.byteLength : newline;
       const segment = Buffer.from(chunk.subarray(offset, end));
       const delimiterBytes = newline === -1 ? 0 : 1;
-      if (this.#pending.byteLength + segment.byteLength + delimiterBytes > RUNTIME_HOST_MAX_FRAME_BYTES) {
-        throw new RuntimeHostProtocolError('frame_too_large', 'Runtime Host frame exceeds the byte limit');
+      if (
+        this.#pending.byteLength + segment.byteLength + delimiterBytes >
+        RUNTIME_HOST_MAX_FRAME_BYTES
+      ) {
+        throw new RuntimeHostProtocolError(
+          'frame_too_large',
+          'Runtime Host frame exceeds the byte limit',
+        );
       }
       if (segment.byteLength > 0) this.#pending = Buffer.concat([this.#pending, segment]);
       if (newline === -1) break;
@@ -195,7 +209,10 @@ export class ProtocolFrameDecoder {
 
   end(): void {
     if (this.#pending.byteLength !== 0) {
-      throw new RuntimeHostProtocolError('invalid_frame', 'Runtime Host stream ended with a partial frame');
+      throw new RuntimeHostProtocolError(
+        'invalid_frame',
+        'Runtime Host stream ended with a partial frame',
+      );
     }
   }
 
@@ -217,7 +234,8 @@ export class ProtocolFrameDecoder {
 }
 
 function requireRecord(value: unknown, label: string): Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw invalidFrame(`Invalid ${label}`);
+  if (!value || typeof value !== 'object' || Array.isArray(value))
+    throw invalidFrame(`Invalid ${label}`);
   return value as Record<string, unknown>;
 }
 
@@ -243,14 +261,27 @@ function requireCount(value: unknown, label: string): number {
 }
 
 function requireSurface(value: unknown): ClientSurface {
-  if (value === 'desktop' || value === 'tui' || value === 'run' || value === 'bot'
-    || value === 'open_gateway' || value === 'inspect') return value;
+  if (
+    value === 'desktop' ||
+    value === 'tui' ||
+    value === 'run' ||
+    value === 'bot' ||
+    value === 'open_gateway' ||
+    value === 'inspect'
+  )
+    return value;
   throw invalidFrame('Invalid surface');
 }
 
 function requireHostState(value: unknown): HostLifecycleState {
-  if (value === 'starting' || value === 'containing' || value === 'recovering'
-    || value === 'ready' || value === 'draining') return value;
+  if (
+    value === 'starting' ||
+    value === 'containing' ||
+    value === 'recovering' ||
+    value === 'ready' ||
+    value === 'draining'
+  )
+    return value;
   throw invalidFrame('Invalid Host state');
 }
 

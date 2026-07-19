@@ -21,16 +21,26 @@ describe('AgentMailboxStore', () => {
   test('persists direct and broadcast messages with a monotonic scope cursor', async () => {
     const root = await tempRoot();
     let id = 0;
-    const store = createAgentMailboxStore(root, { newId: () => `message-${++id}`, now: () => 100 + id });
+    const store = createAgentMailboxStore(root, {
+      newId: () => `message-${++id}`,
+      now: () => 100 + id,
+    });
     const correctness = member('expert:code-review:correctness-reviewer', 'run-a', 'turn-a');
     const tests = member('expert:code-review:test-coverage-reviewer', 'run-b', 'turn-b');
 
     const first = await store.send(SESSION_ID, {
-      teamId: TEAM_ID, parentRunId: PARENT_RUN_ID, kind: 'message', from: correctness,
-      to: { role: 'member', agentId: tests.agentId }, content: 'Please verify the race.',
+      teamId: TEAM_ID,
+      parentRunId: PARENT_RUN_ID,
+      kind: 'message',
+      from: correctness,
+      to: { role: 'member', agentId: tests.agentId },
+      content: 'Please verify the race.',
     });
     const second = await store.send(SESSION_ID, {
-      teamId: TEAM_ID, parentRunId: PARENT_RUN_ID, kind: 'broadcast', from: correctness,
+      teamId: TEAM_ID,
+      parentRunId: PARENT_RUN_ID,
+      kind: 'broadcast',
+      from: correctness,
       content: 'The ownership invariant is in task-ledger-store.ts.',
     });
     assert.equal(first.message.seq, 1);
@@ -38,9 +48,14 @@ describe('AgentMailboxStore', () => {
     assert.equal(second.total, 2);
 
     const inbox = await createAgentMailboxStore(root).list(SESSION_ID, {
-      teamId: TEAM_ID, parentRunId: PARENT_RUN_ID, recipientAgentId: tests.agentId,
+      teamId: TEAM_ID,
+      parentRunId: PARENT_RUN_ID,
+      recipientAgentId: tests.agentId,
     });
-    assert.deepEqual(inbox.messages.map((message) => message.seq), [1, 2]);
+    assert.deepEqual(
+      inbox.messages.map((message) => message.seq),
+      [1, 2],
+    );
     assert.equal(inbox.nextSeq, 2);
     assert.equal(inbox.total, 2);
   });
@@ -53,18 +68,33 @@ describe('AgentMailboxStore', () => {
     const recipient = 'expert:code-review:test-coverage-reviewer';
     for (const content of ['one', 'two', 'three']) {
       await store.send(SESSION_ID, {
-        teamId: TEAM_ID, parentRunId: PARENT_RUN_ID, kind: 'message', from: sender,
-        to: { role: 'member', agentId: recipient }, content,
+        teamId: TEAM_ID,
+        parentRunId: PARENT_RUN_ID,
+        kind: 'message',
+        from: sender,
+        to: { role: 'member', agentId: recipient },
+        content,
       });
     }
     await store.send(SESSION_ID, {
-      teamId: TEAM_ID, parentRunId: 'another-parent-run', kind: 'message', from: sender,
-      to: { role: 'member', agentId: recipient }, content: 'other run',
+      teamId: TEAM_ID,
+      parentRunId: 'another-parent-run',
+      kind: 'message',
+      from: sender,
+      to: { role: 'member', agentId: recipient },
+      content: 'other run',
     });
     const page = await store.list(SESSION_ID, {
-      teamId: TEAM_ID, parentRunId: PARENT_RUN_ID, recipientAgentId: recipient, afterSeq: 1, limit: 1,
+      teamId: TEAM_ID,
+      parentRunId: PARENT_RUN_ID,
+      recipientAgentId: recipient,
+      afterSeq: 1,
+      limit: 1,
     });
-    assert.deepEqual(page.messages.map((message) => message.content), ['two']);
+    assert.deepEqual(
+      page.messages.map((message) => message.content),
+      ['two'],
+    );
     assert.equal(page.nextSeq, 2);
     assert.equal(page.total, 3);
   });
@@ -93,8 +123,14 @@ describe('AgentMailboxStore', () => {
       store.list(SESSION_ID, options),
       store.list(SESSION_ID, options),
     ]);
-    assert.deepEqual(firstInvocation.messages.map((message) => message.content), ['first role message']);
-    assert.deepEqual(concurrentInvocation.messages.map((message) => message.content), ['first role message']);
+    assert.deepEqual(
+      firstInvocation.messages.map((message) => message.content),
+      ['first role message'],
+    );
+    assert.deepEqual(
+      concurrentInvocation.messages.map((message) => message.content),
+      ['first role message'],
+    );
 
     await store.send(SESSION_ID, {
       teamId: TEAM_ID,
@@ -109,11 +145,14 @@ describe('AgentMailboxStore', () => {
       afterSeq: firstInvocation.nextSeq,
     });
     const freshInvocation = await store.list(SESSION_ID, options);
-    assert.deepEqual(resumedInvocation.messages.map((message) => message.content), ['second role message']);
-    assert.deepEqual(freshInvocation.messages.map((message) => message.content), [
-      'first role message',
-      'second role message',
-    ]);
+    assert.deepEqual(
+      resumedInvocation.messages.map((message) => message.content),
+      ['second role message'],
+    );
+    assert.deepEqual(
+      freshInvocation.messages.map((message) => message.content),
+      ['first role message', 'second role message'],
+    );
   });
 
   test('serializes concurrent sends without duplicate sequence numbers', async () => {
@@ -122,14 +161,28 @@ describe('AgentMailboxStore', () => {
     const store = createAgentMailboxStore(root, { newId: () => `m-${++id}`, now: () => id });
     const sender = member('expert:code-review:correctness-reviewer', 'run-a', 'turn-a');
     const recipient = 'expert:code-review:test-coverage-reviewer';
-    await Promise.all(Array.from({ length: 20 }, (_, index) => store.send(SESSION_ID, {
-      teamId: TEAM_ID, parentRunId: PARENT_RUN_ID, kind: 'message', from: sender,
-      to: { role: 'member', agentId: recipient }, content: `message ${index}`,
-    })));
+    await Promise.all(
+      Array.from({ length: 20 }, (_, index) =>
+        store.send(SESSION_ID, {
+          teamId: TEAM_ID,
+          parentRunId: PARENT_RUN_ID,
+          kind: 'message',
+          from: sender,
+          to: { role: 'member', agentId: recipient },
+          content: `message ${index}`,
+        }),
+      ),
+    );
     const inbox = await store.list(SESSION_ID, {
-      teamId: TEAM_ID, parentRunId: PARENT_RUN_ID, recipientAgentId: recipient, limit: 50,
+      teamId: TEAM_ID,
+      parentRunId: PARENT_RUN_ID,
+      recipientAgentId: recipient,
+      limit: 50,
     });
-    assert.deepEqual(inbox.messages.map((message) => message.seq), Array.from({ length: 20 }, (_, index) => index + 1));
+    assert.deepEqual(
+      inbox.messages.map((message) => message.seq),
+      Array.from({ length: 20 }, (_, index) => index + 1),
+    );
   });
 
   test('fails closed over corrupt durable data instead of appending a new history', async () => {
@@ -140,10 +193,17 @@ describe('AgentMailboxStore', () => {
     await writeFile(path, '{not-json}\n', 'utf8');
     const before = await readFile(path, 'utf8');
     const store = createAgentMailboxStore(root);
-    await assert.rejects(() => store.send(SESSION_ID, {
-      teamId: TEAM_ID, parentRunId: PARENT_RUN_ID, kind: 'broadcast',
-      from: member('expert:code-review:correctness-reviewer', 'run-a', 'turn-a'), content: 'new',
-    }), /Invalid agent mailbox JSONL/);
+    await assert.rejects(
+      () =>
+        store.send(SESSION_ID, {
+          teamId: TEAM_ID,
+          parentRunId: PARENT_RUN_ID,
+          kind: 'broadcast',
+          from: member('expert:code-review:correctness-reviewer', 'run-a', 'turn-a'),
+          content: 'new',
+        }),
+      /Invalid agent mailbox JSONL/,
+    );
     assert.equal(await readFile(path, 'utf8'), before);
   });
 
@@ -154,15 +214,26 @@ describe('AgentMailboxStore', () => {
     const sender = member('expert:code-review:correctness-reviewer', 'run-a', 'turn-a');
     const recipient = 'expert:code-review:test-coverage-reviewer';
     const { message } = await store.send(SESSION_ID, {
-      teamId: TEAM_ID, parentRunId: PARENT_RUN_ID, kind: 'message', from: sender,
-      to: { role: 'member', agentId: recipient }, content: 'first',
+      teamId: TEAM_ID,
+      parentRunId: PARENT_RUN_ID,
+      kind: 'message',
+      from: sender,
+      to: { role: 'member', agentId: recipient },
+      content: 'first',
     });
     const path = join(root, 'sessions', SESSION_ID, 'agent-mailbox.jsonl');
-    await writeFile(path, `${JSON.stringify(message)}\n${JSON.stringify({ ...message, seq: 2, content: 'duplicate' })}\n`, 'utf8');
+    await writeFile(
+      path,
+      `${JSON.stringify(message)}\n${JSON.stringify({ ...message, seq: 2, content: 'duplicate' })}\n`,
+      'utf8',
+    );
     await assert.rejects(
-      () => createAgentMailboxStore(root).list(SESSION_ID, {
-        teamId: TEAM_ID, parentRunId: PARENT_RUN_ID, recipientAgentId: recipient,
-      }),
+      () =>
+        createAgentMailboxStore(root).list(SESSION_ID, {
+          teamId: TEAM_ID,
+          parentRunId: PARENT_RUN_ID,
+          recipientAgentId: recipient,
+        }),
       /duplicate message id/,
     );
   });

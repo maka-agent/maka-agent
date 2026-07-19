@@ -154,14 +154,14 @@ describe('Office document capability contract', () => {
     assert.match(previewSource, /capLines\(redactSecrets\(result\.stdout/);
     assert.match(previewSource, /data-kind="office_document"/);
     assert.match(previewSource, /function presentOfficeDocumentReason/);
-    assert.match(previewSource, /officecli 未安装/);
-    assert.match(previewSource, /Office 文档操作未完成。/);
-    assert.match(previewSource, /操作超时/);
-    assert.match(previewSource, /操作失败/);
+    assert.match(previewSource, /getToolActivityCopy\(locale\)\.result/);
+    assert.match(previewSource, /message \|\| copy\.officeIncomplete/);
+    assert.match(previewSource, /copy\.officeReason/);
+    assert.match(previewSource, /copy\.diagnostic\(reason\)/);
     const officePreviewBlock = previewSource.match(/function OfficeDocumentPreview[\s\S]*?function presentOfficeDocumentReason/)?.[0] ?? '';
     const officeReasonBlock = previewSource.match(/function presentOfficeDocumentReason[\s\S]*?\n\}/)?.[0] ?? '';
     assert.doesNotMatch(`${officePreviewBlock}\n${officeReasonBlock}`, /Office 文档读取未完成。|读取超时|读取失败|read-only Office adapter/, 'Office result preview must describe read and edit operations, not only reads');
-    assert.doesNotMatch(previewSource, /诊断：\{redactSecrets\(result\.reason\)\}/);
+    assert.doesNotMatch(previewSource, /redactSecrets\(result\.reason\)/);
     const officeBranch = previewSource.indexOf("content.kind === 'office_document'");
     const jsonBranch = previewSource.indexOf("content.kind === 'json'");
     assert.ok(officeBranch > 0, 'Office document branch must exist');
@@ -181,13 +181,13 @@ describe('Office document capability contract', () => {
     const summaryBlock = components.match(/function renderPermissionSummary[\s\S]*?function permissionValuePreview/)?.[0] ?? '';
 
     assert.match(summaryBlock, /case 'OfficeDocumentEdit'/, 'OfficeDocumentEdit permission requests need a dedicated summary branch');
-    assert.match(components, /request\.toolName === 'OfficeDocumentEdit'\) return '允许编辑 Office 文档？'/);
+    assert.match(components, /request\.toolName === 'OfficeDocumentEdit'\) return copy\.editOffice/);
     assert.doesNotMatch(summaryBlock, /即将编辑 Office 文档/, 'the exact title must not be repeated in the compact summary');
     assert.match(summaryBlock, /return <p className="maka-permission-path"><code>\{redactSecrets\(path\)\}<\/code><\/p>/);
-    assert.match(summaryBlock, /operation && `操作=\$\{redactSecrets\(operation\)\}`/, 'the expanded change must retain the operation');
-    assert.match(summaryBlock, /target && `目标=\$\{redactSecrets\(target\)\}`/, 'the expanded change must retain the selector target');
-    assert.match(summaryBlock, /permissionValuePreview\(value\)/, 'Permission dialog must summarize bounded props without dumping raw JSON first');
-    assert.match(summaryBlock, /另有 \${hiddenProps} 个属性/, 'Permission dialog must cap long prop lists');
+    assert.match(summaryBlock, /operation && `\$\{copy\.officeField\.operation\}=\$\{redactSecrets\(operation\)\}`/, 'the expanded change must retain the operation');
+    assert.match(summaryBlock, /target && `\$\{copy\.officeField\.target\}=\$\{redactSecrets\(target\)\}`/, 'the expanded change must retain the selector target');
+    assert.match(summaryBlock, /permissionValuePreview\(value, copy\)/, 'Permission dialog must summarize bounded props without dumping raw JSON first');
+    assert.match(summaryBlock, /copy\.hiddenProperties\(hiddenProps\)/, 'Permission dialog must cap long prop lists');
     assert.match(components, /function permissionValuePreview/, 'Permission prop rendering should use a bounded helper');
   });
 });

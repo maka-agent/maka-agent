@@ -120,7 +120,11 @@ export async function inspectAgentRunDocument(
   });
   const diagnostics = model.diagnostics.map((item) => sourceDiagnostic(model.header, item));
   const tools = inspectTools(model.header, model.runtimeEvents, diagnostics);
-  const compactionCheckpoints = inspectCompactionCheckpoints(model.header, model.events, diagnostics);
+  const compactionCheckpoints = inspectCompactionCheckpoints(
+    model.header,
+    model.events,
+    diagnostics,
+  );
   const runtimeCoverage = coverageFor(model.header.runId, model.runtimeEvents);
 
   return {
@@ -146,15 +150,17 @@ export async function inspectSessionDocument(
   sessionId: string,
   header?: SessionHeader,
 ): Promise<SessionInspectDocument> {
-  const resolvedHeader = header ?? await sessionStore.readHeader(sessionId);
+  const resolvedHeader = header ?? (await sessionStore.readHeader(sessionId));
   const runHeaders = await runStore.listSessionRuns(sessionId);
   const agentRuns: AgentRunInspectDocument[] = [];
   for (const runHeader of runHeaders) {
-    agentRuns.push(await inspectAgentRunDocument(runStore, runtimeEventStore, {
-      sessionId,
-      agentRunId: runHeader.runId,
-      header: runHeader,
-    }));
+    agentRuns.push(
+      await inspectAgentRunDocument(runStore, runtimeEventStore, {
+        sessionId,
+        agentRunId: runHeader.runId,
+        header: runHeader,
+      }),
+    );
   }
   return {
     schemaVersion: SESSION_INSPECT_DOCUMENT_VERSION,
@@ -165,9 +171,13 @@ export async function inspectSessionDocument(
       status: resolvedHeader.status,
       createdAt: resolvedHeader.createdAt,
       lastUsedAt: resolvedHeader.lastUsedAt,
-      ...(resolvedHeader.lastMessageAt !== undefined ? { lastMessageAt: resolvedHeader.lastMessageAt } : {}),
+      ...(resolvedHeader.lastMessageAt !== undefined
+        ? { lastMessageAt: resolvedHeader.lastMessageAt }
+        : {}),
       isArchived: resolvedHeader.isArchived,
-      ...(resolvedHeader.parentSessionId ? { parentSessionId: resolvedHeader.parentSessionId } : {}),
+      ...(resolvedHeader.parentSessionId
+        ? { parentSessionId: resolvedHeader.parentSessionId }
+        : {}),
       ...(resolvedHeader.branchOfTurnId ? { branchOfTurnId: resolvedHeader.branchOfTurnId } : {}),
     },
     agentRuns,
@@ -187,7 +197,9 @@ export function renderAgentRunInspectTree(document: AgentRunInspectDocument): st
     `├─ Tools ${document.tools.callCount} calls / ${document.tools.responseCount} responses`,
   ];
   for (const checkpoint of document.compactionCheckpoints) {
-    lines.push(`├─ Compaction ${checkpoint.checkpointId ?? checkpoint.eventId} ${formatCoverage(checkpoint.sourceCoverage)} [${checkpoint.validation}]`);
+    lines.push(
+      `├─ Compaction ${checkpoint.checkpointId ?? checkpoint.eventId} ${formatCoverage(checkpoint.sourceCoverage)} [${checkpoint.validation}]`,
+    );
   }
   appendDiagnostics(lines, document.diagnostics);
   if (document.diagnostics.length === 0) lines.push('└─ Diagnostics (0)');
@@ -206,8 +218,12 @@ export function renderSessionInspectTree(document: SessionInspectDocument): stri
     const child = last ? '   ' : '│  ';
     lines.push(`${branch} AgentRun ${run.agentRun.agentRunId} [${run.agentRun.status}]`);
     lines.push(`${child}├─ Turn ${run.agentRun.turnId}`);
-    lines.push(`${child}├─ Runtime Events ${formatCoverage(run.sources.runtimeCoverage)} (${run.sources.runtimeEventCount})`);
-    lines.push(`${child}├─ Tools ${run.tools.callCount} calls / ${run.tools.responseCount} responses`);
+    lines.push(
+      `${child}├─ Runtime Events ${formatCoverage(run.sources.runtimeCoverage)} (${run.sources.runtimeEventCount})`,
+    );
+    lines.push(
+      `${child}├─ Tools ${run.tools.callCount} calls / ${run.tools.responseCount} responses`,
+    );
     lines.push(`${child}└─ Diagnostics (${run.diagnostics.length})`);
   });
   return `${lines.join('\n')}\n`;
@@ -254,18 +270,33 @@ function inspectTools(
       });
     }
   }
-  const callsWithoutResponse = [...calls.values()].filter((call) => !responses.has(call.toolCallId));
+  const callsWithoutResponse = [...calls.values()].filter(
+    (call) => !responses.has(call.toolCallId),
+  );
   const responsesWithoutCall = [...responses.values()]
     .filter((response) => !calls.has(response.toolCallId))
     .map(({ isError: _isError, ...response }) => response);
   for (const call of callsWithoutResponse) {
-    diagnostics.push(diagnostic(header, 'tool_response_missing', 'warning',
-      `Tool Call ${call.toolCallId} has no committed Runtime response; its outcome and external side effects are unknown.`,
-      call.eventId));
+    diagnostics.push(
+      diagnostic(
+        header,
+        'tool_response_missing',
+        'warning',
+        `Tool Call ${call.toolCallId} has no committed Runtime response; its outcome and external side effects are unknown.`,
+        call.eventId,
+      ),
+    );
   }
   for (const response of responsesWithoutCall) {
-    diagnostics.push(diagnostic(header, 'tool_call_missing', 'warning',
-      `Tool response ${response.toolCallId} has no matching Runtime call fact.`, response.eventId));
+    diagnostics.push(
+      diagnostic(
+        header,
+        'tool_call_missing',
+        'warning',
+        `Tool response ${response.toolCallId} has no matching Runtime call fact.`,
+        response.eventId,
+      ),
+    );
   }
   return {
     callCount: calls.size,
@@ -286,8 +317,15 @@ function inspectCompactionCheckpoints(
     if (event.type !== 'history_compact_checkpoint_recorded') continue;
     const checkpoint = event.data?.checkpoint;
     if (!validateHistoryCompactCheckpointShape(checkpoint, header.sessionId)) {
-      diagnostics.push(diagnostic(header, 'compaction_checkpoint_invalid', 'error',
-        'AgentRun contains an invalid durable Compaction checkpoint record.', event.id));
+      diagnostics.push(
+        diagnostic(
+          header,
+          'compaction_checkpoint_invalid',
+          'error',
+          'AgentRun contains an invalid durable Compaction checkpoint record.',
+          event.id,
+        ),
+      );
       checkpoints.push({ eventId: event.id, validation: 'invalid' });
       continue;
     }
@@ -303,10 +341,15 @@ function inspectCompactionCheckpoints(
   return checkpoints;
 }
 
-function sourceDiagnostic(header: AgentRunHeader, source: SourceDiagnostic): ExecutionInspectDiagnostic {
+function sourceDiagnostic(
+  header: AgentRunHeader,
+  source: SourceDiagnostic,
+): ExecutionInspectDiagnostic {
   const severity: ExecutionInspectSeverity = /read_failed|corrupt|mismatch/.test(source.code)
     ? 'error'
-    : source.code.includes('missing') ? 'warning' : 'info';
+    : source.code.includes('missing')
+      ? 'warning'
+      : 'info';
   return diagnostic(header, source.code, severity, source.message, source.eventId);
 }
 
@@ -328,22 +371,35 @@ function diagnostic(
   };
 }
 
-function coverageFor(runId: string, events: readonly RuntimeEvent[]): ExecutionLogCoverage | undefined {
+function coverageFor(
+  runId: string,
+  events: readonly RuntimeEvent[],
+): ExecutionLogCoverage | undefined {
   const first = events[0];
   const last = events.at(-1);
   if (!first || !last) return undefined;
   return {
     lowWater: { ledger: 'runtime_event', streamId: runId, sequence: 0, eventId: first.id },
-    highWater: { ledger: 'runtime_event', streamId: runId, sequence: events.length - 1, eventId: last.id },
+    highWater: {
+      ledger: 'runtime_event',
+      streamId: runId,
+      sequence: events.length - 1,
+      eventId: last.id,
+    },
     eventCount: events.length,
   };
 }
 
-function appendDiagnostics(lines: string[], diagnostics: readonly ExecutionInspectDiagnostic[]): void {
+function appendDiagnostics(
+  lines: string[],
+  diagnostics: readonly ExecutionInspectDiagnostic[],
+): void {
   if (diagnostics.length === 0) return;
   lines.push(`└─ Diagnostics (${diagnostics.length})`);
   diagnostics.forEach((item, index) => {
-    lines.push(`   ${index === diagnostics.length - 1 ? '└─' : '├─'} ${item.severity.toUpperCase()} ${item.code}: ${item.message}`);
+    lines.push(
+      `   ${index === diagnostics.length - 1 ? '└─' : '├─'} ${item.severity.toUpperCase()} ${item.code}: ${item.message}`,
+    );
   });
 }
 

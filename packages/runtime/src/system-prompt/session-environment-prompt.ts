@@ -18,7 +18,9 @@ export interface SessionEnvironmentPromptInput {
   now?: Date;
 }
 
-export function buildSessionEnvironmentPromptFragment(input: SessionEnvironmentPromptInput): string {
+export function buildSessionEnvironmentPromptFragment(
+  input: SessionEnvironmentPromptInput,
+): string {
   const platform = input.platform ?? process.platform;
   const today = formatDate(input.now ?? new Date());
   const lines = [

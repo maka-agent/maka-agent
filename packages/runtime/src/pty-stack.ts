@@ -26,19 +26,29 @@ async function loadAndValidatePtyStack(): Promise<PtyStack> {
     import('@xterm/headless'),
     import('@xterm/addon-unicode11'),
   ]);
-  const spawn = (nodePty as unknown as {
-    spawn?: typeof NodePty.spawn;
-    default?: { spawn?: typeof NodePty.spawn };
-  }).spawn ?? nodePty.default?.spawn;
-  const Terminal = (headless as unknown as {
-    Terminal?: typeof HeadlessTerminal;
-    default?: { Terminal?: typeof HeadlessTerminal };
-  }).Terminal ?? (headless as unknown as { default?: { Terminal?: typeof HeadlessTerminal } }).default?.Terminal;
-  const Unicode11Addon = (unicode11 as unknown as {
-    Unicode11Addon?: typeof HeadlessUnicode11Addon;
-    default?: { Unicode11Addon?: typeof HeadlessUnicode11Addon };
-  }).Unicode11Addon
-    ?? (unicode11 as unknown as { default?: { Unicode11Addon?: typeof HeadlessUnicode11Addon } })
+  const spawn =
+    (
+      nodePty as unknown as {
+        spawn?: typeof NodePty.spawn;
+        default?: { spawn?: typeof NodePty.spawn };
+      }
+    ).spawn ?? nodePty.default?.spawn;
+  const Terminal =
+    (
+      headless as unknown as {
+        Terminal?: typeof HeadlessTerminal;
+        default?: { Terminal?: typeof HeadlessTerminal };
+      }
+    ).Terminal ??
+    (headless as unknown as { default?: { Terminal?: typeof HeadlessTerminal } }).default?.Terminal;
+  const Unicode11Addon =
+    (
+      unicode11 as unknown as {
+        Unicode11Addon?: typeof HeadlessUnicode11Addon;
+        default?: { Unicode11Addon?: typeof HeadlessUnicode11Addon };
+      }
+    ).Unicode11Addon ??
+    (unicode11 as unknown as { default?: { Unicode11Addon?: typeof HeadlessUnicode11Addon } })
       .default?.Unicode11Addon;
   if (typeof spawn !== 'function') throw new Error('node-pty does not export spawn');
   if (typeof Terminal !== 'function') throw new Error('@xterm/headless does not export Terminal');

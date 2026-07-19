@@ -14,13 +14,11 @@ export const MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024;
 /** Raw-byte cap for workspace images returned by Read, leaving room for Base64 transport overhead. */
 export const MAX_READ_IMAGE_BYTES = 5 * 1024 * 1024;
 export const MAX_MODEL_IMAGE_EDGE = 2000;
-export const READ_IMAGE_TOO_LARGE_MESSAGE =
-  `Image exceeds the ${MAX_READ_IMAGE_BYTES / 1024 / 1024}MB model input limit; downscale it and try again.`;
+export const READ_IMAGE_TOO_LARGE_MESSAGE = `Image exceeds the ${MAX_READ_IMAGE_BYTES / 1024 / 1024}MB model input limit; downscale it and try again.`;
 
 /** Leaves room for Base64 expansion, text, and tool schemas under provider request limits. */
 export const MAX_PROVIDER_IMAGE_REQUEST_BYTES = 12 * 1024 * 1024;
-export const PROVIDER_IMAGE_BUDGET_EXCEEDED_MESSAGE =
-  `Image was read, but the per-request image budget (${MAX_PROVIDER_IMAGE_REQUEST_BYTES / 1024 / 1024}MB across all images this turn) was exceeded; earlier images were sent and this one was omitted. Read fewer or smaller images.`;
+export const PROVIDER_IMAGE_BUDGET_EXCEEDED_MESSAGE = `Image was read, but the per-request image budget (${MAX_PROVIDER_IMAGE_REQUEST_BYTES / 1024 / 1024}MB across all images this turn) was exceeded; earlier images were sent and this one was omitted. Read fewer or smaller images.`;
 
 const MIME_BY_EXTENSION: Readonly<Record<string, string>> = {
   png: 'image/png',
@@ -62,7 +60,10 @@ export function guessMimeFromName(fileName: string): string {
  * `vnd.openxmlformats` string depending on the source); MIME still wins
  * when it is present and specific.
  */
-export function attachmentKindFromMimeType(mimeType: string, fileName?: string): AttachmentRef['kind'] {
+export function attachmentKindFromMimeType(
+  mimeType: string,
+  fileName?: string,
+): AttachmentRef['kind'] {
   const mime = mimeType.toLowerCase();
   if (mime.startsWith('image/')) return 'image';
   if (mime === 'application/pdf') return 'pdf';

@@ -11,8 +11,9 @@
  * kind to an icon.
  */
 
-import type { ToolActivityKind } from '@maka/core';
+import type { ToolActivityKind, UiLocale } from '@maka/core';
 import type { ToolActivityItem } from '../materialize.js';
+import { getToolActivityCopy } from './copy.js';
 
 export type TrowActivityKind = ToolActivityKind;
 
@@ -73,18 +74,6 @@ export function trowActivityKind(
 }
 
 /** Chinese count clause per bucket, e.g. read(3) → "读取 3 个文件". */
-const KIND_CLAUSE: Record<TrowActivityKind, (n: number) => string> = {
-  read: (n) => `读取 ${n} 个文件`,
-  search: (n) => `搜索 ${n} 次`,
-  websearch: (n) => `联网搜索 ${n} 次`,
-  webfetch: (n) => `抓取 ${n} 个网页`,
-  edit: (n) => `编辑 ${n} 个文件`,
-  command: (n) => `运行 ${n} 条命令`,
-  explore: (n) => `探索 ${n} 次`,
-  browser: (n) => `浏览器操作 ${n} 次`,
-  tool: (n) => `调用 ${n} 个工具`,
-};
-
 function isFailed(status: ToolActivityItem['status']): boolean {
   return status === 'errored';
 }
@@ -100,8 +89,9 @@ function isFailed(status: ToolActivityItem['status']): boolean {
  */
 export function summarizeTrowTools(
   items: readonly ToolActivityItem[],
-  options?: { live?: boolean },
+  options?: { live?: boolean; locale?: UiLocale },
 ): string {
+  const copy = getToolActivityCopy(options?.locale ?? 'zh').summary;
   const order: TrowActivityKind[] = [];
   const counts = new Map<TrowActivityKind, number>();
   let failed = 0;
@@ -111,10 +101,10 @@ export function summarizeTrowTools(
     counts.set(kind, (counts.get(kind) ?? 0) + 1);
     if (isFailed(item.status)) failed += 1;
   }
-  const clauses = order.map((kind) => KIND_CLAUSE[kind](counts.get(kind) ?? 0));
-  if (failed > 0) clauses.push(`${failed} 个失败`);
-  const base = clauses.join('，');
-  return options?.live ? `正在${base}` : base;
+  const clauses = order.map((kind) => copy.kind[kind](counts.get(kind) ?? 0));
+  if (failed > 0) clauses.push(copy.failed(failed));
+  const base = copy.join(clauses);
+  return options?.live ? copy.live(base) : base;
 }
 
 /** True when any tool in the group is still in flight. */

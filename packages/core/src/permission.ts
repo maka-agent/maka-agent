@@ -7,23 +7,20 @@
  * requestId at the call site.
  */
 
-import {
-  computerUseApprovalScopeKey,
-  computerUseApprovalSummary,
-} from './computer-use.js';
+import { computerUseApprovalScopeKey, computerUseApprovalSummary } from './computer-use.js';
 
 // ============================================================================
 // Mode + Tool categories
 // ============================================================================
 
 export const PERMISSION_MODES = ['explore', 'ask', 'execute', 'bypass'] as const;
-export type PermissionMode = typeof PERMISSION_MODES[number];
+export type PermissionMode = (typeof PERMISSION_MODES)[number];
 
 export const APPROVALS_REVIEWERS = ['user', 'auto_review'] as const;
-export type ApprovalsReviewer = typeof APPROVALS_REVIEWERS[number];
+export type ApprovalsReviewer = (typeof APPROVALS_REVIEWERS)[number];
 
 export const APPROVAL_RISK_LEVELS = ['low', 'medium', 'high', 'critical'] as const;
-export type ApprovalRiskLevel = typeof APPROVAL_RISK_LEVELS[number];
+export type ApprovalRiskLevel = (typeof APPROVAL_RISK_LEVELS)[number];
 
 export interface ActiveApprovalRoutingPolicy {
   readonly reviewer: ApprovalsReviewer;
@@ -114,10 +111,14 @@ export interface ToolPermissionRuleMatchInput {
 export function matchToolPermissionRules(
   input: ToolPermissionRuleMatchInput,
 ): 'allow' | 'deny' | undefined {
-  if (input.rules.some((rule) => rule.effect === 'deny' && toolPermissionRuleMatches(rule, input))) {
+  if (
+    input.rules.some((rule) => rule.effect === 'deny' && toolPermissionRuleMatches(rule, input))
+  ) {
     return 'deny';
   }
-  if (input.rules.some((rule) => rule.effect === 'allow' && toolPermissionRuleMatches(rule, input))) {
+  if (
+    input.rules.some((rule) => rule.effect === 'allow' && toolPermissionRuleMatches(rule, input))
+  ) {
     return 'allow';
   }
   return undefined;
@@ -378,7 +379,16 @@ function commandSegments(cmd: string): string[] {
 }
 
 /** Commands that defer to the real command later in the segment. */
-const WRAPPER_COMMANDS = new Set(['nohup', 'nice', 'time', 'timeout', 'env', 'command', 'exec', 'stdbuf']);
+const WRAPPER_COMMANDS = new Set([
+  'nohup',
+  'nice',
+  'time',
+  'timeout',
+  'env',
+  'command',
+  'exec',
+  'stdbuf',
+]);
 
 /** Shell-in-shell heads whose literal payload can be categorized recursively.
  *  Interpreters (python -c, node -e) are deliberately absent: we know these
@@ -454,8 +464,10 @@ function nestedShellPayload(segment: string): string | undefined {
 
 function isPrivilegedSegment(segment: string): boolean {
   const lower = segment.toLowerCase();
-  return PRIVILEGED_SHELL_PREFIXES.some((p) => lower.startsWith(p))
-    || PRIVILEGED_SHELL_PATTERNS.some((re) => re.test(segment));
+  return (
+    PRIVILEGED_SHELL_PREFIXES.some((p) => lower.startsWith(p)) ||
+    PRIVILEGED_SHELL_PATTERNS.some((re) => re.test(segment))
+  );
 }
 
 /**
@@ -479,9 +491,11 @@ export function categorizeBash(cmd: string): ToolCategory {
   const segments = scanSegments(cmd, 2);
   if (cmd.includes('`')) segments.push(...scanSegments(cmd.replace(/`/g, ''), 2));
   if (segments.some((s) => isPrivilegedSegment(s))) return 'privileged';
-  if (segments.some((s) => FS_DESTRUCTIVE_PATTERNS.some((re) => re.test(s)))) return 'fs_destructive';
+  if (segments.some((s) => FS_DESTRUCTIVE_PATTERNS.some((re) => re.test(s))))
+    return 'fs_destructive';
   if (PIPE_DESTRUCTIVE_PATTERNS.some((re) => re.test(t))) return 'fs_destructive';
-  if (segments.some((s) => DESTRUCTIVE_GIT_PATTERNS.some((re) => re.test(s)))) return 'git_destructive';
+  if (segments.some((s) => DESTRUCTIVE_GIT_PATTERNS.some((re) => re.test(s))))
+    return 'git_destructive';
   return 'shell_unsafe';
 }
 
@@ -527,7 +541,8 @@ export function classifyToolUse(input: {
   args: unknown;
   categoryHint?: ToolCategory;
 }): ToolCategory {
-  let category: ToolCategory = input.categoryHint ?? BUILTIN_TOOL_CATEGORY[input.toolName] ?? 'custom_tool';
+  let category: ToolCategory =
+    input.categoryHint ?? BUILTIN_TOOL_CATEGORY[input.toolName] ?? 'custom_tool';
   if (category === 'shell_unsafe') {
     const cmd = (input.args as { command?: unknown } | null)?.command;
     if (typeof cmd === 'string') category = categorizeBash(cmd);
@@ -588,7 +603,11 @@ function policyDecisionForInput(input: PreToolUseInput, category: ToolCategory):
   return decision;
 }
 
-export function permissionScopeKey(toolName: string, args: unknown, category: ToolCategory): string {
+export function permissionScopeKey(
+  toolName: string,
+  args: unknown,
+  category: ToolCategory,
+): string {
   // Browser actions share ONE turn-scope across every browser_* tool and its
   // args: "allow for this turn" on the first prompt then carries the whole
   // observe→act loop (snapshot → click → type → navigate …), as the policy
@@ -741,9 +760,7 @@ export type PermissionRequestPayload =
   | SandboxEscalationRequest;
 
 function permissionRequestArgs(args: unknown, category: ToolCategory): unknown {
-  return category === 'computer_use'
-    ? computerUseApprovalSummary(args)
-    : args;
+  return category === 'computer_use' ? computerUseApprovalSummary(args) : args;
 }
 
 function permissionRememberForTurnAllowed(
@@ -752,8 +769,7 @@ function permissionRememberForTurnAllowed(
   category: ToolCategory,
 ): boolean {
   if (toolName === 'WriteStdin') return false;
-  return category !== 'computer_use'
-    || computerUseApprovalSummary(args).rememberForTurnAllowed;
+  return category !== 'computer_use' || computerUseApprovalSummary(args).rememberForTurnAllowed;
 }
 
 export interface PermissionResponse {

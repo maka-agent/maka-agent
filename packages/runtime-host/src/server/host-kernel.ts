@@ -6,10 +6,7 @@ import {
   type InteractiveRootOwner,
 } from '@maka/storage/root-authority';
 import { prepareRuntimeHostEndpoint, type RuntimeHostEndpoint } from '../control/endpoint.js';
-import {
-  removeHostRegistration,
-  writeHostRegistration,
-} from '../control/registration.js';
+import { removeHostRegistration, writeHostRegistration } from '../control/registration.js';
 import {
   decodeClientFrame,
   HOST_OPERATION_SPECS,
@@ -102,7 +99,11 @@ export class RuntimeHostKernel {
 
   private constructor(options: RuntimeHostKernelOptions) {
     assertDuration(options.idleGraceMs ?? DEFAULT_IDLE_GRACE_MS, 'idleGraceMs', 0);
-    assertDuration(options.handshakeTimeoutMs ?? DEFAULT_HANDSHAKE_TIMEOUT_MS, 'handshakeTimeoutMs', 1);
+    assertDuration(
+      options.handshakeTimeoutMs ?? DEFAULT_HANDSHAKE_TIMEOUT_MS,
+      'handshakeTimeoutMs',
+      1,
+    );
     this.#idleGraceMs = options.idleGraceMs ?? DEFAULT_IDLE_GRACE_MS;
     this.#handshakeTimeoutMs = options.handshakeTimeoutMs ?? DEFAULT_HANDSHAKE_TIMEOUT_MS;
     this.#options = options;
@@ -226,13 +227,15 @@ export class RuntimeHostKernel {
       if ('kind' in frame) throw new Error('Unexpected handshake frame after acceptance');
       const admission = await this.#beginOperation(frame);
       if (typeof admission === 'string') {
-        await transport.write(operationFailureResponse(
-          frame,
-          admission,
-          admission === 'host_draining'
-            ? 'Runtime Host is draining'
-            : 'Runtime Host is not ready',
-        ));
+        await transport.write(
+          operationFailureResponse(
+            frame,
+            admission,
+            admission === 'host_draining'
+              ? 'Runtime Host is draining'
+              : 'Runtime Host is not ready',
+          ),
+        );
         continue;
       }
       try {
@@ -252,7 +255,7 @@ export class RuntimeHostKernel {
     hello: ClientHello,
     transport: FramedTransport,
   ): Promise<HostHandshakeResult> {
-    if (!await this.#hasLiveOwnerOrDrain() || this.#state === 'draining') {
+    if (!(await this.#hasLiveOwnerOrDrain()) || this.#state === 'draining') {
       return { kind: 'draining', hostEpoch: this.hostEpoch };
     }
     const admittedState = this.#state;
@@ -267,9 +270,7 @@ export class RuntimeHostKernel {
         protocolMin: HOST_PROTOCOL.min,
         protocolMax: HOST_PROTOCOL.max,
         state: admittedState,
-        replacement: this.#isTrueIdle()
-          ? 'wait_for_idle_exit'
-          : 'blocked_by_residency',
+        replacement: this.#isTrueIdle() ? 'wait_for_idle_exit' : 'blocked_by_residency',
       };
     }
     this.#acceptedTransports.add(transport);
@@ -292,11 +293,14 @@ export class RuntimeHostKernel {
   }
 
   async #beginOperation(frame: RequestFrame): Promise<OperationLease | HostOperationErrorCode> {
-    if (!await this.#hasLiveOwnerOrDrain() || this.#state === 'draining') return 'host_draining';
+    if (!(await this.#hasLiveOwnerOrDrain()) || this.#state === 'draining') return 'host_draining';
     if (this.#shutdownRequested && HOST_OPERATION_SPECS[frame.operation].mode === 'command') {
       return 'host_draining';
     }
-    if (HOST_OPERATION_SPECS[frame.operation].admission !== 'bootstrap' && this.#state !== 'ready') {
+    if (
+      HOST_OPERATION_SPECS[frame.operation].admission !== 'bootstrap' &&
+      this.#state !== 'ready'
+    ) {
       return 'host_not_ready';
     }
     this.#activeOperations += 1;
@@ -412,10 +416,12 @@ export class RuntimeHostKernel {
   }
 
   #isTrueIdle(): boolean {
-    return this.#state === 'ready'
-      && this.#acceptedTransports.size === 0
-      && this.#activeOperations === 0
-      && this.#activeResidencies === 0;
+    return (
+      this.#state === 'ready' &&
+      this.#acceptedTransports.size === 0 &&
+      this.#activeOperations === 0 &&
+      this.#activeResidencies === 0
+    );
   }
 
   #cancelIdle(): void {
@@ -469,10 +475,15 @@ export class RuntimeHostKernel {
     for (const transport of accepted) transport.destroy();
     await serverClosed;
     await this.#endpoint?.cleanup().catch((error: unknown) => errors.push(error));
-    await removeHostRegistration(this.#options.owner.controlDirectory, this.hostEpoch)
-      .catch((error: unknown) => errors.push(error));
+    await removeHostRegistration(this.#options.owner.controlDirectory, this.hostEpoch).catch(
+      (error: unknown) => errors.push(error),
+    );
     await this.#options.owner.close().catch((error: unknown) => errors.push(error));
-    if (errors.length > 0) throw new AggregateError(errors, 'Runtime Host shutdown did not cleanly close every resource');
+    if (errors.length > 0)
+      throw new AggregateError(
+        errors,
+        'Runtime Host shutdown did not cleanly close every resource',
+      );
   }
 
   async #abortStartup(): Promise<void> {
@@ -482,7 +493,9 @@ export class RuntimeHostKernel {
     await closeServer(this.#server).catch(() => undefined);
     await this.#composition?.close().catch(() => undefined);
     await this.#endpoint?.cleanup().catch(() => undefined);
-    await removeHostRegistration(this.#options.owner.controlDirectory, this.hostEpoch).catch(() => undefined);
+    await removeHostRegistration(this.#options.owner.controlDirectory, this.hostEpoch).catch(
+      () => undefined,
+    );
     await this.#options.owner.close();
     this.#resolveClosed();
   }

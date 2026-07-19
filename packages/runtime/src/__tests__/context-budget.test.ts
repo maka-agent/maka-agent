@@ -38,17 +38,19 @@ describe('context-budget archive retrieval', () => {
         enabled: true,
         maxResultEstimatedTokens: 1,
         minRecentTurnsFull: 0,
-        archiveRefs: [{
-          runtimeEventId: 'result-newest',
-          toolCallId: 'tool-newest',
-          toolName: 'Read',
-          artifactId: 'artifact-newest',
-          bodySha256: sha256(serialized),
-          originalEstimatedTokens: serialized.length,
-          originalBytes: utf8Bytes(serialized),
-          rewriteVersion: ARCHIVED_TOOL_RESULT_REWRITE_VERSION,
-          reason: 'stale_tool_result_pruned_before_compact',
-        }],
+        archiveRefs: [
+          {
+            runtimeEventId: 'result-newest',
+            toolCallId: 'tool-newest',
+            toolName: 'Read',
+            artifactId: 'artifact-newest',
+            bodySha256: sha256(serialized),
+            originalEstimatedTokens: serialized.length,
+            originalBytes: utf8Bytes(serialized),
+            rewriteVersion: ARCHIVED_TOOL_RESULT_REWRITE_VERSION,
+            reason: 'stale_tool_result_pruned_before_compact',
+          },
+        ],
       },
       charsPerToken: 1,
     });
@@ -66,7 +68,10 @@ describe('context-budget archive retrieval', () => {
   });
 
   test('deserializes JSON, undefined, and fallback strings', () => {
-    assert.deepEqual(deserializeToolResultArchive('{"kind":"text","text":"ok"}'), { kind: 'text', text: 'ok' });
+    assert.deepEqual(deserializeToolResultArchive('{"kind":"text","text":"ok"}'), {
+      kind: 'text',
+      text: 'ok',
+    });
     assert.equal(deserializeToolResultArchive('undefined'), undefined);
     assert.equal(deserializeToolResultArchive('plain fallback'), 'plain fallback');
   });
@@ -85,17 +90,19 @@ describe('context-budget archive retrieval', () => {
         enabled: true,
         maxResultEstimatedTokens: 1,
         minRecentTurnsFull: 1,
-        archiveRefs: [{
-          runtimeEventId: 'result-old',
-          toolCallId: 'tool-old',
-          toolName: 'Read',
-          artifactId: 'artifact-old',
-          bodySha256: sha256(serialized),
-          originalEstimatedTokens: serialized.length,
-          originalBytes: utf8Bytes(serialized),
-          rewriteVersion: ARCHIVED_TOOL_RESULT_REWRITE_VERSION,
-          reason: 'stale_tool_result_pruned_before_compact',
-        }],
+        archiveRefs: [
+          {
+            runtimeEventId: 'result-old',
+            toolCallId: 'tool-old',
+            toolName: 'Read',
+            artifactId: 'artifact-old',
+            bodySha256: sha256(serialized),
+            originalEstimatedTokens: serialized.length,
+            originalBytes: utf8Bytes(serialized),
+            rewriteVersion: ARCHIVED_TOOL_RESULT_REWRITE_VERSION,
+            reason: 'stale_tool_result_pruned_before_compact',
+          },
+        ],
       },
       archiveRetrieval: { enabled: true, maxResults: 1, maxEstimatedTokens: 1024, maxBytes: 1024 },
       minRecentTurns: 2,
@@ -124,19 +131,21 @@ describe('context-budget archive retrieval', () => {
     );
     assert.equal(retrieval.diagnosticPatch.retrievedArchiveToolResults, 1);
     assert.equal(retrieval.diagnosticPatch.retrievedArchiveEstimatedTokens, serialized.length);
-    assert.deepEqual(retrieval.retrievedSourceRefs, [{
-      kind: 'archived_tool_result',
-      sessionId: 'session-1',
-      turnId: 'turn-old',
-      runtimeEventId: 'result-old',
-      toolCallId: 'tool-old',
-      toolName: 'Read',
-      artifactId: 'artifact-old',
-      bodySha256: sha256(serialized),
-      originalEstimatedTokens: serialized.length,
-      originalBytes: utf8Bytes(serialized),
-      placeholderReason: 'stale_tool_result_pruned_before_compact',
-    }]);
+    assert.deepEqual(retrieval.retrievedSourceRefs, [
+      {
+        kind: 'archived_tool_result',
+        sessionId: 'session-1',
+        turnId: 'turn-old',
+        runtimeEventId: 'result-old',
+        toolCallId: 'tool-old',
+        toolName: 'Read',
+        artifactId: 'artifact-old',
+        bodySha256: sha256(serialized),
+        originalEstimatedTokens: serialized.length,
+        originalBytes: utf8Bytes(serialized),
+        placeholderReason: 'stale_tool_result_pruned_before_compact',
+      },
+    ]);
   });
 
   test('uses UTF-8 byte length for non-ASCII archive size validation', async () => {
@@ -154,17 +163,19 @@ describe('context-budget archive retrieval', () => {
         enabled: true,
         maxResultEstimatedTokens: 1,
         minRecentTurnsFull: 1,
-        archiveRefs: [{
-          runtimeEventId: 'result-old',
-          toolCallId: 'tool-old',
-          toolName: 'Read',
-          artifactId: 'artifact-old',
-          bodySha256: sha256(serialized),
-          originalEstimatedTokens: serialized.length,
-          originalBytes: utf8Bytes(serialized),
-          rewriteVersion: ARCHIVED_TOOL_RESULT_REWRITE_VERSION,
-          reason: 'stale_tool_result_pruned_before_compact',
-        }],
+        archiveRefs: [
+          {
+            runtimeEventId: 'result-old',
+            toolCallId: 'tool-old',
+            toolName: 'Read',
+            artifactId: 'artifact-old',
+            bodySha256: sha256(serialized),
+            originalEstimatedTokens: serialized.length,
+            originalBytes: utf8Bytes(serialized),
+            rewriteVersion: ARCHIVED_TOOL_RESULT_REWRITE_VERSION,
+            reason: 'stale_tool_result_pruned_before_compact',
+          },
+        ],
       },
       archiveRetrieval: { enabled: true, maxResults: 1, maxEstimatedTokens: 1024, maxBytes: 1024 },
       minRecentTurns: 1,
@@ -211,17 +222,19 @@ describe('context-budget archive retrieval', () => {
         enabled: true,
         maxResultEstimatedTokens: 1,
         minRecentTurnsFull: 1,
-        archiveRefs: [{
-          runtimeEventId: 'result-old',
-          toolCallId: 'tool-old',
-          toolName: 'Read',
-          artifactId: 'artifact-stale',
-          bodySha256: sha256(staleSerialized),
-          originalEstimatedTokens: currentSerialized.length,
-          originalBytes: utf8Bytes(currentSerialized),
-          rewriteVersion: ARCHIVED_TOOL_RESULT_REWRITE_VERSION,
-          reason: 'stale_tool_result_pruned_before_compact',
-        }],
+        archiveRefs: [
+          {
+            runtimeEventId: 'result-old',
+            toolCallId: 'tool-old',
+            toolName: 'Read',
+            artifactId: 'artifact-stale',
+            bodySha256: sha256(staleSerialized),
+            originalEstimatedTokens: currentSerialized.length,
+            originalBytes: utf8Bytes(currentSerialized),
+            rewriteVersion: ARCHIVED_TOOL_RESULT_REWRITE_VERSION,
+            reason: 'stale_tool_result_pruned_before_compact',
+          },
+        ],
       },
       minRecentTurns: 1,
       charsPerToken: 1,
@@ -239,12 +252,15 @@ describe('context-budget archive retrieval', () => {
 
   test('keeps placeholders and records corrupt/missing archive diagnostics', async () => {
     const serialized = serializeToolResultForArchive({ kind: 'text', text: 'body' });
-    const events = [toolCall('call-1', 'turn-1', 'tool-1'), archivedResult('result-1', 'turn-1', 'tool-1', {
-      artifactId: 'artifact-1',
-      bodySha256: sha256(serialized),
-      originalEstimatedTokens: serialized.length,
-      originalBytes: utf8Bytes(serialized),
-    })];
+    const events = [
+      toolCall('call-1', 'turn-1', 'tool-1'),
+      archivedResult('result-1', 'turn-1', 'tool-1', {
+        artifactId: 'artifact-1',
+        bodySha256: sha256(serialized),
+        originalEstimatedTokens: serialized.length,
+        originalBytes: utf8Bytes(serialized),
+      }),
+    ];
 
     const corrupt = await retrieveArchivedToolResultsForReplay(
       events,
@@ -272,12 +288,14 @@ describe('context-budget archive retrieval', () => {
 
   test('fails open when retrieval is disabled or no reader is available', async () => {
     const serialized = serializeToolResultForArchive({ kind: 'text', text: 'body' });
-    const events = [archivedResult('result-1', 'turn-1', 'tool-1', {
-      artifactId: 'artifact-1',
-      bodySha256: sha256(serialized),
-      originalEstimatedTokens: serialized.length,
-      originalBytes: utf8Bytes(serialized),
-    })];
+    const events = [
+      archivedResult('result-1', 'turn-1', 'tool-1', {
+        artifactId: 'artifact-1',
+        bodySha256: sha256(serialized),
+        originalEstimatedTokens: serialized.length,
+        originalBytes: utf8Bytes(serialized),
+      }),
+    ];
 
     const disabled = await retrieveArchivedToolResultsForReplay(
       events,
@@ -471,9 +489,18 @@ describe('context-budget synthesis cache', () => {
     assert.equal(result.diagnosticPatch.synthesisCacheMode, 'lookup');
     assert.deepEqual(result.diagnosticPatch.synthesisCacheBlockIds, ['synth-key-alpha']);
     assert.equal(result.diagnosticPatch.highWaterName, 'after-gated-key-alpha');
-    assert.equal(events.some((event) => event.id === 'result-alpha'), true);
-    assert.equal(result.events.some((event) => event.id === 'result-alpha'), false);
-    assert.equal(result.events.some((event) => event.id === 'recent'), true);
+    assert.equal(
+      events.some((event) => event.id === 'result-alpha'),
+      true,
+    );
+    assert.equal(
+      result.events.some((event) => event.id === 'result-alpha'),
+      false,
+    );
+    assert.equal(
+      result.events.some((event) => event.id === 'recent'),
+      true,
+    );
     const synthetic = result.events.find((event) => event.id === 'synthesis-cache:synth-key-alpha');
     assert.equal(synthetic?.role, 'model');
     assert.match(
@@ -611,7 +638,13 @@ describe('context-budget synthesis cache', () => {
 
     assert.deepEqual(
       result.events.map((event) => event.id),
-      ['before', 'synthesis-cache:synth-key-alpha', 'middle', 'synthesis-cache:synth-key-beta', 'after'],
+      [
+        'before',
+        'synthesis-cache:synth-key-alpha',
+        'middle',
+        'synthesis-cache:synth-key-beta',
+        'after',
+      ],
     );
   });
 
@@ -707,7 +740,10 @@ describe('context-budget synthesis cache', () => {
     );
 
     assert.equal(result.selectedBlocks.length, 0);
-    assert.deepEqual(result.events.map((event) => event.id), ['recent']);
+    assert.deepEqual(
+      result.events.map((event) => event.id),
+      ['recent'],
+    );
     assert.deepEqual(result.diagnosticPatch.synthesisCacheInvalidationReasonCounts, {
       source_missing: 1,
     });
@@ -844,7 +880,9 @@ describe('context-budget synthesis cache', () => {
       { sessionId: 'session-1' },
     );
     assert.equal(maxBlocks.selectedBlocks.length, 1);
-    assert.deepEqual(maxBlocks.diagnosticPatch.synthesisCacheSkippedReasonCounts, { max_blocks: 1 });
+    assert.deepEqual(maxBlocks.diagnosticPatch.synthesisCacheSkippedReasonCounts, {
+      max_blocks: 1,
+    });
 
     const maxBlockTokens = selectSynthesisCacheForReplay(
       events,
@@ -862,7 +900,10 @@ describe('context-budget synthesis cache', () => {
       'Recover key-alpha',
       {
         enabled: true,
-        blocks: [{ ...first, estimatedTokens: 7 }, { ...second, estimatedTokens: 7 }],
+        blocks: [
+          { ...first, estimatedTokens: 7 },
+          { ...second, estimatedTokens: 7 },
+        ],
         maxBlocks: 2,
         maxEstimatedTokens: 10,
       },
@@ -896,19 +937,21 @@ describe('context-budget synthesis cache', () => {
         },
       },
     ];
-    const sourceRefs = [{
-      kind: 'archived_tool_result' as const,
-      sessionId: 'session-1',
-      turnId: 'turn-alpha',
-      runtimeEventId: 'result-alpha',
-      toolCallId: 'tool-alpha',
-      toolName: 'Read',
-      artifactId: 'artifact-alpha',
-      bodySha256: sha256(serialized),
-      originalEstimatedTokens: serialized.length,
-      originalBytes: utf8Bytes(serialized),
-      placeholderReason: 'stale_tool_result_pruned_before_compact' as const,
-    }];
+    const sourceRefs = [
+      {
+        kind: 'archived_tool_result' as const,
+        sessionId: 'session-1',
+        turnId: 'turn-alpha',
+        runtimeEventId: 'result-alpha',
+        toolCallId: 'tool-alpha',
+        toolName: 'Read',
+        artifactId: 'artifact-alpha',
+        bodySha256: sha256(serialized),
+        originalEstimatedTokens: serialized.length,
+        originalBytes: utf8Bytes(serialized),
+        placeholderReason: 'stale_tool_result_pruned_before_compact' as const,
+      },
+    ];
 
     const first = buildSynthesisCacheBlocksFromHydratedArchives({
       sessionId: 'session-1',
@@ -916,7 +959,12 @@ describe('context-budget synthesis cache', () => {
       hydratedRuntimeEvents: hydratedEvents,
       retrievedArchiveRefs: sourceRefs,
       archiveRetrievalMode: 'history_search_gated',
-      limits: { maxBlocks: 1, maxBlockEstimatedTokens: 1024, maxEstimatedTokens: 1024, charsPerToken: 4 },
+      limits: {
+        maxBlocks: 1,
+        maxBlockEstimatedTokens: 1024,
+        maxEstimatedTokens: 1024,
+        charsPerToken: 4,
+      },
       now: 1_800_000_000_100,
     });
     const second = buildSynthesisCacheBlocksFromHydratedArchives({
@@ -925,7 +973,12 @@ describe('context-budget synthesis cache', () => {
       hydratedRuntimeEvents: hydratedEvents,
       retrievedArchiveRefs: sourceRefs,
       archiveRetrievalMode: 'history_search_gated',
-      limits: { maxBlocks: 1, maxBlockEstimatedTokens: 1024, maxEstimatedTokens: 1024, charsPerToken: 4 },
+      limits: {
+        maxBlocks: 1,
+        maxBlockEstimatedTokens: 1024,
+        maxEstimatedTokens: 1024,
+        charsPerToken: 4,
+      },
       now: 1_800_000_000_100,
     });
 
@@ -1012,15 +1065,27 @@ describe('context-budget history compact', () => {
         estimatedTokensAfter: result.diagnostic.historyCompactedEstimatedTokensAfter,
         estimatedTokensSaved: Math.max(
           0,
-          (result.diagnostic.historyCompactedEstimatedTokensBefore ?? 0)
-          - (result.diagnostic.historyCompactedEstimatedTokensAfter ?? 0),
+          (result.diagnostic.historyCompactedEstimatedTokensBefore ?? 0) -
+            (result.diagnostic.historyCompactedEstimatedTokensAfter ?? 0),
         ),
       },
     ]);
-    assert.equal(result.events.some((event) => event.id === 'old-1'), false);
-    assert.equal(result.events.some((event) => event.id === 'old-result'), false);
-    assert.equal(result.events.some((event) => event.id === 'recent-1'), true);
-    assert.equal(result.events.some((event) => event.id === 'recent-2'), true);
+    assert.equal(
+      result.events.some((event) => event.id === 'old-1'),
+      false,
+    );
+    assert.equal(
+      result.events.some((event) => event.id === 'old-result'),
+      false,
+    );
+    assert.equal(
+      result.events.some((event) => event.id === 'recent-1'),
+      true,
+    );
+    assert.equal(
+      result.events.some((event) => event.id === 'recent-2'),
+      true,
+    );
 
     const synthetic = result.events.find((event) => event.id.startsWith('history-compact:'));
     assert.equal(synthetic?.role, 'user');
@@ -1029,7 +1094,11 @@ describe('context-budget history compact', () => {
     assert.match(compactText, /<maka_history_compact_block/);
     assert.match(compactText, /coverage: 4 runtime events across 3 turns/);
     assert.doesNotMatch(compactText, /runtimeEventIds=\[/);
-    assert.equal(events.some((event) => event.id === 'old-1'), true, 'input events remain unchanged');
+    assert.equal(
+      events.some((event) => event.id === 'old-1'),
+      true,
+      'input events remain unchanged',
+    );
   });
 
   test('lookup mode uses loaded blocks but does not synthesize a fallback block', () => {
@@ -1052,7 +1121,10 @@ describe('context-budget history compact', () => {
     });
 
     assert.ok(result);
-    assert.deepEqual(result.events.map((event) => event.id), events.map((event) => event.id));
+    assert.deepEqual(
+      result.events.map((event) => event.id),
+      events.map((event) => event.id),
+    );
     assert.equal(result.historyCompactBlocks?.length ?? 0, 0);
     assert.deepEqual(result.diagnostic.historyCompactSkippedReasonCounts, { lookup_miss: 1 });
     assert.deepEqual(result.diagnostic.compactionDecisions, [
@@ -1083,7 +1155,10 @@ describe('context-budget history compact', () => {
     });
 
     assert.ok(result);
-    assert.deepEqual(result.events.map((event) => event.id), ['short-1', 'short-2']);
+    assert.deepEqual(
+      result.events.map((event) => event.id),
+      ['short-1', 'short-2'],
+    );
     assert.equal(result.diagnostic.historyCompactEnabled, true);
     assert.deepEqual(result.diagnostic.historyCompactSkippedReasonCounts, { below_high_water: 1 });
     assert.deepEqual(result.diagnostic.compactionDecisions, [
@@ -1122,9 +1197,18 @@ describe('context-budget history compact', () => {
     });
 
     assert.ok(result);
-    assert.equal(result.events.some((event) => event.id === 'recent-1'), false);
-    assert.equal(result.events.some((event) => event.id === 'recent-2'), false);
-    assert.equal(result.events.some((event) => event.id === 'latest'), true);
+    assert.equal(
+      result.events.some((event) => event.id === 'recent-1'),
+      false,
+    );
+    assert.equal(
+      result.events.some((event) => event.id === 'recent-2'),
+      false,
+    );
+    assert.equal(
+      result.events.some((event) => event.id === 'latest'),
+      true,
+    );
     assert.equal(result.diagnostic.historyCompactedTurns, 4);
   });
 
@@ -1151,11 +1235,26 @@ describe('context-budget history compact', () => {
     });
 
     assert.ok(result);
-    assert.equal(result.events.some((event) => event.id === 'old-1'), false);
-    assert.equal(result.events.some((event) => event.id === 'tail-2'), true);
-    assert.equal(result.events.some((event) => event.id === 'tail-3'), true);
-    assert.equal(result.events.some((event) => event.id === 'tail-4'), true);
-    assert.equal(result.events.some((event) => event.id === 'tail-5'), true);
+    assert.equal(
+      result.events.some((event) => event.id === 'old-1'),
+      false,
+    );
+    assert.equal(
+      result.events.some((event) => event.id === 'tail-2'),
+      true,
+    );
+    assert.equal(
+      result.events.some((event) => event.id === 'tail-3'),
+      true,
+    );
+    assert.equal(
+      result.events.some((event) => event.id === 'tail-4'),
+      true,
+    );
+    assert.equal(
+      result.events.some((event) => event.id === 'tail-5'),
+      true,
+    );
     assert.equal(result.diagnostic.historyCompactedTurns, 1);
   });
 
@@ -1168,23 +1267,30 @@ describe('context-budget history compact', () => {
       textEvent('tail-5', 'turn-5', 'tail five'),
     ];
 
-    const result = applyRuntimeEventContextBudget(events, {
-      maxHistoryEstimatedTokens: 2000,
-      minRecentTurns: 2,
-      charsPerToken: 1,
-      historyCompact: {
-        enabled: true,
-        highWaterRatio: 0.1,
+    const result = applyRuntimeEventContextBudget(
+      events,
+      {
+        maxHistoryEstimatedTokens: 2000,
         minRecentTurns: 2,
-        tailEstimatedTokens: 100,
-        maxSummaryEstimatedTokens: 120,
+        charsPerToken: 1,
+        historyCompact: {
+          enabled: true,
+          highWaterRatio: 0.1,
+          minRecentTurns: 2,
+          tailEstimatedTokens: 100,
+          maxSummaryEstimatedTokens: 120,
+        },
       },
-    }, { historyCompactProtocol: 'checkpoint_v2' });
+      { historyCompactProtocol: 'checkpoint_v2' },
+    );
 
     assert.ok(result);
-    assert.deepEqual(result.events.filter((event) => !event.id.startsWith('history-compact:')).map((event) => event.id), [
-      'tail-5',
-    ]);
+    assert.deepEqual(
+      result.events
+        .filter((event) => !event.id.startsWith('history-compact:'))
+        .map((event) => event.id),
+      ['tail-5'],
+    );
     assert.equal(result.diagnostic.historyCompactedTurns, 4);
   });
 
@@ -1197,25 +1303,44 @@ describe('context-budget history compact', () => {
       toolResult('latest-result-2', 'turn-2', 'tool-2', { text: 'second huge result '.repeat(20) }),
     ];
 
-    const result = applyRuntimeEventContextBudget(events, {
-      maxHistoryEstimatedTokens: 2500,
-      minRecentTurns: 3,
-      charsPerToken: 1,
-      historyCompact: {
-        enabled: true,
-        highWaterRatio: 0.1,
+    const result = applyRuntimeEventContextBudget(
+      events,
+      {
+        maxHistoryEstimatedTokens: 2500,
         minRecentTurns: 3,
-        tailEstimatedTokens: 10,
-        maxSummaryEstimatedTokens: 120,
+        charsPerToken: 1,
+        historyCompact: {
+          enabled: true,
+          highWaterRatio: 0.1,
+          minRecentTurns: 3,
+          tailEstimatedTokens: 10,
+          maxSummaryEstimatedTokens: 120,
+        },
       },
-    }, { historyCompactProtocol: 'checkpoint_v2' });
+      { historyCompactProtocol: 'checkpoint_v2' },
+    );
 
     assert.ok(result);
-    assert.equal(result.events.some((event) => event.id === 'old-1'), false);
-    assert.equal(result.events.some((event) => event.id === 'latest-call-1'), true);
-    assert.equal(result.events.some((event) => event.id === 'latest-result-1'), true);
-    assert.equal(result.events.some((event) => event.id === 'latest-call-2'), true);
-    assert.equal(result.events.some((event) => event.id === 'latest-result-2'), true);
+    assert.equal(
+      result.events.some((event) => event.id === 'old-1'),
+      false,
+    );
+    assert.equal(
+      result.events.some((event) => event.id === 'latest-call-1'),
+      true,
+    );
+    assert.equal(
+      result.events.some((event) => event.id === 'latest-result-1'),
+      true,
+    );
+    assert.equal(
+      result.events.some((event) => event.id === 'latest-call-2'),
+      true,
+    );
+    assert.equal(
+      result.events.some((event) => event.id === 'latest-result-2'),
+      true,
+    );
     assert.equal(result.diagnostic.historyCompactedTurns, 1);
   });
 
@@ -1246,9 +1371,17 @@ describe('context-budget history compact', () => {
     assert.ok(result);
     assert.equal(result.historyCompactBlocks, undefined);
     assert.equal(result.diagnostic.estimatedTokensAfter <= maxHistoryEstimatedTokens, true);
-    assert.deepEqual(result.diagnostic.historyCompactSkippedReasonCounts, { replay_over_budget: 1 });
-    assert.equal(result.events.some((event) => event.id.startsWith('history-compact:')), false);
-    assert.deepEqual(result.events.map((event) => event.id), ['latest-call', 'latest-result']);
+    assert.deepEqual(result.diagnostic.historyCompactSkippedReasonCounts, {
+      replay_over_budget: 1,
+    });
+    assert.equal(
+      result.events.some((event) => event.id.startsWith('history-compact:')),
+      false,
+    );
+    assert.deepEqual(
+      result.events.map((event) => event.id),
+      ['latest-call', 'latest-result'],
+    );
   });
 
   test('skips compaction when archive-before-project is required but missing', () => {
@@ -1271,7 +1404,10 @@ describe('context-budget history compact', () => {
     });
 
     assert.ok(result);
-    assert.equal(result.events.some((event) => event.id.startsWith('history-compact:')), false);
+    assert.equal(
+      result.events.some((event) => event.id.startsWith('history-compact:')),
+      false,
+    );
     assert.equal(result.diagnostic.historyCompactSkipped, 1);
     assert.deepEqual(result.diagnostic.historyCompactSkippedReasonCounts, { archive_missing: 1 });
     assert.deepEqual(result.diagnostic.compactionDecisions, [
@@ -1321,7 +1457,10 @@ describe('context-budget history compact', () => {
     const rendered = renderHistoryCompactBlock(first.blocks[0]!);
     assert.match(rendered, /coverage: 2 runtime events across 2 turns/);
     assert.doesNotMatch(rendered, /bodySha256=/);
-    assert.ok((first.blocks[0]?.coverage.bodySha256.length ?? 0) > 0, 'hashes stay in the block JSON');
+    assert.ok(
+      (first.blocks[0]?.coverage.bodySha256.length ?? 0) > 0,
+      'hashes stay in the block JSON',
+    );
     assert.equal(first.events[0]?.id, `history-compact:${first.blocks[0]?.blockId}`);
     const boundary = historyCompactBlockToCompactionBoundary(first.blocks[0]!, {
       renderedText: renderHistoryCompactBlock(first.blocks[0]!),
@@ -1351,10 +1490,7 @@ describe('context-budget history compact', () => {
     });
 
     const result = applyRuntimeEventContextBudget(
-      [
-        ...folded,
-        textEvent('recent-1', 'turn-3', 'recent tail'),
-      ],
+      [...folded, textEvent('recent-1', 'turn-3', 'recent tail')],
       {
         maxHistoryEstimatedTokens: 10_000,
         charsPerToken: 1,
@@ -1376,7 +1512,9 @@ describe('context-budget history compact', () => {
     assert.equal(result.diagnostic.historyCompactBlocksSelected, 1);
     assert.deepEqual(result.diagnostic.historyCompactBlockIds, [loadedBlock.blockId]);
     assert.equal(result.diagnostic.compactionDecisions?.[0]?.decision, 'replaced');
-    assert.deepEqual(result.diagnostic.compactionDecisions?.[0]?.boundaryIds, [loadedBlock.blockId]);
+    assert.deepEqual(result.diagnostic.compactionDecisions?.[0]?.boundaryIds, [
+      loadedBlock.blockId,
+    ]);
     assert.match(
       result.events[0]?.content?.kind === 'text' ? result.events[0].content.text : '',
       /LOADED_CONTEXT_COMPACT_SENTINEL/,
@@ -1418,12 +1556,10 @@ describe('context-budget history compact', () => {
 
     assert.ok(result);
     assert.equal(result.historyCompactBlocks?.[0]?.blockId, loadedBlock.blockId);
-    assert.deepEqual(result.events.map((event) => event.id), [
-      `history-compact:${loadedBlock.blockId}`,
-      'former-tail',
-      'recent-1',
-      'recent-2',
-    ]);
+    assert.deepEqual(
+      result.events.map((event) => event.id),
+      [`history-compact:${loadedBlock.blockId}`, 'former-tail', 'recent-1', 'recent-2'],
+    );
     assert.equal(result.diagnostic.compactionDecisions?.[0]?.decision, 'replaced');
   });
 
@@ -1464,8 +1600,13 @@ describe('context-budget history compact', () => {
 
     assert.ok(result);
     assert.equal(result.historyCompactBlocks, undefined);
-    assert.deepEqual(result.events.map((event) => event.id), ['recent']);
-    assert.deepEqual(result.diagnostic.historyCompactSkippedReasonCounts, { prefix_over_budget: 1 });
+    assert.deepEqual(
+      result.events.map((event) => event.id),
+      ['recent'],
+    );
+    assert.deepEqual(result.diagnostic.historyCompactSkippedReasonCounts, {
+      prefix_over_budget: 1,
+    });
   });
 
   test('ignores diagnostic-only runtime turns when retaining recent turns', () => {
@@ -1483,7 +1624,10 @@ describe('context-budget history compact', () => {
     );
 
     assert.ok(result);
-    assert.deepEqual(result.events.map((event) => event.id), ['recent-1']);
+    assert.deepEqual(
+      result.events.map((event) => event.id),
+      ['recent-1'],
+    );
     assert.equal(result.diagnostic.keptTurns, 1);
   });
 
@@ -1526,9 +1670,18 @@ describe('context-budget history compact', () => {
     assert.ok(result);
     assert.equal(result.historyCompactBlocks?.[0]?.blockId, loadedBlock.blockId);
     assert.deepEqual(result.diagnostic.historyCompactSkippedReasonCounts, undefined);
-    assert.equal(result.events.some((event) => event.id === 'manual-compact-terminal'), false);
-    assert.equal(result.events.some((event) => event.id === 'recent-1'), true);
-    assert.equal(result.events.some((event) => event.id === 'recent-2'), true);
+    assert.equal(
+      result.events.some((event) => event.id === 'manual-compact-terminal'),
+      false,
+    );
+    assert.equal(
+      result.events.some((event) => event.id === 'recent-1'),
+      true,
+    );
+    assert.equal(
+      result.events.some((event) => event.id === 'recent-2'),
+      true,
+    );
   });
 });
 
@@ -1548,23 +1701,23 @@ describe('context-budget search and rewrite diagnostics', () => {
       { charsPerToken: 1 },
     );
 
-    assert.deepEqual(result.events.map((event) => event.id), ['before', 'target', 'after']);
+    assert.deepEqual(
+      result.events.map((event) => event.id),
+      ['before', 'target', 'after'],
+    );
     assert.equal(result.diagnosticPatch.historySearchMatches, 1);
     assert.equal(result.diagnosticPatch.historyAroundRetrievedEvents, 3);
   });
 
   test('records named history rewrite gate version and reset reason', () => {
-    const budgeted = applyRuntimeEventContextBudget(
-      [textEvent('event-1', 'turn-1', 'hello')],
-      {
-        historyRewrite: {
-          enabled: true,
-          name: 'phase6-high-water',
-          historyRewriteVersion: 'phase6-v1',
-          resetReason: 'explicit_test_reset',
-        },
+    const budgeted = applyRuntimeEventContextBudget([textEvent('event-1', 'turn-1', 'hello')], {
+      historyRewrite: {
+        enabled: true,
+        name: 'phase6-high-water',
+        historyRewriteVersion: 'phase6-v1',
+        resetReason: 'explicit_test_reset',
       },
-    );
+    });
 
     assert.ok(budgeted);
     assert.equal(budgeted.diagnostic.historyRewriteGate, 'phase6-high-water');
@@ -1600,7 +1753,12 @@ function toolCall(id: string, turnId: string, toolCallId: string): RuntimeEvent 
     turnId,
     role: 'model',
     author: 'agent',
-    content: { kind: 'function_call', id: toolCallId, name: 'Read', args: { path: `${toolCallId}.txt` } },
+    content: {
+      kind: 'function_call',
+      id: toolCallId,
+      name: 'Read',
+      args: { path: `${toolCallId}.txt` },
+    },
   });
 }
 
@@ -1665,19 +1823,21 @@ function synthesisBlock(input: {
     },
     summary: `The stable answer for ${input.queryKey} is SYNTH_SENTINEL.`,
     limitations: ['Does not include raw tool output.'],
-    sourceRefs: [{
-      kind: 'archived_tool_result',
-      sessionId: 'session-1',
-      turnId: input.turnId,
-      runtimeEventId: input.runtimeEventId,
-      toolCallId: input.toolCallId,
-      toolName: 'Read',
-      artifactId: input.artifactId,
-      bodySha256: input.bodySha256,
-      originalEstimatedTokens: input.originalEstimatedTokens,
-      originalBytes: input.originalBytes,
-      placeholderReason: 'stale_tool_result_pruned_before_compact',
-    }],
+    sourceRefs: [
+      {
+        kind: 'archived_tool_result',
+        sessionId: 'session-1',
+        turnId: input.turnId,
+        runtimeEventId: input.runtimeEventId,
+        toolCallId: input.toolCallId,
+        toolName: 'Read',
+        artifactId: input.artifactId,
+        bodySha256: input.bodySha256,
+        originalEstimatedTokens: input.originalEstimatedTokens,
+        originalBytes: input.originalBytes,
+        placeholderReason: 'stale_tool_result_pruned_before_compact',
+      },
+    ],
     createdFrom: 'gated_archive_retrieval',
   };
 }

@@ -63,7 +63,7 @@ describe('permission composer takeover', () => {
     assert.match(prompt, /<section[\s\S]*?role="region"[\s\S]*?className="maka-composer-interaction maka-permission-prompt composer"/);
     assert.match(prompt, /onStop\(\): void \| Promise<void>/);
     assert.match(prompt, /disabled=\{props\.stopPending\}/);
-    assert.match(prompt, /props\.stopPending \? '停止中…' : '停止'/);
+    assert.match(prompt, /props\.stopPending \? copy\.stopping : copy\.stop/);
     assert.match(prompt, /const denyButtonRef = useRef<HTMLButtonElement>\(null\)/);
     assert.match(prompt, /denyButtonRef\.current\?\.focus\(\)/, 'focus must move from the hidden composer to the safe decision');
     assert.match(prompt, /ref=\{denyButtonRef\}[\s\S]*?submit\('deny'\)/);
@@ -101,7 +101,7 @@ describe('permission composer takeover', () => {
     assert.match(prompt, /className="maka-permission-context"/);
     assert.match(
       prompt,
-      /<div className="maka-permission-utility-actions">[\s\S]*?\{showDisclosure && <CollapsibleTrigger>\{disclosureLabel\}<\/CollapsibleTrigger>\}[\s\S]*?permissionRemember[\s\S]*?<\/div>[\s\S]*?<div className="maka-permission-decision-actions" role="group" aria-label="权限操作">[\s\S]*?props\.onStop[\s\S]*?submit\('deny'\)[\s\S]*?submit\('allow'\)/,
+      /<div className="maka-permission-utility-actions">[\s\S]*?\{showDisclosure && <CollapsibleTrigger>\{disclosureLabel\}<\/CollapsibleTrigger>\}[\s\S]*?permissionRemember[\s\S]*?<\/div>[\s\S]*?<div className="maka-permission-decision-actions" role="group" aria-label=\{copy\.actionsAriaLabel\}>[\s\S]*?props\.onStop[\s\S]*?submit\('deny'\)[\s\S]*?submit\('allow'\)/,
       'all three request actions belong to one adjacent group; disclosure and grant scope remain utilities',
     );
     assert.match(prompt, /variant="ghost"[\s\S]*?props\.onStop/);
@@ -137,10 +137,10 @@ describe('permission composer takeover', () => {
     )?.[0] ?? '';
 
     assert.match(prompt, /\{showDisclosure && \([\s\S]*?<CollapsiblePanel>/);
-    assert.match(prompt, /const disclosureLabel = permissionDisclosureLabel\(props\.request, additionalArgs\);/);
+    assert.match(prompt, /const disclosureLabel = permissionDisclosureLabel\(props\.request, additionalArgs, copy\);/);
     assert.match(prompt, /\{showDisclosure && <CollapsibleTrigger>\{disclosureLabel\}<\/CollapsibleTrigger>\}/);
     assert.doesNotMatch(prompt, /formatRedactedJson\(props\.request\.args\)/, 'the disclosure must not repeat every summarized arg');
-    assert.match(summary, /const commandSummary = cwd[\s\S]*?在 \$\{redactSecrets\(cwd\)\}/);
+    assert.match(summary, /const commandSummary = cwd[\s\S]*?copy\.inDirectory\(redactSecrets\(cwd\)\)/);
     assert.match(additionalArgs, /case 'Bash':[\s\S]*?command: _command, cwd: _cwd[\s\S]*?return Object\.keys\(additional\)\.length > 0/);
   });
 
@@ -216,9 +216,9 @@ describe('permission composer takeover', () => {
     )?.[0] ?? '';
 
     assert.match(prompt, /<CollapsibleTrigger>\{disclosureLabel\}<\/CollapsibleTrigger>/);
-    assert.match(prompt, /const prompt = permissionPrompt\(props\.request, preset\);/);
+    assert.match(prompt, /const prompt = permissionPrompt\(props\.request, preset, copy\);/);
     assert.match(prompt, /id="permissionTitle">\{prompt\}<\/h2>/);
-    assert.match(summary, /case 'Edit':[\s\S]*?countTextLines\(oldString\)[\s\S]*?删除[\s\S]*?写入/);
+    assert.match(summary, /case 'Edit':[\s\S]*?countTextLines\(oldString\)[\s\S]*?copy\.editLineCount\(oldLines, newLines\)/);
     assert.doesNotMatch(summary, /即将修改文件/);
     assert.doesNotMatch(summary, /即将写入文件/);
     assert.doesNotMatch(summary, /即将编辑 Office 文档/);

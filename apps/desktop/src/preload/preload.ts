@@ -1,5 +1,15 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import { encodeIngestItems } from '../main/attachment-ingest-payload.js';
+import { encodeIngestItems } from './attachment-ingest-payload.js';
+import type {
+  ExpertTeamStartResult,
+  ExpertTeamSummary,
+  MakaBridge,
+  OnboardingSnapshot,
+  PermissionActionResult,
+  QuickChatResult,
+  RendererIngestInput,
+  WorkspaceInstructionsState,
+} from './bridge-contract.js';
 import type {
   ConnectionEvent,
   ConnectionTestResult,
@@ -88,85 +98,15 @@ import type {
 } from '@maka/core/mcp';
 import type {
   AttachmentRef,
-  OnboardingMilestone,
   OnboardingMilestoneId,
-  OnboardingState,
   QuickChatMode,
 } from '@maka/core';
-
-// PR110b: Quick Chat result discriminated union — mirrors the
-// definition in main.ts. The renderer side type-checks against this
-// shape so a future contract change requires updates on both sides.
-//
-// @xuan PR110b review: the success branch carries ONLY `sessionId`.
-// No `firstMessageId` — that was a misnamed turnId in an earlier
-// draft. PR110c can add `firstTurnId` if the UI ever needs a scroll
-// anchor.
-export type QuickChatResult =
-  | { ok: true; sessionId: string }
-  | { ok: false; reason: 'setup_required'; state: OnboardingState }
-  | { ok: false; reason: 'workspace_unavailable' }
-  | { ok: false; reason: 'send_failed'; message: string };
-
-// Expert-team IPC shapes. Duplicated (not imported from main) so preload stays
-// free of main-process deps; keep in sync with `global.d.ts` + `main.ts`.
-export interface ExpertTeamMemberSummary {
-  id: string;
-  name: string;
-  description: string;
-  whenToUse?: string;
-}
-export interface ExpertTeamSummary {
-  id: string;
-  name: string;
-  description: string;
-  members: ExpertTeamMemberSummary[];
-}
-export type ExpertTeamStartResult =
-  | { ok: true; sessionId: string }
-  | { ok: false; reason: 'unknown_team'; teamId: string }
-  | { ok: false; reason: 'setup_required'; state: OnboardingState }
-  | { ok: false; reason: 'workspace_unavailable' }
-  | { ok: false; reason: 'send_failed'; message: string };
-
-export interface OnboardingSnapshot {
-  state: OnboardingState;
-  milestones: OnboardingMilestone[];
-  sessions: SessionSummary[];
-  connections: LlmConnection[];
-  defaultSlug: string | null;
-}
 
 type LocalMemoryMutationResult =
   | { ok: true; state: LocalMemoryState; entry?: LocalMemoryEntryPreview; proposal?: LocalMemoryEntryPreview }
   | { ok: false; state: LocalMemoryState; reason: string; message: string };
 
-type RendererIngestInput =
-  | { approvalId: string; name: string; mimeType?: string }
-  | { file: File };
-
-export type WorkspaceInstructionFileStatus =
-  | 'available'
-  | 'missing'
-  | 'blocked'
-  | 'empty'
-  | 'unreadable';
-
-export interface WorkspaceInstructionFileState {
-  file: string;
-  status: WorkspaceInstructionFileStatus;
-  chars: number;
-  truncated: boolean;
-}
-
-export interface WorkspaceInstructionsState {
-  files: WorkspaceInstructionFileState[];
-  detectedCount: number;
-  fileCharLimit: number;
-  promptCharLimit: number;
-}
-
-contextBridge.exposeInMainWorld('maka', {
+const makaBridge = {
   tasks: {
     list(sessionId: string): Promise<Task[]> {
       return ipcRenderer.invoke('tasks:list', sessionId);
@@ -402,14 +342,10 @@ contextBridge.exposeInMainWorld('maka', {
     getSnapshot(): Promise<PermissionSnapshot> {
       return ipcRenderer.invoke('permissions:getSnapshot');
     },
-    openSystemSettings(permId: string): Promise<
-      { ok: true } | { ok: false; reason: string; message?: string }
-    > {
+    openSystemSettings(permId: string): Promise<PermissionActionResult> {
       return ipcRenderer.invoke('permissions:openSystemSettings', permId);
     },
-    requestAccess(permId: string): Promise<
-      { ok: true } | { ok: false; reason: string; message?: string }
-    > {
+    requestAccess(permId: string): Promise<PermissionActionResult> {
       return ipcRenderer.invoke('permissions:requestAccess', permId);
     },
   },
@@ -1167,4 +1103,6 @@ contextBridge.exposeInMainWorld('maka', {
       return () => ipcRenderer.off('browser:live', listener);
     },
   },
-});
+} satisfies MakaBridge;
+
+contextBridge.exposeInMainWorld('maka', makaBridge);

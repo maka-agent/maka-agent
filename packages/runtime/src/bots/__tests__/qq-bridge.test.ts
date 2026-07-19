@@ -48,14 +48,11 @@ describe('qqReconnectBackoffMs', () => {
 
 describe('classifyQQSendResponse', () => {
   it('returns ok with id from `id` or `msg_id`', () => {
-    assert.deepEqual(
-      classifyQQSendResponse(200, { id: '999' }),
-      { kind: 'ok', messageId: '999' },
-    );
-    assert.deepEqual(
-      classifyQQSendResponse(200, { msg_id: 'mid-1' }),
-      { kind: 'ok', messageId: 'mid-1' },
-    );
+    assert.deepEqual(classifyQQSendResponse(200, { id: '999' }), { kind: 'ok', messageId: '999' });
+    assert.deepEqual(classifyQQSendResponse(200, { msg_id: 'mid-1' }), {
+      kind: 'ok',
+      messageId: 'mid-1',
+    });
   });
 
   it('returns ok with null id when 2xx has neither', () => {
@@ -68,21 +65,18 @@ describe('classifyQQSendResponse', () => {
   });
 
   it('returns fatal on 4xx (non-429) with API message or code', () => {
-    assert.deepEqual(
-      classifyQQSendResponse(403, { message: 'Forbidden' }),
-      { kind: 'fatal', description: 'Forbidden' },
-    );
-    assert.deepEqual(
-      classifyQQSendResponse(400, { code: 304023 }),
-      { kind: 'fatal', description: 'code 304023' },
-    );
+    assert.deepEqual(classifyQQSendResponse(403, { message: 'Forbidden' }), {
+      kind: 'fatal',
+      description: 'Forbidden',
+    });
+    assert.deepEqual(classifyQQSendResponse(400, { code: 304023 }), {
+      kind: 'fatal',
+      description: 'code 304023',
+    });
   });
 
   it('returns fatal on 5xx', () => {
-    assert.deepEqual(
-      classifyQQSendResponse(502, null),
-      { kind: 'fatal', description: 'HTTP 502' },
-    );
+    assert.deepEqual(classifyQQSendResponse(502, null), { kind: 'fatal', description: 'HTTP 502' });
   });
 });
 
@@ -110,19 +104,13 @@ describe('qqChannelMessageToEvent (AT_MESSAGE_CREATE)', () => {
 
   it('drops messages from bots', () => {
     assert.equal(
-      qqChannelMessageToEvent(
-        { id: 'm-2', channel_id: 'c', author: { id: 'b', bot: true } },
-        1,
-      ),
+      qqChannelMessageToEvent({ id: 'm-2', channel_id: 'c', author: { id: 'b', bot: true } }, 1),
       null,
     );
   });
 
   it('drops messages with no author', () => {
-    assert.equal(
-      qqChannelMessageToEvent({ id: 'm-3', channel_id: 'c' }, 1),
-      null,
-    );
+    assert.equal(qqChannelMessageToEvent({ id: 'm-3', channel_id: 'c' }, 1), null);
   });
 });
 
@@ -145,30 +133,25 @@ describe('qqGroupMessageToEvent (GROUP_AT_MESSAGE_CREATE)', () => {
 
   it('falls back through user_openid → id when member_openid is missing', () => {
     assert.equal(
-      qqGroupMessageToEvent(
-        { id: 'gm-2', group_openid: 'g-2', author: { user_openid: 'uo-2' } },
-        1,
-      )?.userId,
+      qqGroupMessageToEvent({ id: 'gm-2', group_openid: 'g-2', author: { user_openid: 'uo-2' } }, 1)
+        ?.userId,
       'uo-2',
     );
     assert.equal(
-      qqGroupMessageToEvent(
-        { id: 'gm-3', group_openid: 'g-3', author: { id: 'i-3' } },
-        1,
-      )?.userId,
+      qqGroupMessageToEvent({ id: 'gm-3', group_openid: 'g-3', author: { id: 'i-3' } }, 1)?.userId,
       'i-3',
     );
   });
 
   it('drops messages with no group_openid or no author identity', () => {
     assert.equal(
-      qqGroupMessageToEvent({ id: 'gm-4', group_openid: '' as string, author: { id: 'x' } } as any, 1),
+      qqGroupMessageToEvent(
+        { id: 'gm-4', group_openid: '' as string, author: { id: 'x' } } as any,
+        1,
+      ),
       null,
     );
-    assert.equal(
-      qqGroupMessageToEvent({ id: 'gm-5', group_openid: 'g', author: {} }, 1),
-      null,
-    );
+    assert.equal(qqGroupMessageToEvent({ id: 'gm-5', group_openid: 'g', author: {} }, 1), null);
   });
 });
 
@@ -199,18 +182,9 @@ describe('pickQQSendRoute', () => {
   });
 
   it('trims accidental whitespace around route target ids', () => {
-    assert.equal(
-      pickQQSendRoute('channel: chan-1 ', 'hi')?.path,
-      '/channels/chan-1/messages',
-    );
-    assert.equal(
-      pickQQSendRoute('group: g-1 ', 'hi')?.path,
-      '/v2/groups/g-1/messages',
-    );
-    assert.equal(
-      pickQQSendRoute('c2c: uo-1 ', 'hi')?.path,
-      '/v2/users/uo-1/messages',
-    );
+    assert.equal(pickQQSendRoute('channel: chan-1 ', 'hi')?.path, '/channels/chan-1/messages');
+    assert.equal(pickQQSendRoute('group: g-1 ', 'hi')?.path, '/v2/groups/g-1/messages');
+    assert.equal(pickQQSendRoute('c2c: uo-1 ', 'hi')?.path, '/v2/users/uo-1/messages');
   });
 
   it('routes group: chatIds to /v2/groups/{id}/messages', () => {

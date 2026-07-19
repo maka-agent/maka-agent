@@ -212,7 +212,8 @@ const CODE_REVIEW_TEAM: ExpertTeamDefinition = {
     {
       id: 'correctness-reviewer',
       name: 'Correctness Reviewer',
-      description: 'Hunts logic errors, edge cases, race conditions, and broken invariants in the change.',
+      description:
+        'Hunts logic errors, edge cases, race conditions, and broken invariants in the change.',
       archetype: 'local_read',
       persona: [
         'Your lens is correctness. Find defects that make the code produce wrong results or crash: off-by-one, null/undefined, unhandled errors, async races, broken invariants, incorrect conditionals, and mishandled edge cases.',
@@ -223,7 +224,8 @@ const CODE_REVIEW_TEAM: ExpertTeamDefinition = {
     {
       id: 'simplification-reviewer',
       name: 'Simplification Reviewer',
-      description: 'Finds duplication, dead code, and needlessly complex constructs that could reuse existing code.',
+      description:
+        'Finds duplication, dead code, and needlessly complex constructs that could reuse existing code.',
       archetype: 'local_read',
       persona: [
         'Your lens is simplification and reuse. Find duplicated logic, dead code, over-abstraction, and places that reinvent something the codebase already provides.',
@@ -308,7 +310,9 @@ export function requireResolvedAgentDefinition(id: string): AgentDefinition {
 export function buildExpertTeamMemberRoster(team: ExpertTeamDefinition): string {
   return team.members
     .map((member) => {
-      const tools = (member.tools ?? requireBuiltinAgentDefinitionByProfile(member.archetype).tools).join(', ');
+      const tools = (
+        member.tools ?? requireBuiltinAgentDefinitionByProfile(member.archetype).tools
+      ).join(', ');
       const when = member.whenToUse ? ` — dispatch when: ${member.whenToUse}` : '';
       return `- ${member.id}: ${member.description} (tools: ${tools})${when}`;
     })
@@ -340,7 +344,7 @@ export function buildExpertTeamLeadSystemPromptFragment(teamId: string): string 
     'Shared work + fan-in discipline:',
     '- For work that benefits from shared ownership, create bounded Task Ledger items before dispatch and tell members to inspect team_task_list. Claims are atomic; child success remains evidence until you review and complete the task.',
     '- Each member returns a concise summary (and artifact ids for anything large). Members may exchange bounded, durable messages; use team_inbox after fan-in to inspect messages addressed to the lead.',
-    "- After members return, synthesize a single result: dedupe overlapping points, drop anything a member could not ground in evidence, and rank by importance. Speak as the lead — do not attribute output to \"the members\".",
+    '- After members return, synthesize a single result: dedupe overlapping points, drop anything a member could not ground in evidence, and rank by importance. Speak as the lead — do not attribute output to "the members".',
     '- If a member fails or returns nothing useful, say so plainly rather than inventing its result.',
   ].join('\n');
 }

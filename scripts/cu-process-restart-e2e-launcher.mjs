@@ -13,8 +13,7 @@ const statePath = join(labRoot, 'test-app', 'runtime', 'state.json');
 const SOAK_ROUNDS = 5;
 const FIXTURE_BUNDLE_ID = 'com.openai.codex.cualab';
 
-const delay = (milliseconds) =>
-  new Promise((resolve) => setTimeout(resolve, milliseconds));
+const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 function runChild(file, args, options = {}) {
   return new Promise((resolve, reject) => {
@@ -58,7 +57,9 @@ async function frontmostApplication() {
       stdio: ['ignore', 'pipe', 'inherit'],
     });
     child.stdout.setEncoding('utf8');
-    child.stdout.on('data', (chunk) => { output += chunk; });
+    child.stdout.on('data', (chunk) => {
+      output += chunk;
+    });
     child.once('error', reject);
     child.once('exit', (code) => {
       if (code === 0) resolve();
@@ -73,9 +74,7 @@ async function frontmostApplication() {
 }
 
 async function restoreFrontmost(application) {
-  const escaped = application.bundleIdentifier
-    .replaceAll('\\', '\\\\')
-    .replaceAll('"', '\\"');
+  const escaped = application.bundleIdentifier.replaceAll('\\', '\\\\').replaceAll('"', '\\"');
   const script = [
     'tell application "System Events"',
     `if exists (first application process whose unix id is ${application.pid}) then`,
@@ -97,7 +96,9 @@ async function pointerLocation() {
       stdio: ['ignore', 'pipe', 'inherit'],
     });
     child.stdout.setEncoding('utf8');
-    child.stdout.on('data', (chunk) => { output += chunk; });
+    child.stdout.on('data', (chunk) => {
+      output += chunk;
+    });
     child.once('error', reject);
     child.once('exit', (code) => {
       if (code === 0) resolve();
@@ -121,7 +122,7 @@ async function terminateChild(child, label, timeoutMs = 3_000) {
     return;
   }
   child.kill('SIGKILL');
-  if (!await Promise.race([exited.then(() => true), delay(timeoutMs).then(() => false)])) {
+  if (!(await Promise.race([exited.then(() => true), delay(timeoutMs).then(() => false)]))) {
     throw new Error(`${label} did not exit after SIGKILL`);
   }
 }
@@ -147,12 +148,12 @@ async function waitForRestartedState(oldPID, oldWebContentPID, timeoutMs = 15_00
       const newPID = state?.oop?.hostPID;
       const newWebContentPID = state?.oop?.webContentPID;
       if (
-        Number.isInteger(newPID)
-        && newPID > 0
-        && newPID !== oldPID
-        && Number.isInteger(newWebContentPID)
-        && newWebContentPID > 0
-        && newWebContentPID !== oldWebContentPID
+        Number.isInteger(newPID) &&
+        newPID > 0 &&
+        newPID !== oldPID &&
+        Number.isInteger(newWebContentPID) &&
+        newWebContentPID > 0 &&
+        newWebContentPID !== oldWebContentPID
       ) {
         try {
           process.kill(newPID, 0);
@@ -167,8 +168,7 @@ async function waitForRestartedState(oldPID, oldWebContentPID, timeoutMs = 15_00
     await delay(50);
   }
   throw new Error(
-    `fixture restart state did not advance from host/WebContent `
-    + `${oldPID}/${oldWebContentPID}`,
+    `fixture restart state did not advance from host/WebContent ` + `${oldPID}/${oldWebContentPID}`,
   );
 }
 
@@ -180,20 +180,17 @@ async function waitForInitialState(timeoutMs = 15_000) {
       const hostPID = state?.oop?.hostPID;
       const webContentPID = state?.oop?.webContentPID;
       if (
-        Number.isInteger(hostPID)
-        && hostPID > 0
-        && Number.isInteger(webContentPID)
-        && webContentPID > 0
+        Number.isInteger(hostPID) &&
+        hostPID > 0 &&
+        Number.isInteger(webContentPID) &&
+        webContentPID > 0
       ) {
         process.kill(hostPID, 0);
         return state;
       }
     } catch (error) {
-      if (
-        error?.code !== 'ENOENT'
-        && error?.code !== 'ESRCH'
-        && !(error instanceof SyntaxError)
-      ) throw error;
+      if (error?.code !== 'ENOENT' && error?.code !== 'ESRCH' && !(error instanceof SyntaxError))
+        throw error;
     }
     await delay(50);
   }
@@ -201,15 +198,13 @@ async function waitForInitialState(timeoutMs = 15_000) {
 }
 
 function startFocusMonitor() {
-  const child = spawn('swift', [
-    monitorPath,
-    '--concurrent-user',
-    '0',
-    '--deny-frontmost-bundle',
-    FIXTURE_BUNDLE_ID,
-  ], {
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
+  const child = spawn(
+    'swift',
+    [monitorPath, '--concurrent-user', '0', '--deny-frontmost-bundle', FIXTURE_BUNDLE_ID],
+    {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    },
+  );
   let buffer = '';
   let stderr = '';
   let readyResolve;
@@ -221,7 +216,9 @@ function startFocusMonitor() {
     readyResolve = resolve;
     readyReject = reject;
   });
-  const failure = new Promise((resolve) => { failureResolve = resolve; });
+  const failure = new Promise((resolve) => {
+    failureResolve = resolve;
+  });
   const fail = (error) => {
     const normalized = error instanceof Error ? error : new Error(String(error));
     if (!readySettled) {
@@ -254,14 +251,18 @@ function startFocusMonitor() {
     }
   });
   child.stderr.setEncoding('utf8');
-  child.stderr.on('data', (chunk) => { stderr += chunk; });
+  child.stderr.on('data', (chunk) => {
+    stderr += chunk;
+  });
   child.on('error', fail);
   child.on('exit', (code, signal) => {
     if (!failureSettled && code !== 0 && signal !== 'SIGTERM') {
-      fail(new Error(
-        `focus monitor exited (${signal ?? code})`
-        + `${stderr.trim() ? `: ${stderr.trim()}` : ''}`,
-      ));
+      fail(
+        new Error(
+          `focus monitor exited (${signal ?? code})` +
+            `${stderr.trim() ? `: ${stderr.trim()}` : ''}`,
+        ),
+      );
     }
   });
   return {
@@ -319,23 +320,18 @@ async function run() {
     });
     let currentPID = oldPID;
     for (let round = 1; round <= SOAK_ROUNDS; round += 1) {
-      const requestPath = join(
-        temporaryDirectory,
-        `restart-request-${round}.json`,
-      );
-      const completePath = join(
-        temporaryDirectory,
-        `restart-complete-${round}.json`,
-      );
+      const requestPath = join(temporaryDirectory, `restart-request-${round}.json`);
+      const completePath = join(temporaryDirectory, `restart-complete-${round}.json`);
       const request = await Promise.race([
         waitForJson(requestPath, `restart request ${round}`),
         exit.then((result) => {
           throw new Error(
-            `restart harness exited before round ${round} `
-            + `(${result.signal ?? result.code})`,
+            `restart harness exited before round ${round} ` + `(${result.signal ?? result.code})`,
           );
         }),
-        monitor.failure.then((error) => { throw error; }),
+        monitor.failure.then((error) => {
+          throw error;
+        }),
       ]);
       if (request.round !== round || request.oldPID !== currentPID) {
         throw new Error(`restart request ${round} identity mismatch`);
@@ -347,15 +343,11 @@ async function run() {
       await runFixtureScript('launch.sh', {
         env: { ...process.env, CUA_LAB_BACKGROUND: '1' },
       });
-      const newState = await waitForRestartedState(
-        currentPID,
-        request.oldWebContentPID,
-      );
+      const newState = await waitForRestartedState(currentPID, request.oldWebContentPID);
       const newPID = newState?.oop?.hostPID;
       if (!Number.isInteger(newPID) || newPID <= 0 || currentPID === newPID) {
         throw new Error(
-          `fixture restart ${round} did not create a new process: `
-          + `${currentPID} -> ${newPID}`,
+          `fixture restart ${round} did not create a new process: ` + `${currentPID} -> ${newPID}`,
         );
       }
       await writeFile(
@@ -372,7 +364,9 @@ async function run() {
     }
     const result = await Promise.race([
       exit,
-      monitor.failure.then((error) => { throw error; }),
+      monitor.failure.then((error) => {
+        throw error;
+      }),
     ]);
     if (result.code !== 0) {
       throw new Error(`restart soak E2E failed (${result.signal ?? result.code})`);
@@ -382,12 +376,8 @@ async function run() {
       pointerAfter.x - pointerBefore.x,
       pointerAfter.y - pointerBefore.y,
     );
-    process.stdout.write(
-      `Synthetic fixture never became frontmost across ${SOAK_ROUNDS} rounds\n`,
-    );
-    process.stdout.write(
-      `Concurrent user pointer displacement observed: ${displacement}\n`,
-    );
+    process.stdout.write(`Synthetic fixture never became frontmost across ${SOAK_ROUNDS} rounds\n`);
+    process.stdout.write(`Concurrent user pointer displacement observed: ${displacement}\n`);
   } finally {
     await terminateChild(harness, 'restart E2E harness').catch(() => {});
     await monitor?.stop().catch(() => {});

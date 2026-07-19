@@ -66,9 +66,21 @@ describe('diagnostics measure the provider-visible (active) tool subset', () => 
     return { name, description: name, parameters: schema, impl: () => ({}) };
   }
 
-  function diag(providerTools: MakaTool[], activeTools: string[], prior?: ReturnType<typeof computeRequestShapeDiagnostic>) {
+  function diag(
+    providerTools: MakaTool[],
+    activeTools: string[],
+    prior?: ReturnType<typeof computeRequestShapeDiagnostic>,
+  ) {
     return computeRequestShapeDiagnostic(
-      { connection, modelId: 'm', systemPrompt: 's', providerOptions: {}, providerTools, activeTools, priorMessages: [] },
+      {
+        connection,
+        modelId: 'm',
+        systemPrompt: 's',
+        providerOptions: {},
+        providerTools,
+        activeTools,
+        priorMessages: [],
+      },
       prior,
     );
   }
@@ -77,7 +89,10 @@ describe('diagnostics measure the provider-visible (active) tool subset', () => 
     const tools = [rich('Read', { a: 1 }), rich('Rive', { big: 'x'.repeat(500) })];
     const withoutRive = toolSchemaCharsForDiagnostics(tools, ['Read']);
     const withRive = toolSchemaCharsForDiagnostics(tools, ['Read', 'Rive']);
-    assert.ok(withRive > withoutRive + 400, 'activating Rive should add its schema chars to the count');
+    assert.ok(
+      withRive > withoutRive + 400,
+      'activating Rive should add its schema chars to the count',
+    );
   });
 
   test('toolSchemaHash ignores an INACTIVE tool schema change', () => {

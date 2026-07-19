@@ -7,7 +7,7 @@
  */
 
 export const QUICK_CHAT_MODES = ['chat', 'deep_research'] as const;
-export type QuickChatMode = typeof QUICK_CHAT_MODES[number];
+export type QuickChatMode = (typeof QUICK_CHAT_MODES)[number];
 
 export const DEEP_RESEARCH_SESSION_LABEL = 'mode:deep_research';
 

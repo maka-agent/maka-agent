@@ -12,7 +12,10 @@ describe('telegramAttachmentKind (PR-BOT-NON-TEXT-MESSAGE-ACK-0)', () => {
   });
 
   it('identifies photo messages (Telegram sends an array of sizes)', () => {
-    assert.equal(telegramAttachmentKind({ photo: [{ file_id: 'a', width: 90, height: 90 }] }), 'photo');
+    assert.equal(
+      telegramAttachmentKind({ photo: [{ file_id: 'a', width: 90, height: 90 }] }),
+      'photo',
+    );
   });
 
   it('treats an empty photo array as no photo', () => {

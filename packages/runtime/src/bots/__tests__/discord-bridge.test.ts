@@ -162,17 +162,17 @@ describe('classifyDiscordSendResponse', () => {
   });
 
   it('returns fatal on 4xx (non-429) with the API-provided message', () => {
-    assert.deepEqual(
-      classifyDiscordSendResponse(403, { message: 'Missing Permissions' }),
-      { kind: 'fatal', description: 'Missing Permissions' },
-    );
+    assert.deepEqual(classifyDiscordSendResponse(403, { message: 'Missing Permissions' }), {
+      kind: 'fatal',
+      description: 'Missing Permissions',
+    });
   });
 
   it('returns fatal on 5xx — Discord outages do not resolve within send timeout', () => {
-    assert.deepEqual(
-      classifyDiscordSendResponse(502, null),
-      { kind: 'fatal', description: 'HTTP 502' },
-    );
+    assert.deepEqual(classifyDiscordSendResponse(502, null), {
+      kind: 'fatal',
+      description: 'HTTP 502',
+    });
   });
 });
 

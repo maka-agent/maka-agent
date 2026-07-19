@@ -103,10 +103,7 @@ describe('G1 — mode=off blocks all writes (default-off)', () => {
 
 describe('G2 — durable active requires confirmedAt (manual confirm)', () => {
   it('rejects user_authored + active without confirmedAt', () => {
-    const result = validateMemoryWriteRequest(
-      durableRequest({ confirmedAt: undefined }),
-      ctx(),
-    );
+    const result = validateMemoryWriteRequest(durableRequest({ confirmedAt: undefined }), ctx());
     assert.equal(result.ok, false);
     if (!result.ok) assert.equal(result.reason, 'manual_confirm_required');
   });
@@ -367,7 +364,8 @@ describe('normalizeMemoryContent', () => {
   });
 
   it('strips control characters and zero-width characters', () => {
-    const inputWithControls = 'foo' + String.fromCharCode(0x00) + 'bar' + String.fromCharCode(0x200b) + 'baz';
+    const inputWithControls =
+      'foo' + String.fromCharCode(0x00) + 'bar' + String.fromCharCode(0x200b) + 'baz';
     const result = normalizeMemoryContent(inputWithControls);
     assert.equal(result.ok, true);
     if (result.ok) {
@@ -466,9 +464,11 @@ describe('normalizeMemoryMode / Scope / PersistenceState — closed-enum reject'
   it('type guards return true for closed-enum members and false otherwise', () => {
     for (const mode of MEMORY_MODES) assert.equal(isMemoryMode(mode), true, mode);
     for (const scope of MEMORY_SCOPES) assert.equal(isMemoryScope(scope), true, scope);
-    for (const state of MEMORY_PERSISTENCE_STATES) assert.equal(isMemoryPersistenceState(state), true, state);
+    for (const state of MEMORY_PERSISTENCE_STATES)
+      assert.equal(isMemoryPersistenceState(state), true, state);
     for (const source of MEMORY_SOURCES) assert.equal(isMemorySource(source), true, source);
-    for (const candidate of MEMORY_CANDIDATE_SOURCES) assert.equal(isMemoryCandidateSource(candidate), true, candidate);
+    for (const candidate of MEMORY_CANDIDATE_SOURCES)
+      assert.equal(isMemoryCandidateSource(candidate), true, candidate);
     assert.equal(isMemoryMode('unknown'), false);
     assert.equal(isMemorySource('voice_transcript'), false);
     assert.equal(isMemoryCandidateSource('user_authored'), false);
@@ -583,7 +583,9 @@ describe('MEMORY_BLOCK_REASONS is a closed union', () => {
 
   it('includes embedding_disabled and quasi_memory_promotion_blocked for future extension', () => {
     assert.ok((MEMORY_BLOCK_REASONS as readonly string[]).includes('embedding_disabled'));
-    assert.ok((MEMORY_BLOCK_REASONS as readonly string[]).includes('quasi_memory_promotion_blocked'));
+    assert.ok(
+      (MEMORY_BLOCK_REASONS as readonly string[]).includes('quasi_memory_promotion_blocked'),
+    );
   });
 });
 

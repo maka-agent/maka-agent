@@ -9,10 +9,24 @@ import { ToolRuntime } from '../tool-runtime.js';
 
 function header(): SessionHeader {
   return {
-    id: 'session-1', workspaceRoot: '/tmp/maka', cwd: '/tmp/maka', createdAt: 1,
-    lastUsedAt: 1, name: 'Test', isFlagged: false, labels: [], isArchived: false,
-    status: 'active', statusUpdatedAt: 1, hasUnread: false, backend: 'ai-sdk',
-    llmConnectionSlug: 'c', connectionLocked: true, model: 'm', permissionMode: 'ask',
+    id: 'session-1',
+    workspaceRoot: '/tmp/maka',
+    cwd: '/tmp/maka',
+    createdAt: 1,
+    lastUsedAt: 1,
+    name: 'Test',
+    titleIsManual: true,
+    isFlagged: false,
+    labels: [],
+    isArchived: false,
+    status: 'active',
+    statusUpdatedAt: 1,
+    hasUnread: false,
+    backend: 'ai-sdk',
+    llmConnectionSlug: 'c',
+    connectionLocked: true,
+    model: 'm',
+    permissionMode: 'ask',
     schemaVersion: 1,
   };
 }
@@ -27,7 +41,9 @@ describe('AskUserQuestion runtime round trip', () => {
       header: header(),
       connection: { providerType: 'openai', slug: 'c' } as never,
       modelId: 'm',
-      appendMessage: async (message) => { appended.push(message); },
+      appendMessage: async (message) => {
+        appended.push(message);
+      },
       permissionEngine: new PermissionEngine({ newId: () => `permission-${++id}`, now: () => 1 }),
       newId: () => `id-${++id}`,
       now: () => 1,
@@ -38,21 +54,24 @@ describe('AskUserQuestion runtime round trip', () => {
       push: (event) => events.push(event),
     });
 
-    const resultPromise = execute({
-      questions: [
-        {
-          question: 'Choose an approach',
-          options: [
-            { label: 'Extend', description: 'Reuse the runtime seam' },
-            { label: 'Separate' },
-          ],
-        },
-        {
-          question: 'Keep the default?',
-          options: [{ label: 'Yes' }, { label: 'No' }],
-        },
-      ],
-    }, { toolCallId: 'tool-1', abortSignal: new AbortController().signal });
+    const resultPromise = execute(
+      {
+        questions: [
+          {
+            question: 'Choose an approach',
+            options: [
+              { label: 'Extend', description: 'Reuse the runtime seam' },
+              { label: 'Separate' },
+            ],
+          },
+          {
+            question: 'Keep the default?',
+            options: [{ label: 'Yes' }, { label: 'No' }],
+          },
+        ],
+      },
+      { toolCallId: 'tool-1', abortSignal: new AbortController().signal },
+    );
 
     await new Promise<void>((resolve) => setImmediate(resolve));
     const request = events.find((event) => event.type === 'user_question_request');
@@ -60,10 +79,13 @@ describe('AskUserQuestion runtime round trip', () => {
     assert.equal(request.toolUseId, 'tool-1');
     assert.equal(runtime.pendingUserQuestionCount('turn-1'), 1);
 
-    assert.equal(runtime.respondToUserQuestion('turn-1', {
-      requestId: request.requestId,
-      answers: ['Extend', null],
-    }), true);
+    assert.equal(
+      runtime.respondToUserQuestion('turn-1', {
+        requestId: request.requestId,
+        answers: ['Extend', null],
+      }),
+      true,
+    );
 
     assert.deepEqual(await resultPromise, {
       answers: [
@@ -88,22 +110,31 @@ describe('AskUserQuestion runtime round trip', () => {
     const events: SessionEvent[] = [];
     let id = 0;
     const runtime = new ToolRuntime({
-      sessionId: 'session-1', header: header(),
-      connection: { providerType: 'openai', slug: 'c' } as never, modelId: 'm',
+      sessionId: 'session-1',
+      header: header(),
+      connection: { providerType: 'openai', slug: 'c' } as never,
+      modelId: 'm',
       appendMessage: async () => {},
       permissionEngine: new PermissionEngine({ newId: () => `permission-${++id}`, now: () => 1 }),
-      newId: () => `id-${++id}`, now: () => 1, getPermissionPauseTarget: () => null,
+      newId: () => `id-${++id}`,
+      now: () => 1,
+      getPermissionPauseTarget: () => null,
     });
     runtime.beginTurn('turn-1');
     const execute = runtime.wrapToolExecute(buildAskUserQuestionTool(), 'turn-1', {
       push: (event) => events.push(event),
     });
-    const resultPromise = execute({
-      questions: [{
-        question: 'Continue?',
-        options: [{ label: 'Yes' }, { label: 'No' }],
-      }],
-    }, { toolCallId: 'tool-1', abortSignal: new AbortController().signal });
+    const resultPromise = execute(
+      {
+        questions: [
+          {
+            question: 'Continue?',
+            options: [{ label: 'Yes' }, { label: 'No' }],
+          },
+        ],
+      },
+      { toolCallId: 'tool-1', abortSignal: new AbortController().signal },
+    );
 
     await new Promise<void>((resolve) => setImmediate(resolve));
     const request = events.find((event) => event.type === 'user_question_request');
@@ -114,9 +145,12 @@ describe('AskUserQuestion runtime round trip', () => {
     assert.deepEqual(await resultPromise, {
       error: `Turn turn-1 aborted before user question ${request.requestId} was answered`,
     });
-    assert.equal(runtime.respondToUserQuestion('turn-1', {
-      requestId: request.requestId,
-      answers: ['Yes'],
-    }), false);
+    assert.equal(
+      runtime.respondToUserQuestion('turn-1', {
+        requestId: request.requestId,
+        answers: ['Yes'],
+      }),
+      false,
+    );
   });
 });

@@ -17,9 +17,17 @@ function createManager(startTime = 1_700_000_000_000) {
   const mgr = new GoalManager({
     generateId: () => `goal-${++id}`,
     now: () => time,
-    onChange: (goal, previous) => { events.push({ goal, previous }); },
+    onChange: (goal, previous) => {
+      events.push({ goal, previous });
+    },
   });
-  return { mgr, events, advance: (ms: number) => { time += ms; } };
+  return {
+    mgr,
+    events,
+    advance: (ms: number) => {
+      time += ms;
+    },
+  };
 }
 
 function createGoal(
@@ -34,10 +42,9 @@ function createGoal(
 
 function settle(
   mgr: GoalManager,
-  input: (
+  input:
     | { waiting: true; madeProgress?: never; tokensNow?: number; reason?: string }
-    | { waiting?: false; madeProgress?: boolean; tokensNow?: number; reason?: string }
-  ) = {},
+    | { waiting?: false; madeProgress?: boolean; tokensNow?: number; reason?: string } = {},
 ) {
   const goal = mgr.getActive(SESSION);
   assert.ok(goal);
@@ -334,5 +341,4 @@ describe('GoalManager stale rejection', () => {
     assert.equal(mgr.get(SESSION)?.condition, 'replacement');
     assert.equal(mgr.get(SESSION)?.status, 'active');
   });
-
 });

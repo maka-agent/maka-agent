@@ -78,10 +78,7 @@ import type {
   PricingConfig,
   ToolInvocationRecord,
 } from '@maka/core/usage-stats/types';
-import type {
-  ContextBudgetDiagnostic,
-  PromptSegmentEstimate,
-} from '@maka/core/usage-stats/types';
+import type { ContextBudgetDiagnostic, PromptSegmentEstimate } from '@maka/core/usage-stats/types';
 import type { JSONValue, ModelMessage } from 'ai';
 import { z } from 'zod';
 
@@ -160,10 +157,7 @@ import {
   toolSchemaCharsForDiagnostics,
   type RequestShapeDiagnostic,
 } from './request-shape.js';
-import {
-  ToolAvailabilityRuntime,
-  type ToolAvailabilityConfig,
-} from './tool-availability.js';
+import { ToolAvailabilityRuntime, type ToolAvailabilityConfig } from './tool-availability.js';
 import {
   ARCHIVED_TOOL_RESULT_REWRITE_VERSION,
   applyRuntimeEventContextBudget,
@@ -299,16 +293,20 @@ function composeActiveCompactionPrepareStep(
   if (!attention) return capacity;
   if (!capacity) return attention;
   return async (options) => {
-    const attentionResult = await Promise.resolve(attention(options)) as ActiveCompactionPrepareStepResult | undefined;
+    const attentionResult = (await Promise.resolve(attention(options))) as
+      | ActiveCompactionPrepareStepResult
+      | undefined;
     if (attentionResult?.makaSemanticCompactStatus === 'replaced') {
       const { makaSemanticCompactStatus: _status, ...providerResult } = attentionResult;
       return providerResult;
     }
-    const capacityResult = await Promise.resolve(capacity({
-      ...options,
-      messages: attentionResult?.messages ?? options.messages,
-      ...(attentionResult?.activeTools ? { activeTools: attentionResult.activeTools } : {}),
-    }));
+    const capacityResult = await Promise.resolve(
+      capacity({
+        ...options,
+        messages: attentionResult?.messages ?? options.messages,
+        ...(attentionResult?.activeTools ? { activeTools: attentionResult.activeTools } : {}),
+      }),
+    );
     if (!capacityResult) {
       if (!attentionResult) return undefined;
       const { makaSemanticCompactStatus: _status, ...providerResult } = attentionResult;
@@ -370,15 +368,13 @@ function projectAcceptedActiveFullCompactMessages(
   acceptedProjection: ActiveFullCompactPrepareStepProjection | undefined,
 ): ModelMessage[] | undefined {
   if (!acceptedProjection) return undefined;
-  const sourceSignature = acceptedProjection.sourceSignatureMode === 'active_prune_lineage'
-    ? projectionSourceMessageSignature
-    : modelMessageSignature;
+  const sourceSignature =
+    acceptedProjection.sourceSignatureMode === 'active_prune_lineage'
+      ? projectionSourceMessageSignature
+      : modelMessageSignature;
   if (incomingMessages.length < acceptedProjection.sourceSignatures.length) return undefined;
   for (let index = 0; index < acceptedProjection.sourceSignatures.length; index += 1) {
-    if (
-      sourceSignature(incomingMessages[index]!)
-      !== acceptedProjection.sourceSignatures[index]
-    ) {
+    if (sourceSignature(incomingMessages[index]!) !== acceptedProjection.sourceSignatures[index]) {
       return undefined;
     }
   }
@@ -448,11 +444,13 @@ class MidTurnCapacityCompactState {
    * when the final payload is over the window, and to avoid re-entering a
    * shaper that already attempted and failed this step.
    */
-  lastShapeFailure: {
-    stepNumber: number;
-    detail: ContextBudgetExhaustedDetail;
-    diagnosticReason: string;
-  } | undefined;
+  lastShapeFailure:
+    | {
+        stepNumber: number;
+        detail: ContextBudgetExhaustedDetail;
+        diagnosticReason: string;
+      }
+    | undefined;
 
   constructor(
     readonly headAnchor: RuntimeEvent,
@@ -480,9 +478,9 @@ function midTurnRequestPayloadChars(
   systemPromptChars: number,
 ): number {
   return (
-    Math.max(0, Math.floor(systemPromptChars))
-    + JSON.stringify(messages).length
-    + toolSchemaCharsForDiagnostics(providerTools, activeTools)
+    Math.max(0, Math.floor(systemPromptChars)) +
+    JSON.stringify(messages).length +
+    toolSchemaCharsForDiagnostics(providerTools, activeTools)
   );
 }
 
@@ -696,9 +694,17 @@ export interface HistoryCompactSummaryInput {
 export type HistoryCompactSummarizer = (
   input: HistoryCompactSummaryInput,
 ) => Promise<string | undefined> | string | undefined;
-export type HistoryCompactCheckpointLoader = () => Promise<HistoryCompactCheckpoint | undefined> | HistoryCompactCheckpoint | undefined;
-export type HistoryCompactCheckpointRecorder = (checkpoint: HistoryCompactCheckpoint, turnId: string) => void | Promise<void>;
-export type ActiveFullCompactBlockRecorder = (block: ActiveFullCompactBlock) => void | Promise<void>;
+export type HistoryCompactCheckpointLoader = () =>
+  | Promise<HistoryCompactCheckpoint | undefined>
+  | HistoryCompactCheckpoint
+  | undefined;
+export type HistoryCompactCheckpointRecorder = (
+  checkpoint: HistoryCompactCheckpoint,
+  turnId: string,
+) => void | Promise<void>;
+export type ActiveFullCompactBlockRecorder = (
+  block: ActiveFullCompactBlock,
+) => void | Promise<void>;
 export type SemanticCompactBlockRecorder = (block: SemanticCompactBlock) => void | Promise<void>;
 
 export interface AiSdkBackendInput {
@@ -750,9 +756,13 @@ export interface AiSdkBackendInput {
   /** Invocation-local allow/deny rules evaluated before the session mode. */
   permissionRules?: readonly ToolPermissionRule[];
   /** Optional system prompt (skills + workspace AGENTS.md merged upstream). */
-  systemPrompt?: string | ((context: SystemPromptContext) => string | undefined | Promise<string | undefined>);
+  systemPrompt?:
+    | string
+    | ((context: SystemPromptContext) => string | undefined | Promise<string | undefined>);
   /** Optional provider-visible current-turn tail kept out of the durable system prefix. */
-  turnTailPrompt?: string | ((context: SystemPromptContext) => string | undefined | Promise<string | undefined>);
+  turnTailPrompt?:
+    | string
+    | ((context: SystemPromptContext) => string | undefined | Promise<string | undefined>);
   /** Optional volatile ShellRun summary. Not persisted; appended to the current user turn tail only. */
   shellRunContextSummary?: () => string | undefined | Promise<string | undefined>;
   /** Provider-native options passed through to ai-sdk. */
@@ -773,11 +783,19 @@ export interface AiSdkBackendInput {
     spec: AgentSpec;
     prompt: string;
     abortSignal: AbortSignal;
-    onReady?: (input: { turnId: string; agentId: string; agentName: string }) => void | Promise<void>;
+    onReady?: (input: {
+      turnId: string;
+      agentId: string;
+      agentName: string;
+    }) => void | Promise<void>;
     onEvent?: (event: SessionEvent) => void;
   }) => Promise<unknown>;
   listChildAgents?: () => Promise<unknown>;
-  readChildAgentOutput?: (input: { runId?: string; turnId?: string; maxEvents?: number }) => Promise<unknown>;
+  readChildAgentOutput?: (input: {
+    runId?: string;
+    turnId?: string;
+    maxEvents?: number;
+  }) => Promise<unknown>;
   /** Optional diagnostic trace hook for explaining a runtime turn without changing renderer events. */
   recordRunTrace?: RunTraceRecorder;
   /**
@@ -853,13 +871,17 @@ function appendNonVisionImageFallbackNotice(textContent: string): string {
   return `${textContent}\n\n[image attachments omitted: the selected model does not support image input. Tell the user you cannot view the attached image(s) and ask them to describe the image or switch to a vision-capable model.]`;
 }
 
-function isImageToolResult(value: unknown): value is { kind: 'image'; mimeType: string; ref: StorageRef } {
+function isImageToolResult(
+  value: unknown,
+): value is { kind: 'image'; mimeType: string; ref: StorageRef } {
   if (!value || typeof value !== 'object') return false;
   const image = value as { kind?: unknown; mimeType?: unknown; ref?: unknown };
-  return image.kind === 'image'
-    && typeof image.mimeType === 'string'
-    && image.ref !== null
-    && typeof image.ref === 'object';
+  return (
+    image.kind === 'image' &&
+    typeof image.mimeType === 'string' &&
+    image.ref !== null &&
+    typeof image.ref === 'object'
+  );
 }
 
 function toolResultText(text: string): ToolModelOutput {
@@ -938,10 +960,12 @@ export class AiSdkBackend implements AgentBackend {
       newId: this.newId,
       now: this.now,
     });
-    const autoApprovalReviewer = input.autoApprovalReviewer ?? new AiSdkAutoApprovalReviewer({
-      resolveModel: () => this.modelAdapter.resolveModel(),
-      ...(input.providerOptions ? { providerOptions: input.providerOptions } : {}),
-    });
+    const autoApprovalReviewer =
+      input.autoApprovalReviewer ??
+      new AiSdkAutoApprovalReviewer({
+        resolveModel: () => this.modelAdapter.resolveModel(),
+        ...(input.providerOptions ? { providerOptions: input.providerOptions } : {}),
+      });
     this.toolRuntime = new ToolRuntime({
       sessionId: input.sessionId,
       header: input.header,
@@ -966,29 +990,32 @@ export class AiSdkBackend implements AgentBackend {
       approvalCoordinator: new ApprovalCoordinator({
         autoReviewer: autoApprovalReviewer,
         observer: {
-          onAutoReviewStarted: (request) => this.currentRunTrace?.emit(
-            'permission',
-            'auto_review_started',
-            'Automatic permission review started',
-            { requestId: request.requestId, toolUseId: request.toolUseId, kind: request.kind },
-          ),
-          onAutoReviewDecided: (request, decision) => this.currentRunTrace?.emit(
-            'permission',
-            'auto_review_decided',
-            'Automatic permission review decided',
-            {
-              requestId: request.requestId,
-              toolUseId: request.toolUseId,
-              decision: decision.outcome,
-              riskLevel: decision.riskLevel,
-            },
-          ),
-          onAutoReviewFailed: (request) => this.currentRunTrace?.emit(
-            'permission',
-            'auto_review_failed',
-            'Automatic permission review failed closed',
-            { requestId: request.requestId, toolUseId: request.toolUseId },
-          ),
+          onAutoReviewStarted: (request) =>
+            this.currentRunTrace?.emit(
+              'permission',
+              'auto_review_started',
+              'Automatic permission review started',
+              { requestId: request.requestId, toolUseId: request.toolUseId, kind: request.kind },
+            ),
+          onAutoReviewDecided: (request, decision) =>
+            this.currentRunTrace?.emit(
+              'permission',
+              'auto_review_decided',
+              'Automatic permission review decided',
+              {
+                requestId: request.requestId,
+                toolUseId: request.toolUseId,
+                decision: decision.outcome,
+                riskLevel: decision.riskLevel,
+              },
+            ),
+          onAutoReviewFailed: (request) =>
+            this.currentRunTrace?.emit(
+              'permission',
+              'auto_review_failed',
+              'Automatic permission review failed closed',
+              { requestId: request.requestId, toolUseId: request.toolUseId },
+            ),
         },
       }),
       getAutoApprovalReviewContext: () => ({
@@ -1011,7 +1038,9 @@ export class AiSdkBackend implements AgentBackend {
 
       const contextBudget = policy;
       const budgeted = applyRuntimeEventContextBudget(runtimeContext, contextBudget, {
-        historyCompactProtocol: this.hasHistoryCompactCheckpointWriter() ? 'checkpoint_v2' : 'legacy_v1',
+        historyCompactProtocol: this.hasHistoryCompactCheckpointWriter()
+          ? 'checkpoint_v2'
+          : 'legacy_v1',
       });
       let contextBudgetDiagnostic = budgeted?.diagnostic;
 
@@ -1020,8 +1049,12 @@ export class AiSdkBackend implements AgentBackend {
         contextBudget.historyCompact?.mode === 'read_write' &&
         this.hasHistoryCompactWriter()
       ) {
-        const loadedBlockIds = new Set((contextBudget.historyCompact.blocks ?? []).map((block) => block.blockId));
-        const draftBlocks = budgeted.historyCompactBlocks.filter((block) => !loadedBlockIds.has(block.blockId));
+        const loadedBlockIds = new Set(
+          (contextBudget.historyCompact.blocks ?? []).map((block) => block.blockId),
+        );
+        const draftBlocks = budgeted.historyCompactBlocks.filter(
+          (block) => !loadedBlockIds.has(block.blockId),
+        );
         if (draftBlocks.length > 0) {
           if (this.input.summarizeHistoryCompact && this.input.recordHistoryCompactCheckpoint) {
             let writeContextBudget = contextBudget;
@@ -1045,7 +1078,8 @@ export class AiSdkBackend implements AgentBackend {
             });
             if (historyCompactAbortController.signal.aborted) return {};
             contextBudgetDiagnostic = mergeContextBudgetDiagnostic(
-              contextBudgetDiagnostic ?? buildContextBudgetDiagnosticShell(runtimeContext, budgeted.events, contextBudget),
+              contextBudgetDiagnostic ??
+                buildContextBudgetDiagnosticShell(runtimeContext, budgeted.events, contextBudget),
               writePatch.diagnosticPatch,
             );
           } else {
@@ -1058,10 +1092,15 @@ export class AiSdkBackend implements AgentBackend {
             });
             if (historyCompactAbortController.signal.aborted) return {};
             if (writePatch.replacementBlocks.length === 0) {
-              contextBudgetDiagnostic = buildContextBudgetDiagnosticShell(runtimeContext, runtimeContext, contextBudget);
+              contextBudgetDiagnostic = buildContextBudgetDiagnosticShell(
+                runtimeContext,
+                runtimeContext,
+                contextBudget,
+              );
             }
             contextBudgetDiagnostic = mergeContextBudgetDiagnostic(
-              contextBudgetDiagnostic ?? buildContextBudgetDiagnosticShell(runtimeContext, budgeted.events, contextBudget),
+              contextBudgetDiagnostic ??
+                buildContextBudgetDiagnosticShell(runtimeContext, budgeted.events, contextBudget),
               writePatch.diagnosticPatch,
             );
           }
@@ -1079,11 +1118,8 @@ export class AiSdkBackend implements AgentBackend {
   private buildManualHistoryCompactPolicy(
     runtimeContext: readonly RuntimeEvent[],
   ): ContextBudgetPolicy | undefined {
-    if (
-      runtimeContext.length === 0
-      || !this.input.contextBudget
-      || !this.hasHistoryCompactWriter()
-    ) return undefined;
+    if (runtimeContext.length === 0 || !this.input.contextBudget || !this.hasHistoryCompactWriter())
+      return undefined;
     const base = this.input.contextBudget;
     const charsPerToken = base.charsPerToken ?? 4;
     const estimatedTokens = Math.max(1, estimateRuntimeEventsTokens(runtimeContext, charsPerToken));
@@ -1091,7 +1127,8 @@ export class AiSdkBackend implements AgentBackend {
     const currentWithoutBlocks = { ...current };
     delete currentWithoutBlocks.blocks;
     delete currentWithoutBlocks.checkpoint;
-    const maxHistoryEstimatedTokens = base.maxHistoryEstimatedTokens ?? Math.max(estimatedTokens, 32_000);
+    const maxHistoryEstimatedTokens =
+      base.maxHistoryEstimatedTokens ?? Math.max(estimatedTokens, 32_000);
     return {
       name: base.name ?? 'manual-history-compact',
       ...(base.charsPerToken !== undefined ? { charsPerToken: base.charsPerToken } : {}),
@@ -1107,7 +1144,8 @@ export class AiSdkBackend implements AgentBackend {
         minRecentTurns: current?.minRecentTurns ?? base.minRecentTurns ?? 1,
         maxBlocks: current?.maxBlocks ?? 1,
         maxEstimatedTokens: current?.maxEstimatedTokens ?? 2048,
-        maxBlockEstimatedTokens: current?.maxBlockEstimatedTokens ?? current?.maxSummaryEstimatedTokens ?? 1024,
+        maxBlockEstimatedTokens:
+          current?.maxBlockEstimatedTokens ?? current?.maxSummaryEstimatedTokens ?? 1024,
         highWaterName: current?.highWaterName ?? `${base.name ?? 'manual'}-manual-history-compact`,
       },
     };
@@ -1115,8 +1153,8 @@ export class AiSdkBackend implements AgentBackend {
 
   private hasHistoryCompactWriter(): boolean {
     return Boolean(
-      this.input.writeHistoryCompact
-      || (this.input.summarizeHistoryCompact && this.input.recordHistoryCompactCheckpoint),
+      this.input.writeHistoryCompact ||
+        (this.input.summarizeHistoryCompact && this.input.recordHistoryCompactCheckpoint),
     );
   }
 
@@ -1315,8 +1353,9 @@ export class AiSdkBackend implements AgentBackend {
           if (providerError) throw new Error(providerError);
           return output;
         },
-        toModelOutput: t.toModelOutput
-          ?? (({ toolCallId, output }: { toolCallId: string; output: unknown }) =>
+        toModelOutput:
+          t.toModelOutput ??
+          (({ toolCallId, output }: { toolCallId: string; output: unknown }) =>
             this.materializeToolResultOutput(output, false, toolCallId)),
       };
     }
@@ -1354,7 +1393,10 @@ export class AiSdkBackend implements AgentBackend {
           await this.resolveTurnTailPrompt(),
           await this.resolveShellRunContextSummary(),
         ]);
-        const currentUserContent = await this.buildCurrentUserContent(input.text, input.attachments);
+        const currentUserContent = await this.buildCurrentUserContent(
+          input.text,
+          input.attachments,
+        );
         const messages = [
           ...priorReplay.messages,
           {
@@ -1388,18 +1430,21 @@ export class AiSdkBackend implements AgentBackend {
               currentUserContent: formatTextWithAttachmentRefs(input.text, input.attachments),
               turnTailPrompt,
             }),
-            requestShape: computeRequestShapeDiagnostic({
-              connection: this.input.connection,
-              modelId: this.input.modelId,
-              systemPrompt,
-              providerOptions: this.input.providerOptions,
-              providerTools,
-              activeTools: active,
-              priorMessages: priorReplay.messages,
-              ...(toolAvailabilityDiagnostic !== undefined
-                ? { toolAvailability: toolAvailabilityDiagnostic }
-                : {}),
-            }, priorShapeBaseline),
+            requestShape: computeRequestShapeDiagnostic(
+              {
+                connection: this.input.connection,
+                modelId: this.input.modelId,
+                systemPrompt,
+                providerOptions: this.input.providerOptions,
+                providerTools,
+                activeTools: active,
+                priorMessages: priorReplay.messages,
+                ...(toolAvailabilityDiagnostic !== undefined
+                  ? { toolAvailability: toolAvailabilityDiagnostic }
+                  : {}),
+              },
+              priorShapeBaseline,
+            ),
           };
         };
         // Publish a diagnostics snapshot to every telemetry sink at once so the
@@ -1414,13 +1459,15 @@ export class AiSdkBackend implements AgentBackend {
           requestShapeForTelemetry = diag.requestShape;
           this.priorRequestShape = diag.requestShape;
           if (priorReplay.contextBudget?.highWaterReason) {
-            priorReplay.contextBudget.highWaterRequestShapeHashAfter = diag.requestShape.requestShapeHash;
+            priorReplay.contextBudget.highWaterRequestShapeHashAfter =
+              diag.requestShape.requestShapeHash;
           }
         };
         // Step-0 (turn-start) view: literally what the first request carries, so
         // the stream-start trace reports it as the prefix actually sent.
         if (priorReplay.contextBudget?.highWaterReason) {
-          priorReplay.contextBudget.highWaterRequestShapeHashBefore = priorShapeBaseline?.requestShapeHash;
+          priorReplay.contextBudget.highWaterRequestShapeHashBefore =
+            priorShapeBaseline?.requestShapeHash;
         }
         publishTurnDiagnostics(turnDiagnostics);
         trace.modelStreamStarted(activeTools, {
@@ -1442,22 +1489,27 @@ export class AiSdkBackend implements AgentBackend {
         const stepRequestShapeHash = (
           stepMessages: readonly ModelMessage[],
           activeToolsForStep: readonly string[] | undefined,
-        ): string => computeRequestShapeDiagnostic({
-          connection: this.input.connection,
-          modelId: this.input.modelId,
-          systemPrompt,
-          providerOptions: this.input.providerOptions,
-          providerTools,
-          activeTools: activeToolsForStep ?? plan.activeTools,
-          priorMessages: stepMessages,
-        }, priorShapeBaseline).requestShapeHash;
+        ): string =>
+          computeRequestShapeDiagnostic(
+            {
+              connection: this.input.connection,
+              modelId: this.input.modelId,
+              systemPrompt,
+              providerOptions: this.input.providerOptions,
+              providerTools,
+              activeTools: activeToolsForStep ?? plan.activeTools,
+              priorMessages: stepMessages,
+            },
+            priorShapeBaseline,
+          ).requestShapeHash;
         const activeCompactHook = composeActiveCompactionPrepareStep(
           this.buildSemanticCompactPrepareStep(
             turnId,
             model,
             input.runtimeContext,
             activeCompactionHeadAnchor,
-            (messagesForStep, activeToolsForStep) => stepRequestShapeHash(messagesForStep, activeToolsForStep),
+            (messagesForStep, activeToolsForStep) =>
+              stepRequestShapeHash(messagesForStep, activeToolsForStep),
             (patch) => {
               activeCompactDiagnosticPatch = mergeContextBudgetDiagnosticPatches(
                 activeCompactDiagnosticPatch,
@@ -1469,7 +1521,8 @@ export class AiSdkBackend implements AgentBackend {
             turnId,
             input.runtimeContext,
             activeCompactionHeadAnchor,
-            (messagesForStep, activeToolsForStep) => stepRequestShapeHash(messagesForStep, activeToolsForStep),
+            (messagesForStep, activeToolsForStep) =>
+              stepRequestShapeHash(messagesForStep, activeToolsForStep),
             (patch) => {
               activeCompactDiagnosticPatch = mergeContextBudgetDiagnosticPatches(
                 activeCompactDiagnosticPatch,
@@ -1482,25 +1535,26 @@ export class AiSdkBackend implements AgentBackend {
         // invariant owns the projection, so semantic/active-full compaction
         // yields for that step (recorded as a decision) instead of running a
         // second summarizer over the same request.
-        const activeCompactAfterMidTurn = activeCompactHook && midTurnState
-          ? (options: PrepareStepLike) => {
-              if (midTurnState.replacedStepNumber === options.stepNumber) {
-                activeCompactDiagnosticPatch = mergeContextBudgetDiagnosticPatches(
-                  activeCompactDiagnosticPatch,
-                  compactionDecisionDiagnosticPatch({
-                    stage: 'activeStep',
-                    sourceKind: 'providerMessages',
-                    decision: 'unchanged',
-                    boundaryKind: 'historyCompact',
-                    reason: 'mid_turn_capacity_precedence',
-                    skippedReasonCounts: { mid_turn_capacity_precedence: 1 },
-                  }),
-                );
-                return undefined;
+        const activeCompactAfterMidTurn =
+          activeCompactHook && midTurnState
+            ? (options: PrepareStepLike) => {
+                if (midTurnState.replacedStepNumber === options.stepNumber) {
+                  activeCompactDiagnosticPatch = mergeContextBudgetDiagnosticPatches(
+                    activeCompactDiagnosticPatch,
+                    compactionDecisionDiagnosticPatch({
+                      stage: 'activeStep',
+                      sourceKind: 'providerMessages',
+                      decision: 'unchanged',
+                      boundaryKind: 'historyCompact',
+                      reason: 'mid_turn_capacity_precedence',
+                      skippedReasonCounts: { mid_turn_capacity_precedence: 1 },
+                    }),
+                  );
+                  return undefined;
+                }
+                return activeCompactHook(options);
               }
-              return activeCompactHook(options);
-            }
-          : activeCompactHook;
+            : activeCompactHook;
         const onMidTurnDiagnosticPatch = (patch: Partial<ContextBudgetDiagnostic>): void => {
           activeCompactDiagnosticPatch = mergeContextBudgetDiagnosticPatches(
             activeCompactDiagnosticPatch,
@@ -1539,18 +1593,23 @@ export class AiSdkBackend implements AgentBackend {
         );
         // The verdict owner wraps the WHOLE shaping pipeline: hooks shape, one
         // owner measures the final payload and decides pass/terminate.
-        const prepareStep = midTurnState && midTurnCapacityHook && shapedPrepareStep
-          ? this.buildMidTurnFinalRequestVerdict({
-              shaped: shapedPrepareStep,
-              reentry: composePrepareStep(undefined, midTurnCapacityHook, activeToolResultPruneHook)!,
-              state: midTurnState,
-              providerTools,
-              fallbackActiveTools: () => currentRepairToolNames(),
-              charsPerToken: this.input.contextBudget?.charsPerToken ?? 4,
-              systemPromptChars: midTurnSystemPromptChars,
-              onDiagnosticPatch: onMidTurnDiagnosticPatch,
-            })
-          : shapedPrepareStep;
+        const prepareStep =
+          midTurnState && midTurnCapacityHook && shapedPrepareStep
+            ? this.buildMidTurnFinalRequestVerdict({
+                shaped: shapedPrepareStep,
+                reentry: composePrepareStep(
+                  undefined,
+                  midTurnCapacityHook,
+                  activeToolResultPruneHook,
+                )!,
+                state: midTurnState,
+                providerTools,
+                fallbackActiveTools: () => currentRepairToolNames(),
+                charsPerToken: this.input.contextBudget?.charsPerToken ?? 4,
+                systemPromptChars: midTurnSystemPromptChars,
+                onDiagnosticPatch: onMidTurnDiagnosticPatch,
+              })
+            : shapedPrepareStep;
 
         // Reactive overflow recovery (issue #882 PR 2). A request-level
         // provider failure surfaces through the stream — either as an `error`
@@ -1610,9 +1669,8 @@ export class AiSdkBackend implements AgentBackend {
             this.injectedSteeringMessages,
             options.messages,
           );
-          const baseWithSteering = missingInBase.length === 0
-            ? options.messages
-            : [...options.messages, ...missingInBase];
+          const baseWithSteering =
+            missingInBase.length === 0 ? options.messages : [...options.messages, ...missingInBase];
           const shaped = prepareStep
             ? await prepareStep({
                 ...options,
@@ -1633,7 +1691,10 @@ export class AiSdkBackend implements AgentBackend {
           // storing the injected steering here would double-inject on retry.
           // ONLY the injected set is stripped — a historical ledger-replayed
           // steering message carries the same marker but belongs to the base.
-          attemptRequestMessages = stripSteeringMessages(finalMessages, this.injectedSteeringMessages);
+          attemptRequestMessages = stripSteeringMessages(
+            finalMessages,
+            this.injectedSteeringMessages,
+          );
           if (finalMessages === options.messages) return shaped;
           return shaped ? { ...shaped, messages: finalMessages } : { messages: finalMessages };
         };
@@ -1649,17 +1710,20 @@ export class AiSdkBackend implements AgentBackend {
           // prior attempt's finish-step before the error chunk that ended it,
           // so at this point the counter equals the send's completed steps.
           attemptStepBase = runtimeSteps;
-          const remainingStepBudget = this.maxSteps === undefined
-            ? undefined
-            : Math.max(0, this.maxSteps - runtimeSteps);
+          const remainingStepBudget =
+            this.maxSteps === undefined ? undefined : Math.max(0, this.maxSteps - runtimeSteps);
           result = await this.modelAdapter.startStream({
             model,
             messages: attemptMessages,
             tools: aiSdkTools,
             activeTools,
-            repairToolCall: async (
-              { toolCall, error }: { toolCall: RepairableAiSdkToolCall; error: unknown },
-            ) => {
+            repairToolCall: async ({
+              toolCall,
+              error,
+            }: {
+              toolCall: RepairableAiSdkToolCall;
+              error: unknown;
+            }) => {
               return repairMakaToolCall({
                 toolCall,
                 availableToolNames: currentRepairToolNames(),
@@ -1694,17 +1758,23 @@ export class AiSdkBackend implements AgentBackend {
               // turn, so match both names. A duplicate boundary is harmless: the
               // second flush no-ops (accumulators already cleared) and one extra id
               // rotation just discards an unused id.
-              const isStepFinishChunk = chunk.type === 'finish-step' || chunk.type === 'step-finish';
+              const isStepFinishChunk =
+                chunk.type === 'finish-step' || chunk.type === 'step-finish';
               if (isStepFinishChunk) {
                 runtimeSteps += 1;
-                const stepUsage = normalizeAiSdkUsage(chunk.usage, { rawFinishReason: chunk.finishReason });
+                const stepUsage = normalizeAiSdkUsage(chunk.usage, {
+                  rawFinishReason: chunk.finishReason,
+                });
                 if (!stepUsage) sawUnusableStepUsage = true;
                 // Fail closed: reset on every step boundary so a missing final
                 // step's usage does not leave a stale value from an earlier step.
                 lastStepInputTokens = stepUsage?.inputTokens;
                 if (stepUsage) {
                   completedStepUsage = mergeNormalizedUsage(completedStepUsage, stepUsage);
-                  this.cumulativeUsageCheckpoint = mergeNormalizedUsage(this.cumulativeUsageCheckpoint, stepUsage);
+                  this.cumulativeUsageCheckpoint = mergeNormalizedUsage(
+                    this.cumulativeUsageCheckpoint,
+                    stepUsage,
+                  );
                   await this.input.recordUsageCheckpoint?.({
                     ...this.cumulativeUsageCheckpoint,
                     costUsd: this.computeTokenUsageCostUsd(this.cumulativeUsageCheckpoint),
@@ -1714,12 +1784,26 @@ export class AiSdkBackend implements AgentBackend {
               if (chunk.type === 'finish' || isStepFinishChunk) {
                 rawFinishReason = rawFinishReasonString(chunk.finishReason) ?? rawFinishReason;
               }
-              this.modelAdapter.handleStreamChunk(chunk, turnId, this.currentStepMessageId!, queue, {
-                onText: (t) => { stepText += t; },
-                onTextComplete: (t) => { stepText = t; },
-                onThinking: (t) => { stepThinking += t; },
-                onThinkingSignature: (sig) => { stepSignature = sig; },
-              });
+              this.modelAdapter.handleStreamChunk(
+                chunk,
+                turnId,
+                this.currentStepMessageId!,
+                queue,
+                {
+                  onText: (t) => {
+                    stepText += t;
+                  },
+                  onTextComplete: (t) => {
+                    stepText = t;
+                  },
+                  onThinking: (t) => {
+                    stepThinking += t;
+                  },
+                  onThinkingSignature: (sig) => {
+                    stepSignature = sig;
+                  },
+                },
+              );
               // The step's text/thinking deltas are all in (the stream is
               // drained in order), so flush this step's AssistantMessage and rotate
               // to a fresh id for the next step. The step's tool calls (appended
@@ -1751,19 +1835,21 @@ export class AiSdkBackend implements AgentBackend {
             // more step; with the send-level budget already spent there is
             // nothing left to grant it, so the error is terminal.
             const stepBudgetRemains = this.maxSteps === undefined || runtimeSteps < this.maxSteps;
-            const recovered = stepBudgetRemains ? await this.recoverFromOverflowError({
-              error: streamErrorChunk,
-              retryAlreadyUsed: overflowRetryUsed,
-              midTurnState,
-              turnId,
-              currentMessages: attemptMessages,
-              providerTools,
-              activeTools: currentRepairToolNames(),
-              systemPromptChars: midTurnSystemPromptChars,
-              turnTailPrompt,
-              queue,
-              onDiagnosticPatch: onMidTurnDiagnosticPatch,
-            }) : undefined;
+            const recovered = stepBudgetRemains
+              ? await this.recoverFromOverflowError({
+                  error: streamErrorChunk,
+                  retryAlreadyUsed: overflowRetryUsed,
+                  midTurnState,
+                  turnId,
+                  currentMessages: attemptMessages,
+                  providerTools,
+                  activeTools: currentRepairToolNames(),
+                  systemPromptChars: midTurnSystemPromptChars,
+                  turnTailPrompt,
+                  queue,
+                  onDiagnosticPatch: onMidTurnDiagnosticPatch,
+                })
+              : undefined;
             if (recovered) {
               overflowRetryUsed = true;
               attemptMessages = recovered.messages;
@@ -1775,13 +1861,13 @@ export class AiSdkBackend implements AgentBackend {
             }
             const errorClass = this.modelAdapter.classifyError(streamErrorChunk);
             if (
-              errorClass === 'Network'
-              && !transportRetryUsed
-              && stepBudgetRemains
-              && currentStepToolExecutions === 0
-              && stepText.length === 0
-              && stepThinking.length === 0
-              && stepSignature === undefined
+              errorClass === 'Network' &&
+              !transportRetryUsed &&
+              stepBudgetRemains &&
+              currentStepToolExecutions === 0 &&
+              stepText.length === 0 &&
+              stepThinking.length === 0 &&
+              stepSignature === undefined
             ) {
               transportRetryUsed = true;
               // The failed request did not return authoritative usage. Keep
@@ -1859,9 +1945,12 @@ export class AiSdkBackend implements AgentBackend {
         // cumulative usage must not wash it back to "complete".
         try {
           const attemptTotalUsage = normalizeAiSdkUsage(await result.usage, { rawFinishReason });
-          tokenUsage = overflowRetryUsed || transportRetryUsed
-            ? (sawUnusableStepUsage ? undefined : completedStepUsage)
-            : attemptTotalUsage;
+          tokenUsage =
+            overflowRetryUsed || transportRetryUsed
+              ? sawUnusableStepUsage
+                ? undefined
+                : completedStepUsage
+              : attemptTotalUsage;
           if (tokenUsage) {
             const systemPromptHash = turnDiagnostics.requestShape.componentHashes.systemPromptHash;
             tokenUsageCostUsd = this.computeTokenUsageCostUsd(tokenUsage);
@@ -1898,10 +1987,16 @@ export class AiSdkBackend implements AgentBackend {
               cacheWriteInput: tokenUsage.cacheWriteInputTokens,
               reasoning: tokenUsage.reasoningTokens,
               total: tokenUsage.totalTokens,
-              ...(tokenUsage.rawFinishReason !== undefined ? { rawFinishReason: tokenUsage.rawFinishReason } : {}),
+              ...(tokenUsage.rawFinishReason !== undefined
+                ? { rawFinishReason: tokenUsage.rawFinishReason }
+                : {}),
               ...(runtimeSteps > 0 ? { runtimeSteps } : {}),
-              ...(tokenUsage.cachedInputTokens > 0 ? { cacheRead: tokenUsage.cachedInputTokens } : {}),
-              ...(tokenUsage.cacheWriteInputTokens > 0 ? { cacheCreation: tokenUsage.cacheWriteInputTokens } : {}),
+              ...(tokenUsage.cachedInputTokens > 0
+                ? { cacheRead: tokenUsage.cachedInputTokens }
+                : {}),
+              ...(tokenUsage.cacheWriteInputTokens > 0
+                ? { cacheCreation: tokenUsage.cacheWriteInputTokens }
+                : {}),
               ...(tokenUsageCostUsd !== undefined ? { costUsd: tokenUsageCostUsd } : {}),
               systemPromptHash,
               prefixHash: turnDiagnostics.requestShape.prefixHash,
@@ -1913,8 +2008,8 @@ export class AiSdkBackend implements AgentBackend {
             };
             await this.input.appendMessage(tu).catch(() => {});
             if (
-              !contextCompactionFailedOpenNoteWritten
-              && shouldAppendContextCompactionFailedOpenNote(contextBudgetForUsage)
+              !contextCompactionFailedOpenNoteWritten &&
+              shouldAppendContextCompactionFailedOpenNote(contextBudgetForUsage)
             ) {
               contextCompactionFailedOpenNoteWritten = true;
               const note: SystemNoteMessage = {
@@ -1926,7 +2021,10 @@ export class AiSdkBackend implements AgentBackend {
               };
               await this.input.appendMessage(note).catch(() => {});
             }
-            if (!contextCompactedNoteWritten && shouldAppendContextCompactedNote(contextBudgetForUsage)) {
+            if (
+              !contextCompactedNoteWritten &&
+              shouldAppendContextCompactedNote(contextBudgetForUsage)
+            ) {
               contextCompactedNoteWritten = true;
               const note: SystemNoteMessage = {
                 type: 'system_note',
@@ -1938,7 +2036,10 @@ export class AiSdkBackend implements AgentBackend {
               await this.input.appendMessage(note).catch(() => {});
             }
             const contextRemainingForUsage = (() => {
-              const contextWindow = resolveSelectedModelContextWindow(this.input.connection, this.input.modelId);
+              const contextWindow = resolveSelectedModelContextWindow(
+                this.input.connection,
+                this.input.modelId,
+              );
               if (lastStepInputTokens !== undefined && contextWindow !== undefined) {
                 return Math.max(0, contextWindow - lastStepInputTokens);
               }
@@ -1957,10 +2058,16 @@ export class AiSdkBackend implements AgentBackend {
               cacheWriteInput: tokenUsage.cacheWriteInputTokens,
               reasoning: tokenUsage.reasoningTokens,
               total: tokenUsage.totalTokens,
-              ...(tokenUsage.rawFinishReason !== undefined ? { rawFinishReason: tokenUsage.rawFinishReason } : {}),
+              ...(tokenUsage.rawFinishReason !== undefined
+                ? { rawFinishReason: tokenUsage.rawFinishReason }
+                : {}),
               ...(runtimeSteps > 0 ? { runtimeSteps } : {}),
-              ...(tokenUsage.cachedInputTokens > 0 ? { cacheRead: tokenUsage.cachedInputTokens } : {}),
-              ...(tokenUsage.cacheWriteInputTokens > 0 ? { cacheCreation: tokenUsage.cacheWriteInputTokens } : {}),
+              ...(tokenUsage.cachedInputTokens > 0
+                ? { cacheRead: tokenUsage.cachedInputTokens }
+                : {}),
+              ...(tokenUsage.cacheWriteInputTokens > 0
+                ? { cacheCreation: tokenUsage.cacheWriteInputTokens }
+                : {}),
               ...(tokenUsageCostUsd !== undefined ? { costUsd: tokenUsageCostUsd } : {}),
               systemPromptHash,
               prefixHash: turnDiagnostics.requestShape.prefixHash,
@@ -1969,7 +2076,9 @@ export class AiSdkBackend implements AgentBackend {
               requestShapeChangeReason: turnDiagnostics.requestShape.requestShapeChangeReason,
               promptSegments: turnDiagnostics.promptSegments,
               ...(contextBudgetForUsage ? { contextBudget: contextBudgetForUsage } : {}),
-              ...(contextRemainingForUsage !== undefined ? { contextRemaining: contextRemainingForUsage } : {}),
+              ...(contextRemainingForUsage !== undefined
+                ? { contextRemaining: contextRemainingForUsage }
+                : {}),
             } satisfies TokenUsageEvent);
           }
         } catch {
@@ -1979,9 +2088,10 @@ export class AiSdkBackend implements AgentBackend {
         // Nothing may await between this check and terminal emission: Stop must
         // win even when it arrives during post-stream usage persistence.
         if (this.aborted) throw Object.assign(new Error('aborted'), { name: 'AbortError' });
-        const stopReason = this.maxSteps !== undefined && finishReason === 'tool-calls'
-          ? 'step_limit'
-          : this.mapFinishReason(finishReason);
+        const stopReason =
+          this.maxSteps !== undefined && finishReason === 'tool-calls'
+            ? 'step_limit'
+            : this.mapFinishReason(finishReason);
         trace.modelStreamCompleted(stopReason);
         queue.push({
           type: 'complete',
@@ -2062,46 +2172,55 @@ export class AiSdkBackend implements AgentBackend {
           tokenUsage = completedStepUsage;
           tokenUsageCostUsd = this.computeTokenUsageCostUsd(tokenUsage);
         }
-        if (tokenUsage) this.input.recordLlmCall?.({
-          sessionId: this.sessionId,
-          turnId,
-          connectionSlug: this.input.connection.slug,
-          providerId: this.input.connection.providerType,
-          modelId: this.input.modelId,
-          inputTokens: tokenUsage.inputTokens,
-          outputTokens: tokenUsage.outputTokens,
-          cacheHitInputTokens: tokenUsage.cacheHitInputTokens,
-          cacheMissInputTokens: tokenUsage.cacheMissInputTokens,
-          ...(tokenUsage.cacheMissInputSource !== undefined
-            ? { cacheMissInputSource: tokenUsage.cacheMissInputSource }
-            : {}),
-          cachedInputTokens: tokenUsage.cachedInputTokens,
-          cacheWriteInputTokens: tokenUsage.cacheWriteInputTokens,
-          reasoningTokens: tokenUsage.reasoningTokens,
-          totalTokens: tokenUsage.totalTokens,
-          ...(tokenUsage.rawFinishReason !== undefined ? { rawFinishReason: tokenUsage.rawFinishReason } : {}),
-          ...(tokenUsage.raw !== undefined ? { rawUsage: tokenUsage.raw } : {}),
-          latencyMs: Math.max(0, this.now() - startedAt),
-          status: streamStatus,
-          ...(streamErrorClass ? { errorClass: streamErrorClass } : {}),
-          startedAt,
-          ...(requestShapeForTelemetry !== undefined ? {
-            systemPromptHash: requestShapeForTelemetry.componentHashes.systemPromptHash,
-            prefixHash: requestShapeForTelemetry.prefixHash,
-            prefixChangeReason: requestShapeForTelemetry.prefixChangeReason,
-            requestShapeHash: requestShapeForTelemetry.requestShapeHash,
-            requestShapeChangeReason: requestShapeForTelemetry.requestShapeChangeReason,
-            ...(requestShapeForTelemetry.toolSchemaChangeReason !== undefined
-              ? { toolSchemaChangeReason: requestShapeForTelemetry.toolSchemaChangeReason }
+        if (tokenUsage)
+          this.input.recordLlmCall?.({
+            sessionId: this.sessionId,
+            turnId,
+            connectionSlug: this.input.connection.slug,
+            providerId: this.input.connection.providerType,
+            modelId: this.input.modelId,
+            inputTokens: tokenUsage.inputTokens,
+            outputTokens: tokenUsage.outputTokens,
+            cacheHitInputTokens: tokenUsage.cacheHitInputTokens,
+            cacheMissInputTokens: tokenUsage.cacheMissInputTokens,
+            ...(tokenUsage.cacheMissInputSource !== undefined
+              ? { cacheMissInputSource: tokenUsage.cacheMissInputSource }
               : {}),
-            ...(requestShapeForTelemetry.toolAvailability !== undefined
-              ? { toolAvailability: requestShapeForTelemetry.toolAvailability }
+            cachedInputTokens: tokenUsage.cachedInputTokens,
+            cacheWriteInputTokens: tokenUsage.cacheWriteInputTokens,
+            reasoningTokens: tokenUsage.reasoningTokens,
+            totalTokens: tokenUsage.totalTokens,
+            ...(tokenUsage.rawFinishReason !== undefined
+              ? { rawFinishReason: tokenUsage.rawFinishReason }
               : {}),
-          } : {}),
-          ...(tokenUsageCostUsd !== undefined ? { costUsd: tokenUsageCostUsd } : {}),
-          ...(promptSegmentsForTelemetry.length > 0 ? { promptSegments: promptSegmentsForTelemetry } : {}),
-          ...(contextBudgetForTelemetry !== undefined ? { contextBudget: contextBudgetForTelemetry } : {}),
-        });
+            ...(tokenUsage.raw !== undefined ? { rawUsage: tokenUsage.raw } : {}),
+            latencyMs: Math.max(0, this.now() - startedAt),
+            status: streamStatus,
+            ...(streamErrorClass ? { errorClass: streamErrorClass } : {}),
+            startedAt,
+            ...(requestShapeForTelemetry !== undefined
+              ? {
+                  systemPromptHash: requestShapeForTelemetry.componentHashes.systemPromptHash,
+                  prefixHash: requestShapeForTelemetry.prefixHash,
+                  prefixChangeReason: requestShapeForTelemetry.prefixChangeReason,
+                  requestShapeHash: requestShapeForTelemetry.requestShapeHash,
+                  requestShapeChangeReason: requestShapeForTelemetry.requestShapeChangeReason,
+                  ...(requestShapeForTelemetry.toolSchemaChangeReason !== undefined
+                    ? { toolSchemaChangeReason: requestShapeForTelemetry.toolSchemaChangeReason }
+                    : {}),
+                  ...(requestShapeForTelemetry.toolAvailability !== undefined
+                    ? { toolAvailability: requestShapeForTelemetry.toolAvailability }
+                    : {}),
+                }
+              : {}),
+            ...(tokenUsageCostUsd !== undefined ? { costUsd: tokenUsageCostUsd } : {}),
+            ...(promptSegmentsForTelemetry.length > 0
+              ? { promptSegments: promptSegmentsForTelemetry }
+              : {}),
+            ...(contextBudgetForTelemetry !== undefined
+              ? { contextBudget: contextBudgetForTelemetry }
+              : {}),
+          });
         queue.close();
       }
     })();
@@ -2120,11 +2239,7 @@ export class AiSdkBackend implements AgentBackend {
   // wrapToolExecute — the permission-gating seam
   // --------------------------------------------------------------------------
 
-  private wrapToolExecute(
-    tool: MakaTool,
-    turnId: string,
-    queue: AsyncEventQueue<SessionEvent>,
-  ) {
+  private wrapToolExecute(tool: MakaTool, turnId: string, queue: AsyncEventQueue<SessionEvent>) {
     return this.toolRuntime.wrapToolExecute(tool, turnId, queue);
   }
 
@@ -2132,7 +2247,10 @@ export class AiSdkBackend implements AgentBackend {
   // Helpers
   // --------------------------------------------------------------------------
 
-  async stop(_reason: 'user_stop' | 'redirect', mode: 'immediate' | 'after_step' = 'immediate'): Promise<void> {
+  async stop(
+    _reason: 'user_stop' | 'redirect',
+    mode: 'immediate' | 'after_step' = 'immediate',
+  ): Promise<void> {
     if (mode === 'after_step') {
       this.stopAfterStepRequested = true;
       this.currentRunTrace?.abortRequested(_reason);
@@ -2218,9 +2336,15 @@ export class AiSdkBackend implements AgentBackend {
   }> {
     const priorStored = input.context.filter((message) => message.turnId !== input.turnId);
     if (!input.runtimeContext) {
-      return { messages: await this.materializePriorMessages(priorStored), gate: 'stored_message_projection', diagnostics: [] };
+      return {
+        messages: await this.materializePriorMessages(priorStored),
+        gate: 'stored_message_projection',
+        diagnostics: [],
+      };
     }
-    const priorRuntimeContext = input.runtimeContext.filter((event) => event.turnId !== input.turnId);
+    const priorRuntimeContext = input.runtimeContext.filter(
+      (event) => event.turnId !== input.turnId,
+    );
     const projectedMessages = await this.materializePriorMessages(
       priorStored,
       buildSteeringSidecar(priorRuntimeContext),
@@ -2228,17 +2352,18 @@ export class AiSdkBackend implements AgentBackend {
     const preparedContextBudget = await this.prepareContextBudgetPolicy(priorRuntimeContext);
     const contextBudget = preparedContextBudget.policy;
     const budgeted = applyRuntimeEventContextBudget(priorRuntimeContext, contextBudget, {
-      historyCompactProtocol: contextBudget?.historyCompact?.checkpoint || this.hasHistoryCompactCheckpointWriter()
-        ? 'checkpoint_v2'
-        : 'legacy_v1',
+      historyCompactProtocol:
+        contextBudget?.historyCompact?.checkpoint || this.hasHistoryCompactCheckpointWriter()
+          ? 'checkpoint_v2'
+          : 'legacy_v1',
     });
-    let runtimeContext = budgeted?.events
-      ?? priorRuntimeContext;
+    let runtimeContext = budgeted?.events ?? priorRuntimeContext;
     let contextBudgetDiagnostic = budgeted?.diagnostic;
     let latestHistoryCompactCheckpoint = contextBudget?.historyCompact?.checkpoint;
     if (preparedContextBudget.diagnosticPatch) {
       contextBudgetDiagnostic = mergeContextBudgetDiagnostic(
-        contextBudgetDiagnostic ?? buildContextBudgetDiagnosticShell(priorRuntimeContext, runtimeContext, contextBudget),
+        contextBudgetDiagnostic ??
+          buildContextBudgetDiagnosticShell(priorRuntimeContext, runtimeContext, contextBudget),
         preparedContextBudget.diagnosticPatch,
       );
     }
@@ -2247,8 +2372,12 @@ export class AiSdkBackend implements AgentBackend {
       contextBudget?.historyCompact?.mode === 'read_write' &&
       this.hasHistoryCompactWriter()
     ) {
-      const loadedBlockIds = new Set((contextBudget.historyCompact.blocks ?? []).map((block) => block.blockId));
-      const draftBlocks = budgeted.historyCompactBlocks.filter((block) => !loadedBlockIds.has(block.blockId));
+      const loadedBlockIds = new Set(
+        (contextBudget.historyCompact.blocks ?? []).map((block) => block.blockId),
+      );
+      const draftBlocks = budgeted.historyCompactBlocks.filter(
+        (block) => !loadedBlockIds.has(block.blockId),
+      );
       if (draftBlocks.length > 0) {
         if (this.input.summarizeHistoryCompact && this.input.recordHistoryCompactCheckpoint) {
           const writePatch = await this.writeHistoryCompactCheckpoint({
@@ -2275,7 +2404,8 @@ export class AiSdkBackend implements AgentBackend {
               : runtimeContext.filter((event) => !event.id.startsWith('history-compact:'));
           }
           contextBudgetDiagnostic = mergeContextBudgetDiagnostic(
-            contextBudgetDiagnostic ?? buildContextBudgetDiagnosticShell(priorRuntimeContext, runtimeContext, contextBudget),
+            contextBudgetDiagnostic ??
+              buildContextBudgetDiagnosticShell(priorRuntimeContext, runtimeContext, contextBudget),
             writePatch.diagnosticPatch,
           );
         } else {
@@ -2287,13 +2417,21 @@ export class AiSdkBackend implements AgentBackend {
             abortSignal: this.abortController?.signal,
           });
           if (writePatch.replacementBlocks.length > 0) {
-            runtimeContext = replaceHistoryCompactReplayBlocks(runtimeContext, writePatch.replacementBlocks);
+            runtimeContext = replaceHistoryCompactReplayBlocks(
+              runtimeContext,
+              writePatch.replacementBlocks,
+            );
           } else {
             runtimeContext = priorRuntimeContext;
-            contextBudgetDiagnostic = buildContextBudgetDiagnosticShell(priorRuntimeContext, runtimeContext, contextBudget);
+            contextBudgetDiagnostic = buildContextBudgetDiagnosticShell(
+              priorRuntimeContext,
+              runtimeContext,
+              contextBudget,
+            );
           }
           contextBudgetDiagnostic = mergeContextBudgetDiagnostic(
-            contextBudgetDiagnostic ?? buildContextBudgetDiagnosticShell(priorRuntimeContext, runtimeContext, contextBudget),
+            contextBudgetDiagnostic ??
+              buildContextBudgetDiagnosticShell(priorRuntimeContext, runtimeContext, contextBudget),
             writePatch.diagnosticPatch,
           );
         }
@@ -2301,32 +2439,40 @@ export class AiSdkBackend implements AgentBackend {
     }
 
     const historySearchSource = buildHistorySearchSource(priorRuntimeContext, contextBudget);
-    const historyAround = contextBudget?.archiveRetrieval?.mode === 'history_search_gated'
-      ? retrieveReplayHistoryAroundSearchSource(
-          historySearchSource,
-          priorRuntimeContext,
-          input.text,
-          contextBudget?.historySearch,
-          { charsPerToken: contextBudget?.charsPerToken },
-        )
-      : retrieveRuntimeEventHistoryAround(
-          historySearchSource,
-          input.text,
-          contextBudget?.historySearch,
-          { charsPerToken: contextBudget?.charsPerToken },
-        );
-    const archiveRetrievalAllowedTurnIds = contextBudget?.archiveRetrieval?.mode === 'history_search_gated'
-      ? new Set(historyAround.events.map((event) => runtimeEventTurnKey(event)))
-      : undefined;
+    const historyAround =
+      contextBudget?.archiveRetrieval?.mode === 'history_search_gated'
+        ? retrieveReplayHistoryAroundSearchSource(
+            historySearchSource,
+            priorRuntimeContext,
+            input.text,
+            contextBudget?.historySearch,
+            { charsPerToken: contextBudget?.charsPerToken },
+          )
+        : retrieveRuntimeEventHistoryAround(
+            historySearchSource,
+            input.text,
+            contextBudget?.historySearch,
+            { charsPerToken: contextBudget?.charsPerToken },
+          );
+    const archiveRetrievalAllowedTurnIds =
+      contextBudget?.archiveRetrieval?.mode === 'history_search_gated'
+        ? new Set(historyAround.events.map((event) => runtimeEventTurnKey(event)))
+        : undefined;
     if (historyAround.events.length > 0) {
-      runtimeContext = mergeRuntimeEventsInOriginalOrder(priorRuntimeContext, runtimeContext, historyAround.events);
+      runtimeContext = mergeRuntimeEventsInOriginalOrder(
+        priorRuntimeContext,
+        runtimeContext,
+        historyAround.events,
+      );
       contextBudgetDiagnostic = mergeContextBudgetDiagnostic(
-        contextBudgetDiagnostic ?? buildContextBudgetDiagnosticShell(priorRuntimeContext, runtimeContext, contextBudget),
+        contextBudgetDiagnostic ??
+          buildContextBudgetDiagnosticShell(priorRuntimeContext, runtimeContext, contextBudget),
         historyAround.diagnosticPatch,
       );
     } else if (contextBudget?.historySearch?.enabled === true) {
       contextBudgetDiagnostic = mergeContextBudgetDiagnostic(
-        contextBudgetDiagnostic ?? buildContextBudgetDiagnosticShell(priorRuntimeContext, runtimeContext, contextBudget),
+        contextBudgetDiagnostic ??
+          buildContextBudgetDiagnosticShell(priorRuntimeContext, runtimeContext, contextBudget),
         historyAround.diagnosticPatch,
       );
     }
@@ -2343,7 +2489,8 @@ export class AiSdkBackend implements AgentBackend {
     runtimeContext = synthesis.events;
     if (contextBudget?.synthesisCache?.enabled === true) {
       contextBudgetDiagnostic = mergeContextBudgetDiagnostic(
-        contextBudgetDiagnostic ?? buildContextBudgetDiagnosticShell(priorRuntimeContext, runtimeContext, contextBudget),
+        contextBudgetDiagnostic ??
+          buildContextBudgetDiagnosticShell(priorRuntimeContext, runtimeContext, contextBudget),
         synthesis.diagnosticPatch,
       );
     }
@@ -2362,7 +2509,8 @@ export class AiSdkBackend implements AgentBackend {
       runtimeContext = retrieval.events;
       if (contextBudget?.archiveRetrieval?.enabled === true) {
         contextBudgetDiagnostic = mergeContextBudgetDiagnostic(
-          contextBudgetDiagnostic ?? buildContextBudgetDiagnosticShell(priorRuntimeContext, runtimeContext, contextBudget),
+          contextBudgetDiagnostic ??
+            buildContextBudgetDiagnosticShell(priorRuntimeContext, runtimeContext, contextBudget),
           retrieval.diagnosticPatch,
         );
       }
@@ -2376,7 +2524,8 @@ export class AiSdkBackend implements AgentBackend {
         const evidenceRequestReason = rawEvidenceRequestReason(input.text);
         if (evidenceRequestReason) {
           contextBudgetDiagnostic = mergeContextBudgetDiagnostic(
-            contextBudgetDiagnostic ?? buildContextBudgetDiagnosticShell(priorRuntimeContext, runtimeContext, contextBudget),
+            contextBudgetDiagnostic ??
+              buildContextBudgetDiagnosticShell(priorRuntimeContext, runtimeContext, contextBudget),
             {
               synthesisCacheWriteSkipped: 1,
               synthesisCacheWriteSkippedReasonCounts: { [evidenceRequestReason]: 1 },
@@ -2392,7 +2541,8 @@ export class AiSdkBackend implements AgentBackend {
             contextBudget,
           });
           contextBudgetDiagnostic = mergeContextBudgetDiagnostic(
-            contextBudgetDiagnostic ?? buildContextBudgetDiagnosticShell(priorRuntimeContext, runtimeContext, contextBudget),
+            contextBudgetDiagnostic ??
+              buildContextBudgetDiagnosticShell(priorRuntimeContext, runtimeContext, contextBudget),
             writePatch,
           );
         }
@@ -2403,7 +2553,8 @@ export class AiSdkBackend implements AgentBackend {
         (retrieval.diagnosticPatch.retrievedArchiveToolResults ?? 0) === 0
       ) {
         contextBudgetDiagnostic = mergeContextBudgetDiagnostic(
-          contextBudgetDiagnostic ?? buildContextBudgetDiagnosticShell(priorRuntimeContext, runtimeContext, contextBudget),
+          contextBudgetDiagnostic ??
+            buildContextBudgetDiagnosticShell(priorRuntimeContext, runtimeContext, contextBudget),
           {
             synthesisCacheWriteSkipped: 1,
             synthesisCacheWriteSkippedReasonCounts: { source_missing: 1 },
@@ -2473,9 +2624,10 @@ export class AiSdkBackend implements AgentBackend {
     };
   }
 
-  private async prepareContextBudgetPolicy(
-    runtimeContext: readonly RuntimeEvent[],
-  ): Promise<{ policy: ContextBudgetPolicy | undefined; diagnosticPatch?: Partial<ContextBudgetDiagnostic> }> {
+  private async prepareContextBudgetPolicy(runtimeContext: readonly RuntimeEvent[]): Promise<{
+    policy: ContextBudgetPolicy | undefined;
+    diagnosticPatch?: Partial<ContextBudgetDiagnostic>;
+  }> {
     const policy = this.input.contextBudget;
     if (!policy) return { policy };
     let nextPolicy = policy;
@@ -2488,15 +2640,18 @@ export class AiSdkBackend implements AgentBackend {
         if (Array.isArray(existingArchiveRefs)) {
           for (const ref of existingArchiveRefs) archiveRefs.set(ref.runtimeEventId, ref);
         } else if (existingArchiveRefs) {
-          for (const ref of Object.values(existingArchiveRefs)) archiveRefs.set(ref.runtimeEventId, ref);
+          for (const ref of Object.values(existingArchiveRefs))
+            archiveRefs.set(ref.runtimeEventId, ref);
         }
         for (const candidate of candidates) {
           const bodySha256 = sha256(candidate.serializedResult);
-          const archived = await Promise.resolve(this.input.archiveToolResult?.({
-            ...candidate,
-            sessionId: this.sessionId,
-            bodySha256,
-          })).catch(() => undefined);
+          const archived = await Promise.resolve(
+            this.input.archiveToolResult?.({
+              ...candidate,
+              sessionId: this.sessionId,
+              bodySha256,
+            }),
+          ).catch(() => undefined);
           if (!archived?.artifactId) continue;
           archiveRefs.set(candidate.runtimeEventId, {
             runtimeEventId: candidate.runtimeEventId,
@@ -2545,7 +2700,10 @@ export class AiSdkBackend implements AgentBackend {
 
     const archivedPlaceholders = new Map<string, ActiveArchivedToolResultPlaceholder>();
     return async (options) => {
-      const eligibleToolCallIds = collectPrunablePrepareStepToolCallIds(options.steps, includeNewestStep);
+      const eligibleToolCallIds = collectPrunablePrepareStepToolCallIds(
+        options.steps,
+        includeNewestStep,
+      );
       if (eligibleToolCallIds.size === 0) return undefined;
       const rewritten = await rewriteActiveToolResultsInMessages({
         messages: options.messages,
@@ -2556,11 +2714,13 @@ export class AiSdkBackend implements AgentBackend {
         eligibleToolCallIds,
         archivedPlaceholders,
         archiveToolResult: async (candidate) => {
-          return await Promise.resolve(this.input.archiveToolResult?.({
-            ...candidate,
-            sessionId: this.sessionId,
-            runtimeEventId: candidate.runtimeEventId ?? activeToolResultArchiveKey(candidate),
-          }));
+          return await Promise.resolve(
+            this.input.archiveToolResult?.({
+              ...candidate,
+              sessionId: this.sessionId,
+              runtimeEventId: candidate.runtimeEventId ?? activeToolResultArchiveKey(candidate),
+            }),
+          );
         },
       });
       if (hasActiveToolResultPruneDiagnosticPatch(rewritten.diagnosticPatch)) {
@@ -2593,7 +2753,8 @@ export class AiSdkBackend implements AgentBackend {
       acceptedEstimatedTokensSaved: 0,
     };
     return async (options) => {
-      const activeToolsForStep = (options as PrepareStepLike & { activeTools?: readonly string[] }).activeTools;
+      const activeToolsForStep = (options as PrepareStepLike & { activeTools?: readonly string[] })
+        .activeTools;
       const dryRun = policy.mode === 'validate_only' || policy.mode === 'prepare_step_dry_run';
       const incomingMessages = options.messages;
       const projectedMessages = dryRun
@@ -2618,7 +2779,8 @@ export class AiSdkBackend implements AgentBackend {
         stepNumber: options.stepNumber,
         now: this.now(),
         charsPerToken: this.input.contextBudget?.charsPerToken,
-        requestShapeHashForMessages: (messages) => requestShapeHashForMessages(messages, activeToolsForStep),
+        requestShapeHashForMessages: (messages) =>
+          requestShapeHashForMessages(messages, activeToolsForStep),
         headAnchor,
         ...(acceptedProjection?.semanticBlock
           ? { predecessorBlock: acceptedProjection.semanticBlock }
@@ -2679,10 +2841,10 @@ export class AiSdkBackend implements AgentBackend {
         } as ActiveCompactionPrepareStepResult;
       }
       return !dryRun && projectedMessages
-        ? {
+        ? ({
             messages: projectedMessages,
             makaSemanticCompactStatus: 'projected',
-          } as ActiveCompactionPrepareStepResult
+          } as ActiveCompactionPrepareStepResult)
         : undefined;
     };
   }
@@ -2698,11 +2860,13 @@ export class AiSdkBackend implements AgentBackend {
     onDiagnosticPatch?: (patch: Partial<ContextBudgetDiagnostic>) => void,
   ): PrepareStepFunctionLike | undefined {
     const policy = this.input.contextBudget?.activeFullCompact;
-    if (policy?.enabled !== true || policy.mode === 'index_only' || policy.mode === 'off') return undefined;
+    if (policy?.enabled !== true || policy.mode === 'index_only' || policy.mode === 'off')
+      return undefined;
 
     let acceptedProjection: ActiveFullCompactPrepareStepProjection | undefined;
     return (options) => {
-      const activeToolsForStep = (options as PrepareStepLike & { activeTools?: readonly string[] }).activeTools;
+      const activeToolsForStep = (options as PrepareStepLike & { activeTools?: readonly string[] })
+        .activeTools;
       const dryRun = policy.mode === 'validate_only' || policy.mode === 'prepare_step_dry_run';
       const incomingMessages = options.messages;
       const projectedMessages = dryRun
@@ -2718,7 +2882,8 @@ export class AiSdkBackend implements AgentBackend {
         stepNumber: options.stepNumber,
         now: this.now(),
         charsPerToken: this.input.contextBudget?.charsPerToken,
-        requestShapeHashForMessages: (messages) => requestShapeHashForMessages(messages, activeToolsForStep),
+        requestShapeHashForMessages: (messages) =>
+          requestShapeHashForMessages(messages, activeToolsForStep),
         headAnchor,
         dryRun,
         ...(dryRun ? { dryRunReason: policy.mode } : {}),
@@ -2743,30 +2908,38 @@ export class AiSdkBackend implements AgentBackend {
    * writer seams plus the durable turn-ledger read, the persisted head anchor
    * for this turn, and a known model context window.
    */
-  private buildMidTurnCapacityCompactState(input: BackendSendInput): MidTurnCapacityCompactState | undefined {
+  private buildMidTurnCapacityCompactState(
+    input: BackendSendInput,
+  ): MidTurnCapacityCompactState | undefined {
     const policy = this.input.contextBudget;
-    if (policy?.historyCompact?.enabled !== true || policy.historyCompact.midTurn?.enabled !== true) {
+    if (
+      policy?.historyCompact?.enabled !== true ||
+      policy.historyCompact.midTurn?.enabled !== true
+    ) {
       return undefined;
     }
     if (
-      !this.input.summarizeHistoryCompact
-      || !this.input.recordHistoryCompactCheckpoint
-      || !this.input.loadTurnRuntimeEvents
+      !this.input.summarizeHistoryCompact ||
+      !this.input.recordHistoryCompactCheckpoint ||
+      !this.input.loadTurnRuntimeEvents
     ) {
       return undefined;
     }
     const headAnchor = input.headAnchorRuntimeEvent;
     if (
-      !headAnchor
-      || headAnchor.sessionId !== this.sessionId
-      || headAnchor.turnId !== input.turnId
-      || headAnchor.role !== 'user'
-      || headAnchor.author !== 'user'
-      || !isHistoryCompactContentEvent(headAnchor)
+      !headAnchor ||
+      headAnchor.sessionId !== this.sessionId ||
+      headAnchor.turnId !== input.turnId ||
+      headAnchor.role !== 'user' ||
+      headAnchor.author !== 'user' ||
+      !isHistoryCompactContentEvent(headAnchor)
     ) {
       return undefined;
     }
-    const contextWindow = resolveSelectedModelContextWindow(this.input.connection, this.input.modelId);
+    const contextWindow = resolveSelectedModelContextWindow(
+      this.input.connection,
+      this.input.modelId,
+    );
     if (contextWindow === undefined) return undefined;
     const priorContentEvents = (input.runtimeContext ?? [])
       .filter((event) => event.turnId !== input.turnId)
@@ -2811,7 +2984,10 @@ export class AiSdkBackend implements AgentBackend {
 
     return async (options) => {
       const incomingMessages = options.messages;
-      const projectedMessages = projectAcceptedActiveFullCompactMessages(incomingMessages, acceptedProjection);
+      const projectedMessages = projectAcceptedActiveFullCompactMessages(
+        incomingMessages,
+        acceptedProjection,
+      );
       const keepProjection = (): PrepareStepResultLike | undefined =>
         projectedMessages ? { messages: projectedMessages } : undefined;
       // Step 0 is shaped by the pre_turn path; the mid-turn trigger only runs
@@ -2839,8 +3015,10 @@ export class AiSdkBackend implements AgentBackend {
       // start, exactly like a missing usage sample.
       const lastStepInputTokens = normalizeAiSdkUsage(options.steps.at(-1)?.usage)?.inputTokens;
       state.lastRequestInputTokens =
-        state.lastRequestPayloadChars !== undefined
-        && lastStepInputTokens !== undefined && Number.isFinite(lastStepInputTokens) && lastStepInputTokens > 0
+        state.lastRequestPayloadChars !== undefined &&
+        lastStepInputTokens !== undefined &&
+        Number.isFinite(lastStepInputTokens) &&
+        lastStepInputTokens > 0
           ? lastStepInputTokens
           : undefined;
 
@@ -2900,13 +3078,20 @@ export class AiSdkBackend implements AgentBackend {
       );
       const forcedEstimate = state.forcedTriggerEstimate;
       state.forcedTriggerEstimate = undefined;
-      const estimate = forcedEstimate ?? estimateNextRequestTokens({
-        ...(state.lastRequestInputTokens !== undefined ? { priorUsageTokens: state.lastRequestInputTokens } : {}),
-        appendedChars: payloadChars - (state.lastRequestPayloadChars ?? payloadChars),
-        charsPerToken,
-        coldStartChars: payloadChars,
-      });
-      if (forcedEstimate === undefined && !exceedsHighWater(estimate, state.contextWindow, reserveTokens)) {
+      const estimate =
+        forcedEstimate ??
+        estimateNextRequestTokens({
+          ...(state.lastRequestInputTokens !== undefined
+            ? { priorUsageTokens: state.lastRequestInputTokens }
+            : {}),
+          appendedChars: payloadChars - (state.lastRequestPayloadChars ?? payloadChars),
+          charsPerToken,
+          coldStartChars: payloadChars,
+        });
+      if (
+        forcedEstimate === undefined &&
+        !exceedsHighWater(estimate, state.contextWindow, reserveTokens)
+      ) {
         return keepProjection();
       }
 
@@ -2936,12 +3121,14 @@ export class AiSdkBackend implements AgentBackend {
         projectedMessages: outcome.replacementMessages,
       };
       state.replacedStepNumber = options.stepNumber;
-      onDiagnosticPatch(buildMidTurnReplacedDiagnosticPatch({
-        checkpoint: outcome.checkpoint,
-        estimatedTokensBefore: outcome.estimatedTokensBefore,
-        estimatedTokensAfter: outcome.estimatedTokensAfter,
-        reason: 'context_limit',
-      }));
+      onDiagnosticPatch(
+        buildMidTurnReplacedDiagnosticPatch({
+          checkpoint: outcome.checkpoint,
+          estimatedTokensBefore: outcome.estimatedTokensBefore,
+          estimatedTokensAfter: outcome.estimatedTokensAfter,
+          reason: 'context_limit',
+        }),
+      );
       return { messages: outcome.replacementMessages };
     };
   }
@@ -2969,7 +3156,15 @@ export class AiSdkBackend implements AgentBackend {
     systemPromptChars: number;
     turnTailPrompt: string | undefined;
   }): Promise<MidTurnCompactionOutcome> {
-    const { turnId, state, queue, providerTools, activeToolsForStep, systemPromptChars, turnTailPrompt } = input;
+    const {
+      turnId,
+      state,
+      queue,
+      providerTools,
+      activeToolsForStep,
+      systemPromptChars,
+      turnTailPrompt,
+    } = input;
     const summarizer = this.input.summarizeHistoryCompact!;
     const recorder = this.input.recordHistoryCompactCheckpoint!;
     const loadTurnRuntimeEvents = this.input.loadTurnRuntimeEvents!;
@@ -3005,19 +3200,32 @@ export class AiSdkBackend implements AgentBackend {
     const abortSignal = this.abortController?.signal;
     for (;;) {
       if (abortSignal?.aborted) {
-        return { decision: 'fail', detail: 'no_safe_completed_span', diagnosticReason: 'ledger_wait_aborted' };
+        return {
+          decision: 'fail',
+          detail: 'no_safe_completed_span',
+          diagnosticReason: 'ledger_wait_aborted',
+        };
       }
       if (queue.consumerDetached) {
-        return { decision: 'fail', detail: 'no_safe_completed_span', diagnosticReason: 'ledger_wait_aborted' };
+        return {
+          decision: 'fail',
+          detail: 'no_safe_completed_span',
+          diagnosticReason: 'ledger_wait_aborted',
+        };
       }
-      if (state.flushedSteps >= input.minFlushedSteps && queue.consumedCount >= queue.pushedCount) break;
+      if (state.flushedSteps >= input.minFlushedSteps && queue.consumedCount >= queue.pushedCount)
+        break;
       await waitForQueueProgressOrAbort(queue, abortSignal);
     }
     let turnLedger: RuntimeEvent[];
     try {
       turnLedger = await loadTurnRuntimeEvents(turnId);
     } catch {
-      return { decision: 'fail', detail: 'no_safe_completed_span', diagnosticReason: 'ledger_read_failed' };
+      return {
+        decision: 'fail',
+        detail: 'no_safe_completed_span',
+        diagnosticReason: 'ledger_read_failed',
+      };
     }
     const currentTurnEvents = turnLedger
       .filter((event) => event.turnId === turnId)
@@ -3025,7 +3233,11 @@ export class AiSdkBackend implements AgentBackend {
     // The head anchor is persisted before backend.send() is invoked, so
     // its absence is a wiring error, not replication lag — fail open now.
     if (!currentTurnEvents.some((event) => event.id === state.headAnchor.id)) {
-      return { decision: 'fail', detail: 'no_safe_completed_span', diagnosticReason: 'head_anchor_not_durable' };
+      return {
+        decision: 'fail',
+        detail: 'no_safe_completed_span',
+        diagnosticReason: 'head_anchor_not_durable',
+      };
     }
     const orderedEvents = [...state.priorContentEvents, ...currentTurnEvents];
 
@@ -3039,17 +3251,21 @@ export class AiSdkBackend implements AgentBackend {
       reserveTailEvents: midTurn.reserveTailEvents ?? 1,
       charsPerToken,
       now: this.now(),
-      ...(compactPolicy.highWaterName !== undefined ? { highWaterName: compactPolicy.highWaterName } : {}),
+      ...(compactPolicy.highWaterName !== undefined
+        ? { highWaterName: compactPolicy.highWaterName }
+        : {}),
       ...(state.previousCheckpoint ? { previousCheckpoint: state.previousCheckpoint } : {}),
       summarize: async ({ coveredRuntimeEvents, newlyFoldedRuntimeEvents, previousCheckpoint }) => {
-        return await Promise.resolve(summarizer({
-          sessionId: this.sessionId,
-          turnId,
-          source: { foldedRuntimeEvents: [...coveredRuntimeEvents] },
-          ...(previousCheckpoint ? { previousCheckpoint } : {}),
-          newlyFoldedRuntimeEvents: [...newlyFoldedRuntimeEvents],
-          ...(this.abortController?.signal ? { abortSignal: this.abortController.signal } : {}),
-        }));
+        return await Promise.resolve(
+          summarizer({
+            sessionId: this.sessionId,
+            turnId,
+            source: { foldedRuntimeEvents: [...coveredRuntimeEvents] },
+            ...(previousCheckpoint ? { previousCheckpoint } : {}),
+            newlyFoldedRuntimeEvents: [...newlyFoldedRuntimeEvents],
+            ...(this.abortController?.signal ? { abortSignal: this.abortController.signal } : {}),
+          }),
+        );
       },
     });
 
@@ -3072,11 +3288,15 @@ export class AiSdkBackend implements AgentBackend {
       toolActivityTurnIds: collectToolActivityTurnIds(orderedEvents),
     });
     if (
-      replayPlan.items.length === 0
-      || hasBlockingReplayDiagnostics(replayPlan)
-      || (replayPlan.hasProviderNativeSemantics && !this.canReplayProviderNative(replayPlan))
+      replayPlan.items.length === 0 ||
+      hasBlockingReplayDiagnostics(replayPlan) ||
+      (replayPlan.hasProviderNativeSemantics && !this.canReplayProviderNative(replayPlan))
     ) {
-      return { decision: 'fail', detail: 'no_safe_completed_span', diagnosticReason: 'replacement_unmaterializable' };
+      return {
+        decision: 'fail',
+        detail: 'no_safe_completed_span',
+        diagnosticReason: 'replacement_unmaterializable',
+      };
     }
     // The head anchor must render exactly like the raw projection's current
     // user message: the initial request decorates it with the volatile turn
@@ -3106,7 +3326,11 @@ export class AiSdkBackend implements AgentBackend {
       systemPromptChars,
     );
     if (replacedPayloadChars >= input.referencePayloadChars) {
-      return { decision: 'fail', detail: 'summarizer_failed', diagnosticReason: 'replacement_not_smaller' };
+      return {
+        decision: 'fail',
+        detail: 'summarizer_failed',
+        diagnosticReason: 'replacement_not_smaller',
+      };
     }
     // Replay admissibility uses the same complete-prefix capacity gate as
     // recovery. Actual payload shrinkage was already checked above because
@@ -3184,12 +3408,14 @@ export class AiSdkBackend implements AgentBackend {
     // refuses folds that genuinely shrink the real request (review P1-1).
     // The cold-start fallback only covers a send whose verdict owner never
     // ran a prepareStep (defensive; step 0 records the baseline too).
-    const referencePayloadChars = state.lastRequestPayloadChars ?? midTurnRequestPayloadChars(
-      input.currentMessages,
-      input.providerTools,
-      input.activeTools,
-      input.systemPromptChars,
-    );
+    const referencePayloadChars =
+      state.lastRequestPayloadChars ??
+      midTurnRequestPayloadChars(
+        input.currentMessages,
+        input.providerTools,
+        input.activeTools,
+        input.systemPromptChars,
+      );
     const outcome = await this.computeMidTurnCompactionReplacement({
       turnId: input.turnId,
       state,
@@ -3213,7 +3439,9 @@ export class AiSdkBackend implements AgentBackend {
       input.onDiagnosticPatch({
         historyCompactEnabled: true,
         historyCompactMode: 'read_write',
-        ...(outcome.decision === 'fail' && outcome.recorderCounters ? outcome.recorderCounters : {}),
+        ...(outcome.decision === 'fail' && outcome.recorderCounters
+          ? outcome.recorderCounters
+          : {}),
         ...compactionDecisionDiagnosticPatch({
           stage: 'activeStep',
           sourceKind: 'runtimeEvents',
@@ -3231,12 +3459,14 @@ export class AiSdkBackend implements AgentBackend {
       });
       return undefined;
     }
-    input.onDiagnosticPatch(buildMidTurnReplacedDiagnosticPatch({
-      checkpoint: outcome.checkpoint,
-      estimatedTokensBefore: outcome.estimatedTokensBefore,
-      estimatedTokensAfter: outcome.estimatedTokensAfter,
-      reason: 'overflow',
-    }));
+    input.onDiagnosticPatch(
+      buildMidTurnReplacedDiagnosticPatch({
+        checkpoint: outcome.checkpoint,
+        estimatedTokensBefore: outcome.estimatedTokensBefore,
+        estimatedTokensAfter: outcome.estimatedTokensAfter,
+        reason: 'overflow',
+      }),
+    );
     // A successful recovery restructures the request, so the rejected
     // request's payload measure no longer describes what the retry sends.
     // Reset the baseline: the capacity hook's usage anchor is only coherent
@@ -3295,23 +3525,28 @@ export class AiSdkBackend implements AgentBackend {
     } = input;
     return async (options) => {
       let result = await Promise.resolve(shaped(options));
-      const finalPayloadChars = (): number => midTurnRequestPayloadChars(
-        result?.messages ?? options.messages,
-        providerTools,
-        result?.activeTools ?? options.activeTools ?? fallbackActiveTools(),
-        systemPromptChars,
-      );
+      const finalPayloadChars = (): number =>
+        midTurnRequestPayloadChars(
+          result?.messages ?? options.messages,
+          providerTools,
+          result?.activeTools ?? options.activeTools ?? fallbackActiveTools(),
+          systemPromptChars,
+        );
       let payloadChars = finalPayloadChars();
       if (options.stepNumber >= 1 && !state.exhaustedDetail) {
-        const estimateFinal = (): number => estimateNextRequestTokens({
-          ...(state.lastRequestInputTokens !== undefined ? { priorUsageTokens: state.lastRequestInputTokens } : {}),
-          appendedChars: payloadChars - (state.lastRequestPayloadChars ?? payloadChars),
-          charsPerToken,
-          coldStartChars: payloadChars,
-        });
+        const estimateFinal = (): number =>
+          estimateNextRequestTokens({
+            ...(state.lastRequestInputTokens !== undefined
+              ? { priorUsageTokens: state.lastRequestInputTokens }
+              : {}),
+            appendedChars: payloadChars - (state.lastRequestPayloadChars ?? payloadChars),
+            charsPerToken,
+            coldStartChars: payloadChars,
+          });
         let estimate = estimateFinal();
-        const capacityAttemptedThisStep = state.replacedStepNumber === options.stepNumber
-          || state.lastShapeFailure?.stepNumber === options.stepNumber;
+        const capacityAttemptedThisStep =
+          state.replacedStepNumber === options.stepNumber ||
+          state.lastShapeFailure?.stepNumber === options.stepNumber;
         if (estimate > state.contextWindow && !capacityAttemptedThisStep) {
           // One bounded capacity re-entry: the trigger threshold is
           // approximate on purpose (recoverable), so a miss must become a
@@ -3321,11 +3556,13 @@ export class AiSdkBackend implements AgentBackend {
           // pointless (the failure was not a trigger miss) and would double
           // recorder counters and summarizer calls.
           state.forcedTriggerEstimate = estimate;
-          const reshaped = await Promise.resolve(reentry({
-            ...options,
-            messages: result?.messages ?? options.messages,
-            ...(result?.activeTools ? { activeTools: result.activeTools } : {}),
-          }));
+          const reshaped = await Promise.resolve(
+            reentry({
+              ...options,
+              messages: result?.messages ?? options.messages,
+              ...(result?.activeTools ? { activeTools: result.activeTools } : {}),
+            }),
+          );
           state.forcedTriggerEstimate = undefined;
           if (reshaped) {
             result = {
@@ -3338,16 +3575,17 @@ export class AiSdkBackend implements AgentBackend {
           estimate = estimateFinal();
         }
         if (estimate > state.contextWindow) {
-          const failure = state.lastShapeFailure?.stepNumber === options.stepNumber
-            ? state.lastShapeFailure
-            : undefined;
+          const failure =
+            state.lastShapeFailure?.stepNumber === options.stepNumber
+              ? state.lastShapeFailure
+              : undefined;
           const replacedThisStep = state.replacedStepNumber === options.stepNumber;
           const detail: ContextBudgetExhaustedDetail = replacedThisStep
             ? 'head_anchor_exceeds_capacity'
-            : failure?.detail ?? 'no_safe_completed_span';
+            : (failure?.detail ?? 'no_safe_completed_span');
           const diagnosticReason = replacedThisStep
             ? 'head_anchor_exceeds_capacity'
-            : failure?.diagnosticReason ?? 'no_safe_completed_span';
+            : (failure?.diagnosticReason ?? 'no_safe_completed_span');
           state.exhaustedDetail = detail;
           onDiagnosticPatch({
             historyCompactEnabled: true,
@@ -3452,8 +3690,8 @@ export class AiSdkBackend implements AgentBackend {
   ): Promise<{ policy: ContextBudgetPolicy; diagnosticPatch?: Partial<ContextBudgetDiagnostic> }> {
     const historyCompact = policy.historyCompact;
     if (
-      historyCompact?.enabled !== true
-      || (!this.input.loadHistoryCompactCheckpoint && !this.input.loadHistoryCompact)
+      historyCompact?.enabled !== true ||
+      (!this.input.loadHistoryCompactCheckpoint && !this.input.loadHistoryCompact)
     ) {
       return { policy };
     }
@@ -3482,24 +3720,28 @@ export class AiSdkBackend implements AgentBackend {
       };
     }
     if (!this.input.loadHistoryCompact) {
-      return loadFailures > 0 ? {
-        policy,
-        diagnosticPatch: {
-          historyCompactEnabled: true,
-          historyCompactMode: historyCompact.mode ?? 'deterministic',
-          historyCompactLoadFailures: loadFailures,
-        },
-      } : { policy };
+      return loadFailures > 0
+        ? {
+            policy,
+            diagnosticPatch: {
+              historyCompactEnabled: true,
+              historyCompactMode: historyCompact.mode ?? 'deterministic',
+              historyCompactLoadFailures: loadFailures,
+            },
+          }
+        : { policy };
     }
     try {
       // No maxBytes here: the block JSON carries per-event provenance and
       // legitimately outgrows the token budget; the loader caps reads by
       // storage size, and token limits are enforced on the loaded blocks.
-      const result = await Promise.resolve(this.input.loadHistoryCompact({
-        sessionId: this.sessionId,
-        maxBlocks: historyCompact.maxBlocks,
-        maxEstimatedTokens: historyCompact.maxEstimatedTokens,
-      }));
+      const result = await Promise.resolve(
+        this.input.loadHistoryCompact({
+          sessionId: this.sessionId,
+          maxBlocks: historyCompact.maxBlocks,
+          maxEstimatedTokens: historyCompact.maxEstimatedTokens,
+        }),
+      );
       const blocks = result.blocks ?? [];
       return {
         policy: {
@@ -3515,8 +3757,12 @@ export class AiSdkBackend implements AgentBackend {
           historyCompactBlocksLoaded: blocks.length,
           historyCompactBlocksAvailable: blocks.length,
           ...(loadFailures > 0 ? { historyCompactLoadFailures: loadFailures } : {}),
-          ...(result.skipped && result.skipped > 0 ? { historyCompactLoadSkipped: result.skipped } : {}),
-          ...(result.skippedReasonCounts ? { historyCompactLoadSkippedReasonCounts: result.skippedReasonCounts } : {}),
+          ...(result.skipped && result.skipped > 0
+            ? { historyCompactLoadSkipped: result.skipped }
+            : {}),
+          ...(result.skippedReasonCounts
+            ? { historyCompactLoadSkippedReasonCounts: result.skippedReasonCounts }
+            : {}),
         },
       };
     } catch {
@@ -3543,12 +3789,14 @@ export class AiSdkBackend implements AgentBackend {
       return { policy };
     }
     try {
-      const result = await Promise.resolve(this.input.loadSynthesisCache({
-        sessionId: this.sessionId,
-        maxBlocks: synthesisCache.maxBlocks,
-        maxEstimatedTokens: synthesisCache.maxEstimatedTokens,
-        maxBytes: (synthesisCache.maxEstimatedTokens ?? 2_048) * (policy.charsPerToken ?? 4),
-      }));
+      const result = await Promise.resolve(
+        this.input.loadSynthesisCache({
+          sessionId: this.sessionId,
+          maxBlocks: synthesisCache.maxBlocks,
+          maxEstimatedTokens: synthesisCache.maxEstimatedTokens,
+          maxBytes: (synthesisCache.maxEstimatedTokens ?? 2_048) * (policy.charsPerToken ?? 4),
+        }),
+      );
       const blocks = result.blocks ?? [];
       return {
         policy: {
@@ -3563,10 +3811,18 @@ export class AiSdkBackend implements AgentBackend {
           synthesisCacheMode: synthesisCache.mode ?? 'lookup',
           synthesisCacheBlocksLoaded: blocks.length,
           synthesisCacheBlocksAvailable: blocks.length,
-          ...(result.skipped && result.skipped > 0 ? { synthesisCacheLoadSkipped: result.skipped } : {}),
-          ...(result.skippedReasonCounts ? { synthesisCacheLoadSkippedReasonCounts: result.skippedReasonCounts } : {}),
-          ...(result.evicted && result.evicted > 0 ? { synthesisCacheEvicted: result.evicted } : {}),
-          ...(result.evictionReasonCounts ? { synthesisCacheEvictionReasonCounts: result.evictionReasonCounts } : {}),
+          ...(result.skipped && result.skipped > 0
+            ? { synthesisCacheLoadSkipped: result.skipped }
+            : {}),
+          ...(result.skippedReasonCounts
+            ? { synthesisCacheLoadSkippedReasonCounts: result.skippedReasonCounts }
+            : {}),
+          ...(result.evicted && result.evicted > 0
+            ? { synthesisCacheEvicted: result.evicted }
+            : {}),
+          ...(result.evictionReasonCounts
+            ? { synthesisCacheEvictionReasonCounts: result.evictionReasonCounts }
+            : {}),
         },
       };
     } catch {
@@ -3590,7 +3846,11 @@ export class AiSdkBackend implements AgentBackend {
     contextBudget: ContextBudgetPolicy;
   }): Promise<Partial<ContextBudgetDiagnostic>> {
     const synthesisCache = input.contextBudget.synthesisCache;
-    if (synthesisCache?.enabled !== true || synthesisCache.mode !== 'read_write' || !this.input.writeSynthesisCache) {
+    if (
+      synthesisCache?.enabled !== true ||
+      synthesisCache.mode !== 'read_write' ||
+      !this.input.writeSynthesisCache
+    ) {
       return {};
     }
     const limits = {
@@ -3600,37 +3860,49 @@ export class AiSdkBackend implements AgentBackend {
       charsPerToken: input.contextBudget.charsPerToken ?? 4,
     };
     try {
-      const result = await Promise.resolve(this.input.writeSynthesisCache({
-        sessionId: this.sessionId,
-        turnId: input.turnId,
-        source: {
-          createdFrom: input.archiveRetrievalMode === 'history_search_gated'
-            ? 'gated_archive_retrieval'
-            : 'eager_archive_retrieval',
-          query: input.query,
-          hydratedRuntimeEvents: input.hydratedRuntimeEvents,
-          retrievedArchiveRefs: input.retrievedArchiveRefs,
-          archiveRetrievalMode: input.archiveRetrievalMode,
-        },
-        limits,
-        requestShapeHashBefore: this.priorRequestShape?.requestShapeHash,
-      }));
+      const result = await Promise.resolve(
+        this.input.writeSynthesisCache({
+          sessionId: this.sessionId,
+          turnId: input.turnId,
+          source: {
+            createdFrom:
+              input.archiveRetrievalMode === 'history_search_gated'
+                ? 'gated_archive_retrieval'
+                : 'eager_archive_retrieval',
+            query: input.query,
+            hydratedRuntimeEvents: input.hydratedRuntimeEvents,
+            retrievedArchiveRefs: input.retrievedArchiveRefs,
+            archiveRetrievalMode: input.archiveRetrievalMode,
+          },
+          limits,
+          requestShapeHashBefore: this.priorRequestShape?.requestShapeHash,
+        }),
+      );
       const blocks = result?.blocks ?? [];
-      const estimatedTokens = blocks.reduce((total, block) => total + (block.estimatedTokens ?? 0), 0);
+      const estimatedTokens = blocks.reduce(
+        (total, block) => total + (block.estimatedTokens ?? 0),
+        0,
+      );
       return {
         synthesisCacheEnabled: true,
         synthesisCacheMode: 'read_write',
         synthesisCacheWritesAttempted: 1,
         synthesisCacheBlocksWritten: blocks.length,
-        ...(blocks.length > 0 ? {
-          synthesisCacheWrittenBlockIds: blocks.map((block) => block.blockId),
-          synthesisCacheWriteEstimatedTokens: estimatedTokens,
-          highWaterName: blocks[0]!.highWaterName,
-          highWaterSeq: blocks[0]!.highWaterSeq,
-          highWaterReason: 'synthesis_cache_write',
-        } : {}),
-        ...(result?.skipped && result.skipped > 0 ? { synthesisCacheWriteSkipped: result.skipped } : {}),
-        ...(result?.skippedReasonCounts ? { synthesisCacheWriteSkippedReasonCounts: result.skippedReasonCounts } : {}),
+        ...(blocks.length > 0
+          ? {
+              synthesisCacheWrittenBlockIds: blocks.map((block) => block.blockId),
+              synthesisCacheWriteEstimatedTokens: estimatedTokens,
+              highWaterName: blocks[0]!.highWaterName,
+              highWaterSeq: blocks[0]!.highWaterSeq,
+              highWaterReason: 'synthesis_cache_write',
+            }
+          : {}),
+        ...(result?.skipped && result.skipped > 0
+          ? { synthesisCacheWriteSkipped: result.skipped }
+          : {}),
+        ...(result?.skippedReasonCounts
+          ? { synthesisCacheWriteSkippedReasonCounts: result.skippedReasonCounts }
+          : {}),
       };
     } catch {
       return {
@@ -3657,7 +3929,9 @@ export class AiSdkBackend implements AgentBackend {
     const recorder = this.input.recordHistoryCompactCheckpoint;
     if (!summarizer || !recorder) return { diagnosticPatch: {} };
     const foldedIds = new Set(input.draftBlock.coverage.runtimeEventIds);
-    const foldedRuntimeEvents = input.priorRuntimeContext.filter((event) => foldedIds.has(event.id));
+    const foldedRuntimeEvents = input.priorRuntimeContext.filter((event) =>
+      foldedIds.has(event.id),
+    );
     if (foldedRuntimeEvents.length === 0) {
       return {
         diagnosticPatch: {
@@ -3671,21 +3945,27 @@ export class AiSdkBackend implements AgentBackend {
     const checkpointMatch = loadedCheckpoint
       ? matchHistoryCompactCheckpointPrefix(loadedCheckpoint, foldedRuntimeEvents)
       : undefined;
-    const previousCheckpoint = checkpointMatch && !checkpointMatch.reason ? loadedCheckpoint : undefined;
+    const previousCheckpoint =
+      checkpointMatch && !checkpointMatch.reason ? loadedCheckpoint : undefined;
     const newlyFoldedRuntimeEvents = previousCheckpoint
       ? checkpointMatch!.successorRuntimeEvents
       : foldedRuntimeEvents;
-    const retainedRuntimeEvents = input.priorRuntimeContext.filter((event) =>
-      !foldedIds.has(event.id) && !event.id.startsWith('history-compact:')
+    const retainedRuntimeEvents = input.priorRuntimeContext.filter(
+      (event) => !foldedIds.has(event.id) && !event.id.startsWith('history-compact:'),
     );
-    const previousCheckpointFitsCurrentLimits = previousCheckpoint !== undefined
-      && evaluateHistoryCompactCheckpointReplay(
+    const previousCheckpointFitsCurrentLimits =
+      previousCheckpoint !== undefined &&
+      evaluateHistoryCompactCheckpointReplay(
         previousCheckpoint,
         retainedRuntimeEvents,
         input.contextBudget,
         { sourceReplayEvents: [...foldedRuntimeEvents, ...retainedRuntimeEvents] },
       ).fits;
-    if (previousCheckpoint && newlyFoldedRuntimeEvents.length === 0 && previousCheckpointFitsCurrentLimits) {
+    if (
+      previousCheckpoint &&
+      newlyFoldedRuntimeEvents.length === 0 &&
+      previousCheckpointFitsCurrentLimits
+    ) {
       return {
         fallbackCheckpoint: previousCheckpoint,
         diagnosticPatch: {
@@ -3713,15 +3993,17 @@ export class AiSdkBackend implements AgentBackend {
       };
     }
     try {
-      const summary = await Promise.resolve(summarizer({
-        sessionId: this.sessionId,
-        turnId: input.turnId,
-        source: { foldedRuntimeEvents },
-        ...(previousCheckpoint ? { previousCheckpoint } : {}),
-        newlyFoldedRuntimeEvents,
-        requestShapeHashBefore: this.priorRequestShape?.requestShapeHash,
-        abortSignal: input.abortSignal,
-      }));
+      const summary = await Promise.resolve(
+        summarizer({
+          sessionId: this.sessionId,
+          turnId: input.turnId,
+          source: { foldedRuntimeEvents },
+          ...(previousCheckpoint ? { previousCheckpoint } : {}),
+          newlyFoldedRuntimeEvents,
+          requestShapeHashBefore: this.priorRequestShape?.requestShapeHash,
+          abortSignal: input.abortSignal,
+        }),
+      );
       if (!summary?.trim()) {
         return {
           ...(previousCheckpoint ? { fallbackCheckpoint: previousCheckpoint } : {}),
@@ -3732,8 +4014,11 @@ export class AiSdkBackend implements AgentBackend {
             historyCompactWriteFailures: 1,
             historyCompactWriteSkippedReasonCounts: { empty_summary: 1 },
             ...compactionDecisionDiagnosticPatch({
-              stage: 'priorReplay', sourceKind: 'runtimeEvents', decision: 'failedOpen',
-              boundaryKind: 'historyCompact', failOpenReason: 'empty_summary',
+              stage: 'priorReplay',
+              sourceKind: 'runtimeEvents',
+              decision: 'failedOpen',
+              boundaryKind: 'historyCompact',
+              failOpenReason: 'empty_summary',
             }),
           },
         };
@@ -3754,9 +4039,7 @@ export class AiSdkBackend implements AgentBackend {
         input.contextBudget,
         { sourceReplayEvents: [...foldedRuntimeEvents, ...retainedRuntimeEvents] },
       );
-      const rejectedReason = !replayFit.fits
-        ? replayFit.reason
-        : undefined;
+      const rejectedReason = !replayFit.fits ? replayFit.reason : undefined;
       if (rejectedReason) {
         return {
           ...(previousCheckpoint ? { fallbackCheckpoint: previousCheckpoint } : {}),
@@ -3767,8 +4050,11 @@ export class AiSdkBackend implements AgentBackend {
             historyCompactWriteFailures: 1,
             historyCompactWriteSkippedReasonCounts: { [rejectedReason]: 1 },
             ...compactionDecisionDiagnosticPatch({
-              stage: 'priorReplay', sourceKind: 'runtimeEvents', decision: 'failedOpen',
-              boundaryKind: 'historyCompact', failOpenReason: rejectedReason,
+              stage: 'priorReplay',
+              sourceKind: 'runtimeEvents',
+              decision: 'failedOpen',
+              boundaryKind: 'historyCompact',
+              failOpenReason: rejectedReason,
             }),
           },
         };
@@ -3791,9 +4077,8 @@ export class AiSdkBackend implements AgentBackend {
         },
       };
     } catch (error) {
-      const failureReason = error instanceof HistoryCompactSummarizerError
-        ? error.reason
-        : 'write_failed';
+      const failureReason =
+        error instanceof HistoryCompactSummarizerError ? error.reason : 'write_failed';
       return {
         ...(previousCheckpoint ? { fallbackCheckpoint: previousCheckpoint } : {}),
         diagnosticPatch: {
@@ -3803,8 +4088,11 @@ export class AiSdkBackend implements AgentBackend {
           historyCompactWriteFailures: 1,
           historyCompactWriteSkippedReasonCounts: { [failureReason]: 1 },
           ...compactionDecisionDiagnosticPatch({
-            stage: 'priorReplay', sourceKind: 'runtimeEvents', decision: 'failedOpen',
-            boundaryKind: 'historyCompact', failOpenReason: failureReason,
+            stage: 'priorReplay',
+            sourceKind: 'runtimeEvents',
+            decision: 'failedOpen',
+            boundaryKind: 'historyCompact',
+            failOpenReason: failureReason,
           }),
         },
       };
@@ -3822,7 +4110,11 @@ export class AiSdkBackend implements AgentBackend {
     replacementBlocks: HistoryCompactBlock[];
   }> {
     const historyCompact = input.contextBudget.historyCompact;
-    if (historyCompact?.enabled !== true || historyCompact.mode !== 'read_write' || !this.input.writeHistoryCompact) {
+    if (
+      historyCompact?.enabled !== true ||
+      historyCompact.mode !== 'read_write' ||
+      !this.input.writeHistoryCompact
+    ) {
       return { diagnosticPatch: {}, replacementBlocks: [] };
     }
     const limits = {
@@ -3840,24 +4132,28 @@ export class AiSdkBackend implements AgentBackend {
     try {
       for (const draftBlock of input.draftBlocks.slice(0, limits.maxBlocks)) {
         const foldedIds = new Set(draftBlock.coverage.runtimeEventIds);
-        const foldedRuntimeEvents = input.priorRuntimeContext.filter((event) => foldedIds.has(event.id));
+        const foldedRuntimeEvents = input.priorRuntimeContext.filter((event) =>
+          foldedIds.has(event.id),
+        );
         if (foldedRuntimeEvents.length === 0) {
           skipped += 1;
           incrementRecord(skippedReasonCounts, 'source_missing');
           continue;
         }
         writesAttempted += 1;
-        const result = await Promise.resolve(this.input.writeHistoryCompact({
-          sessionId: this.sessionId,
-          turnId: input.turnId,
-          source: {
-            draftBlock,
-            foldedRuntimeEvents,
-          },
-          limits,
-          requestShapeHashBefore: this.priorRequestShape?.requestShapeHash,
-          abortSignal: input.abortSignal,
-        }));
+        const result = await Promise.resolve(
+          this.input.writeHistoryCompact({
+            sessionId: this.sessionId,
+            turnId: input.turnId,
+            source: {
+              draftBlock,
+              foldedRuntimeEvents,
+            },
+            limits,
+            requestShapeHashBefore: this.priorRequestShape?.requestShapeHash,
+            abortSignal: input.abortSignal,
+          }),
+        );
         const blocks = result?.blocks ?? [];
         if (result?.skipped && result.skipped > 0) {
           skipped += result.skipped;
@@ -3868,36 +4164,48 @@ export class AiSdkBackend implements AgentBackend {
           written += 1;
         }
       }
-      const estimatedTokens = replacementBlocks.reduce((total, block) => total + (block.estimatedTokens ?? 0), 0);
-      const replacementRuntimeEventIds = new Set(replacementBlocks.flatMap((block) => block.coverage.runtimeEventIds));
+      const estimatedTokens = replacementBlocks.reduce(
+        (total, block) => total + (block.estimatedTokens ?? 0),
+        0,
+      );
+      const replacementRuntimeEventIds = new Set(
+        replacementBlocks.flatMap((block) => block.coverage.runtimeEventIds),
+      );
       const estimatedTokensBefore = estimateRuntimeEventsTokens(
         input.priorRuntimeContext.filter((event) => replacementRuntimeEventIds.has(event.id)),
         limits.charsPerToken,
       );
-      const replacementDecisionPatch = replacementBlocks.length > 0
-        ? compactionDecisionDiagnosticPatch({
-            stage: 'priorReplay',
-            sourceKind: 'runtimeEvents',
-            decision: 'replaced',
-            boundaryKind: 'historyCompact',
-            boundaryIds: replacementBlocks.map((block) => historyCompactBlockToCompactionBoundary(block).boundaryId),
-            coverage: {
-              turnIds: Array.from(new Set(replacementBlocks.flatMap((block) => block.coverage.turnIds))),
-              runtimeEventIds: Array.from(replacementRuntimeEventIds),
-              contentKinds: Array.from(new Set(replacementBlocks.flatMap((block) => block.coverage.contentKinds))),
-              bodySha256: replacementBlocks.flatMap((block) => block.coverage.bodySha256),
-            },
-            estimatedTokensBefore,
-            estimatedTokensAfter: estimatedTokens,
-          })
-        : compactionDecisionDiagnosticPatch({
-            stage: 'priorReplay',
-            sourceKind: 'runtimeEvents',
-            decision: 'failedOpen',
-            boundaryKind: 'historyCompact',
-            failOpenReason: Object.keys(skippedReasonCounts)[0] ?? 'write_empty',
-            ...(Object.keys(skippedReasonCounts).length > 0 ? { skippedReasonCounts } : {}),
-          });
+      const replacementDecisionPatch =
+        replacementBlocks.length > 0
+          ? compactionDecisionDiagnosticPatch({
+              stage: 'priorReplay',
+              sourceKind: 'runtimeEvents',
+              decision: 'replaced',
+              boundaryKind: 'historyCompact',
+              boundaryIds: replacementBlocks.map(
+                (block) => historyCompactBlockToCompactionBoundary(block).boundaryId,
+              ),
+              coverage: {
+                turnIds: Array.from(
+                  new Set(replacementBlocks.flatMap((block) => block.coverage.turnIds)),
+                ),
+                runtimeEventIds: Array.from(replacementRuntimeEventIds),
+                contentKinds: Array.from(
+                  new Set(replacementBlocks.flatMap((block) => block.coverage.contentKinds)),
+                ),
+                bodySha256: replacementBlocks.flatMap((block) => block.coverage.bodySha256),
+              },
+              estimatedTokensBefore,
+              estimatedTokensAfter: estimatedTokens,
+            })
+          : compactionDecisionDiagnosticPatch({
+              stage: 'priorReplay',
+              sourceKind: 'runtimeEvents',
+              decision: 'failedOpen',
+              boundaryKind: 'historyCompact',
+              failOpenReason: Object.keys(skippedReasonCounts)[0] ?? 'write_empty',
+              ...(Object.keys(skippedReasonCounts).length > 0 ? { skippedReasonCounts } : {}),
+            });
       return {
         replacementBlocks,
         diagnosticPatch: {
@@ -3968,7 +4276,9 @@ export class AiSdkBackend implements AgentBackend {
    * (no step id) keep the older shape: tool calls form a tool-only assistant,
    * text/thinking become standalone messages.
    */
-  private async materializeRuntimeReplayPlan(plan: RuntimeEventModelReplayPlan): Promise<ModelMessage[]> {
+  private async materializeRuntimeReplayPlan(
+    plan: RuntimeEventModelReplayPlan,
+  ): Promise<ModelMessage[]> {
     type ToolCallItem = Extract<RuntimeEventModelReplayItem, { kind: 'tool_call' }>;
     type ToolResultItem = Extract<RuntimeEventModelReplayItem, { kind: 'tool_result' }>;
     type ThinkingItem = Extract<RuntimeEventModelReplayItem, { kind: 'thinking' }>;
@@ -3997,23 +4307,38 @@ export class AiSdkBackend implements AgentBackend {
         results.delete(call.toolCallId);
         out.push({
           role: 'tool',
-          content: [{
-            type: 'tool-result',
-            toolCallId: result.toolCallId,
-            toolName: result.toolName,
-            output: await this.materializeToolResultOutput(result.output, result.isError, result.toolCallId),
-          }],
+          content: [
+            {
+              type: 'tool-result',
+              toolCallId: result.toolCallId,
+              toolName: result.toolName,
+              output: await this.materializeToolResultOutput(
+                result.output,
+                result.isError,
+                result.toolCallId,
+              ),
+            },
+          ],
         });
       }
     };
     // Emit one assistant message for a step: reasoning (if any), text (if any),
     // then the step's tool calls, followed by those calls' tool results.
-    const emitStep = async (reasoning: ThinkingItem | undefined, text: string, calls: readonly ToolCallItem[]) => {
+    const emitStep = async (
+      reasoning: ThinkingItem | undefined,
+      text: string,
+      calls: readonly ToolCallItem[],
+    ) => {
       const content: unknown[] = [];
       if (reasoning) content.push(reasoningPart(reasoning));
       if (text.length > 0) content.push({ type: 'text', text });
       for (const call of calls) {
-        content.push({ type: 'tool-call', toolCallId: call.toolCallId, toolName: call.toolName, input: call.input });
+        content.push({
+          type: 'tool-call',
+          toolCallId: call.toolCallId,
+          toolName: call.toolName,
+          input: call.input,
+        });
       }
       if (content.length > 0) out.push({ role: 'assistant', content } as ModelMessage);
       await pushToolResults(calls);
@@ -4097,7 +4422,9 @@ export class AiSdkBackend implements AgentBackend {
     return out;
   }
 
-  private async materializeRuntimeReplayItem(item: RuntimeEventModelReplayItem): Promise<ModelMessage> {
+  private async materializeRuntimeReplayItem(
+    item: RuntimeEventModelReplayItem,
+  ): Promise<ModelMessage> {
     switch (item.kind) {
       case 'text':
         if (item.role === 'user') {
@@ -4110,39 +4437,52 @@ export class AiSdkBackend implements AgentBackend {
               providerOptions: steeringProviderOptions(item.steering.eventId),
             };
           }
-          return { role: 'user', content: await this.appendImageParts(item.content, item.attachments) } as ModelMessage;
+          return {
+            role: 'user',
+            content: await this.appendImageParts(item.content, item.attachments),
+          } as ModelMessage;
         }
         return { role: item.role, content: item.content };
       case 'thinking':
         return {
           role: 'assistant',
-          content: [{
-            type: 'reasoning',
-            text: item.text,
-            providerOptions: {
-              anthropic: { signature: item.signature },
+          content: [
+            {
+              type: 'reasoning',
+              text: item.text,
+              providerOptions: {
+                anthropic: { signature: item.signature },
+              },
             },
-          }],
+          ],
         };
       case 'tool_call':
         return {
           role: 'assistant',
-          content: [{
-            type: 'tool-call',
-            toolCallId: item.toolCallId,
-            toolName: item.toolName,
-            input: item.input,
-          }],
+          content: [
+            {
+              type: 'tool-call',
+              toolCallId: item.toolCallId,
+              toolName: item.toolName,
+              input: item.input,
+            },
+          ],
         };
       case 'tool_result':
         return {
           role: 'tool',
-          content: [{
-            type: 'tool-result',
-            toolCallId: item.toolCallId,
-            toolName: item.toolName,
-            output: await this.materializeToolResultOutput(item.output, item.isError, item.toolCallId),
-          }],
+          content: [
+            {
+              type: 'tool-result',
+              toolCallId: item.toolCallId,
+              toolName: item.toolName,
+              output: await this.materializeToolResultOutput(
+                item.output,
+                item.isError,
+                item.toolCallId,
+              ),
+            },
+          ],
         };
     }
   }
@@ -4160,25 +4500,43 @@ export class AiSdkBackend implements AgentBackend {
         // still presents steering exactly once, in its one provider form.
         const sidecar = steeringSidecar?.get(m.id);
         if (sidecar) {
-          out.push(steeringModelMessage(sidecar.eventId, formatTextWithAttachmentRefs(m.text, m.attachments)));
+          out.push(
+            steeringModelMessage(
+              sidecar.eventId,
+              formatTextWithAttachmentRefs(m.text, m.attachments),
+            ),
+          );
           continue;
         }
-        out.push({ role: 'user', content: await this.appendImageParts(formatTextWithAttachmentRefs(m.text, m.attachments), m.attachments) } as ModelMessage);
+        out.push({
+          role: 'user',
+          content: await this.appendImageParts(
+            formatTextWithAttachmentRefs(m.text, m.attachments),
+            m.attachments,
+          ),
+        } as ModelMessage);
       }
       // A thinking/tool-only step projects an assistant row with empty text;
       // replaying it as an empty text block is a hard 400 on Anthropic-protocol
       // providers.
-      else if (m.type === 'assistant' && m.text.length > 0) out.push({ role: 'assistant', content: m.text });
+      else if (m.type === 'assistant' && m.text.length > 0)
+        out.push({ role: 'assistant', content: m.text });
       // empty assistant / tool_call / tool_result / permission_decision / token_usage / system_note skipped
     }
     return out;
   }
 
   /** Append provider-visible volatile turn facts after the durable user content. */
-  private appendTurnTailPrompt(content: ModelMessage['content'], turnTailPrompt?: string): ModelMessage['content'] {
+  private appendTurnTailPrompt(
+    content: ModelMessage['content'],
+    turnTailPrompt?: string,
+  ): ModelMessage['content'] {
     if (!turnTailPrompt) return content;
     if (typeof content === 'string') return `${content}\n\n${turnTailPrompt}`;
-    return [...(content as unknown[]), { type: 'text', text: turnTailPrompt }] as ModelMessage['content'];
+    return [
+      ...(content as unknown[]),
+      { type: 'text', text: turnTailPrompt },
+    ] as ModelMessage['content'];
   }
 
   /** A decision key deduplicates re-materialization; no key charges each occurrence. */
@@ -4189,7 +4547,9 @@ export class AiSdkBackend implements AgentBackend {
       const cached = budget.decisions.get(decisionKey);
       if (cached !== undefined) return cached;
     }
-    const keep = budget.used + bytes <= (this.input.maxProviderImageRequestBytes ?? MAX_PROVIDER_IMAGE_REQUEST_BYTES);
+    const keep =
+      budget.used + bytes <=
+      (this.input.maxProviderImageRequestBytes ?? MAX_PROVIDER_IMAGE_REQUEST_BYTES);
     if (keep) budget.used += bytes;
     if (decisionKey !== undefined) budget.decisions.set(decisionKey, keep);
     return keep;
@@ -4219,14 +4579,15 @@ export class AiSdkBackend implements AgentBackend {
     const parts: Array<
       | { type: 'text'; text: string }
       | { type: 'file'; data: { type: 'data'; data: Uint8Array }; mediaType: string }
-    > = [
-      { type: 'text', text: textContent },
-    ];
+    > = [{ type: 'text', text: textContent }];
     let omittedByBudget = 0;
     for (const image of images) {
       const read = await this.input.readAttachmentBytes(image.ref);
       if (!read.ok) {
-        parts.push({ type: 'text', text: `Image attachment "${image.name}" could not be loaded: ${read.reason}.` });
+        parts.push({
+          type: 'text',
+          text: `Image attachment "${image.name}" could not be loaded: ${read.reason}.`,
+        });
         continue;
       }
       if (!this.chargeImageBudget(read.bytes.length)) {
@@ -4398,7 +4759,9 @@ export class AiSdkBackend implements AgentBackend {
       for (const lease of leases) {
         if (this.aborted || abortSignal?.aborted) {
           // Never pushed: settles as undelivered.
-          throw Object.assign(new Error('aborted before steering was pushed'), { name: 'AbortError' });
+          throw Object.assign(new Error('aborted before steering was pushed'), {
+            name: 'AbortError',
+          });
         }
         if (queue.consumerDetached) {
           throw new Error('steering message was not durably consumed: event consumer detached');
@@ -4428,7 +4791,9 @@ export class AiSdkBackend implements AgentBackend {
         if (this.aborted || abortSignal?.aborted) {
           // Settled (the ledger owns the message; the next turn replays it),
           // but the send is dying: stop before any request is built with it.
-          throw Object.assign(new Error('aborted after steering was durable'), { name: 'AbortError' });
+          throw Object.assign(new Error('aborted after steering was durable'), {
+            name: 'AbortError',
+          });
         }
       }
     } catch (error) {
@@ -4480,7 +4845,9 @@ export function repairMakaToolCall(input: {
   if (requestedName === INVALID_TOOL_NAME) return null;
 
   const lowerRequestedName = requestedName.toLowerCase();
-  const exactLowercaseMatch = input.availableToolNames.find((name) => name.toLowerCase() === lowerRequestedName);
+  const exactLowercaseMatch = input.availableToolNames.find(
+    (name) => name.toLowerCase() === lowerRequestedName,
+  );
   if (exactLowercaseMatch && exactLowercaseMatch !== requestedName) {
     return { ...input.toolCall, toolName: exactLowercaseMatch };
   }
@@ -4498,7 +4865,8 @@ export function repairMakaToolCall(input: {
 function buildInvalidMakaTool(): MakaTool<{ tool?: string; error?: string }, never> {
   return {
     name: INVALID_TOOL_NAME,
-    description: 'Internal repair target for malformed or unknown tool calls. Do not call directly.',
+    description:
+      'Internal repair target for malformed or unknown tool calls. Do not call directly.',
     parameters: z.object({
       tool: z.string().optional(),
       error: z.string().optional(),
@@ -4506,7 +4874,9 @@ function buildInvalidMakaTool(): MakaTool<{ tool?: string; error?: string }, nev
     permissionRequired: false,
     impl: ({ tool, error }) => {
       const requested = tool ? ` "${tool}"` : '';
-      throw new Error(`模型请求了不可用或格式错误的工具${requested}：${error || 'tool call could not be parsed'}`);
+      throw new Error(
+        `模型请求了不可用或格式错误的工具${requested}：${error || 'tool call could not be parsed'}`,
+      );
     },
   };
 }
@@ -4547,9 +4917,10 @@ function stableStringifyForSignature(value: unknown): string {
   if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? '';
   if (Array.isArray(value)) return `[${value.map(stableStringifyForSignature).join(',')}]`;
   const object = value as Record<string, unknown>;
-  return `{${Object.keys(object).sort().map((key) =>
-    `${JSON.stringify(key)}:${stableStringifyForSignature(object[key])}`
-  ).join(',')}}`;
+  return `{${Object.keys(object)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${stableStringifyForSignature(object[key])}`)
+    .join(',')}}`;
 }
 
 function hasBlockingReplayDiagnostics(plan: RuntimeEventModelReplayPlan): boolean {
@@ -4557,10 +4928,11 @@ function hasBlockingReplayDiagnostics(plan: RuntimeEventModelReplayPlan): boolea
   // drops an orphan tool result (its call sliced away or the ledger corrupt)
   // on its own — see pushToolResults — so one orphan must not degrade the
   // whole ledger to stored-message projection.
-  return plan.diagnostics.some((diagnostic) =>
-    diagnostic.code === 'unsupported_role' ||
-    diagnostic.code === 'unsupported_content' ||
-    diagnostic.code === 'tool_id_mismatch'
+  return plan.diagnostics.some(
+    (diagnostic) =>
+      diagnostic.code === 'unsupported_role' ||
+      diagnostic.code === 'unsupported_content' ||
+      diagnostic.code === 'tool_id_mismatch',
   );
 }
 
@@ -4580,10 +4952,10 @@ function mergeNormalizedUsage(
   next: NormalizedAiSdkUsage,
 ): NormalizedAiSdkUsage {
   if (!current) return next;
-  const cacheMissInputSource = current.cacheMissInputSource === 'explicit'
-    || next.cacheMissInputSource === 'explicit'
-    ? 'explicit'
-    : 'derived';
+  const cacheMissInputSource =
+    current.cacheMissInputSource === 'explicit' || next.cacheMissInputSource === 'explicit'
+      ? 'explicit'
+      : 'derived';
   const cacheHitInputTokens = current.cacheHitInputTokens + next.cacheHitInputTokens;
   return {
     inputTokens: current.inputTokens + next.inputTokens,
@@ -4605,15 +4977,17 @@ function sumOptionalCounts<K extends keyof ActiveToolResultPruneDiagnosticPatch>
   right: ActiveToolResultPruneDiagnosticPatch,
 ): Pick<ActiveToolResultPruneDiagnosticPatch, K> | Record<string, never> {
   const total = (left[key] ?? 0) + (right[key] ?? 0);
-  return total > 0 ? { [key]: total } as Pick<ActiveToolResultPruneDiagnosticPatch, K> : {};
+  return total > 0 ? ({ [key]: total } as Pick<ActiveToolResultPruneDiagnosticPatch, K>) : {};
 }
 
 function hasActiveToolResultPruneDiagnosticPatch(
   patch: ActiveToolResultPruneDiagnosticPatch,
 ): boolean {
-  return (patch.activePrunedToolResults ?? 0) > 0
-    || (patch.activeArchiveFailures ?? 0) > 0
-    || (patch.activeEstimatedTokensSaved ?? 0) > 0;
+  return (
+    (patch.activePrunedToolResults ?? 0) > 0 ||
+    (patch.activeArchiveFailures ?? 0) > 0 ||
+    (patch.activeEstimatedTokensSaved ?? 0) > 0
+  );
 }
 
 function contextBudgetWithActivePrepareStepDiagnostics(
@@ -4634,8 +5008,8 @@ function buildHistoryCompactCheckpointFailOpenContext(
   retainedCandidates: readonly RuntimeEvent[],
 ): RuntimeEvent[] {
   const charsPerToken = policy.charsPerToken ?? 4;
-  const compactableEvents = priorRuntimeContext.filter((event) =>
-    estimateRuntimeEventsTokens([event], charsPerToken) > 0
+  const compactableEvents = priorRuntimeContext.filter(
+    (event) => estimateRuntimeEventsTokens([event], charsPerToken) > 0,
   );
   const match = matchHistoryCompactCheckpointPrefix(checkpoint, compactableEvents);
   if (match.reason) return [...retainedCandidates];
@@ -4652,7 +5026,11 @@ function buildHistoryCompactCheckpointFailOpenContext(
     }
   }
   const maxTokens = policy.maxHistoryEstimatedTokens ?? Number.POSITIVE_INFINITY;
-  const replayPrefix = projectHistoryCompactCheckpointReplay(checkpoint, match.coveredRuntimeEvents, []);
+  const replayPrefix = projectHistoryCompactCheckpointReplay(
+    checkpoint,
+    match.coveredRuntimeEvents,
+    [],
+  );
   let selectedTokens = estimateRuntimeEventsTokens(replayPrefix, charsPerToken);
   const selectedGroups: RuntimeEvent[][] = [];
   for (let index = turnOrder.length - 1; index >= 0; index -= 1) {
@@ -4679,7 +5057,10 @@ function incrementRecord(counts: Record<string, number>, key: string): void {
   counts[key] = (counts[key] ?? 0) + 1;
 }
 
-function mergeCountsInto(target: Record<string, number>, source: Record<string, number> | undefined): void {
+function mergeCountsInto(
+  target: Record<string, number>,
+  source: Record<string, number> | undefined,
+): void {
   for (const [key, value] of Object.entries(source ?? {})) {
     target[key] = (target[key] ?? 0) + value;
   }

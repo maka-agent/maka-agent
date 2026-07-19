@@ -105,11 +105,11 @@ export function runtimeToolFactCoverage(input: {
   for (let index = 0; index < input.runtimeEvents.length; index += 1) {
     const event = input.runtimeEvents[index]!;
     if (
-      event.sessionId === input.sessionId
-      && event.invocationId === input.invocationId
-      && event.runId === input.agentRunId
-      && event.turnId === input.turnId
-      && event.refs?.toolCallId === input.toolCallId
+      event.sessionId === input.sessionId &&
+      event.invocationId === input.invocationId &&
+      event.runId === input.agentRunId &&
+      event.turnId === input.turnId &&
+      event.refs?.toolCallId === input.toolCallId
     ) {
       matching.push({ index, event });
     }
@@ -122,7 +122,8 @@ export function runtimeToolFactCoverage(input: {
   const calls = matching.filter(({ event }) => event.content?.kind === 'function_call');
   if (calls.length > 1) return undefined;
   const call = calls[0];
-  if (call && (call.index > result.index || !toolNameMatches(input.toolName, call.event))) return undefined;
+  if (call && (call.index > result.index || !toolNameMatches(input.toolName, call.event)))
+    return undefined;
   if (!call && input.requireCall) return undefined;
   const low = call ?? result;
   return {
@@ -144,6 +145,7 @@ export function runtimeToolFactCoverage(input: {
 
 function toolNameMatches(expected: string | undefined, event: RuntimeEvent): boolean {
   const content = event.content;
-  if (!expected || (content?.kind !== 'function_call' && content?.kind !== 'function_response')) return true;
+  if (!expected || (content?.kind !== 'function_call' && content?.kind !== 'function_response'))
+    return true;
   return content.name.length === 0 || content.name === expected;
 }

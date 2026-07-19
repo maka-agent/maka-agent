@@ -1,15 +1,24 @@
 import assert from 'node:assert/strict';
 import { fork, type ChildProcess } from 'node:child_process';
-import { chmod, lstat, mkdir, mkdtemp, readdir, readFile, rename, stat, writeFile, rm, unlink } from 'node:fs/promises';
+import {
+  chmod,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rename,
+  stat,
+  writeFile,
+  rm,
+  unlink,
+} from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { connect, Socket } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { describe, test } from 'node:test';
-import {
-  connectOrSpawnRuntimeHost,
-  connectRuntimeHost,
-} from '../client/index.js';
+import { connectOrSpawnRuntimeHost, connectRuntimeHost } from '../client/index.js';
 import { connectOrSpawnRuntimeHostWithDependencies } from '../client/connect-or-spawn.js';
 import {
   launchDetachedRuntimeHostCandidate,
@@ -57,11 +66,19 @@ describe('non-serving Runtime Host kernel', () => {
       });
       assert.equal(winner.kind, 'winner');
       if (winner.kind !== 'winner') return;
-      assert.deepEqual(await startTestRuntimeHostCandidate(paths, {
-        rootPath: paths.root,
-      }), { kind: 'loser' });
+      assert.deepEqual(
+        await startTestRuntimeHostCandidate(paths, {
+          rootPath: paths.root,
+        }),
+        { kind: 'loser' },
+      );
 
-      const connected = await connectRuntimeHost({ ...paths, rootPath: paths.root, surface: 'tui', protocol: CURRENT_PROTOCOL });
+      const connected = await connectRuntimeHost({
+        ...paths,
+        rootPath: paths.root,
+        surface: 'tui',
+        protocol: CURRENT_PROTOCOL,
+      });
       assert.equal(connected.kind, 'connected');
       if (connected.kind !== 'connected') return;
       const statuses = await Promise.all([
@@ -93,7 +110,12 @@ describe('non-serving Runtime Host kernel', () => {
       });
       assert.equal(candidate.kind, 'winner');
       if (candidate.kind !== 'winner') return;
-      const resident = await connectRuntimeHost({ ...paths, rootPath: paths.root, surface: 'desktop', protocol: CURRENT_PROTOCOL });
+      const resident = await connectRuntimeHost({
+        ...paths,
+        rootPath: paths.root,
+        surface: 'desktop',
+        protocol: CURRENT_PROTOCOL,
+      });
       assert.equal(resident.kind, 'connected');
       if (resident.kind !== 'connected') return;
 
@@ -105,12 +127,23 @@ describe('non-serving Runtime Host kernel', () => {
         electionDeadlineMs: 2_000,
       });
       assert.equal(blocked.kind, 'incompatible');
-      if (blocked.kind === 'incompatible') assert.equal(blocked.handshake.replacement, 'blocked_by_residency');
+      if (blocked.kind === 'incompatible')
+        assert.equal(blocked.handshake.replacement, 'blocked_by_residency');
       await resident.connection.close();
 
       const replaceable = await Promise.all([
-        connectRuntimeHost({ ...paths, rootPath: paths.root, surface: 'tui', protocol: LEGACY_PROTOCOL }),
-        connectRuntimeHost({ ...paths, rootPath: paths.root, surface: 'run', protocol: LEGACY_PROTOCOL }),
+        connectRuntimeHost({
+          ...paths,
+          rootPath: paths.root,
+          surface: 'tui',
+          protocol: LEGACY_PROTOCOL,
+        }),
+        connectRuntimeHost({
+          ...paths,
+          rootPath: paths.root,
+          surface: 'run',
+          protocol: LEGACY_PROTOCOL,
+        }),
       ]);
       for (const result of replaceable) {
         assert.equal(result.kind, 'incompatible');
@@ -300,10 +333,13 @@ describe('non-serving Runtime Host kernel', () => {
   test('a detached Host survives the launcher process that created it', async () => {
     await withHostPaths(async (paths) => {
       const capability = await resolveStorageRoot({ path: paths.root, kind: 'interactive' });
-      const launcher = paths.resources.trackChild(fork(new URL('./fixtures/detached-launcher.js', import.meta.url), [
-        paths.root,
-        capability.rootId,
-      ], { stdio: ['ignore', 'ignore', 'inherit', 'ipc'] }));
+      const launcher = paths.resources.trackChild(
+        fork(
+          new URL('./fixtures/detached-launcher.js', import.meta.url),
+          [paths.root, capability.rootId],
+          { stdio: ['ignore', 'ignore', 'inherit', 'ipc'] },
+        ),
+      );
       const launchedPid = await waitForLaunch(launcher);
       paths.resources.trackPid(launchedPid);
       await waitForExit(launcher);
@@ -322,16 +358,14 @@ describe('non-serving Runtime Host kernel', () => {
   test('a Host launched by the public Electron Client survives its parent process', async () => {
     const electronPath = require('electron') as string;
     await withHostPaths(async (paths) => {
-      const parent = paths.resources.trackChild(fork(
-        new URL('./fixtures/electron-connect-parent.js', import.meta.url),
-        [paths.root],
-        {
+      const parent = paths.resources.trackChild(
+        fork(new URL('./fixtures/electron-connect-parent.js', import.meta.url), [paths.root], {
           execPath: electronPath,
           execArgv: [],
           stdio: ['ignore', 'ignore', 'inherit', 'ipc'],
           env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
-        },
-      ));
+        }),
+      );
       const launched = await waitForElectronParentLaunch(parent);
       paths.resources.trackPid(launched.pid);
       await waitForSuccessfulExit(parent, 'Electron connect parent');
@@ -369,22 +403,38 @@ describe('non-serving Runtime Host kernel', () => {
         await sleep(20);
         await assert.rejects(
           () => connected.connection.status(50),
-          (error: unknown) => error instanceof RuntimeHostTransportError && error.code === 'read_timeout',
+          (error: unknown) =>
+            error instanceof RuntimeHostTransportError && error.code === 'read_timeout',
         );
-        await withTimeout(connected.connection.closed, 500, 'timed-out Runtime Host connection did not close');
-        await withTimeout(connected.connection.close(), 500, 'closing an already failed connection did not settle');
+        await withTimeout(
+          connected.connection.closed,
+          500,
+          'timed-out Runtime Host connection did not close',
+        );
+        await withTimeout(
+          connected.connection.close(),
+          500,
+          'closing an already failed connection did not settle',
+        );
 
         process.kill(attempt.pid, 'SIGCONT');
         stopped = false;
         const reconnected = await retryConnect(paths, CURRENT_PROTOCOL);
         assert.equal(reconnected.kind, 'connected');
         if (reconnected.kind !== 'connected') return;
-        assert.equal((await reconnected.connection.status()).hostEpoch, connected.connection.hostEpoch);
+        assert.equal(
+          (await reconnected.connection.status()).hostEpoch,
+          connected.connection.hostEpoch,
+        );
 
         process.kill(attempt.pid, 'SIGSTOP');
         stopped = true;
         await sleep(20);
-        await withTimeout(reconnected.connection.close(), 500, 'Client close waited for an unresponsive Host');
+        await withTimeout(
+          reconnected.connection.close(),
+          500,
+          'Client close waited for an unresponsive Host',
+        );
       } finally {
         if (stopped) process.kill(attempt.pid, 'SIGCONT');
         terminateProcess(attempt.pid);
@@ -432,8 +482,8 @@ describe('non-serving Runtime Host kernel', () => {
 
       await assert.rejects(
         () => RuntimeHostKernel.start({ owner: copiedOwner }),
-        (error: unknown) => error instanceof StorageRootAuthorityError
-          && error.code === 'invalid_owner',
+        (error: unknown) =>
+          error instanceof StorageRootAuthorityError && error.code === 'invalid_owner',
       );
       assert.equal(copiedCloseCalled, false);
       await assertPathMissing(redirectedControlDirectory);
@@ -459,8 +509,8 @@ describe('non-serving Runtime Host kernel', () => {
       await mkdir(paths.root);
       await assert.rejects(
         () => RuntimeHostKernel.start({ owner }),
-        (error: unknown) => error instanceof StorageRootAuthorityError
-          && error.code === 'root_identity_changed',
+        (error: unknown) =>
+          error instanceof StorageRootAuthorityError && error.code === 'root_identity_changed',
       );
       assert.equal(owner.closed, true);
 
@@ -491,22 +541,26 @@ describe('non-serving Runtime Host kernel', () => {
         stopped = true;
         await sleep(20);
         let launchCount = 0;
-        const result = await withTimeout(connectOrSpawnRuntimeHostWithDependencies(
-          {
-            rootPath: paths.root,
-            surface: 'tui',
-            protocol: CURRENT_PROTOCOL,
-            electionDeadlineMs: 50,
-            handshakeTimeoutMs: 5_000,
-          },
-          {
-            random: () => 0.5,
-            launchCandidate: () => {
-              launchCount += 1;
-              return { spawned: Promise.resolve({ pid: process.pid }) };
+        const result = await withTimeout(
+          connectOrSpawnRuntimeHostWithDependencies(
+            {
+              rootPath: paths.root,
+              surface: 'tui',
+              protocol: CURRENT_PROTOCOL,
+              electionDeadlineMs: 50,
+              handshakeTimeoutMs: 5_000,
             },
-          },
-        ), 1_000, 'election exceeded its total deadline');
+            {
+              random: () => 0.5,
+              launchCandidate: () => {
+                launchCount += 1;
+                return { spawned: Promise.resolve({ pid: process.pid }) };
+              },
+            },
+          ),
+          1_000,
+          'election exceeded its total deadline',
+        );
         assert.deepEqual(result, { kind: 'failed', reason: 'host_unresponsive' });
         assert.equal(launchCount, 0);
       } finally {
@@ -569,7 +623,11 @@ describe('non-serving Runtime Host kernel', () => {
         incompleteSocket.write('{"kind":"hello"');
         await new Promise<void>((resolve) => setImmediate(resolve));
 
-        await withTimeout(candidate.host.close(), 2_000, 'Host shutdown did not bound incomplete Clients');
+        await withTimeout(
+          candidate.host.close(),
+          2_000,
+          'Host shutdown did not bound incomplete Clients',
+        );
         const capability = await resolveStorageRoot({ path: paths.root, kind: 'interactive' });
         const owner = await retryOwner(capability, paths);
         assert.ok(owner);
@@ -604,11 +662,13 @@ describe('non-serving Runtime Host kernel', () => {
       try {
         let blockedResponseObserved = false;
         for (let index = 0; index < 10_000 && !nonReadingSocket.destroyed; index += 1) {
-          nonReadingSocket.write(`${JSON.stringify({
-            requestId: `non-reading-${index}`,
-            operation: 'host.status',
-            input: {},
-          })}\n`);
+          nonReadingSocket.write(
+            `${JSON.stringify({
+              requestId: `non-reading-${index}`,
+              operation: 'host.status',
+              input: {},
+            })}\n`,
+          );
           const status = await observer.connection.status(2_000);
           if (status.activeOperations <= 1) continue;
           await sleep(10);
@@ -617,10 +677,18 @@ describe('non-serving Runtime Host kernel', () => {
             break;
           }
         }
-        assert.equal(blockedResponseObserved, true, 'failed to create real socket write backpressure');
+        assert.equal(
+          blockedResponseObserved,
+          true,
+          'failed to create real socket write backpressure',
+        );
 
         await observer.connection.close();
-        await withTimeout(candidate.host.close(), 2_500, 'Host shutdown did not cut off a blocked response');
+        await withTimeout(
+          candidate.host.close(),
+          2_500,
+          'Host shutdown did not cut off a blocked response',
+        );
         const capability = await resolveStorageRoot({ path: paths.root, kind: 'interactive' });
         const owner = await retryOwner(capability, paths);
         assert.ok(owner);
@@ -660,17 +728,19 @@ describe('non-serving Runtime Host kernel', () => {
   test('startup rejects invalid lifecycle durations and releases the owner lock', async () => {
     await withHostPaths(async (paths) => {
       await assert.rejects(
-        () => startTestRuntimeHostCandidate(paths, {
-          rootPath: paths.root,
-          idleGraceMs: -1,
-        }),
+        () =>
+          startTestRuntimeHostCandidate(paths, {
+            rootPath: paths.root,
+            idleGraceMs: -1,
+          }),
         RangeError,
       );
       await assert.rejects(
-        () => startTestRuntimeHostCandidate(paths, {
-          rootPath: paths.root,
-          handshakeTimeoutMs: 0,
-        }),
+        () =>
+          startTestRuntimeHostCandidate(paths, {
+            rootPath: paths.root,
+            handshakeTimeoutMs: 0,
+          }),
         RangeError,
       );
       const retry = await startTestRuntimeHostCandidate(paths, {
@@ -685,30 +755,33 @@ describe('non-serving Runtime Host kernel', () => {
   test('rejects invalid Client configuration before root mutation or Host classification', async () => {
     await withHostPaths(async (paths) => {
       await assert.rejects(
-        () => connectRuntimeHost({
-          rootPath: paths.root,
-          surface: 'tui',
-          protocol: CURRENT_PROTOCOL,
-          connectTimeoutMs: 0,
-        }),
+        () =>
+          connectRuntimeHost({
+            rootPath: paths.root,
+            surface: 'tui',
+            protocol: CURRENT_PROTOCOL,
+            connectTimeoutMs: 0,
+          }),
         RangeError,
       );
       await assert.rejects(
-        () => connectRuntimeHost({
-          rootPath: paths.root,
-          surface: 'tui',
-          protocol: CURRENT_PROTOCOL,
-          handshakeTimeoutMs: 0,
-        }),
+        () =>
+          connectRuntimeHost({
+            rootPath: paths.root,
+            surface: 'tui',
+            protocol: CURRENT_PROTOCOL,
+            handshakeTimeoutMs: 0,
+          }),
         RangeError,
       );
       await assert.rejects(
-        () => connectRuntimeHost({
-          rootPath: paths.root,
-          surface: 'tui',
-          protocol: CURRENT_PROTOCOL,
-          clientInstanceId: '',
-        }),
+        () =>
+          connectRuntimeHost({
+            rootPath: paths.root,
+            surface: 'tui',
+            protocol: CURRENT_PROTOCOL,
+            clientInstanceId: '',
+          }),
         RuntimeHostProtocolError,
       );
       await assertPathMissing(paths.root);
@@ -720,13 +793,14 @@ describe('non-serving Runtime Host kernel', () => {
       assert.equal(candidate.kind, 'winner');
       if (candidate.kind !== 'winner') return;
       await assert.rejects(
-        () => connectOrSpawnRuntimeHost({
-          rootPath: paths.root,
-          surface: 'tui',
-          protocol: CURRENT_PROTOCOL,
-          clientInstanceId: 'x'.repeat(129),
-          electionDeadlineMs: 100,
-        }),
+        () =>
+          connectOrSpawnRuntimeHost({
+            rootPath: paths.root,
+            surface: 'tui',
+            protocol: CURRENT_PROTOCOL,
+            clientInstanceId: 'x'.repeat(129),
+            electionDeadlineMs: 100,
+          }),
         RuntimeHostProtocolError,
       );
       assert.equal(candidate.host.state, 'ready');
@@ -738,13 +812,16 @@ describe('non-serving Runtime Host kernel', () => {
     await withHostPaths(async (paths) => {
       const capability = await resolveStorageRoot({ path: paths.root, kind: 'interactive' });
       await assert.rejects(
-        () => launchDetachedRuntimeHostCandidate({
-          rootPath: paths.root,
-          expectedRootId: capability.rootId,
-          executable: join(paths.root, 'missing-node'),
-        }).spawned,
-        (error: unknown) => error instanceof Error && 'code' in error
-          && (error as NodeJS.ErrnoException).code === 'ENOENT',
+        () =>
+          launchDetachedRuntimeHostCandidate({
+            rootPath: paths.root,
+            expectedRootId: capability.rootId,
+            executable: join(paths.root, 'missing-node'),
+          }).spawned,
+        (error: unknown) =>
+          error instanceof Error &&
+          'code' in error &&
+          (error as NodeJS.ErrnoException).code === 'ENOENT',
       );
     });
   });
@@ -776,10 +853,19 @@ describe('non-serving Runtime Host kernel', () => {
     await withHostPaths(async (paths) => {
       const capability = await resolveStorageRoot({ path: paths.root, kind: 'interactive' });
       const { controlDirectory } = await prepareStorageRootControlDirectory(capability);
-      await writeFile(join(controlDirectory, 'registration.json'), '{"endpoint":"/tmp/not-authority"}\n', {
-        mode: 0o600,
+      await writeFile(
+        join(controlDirectory, 'registration.json'),
+        '{"endpoint":"/tmp/not-authority"}\n',
+        {
+          mode: 0o600,
+        },
+      );
+      const result = await connectRuntimeHost({
+        ...paths,
+        rootPath: paths.root,
+        surface: 'inspect',
+        protocol: CURRENT_PROTOCOL,
       });
-      const result = await connectRuntimeHost({ ...paths, rootPath: paths.root, surface: 'inspect', protocol: CURRENT_PROTOCOL });
       assert.deepEqual(result, { kind: 'unavailable', reason: 'invalid_registration' });
     });
   });
@@ -794,7 +880,10 @@ describe('non-serving Runtime Host kernel', () => {
       if (candidate.kind !== 'winner') return;
 
       await sendInvalidBootstrap(candidate.host.endpoint, Buffer.from('not-json\n'));
-      await sendInvalidBootstrap(candidate.host.endpoint, Buffer.alloc(RUNTIME_HOST_MAX_FRAME_BYTES + 1, 0x61));
+      await sendInvalidBootstrap(
+        candidate.host.endpoint,
+        Buffer.alloc(RUNTIME_HOST_MAX_FRAME_BYTES + 1, 0x61),
+      );
 
       const connected = await connectRuntimeHost({
         ...paths,
@@ -841,7 +930,9 @@ describe('non-serving Runtime Host kernel', () => {
     });
   });
 
-  test('publishes private POSIX endpoint and registration permissions', { skip: process.platform === 'win32' }, async () => {
+  test('publishes private POSIX endpoint and registration permissions', {
+    skip: process.platform === 'win32',
+  }, async () => {
     await withHostPaths(async (paths) => {
       const candidate = await startTestRuntimeHostCandidate(paths, {
         rootPath: paths.root,
@@ -901,7 +992,9 @@ class HostTestResources {
       if (child.exitCode !== null || child.signalCode !== null) continue;
       const exited = waitForExit(child);
       child.kill('SIGKILL');
-      await withTimeout(exited, 1_000, 'test launcher did not exit during cleanup').catch(() => undefined);
+      await withTimeout(exited, 1_000, 'test launcher did not exit during cleanup').catch(
+        () => undefined,
+      );
     }
     for (const pid of this.#pids) {
       if (!isProcessAlive(pid)) continue;
@@ -935,10 +1028,8 @@ function spawnConnectClient(
   environmentSuffix: string,
 ): ChildProcess {
   const fakeHome = join(paths.base, `fake-home-${environmentSuffix}`);
-  return paths.resources.trackChild(fork(
-    new URL('./fixtures/connect-client.js', import.meta.url),
-    [paths.root, surface],
-    {
+  return paths.resources.trackChild(
+    fork(new URL('./fixtures/connect-client.js', import.meta.url), [paths.root, surface], {
       stdio: ['ignore', 'ignore', 'inherit', 'ipc'],
       env: {
         ...process.env,
@@ -947,8 +1038,8 @@ function spawnConnectClient(
         XDG_RUNTIME_DIR: join(fakeHome, 'runtime'),
         LOCALAPPDATA: join(fakeHome, 'local-app-data'),
       },
-    },
-  ));
+    }),
+  );
 }
 
 function waitForConnectedClient(
@@ -989,15 +1080,22 @@ function isConnectedClientMessage(
 ): value is { type: 'connected'; hostEpoch: string; candidatePids: number[] } {
   if (!value || typeof value !== 'object') return false;
   const message = value as Record<string, unknown>;
-  return message.type === 'connected'
-    && typeof message.hostEpoch === 'string'
-    && Array.isArray(message.candidatePids)
-    && message.candidatePids.every((pid) => Number.isSafeInteger(pid) && pid > 0);
+  return (
+    message.type === 'connected' &&
+    typeof message.hostEpoch === 'string' &&
+    Array.isArray(message.candidatePids) &&
+    message.candidatePids.every((pid) => Number.isSafeInteger(pid) && pid > 0)
+  );
 }
 
 async function retryConnect(paths: HostPaths, protocol: { min: number; max: number }) {
   const deadline = Date.now() + 5_000;
-  let result = await connectRuntimeHost({ ...paths, rootPath: paths.root, surface: 'tui', protocol });
+  let result = await connectRuntimeHost({
+    ...paths,
+    rootPath: paths.root,
+    surface: 'tui',
+    protocol,
+  });
   while (result.kind !== 'connected' && Date.now() < deadline) {
     await sleep(20);
     result = await connectRuntimeHost({ ...paths, rootPath: paths.root, surface: 'tui', protocol });
@@ -1005,10 +1103,7 @@ async function retryConnect(paths: HostPaths, protocol: { min: number; max: numb
   return result;
 }
 
-async function retryOwner(
-  capability: StorageRootCapability<'interactive'>,
-  paths: HostPaths,
-) {
+async function retryOwner(capability: StorageRootCapability<'interactive'>, paths: HostPaths) {
   const deadline = Date.now() + 5_000;
   while (Date.now() < deadline) {
     const owner = await tryAcquireInteractiveRootOwner(capability);
@@ -1022,8 +1117,9 @@ async function startTestRuntimeHostCandidate(
   paths: HostPaths,
   options: Omit<RuntimeHostCandidateOptions, 'expectedRootId'> & { expectedRootId?: string },
 ): Promise<RuntimeHostCandidateResult> {
-  const expectedRootId = options.expectedRootId
-    ?? (await resolveStorageRoot({ path: options.rootPath, kind: 'interactive' })).rootId;
+  const expectedRootId =
+    options.expectedRootId ??
+    (await resolveStorageRoot({ path: options.rootPath, kind: 'interactive' })).rootId;
   const result = await startRuntimeHostCandidate({ ...options, expectedRootId });
   if (result.kind === 'winner') paths.resources.trackCloseable(result.host);
   return result;
@@ -1033,8 +1129,9 @@ async function spawnTestRuntimeHostCandidate(
   paths: HostPaths,
   input: Omit<DetachedCandidateInput, 'expectedRootId'> & { expectedRootId?: string },
 ): Promise<DetachedCandidateAttempt> {
-  const expectedRootId = input.expectedRootId
-    ?? (await resolveStorageRoot({ path: input.rootPath, kind: 'interactive' })).rootId;
+  const expectedRootId =
+    input.expectedRootId ??
+    (await resolveStorageRoot({ path: input.rootPath, kind: 'interactive' })).rootId;
   return launchTestRuntimeHostCandidate(paths, { ...input, expectedRootId }).spawned;
 }
 
@@ -1055,7 +1152,12 @@ function waitForLaunch(child: ChildProcess): Promise<number> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('launcher did not report')), 5_000);
     child.once('message', (message) => {
-      if (!message || typeof message !== 'object' || (message as { type?: unknown }).type !== 'launched') return;
+      if (
+        !message ||
+        typeof message !== 'object' ||
+        (message as { type?: unknown }).type !== 'launched'
+      )
+        return;
       clearTimeout(timer);
       resolve((message as { pid: number }).pid);
     });
@@ -1086,7 +1188,9 @@ function waitForElectronParentLaunch(
     };
     const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
       cleanup();
-      reject(new Error(`Electron connect parent exited before reporting its Host: ${code ?? signal}`));
+      reject(
+        new Error(`Electron connect parent exited before reporting its Host: ${code ?? signal}`),
+      );
     };
     const onMessage = (message: unknown) => {
       if (!isElectronParentLaunch(message)) return;
@@ -1104,10 +1208,12 @@ function isElectronParentLaunch(
 ): value is { type: 'electron-parent-launched'; hostEpoch: string; pid: number } {
   if (!value || typeof value !== 'object') return false;
   const message = value as Record<string, unknown>;
-  return message.type === 'electron-parent-launched'
-    && typeof message.hostEpoch === 'string'
-    && Number.isSafeInteger(message.pid)
-    && (message.pid as number) > 0;
+  return (
+    message.type === 'electron-parent-launched' &&
+    typeof message.hostEpoch === 'string' &&
+    Number.isSafeInteger(message.pid) &&
+    (message.pid as number) > 0
+  );
 }
 
 function waitForExit(child: ChildProcess): Promise<void> {
@@ -1121,10 +1227,12 @@ function waitForSuccessfulExit(child: ChildProcess, label: string): Promise<void
       ? Promise.resolve()
       : Promise.reject(new Error(`${label} exited: ${child.exitCode ?? child.signalCode}`));
   }
-  return new Promise((resolve, reject) => child.once('exit', (code, signal) => {
-    if (code === 0) resolve();
-    else reject(new Error(`${label} exited: ${code ?? signal}`));
-  }));
+  return new Promise((resolve, reject) =>
+    child.once('exit', (code, signal) => {
+      if (code === 0) resolve();
+      else reject(new Error(`${label} exited: ${code ?? signal}`));
+    }),
+  );
 }
 
 function sleep(ms: number): Promise<void> {
@@ -1142,7 +1250,11 @@ function isProcessAlive(pid: number): boolean {
     process.kill(pid, 0);
     return true;
   } catch (error) {
-    if (error instanceof Error && 'code' in error && (error as NodeJS.ErrnoException).code === 'ESRCH') {
+    if (
+      error instanceof Error &&
+      'code' in error &&
+      (error as NodeJS.ErrnoException).code === 'ESRCH'
+    ) {
       return false;
     }
     throw error;
@@ -1154,7 +1266,13 @@ function terminateProcess(pid: number | undefined): void {
   try {
     process.kill(pid, 'SIGKILL');
   } catch (error) {
-    if (!(error instanceof Error && 'code' in error && (error as NodeJS.ErrnoException).code === 'ESRCH')) {
+    if (
+      !(
+        error instanceof Error &&
+        'code' in error &&
+        (error as NodeJS.ErrnoException).code === 'ESRCH'
+      )
+    ) {
       throw error;
     }
   }
@@ -1220,13 +1338,15 @@ async function openNonReadingStatusSocket(path: string): Promise<Socket> {
     };
     socket.on('data', onData);
     socket.on('error', onError);
-    socket.write(`${JSON.stringify({
-      kind: 'hello',
-      clientInstanceId: 'non-reading-client',
-      surface: 'tui',
-      protocolMin: CURRENT_PROTOCOL.min,
-      protocolMax: CURRENT_PROTOCOL.max,
-    })}\n`);
+    socket.write(
+      `${JSON.stringify({
+        kind: 'hello',
+        clientInstanceId: 'non-reading-client',
+        surface: 'tui',
+        protocolMin: CURRENT_PROTOCOL.min,
+        protocolMax: CURRENT_PROTOCOL.max,
+      })}\n`,
+    );
   });
   assert.ok('kind' in handshake);
   assert.equal(handshake.kind, 'accepted');
@@ -1245,24 +1365,29 @@ async function sendInvalidBootstrap(path: string, payload: Buffer): Promise<void
 async function removeControlDirectoriesForRootsUnder(base: string): Promise<void> {
   const rootIds = new Set<string>();
   await collectRootIds(base, rootIds);
-  await Promise.all([...rootIds].map(async (rootId) => {
-    await rm(join(resolveRootControlNamespace(), rootId), { recursive: true, force: true });
-    if (process.platform === 'win32' || typeof process.getuid !== 'function') return;
-    const prefix = `m-${process.getuid()}-${Buffer.from(rootId, 'hex').toString('base64url')}-`;
-    const entries = await readdir('/tmp', { withFileTypes: true });
-    await Promise.all(entries.map(async (entry) => {
-      if (
-        !entry.isDirectory()
-        || !entry.name.startsWith(prefix)
-        || entry.name.length !== prefix.length + 6
-      ) return;
-      const path = join('/tmp', entry.name);
-      const directoryStat = await lstat(path).catch(() => undefined);
-      if (directoryStat?.isDirectory() && directoryStat.uid === process.getuid?.()) {
-        await rm(path, { recursive: true, force: true });
-      }
-    }));
-  }));
+  await Promise.all(
+    [...rootIds].map(async (rootId) => {
+      await rm(join(resolveRootControlNamespace(), rootId), { recursive: true, force: true });
+      if (process.platform === 'win32' || typeof process.getuid !== 'function') return;
+      const prefix = `m-${process.getuid()}-${Buffer.from(rootId, 'hex').toString('base64url')}-`;
+      const entries = await readdir('/tmp', { withFileTypes: true });
+      await Promise.all(
+        entries.map(async (entry) => {
+          if (
+            !entry.isDirectory() ||
+            !entry.name.startsWith(prefix) ||
+            entry.name.length !== prefix.length + 6
+          )
+            return;
+          const path = join('/tmp', entry.name);
+          const directoryStat = await lstat(path).catch(() => undefined);
+          if (directoryStat?.isDirectory() && directoryStat.uid === process.getuid?.()) {
+            await rm(path, { recursive: true, force: true });
+          }
+        }),
+      );
+    }),
+  );
 }
 
 async function collectRootIds(directory: string, rootIds: Set<string>): Promise<void> {
@@ -1270,7 +1395,9 @@ async function collectRootIds(directory: string, rootIds: Set<string>): Promise<
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
     const path = join(directory, entry.name);
-    const marker = await readFile(join(path, STORAGE_ROOT_MARKER_FILE), 'utf8').catch(() => undefined);
+    const marker = await readFile(join(path, STORAGE_ROOT_MARKER_FILE), 'utf8').catch(
+      () => undefined,
+    );
     if (marker) {
       try {
         const rootId = (JSON.parse(marker) as { rootId?: unknown }).rootId;
@@ -1286,8 +1413,9 @@ async function collectRootIds(directory: string, rootIds: Set<string>): Promise<
 async function assertPathMissing(path: string): Promise<void> {
   await assert.rejects(
     () => lstat(path),
-    (error: unknown) => error instanceof Error
-      && 'code' in error
-      && (error as NodeJS.ErrnoException).code === 'ENOENT',
+    (error: unknown) =>
+      error instanceof Error &&
+      'code' in error &&
+      (error as NodeJS.ErrnoException).code === 'ENOENT',
   );
 }

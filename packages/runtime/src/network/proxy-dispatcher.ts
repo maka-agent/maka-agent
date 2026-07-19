@@ -29,9 +29,10 @@ function buildSocks5Dispatcher(proxy: ProxySettings): Agent {
         return;
       }
 
-      const port = typeof connectionOptions.port === 'number'
-        ? connectionOptions.port
-        : Number(connectionOptions.port) || (connectionOptions.protocol === 'https:' ? 443 : 80);
+      const port =
+        typeof connectionOptions.port === 'number'
+          ? connectionOptions.port
+          : Number(connectionOptions.port) || (connectionOptions.protocol === 'https:' ? 443 : 80);
 
       SocksClient.createConnection({
         proxy: {
@@ -67,7 +68,9 @@ function buildSocks5Dispatcher(proxy: ProxySettings): Agent {
           }
           callback(null, socket);
         })
-        .catch((error: unknown) => callback(error instanceof Error ? error : new Error(String(error)), null));
+        .catch((error: unknown) =>
+          callback(error instanceof Error ? error : new Error(String(error)), null),
+        );
     },
   });
 }

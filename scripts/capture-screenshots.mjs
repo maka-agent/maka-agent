@@ -149,12 +149,32 @@ const VARIANTS = [
   // and the renderer applies it BEFORE persisted user pref.
   { name: 'light-1280-motion', theme: 'light', viewport: { width: 1280, height: 820 } },
   { name: 'light-990-motion', theme: 'light', viewport: { width: 990, height: 820 } },
-  { name: 'light-1280-reduced-motion', theme: 'light', viewport: { width: 1280, height: 820 }, reducedMotion: true },
-  { name: 'light-990-reduced-motion', theme: 'light', viewport: { width: 990, height: 820 }, reducedMotion: true },
+  {
+    name: 'light-1280-reduced-motion',
+    theme: 'light',
+    viewport: { width: 1280, height: 820 },
+    reducedMotion: true,
+  },
+  {
+    name: 'light-990-reduced-motion',
+    theme: 'light',
+    viewport: { width: 990, height: 820 },
+    reducedMotion: true,
+  },
   { name: 'dark-1280-motion', theme: 'dark', viewport: { width: 1280, height: 820 } },
   { name: 'dark-990-motion', theme: 'dark', viewport: { width: 990, height: 820 } },
-  { name: 'dark-1280-reduced-motion', theme: 'dark', viewport: { width: 1280, height: 820 }, reducedMotion: true },
-  { name: 'dark-990-reduced-motion', theme: 'dark', viewport: { width: 990, height: 820 }, reducedMotion: true },
+  {
+    name: 'dark-1280-reduced-motion',
+    theme: 'dark',
+    viewport: { width: 1280, height: 820 },
+    reducedMotion: true,
+  },
+  {
+    name: 'dark-990-reduced-motion',
+    theme: 'dark',
+    viewport: { width: 990, height: 820 },
+    reducedMotion: true,
+  },
 ];
 
 const CAPTURE_TIMEOUT_MS = 60_000;
@@ -272,7 +292,9 @@ async function captureSingle(scenario, variant) {
     }
   };
   child.stdout.on('data', stdoutHandler);
-  child.stderr.on('data', () => { /* suppressed; toggle to debug */ });
+  child.stderr.on('data', () => {
+    /* suppressed; toggle to debug */
+  });
 
   const timeoutHandle = setTimeout(() => {
     console.error(`[capture-screenshots] timed out for ${scenario}/${variant.name}, killing`);
@@ -322,10 +344,15 @@ async function resolveElectronBin() {
   try {
     const exportPath = (await import('electron')).default;
     if (typeof exportPath === 'string') return exportPath;
-    console.error('[capture-screenshots] electron resolved but exposed no binary path; run `npm install`.');
+    console.error(
+      '[capture-screenshots] electron resolved but exposed no binary path; run `npm install`.',
+    );
     process.exit(2);
   } catch (err) {
-    console.error('[capture-screenshots] electron not resolvable (run `npm install` in the repo root):', err);
+    console.error(
+      '[capture-screenshots] electron not resolvable (run `npm install` in the repo root):',
+      err,
+    );
     process.exit(2);
   }
 }
@@ -375,7 +402,9 @@ async function main() {
           // a deterministic locale (and not from `navigator.language`
           // leaking the host OS preference).
           await writeCaptureSidecar(result.destPath, { locale: result.locale });
-          console.log(`OK (${dt}s, ${(result.bytes / 1024).toFixed(1)} KB, locale=${result.locale}) → ${relPath(result.destPath)}`);
+          console.log(
+            `OK (${dt}s, ${(result.bytes / 1024).toFixed(1)} KB, locale=${result.locale}) → ${relPath(result.destPath)}`,
+          );
           succeeded += 1;
         } else {
           console.log(`FAILED (${dt}s, ${result.reason})`);
@@ -422,8 +451,7 @@ async function writeCaptureSidecar(pngPath, meta) {
  * module is invoked directly via `node scripts/capture-screenshots.mjs`.
  */
 const isDirectInvocation =
-  typeof process.argv[1] === 'string' &&
-  import.meta.url === pathToFileURL(process.argv[1]).href;
+  typeof process.argv[1] === 'string' && import.meta.url === pathToFileURL(process.argv[1]).href;
 
 if (isDirectInvocation) {
   main().catch((err) => {

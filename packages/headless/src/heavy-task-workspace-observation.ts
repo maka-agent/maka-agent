@@ -22,9 +22,10 @@ export async function observeHeavyTaskWorkspace(input: {
   const command = workspaceObservationCommand(roots);
   const result = await input.executor.exec({ command, cwd: input.cwd, timeoutMs: 30_000 });
   const entries = result.exitCode === 0 ? parseWorkspaceObservation(result.stdout) : [];
-  const revision = result.exitCode === 0 && workspaceManifestIsContentAddressed(entries)
-    ? workspaceManifestRevision(roots, entries)
-    : undefined;
+  const revision =
+    result.exitCode === 0 && workspaceManifestIsContentAddressed(entries)
+      ? workspaceManifestRevision(roots, entries)
+      : undefined;
   return {
     type: 'heavy_task_workspace_observation_recorded',
     id: input.newId(),
@@ -40,7 +41,9 @@ export async function observeHeavyTaskWorkspace(input: {
       status: result.exitCode === 0 ? 'ok' : 'error',
       command,
       ...(revision ? { revision } : {}),
-      ...(result.exitCode === 0 ? {} : { errorExcerpt: cleanOneLine(result.stderr || result.stdout, 500) }),
+      ...(result.exitCode === 0
+        ? {}
+        : { errorExcerpt: cleanOneLine(result.stderr || result.stdout, 500) }),
       source: { kind: 'system', label: 'isolated workspace observation' },
     },
   };
@@ -48,13 +51,18 @@ export async function observeHeavyTaskWorkspace(input: {
 
 function observationRoots(projection: TaskRunProjection): string[] {
   const candidates = [
-    ...(projection.latestHeavyTaskSelfCheckPlan?.finalArtifacts ?? []).map((artifact) => parentDir(artifact.path)),
-    ...(projection.latestHeavyTaskSelfCheck?.executionHygiene?.workspaceGuard?.checkedPaths ?? []).map((path) => pathPosix.normalize(path)),
+    ...(projection.latestHeavyTaskSelfCheckPlan?.finalArtifacts ?? []).map((artifact) =>
+      parentDir(artifact.path),
+    ),
+    ...(
+      projection.latestHeavyTaskSelfCheck?.executionHygiene?.workspaceGuard?.checkedPaths ?? []
+    ).map((path) => pathPosix.normalize(path)),
   ];
-  return unique(candidates
-    .filter((root) => root === '/app' || root.startsWith('/app/'))
-    .map((root) => root.replace(/\/+$/, '')))
-    .slice(0, 12);
+  return unique(
+    candidates
+      .filter((root) => root === '/app' || root.startsWith('/app/'))
+      .map((root) => root.replace(/\/+$/, '')),
+  ).slice(0, 12);
 }
 
 function parentDir(path: string): string {
@@ -77,7 +85,8 @@ function workspaceObservationCommand(roots: readonly string[]): string {
 }
 
 export function parseWorkspaceObservation(stdout: string): HeavyTaskWorkspaceObservationEntry[] {
-  return stdout.split(/\n/)
+  return stdout
+    .split(/\n/)
     .map((line) => line.trimEnd())
     .filter(Boolean)
     .map((line) => {
@@ -104,7 +113,9 @@ export function workspaceManifestRevision(
     roots: [...roots].sort(),
     entries: [...entries]
       .map((entry) => ({ ...entry }))
-      .sort((left, right) => left.path.localeCompare(right.path) || left.kind.localeCompare(right.kind)),
+      .sort(
+        (left, right) => left.path.localeCompare(right.path) || left.kind.localeCompare(right.kind),
+      ),
   };
   return {
     kind: 'manifest',
@@ -112,14 +123,21 @@ export function workspaceManifestRevision(
   };
 }
 
-function workspaceManifestIsContentAddressed(entries: readonly HeavyTaskWorkspaceObservationEntry[]): boolean {
-  return entries.every((entry) => (
-    entry.kind !== 'file'
-      || (entry.sizeBytes !== undefined && typeof entry.sha256 === 'string' && entry.sha256.length > 0)
-  ));
+function workspaceManifestIsContentAddressed(
+  entries: readonly HeavyTaskWorkspaceObservationEntry[],
+): boolean {
+  return entries.every(
+    (entry) =>
+      entry.kind !== 'file' ||
+      (entry.sizeBytes !== undefined &&
+        typeof entry.sha256 === 'string' &&
+        entry.sha256.length > 0),
+  );
 }
 
-function isObservationKind(value: string | undefined): value is 'file' | 'directory' | 'symlink' | 'other' {
+function isObservationKind(
+  value: string | undefined,
+): value is 'file' | 'directory' | 'symlink' | 'other' {
   return value === 'file' || value === 'directory' || value === 'symlink' || value === 'other';
 }
 

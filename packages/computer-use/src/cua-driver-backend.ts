@@ -51,10 +51,7 @@ import {
   type CuaDriverReleaseEvent,
   type CuaDriverRoleSnapshot,
 } from './cua-driver-release.js';
-import {
-  CuaDriverService,
-  type CuaDriverJsonRpcResponse,
-} from './cua-driver-service.js';
+import { CuaDriverService, type CuaDriverJsonRpcResponse } from './cua-driver-service.js';
 import {
   CUA_INSPECT_PREPARED_ELEMENT_SCRIPT,
   buildCuaPrepareElementAtScreenPointScript,
@@ -120,7 +117,10 @@ export interface CuaDriverBackendOptions {
    * unchanged. Applied only to large frames. Runs in Electron main (nativeImage);
    * omitted under node --test, where frames pass through untouched.
    */
-  compressFrame?: (base64: string, mimeType: string) => { base64: string; mimeType: 'image/png' | 'image/jpeg' };
+  compressFrame?: (
+    base64: string,
+    mimeType: string,
+  ) => { base64: string; mimeType: 'image/png' | 'image/jpeg' };
   /** Test seam; production classifies the target executable before any keyboard action. */
   classifyProcess?: (pid: number) => Promise<'electron' | 'native' | 'unknown'>;
   /** Test seam; production resolves only already-listening, uniquely identified CDP pages. */
@@ -136,9 +136,7 @@ export interface CuaDriverBackendOptions {
     signal: AbortSignal;
   }) => Promise<string | undefined>;
   resolveContentFingerprint?: (
-    elements: readonly NonNullable<
-      ReturnType<typeof normalizeCuaSnapshotElement>
-    >[],
+    elements: readonly NonNullable<ReturnType<typeof normalizeCuaSnapshotElement>>[],
   ) => string;
   resolveDisplays?: (input: {
     screenshotWidthPx: number;
@@ -259,10 +257,15 @@ export type JsonRpcResponse = CuaDriverJsonRpcResponse;
 
 async function classifyMacProcess(pid: number): Promise<'electron' | 'native' | 'unknown'> {
   const executable = await new Promise<string>((resolve, reject) => {
-    execFile('/bin/ps', ['-p', String(pid), '-o', 'comm='], { encoding: 'utf8' }, (error, stdout) => {
-      if (error) reject(error);
-      else resolve(stdout.trim());
-    });
+    execFile(
+      '/bin/ps',
+      ['-p', String(pid), '-o', 'comm='],
+      { encoding: 'utf8' },
+      (error, stdout) => {
+        if (error) reject(error);
+        else resolve(stdout.trim());
+      },
+    );
   }).catch(() => '');
   if (!executable.startsWith('/')) return 'unknown';
   const contentsDir = dirname(dirname(executable));
@@ -323,7 +326,7 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
   async function physicalInputFailure(): Promise<CuRunResult | undefined> {
     if (!opts.physicalInputRecentlyActive) return undefined;
     try {
-      if (!await opts.physicalInputRecentlyActive()) return undefined;
+      if (!(await opts.physicalInputRecentlyActive())) return undefined;
     } catch {
       // The guard is a safety boundary. If the host cannot establish an idle
       // window, refuse the dispatch and require a fresh observation.
@@ -343,8 +346,8 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
         ok: false,
         error: 'unsupported_action',
         message:
-          `background '${actionType}' is disabled because the compatibility `
-          + 'event backend can interfere with physical user input',
+          `background '${actionType}' is disabled because the compatibility ` +
+          'event backend can interfere with physical user input',
       },
     };
   }
@@ -353,23 +356,22 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
     elements: Iterable<NonNullable<ReturnType<typeof normalizeCuaSnapshotElement>>>,
   ): string {
     const structural = [
-      ...new Set([...elements].map((element) => JSON.stringify({
-        role: element.role,
-        label: element.label,
-        value: element.value,
-        frame: element.frame,
-        depth: element.depth,
-      }))),
+      ...new Set(
+        [...elements].map((element) =>
+          JSON.stringify({
+            role: element.role,
+            label: element.label,
+            value: element.value,
+            frame: element.frame,
+            depth: element.depth,
+          }),
+        ),
+      ),
     ].sort();
-    return createHash('sha256')
-      .update(JSON.stringify(structural))
-      .digest('hex');
+    return createHash('sha256').update(JSON.stringify(structural)).digest('hex');
   }
 
-  function storeObservation(
-    observationId: string,
-    observation: StoredObservation,
-  ): void {
+  function storeObservation(observationId: string, observation: StoredObservation): void {
     const sessionId = observation.context.sessionId;
     const ids = observationIdsBySession.get(sessionId) ?? [];
     while (ids.length >= MAX_OBSERVATIONS_PER_SESSION) {
@@ -429,16 +431,12 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
     return { base64, mimeType, widthPx, heightPx };
   }
 
-  function deliveredVerificationFailure(
-    actionType: string,
-    path: 'ax' | 'cdp',
-  ): CuRunResult {
+  function deliveredVerificationFailure(actionType: string, path: 'ax' | 'cdp'): CuRunResult {
     return {
       outcome: {
         ok: false,
         error: 'outcome_unknown',
-        message:
-          `${actionType} was delivered but post-dispatch verification failed`,
+        message: `${actionType} was delivered but post-dispatch verification failed`,
         evidence: { path, effect: 'unverifiable' },
       },
     };
@@ -450,10 +448,7 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
       observations.delete(id);
     }
     observationIdsBySession.delete(sessionId);
-    sessionGenerations.set(
-      sessionId,
-      (sessionGenerations.get(sessionId) ?? 0) + 1,
-    );
+    sessionGenerations.set(sessionId, (sessionGenerations.get(sessionId) ?? 0) + 1);
   }
 
   function applyServiceRelease(events: readonly CuaDriverReleaseEvent[]): void {
@@ -463,9 +458,7 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
         ...events.flatMap((event) => event.sessionIds),
         ...(generationReleased ? targetsBySession.keys() : []),
         ...(generationReleased
-          ? [...observations.values()].map(
-              (observation) => observation.context.sessionId,
-            )
+          ? [...observations.values()].map((observation) => observation.context.sessionId)
           : []),
       ]),
     ];
@@ -505,9 +498,7 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
     ...(opts.maxRestartAttempts === undefined
       ? {}
       : { maxRestartAttempts: opts.maxRestartAttempts }),
-    ...(opts.restartBackoffMs === undefined
-      ? {}
-      : { restartBackoffMs: opts.restartBackoffMs }),
+    ...(opts.restartBackoffMs === undefined ? {} : { restartBackoffMs: opts.restartBackoffMs }),
     ...(opts.expectedBinarySha256 === undefined
       ? {}
       : { expectedBinarySha256: opts.expectedBinarySha256 }),
@@ -535,9 +526,7 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
     ...(opts.maxRestartAttempts === undefined
       ? {}
       : { maxRestartAttempts: opts.maxRestartAttempts }),
-    ...(opts.restartBackoffMs === undefined
-      ? {}
-      : { restartBackoffMs: opts.restartBackoffMs }),
+    ...(opts.restartBackoffMs === undefined ? {} : { restartBackoffMs: opts.restartBackoffMs }),
     ...(opts.expectedBinarySha256 === undefined
       ? {}
       : { expectedBinarySha256: opts.expectedBinarySha256 }),
@@ -589,7 +578,8 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
     const r = await actionClient.callTool('get_screen_size', {}, signal);
     const sc = r?.structuredContent ?? {};
     const logicalW = typeof sc.width === 'number' && sc.width > 0 ? sc.width : 0;
-    const fallbackScale = typeof sc.scale_factor === 'number' && sc.scale_factor > 0 ? sc.scale_factor : 1;
+    const fallbackScale =
+      typeof sc.scale_factor === 'number' && sc.scale_factor > 0 ? sc.scale_factor : 1;
     return {
       desktopFrameWidthPx: lastFrameWidthPx ?? logicalW * fallbackScale,
       logicalDisplayWidth: logicalW,
@@ -603,12 +593,13 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
   ): Promise<T> {
     if (disposed) throw new Error('cua-driver backend disposed');
     const queueKey = '__shared_child__';
-    const sessionGeneration = sessionId === undefined
-      ? undefined
-      : sessionGenerations.get(sessionId) ?? 0;
+    const sessionGeneration =
+      sessionId === undefined ? undefined : (sessionGenerations.get(sessionId) ?? 0);
     const previous = operationQueues.get(queueKey) ?? Promise.resolve();
     let release!: () => void;
-    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
     const current = previous.then(() => gate);
     operationQueues.set(queueKey, current);
     await previous;
@@ -616,8 +607,8 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
       if (disposed) throw new Error('cua-driver backend disposed');
       if (signal.aborted) throw new Error('aborted');
       if (
-        sessionId !== undefined
-        && (sessionGenerations.get(sessionId) ?? 0) !== sessionGeneration
+        sessionId !== undefined &&
+        (sessionGenerations.get(sessionId) ?? 0) !== sessionGeneration
       ) {
         throw new CuaDriverLifecycleError(
           'aborted',
@@ -629,7 +620,8 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
       }
       if (!sessionId) return await operation();
       return await actionClient.withSession(sessionId, () =>
-        captureClient.withSession(sessionId, operation));
+        captureClient.withSession(sessionId, operation),
+      );
     } finally {
       release();
       if (operationQueues.get(queueKey) === current) {
@@ -640,9 +632,7 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
 
   function lifecycleFailure(error: unknown): CuRunResult | undefined {
     if (!isCuaDriverLifecycleError(error)) return undefined;
-    const code: ComputerUseErrorCode = error.code === 'aborted'
-      ? 'aborted'
-      : error.code;
+    const code: ComputerUseErrorCode = error.code === 'aborted' ? 'aborted' : error.code;
     return {
       outcome: {
         ok: false,
@@ -732,22 +722,26 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
     left: CuaResolvedWindow['bounds'] | undefined,
     right: CuaResolvedWindow['bounds'] | undefined,
   ): boolean {
-    return !!left
-      && !!right
-      && left.x === right.x
-      && left.y === right.y
-      && left.width === right.width
-      && left.height === right.height;
+    return (
+      !!left &&
+      !!right &&
+      left.x === right.x &&
+      left.y === right.y &&
+      left.width === right.width &&
+      left.height === right.height
+    );
   }
 
   function sameDisplay(
     left: ComputerUseDisplayIdentity,
     right: ComputerUseDisplayIdentity,
   ): boolean {
-    return left.displayId === right.displayId
-      && left.scaleFactor === right.scaleFactor
-      && sameBounds(left.logicalBounds, right.logicalBounds)
-      && sameBounds(left.sourceBoundsPx, right.sourceBoundsPx);
+    return (
+      left.displayId === right.displayId &&
+      left.scaleFactor === right.scaleFactor &&
+      sameBounds(left.logicalBounds, right.logicalBounds) &&
+      sameBounds(left.sourceBoundsPx, right.sourceBoundsPx)
+    );
   }
 
   async function pageIdentity(
@@ -755,16 +749,14 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
     target: CuaResolvedPageTextTarget,
     signal: AbortSignal,
   ): Promise<ComputerUsePageIdentity | undefined> {
-    const documentFingerprint = await (
-      opts.resolvePageDocumentFingerprint
-        ? opts.resolvePageDocumentFingerprint({
-            pid: window.pid,
-            windowId: window.windowId,
-            target,
-            signal,
-          })
-        : resolvePageDocumentFingerprint(window, target, signal)
-    );
+    const documentFingerprint = await (opts.resolvePageDocumentFingerprint
+      ? opts.resolvePageDocumentFingerprint({
+          pid: window.pid,
+          windowId: window.windowId,
+          target,
+          signal,
+        })
+      : resolvePageDocumentFingerprint(window, target, signal));
     if (!documentFingerprint) return undefined;
     return {
       cdpPort: target.port,
@@ -781,11 +773,11 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
   ): boolean {
     return !left
       ? right === undefined
-      : !!right
-        && left.cdpPort === right.cdpPort
-        && left.pageTargetId === right.pageTargetId
-        && left.pageUrl === right.pageUrl
-        && left.documentFingerprint === right.documentFingerprint;
+      : !!right &&
+          left.cdpPort === right.cdpPort &&
+          left.pageTargetId === right.pageTargetId &&
+          left.pageUrl === right.pageUrl &&
+          left.documentFingerprint === right.documentFingerprint;
   }
 
   async function resolvePageDocumentFingerprint(
@@ -793,22 +785,24 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
     target: CuaResolvedPageTextTarget,
     signal: AbortSignal,
   ): Promise<string | undefined> {
-    const response = await actionClient.callTool('page', {
-      pid: window.pid,
-      window_id: window.windowId,
-      action: 'execute_javascript',
-      javascript:
-        'JSON.stringify({href:String(location.href),timeOrigin:Number(performance.timeOrigin),readyState:String(document.readyState)})',
-      cdp_port: target.port,
-      target_url_contains: target.targetUrlContains,
-    }, signal);
+    const response = await actionClient.callTool(
+      'page',
+      {
+        pid: window.pid,
+        window_id: window.windowId,
+        action: 'execute_javascript',
+        javascript:
+          'JSON.stringify({href:String(location.href),timeOrigin:Number(performance.timeOrigin),readyState:String(document.readyState)})',
+        cdp_port: target.port,
+        target_url_contains: target.targetUrlContains,
+      },
+      signal,
+    );
     if (response?.isError) return undefined;
     const text = response?.content?.find(
       (content) => content.type === 'text' && typeof content.text === 'string',
     )?.text;
-    return text
-      ? createHash('sha256').update(text).digest('hex')
-      : undefined;
+    return text ? createHash('sha256').update(text).digest('hex') : undefined;
   }
 
   async function resolveWindowDisplays(
@@ -816,12 +810,14 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
     screenshotHeightPx: number,
     window: CuaResolvedWindow,
   ): Promise<ComputerUseDisplayIdentity[]> {
-    return [{
-      displayId: `window:${window.pid}:${window.windowId}`,
-      logicalBounds: { x: 0, y: 0, width: screenshotWidthPx, height: screenshotHeightPx },
-      sourceBoundsPx: { x: 0, y: 0, width: screenshotWidthPx, height: screenshotHeightPx },
-      scaleFactor: 1,
-    }];
+    return [
+      {
+        displayId: `window:${window.pid}:${window.windowId}`,
+        logicalBounds: { x: 0, y: 0, width: screenshotWidthPx, height: screenshotHeightPx },
+        sourceBoundsPx: { x: 0, y: 0, width: screenshotWidthPx, height: screenshotHeightPx },
+        scaleFactor: 1,
+      },
+    ];
   }
 
   async function resolveObservedPage(
@@ -853,55 +849,56 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
     app: string | undefined,
     windowId?: number,
   ): CuaResolvedWindow {
-    const eligible = windows.flatMap((window) => {
-      if (
-        window.layer !== 0
-        || window.is_on_screen === false
-        || typeof window.pid !== 'number'
-        || typeof window.window_id !== 'number'
-        || !window.bounds
-        || typeof window.bounds !== 'object'
-      ) return [];
-      const bounds = window.bounds as Record<string, unknown>;
-      if (
-        typeof bounds.x !== 'number'
-        || typeof bounds.y !== 'number'
-        || typeof bounds.width !== 'number'
-        || typeof bounds.height !== 'number'
-        || bounds.width <= 0
-        || bounds.height <= 0
-      ) return [];
-      const appId = appIdForWindow(window);
-      const title = typeof window.title === 'string' ? window.title : undefined;
-      if (
-        windowId !== undefined
-        && window.window_id !== windowId
-      ) return [];
-      if (
-        app
-        && app !== appId
-        && app !== `pid:${window.pid}`
-        && app !== title
-      ) return [];
-      return [{
-        pid: window.pid,
-        windowId: window.window_id,
-        ...(appId ? { appName: appId } : {}),
-        ...(title ? { title } : {}),
-        bounds: {
-          x: bounds.x,
-          y: bounds.y,
-          width: bounds.width,
-          height: bounds.height,
-        },
-        screenPoint: {
-          x: bounds.x + bounds.width / 2,
-          y: bounds.y + bounds.height / 2,
-        },
-        zIndex: Number(window.z_index) || 0,
-      }];
-    }).sort((a, b) => b.zIndex - a.zIndex);
-    if (eligible.length === 0) throw new Error(`invalidApp: no visible window matched ${app ?? windowId ?? 'the current desktop'}`);
+    const eligible = windows
+      .flatMap((window) => {
+        if (
+          window.layer !== 0 ||
+          window.is_on_screen === false ||
+          typeof window.pid !== 'number' ||
+          typeof window.window_id !== 'number' ||
+          !window.bounds ||
+          typeof window.bounds !== 'object'
+        )
+          return [];
+        const bounds = window.bounds as Record<string, unknown>;
+        if (
+          typeof bounds.x !== 'number' ||
+          typeof bounds.y !== 'number' ||
+          typeof bounds.width !== 'number' ||
+          typeof bounds.height !== 'number' ||
+          bounds.width <= 0 ||
+          bounds.height <= 0
+        )
+          return [];
+        const appId = appIdForWindow(window);
+        const title = typeof window.title === 'string' ? window.title : undefined;
+        if (windowId !== undefined && window.window_id !== windowId) return [];
+        if (app && app !== appId && app !== `pid:${window.pid}` && app !== title) return [];
+        return [
+          {
+            pid: window.pid,
+            windowId: window.window_id,
+            ...(appId ? { appName: appId } : {}),
+            ...(title ? { title } : {}),
+            bounds: {
+              x: bounds.x,
+              y: bounds.y,
+              width: bounds.width,
+              height: bounds.height,
+            },
+            screenPoint: {
+              x: bounds.x + bounds.width / 2,
+              y: bounds.y + bounds.height / 2,
+            },
+            zIndex: Number(window.z_index) || 0,
+          },
+        ];
+      })
+      .sort((a, b) => b.zIndex - a.zIndex);
+    if (eligible.length === 0)
+      throw new Error(
+        `invalidApp: no visible window matched ${app ?? windowId ?? 'the current desktop'}`,
+      );
     if (windowId === undefined && app && eligible.length > 1) {
       throw new Error(`ambiguousApp: ${app} matched ${eligible.length} visible windows`);
     }
@@ -936,13 +933,17 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
     signal: AbortSignal,
     context: CuRunContext,
   ): Promise<CuObservation> {
-    const state = await actionClient.callTool('get_window_state', {
-      pid: window.pid,
-      window_id: window.windowId,
-      include_screenshot: includeScreenshot,
-      max_elements: 500,
-      max_depth: 25,
-    }, signal);
+    const state = await actionClient.callTool(
+      'get_window_state',
+      {
+        pid: window.pid,
+        window_id: window.windowId,
+        include_screenshot: includeScreenshot,
+        max_elements: 500,
+        max_depth: 25,
+      },
+      signal,
+    );
     const outcome = normalizeCuaDriverOutcome(state);
     if (!outcome.ok) throw new Error(outcome.message);
     const structured = state?.structuredContent ?? {};
@@ -957,15 +958,18 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
     const appId = window.appName ?? `pid:${window.pid}`;
     const screenshotWidthPx = Number(structured.screenshot_width) || undefined;
     const screenshotHeightPx = Number(structured.screenshot_height) || undefined;
-    const displays = screenshotWidthPx && screenshotHeightPx
-      ? await resolveWindowDisplays(screenshotWidthPx, screenshotHeightPx, window)
-      : undefined;
+    const displays =
+      screenshotWidthPx && screenshotHeightPx
+        ? await resolveWindowDisplays(screenshotWidthPx, screenshotHeightPx, window)
+        : undefined;
     const page = await resolveObservedPage(window, signal);
     const axContentFingerprint = opts.resolveContentFingerprint
       ? opts.resolveContentFingerprint([...elements.values()])
       : contentFingerprint(elements.values());
     const image = includeScreenshot
-      ? state?.content?.find((content) => content.type === 'image' && typeof content.data === 'string')
+      ? state?.content?.find(
+          (content) => content.type === 'image' && typeof content.data === 'string',
+        )
       : undefined;
     const normalizedScreenshot = includeScreenshot
       ? normalizeScreenshot(
@@ -998,9 +1002,10 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
       ...(window.title ? { windowTitle: window.title } : {}),
       capturedAt: Date.now(),
       windowBounds: window.bounds,
-      sourceBoundsPx: screenshotWidthPx && screenshotHeightPx
-        ? { x: 0, y: 0, width: screenshotWidthPx, height: screenshotHeightPx }
-        : undefined,
+      sourceBoundsPx:
+        screenshotWidthPx && screenshotHeightPx
+          ? { x: 0, y: 0, width: screenshotWidthPx, height: screenshotHeightPx }
+          : undefined,
       zIndex: window.zIndex,
       contentFingerprint: axContentFingerprint,
       ...(page ? { page } : {}),
@@ -1035,14 +1040,16 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
     if (!identity) return false;
     if (element.role !== identity.role) return false;
     const label = identity.label?.trim();
-    return (!label || element.label === identity.label)
-      && !!original
-      && element.depth === original.depth
-      && element.frame.x === original.frame.x
-      && element.frame.y === original.frame.y
-      && element.frame.w === original.frame.w
-      && element.frame.h === original.frame.h
-      && element.value === original.value;
+    return (
+      (!label || element.label === identity.label) &&
+      !!original &&
+      element.depth === original.depth &&
+      element.frame.x === original.frame.x &&
+      element.frame.y === original.frame.y &&
+      element.frame.w === original.frame.w &&
+      element.frame.h === original.frame.h &&
+      element.value === original.value
+    );
   }
 
   function dedupeSemanticElements(
@@ -1073,10 +1080,10 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
       y: element.frame.y + element.frame.h / 2,
     };
     if (
-      point.x < window.bounds.x
-      || point.x >= window.bounds.x + window.bounds.width
-      || point.y < window.bounds.y
-      || point.y >= window.bounds.y + window.bounds.height
+      point.x < window.bounds.x ||
+      point.x >= window.bounds.x + window.bounds.width ||
+      point.y < window.bounds.y ||
+      point.y >= window.bounds.y + window.bounds.height
     ) {
       return {
         outcome: {
@@ -1089,36 +1096,39 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
     const winner = (await listWindowRecords(signal))
       .flatMap((candidate) => {
         if (
-          candidate.layer !== 0
-          || candidate.is_on_screen === false
-          || typeof candidate.pid !== 'number'
-          || typeof candidate.window_id !== 'number'
-          || !candidate.bounds
-          || typeof candidate.bounds !== 'object'
-        ) return [];
+          candidate.layer !== 0 ||
+          candidate.is_on_screen === false ||
+          typeof candidate.pid !== 'number' ||
+          typeof candidate.window_id !== 'number' ||
+          !candidate.bounds ||
+          typeof candidate.bounds !== 'object'
+        )
+          return [];
         const bounds = candidate.bounds as Record<string, unknown>;
         if (
-          typeof bounds.x !== 'number'
-          || typeof bounds.y !== 'number'
-          || typeof bounds.width !== 'number'
-          || typeof bounds.height !== 'number'
-        ) return [];
-        const inside = point.x >= bounds.x
-          && point.x < bounds.x + bounds.width
-          && point.y >= bounds.y
-          && point.y < bounds.y + bounds.height;
-        return inside ? [{
-          pid: candidate.pid,
-          windowId: candidate.window_id,
-          zIndex: Number(candidate.z_index) || 0,
-        }] : [];
+          typeof bounds.x !== 'number' ||
+          typeof bounds.y !== 'number' ||
+          typeof bounds.width !== 'number' ||
+          typeof bounds.height !== 'number'
+        )
+          return [];
+        const inside =
+          point.x >= bounds.x &&
+          point.x < bounds.x + bounds.width &&
+          point.y >= bounds.y &&
+          point.y < bounds.y + bounds.height;
+        return inside
+          ? [
+              {
+                pid: candidate.pid,
+                windowId: candidate.window_id,
+                zIndex: Number(candidate.z_index) || 0,
+              },
+            ]
+          : [];
       })
       .sort((left, right) => right.zIndex - left.zIndex)[0];
-    if (
-      !winner
-      || winner.pid !== window.pid
-      || winner.windowId !== window.windowId
-    ) {
+    if (!winner || winner.pid !== window.pid || winner.windowId !== window.windowId) {
       trace({
         type: 'occlusion',
         expectedPid: window.pid,
@@ -1149,11 +1159,9 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
     mode: 'coordinate' | 'semantic',
   ): Promise<CuaResolvedWindow | CuRunResult> {
     if (
-      bound?.target
-      && (
-        bound.target.pid !== observation.window.pid
-        || bound.target.windowId !== observation.window.windowId
-      )
+      bound?.target &&
+      (bound.target.pid !== observation.window.pid ||
+        bound.target.windowId !== observation.window.windowId)
     ) {
       return {
         outcome: {
@@ -1164,9 +1172,10 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
       };
     }
     const windows = await listWindowRecords(signal);
-    const current = windows.find((window) =>
-      window.pid === observation.window.pid
-      && window.window_id === observation.window.windowId);
+    const current = windows.find(
+      (window) =>
+        window.pid === observation.window.pid && window.window_id === observation.window.windowId,
+    );
     if (!current) {
       return {
         outcome: {
@@ -1182,9 +1191,9 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
       observation.window.windowId,
     );
     if (
-      !sameBounds(resolved.bounds, observation.window.bounds)
-      || resolved.appName !== observation.window.appName
-      || resolved.title !== observation.window.title
+      !sameBounds(resolved.bounds, observation.window.bounds) ||
+      resolved.appName !== observation.window.appName ||
+      resolved.title !== observation.window.title
     ) {
       return {
         outcome: {
@@ -1207,20 +1216,25 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
       }
     }
     if (mode === 'coordinate') {
-      const currentState = await actionClient.callTool('get_window_state', {
-        pid: resolved.pid,
-        window_id: resolved.windowId,
-        include_screenshot: false,
-        max_elements: 500,
-        max_depth: 25,
-      }, signal);
+      const currentState = await actionClient.callTool(
+        'get_window_state',
+        {
+          pid: resolved.pid,
+          window_id: resolved.windowId,
+          include_screenshot: false,
+          max_elements: 500,
+          max_depth: 25,
+        },
+        signal,
+      );
       const currentOutcome = normalizeCuaDriverOutcome(currentState);
       if (!currentOutcome.ok) return { outcome: currentOutcome };
-      const currentElements = ((currentState?.structuredContent?.elements ?? []) as CuaSnapshotElement[])
-        .flatMap((candidate) => {
-          const element = normalizeCuaSnapshotElement(candidate);
-          return element ? [element] : [];
-        });
+      const currentElements = (
+        (currentState?.structuredContent?.elements ?? []) as CuaSnapshotElement[]
+      ).flatMap((candidate) => {
+        const element = normalizeCuaSnapshotElement(candidate);
+        return element ? [element] : [];
+      });
       const currentFingerprint = opts.resolveContentFingerprint
         ? opts.resolveContentFingerprint(currentElements)
         : contentFingerprint(currentElements);
@@ -1262,16 +1276,17 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
     const sourceBounds = bound.target?.sourceBoundsPx;
     if (!source || !windowPoint || !sourceBounds) return undefined;
     if (
-      source.x < 0
-      || source.y < 0
-      || source.x >= sourceBounds.width
-      || source.y >= sourceBounds.height
-    ) return undefined;
+      source.x < 0 ||
+      source.y < 0 ||
+      source.x >= sourceBounds.width ||
+      source.y >= sourceBounds.height
+    )
+      return undefined;
     return {
       windowPoint,
       screenPoint: {
-        x: target.bounds.x + source.x / sourceBounds.width * target.bounds.width,
-        y: target.bounds.y + source.y / sourceBounds.height * target.bounds.height,
+        x: target.bounds.x + (source.x / sourceBounds.width) * target.bounds.width,
+        y: target.bounds.y + (source.y / sourceBounds.height) * target.bounds.height,
       },
     };
   }
@@ -1308,35 +1323,30 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
       ...(bound.target.page ? { page: bound.target.page } : {}),
       ...(bound.display ? { displays: [bound.display] } : {}),
     };
-    const validated = await validateStoredWindow(
-      stored,
-      bound,
-      signal,
-      'coordinate',
-    );
+    const validated = await validateStoredWindow(stored, bound, signal, 'coordinate');
     if ('outcome' in validated) return validated;
-    const currentState = await actionClient.callTool('get_window_state', {
-      pid: validated.pid,
-      window_id: validated.windowId,
-      include_screenshot: false,
-      max_elements: 0,
-      max_depth: 0,
-    }, signal);
+    const currentState = await actionClient.callTool(
+      'get_window_state',
+      {
+        pid: validated.pid,
+        window_id: validated.windowId,
+        include_screenshot: false,
+        max_elements: 0,
+        max_depth: 0,
+      },
+      signal,
+    );
     const currentOutcome = normalizeCuaDriverOutcome(currentState);
     if (!currentOutcome.ok) return { outcome: currentOutcome };
     const currentStructured = currentState?.structuredContent ?? {};
     const currentWidth = Number(currentStructured.screenshot_width);
     const currentHeight = Number(currentStructured.screenshot_height);
     if (
-      !bound.target.sourceBoundsPx
-      || (
-        currentWidth > 0
-        && currentHeight > 0
-        && (
-          currentWidth !== bound.target.sourceBoundsPx.width
-          || currentHeight !== bound.target.sourceBoundsPx.height
-        )
-      )
+      !bound.target.sourceBoundsPx ||
+      (currentWidth > 0 &&
+        currentHeight > 0 &&
+        (currentWidth !== bound.target.sourceBoundsPx.width ||
+          currentHeight !== bound.target.sourceBoundsPx.height))
     ) {
       return {
         outcome: {
@@ -1360,36 +1370,39 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
     const winner = windows
       .flatMap((window) => {
         if (
-          window.layer !== 0
-          || window.is_on_screen === false
-          || typeof window.pid !== 'number'
-          || typeof window.window_id !== 'number'
-          || !window.bounds
-          || typeof window.bounds !== 'object'
-        ) return [];
+          window.layer !== 0 ||
+          window.is_on_screen === false ||
+          typeof window.pid !== 'number' ||
+          typeof window.window_id !== 'number' ||
+          !window.bounds ||
+          typeof window.bounds !== 'object'
+        )
+          return [];
         const bounds = window.bounds as Record<string, unknown>;
         if (
-          typeof bounds.x !== 'number'
-          || typeof bounds.y !== 'number'
-          || typeof bounds.width !== 'number'
-          || typeof bounds.height !== 'number'
-        ) return [];
-        const inside = point.screenPoint.x >= bounds.x
-          && point.screenPoint.x < bounds.x + bounds.width
-          && point.screenPoint.y >= bounds.y
-          && point.screenPoint.y < bounds.y + bounds.height;
-        return inside ? [{
-          pid: window.pid,
-          windowId: window.window_id,
-          zIndex: Number(window.z_index) || 0,
-        }] : [];
+          typeof bounds.x !== 'number' ||
+          typeof bounds.y !== 'number' ||
+          typeof bounds.width !== 'number' ||
+          typeof bounds.height !== 'number'
+        )
+          return [];
+        const inside =
+          point.screenPoint.x >= bounds.x &&
+          point.screenPoint.x < bounds.x + bounds.width &&
+          point.screenPoint.y >= bounds.y &&
+          point.screenPoint.y < bounds.y + bounds.height;
+        return inside
+          ? [
+              {
+                pid: window.pid,
+                windowId: window.window_id,
+                zIndex: Number(window.z_index) || 0,
+              },
+            ]
+          : [];
       })
       .sort((left, right) => right.zIndex - left.zIndex)[0];
-    if (
-      !winner
-      || winner.pid !== validated.pid
-      || winner.windowId !== validated.windowId
-    ) {
+    if (!winner || winner.pid !== validated.pid || winner.windowId !== validated.windowId) {
       trace({
         type: 'occlusion',
         expectedPid: validated.pid,
@@ -1430,37 +1443,37 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
     observation: StoredObservation,
     action: Exclude<CuSemanticAction, { type: 'press_key' }>,
     signal: AbortSignal,
-  ): Promise<
-    | NonNullable<ReturnType<typeof normalizeCuaSnapshotElement>>
-    | CuRunResult
-  > {
-    const state = await actionClient.callTool('get_window_state', {
-      pid: observation.window.pid,
-      window_id: observation.window.windowId,
-      include_screenshot: false,
-      max_elements: 500,
-      max_depth: 25,
-    }, signal);
+  ): Promise<NonNullable<ReturnType<typeof normalizeCuaSnapshotElement>> | CuRunResult> {
+    const state = await actionClient.callTool(
+      'get_window_state',
+      {
+        pid: observation.window.pid,
+        window_id: observation.window.windowId,
+        include_screenshot: false,
+        max_elements: 500,
+        max_depth: 25,
+      },
+      signal,
+    );
     const outcome = normalizeCuaDriverOutcome(state);
     if (!outcome.ok) return { outcome };
     const fresh = dedupeSemanticElements(
-      ((state?.structuredContent?.elements ?? []) as CuaSnapshotElement[])
-      .flatMap((candidate) => {
+      ((state?.structuredContent?.elements ?? []) as CuaSnapshotElement[]).flatMap((candidate) => {
         const element = normalizeCuaSnapshotElement(candidate);
         return element ? [element] : [];
       }),
     );
     const original = observation.elements.get(action.elementId);
-    const identity = action.elementIdentity ?? (
-      original
+    const identity =
+      action.elementIdentity ??
+      (original
         ? {
             ...(original.element_token ? { token: original.element_token } : {}),
             role: original.role,
             ...(original.label ? { label: original.label } : {}),
             ...(original.value !== undefined ? { value: original.value } : {}),
           }
-        : undefined
-    );
+        : undefined);
     if (!identity) {
       return {
         outcome: {
@@ -1470,13 +1483,12 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
         },
       };
     }
-    const identityMatches = fresh.filter((candidate) =>
-      candidate.role === identity.role
-      && (!identity.label?.trim() || candidate.label === identity.label)
-      && (
-        identity.value === undefined
-        || candidate.value === identity.value
-      ));
+    const identityMatches = fresh.filter(
+      (candidate) =>
+        candidate.role === identity.role &&
+        (!identity.label?.trim() || candidate.label === identity.label) &&
+        (identity.value === undefined || candidate.value === identity.value),
+    );
     if (identityMatches.length > 1) {
       return {
         outcome: {
@@ -1486,8 +1498,8 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
         },
       };
     }
-    const matches = identityMatches.filter(
-      (candidate) => elementMatchesIdentity(candidate, identity, original),
+    const matches = identityMatches.filter((candidate) =>
+      elementMatchesIdentity(candidate, identity, original),
     );
     if (matches.length === 1) return matches[0]!;
     return {
@@ -1504,11 +1516,10 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
     if (!state) return undefined;
     const boundTarget = context.boundAction?.target;
     if (
-      state.turnId !== context.turnId
-      || (boundTarget && (
-        boundTarget.pid !== state.target.window.pid
-        || boundTarget.windowId !== state.target.window.windowId
-      ))
+      state.turnId !== context.turnId ||
+      (boundTarget &&
+        (boundTarget.pid !== state.target.window.pid ||
+          boundTarget.windowId !== state.target.window.windowId))
     ) {
       targetsBySession.delete(context.sessionId);
       return undefined;
@@ -1581,15 +1592,10 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
     try {
       after = await snapshotTarget(target.window, signal);
     } catch {
-      return deliveredVerificationFailure(
-        'AXValue write',
-        'ax',
-      ).outcome;
+      return deliveredVerificationFailure('AXValue write', 'ax').outcome;
     }
-    const verified = editableElementAtScreenPoint(
-      after.elements,
-      target.window.screenPoint,
-    )?.value === text;
+    const verified =
+      editableElementAtScreenPoint(after.elements, target.window.screenPoint)?.value === text;
     return verified
       ? {
           ok: true,
@@ -1617,13 +1623,13 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
         message: 'background Electron text requires a verified text-editable click target',
       };
     }
-    const pageTarget = target.pageTarget ?? await (
-      opts.resolvePageTextTarget ?? ((input) => resolveCuaPageTextTarget(input))
-    )({
-      pid: target.window.pid,
-      ...(target.window.title ? { windowTitle: target.window.title } : {}),
-      signal,
-    });
+    const pageTarget =
+      target.pageTarget ??
+      (await (opts.resolvePageTextTarget ?? ((input) => resolveCuaPageTextTarget(input)))({
+        pid: target.window.pid,
+        ...(target.window.title ? { windowTitle: target.window.title } : {}),
+        signal,
+      }));
     if (!pageTarget) {
       return {
         ok: false,
@@ -1694,20 +1700,12 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
     if (result?.isError) return normalizeCuaDriverOutcome(result);
     let inspected: Awaited<ReturnType<typeof executePageScript>>;
     try {
-      inspected = await executePageScript(
-        CUA_INSPECT_PREPARED_ELEMENT_SCRIPT,
-      );
+      inspected = await executePageScript(CUA_INSPECT_PREPARED_ELEMENT_SCRIPT);
     } catch {
-      return deliveredVerificationFailure(
-        'CDP Input.insertText',
-        'cdp',
-      ).outcome;
+      return deliveredVerificationFailure('CDP Input.insertText', 'cdp').outcome;
     }
     if (inspected.response?.isError) {
-      return deliveredVerificationFailure(
-        'CDP Input.insertText',
-        'cdp',
-      ).outcome;
+      return deliveredVerificationFailure('CDP Input.insertText', 'cdp').outcome;
     }
     const after = inspected.element;
     return after?.editable === true && after.value === text
@@ -1739,8 +1737,8 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
   }> {
     const processKind = await (opts.classifyProcess ?? classifyMacProcess)(window.pid);
     if (processKind !== 'electron') return { handled: false };
-    const resolvePageTextTarget = opts.resolvePageTextTarget ?? ((input) =>
-      resolveCuaPageTextTarget(input));
+    const resolvePageTextTarget =
+      opts.resolvePageTextTarget ?? ((input) => resolveCuaPageTextTarget(input));
     const pageTarget = await resolvePageTextTarget({
       pid: window.pid,
       ...(window.title ? { windowTitle: window.title } : {}),
@@ -1891,11 +1889,12 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
         const apps = new Map<string, CuAppSummary>();
         for (const window of windows) {
           if (
-            window.layer !== 0
-            || window.is_on_screen === false
-            || typeof window.pid !== 'number'
-            || typeof window.window_id !== 'number'
-          ) continue;
+            window.layer !== 0 ||
+            window.is_on_screen === false ||
+            typeof window.pid !== 'number' ||
+            typeof window.window_id !== 'number'
+          )
+            continue;
           const appId = appIdForWindow(window) ?? `pid:${window.pid}`;
           const current = apps.get(appId);
           if (current) {
@@ -1904,17 +1903,19 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
               windowId: window.window_id,
               ...(typeof window.title === 'string' ? { title: window.title } : {}),
             });
-          }
-          else apps.set(appId, {
-            appId,
-            pid: window.pid,
-            ...(typeof window.app_name === 'string' ? { name: window.app_name } : {}),
-            windowCount: 1,
-            windows: [{
-              windowId: window.window_id,
-              ...(typeof window.title === 'string' ? { title: window.title } : {}),
-            }],
-          });
+          } else
+            apps.set(appId, {
+              appId,
+              pid: window.pid,
+              ...(typeof window.app_name === 'string' ? { name: window.app_name } : {}),
+              windowCount: 1,
+              windows: [
+                {
+                  windowId: window.window_id,
+                  ...(typeof window.title === 'string' ? { title: window.title } : {}),
+                },
+              ],
+            });
         }
         return [...apps.values()];
       });
@@ -1938,111 +1939,137 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
 
     async runSemantic(action: CuSemanticAction, signal, context) {
       try {
-        return await withOperationQueue(signal, async () => {
-        const observation = observations.get(action.observationId);
-        deleteObservation(action.observationId);
-        if (!observation) {
-          return { outcome: { ok: false, error: 'stale_frame', message: 'observation is missing or already consumed' } };
-        }
-        if (
-          observation.context.sessionId !== context.sessionId
-          || observation.context.turnId !== context.turnId
-        ) {
-          return { outcome: { ok: false, error: 'stale_frame', message: 'observation belongs to another session or turn' } };
-        }
-        const validated = await validateStoredWindow(
-          observation,
-          context.boundAction,
+        return await withOperationQueue(
           signal,
-          'semantic',
+          async () => {
+            const observation = observations.get(action.observationId);
+            deleteObservation(action.observationId);
+            if (!observation) {
+              return {
+                outcome: {
+                  ok: false,
+                  error: 'stale_frame',
+                  message: 'observation is missing or already consumed',
+                },
+              };
+            }
+            if (
+              observation.context.sessionId !== context.sessionId ||
+              observation.context.turnId !== context.turnId
+            ) {
+              return {
+                outcome: {
+                  ok: false,
+                  error: 'stale_frame',
+                  message: 'observation belongs to another session or turn',
+                },
+              };
+            }
+            const validated = await validateStoredWindow(
+              observation,
+              context.boundAction,
+              signal,
+              'semantic',
+            );
+            if ('outcome' in validated) return validated;
+            if (action.type === 'press_key') {
+              if (opts.allowCompatibilityInputDispatch !== true) {
+                return compatibilityInputBlocked(action.type);
+              }
+              const intervention = await physicalInputFailure();
+              if (intervention) return intervention;
+              const result = await actionClient.callTool(
+                'press_key',
+                {
+                  pid: validated.pid,
+                  window_id: validated.windowId,
+                  key: action.key,
+                },
+                signal,
+              );
+              const outcome = normalizeCuaDriverOutcome(result);
+              if (!outcome.ok) return { outcome };
+              let fresh: CuObservation;
+              try {
+                fresh = await observeResolvedWindow(validated, true, signal, context);
+              } catch {
+                return deliveredVerificationFailure('press_key', 'ax');
+              }
+              return {
+                outcome,
+                observation: fresh,
+                ...(fresh.screenshot ? { screenshot: fresh.screenshot } : {}),
+              };
+            }
+            if (action.type === 'select_text' || action.type === 'secondary_action') {
+              return {
+                outcome: {
+                  ok: false,
+                  error: 'unsupported_action',
+                  message: `semantic action '${action.type}' is not exposed by the pinned cua-driver registry`,
+                },
+              };
+            }
+            const refetched = await refetchSemanticElement(observation, action, signal);
+            if ('outcome' in refetched) return refetched;
+            const visibilityFailure = await validateSemanticElementVisibility(
+              validated,
+              refetched,
+              signal,
+            );
+            if (visibilityFailure) return visibilityFailure;
+            const args = {
+              pid: validated.pid,
+              window_id: validated.windowId,
+              element_index: refetched.element_index,
+              ...(refetched.element_token ? { element_token: refetched.element_token } : {}),
+            };
+            const intervention = await physicalInputFailure();
+            if (intervention) return intervention;
+            trace({
+              type: 'dispatch',
+              toolCallId: context.toolCallId,
+              actionType: action.type,
+              tool: action.type === 'click_element' ? 'click' : 'set_value',
+              pid: validated.pid,
+              windowId: validated.windowId,
+              address: 'ax',
+            });
+            const result =
+              action.type === 'click_element'
+                ? await actionClient.callTool('click', args, signal)
+                : action.type === 'set_value'
+                  ? await actionClient.callTool(
+                      'set_value',
+                      { ...args, value: action.value },
+                      signal,
+                    )
+                  : undefined;
+            if (!result) {
+              return {
+                outcome: {
+                  ok: false,
+                  error: 'unsupported_action',
+                  message: `semantic action '${action.type}' is not supported by cua-driver`,
+                },
+              };
+            }
+            const outcome = normalizeCuaDriverOutcome(result);
+            if (!outcome.ok) return { outcome };
+            let fresh: CuObservation;
+            try {
+              fresh = await observeResolvedWindow(validated, true, signal, context);
+            } catch {
+              return deliveredVerificationFailure(action.type, 'ax');
+            }
+            return {
+              outcome,
+              observation: fresh,
+              ...(fresh.screenshot ? { screenshot: fresh.screenshot } : {}),
+            };
+          },
+          context.sessionId,
         );
-        if ('outcome' in validated) return validated;
-        if (action.type === 'press_key') {
-          if (opts.allowCompatibilityInputDispatch !== true) {
-            return compatibilityInputBlocked(action.type);
-          }
-          const intervention = await physicalInputFailure();
-          if (intervention) return intervention;
-          const result = await actionClient.callTool('press_key', {
-            pid: validated.pid,
-            window_id: validated.windowId,
-            key: action.key,
-          }, signal);
-          const outcome = normalizeCuaDriverOutcome(result);
-          if (!outcome.ok) return { outcome };
-          let fresh: CuObservation;
-          try {
-            fresh = await observeResolvedWindow(validated, true, signal, context);
-          } catch {
-            return deliveredVerificationFailure('press_key', 'ax');
-          }
-          return {
-            outcome,
-            observation: fresh,
-            ...(fresh.screenshot ? { screenshot: fresh.screenshot } : {}),
-          };
-        }
-        if (action.type === 'select_text' || action.type === 'secondary_action') {
-          return {
-            outcome: {
-              ok: false,
-              error: 'unsupported_action',
-              message: `semantic action '${action.type}' is not exposed by the pinned cua-driver registry`,
-            },
-          };
-        }
-        const refetched = await refetchSemanticElement(observation, action, signal);
-        if ('outcome' in refetched) return refetched;
-        const visibilityFailure = await validateSemanticElementVisibility(
-          validated,
-          refetched,
-          signal,
-        );
-        if (visibilityFailure) return visibilityFailure;
-        const args = {
-          pid: validated.pid,
-          window_id: validated.windowId,
-          element_index: refetched.element_index,
-          ...(refetched.element_token ? { element_token: refetched.element_token } : {}),
-        };
-        const intervention = await physicalInputFailure();
-        if (intervention) return intervention;
-        trace({
-          type: 'dispatch',
-          toolCallId: context.toolCallId,
-          actionType: action.type,
-          tool: action.type === 'click_element' ? 'click' : 'set_value',
-          pid: validated.pid,
-          windowId: validated.windowId,
-          address: 'ax',
-        });
-        const result = action.type === 'click_element'
-          ? await actionClient.callTool('click', args, signal)
-          : action.type === 'set_value'
-            ? await actionClient.callTool('set_value', { ...args, value: action.value }, signal)
-            : undefined;
-        if (!result) {
-          return { outcome: { ok: false, error: 'unsupported_action', message: `semantic action '${action.type}' is not supported by cua-driver` } };
-        }
-        const outcome = normalizeCuaDriverOutcome(result);
-        if (!outcome.ok) return { outcome };
-        let fresh: CuObservation;
-        try {
-          fresh = await observeResolvedWindow(
-            validated,
-            true,
-            signal,
-            context,
-          );
-        } catch {
-          return deliveredVerificationFailure(action.type, 'ax');
-        }
-        return {
-          outcome,
-          observation: fresh,
-          ...(fresh.screenshot ? { screenshot: fresh.screenshot } : {}),
-        };
-        }, context.sessionId);
       } catch (error) {
         if (error instanceof CuaDriverCaptureError) return error.result;
         const failure = lifecycleFailure(error);
@@ -2052,10 +2079,7 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
     },
 
     async inspectWindowAt(point, signal) {
-      return withOperationQueue(
-        signal,
-        () => resolveWindowAt(point.x, point.y, signal),
-      );
+      return withOperationQueue(signal, () => resolveWindowAt(point.x, point.y, signal));
     },
 
     async preflight(signal) {
@@ -2073,581 +2097,590 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
     async run(action, signal, context: CuRunContext): Promise<CuRunResult> {
       const sessionGeneration = sessionGenerations.get(context.sessionId) ?? 0;
       try {
-        return await withOperationQueue(signal, async () => {
-        // A new turn invalidates any prior keyboard ownership before this action.
-        targetForContext(context);
-        // A left-click attempt transfers ownership. Clear the old target before
-        // resolution/snapshot/dispatch so any failure leaves keyboard input
-        // unowned instead of silently routing it to the previous window.
-        if (action.type === 'left_click') targetsBySession.delete(context.sessionId);
-        switch (action.type) {
-        case 'screenshot': {
-          const r = await captureClient.callTool('get_desktop_state', {}, signal);
-          const img = r?.content?.find((c) => c.type === 'image');
-          const sc = r?.structuredContent ?? {};
-          // Remember the device frame width so getScale() can derive the true
-          // device/logical ratio (see getScale — scale_factor is unreliable).
-          if (typeof sc.screenshot_width === 'number' && sc.screenshot_width > 0) {
-            lastFrameWidthPx = sc.screenshot_width;
-          }
-          const screenshot = normalizeScreenshot(
-            img,
-            typeof sc.screenshot_width === 'number' ? sc.screenshot_width : 0,
-            typeof sc.screenshot_height === 'number' ? sc.screenshot_height : 0,
-            'frame',
-          );
-          if ('outcome' in screenshot) return screenshot;
-          return { outcome: { ok: true, tier: 'coordinate-background' }, screenshot };
-        }
-        case 'left_click':
-        case 'right_click':
-        case 'middle_click':
-        case 'double_click':
-        case 'triple_click': {
-          // Resolve the window under the point and click via pid+window_id, which
-          // forces cua-driver's click_at_xy_with_window_local → CGEventPostToPid /
-          // SLEventPostToPid — NO cursor warp (the forbidden pid-less path would
-          // move the REAL cursor). Fail closed when no
-          // app window owns the pixel (empty desktop), where the only path warps.
-          const win = await coordinateTarget(
-            context.boundAction,
-            action.coordinate,
-            signal,
-          );
-          if (win && 'outcome' in win) return win;
-          if (!win) {
-            return {
-              outcome: {
-                ok: false,
-                error: 'unsupported_action',
-                message:
-                  `no app window under the click point (empty desktop / wallpaper) — refusing '${action.type}': `
-                  + "the only backend path there warps the user's real cursor. Click on an app window instead.",
-              },
-            };
-          }
-          trace({
-            type: 'target',
-            toolCallId: context.toolCallId,
-            actionType: action.type,
-            pid: win.pid,
-            windowId: win.windowId,
-            screenPoint: win.screenPoint,
-          });
-          if (
-            action.type === 'left_click'
-            || action.type === 'right_click'
-            || action.type === 'double_click'
-          ) {
-            const semantic = await runElectronSemanticPointer(
-              { type: action.type, screenPoint: win.screenPoint },
-              win,
-              signal,
-              context.toolCallId,
-              context.boundAction?.target?.page,
-            );
-            if (semantic.handled && semantic.outcome) {
-              if (
-                semantic.outcome.ok
-                && action.type === 'left_click'
-                && (sessionGenerations.get(context.sessionId) ?? 0) === sessionGeneration
-              ) {
-                targetsBySession.set(context.sessionId, {
-                  turnId: context.turnId,
-                  target: {
-                    window: win,
-                    editable: semantic.result?.editable === true,
-                    ...(semantic.pageTarget ? { pageTarget: semantic.pageTarget } : {}),
-                  },
-                });
+        return await withOperationQueue(
+          signal,
+          async () => {
+            // A new turn invalidates any prior keyboard ownership before this action.
+            targetForContext(context);
+            // A left-click attempt transfers ownership. Clear the old target before
+            // resolution/snapshot/dispatch so any failure leaves keyboard input
+            // unowned instead of silently routing it to the previous window.
+            if (action.type === 'left_click') targetsBySession.delete(context.sessionId);
+            switch (action.type) {
+              case 'screenshot': {
+                const r = await captureClient.callTool('get_desktop_state', {}, signal);
+                const img = r?.content?.find((c) => c.type === 'image');
+                const sc = r?.structuredContent ?? {};
+                // Remember the device frame width so getScale() can derive the true
+                // device/logical ratio (see getScale — scale_factor is unreliable).
+                if (typeof sc.screenshot_width === 'number' && sc.screenshot_width > 0) {
+                  lastFrameWidthPx = sc.screenshot_width;
+                }
+                const screenshot = normalizeScreenshot(
+                  img,
+                  typeof sc.screenshot_width === 'number' ? sc.screenshot_width : 0,
+                  typeof sc.screenshot_height === 'number' ? sc.screenshot_height : 0,
+                  'frame',
+                );
+                if ('outcome' in screenshot) return screenshot;
+                return { outcome: { ok: true, tier: 'coordinate-background' }, screenshot };
               }
-              return { outcome: semantic.outcome, resolvedScreenPoint: win.screenPoint };
-            }
-          }
-          if (opts.allowCompatibilityInputDispatch !== true) {
-            return compatibilityInputBlocked(action.type);
-          }
-          {
-            let snapshot: TargetSnapshot;
-            try {
-              snapshot = await snapshotTarget(win, signal);
-            } catch (error) {
-              return {
-                outcome: {
-                  ok: false as const,
-                  error: 'capture_failed' as const,
-                  message: (error as Error).message,
-                },
-              };
-            }
-            const editableElement = editableElementAtScreenPoint(snapshot.elements, win.screenPoint);
-            const element = action.type === 'middle_click'
-              || action.type === 'double_click'
-              || action.type === 'triple_click'
-              || editableElement !== undefined
-              ? undefined
-              : elementAtScreenPoint(snapshot.elements, win.screenPoint);
-            trace({
-              type: 'snapshot',
-              toolCallId: context.toolCallId,
-              actionType: action.type,
-              pid: win.pid,
-              windowId: win.windowId,
-              windowPoint: snapshot.windowPoint,
-              containingElements: snapshot.elements.flatMap((candidate) => {
+              case 'left_click':
+              case 'right_click':
+              case 'middle_click':
+              case 'double_click':
+              case 'triple_click': {
+                // Resolve the window under the point and click via pid+window_id, which
+                // forces cua-driver's click_at_xy_with_window_local → CGEventPostToPid /
+                // SLEventPostToPid — NO cursor warp (the forbidden pid-less path would
+                // move the REAL cursor). Fail closed when no
+                // app window owns the pixel (empty desktop), where the only path warps.
+                const win = await coordinateTarget(context.boundAction, action.coordinate, signal);
+                if (win && 'outcome' in win) return win;
+                if (!win) {
+                  return {
+                    outcome: {
+                      ok: false,
+                      error: 'unsupported_action',
+                      message:
+                        `no app window under the click point (empty desktop / wallpaper) — refusing '${action.type}': ` +
+                        "the only backend path there warps the user's real cursor. Click on an app window instead.",
+                    },
+                  };
+                }
+                trace({
+                  type: 'target',
+                  toolCallId: context.toolCallId,
+                  actionType: action.type,
+                  pid: win.pid,
+                  windowId: win.windowId,
+                  screenPoint: win.screenPoint,
+                });
                 if (
-                  typeof candidate.element_index !== 'number'
-                  || typeof candidate.role !== 'string'
-                  || typeof candidate.depth !== 'number'
-                  || !candidate.frame
-                  || typeof candidate.frame !== 'object'
-                ) return [];
-                const frame = candidate.frame as Record<string, unknown>;
-                if (
-                  typeof frame.x !== 'number'
-                  || typeof frame.y !== 'number'
-                  || typeof frame.w !== 'number'
-                  || typeof frame.h !== 'number'
-                ) return [];
-                const inside = win.screenPoint.x >= frame.x
-                  && win.screenPoint.x < frame.x + frame.w
-                  && win.screenPoint.y >= frame.y
-                  && win.screenPoint.y < frame.y + frame.h;
-                return inside ? [{
-                  elementIndex: candidate.element_index,
-                  role: candidate.role,
-                  depth: candidate.depth,
-                  frame: {
-                    x: frame.x,
-                    y: frame.y,
-                    w: frame.w,
-                    h: frame.h,
+                  action.type === 'left_click' ||
+                  action.type === 'right_click' ||
+                  action.type === 'double_click'
+                ) {
+                  const semantic = await runElectronSemanticPointer(
+                    { type: action.type, screenPoint: win.screenPoint },
+                    win,
+                    signal,
+                    context.toolCallId,
+                    context.boundAction?.target?.page,
+                  );
+                  if (semantic.handled && semantic.outcome) {
+                    if (
+                      semantic.outcome.ok &&
+                      action.type === 'left_click' &&
+                      (sessionGenerations.get(context.sessionId) ?? 0) === sessionGeneration
+                    ) {
+                      targetsBySession.set(context.sessionId, {
+                        turnId: context.turnId,
+                        target: {
+                          window: win,
+                          editable: semantic.result?.editable === true,
+                          ...(semantic.pageTarget ? { pageTarget: semantic.pageTarget } : {}),
+                        },
+                      });
+                    }
+                    return { outcome: semantic.outcome, resolvedScreenPoint: win.screenPoint };
+                  }
+                }
+                if (opts.allowCompatibilityInputDispatch !== true) {
+                  return compatibilityInputBlocked(action.type);
+                }
+                {
+                  let snapshot: TargetSnapshot;
+                  try {
+                    snapshot = await snapshotTarget(win, signal);
+                  } catch (error) {
+                    return {
+                      outcome: {
+                        ok: false as const,
+                        error: 'capture_failed' as const,
+                        message: (error as Error).message,
+                      },
+                    };
+                  }
+                  const editableElement = editableElementAtScreenPoint(
+                    snapshot.elements,
+                    win.screenPoint,
+                  );
+                  const element =
+                    action.type === 'middle_click' ||
+                    action.type === 'double_click' ||
+                    action.type === 'triple_click' ||
+                    editableElement !== undefined
+                      ? undefined
+                      : elementAtScreenPoint(snapshot.elements, win.screenPoint);
+                  trace({
+                    type: 'snapshot',
+                    toolCallId: context.toolCallId,
+                    actionType: action.type,
+                    pid: win.pid,
+                    windowId: win.windowId,
+                    windowPoint: snapshot.windowPoint,
+                    containingElements: snapshot.elements.flatMap((candidate) => {
+                      if (
+                        typeof candidate.element_index !== 'number' ||
+                        typeof candidate.role !== 'string' ||
+                        typeof candidate.depth !== 'number' ||
+                        !candidate.frame ||
+                        typeof candidate.frame !== 'object'
+                      )
+                        return [];
+                      const frame = candidate.frame as Record<string, unknown>;
+                      if (
+                        typeof frame.x !== 'number' ||
+                        typeof frame.y !== 'number' ||
+                        typeof frame.w !== 'number' ||
+                        typeof frame.h !== 'number'
+                      )
+                        return [];
+                      const inside =
+                        win.screenPoint.x >= frame.x &&
+                        win.screenPoint.x < frame.x + frame.w &&
+                        win.screenPoint.y >= frame.y &&
+                        win.screenPoint.y < frame.y + frame.h;
+                      return inside
+                        ? [
+                            {
+                              elementIndex: candidate.element_index,
+                              role: candidate.role,
+                              depth: candidate.depth,
+                              frame: {
+                                x: frame.x,
+                                y: frame.y,
+                                w: frame.w,
+                                h: frame.h,
+                              },
+                            },
+                          ]
+                        : [];
+                    }),
+                    ...(editableElement
+                      ? { editableElementIndex: editableElement.element_index }
+                      : {}),
+                    ...(element ? { clickableElementIndex: element.element_index } : {}),
+                  });
+                  const args: Record<string, unknown> = {
+                    pid: win.pid,
+                    window_id: win.windowId,
+                    x: snapshot.windowPoint.x,
+                    y: snapshot.windowPoint.y,
+                  };
+                  if (action.type === 'right_click') args.button = 'right';
+                  if (action.type === 'middle_click') args.button = 'middle';
+                  if (action.type === 'triple_click') args.count = 3;
+                  const toolName = action.type === 'double_click' ? 'double_click' : 'click';
+                  const intervention = await physicalInputFailure();
+                  if (intervention) return intervention;
+                  trace({
+                    type: 'dispatch',
+                    toolCallId: context.toolCallId,
+                    actionType: action.type,
+                    tool: toolName,
+                    pid: win.pid,
+                    windowId: win.windowId,
+                    address: 'px',
+                  });
+                  const r = await actionClient.callTool(toolName, args, signal);
+                  const outcome = normalizeCuaDriverOutcome(r);
+                  trace({
+                    type: 'outcome',
+                    toolCallId: context.toolCallId,
+                    actionType: action.type,
+                    tool: toolName,
+                    outcome: traceOutcome(outcome),
+                  });
+                  if (
+                    outcome.ok &&
+                    action.type === 'left_click' &&
+                    (sessionGenerations.get(context.sessionId) ?? 0) === sessionGeneration
+                  ) {
+                    targetsBySession.set(context.sessionId, {
+                      turnId: context.turnId,
+                      target: {
+                        window: win,
+                        editable: editableElement !== undefined,
+                      },
+                    });
+                  }
+                  return { outcome, resolvedScreenPoint: win.screenPoint };
+                }
+              }
+              case 'scroll': {
+                if (opts.allowCompatibilityInputDispatch !== true) {
+                  return compatibilityInputBlocked(action.type);
+                }
+                // Scroll REQUIRES a pid and posts via scroll_wheel_at_xy → post_to_pid
+                // (no cursor warp — the warp only exists in the empty-desktop click path).
+                // Resolve the window under the point and scroll it window-locally; fail
+                // closed on empty desktop (nothing scrollable there anyway).
+                const win = await coordinateTarget(context.boundAction, action.coordinate, signal);
+                if (win && 'outcome' in win) return win;
+                if (!win) {
+                  return {
+                    outcome: {
+                      ok: false,
+                      error: 'unsupported_action',
+                      message:
+                        "no app window under the scroll point (empty desktop) — refusing 'scroll'. Scroll over an app window instead.",
+                    },
+                  };
+                }
+                {
+                  let snapshot: TargetSnapshot;
+                  try {
+                    snapshot = await snapshotTarget(win, signal);
+                  } catch (error) {
+                    return {
+                      outcome: {
+                        ok: false as const,
+                        error: 'capture_failed' as const,
+                        message: (error as Error).message,
+                      },
+                    };
+                  }
+                  const intervention = await physicalInputFailure();
+                  if (intervention) return intervention;
+                  const r = await actionClient.callTool(
+                    'scroll',
+                    {
+                      pid: win.pid,
+                      window_id: win.windowId,
+                      x: snapshot.windowPoint.x,
+                      y: snapshot.windowPoint.y,
+                      direction: action.scrollDirection,
+                      amount: action.scrollAmount,
+                    },
+                    signal,
+                  );
+                  return {
+                    outcome: normalizeCuaDriverOutcome(r),
+                    resolvedScreenPoint: win.screenPoint,
+                  };
+                }
+              }
+              case 'left_click_drag': {
+                if (opts.allowCompatibilityInputDispatch !== true) {
+                  return compatibilityInputBlocked(action.type);
+                }
+                // Press-drag-release WITHIN a single window. cua-driver's `drag` sends the
+                // whole down→(interpolated moves)→up sequence through the SAME window-local
+                // post_mouse_event → SLEventPostToPid/CGEventPostToPid path as click
+                // (source-verified against cua-driver-rs v0.7.1: no cursor warp exists
+                // on the PID-bound drag path; drag requires a PID)
+                // is required). So a pid+window_id drag never moves the user's REAL cursor.
+                // We resolve BOTH endpoints and require the SAME window: a window-local drag
+                // cannot cross windows, and cross-app drag-and-drop needs a real
+                // NSDraggingSession this synthetic post_to_pid path cannot establish
+                // (cua-driver itself marks the result unverifiable). Fail closed on empty
+                // desktop (no target window ⇒ no required pid to post to) or cross-window.
+                // delivery_mode is left DEFAULT (Background) — never 'foreground', which
+                // would briefly reorder window z-order/frontmost (a focus disturbance).
+                const from = await coordinateTarget(
+                  context.boundAction,
+                  action.startCoordinate,
+                  signal,
+                  true,
+                );
+                if (from && 'outcome' in from) return from;
+                const to = await coordinateTarget(context.boundAction, action.coordinate, signal);
+                if (to && 'outcome' in to) return to;
+                if (!from || !to) {
+                  return {
+                    outcome: {
+                      ok: false,
+                      error: 'unsupported_action',
+                      message:
+                        'drag endpoint is not over an app window (empty desktop) — refusing: the drag needs a target window/pid. ' +
+                        'Drag within a single app window instead.',
+                    },
+                  };
+                }
+                if (from.pid !== to.pid || from.windowId !== to.windowId) {
+                  return {
+                    outcome: {
+                      ok: false,
+                      error: 'unsupported_action',
+                      message:
+                        'drag endpoints span different windows — refusing: a background window-local drag cannot cross windows, ' +
+                        'and cross-app drag-and-drop needs a real drag session. Keep both endpoints inside one window.',
+                    },
+                  };
+                }
+                const semantic = await runElectronSemanticPointer(
+                  {
+                    type: 'left_click_drag',
+                    startScreenPoint: from.screenPoint,
+                    endScreenPoint: to.screenPoint,
                   },
-                }] : [];
-              }),
-              ...(editableElement ? { editableElementIndex: editableElement.element_index } : {}),
-              ...(element ? { clickableElementIndex: element.element_index } : {}),
-            });
-            const args: Record<string, unknown> = {
-              pid: win.pid,
-              window_id: win.windowId,
-              x: snapshot.windowPoint.x,
-              y: snapshot.windowPoint.y,
-            };
-            if (action.type === 'right_click') args.button = 'right';
-            if (action.type === 'middle_click') args.button = 'middle';
-            if (action.type === 'triple_click') args.count = 3;
-            const toolName = action.type === 'double_click' ? 'double_click' : 'click';
-            const intervention = await physicalInputFailure();
-            if (intervention) return intervention;
-            trace({
-              type: 'dispatch',
-              toolCallId: context.toolCallId,
-              actionType: action.type,
-              tool: toolName,
-              pid: win.pid,
-              windowId: win.windowId,
-              address: 'px',
-            });
-            const r = await actionClient.callTool(toolName, args, signal);
-            const outcome = normalizeCuaDriverOutcome(r);
-            trace({
-              type: 'outcome',
-              toolCallId: context.toolCallId,
-              actionType: action.type,
-              tool: toolName,
-              outcome: traceOutcome(outcome),
-            });
-            if (
-              outcome.ok
-              && action.type === 'left_click'
-              && (sessionGenerations.get(context.sessionId) ?? 0) === sessionGeneration
-            ) {
-              targetsBySession.set(context.sessionId, {
-                turnId: context.turnId,
-                target: {
-                  window: win,
-                  editable: editableElement !== undefined,
-                },
-              });
+                  from,
+                  signal,
+                  context.toolCallId,
+                  context.boundAction?.target?.page,
+                );
+                if (semantic.handled && semantic.outcome) {
+                  return { outcome: semantic.outcome, resolvedScreenPoint: to.screenPoint };
+                }
+                {
+                  let snapshot: TargetSnapshot;
+                  try {
+                    snapshot = await snapshotTarget(from, signal);
+                  } catch (error) {
+                    return {
+                      outcome: {
+                        ok: false as const,
+                        error: 'capture_failed' as const,
+                        message: (error as Error).message,
+                      },
+                    };
+                  }
+                  const toPoint = windowPointFromSnapshot({
+                    screenPoint: to.screenPoint,
+                    windowBounds: from.bounds,
+                    screenshotWidthPx: snapshot.screenshotWidthPx,
+                    screenshotHeightPx: snapshot.screenshotHeightPx,
+                  });
+                  if (!toPoint) {
+                    return {
+                      outcome: {
+                        ok: false as const,
+                        error: 'invalid_coordinate' as const,
+                        message: 'drag endpoint does not map into the target window snapshot',
+                      },
+                    };
+                  }
+                  const intervention = await physicalInputFailure();
+                  if (intervention) return intervention;
+                  const r = await actionClient.callTool(
+                    'drag',
+                    {
+                      pid: from.pid,
+                      window_id: from.windowId,
+                      from_x: snapshot.windowPoint.x,
+                      from_y: snapshot.windowPoint.y,
+                      to_x: toPoint.x,
+                      to_y: toPoint.y,
+                    },
+                    signal,
+                  );
+                  return {
+                    outcome: normalizeCuaDriverOutcome(r),
+                    resolvedScreenPoint: to.screenPoint,
+                  };
+                }
+              }
+              case 'zoom': {
+                // cua-driver zoom is window-scoped. Resolve both region corners in
+                // the declared desktop pixel space and require one owning window,
+                // then convert the crop to that window's screenshot-pixel space.
+                const x1 = Math.min(action.region.x1, action.region.x2);
+                const y1 = Math.min(action.region.y1, action.region.y2);
+                const x2 = Math.max(action.region.x1, action.region.x2);
+                const y2 = Math.max(action.region.y1, action.region.y2);
+                const topLeft = await coordinateTarget(
+                  context.boundAction,
+                  { x: x1, y: y1 },
+                  signal,
+                  true,
+                );
+                if (topLeft && 'outcome' in topLeft) return topLeft;
+                const bottomRight = await coordinateTarget(
+                  context.boundAction,
+                  { x: x2, y: y2 },
+                  signal,
+                );
+                if (bottomRight && 'outcome' in bottomRight) return bottomRight;
+                if (!topLeft || !bottomRight) {
+                  return {
+                    outcome: {
+                      ok: false,
+                      error: 'unsupported_action',
+                      message: 'zoom region is not fully contained in an app window.',
+                    },
+                  };
+                }
+                if (topLeft.pid !== bottomRight.pid || topLeft.windowId !== bottomRight.windowId) {
+                  return {
+                    outcome: {
+                      ok: false,
+                      error: 'unsupported_action',
+                      message:
+                        'zoom region spans different windows; keep the region inside one app window.',
+                    },
+                  };
+                }
+                {
+                  let snapshot: TargetSnapshot;
+                  try {
+                    snapshot = await snapshotTarget(topLeft, signal);
+                  } catch (error) {
+                    return {
+                      outcome: {
+                        ok: false as const,
+                        error: 'capture_failed' as const,
+                        message: (error as Error).message,
+                      },
+                    };
+                  }
+                  const bottomRightPoint = windowPointFromSnapshot({
+                    screenPoint: bottomRight.screenPoint,
+                    windowBounds: topLeft.bounds,
+                    screenshotWidthPx: snapshot.screenshotWidthPx,
+                    screenshotHeightPx: snapshot.screenshotHeightPx,
+                  });
+                  if (!bottomRightPoint) {
+                    return {
+                      outcome: {
+                        ok: false as const,
+                        error: 'invalid_coordinate' as const,
+                        message: 'zoom region does not map into the target window snapshot',
+                      },
+                    };
+                  }
+                  const r = await actionClient.callTool(
+                    'zoom',
+                    {
+                      pid: topLeft.pid,
+                      window_id: topLeft.windowId,
+                      x1: snapshot.windowPoint.x,
+                      y1: snapshot.windowPoint.y,
+                      x2: bottomRightPoint.x,
+                      y2: bottomRightPoint.y,
+                    },
+                    signal,
+                  );
+                  if (r?.isError) return { outcome: normalizeCuaDriverOutcome(r) };
+                  const image = r?.content?.find((content) => content.type === 'image');
+                  if (!image?.data) {
+                    return {
+                      outcome: {
+                        ok: false as const,
+                        error: 'capture_failed' as const,
+                        message: 'zoom returned no image',
+                      },
+                    };
+                  }
+                  const byteLength = Buffer.from(image.data, 'base64').byteLength;
+                  if (exceedsCuaDriverFrameCap(byteLength)) {
+                    return {
+                      outcome: {
+                        ok: false as const,
+                        error: 'sensitivity_blocked' as const,
+                        message: `zoom frame ${byteLength}B exceeds cap`,
+                      },
+                    };
+                  }
+                  const fresh = await observeResolvedWindow(topLeft, true, signal, context);
+                  return {
+                    outcome: {
+                      ok: true as const,
+                      tier: 'coordinate-background' as const,
+                      verified: false,
+                      evidence: { path: 'screenshot-detail', effect: 'unverifiable' },
+                    },
+                    observation: fresh,
+                    ...(fresh.screenshot ? { screenshot: fresh.screenshot } : {}),
+                  };
+                }
+              }
+              case 'type':
+              case 'key': {
+                // Target-bound keyboard: `type` may fill a native empty AX field only
+                // after fresh read-back. `key` is refused because cua-driver reports
+                // key events as unverifiable and user clicks can redirect renderer focus.
+                const target = targetForContext(context);
+                if (!target) {
+                  return {
+                    outcome: {
+                      ok: false,
+                      error: 'unsupported_action',
+                      message:
+                        `keyboard action '${action.type}' has no target window yet — refusing: ` +
+                        'click an editable native field before a verified text fill.',
+                    },
+                  };
+                }
+                if (action.type === 'type') {
+                  try {
+                    return { outcome: await fillEditableTarget(target, action.text, signal) };
+                  } catch (error) {
+                    const failure = lifecycleFailure(error);
+                    if (failure) return failure;
+                    return {
+                      outcome: {
+                        ok: false,
+                        error: 'capture_failed',
+                        message: (error as Error).message,
+                      },
+                    };
+                  }
+                }
+                return {
+                  outcome: {
+                    ok: false,
+                    error: 'unsupported_action',
+                    message: 'background key chords cannot be verified without risking focus races',
+                  },
+                };
+              }
+              case 'wait':
+                await new Promise((res) => setTimeout(res, Math.min(action.durationMs, 10_000)));
+                return { outcome: { ok: true, tier: 'coordinate-background' } };
+              case 'cursor_position': {
+                const result = await actionClient.callTool('get_cursor_position', {}, signal);
+                const structured = result?.structuredContent ?? {};
+                if (
+                  result?.isError ||
+                  typeof structured.x !== 'number' ||
+                  !Number.isFinite(structured.x) ||
+                  typeof structured.y !== 'number' ||
+                  !Number.isFinite(structured.y)
+                ) {
+                  return {
+                    outcome: {
+                      ok: false,
+                      error: 'capture_failed',
+                      message: 'cua-driver returned an invalid cursor position',
+                    },
+                  };
+                }
+                return {
+                  outcome: { ok: true, tier: 'coordinate-background' },
+                  resolvedScreenPoint: { x: structured.x, y: structured.y },
+                };
+              }
+              case 'mouse_move': {
+                const win = await coordinateTarget(context.boundAction, action.coordinate, signal);
+                if (win && 'outcome' in win) return win;
+                if (!win) {
+                  return {
+                    outcome: {
+                      ok: false,
+                      error: 'target_missing',
+                      message: 'no bound app window at the requested cursor point',
+                    },
+                  };
+                }
+                return {
+                  outcome: { ok: true, tier: 'coordinate-background' },
+                  resolvedScreenPoint: win.screenPoint,
+                };
+              }
+              default:
+                return {
+                  outcome: {
+                    ok: false,
+                    error: 'unsupported_action',
+                    message: `action '${action.type}' not mapped to cua-driver`,
+                  },
+                };
             }
-            return { outcome, resolvedScreenPoint: win.screenPoint };
-          }
-        }
-        case 'scroll': {
-          if (opts.allowCompatibilityInputDispatch !== true) {
-            return compatibilityInputBlocked(action.type);
-          }
-          // Scroll REQUIRES a pid and posts via scroll_wheel_at_xy → post_to_pid
-          // (no cursor warp — the warp only exists in the empty-desktop click path).
-          // Resolve the window under the point and scroll it window-locally; fail
-          // closed on empty desktop (nothing scrollable there anyway).
-          const win = await coordinateTarget(
-            context.boundAction,
-            action.coordinate,
-            signal,
-          );
-          if (win && 'outcome' in win) return win;
-          if (!win) {
-            return {
-              outcome: {
-                ok: false,
-                error: 'unsupported_action',
-                message: "no app window under the scroll point (empty desktop) — refusing 'scroll'. Scroll over an app window instead.",
-              },
-            };
-          }
-          {
-            let snapshot: TargetSnapshot;
-            try {
-              snapshot = await snapshotTarget(win, signal);
-            } catch (error) {
-              return {
-                outcome: {
-                  ok: false as const,
-                  error: 'capture_failed' as const,
-                  message: (error as Error).message,
-                },
-              };
-            }
-            const intervention = await physicalInputFailure();
-            if (intervention) return intervention;
-            const r = await actionClient.callTool(
-              'scroll',
-              {
-                pid: win.pid,
-                window_id: win.windowId,
-                x: snapshot.windowPoint.x,
-                y: snapshot.windowPoint.y,
-                direction: action.scrollDirection,
-                amount: action.scrollAmount,
-              },
-              signal,
-            );
-            return {
-              outcome: normalizeCuaDriverOutcome(r),
-              resolvedScreenPoint: win.screenPoint,
-            };
-          }
-        }
-        case 'left_click_drag': {
-          if (opts.allowCompatibilityInputDispatch !== true) {
-            return compatibilityInputBlocked(action.type);
-          }
-          // Press-drag-release WITHIN a single window. cua-driver's `drag` sends the
-          // whole down→(interpolated moves)→up sequence through the SAME window-local
-          // post_mouse_event → SLEventPostToPid/CGEventPostToPid path as click
-          // (source-verified against cua-driver-rs v0.7.1: no cursor warp exists
-          // on the PID-bound drag path; drag requires a PID)
-          // is required). So a pid+window_id drag never moves the user's REAL cursor.
-          // We resolve BOTH endpoints and require the SAME window: a window-local drag
-          // cannot cross windows, and cross-app drag-and-drop needs a real
-          // NSDraggingSession this synthetic post_to_pid path cannot establish
-          // (cua-driver itself marks the result unverifiable). Fail closed on empty
-          // desktop (no target window ⇒ no required pid to post to) or cross-window.
-          // delivery_mode is left DEFAULT (Background) — never 'foreground', which
-          // would briefly reorder window z-order/frontmost (a focus disturbance).
-          const from = await coordinateTarget(
-            context.boundAction,
-            action.startCoordinate,
-            signal,
-            true,
-          );
-          if (from && 'outcome' in from) return from;
-          const to = await coordinateTarget(
-            context.boundAction,
-            action.coordinate,
-            signal,
-          );
-          if (to && 'outcome' in to) return to;
-          if (!from || !to) {
-            return {
-              outcome: {
-                ok: false,
-                error: 'unsupported_action',
-                message:
-                  'drag endpoint is not over an app window (empty desktop) — refusing: the drag needs a target window/pid. '
-                  + 'Drag within a single app window instead.',
-              },
-            };
-          }
-          if (from.pid !== to.pid || from.windowId !== to.windowId) {
-            return {
-              outcome: {
-                ok: false,
-                error: 'unsupported_action',
-                message:
-                  'drag endpoints span different windows — refusing: a background window-local drag cannot cross windows, '
-                  + 'and cross-app drag-and-drop needs a real drag session. Keep both endpoints inside one window.',
-              },
-            };
-          }
-          const semantic = await runElectronSemanticPointer(
-            {
-              type: 'left_click_drag',
-              startScreenPoint: from.screenPoint,
-              endScreenPoint: to.screenPoint,
-            },
-            from,
-            signal,
-            context.toolCallId,
-            context.boundAction?.target?.page,
-          );
-          if (semantic.handled && semantic.outcome) {
-            return { outcome: semantic.outcome, resolvedScreenPoint: to.screenPoint };
-          }
-          {
-            let snapshot: TargetSnapshot;
-            try {
-              snapshot = await snapshotTarget(from, signal);
-            } catch (error) {
-              return {
-                outcome: {
-                  ok: false as const,
-                  error: 'capture_failed' as const,
-                  message: (error as Error).message,
-                },
-              };
-            }
-            const toPoint = windowPointFromSnapshot({
-              screenPoint: to.screenPoint,
-              windowBounds: from.bounds,
-              screenshotWidthPx: snapshot.screenshotWidthPx,
-              screenshotHeightPx: snapshot.screenshotHeightPx,
-            });
-            if (!toPoint) {
-              return {
-                outcome: {
-                  ok: false as const,
-                  error: 'invalid_coordinate' as const,
-                  message: 'drag endpoint does not map into the target window snapshot',
-                },
-              };
-            }
-            const intervention = await physicalInputFailure();
-            if (intervention) return intervention;
-            const r = await actionClient.callTool(
-              'drag',
-              {
-                pid: from.pid,
-                window_id: from.windowId,
-                from_x: snapshot.windowPoint.x,
-                from_y: snapshot.windowPoint.y,
-                to_x: toPoint.x,
-                to_y: toPoint.y,
-              },
-              signal,
-            );
-            return {
-              outcome: normalizeCuaDriverOutcome(r),
-              resolvedScreenPoint: to.screenPoint,
-            };
-          }
-        }
-        case 'zoom': {
-          // cua-driver zoom is window-scoped. Resolve both region corners in
-          // the declared desktop pixel space and require one owning window,
-          // then convert the crop to that window's screenshot-pixel space.
-          const x1 = Math.min(action.region.x1, action.region.x2);
-          const y1 = Math.min(action.region.y1, action.region.y2);
-          const x2 = Math.max(action.region.x1, action.region.x2);
-          const y2 = Math.max(action.region.y1, action.region.y2);
-          const topLeft = await coordinateTarget(
-            context.boundAction,
-            { x: x1, y: y1 },
-            signal,
-            true,
-          );
-          if (topLeft && 'outcome' in topLeft) return topLeft;
-          const bottomRight = await coordinateTarget(
-            context.boundAction,
-            { x: x2, y: y2 },
-            signal,
-          );
-          if (bottomRight && 'outcome' in bottomRight) return bottomRight;
-          if (!topLeft || !bottomRight) {
-            return {
-              outcome: {
-                ok: false,
-                error: 'unsupported_action',
-                message: 'zoom region is not fully contained in an app window.',
-              },
-            };
-          }
-          if (topLeft.pid !== bottomRight.pid || topLeft.windowId !== bottomRight.windowId) {
-            return {
-              outcome: {
-                ok: false,
-                error: 'unsupported_action',
-                message: 'zoom region spans different windows; keep the region inside one app window.',
-              },
-            };
-          }
-          {
-            let snapshot: TargetSnapshot;
-            try {
-              snapshot = await snapshotTarget(topLeft, signal);
-            } catch (error) {
-              return {
-                outcome: {
-                  ok: false as const,
-                  error: 'capture_failed' as const,
-                  message: (error as Error).message,
-                },
-              };
-            }
-            const bottomRightPoint = windowPointFromSnapshot({
-              screenPoint: bottomRight.screenPoint,
-              windowBounds: topLeft.bounds,
-              screenshotWidthPx: snapshot.screenshotWidthPx,
-              screenshotHeightPx: snapshot.screenshotHeightPx,
-            });
-            if (!bottomRightPoint) {
-              return {
-                outcome: {
-                  ok: false as const,
-                  error: 'invalid_coordinate' as const,
-                  message: 'zoom region does not map into the target window snapshot',
-                },
-              };
-            }
-            const r = await actionClient.callTool(
-              'zoom',
-              {
-                pid: topLeft.pid,
-                window_id: topLeft.windowId,
-                x1: snapshot.windowPoint.x,
-                y1: snapshot.windowPoint.y,
-                x2: bottomRightPoint.x,
-                y2: bottomRightPoint.y,
-              },
-              signal,
-            );
-            if (r?.isError) return { outcome: normalizeCuaDriverOutcome(r) };
-            const image = r?.content?.find((content) => content.type === 'image');
-            if (!image?.data) {
-              return { outcome: { ok: false as const, error: 'capture_failed' as const, message: 'zoom returned no image' } };
-            }
-            const byteLength = Buffer.from(image.data, 'base64').byteLength;
-            if (exceedsCuaDriverFrameCap(byteLength)) {
-              return {
-                outcome: {
-                  ok: false as const,
-                  error: 'sensitivity_blocked' as const,
-                  message: `zoom frame ${byteLength}B exceeds cap`,
-                },
-              };
-            }
-            const fresh = await observeResolvedWindow(
-              topLeft,
-              true,
-              signal,
-              context,
-            );
-            return {
-              outcome: {
-                ok: true as const,
-                tier: 'coordinate-background' as const,
-                verified: false,
-                evidence: { path: 'screenshot-detail', effect: 'unverifiable' },
-              },
-              observation: fresh,
-              ...(fresh.screenshot ? { screenshot: fresh.screenshot } : {}),
-            };
-          }
-        }
-        case 'type':
-        case 'key': {
-          // Target-bound keyboard: `type` may fill a native empty AX field only
-          // after fresh read-back. `key` is refused because cua-driver reports
-          // key events as unverifiable and user clicks can redirect renderer focus.
-          const target = targetForContext(context);
-          if (!target) {
-            return {
-              outcome: {
-                ok: false,
-                  error: 'unsupported_action',
-                  message:
-                    `keyboard action '${action.type}' has no target window yet — refusing: `
-                  + 'click an editable native field before a verified text fill.',
-              },
-            };
-          }
-          if (action.type === 'type') {
-            try {
-              return { outcome: await fillEditableTarget(target, action.text, signal) };
-            } catch (error) {
-              const failure = lifecycleFailure(error);
-              if (failure) return failure;
-              return {
-                outcome: {
-                  ok: false,
-                  error: 'capture_failed',
-                  message: (error as Error).message,
-                },
-              };
-            }
-          }
-          return {
-            outcome: {
-              ok: false,
-              error: 'unsupported_action',
-              message: 'background key chords cannot be verified without risking focus races',
-            },
-          };
-        }
-        case 'wait':
-          await new Promise((res) => setTimeout(res, Math.min(action.durationMs, 10_000)));
-          return { outcome: { ok: true, tier: 'coordinate-background' } };
-        case 'cursor_position': {
-          const result = await actionClient.callTool('get_cursor_position', {}, signal);
-          const structured = result?.structuredContent ?? {};
-          if (
-            result?.isError
-            || typeof structured.x !== 'number'
-            || !Number.isFinite(structured.x)
-            || typeof structured.y !== 'number'
-            || !Number.isFinite(structured.y)
-          ) {
-            return {
-              outcome: {
-                ok: false,
-                error: 'capture_failed',
-                message: 'cua-driver returned an invalid cursor position',
-              },
-            };
-          }
-          return {
-            outcome: { ok: true, tier: 'coordinate-background' },
-            resolvedScreenPoint: { x: structured.x, y: structured.y },
-          };
-        }
-        case 'mouse_move':
-          {
-            const win = await coordinateTarget(
-              context.boundAction,
-              action.coordinate,
-              signal,
-            );
-            if (win && 'outcome' in win) return win;
-            if (!win) {
-              return {
-                outcome: {
-                  ok: false,
-                  error: 'target_missing',
-                  message: 'no bound app window at the requested cursor point',
-                },
-              };
-            }
-            return {
-              outcome: { ok: true, tier: 'coordinate-background' },
-              resolvedScreenPoint: win.screenPoint,
-            };
-          }
-        default:
-          return { outcome: { ok: false, error: 'unsupported_action', message: `action '${action.type}' not mapped to cua-driver` } };
-        }
-        }, context.sessionId);
+          },
+          context.sessionId,
+        );
       } catch (error) {
         const failure = lifecycleFailure(error);
         if (failure) return failure;

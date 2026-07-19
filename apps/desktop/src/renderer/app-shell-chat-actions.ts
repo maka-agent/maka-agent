@@ -6,6 +6,7 @@ import type {
   UiLocale,
   UserQuestionResponse,
 } from '@maka/core';
+import { DEFAULT_SESSION_NAME } from '@maka/core';
 import {
   armLiveTurn,
   dequeueInteractionByRequestId,
@@ -13,6 +14,7 @@ import {
   type LiveTurnProjection,
   type NavSelection,
 } from '@maka/ui';
+import type { RendererIngestInput } from '../preload/bridge-contract.js';
 import { messageRefreshErrorMessage } from './app-shell-copy.js';
 import { getShellCopy, localizedShellErrorMessage } from './locales/shell-copy.js';
 import { preflightAttachmentItems } from './attachment-preflight.js';
@@ -259,11 +261,11 @@ export function createAppShellChatActions(deps: {
     try {
       const turnId = crypto.randomUUID();
       if (!initialSessionId) {
-        if (pending && pending.length > 0) preflightAttachmentItems(pending);
+        if (pending && pending.length > 0) preflightAttachmentItems(pending, uiLocale);
         const session = await window.maka.sessions.create({
           // Omit permissionMode so main.ts's sessions:create resolves the
           // configured chatDefaults.permissionMode as the single authority.
-          name: text.slice(0, 42) || copy.newConversation,
+          name: DEFAULT_SESSION_NAME,
           ...(validPendingNewChatModel
             ? {
                 llmConnectionSlug: validPendingNewChatModel.llmConnectionSlug,
@@ -328,7 +330,7 @@ export function createAppShellChatActions(deps: {
       if (!sendStillOwnsCurrentSurface) return false;
       if (isNoRealConnectionError(error)) {
         const reason = noRealConnectionReasonFromError(error);
-        showModelSetupToast(noRealConnectionSetupDescription(reason), reason);
+        showModelSetupToast(noRealConnectionSetupDescription(reason, uiLocale), reason);
       } else if (isSessionWorkspaceUnavailableError(error)) {
         showSessionWorkspaceUnavailableToast(toastApi, uiLocale);
       } else {

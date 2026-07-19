@@ -25,7 +25,8 @@ export const HARNESS_MAKA_CONTEXT_BUDGET = {
 
 // Authoritative snapshot: https://github.com/harbor-framework/terminal-bench-2-1
 export const TERMINAL_BENCH_2_1_REVISION = 'd49e28f1e4ddd13d289e85a5f312a66750951932';
-export const TERMINAL_BENCH_2_1_TASK_TREE_FINGERPRINT = 'sha256:456826aa4c47ed309716c964c96d2a3acc998764ebc84f3e8449c807d74bd4e7';
+export const TERMINAL_BENCH_2_1_TASK_TREE_FINGERPRINT =
+  'sha256:456826aa4c47ed309716c964c96d2a3acc998764ebc84f3e8449c807d74bd4e7';
 export const TERMINAL_BENCH_2_1_TASK_IDS = [
   'adaptive-rejection-sampler',
   'bn-fit-modify',
@@ -123,7 +124,12 @@ export function assertTerminalBench21TaskSet(taskIds: readonly string[]): void {
   const expected = new Set<string>(TERMINAL_BENCH_2_1_TASK_IDS);
   const missing = TERMINAL_BENCH_2_1_TASK_IDS.filter((taskId) => !actual.has(taskId));
   const unexpected = [...actual].filter((taskId) => !expected.has(taskId)).sort();
-  if (taskIds.length === TERMINAL_BENCH_2_1_TASK_IDS.length && actual.size === expected.size && missing.length === 0 && unexpected.length === 0) {
+  if (
+    taskIds.length === TERMINAL_BENCH_2_1_TASK_IDS.length &&
+    actual.size === expected.size &&
+    missing.length === 0 &&
+    unexpected.length === 0
+  ) {
     return;
   }
   throw new Error(
@@ -229,9 +235,9 @@ export function buildHarnessAbRunManifest(input: HarnessAbRunManifestInput): Har
     throw new Error('pairConcurrency must be a positive integer');
   }
   if (
-    !Number.isSafeInteger(input.pilotTaskCount)
-    || input.pilotTaskCount < 1
-    || input.pilotTaskCount > evaluationTaskIds.length
+    !Number.isSafeInteger(input.pilotTaskCount) ||
+    input.pilotTaskCount < 1 ||
+    input.pilotTaskCount > evaluationTaskIds.length
   ) {
     throw new Error(`pilotTaskCount must be between 1 and ${evaluationTaskIds.length}`);
   }
@@ -245,13 +251,15 @@ export function buildHarnessAbRunManifest(input: HarnessAbRunManifestInput): Har
     },
     model: { ...input.model },
     pricing: { ...input.pricing },
-    ...(input.oracleEvidence ? {
-      oracleEvidence: {
-        ...input.oracleEvidence,
-        annotations: input.oracleEvidence.annotations.map((annotation) => ({ ...annotation })),
-        warnings: [...input.oracleEvidence.warnings],
-      },
-    } : {}),
+    ...(input.oracleEvidence
+      ? {
+          oracleEvidence: {
+            ...input.oracleEvidence,
+            annotations: input.oracleEvidence.annotations.map((annotation) => ({ ...annotation })),
+            warnings: [...input.oracleEvidence.warnings],
+          },
+        }
+      : {}),
   };
   const manifest = buildAbRunManifest({
     experimentKind: 'harness',

@@ -1,4 +1,6 @@
 import { useEffect, useState, type RefObject } from 'react';
+import { useUiLocale } from './locale-context.js';
+import { getConversationCopy } from './conversation-copy.js';
 
 export interface PromptAnchorRailTurn {
   turnId: string;
@@ -22,6 +24,7 @@ export interface PromptAnchorRailProps {
  * tick whose turn is currently at the top of the viewport.
  */
 export function PromptAnchorRail({ turns, scrollRef }: PromptAnchorRailProps): React.ReactElement | null {
+  const copy = getConversationCopy(useUiLocale()).sessions;
   const [activeTurnId, setActiveTurnId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -68,10 +71,10 @@ export function PromptAnchorRail({ turns, scrollRef }: PromptAnchorRailProps): R
   if (turns.length < 3) return null;
 
   return (
-    <nav className="maka-prompt-rail" aria-label="按提问跳转">
+    <nav className="maka-prompt-rail" aria-label={copy.promptRailAriaLabel}>
       {turns.map((turn) => {
         const isActive = turn.turnId === activeTurnId;
-        const preview = turn.label.trim() || '（空提问）';
+        const preview = turn.label.trim() || copy.emptyPrompt;
         const replyPreview = (turn.reply ?? '').replace(/\s+/g, ' ').trim().slice(0, 140);
         return (
           <button
@@ -80,7 +83,7 @@ export function PromptAnchorRail({ turns, scrollRef }: PromptAnchorRailProps): R
             className="maka-prompt-rail-tick"
             data-active={isActive ? 'true' : undefined}
             aria-current={isActive ? 'true' : undefined}
-            aria-label={`跳到提问：${preview}`}
+            aria-label={copy.jumpToPrompt(preview)}
             onClick={() => jumpTo(turn.turnId)}
           >
             <span className="maka-prompt-rail-preview" aria-hidden="true">

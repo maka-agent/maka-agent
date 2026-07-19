@@ -76,26 +76,35 @@ export interface ShellRunLauncher {
   runBackgroundBash(input: ShellRunBashInput): Promise<ShellRunToolResult>;
 }
 
-const additionalFilesystemEntrySchema = z.object({
-  path: z.string(),
-  access: z.enum(['read', 'write']),
-  scope: z.enum(['exact', 'subtree']),
-}).strict();
+const additionalFilesystemEntrySchema = z
+  .object({
+    path: z.string(),
+    access: z.enum(['read', 'write']),
+    scope: z.enum(['exact', 'subtree']),
+  })
+  .strict();
 
 export const bashSandboxPermissionsSchema = z.discriminatedUnion('mode', [
   z.object({ mode: z.literal('use_default') }).strict(),
-  z.object({
-    mode: z.literal('with_additional_permissions'),
-    file_system: z.object({
-      entries: z.array(additionalFilesystemEntrySchema).max(MAX_ADDITIONAL_FILESYSTEM_ENTRIES),
-    }).strict().optional(),
-    network: z.literal(true).optional(),
-    justification: z.string().min(1).max(MAX_ADDITIONAL_PERMISSION_JUSTIFICATION_CHARS),
-  }).strict(),
-  z.object({
-    mode: z.literal('require_escalated'),
-    justification: z.string().min(1).max(500),
-  }).strict(),
+  z
+    .object({
+      mode: z.literal('with_additional_permissions'),
+      file_system: z
+        .object({
+          entries: z.array(additionalFilesystemEntrySchema).max(MAX_ADDITIONAL_FILESYSTEM_ENTRIES),
+        })
+        .strict()
+        .optional(),
+      network: z.literal(true).optional(),
+      justification: z.string().min(1).max(MAX_ADDITIONAL_PERMISSION_JUSTIFICATION_CHARS),
+    })
+    .strict(),
+  z
+    .object({
+      mode: z.literal('require_escalated'),
+      justification: z.string().min(1).max(500),
+    })
+    .strict(),
 ]);
 
 export type BashSandboxPermissionsDeclaration = z.infer<typeof bashSandboxPermissionsSchema>;
@@ -127,7 +136,11 @@ export function buildForegroundBashTool(options: BuildForegroundBashToolOptions)
         if (result.stdout) ctx.emitOutput('stdout', result.stdout);
         if (result.stderr) ctx.emitOutput('stderr', result.stderr);
       }
-      await options.afterResult?.({ command, cwd: ctx.cwd, ...(timeoutMs !== undefined ? { timeoutMs } : {}) }, result, ctx);
+      await options.afterResult?.(
+        { command, cwd: ctx.cwd, ...(timeoutMs !== undefined ? { timeoutMs } : {}) },
+        result,
+        ctx,
+      );
       return shapeTerminalResult({
         cwd: ctx.cwd,
         command,
@@ -142,17 +155,19 @@ export function buildLocalForegroundBashTool(
 ): MakaTool {
   const shell = options.shell ?? defaultShellPlan();
   return buildForegroundBashTool({
-    description: withShellGuidance('Run a shell command in the session cwd.', shell)
-      + ' Subject to permission policy.',
+    description:
+      withShellGuidance('Run a shell command in the session cwd.', shell) +
+      ' Subject to permission policy.',
     ...(options.executionFacts ? { executionFacts: options.executionFacts } : {}),
     defaultTimeoutMs: () => 120_000,
-    execute: async ({ command, cwd, timeoutMs, ctx }) => runShellWithBoundedTail(command, {
-      cwd,
-      timeoutMs: timeoutMs ?? 120_000,
-      abortSignal: ctx.abortSignal,
-      emitOutput: ctx.emitOutput,
-      shell,
-    }),
+    execute: async ({ command, cwd, timeoutMs, ctx }) =>
+      runShellWithBoundedTail(command, {
+        cwd,
+        timeoutMs: timeoutMs ?? 120_000,
+        abortSignal: ctx.abortSignal,
+        emitOutput: ctx.emitOutput,
+        shell,
+      }),
   });
 }
 
@@ -162,17 +177,15 @@ export function buildManagedBashTool(
     executionFacts?: ToolExecutionFacts;
     shell?: ShellPlan;
     sandbox?: MakaTool['sandbox'];
-    transformCommand?: (input: {
-      command: string;
-      pty: boolean;
-      ctx: MakaToolContext;
-    }) => {
-      argv?: readonly string[];
-      cwd: string;
-      env?: NodeJS.ProcessEnv;
-      fdInputs?: readonly ChildFdInput[];
-      sandboxType?: SandboxType;
-    } | undefined;
+    transformCommand?: (input: { command: string; pty: boolean; ctx: MakaToolContext }) =>
+      | {
+          argv?: readonly string[];
+          cwd: string;
+          env?: NodeJS.ProcessEnv;
+          fdInputs?: readonly ChildFdInput[];
+          sandboxType?: SandboxType;
+        }
+      | undefined;
     planAdditionalPermissions?: (
       args: ManagedBashPermissionArgs,
       context: AdditionalPermissionPlannerContext,
@@ -194,40 +207,51 @@ export function buildManagedBashTool(
     name: 'Bash',
     activityKind: 'command',
     description:
-      withShellGuidance('Run a shell command in the session cwd.', shell)
-      + ` Foreground is the default (timeout ${DEFAULT_BASH_TIMEOUT_MS}ms, maximum ${MAX_FOREGROUND_BASH_TIMEOUT_MS}ms).`
-      + ` Set run_in_background=true only when the command should continue as a tracked runtime background task; background commands have no default timeout (maximum explicit timeout ${MAX_SHELL_RUN_TIMEOUT_MS}ms).`
-      + ' Set pty=true together with run_in_background=true only for terminal semantics or later input; use the returned ref with Read or WriteStdin. Subject to permission policy.'
-      + additionalPermissionDescription,
-    parameters: z.object({
-      command: z.string().describe('The shell command to execute'),
-      timeout_ms: z.number().int().positive().max(MAX_SHELL_RUN_TIMEOUT_MS).optional(),
-      run_in_background: z.boolean().optional(),
-      pty: z.boolean().optional(),
-      ...(hasSandboxPermissionPlanner ? {
-        sandbox_permissions: bashSandboxPermissionsSchema
-          .describe('Optional one-call filesystem/network permission or explicit unsandboxed execution request.')
-          .optional(),
-      } : {}),
-    }).strict().superRefine(({ timeout_ms, run_in_background, pty }, ctx) => {
-      if (!run_in_background && timeout_ms !== undefined && timeout_ms > MAX_FOREGROUND_BASH_TIMEOUT_MS) {
-        ctx.addIssue({
-          code: 'too_big',
-          maximum: MAX_FOREGROUND_BASH_TIMEOUT_MS,
-          origin: 'number',
-          inclusive: true,
-          path: ['timeout_ms'],
-          message: `Foreground Bash timeout may not exceed ${MAX_FOREGROUND_BASH_TIMEOUT_MS}ms`,
-        });
-      }
-      if (pty && !run_in_background) {
-        ctx.addIssue({
-          code: 'custom',
-          path: ['pty'],
-          message: 'PTY Bash requires run_in_background=true',
-        });
-      }
-    }),
+      withShellGuidance('Run a shell command in the session cwd.', shell) +
+      ` Foreground is the default (timeout ${DEFAULT_BASH_TIMEOUT_MS}ms, maximum ${MAX_FOREGROUND_BASH_TIMEOUT_MS}ms).` +
+      ` Set run_in_background=true only when the command should continue as a tracked runtime background task; background commands have no default timeout (maximum explicit timeout ${MAX_SHELL_RUN_TIMEOUT_MS}ms).` +
+      ' Set pty=true together with run_in_background=true only for terminal semantics or later input; use the returned ref with Read or WriteStdin. Subject to permission policy.' +
+      additionalPermissionDescription,
+    parameters: z
+      .object({
+        command: z.string().describe('The shell command to execute'),
+        timeout_ms: z.number().int().positive().max(MAX_SHELL_RUN_TIMEOUT_MS).optional(),
+        run_in_background: z.boolean().optional(),
+        pty: z.boolean().optional(),
+        ...(hasSandboxPermissionPlanner
+          ? {
+              sandbox_permissions: bashSandboxPermissionsSchema
+                .describe(
+                  'Optional one-call filesystem/network permission or explicit unsandboxed execution request.',
+                )
+                .optional(),
+            }
+          : {}),
+      })
+      .strict()
+      .superRefine(({ timeout_ms, run_in_background, pty }, ctx) => {
+        if (
+          !run_in_background &&
+          timeout_ms !== undefined &&
+          timeout_ms > MAX_FOREGROUND_BASH_TIMEOUT_MS
+        ) {
+          ctx.addIssue({
+            code: 'too_big',
+            maximum: MAX_FOREGROUND_BASH_TIMEOUT_MS,
+            origin: 'number',
+            inclusive: true,
+            path: ['timeout_ms'],
+            message: `Foreground Bash timeout may not exceed ${MAX_FOREGROUND_BASH_TIMEOUT_MS}ms`,
+          });
+        }
+        if (pty && !run_in_background) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['pty'],
+            message: 'PTY Bash requires run_in_background=true',
+          });
+        }
+      }),
     permissionRequired: true,
     ...(options.executionFacts ? { executionFacts: options.executionFacts } : {}),
     ...(options.sandbox ? { sandbox: options.sandbox } : {}),
@@ -272,7 +296,11 @@ export function buildStopBackgroundTaskTool(backgroundTasks: BackgroundTaskStopp
     description:
       'Stop a background task by runtime ref. Currently supports background shell run refs returned by Bash and shown in the turn tail.',
     parameters: z.object({
-      ref: z.string().describe('The runtime background task ref, for example maka://runtime/background-tasks/<id>'),
+      ref: z
+        .string()
+        .describe(
+          'The runtime background task ref, for example maka://runtime/background-tasks/<id>',
+        ),
     }),
     permissionRequired: false,
     impl: ({ ref }, ctx) => backgroundTasks.stopBackgroundTask(ctx.sessionId, ref, ctx.abortSignal),
@@ -280,42 +308,54 @@ export function buildStopBackgroundTaskTool(backgroundTasks: BackgroundTaskStopp
 }
 
 export function buildWriteStdinTool(ptyControls: PtyControlWriter): MakaTool {
-  const parameters = z.object({
-    ref: z.string()
-      .max(MAX_SHELL_RUN_RESOURCE_REF_CHARS)
-      .refine(isShellRunResourceRef, 'ref must be a canonical PTY Bash runtime ref')
-      .describe('The runtime ref returned by a PTY Bash task'),
-    input: z.string()
-      .refine((value) => value.length > 0, 'input must not be empty; omit it for a resize-only call')
-      .refine(isWellFormedTerminalInput, 'input must be well-formed Unicode')
-      .refine(
-        (value) => Buffer.byteLength(value, 'utf8') <= MAX_WRITE_STDIN_INPUT_BYTES,
-        `input must not exceed ${MAX_WRITE_STDIN_INPUT_BYTES} UTF-8 bytes`,
-      )
-      .optional(),
-    size: z.object({
-      cols: z.number().int().min(MIN_PTY_COLS).max(MAX_PTY_COLS),
-      rows: z.number().int().min(MIN_PTY_ROWS).max(MAX_PTY_ROWS),
-    }).strict().optional(),
-  }).strict().refine((value) => value.input !== undefined || value.size !== undefined, {
-    message: 'input and/or size is required',
-  });
+  const parameters = z
+    .object({
+      ref: z
+        .string()
+        .max(MAX_SHELL_RUN_RESOURCE_REF_CHARS)
+        .refine(isShellRunResourceRef, 'ref must be a canonical PTY Bash runtime ref')
+        .describe('The runtime ref returned by a PTY Bash task'),
+      input: z
+        .string()
+        .refine(
+          (value) => value.length > 0,
+          'input must not be empty; omit it for a resize-only call',
+        )
+        .refine(isWellFormedTerminalInput, 'input must be well-formed Unicode')
+        .refine(
+          (value) => Buffer.byteLength(value, 'utf8') <= MAX_WRITE_STDIN_INPUT_BYTES,
+          `input must not exceed ${MAX_WRITE_STDIN_INPUT_BYTES} UTF-8 bytes`,
+        )
+        .optional(),
+      size: z
+        .object({
+          cols: z.number().int().min(MIN_PTY_COLS).max(MAX_PTY_COLS),
+          rows: z.number().int().min(MIN_PTY_ROWS).max(MAX_PTY_ROWS),
+        })
+        .strict()
+        .optional(),
+    })
+    .strict()
+    .refine((value) => value.input !== undefined || value.size !== undefined, {
+      message: 'input and/or size is required',
+    });
   return {
     name: 'WriteStdin',
     activityKind: 'command',
     description:
-      'Send exact characters to a background PTY and/or resize it, then return the terminal state at the next parser cut. '
-      + 'No newline is added: use \\r for Enter and \\u0003 for Ctrl-C. Input is ordinary audited tool-call data, not a secure secret channel. '
-      + 'The returned output is the terminal state at that cut, not output attributed to this input; use Read on the ref to observe later output.',
+      'Send exact characters to a background PTY and/or resize it, then return the terminal state at the next parser cut. ' +
+      'No newline is added: use \\r for Enter and \\u0003 for Ctrl-C. Input is ordinary audited tool-call data, not a secure secret channel. ' +
+      'The returned output is the terminal state at that cut, not output attributed to this input; use Read on the ref to observe later output.',
     parameters,
     permissionRequired: true,
-    impl: ({ ref, input, size }, ctx) => ptyControls.writeStdin({
-      sessionId: ctx.sessionId,
-      ref,
-      ...(input !== undefined ? { input } : {}),
-      ...(size !== undefined ? { size } : {}),
-      abortSignal: ctx.abortSignal,
-    }),
+    impl: ({ ref, input, size }, ctx) =>
+      ptyControls.writeStdin({
+        sessionId: ctx.sessionId,
+        ref,
+        ...(input !== undefined ? { input } : {}),
+        ...(size !== undefined ? { size } : {}),
+        abortSignal: ctx.abortSignal,
+      }),
   };
 }
 
@@ -342,16 +382,18 @@ export function shapeTerminalResult(input: {
       stderrTruncated: Boolean(input.result.stderrTruncated) || stderrView.truncated,
       redacted: stdout !== input.result.stdout || stderr !== input.result.stderr,
     },
-    ...(isLikelySandboxDenial(input.result) ? {
-      sandboxDenial: {
-        likely: true,
-        ...('sandboxType' in input.result
-          && (input.result.sandboxType === 'macos-seatbelt' || input.result.sandboxType === 'linux')
-          ? { backend: input.result.sandboxType }
-          : {}),
-        recovery: 'require_escalated',
-      },
-    } : {}),
+    ...(isLikelySandboxDenial(input.result)
+      ? {
+          sandboxDenial: {
+            likely: true,
+            ...('sandboxType' in input.result &&
+            (input.result.sandboxType === 'macos-seatbelt' || input.result.sandboxType === 'linux')
+              ? { backend: input.result.sandboxType }
+              : {}),
+            recovery: 'require_escalated',
+          },
+        }
+      : {}),
   };
 }
 
@@ -362,7 +404,9 @@ function isLikelySandboxDenial(result: ForegroundBashResult | BoundedShellResult
   );
 }
 
-function terminalStatus(result: ForegroundBashResult | BoundedShellResult): TerminalToolResult['status'] {
+function terminalStatus(
+  result: ForegroundBashResult | BoundedShellResult,
+): TerminalToolResult['status'] {
   if (result.timedOut) return 'timed_out';
   if (result.aborted) return 'cancelled';
   return result.exitCode === 0 ? 'completed' : 'failed';

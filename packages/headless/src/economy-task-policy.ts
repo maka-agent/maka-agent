@@ -16,7 +16,8 @@ export interface EconomyTaskModeSelection {
 const DEFAULT_DISABLED_REASON = 'economy-task mode was not explicitly enabled';
 const DEFAULT_CONFIG_ENABLED_REASON = 'economy-task mode explicitly enabled by config';
 const DEFAULT_CONFIG_DISABLED_REASON = 'economy-task mode explicitly disabled by config';
-const DEFAULT_TASK_METADATA_ENABLED_REASON = 'economy-task mode explicitly enabled by task benchmark metadata';
+const DEFAULT_TASK_METADATA_ENABLED_REASON =
+  'economy-task mode explicitly enabled by task benchmark metadata';
 
 const ECONOMY_TASK_CATEGORIES = new Set([
   'data-processing',
@@ -111,7 +112,9 @@ export function resolveEconomyTaskMode(config: Config, task?: Task): EconomyTask
 }
 
 export function buildEconomyTaskSystemPromptPolicy(
-  selection: Pick<EconomyTaskModeSelection, 'policyVersion'> = { policyVersion: ECONOMY_TASK_POLICY_VERSION },
+  selection: Pick<EconomyTaskModeSelection, 'policyVersion'> = {
+    policyVersion: ECONOMY_TASK_POLICY_VERSION,
+  },
 ): string {
   return [
     `Economy-task benchmark policy (${selection.policyVersion})`,
@@ -137,13 +140,18 @@ export function appendEconomyTaskPolicyToSystemPrompt(
     .join('\n\n');
 }
 
-export function configWithEconomyTaskPolicy(config: Config, selection: EconomyTaskModeSelection): Config {
+export function configWithEconomyTaskPolicy(
+  config: Config,
+  selection: EconomyTaskModeSelection,
+): Config {
   const systemPrompt = appendEconomyTaskPolicyToSystemPrompt(config.systemPrompt, selection);
   if (systemPrompt === config.systemPrompt) return config;
   return { ...config, systemPrompt };
 }
 
-function normalizeTaskMetadataMode(metadata: Record<string, unknown> | undefined): EconomyTaskModeConfig | undefined {
+function normalizeTaskMetadataMode(
+  metadata: Record<string, unknown> | undefined,
+): EconomyTaskModeConfig | undefined {
   if (!metadata) return undefined;
   const mode = normalizeModeConfig(metadata.economyTaskMode);
   if (mode) return mode;
@@ -159,7 +167,10 @@ function normalizeTaskSignalMode(task: Task | undefined): EconomyTaskModeConfig 
       return { enabled: true, reason: `economy-task mode enabled by category: ${category}` };
     }
     const tags = metadata.tags;
-    if (Array.isArray(tags) && tags.some((tag) => ECONOMY_TASK_TAGS.has(String(tag).toLowerCase()))) {
+    if (
+      Array.isArray(tags) &&
+      tags.some((tag) => ECONOMY_TASK_TAGS.has(String(tag).toLowerCase()))
+    ) {
       return { enabled: true, reason: 'economy-task mode enabled by task tags' };
     }
   }
@@ -178,7 +189,8 @@ function normalizeModeConfig(value: unknown): EconomyTaskModeConfig | undefined 
   const enabled = typeof value.enabled === 'boolean' ? value.enabled : undefined;
   const reason = cleanString(value.reason);
   const policyVersion = cleanPolicyVersion(value.policyVersion);
-  if (enabled === undefined && reason === undefined && policyVersion === undefined) return undefined;
+  if (enabled === undefined && reason === undefined && policyVersion === undefined)
+    return undefined;
   return {
     ...(enabled !== undefined ? { enabled } : {}),
     ...(reason ? { reason } : {}),

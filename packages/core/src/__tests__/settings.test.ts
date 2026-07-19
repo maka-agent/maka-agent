@@ -19,7 +19,9 @@ describe('bot readiness settings contract', () => {
 
   test('normalizes legacy connected boolean to credentials_valid, not operational', () => {
     const legacy = createDefaultSettings();
-    const telegram = legacy.botChat.channels.telegram as Partial<typeof legacy.botChat.channels.telegram>;
+    const telegram = legacy.botChat.channels.telegram as Partial<
+      typeof legacy.botChat.channels.telegram
+    >;
     delete telegram.readiness;
     legacy.botChat.channels.telegram.connected = true;
     legacy.botChat.channels.telegram.enabled = true;
@@ -33,7 +35,11 @@ describe('bot readiness settings contract', () => {
 
   test('does not treat non-boolean legacy connected values as credentials_valid', () => {
     const legacy = createDefaultSettings() as unknown as {
-      botChat: { channels: { telegram: { connected: unknown; readiness?: unknown; enabled: boolean; token: string } } };
+      botChat: {
+        channels: {
+          telegram: { connected: unknown; readiness?: unknown; enabled: boolean; token: string };
+        };
+      };
     };
     delete legacy.botChat.channels.telegram.readiness;
     legacy.botChat.channels.telegram.connected = 'true';
@@ -48,7 +54,9 @@ describe('bot readiness settings contract', () => {
 
   test('normalizes enabled configured channels to configured, not operational', () => {
     const legacy = createDefaultSettings();
-    const discord = legacy.botChat.channels.discord as Partial<typeof legacy.botChat.channels.discord>;
+    const discord = legacy.botChat.channels.discord as Partial<
+      typeof legacy.botChat.channels.discord
+    >;
     delete discord.readiness;
     legacy.botChat.channels.discord.enabled = true;
     legacy.botChat.channels.discord.token = 'discord-token';
@@ -385,6 +393,38 @@ describe('run-completion notification settings contract', () => {
   });
 });
 
+describe('keep-system-awake settings contract', () => {
+  test('createDefaultSettings leaves keep-system-awake off by default', () => {
+    const defaults = createDefaultSettings();
+    expect(defaults.system.keepSystemAwake).toBe(false);
+  });
+
+  test('migration: settings.json without a system section defaults to off', () => {
+    const legacy = { appearance: { theme: 'dark' as const } };
+    const normalized = normalizeSettings(legacy);
+    expect(normalized.system.keepSystemAwake).toBe(false);
+  });
+
+  test('mergeSettings carries the toggle through the patch surface', () => {
+    const current = createDefaultSettings();
+    const patched = mergeSettings(current, { system: { keepSystemAwake: true } });
+    expect(patched.system.keepSystemAwake).toBe(true);
+  });
+
+  test('fail-closed: a non-boolean keepSystemAwake normalizes back to off', () => {
+    for (const bad of [1, 0, 'yes', null, {}, []]) {
+      const malformed = { system: { keepSystemAwake: bad } };
+      const normalized = normalizeSettings(malformed);
+      expect(normalized.system.keepSystemAwake).toBe(false);
+    }
+  });
+
+  test('a valid enabled toggle survives normalize untouched', () => {
+    const normalized = normalizeSettings({ system: { keepSystemAwake: true } });
+    expect(normalized.system.keepSystemAwake).toBe(true);
+  });
+});
+
 describe('fixed toast position settings contract', () => {
   test('createDefaultSettings does not persist a toastPosition setting', () => {
     const defaults = createDefaultSettings();
@@ -427,7 +467,9 @@ describe('fixed toast position settings contract', () => {
 
   test('mergeSettings + normalizeSettings strips toastPosition patch input', () => {
     const current = createDefaultSettings();
-    const patched = mergeSettings(current, { appearance: { toastPosition: 'top-center' } as never });
+    const patched = mergeSettings(current, {
+      appearance: { toastPosition: 'top-center' } as never,
+    });
     const normalized = normalizeSettings(patched);
     expect('toastPosition' in patched.appearance).toBe(true);
     expect('toastPosition' in normalized.appearance).toBe(false);
@@ -653,15 +695,23 @@ describe('open gateway settings contract', () => {
     expect(staleResult.webSearch.providers.tavily.credentialStatus).toBe('untested');
     expect(staleResult.webSearch.providers.tavily.credentialCheckedAt).toBeUndefined();
     expect(freshResult.webSearch.providers.tavily.credentialStatus).toBe('valid');
-    expect(freshResult.webSearch.providers.tavily.credentialCheckedAt).toBe('2026-05-29T00:01:00.000Z');
+    expect(freshResult.webSearch.providers.tavily.credentialCheckedAt).toBe(
+      '2026-05-29T00:01:00.000Z',
+    );
   });
 
   test('workspace instructions are visible settings and default to enabled', () => {
     const defaults = createDefaultSettings();
 
     expect(defaults.workspaceInstructions.enabled).toBe(true);
-    expect(normalizeSettings({ workspaceInstructions: { enabled: false } }).workspaceInstructions.enabled).toBe(false);
-    expect(normalizeSettings({ workspaceInstructions: { enabled: 'yes' } }).workspaceInstructions.enabled).toBe(true);
+    expect(
+      normalizeSettings({ workspaceInstructions: { enabled: false } }).workspaceInstructions
+        .enabled,
+    ).toBe(false);
+    expect(
+      normalizeSettings({ workspaceInstructions: { enabled: 'yes' } }).workspaceInstructions
+        .enabled,
+    ).toBe(true);
   });
 
   test('mergeSettings carries workspace instruction toggle through update surface', () => {
@@ -678,8 +728,12 @@ describe('open gateway settings contract', () => {
     const defaults = createDefaultSettings();
 
     expect(defaults.privacy.incognitoActive).toBe(false);
-    expect(normalizeSettings({ privacy: { incognitoActive: true } }).privacy.incognitoActive).toBe(true);
-    expect(normalizeSettings({ privacy: { incognitoActive: 'yes' } }).privacy.incognitoActive).toBe(false);
+    expect(normalizeSettings({ privacy: { incognitoActive: true } }).privacy.incognitoActive).toBe(
+      true,
+    );
+    expect(normalizeSettings({ privacy: { incognitoActive: 'yes' } }).privacy.incognitoActive).toBe(
+      false,
+    );
     expect(normalizeSettings({}).privacy.incognitoActive).toBe(false);
   });
 

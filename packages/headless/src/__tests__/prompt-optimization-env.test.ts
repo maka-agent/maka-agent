@@ -62,10 +62,22 @@ describe('envFinitePositiveNumber', () => {
   });
 
   test('throws on NaN, non-finite, or non-positive so a guard is never silently disabled', () => {
-    assert.throws(() => envFinitePositiveNumber('N', 'abc', undefined), /N must be a finite positive number/);
-    assert.throws(() => envFinitePositiveNumber('N', '0', undefined), /N must be a finite positive number/);
-    assert.throws(() => envFinitePositiveNumber('N', '-5', undefined), /N must be a finite positive number/);
-    assert.throws(() => envFinitePositiveNumber('N', 'Infinity', undefined), /N must be a finite positive number/);
+    assert.throws(
+      () => envFinitePositiveNumber('N', 'abc', undefined),
+      /N must be a finite positive number/,
+    );
+    assert.throws(
+      () => envFinitePositiveNumber('N', '0', undefined),
+      /N must be a finite positive number/,
+    );
+    assert.throws(
+      () => envFinitePositiveNumber('N', '-5', undefined),
+      /N must be a finite positive number/,
+    );
+    assert.throws(
+      () => envFinitePositiveNumber('N', 'Infinity', undefined),
+      /N must be a finite positive number/,
+    );
   });
 });
 

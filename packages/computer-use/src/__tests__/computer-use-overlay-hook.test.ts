@@ -10,10 +10,18 @@ function fakeController() {
   const ensured: string[] = [];
   return {
     controller: {
-      ensure: (sessionId: string) => { ensured.push(sessionId); },
-      move: (input: unknown) => { moves.push(input); },
-      complete: (input: unknown) => { completions.push(input); },
-      cancel: (input: unknown) => { cancellations.push(input); },
+      ensure: (sessionId: string) => {
+        ensured.push(sessionId);
+      },
+      move: (input: unknown) => {
+        moves.push(input);
+      },
+      complete: (input: unknown) => {
+        completions.push(input);
+      },
+      cancel: (input: unknown) => {
+        cancellations.push(input);
+      },
     },
     moves,
     completions,
@@ -33,14 +41,16 @@ test('presentation starts from the Runtime-bound screen point', () => {
       presentationScreenPoint: { x: 201, y: 151 },
     },
   );
-  assert.deepEqual(moves, [{
-    actionId: 'a1',
-    sessionId: 's1',
-    screenX: 201,
-    screenY: 151,
-    kind: 'click',
-    instant: true,
-  }]);
+  assert.deepEqual(moves, [
+    {
+      actionId: 'a1',
+      sessionId: 's1',
+      screenX: 201,
+      screenY: 151,
+      kind: 'click',
+      instant: true,
+    },
+  ]);
 });
 
 test('completion uses only the executor-resolved point', () => {
@@ -54,14 +64,16 @@ test('completion uses only the executor-resolved point', () => {
     },
     { sessionId: 's1', toolCallId: 'a1' },
   );
-  assert.deepEqual(completions, [{
-    actionId: 'a1',
-    sessionId: 's1',
-    screenX: 202,
-    screenY: 152,
-    kind: 'click',
-    pulse: true,
-  }]);
+  assert.deepEqual(completions, [
+    {
+      actionId: 'a1',
+      sessionId: 's1',
+      screenX: 202,
+      screenY: 152,
+      kind: 'click',
+      pulse: true,
+    },
+  ]);
 });
 
 test('failed pointer action without a resolved point cancels presentation', () => {
@@ -102,14 +114,16 @@ test('mouse_move completion is reconciled from executor evidence', () => {
     },
     { sessionId: 's1', toolCallId: 'move1' },
   );
-  assert.deepEqual(completions, [{
-    actionId: 'move1',
-    sessionId: 's1',
-    screenX: 140,
-    screenY: 130,
-    kind: 'move',
-    pulse: false,
-  }]);
+  assert.deepEqual(completions, [
+    {
+      actionId: 'move1',
+      sessionId: 's1',
+      screenX: 140,
+      screenY: 130,
+      kind: 'move',
+      pulse: false,
+    },
+  ]);
 });
 
 test('non-pointer actions keep the session cursor without moving it', () => {

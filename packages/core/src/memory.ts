@@ -66,7 +66,7 @@ export const MEMORY_CONTENT_MAX_CODE_POINTS = 2000;
  *     promote to `'active'` (gate #6 reversible-before-auto-write).
  */
 export const MEMORY_MODES = ['off', 'manual_only', 'manual_with_drafts'] as const;
-export type MemoryMode = typeof MEMORY_MODES[number];
+export type MemoryMode = (typeof MEMORY_MODES)[number];
 
 /**
  * Sources allowed to create a DURABLE (`'active'`) memory entry. Disjoint
@@ -81,7 +81,7 @@ export type MemoryMode = typeof MEMORY_MODES[number];
  *     entry's `confirmedAt`.
  */
 export const MEMORY_SOURCES = ['user_authored', 'chat_extracted'] as const;
-export type MemorySource = typeof MEMORY_SOURCES[number];
+export type MemorySource = (typeof MEMORY_SOURCES)[number];
 
 /**
  * Non-durable candidate sources that can only produce `'draft'` /
@@ -106,7 +106,7 @@ export const MEMORY_CANDIDATE_SOURCES = [
   'search_recall',
   'daily_review',
 ] as const;
-export type MemoryCandidateSource = typeof MEMORY_CANDIDATE_SOURCES[number];
+export type MemoryCandidateSource = (typeof MEMORY_CANDIDATE_SOURCES)[number];
 
 /**
  * Persistence state of a memory entry.
@@ -125,7 +125,7 @@ export type MemoryCandidateSource = typeof MEMORY_CANDIDATE_SOURCES[number];
  * `validateMemoryWriteRequest` rejects any such attempt.
  */
 export const MEMORY_PERSISTENCE_STATES = ['draft', 'review_required', 'active'] as const;
-export type MemoryPersistenceState = typeof MEMORY_PERSISTENCE_STATES[number];
+export type MemoryPersistenceState = (typeof MEMORY_PERSISTENCE_STATES)[number];
 
 /**
  * Policy for HOW an `'active'` memory entry may be consumed.
@@ -140,7 +140,7 @@ export type MemoryPersistenceState = typeof MEMORY_PERSISTENCE_STATES[number];
  * to be useful. No `silent` policy exists — that would violate the gate.
  */
 export const MEMORY_USE_POLICIES = ['never', 'cited_only'] as const;
-export type MemoryUsePolicy = typeof MEMORY_USE_POLICIES[number];
+export type MemoryUsePolicy = (typeof MEMORY_USE_POLICIES)[number];
 
 /**
  * Closed enum of reasons a memory operation is blocked.
@@ -163,7 +163,7 @@ export const MEMORY_BLOCK_REASONS = [
   'renderer_provenance_forged',
   'mode_disallows_candidate',
 ] as const;
-export type MemoryBlockReason = typeof MEMORY_BLOCK_REASONS[number];
+export type MemoryBlockReason = (typeof MEMORY_BLOCK_REASONS)[number];
 
 /**
  * Scope of a memory entry — which conversations / sessions can see it.
@@ -173,7 +173,7 @@ export type MemoryBlockReason = typeof MEMORY_BLOCK_REASONS[number];
  *   - `session`   — visible only inside the originating session.
  */
 export const MEMORY_SCOPES = ['workspace', 'session'] as const;
-export type MemoryScope = typeof MEMORY_SCOPES[number];
+export type MemoryScope = (typeof MEMORY_SCOPES)[number];
 
 // ---------------------------------------------------------------------------
 // Shapes
@@ -283,9 +283,13 @@ export type MemoryResult<T> =
 // single-line.
 const CONTROL_CHARS_REGEX = new RegExp(
   '[' +
-    String.fromCharCode(0x00) + '-' + String.fromCharCode(0x1f) +
-    String.fromCharCode(0x7f) + '-' + String.fromCharCode(0x9f) +
-  ']',
+    String.fromCharCode(0x00) +
+    '-' +
+    String.fromCharCode(0x1f) +
+    String.fromCharCode(0x7f) +
+    '-' +
+    String.fromCharCode(0x9f) +
+    ']',
   'g',
 );
 
@@ -294,9 +298,11 @@ const CONTROL_CHARS_REGEX = new RegExp(
 // meant to be invisible.
 const ZERO_WIDTH_REGEX = new RegExp(
   '[' +
-    String.fromCharCode(0x200b) + '-' + String.fromCharCode(0x200d) +
+    String.fromCharCode(0x200b) +
+    '-' +
+    String.fromCharCode(0x200d) +
     String.fromCharCode(0xfeff) +
-  ']',
+    ']',
   'g',
 );
 
@@ -316,7 +322,10 @@ export function normalizeMemoryContent(input: unknown): MemoryResult<string> {
   if (typeof input !== 'string') {
     return invalid('content_invalid', 'memory content must be a string');
   }
-  const normalized = input.normalize('NFC').replace(CONTROL_CHARS_REGEX, ' ').replace(ZERO_WIDTH_REGEX, '');
+  const normalized = input
+    .normalize('NFC')
+    .replace(CONTROL_CHARS_REGEX, ' ')
+    .replace(ZERO_WIDTH_REGEX, '');
   const trimmed = normalized.trim();
   if (trimmed === '') {
     return invalid('content_invalid', 'memory content cannot be empty');
@@ -337,7 +346,9 @@ export function isMemorySource(value: unknown): value is MemorySource {
 
 /** Closed-enum membership check for `MemoryCandidateSource`. */
 export function isMemoryCandidateSource(value: unknown): value is MemoryCandidateSource {
-  return typeof value === 'string' && (MEMORY_CANDIDATE_SOURCES as readonly string[]).includes(value);
+  return (
+    typeof value === 'string' && (MEMORY_CANDIDATE_SOURCES as readonly string[]).includes(value)
+  );
 }
 
 /** Closed-enum membership check for `MemoryMode`. */
@@ -347,7 +358,9 @@ export function isMemoryMode(value: unknown): value is MemoryMode {
 
 /** Closed-enum membership check for `MemoryPersistenceState`. */
 export function isMemoryPersistenceState(value: unknown): value is MemoryPersistenceState {
-  return typeof value === 'string' && (MEMORY_PERSISTENCE_STATES as readonly string[]).includes(value);
+  return (
+    typeof value === 'string' && (MEMORY_PERSISTENCE_STATES as readonly string[]).includes(value)
+  );
 }
 
 /** Closed-enum membership check for `MemoryScope`. */
@@ -383,7 +396,9 @@ export function normalizeMemoryMode(input: unknown): MemoryResult<MemoryMode> {
 /**
  * Validate + canonicalize a `MemoryPersistenceState`.
  */
-export function normalizeMemoryPersistenceState(input: unknown): MemoryResult<MemoryPersistenceState> {
+export function normalizeMemoryPersistenceState(
+  input: unknown,
+): MemoryResult<MemoryPersistenceState> {
   if (!isMemoryPersistenceState(input)) {
     return invalid('persistence_invalid', 'memory persistenceState is not a recognized value');
   }

@@ -87,7 +87,11 @@ export function stripSkillInvocationTokens(text: string, names: ReadonlySet<stri
  * any — the autocomplete trigger shape. `query` is the partial name typed so
  * far (may be empty); `prefix` is the full `/skill:<query>` span to replace.
  */
-export function skillInvocationPrefixAt(lines: string[], cursorLine: number, cursorCol: number): { prefix: string; query: string } | null {
+export function skillInvocationPrefixAt(
+  lines: string[],
+  cursorLine: number,
+  cursorCol: number,
+): { prefix: string; query: string } | null {
   const currentLine = lines[cursorLine] || '';
   const beforeCursor = currentLine.slice(0, cursorCol);
   const match = /(?:^|\s)(\/skill:([A-Za-z0-9._-]*))$/.exec(beforeCursor);

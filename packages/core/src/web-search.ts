@@ -10,7 +10,7 @@
 
 /** Closed enum of providers V0.1 will accept. */
 export const WEB_SEARCH_PROVIDERS = ['tavily'] as const;
-export type WebSearchProvider = typeof WEB_SEARCH_PROVIDERS[number];
+export type WebSearchProvider = (typeof WEB_SEARCH_PROVIDERS)[number];
 
 /** Renderer-safe result row. No raw HTML, no provider tag soup. */
 export interface WebSearchResultRow {
@@ -52,10 +52,10 @@ export const WEB_SEARCH_CREDENTIAL_STATUSES = [
   'not_configured',
 ] as const;
 
-export type WebSearchCredentialStatus = typeof WEB_SEARCH_CREDENTIAL_STATUSES[number];
+export type WebSearchCredentialStatus = (typeof WEB_SEARCH_CREDENTIAL_STATUSES)[number];
 
 export const WEB_SEARCH_CREDENTIAL_SOURCES = ['none', 'saved', 'env'] as const;
-export type WebSearchCredentialSource = typeof WEB_SEARCH_CREDENTIAL_SOURCES[number];
+export type WebSearchCredentialSource = (typeof WEB_SEARCH_CREDENTIAL_SOURCES)[number];
 
 /**
  * Settings-layer placeholder for a stored API key. The renderer may
@@ -121,7 +121,14 @@ export function defaultWebSearchSettings(): WebSearchSettings {
   return {
     enabled: false,
     defaultProvider: 'tavily',
-    providers: { tavily: { apiKey: '', credentialSource: 'none', credentialVersion: 0, credentialStatus: 'untested' } },
+    providers: {
+      tavily: {
+        apiKey: '',
+        credentialSource: 'none',
+        credentialVersion: 0,
+        credentialStatus: 'untested',
+      },
+    },
   };
 }
 

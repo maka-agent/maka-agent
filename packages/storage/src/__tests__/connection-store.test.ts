@@ -22,19 +22,25 @@ describe('FileConnectionStore', () => {
 
   test('migrates a legacy connection to only its default model enabled', async () => {
     await withConnectionStore(async (store, dir) => {
-      await writeFile(join(dir, 'llm-connections.json'), JSON.stringify({
-        defaultSlug: 'openrouter-main',
-        connections: [{
-          slug: 'openrouter-main',
-          name: 'OpenRouter',
-          providerType: 'openrouter',
-          defaultModel: 'openrouter/auto',
-          enabled: true,
-          models: [{ id: 'openrouter/auto' }, { id: 'anthropic/claude-opus-4.8' }],
-          createdAt: 1,
-          updatedAt: 1,
-        }],
-      }), 'utf8');
+      await writeFile(
+        join(dir, 'llm-connections.json'),
+        JSON.stringify({
+          defaultSlug: 'openrouter-main',
+          connections: [
+            {
+              slug: 'openrouter-main',
+              name: 'OpenRouter',
+              providerType: 'openrouter',
+              defaultModel: 'openrouter/auto',
+              enabled: true,
+              models: [{ id: 'openrouter/auto' }, { id: 'anthropic/claude-opus-4.8' }],
+              createdAt: 1,
+              updatedAt: 1,
+            },
+          ],
+        }),
+        'utf8',
+      );
 
       const migrated = await store.get('openrouter-main');
 
@@ -93,7 +99,10 @@ describe('FileConnectionStore', () => {
         connections: Array<{ providerType: string; defaultModel: string }>;
       };
       assert.deepEqual(
-        persisted.connections.map(({ providerType, defaultModel }) => ({ providerType, defaultModel })),
+        persisted.connections.map(({ providerType, defaultModel }) => ({
+          providerType,
+          defaultModel,
+        })),
         [
           { providerType: 'opencode', defaultModel: 'gpt-5.5' },
           { providerType: 'opencode-go', defaultModel: 'minimax-m3' },
@@ -159,7 +168,11 @@ describe('FileConnectionStore', () => {
       });
 
       const persisted = JSON.parse(await readFile(join(dir, 'llm-connections.json'), 'utf8')) as {
-        connections: Array<{ providerType: string; defaultModel: string; models: Array<{ id: string }> }>;
+        connections: Array<{
+          providerType: string;
+          defaultModel: string;
+          models: Array<{ id: string }>;
+        }>;
       };
       assert.equal(persisted.connections[0]?.providerType, 'localai');
       assert.equal(persisted.connections[0]?.defaultModel, model);
@@ -184,7 +197,11 @@ describe('FileConnectionStore', () => {
       });
 
       const persisted = JSON.parse(await readFile(join(dir, 'llm-connections.json'), 'utf8')) as {
-        connections: Array<{ providerType: string; defaultModel: string; models: Array<{ id: string }> }>;
+        connections: Array<{
+          providerType: string;
+          defaultModel: string;
+          models: Array<{ id: string }>;
+        }>;
       };
       assert.equal(persisted.connections[0]?.providerType, 'vercel');
       assert.equal(persisted.connections[0]?.defaultModel, model);
@@ -208,7 +225,11 @@ describe('FileConnectionStore', () => {
       });
 
       const persisted = JSON.parse(await readFile(join(dir, 'llm-connections.json'), 'utf8')) as {
-        connections: Array<{ providerType: string; defaultModel: string; models: Array<{ id: string }> }>;
+        connections: Array<{
+          providerType: string;
+          defaultModel: string;
+          models: Array<{ id: string }>;
+        }>;
       };
       assert.equal(persisted.connections[0]?.providerType, 'zenmux');
       assert.equal(persisted.connections[0]?.defaultModel, model);
@@ -245,7 +266,10 @@ describe('FileConnectionStore', () => {
       };
       assert.equal(persisted.connections[0]?.providerType, 'ollama');
       assert.equal(persisted.connections[0]?.defaultModel, cloudModelId);
-      assert.deepEqual(persisted.connections[0]?.models, [{ id: localModelId }, { id: cloudModelId }]);
+      assert.deepEqual(persisted.connections[0]?.models, [
+        { id: localModelId },
+        { id: cloudModelId },
+      ]);
       assert.equal(persisted.connections[0]?.modelSource, 'fetched');
       assert.equal(persisted.connections[0]?.modelsFetchedAt, 1_800_000_000_000);
     });
@@ -599,7 +623,10 @@ describe('FileConnectionStore', () => {
         connections: Array<{ providerType: string; defaultModel: string }>;
       };
       assert.deepEqual(
-        persisted.connections.map(({ providerType, defaultModel }) => ({ providerType, defaultModel })),
+        persisted.connections.map(({ providerType, defaultModel }) => ({
+          providerType,
+          defaultModel,
+        })),
         [
           { providerType: 'ollama-cloud', defaultModel: 'qwen3.5:397b' },
           { providerType: 'ollama', defaultModel: 'qwen3.5:cloud' },
@@ -931,21 +958,26 @@ describe('FileConnectionStore', () => {
         join(dir, 'llm-connections.json'),
         JSON.stringify({
           defaultSlug: 'deleted-connection',
-          connections: [{
-            slug: 'anthropic-live',
-            name: 'Claude',
-            providerType: 'anthropic',
-            defaultModel: 'claude-sonnet-4-5-20250929',
-            enabled: true,
-            createdAt: 1,
-            updatedAt: 1,
-          }],
+          connections: [
+            {
+              slug: 'anthropic-live',
+              name: 'Claude',
+              providerType: 'anthropic',
+              defaultModel: 'claude-sonnet-4-5-20250929',
+              enabled: true,
+              createdAt: 1,
+              updatedAt: 1,
+            },
+          ],
         }) + '\n',
         'utf8',
       );
 
       assert.equal(await store.getDefault(), null);
-      assert.deepEqual((await store.list()).map((connection) => connection.slug), ['anthropic-live']);
+      assert.deepEqual(
+        (await store.list()).map((connection) => connection.slug),
+        ['anthropic-live'],
+      );
     });
   });
 
@@ -991,17 +1023,15 @@ describe('FileConnectionStore', () => {
       const invalid = JSON.stringify({ defaultSlug: null }, null, 2) + '\n';
       await writeFile(filePath, invalid, 'utf8');
 
+      await assert.rejects(() => store.list(), /connections must be an array/);
       await assert.rejects(
-        () => store.list(),
-        /connections must be an array/,
-      );
-      await assert.rejects(
-        () => store.create({
-          slug: 'openai-main',
-          name: 'OpenAI',
-          providerType: 'openai',
-          defaultModel: 'gpt-4o-mini',
-        }),
+        () =>
+          store.create({
+            slug: 'openai-main',
+            name: 'OpenAI',
+            providerType: 'openai',
+            defaultModel: 'gpt-4o-mini',
+          }),
         /connections must be an array/,
       );
       assert.equal(await readFile(filePath, 'utf8'), invalid);
@@ -1022,7 +1052,11 @@ describe('FileConnectionStore', () => {
       assert.equal(created.baseUrl, undefined);
 
       const onDisk = JSON.parse(await readFile(join(dir, 'llm-connections.json'), 'utf8'));
-      assert.equal(onDisk.connections[0].baseUrl, undefined, 'default must not be written to disk as an override');
+      assert.equal(
+        onDisk.connections[0].baseUrl,
+        undefined,
+        'default must not be written to disk as an override',
+      );
     });
   });
 
@@ -1055,11 +1089,15 @@ describe('FileConnectionStore', () => {
       assert.equal(created.baseUrl, 'https://my-openai-proxy.example.com/v1');
 
       // Submitting the provider default clears the override (no pin).
-      const cleared = await store.update(created.slug, { baseUrl: PROVIDER_DEFAULTS.openai.baseUrl });
+      const cleared = await store.update(created.slug, {
+        baseUrl: PROVIDER_DEFAULTS.openai.baseUrl,
+      });
       assert.equal(cleared.baseUrl, undefined);
 
       // A custom override is stored.
-      const overridden = await store.update(created.slug, { baseUrl: 'https://other-proxy.example.com/v1' });
+      const overridden = await store.update(created.slug, {
+        baseUrl: 'https://other-proxy.example.com/v1',
+      });
       assert.equal(overridden.baseUrl, 'https://other-proxy.example.com/v1');
 
       // An explicit clear (empty string) also clears the override.
@@ -1085,10 +1123,18 @@ describe('FileConnectionStore', () => {
         baseUrl: PROVIDER_DEFAULTS['claude-subscription'].baseUrl,
         updatedAt: Date.now(),
       });
-      assert.equal(saved.baseUrl, undefined, 'save must not persist the provider default as an override');
+      assert.equal(
+        saved.baseUrl,
+        undefined,
+        'save must not persist the provider default as an override',
+      );
 
       const onDisk = JSON.parse(await readFile(join(dir, 'llm-connections.json'), 'utf8'));
-      assert.equal(onDisk.connections[0].baseUrl, undefined, 'default must not be written to disk by save');
+      assert.equal(
+        onDisk.connections[0].baseUrl,
+        undefined,
+        'default must not be written to disk by save',
+      );
 
       // A custom override round-trips through save.
       const custom = 'https://my-anthropic-proxy.example.com';
@@ -1107,20 +1153,18 @@ describe('FileConnectionStore', () => {
       const invalid = JSON.stringify({ defaultSlug: 42, connections: [] }, null, 2) + '\n';
       await writeFile(filePath, invalid, 'utf8');
 
+      await assert.rejects(() => store.getDefault(), /defaultSlug must be a string or null/);
       await assert.rejects(
-        () => store.getDefault(),
-        /defaultSlug must be a string or null/,
-      );
-      await assert.rejects(
-        () => store.save({
-          slug: 'anthropic-main',
-          name: 'Claude',
-          providerType: 'anthropic',
-          defaultModel: 'claude-sonnet-4-5-20250929',
-          enabled: true,
-          createdAt: 1,
-          updatedAt: 1,
-        }),
+        () =>
+          store.save({
+            slug: 'anthropic-main',
+            name: 'Claude',
+            providerType: 'anthropic',
+            defaultModel: 'claude-sonnet-4-5-20250929',
+            enabled: true,
+            createdAt: 1,
+            updatedAt: 1,
+          }),
         /defaultSlug must be a string or null/,
       );
       assert.equal(await readFile(filePath, 'utf8'), invalid);

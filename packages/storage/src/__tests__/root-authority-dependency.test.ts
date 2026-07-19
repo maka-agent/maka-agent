@@ -63,7 +63,9 @@ test('root authority cannot transitively reach domain Stores or Runtime composit
 });
 
 test('dependency scanning fails closed on computed loads, loader aliases, and unapproved packages', () => {
-  const scan = scanModuleReferences(join(sourceRoot, '__tests__', 'root-authority-dependency.test.ts'));
+  const scan = scanModuleReferences(
+    join(sourceRoot, '__tests__', 'root-authority-dependency.test.ts'),
+  );
   assert.ok(scan.specifiers.includes('node:url'));
   assert.equal(scan.specifiers.includes('node:module'), false);
   assert.equal(allowedAuthorityExternalImports.has('node:module'), false);
@@ -93,7 +95,9 @@ function moduleSpecifiers(path: string): string[] {
   const scan = scanModuleReferences(path);
   const violations = [...scan.nonStaticLoads, ...scan.forbiddenLoaderCapabilities];
   if (violations.length > 0) {
-    throw new Error(`Dependency boundary requires explicit module declarations:\n${violations.join('\n')}`);
+    throw new Error(
+      `Dependency boundary requires explicit module declarations:\n${violations.join('\n')}`,
+    );
   }
   return scan.specifiers;
 }
@@ -112,21 +116,30 @@ function scanModuleReferences(path: string): {
     if (forbiddenLoaderCapabilities.length === 0 && isGetBuiltinModuleAccess(node)) {
       forbiddenLoaderCapabilities.push(`${path}: getBuiltinModule`);
     }
-    if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node))
-      && node.moduleSpecifier
-      && ts.isStringLiteral(node.moduleSpecifier)) {
+    if (
+      (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
+      node.moduleSpecifier &&
+      ts.isStringLiteral(node.moduleSpecifier)
+    ) {
       specifiers.push(node.moduleSpecifier.text);
     }
-    if (ts.isCallExpression(node)
-      && (node.expression.kind === ts.SyntaxKind.ImportKeyword
-        || (ts.isIdentifier(node.expression) && node.expression.text === 'require'))) {
+    if (
+      ts.isCallExpression(node) &&
+      (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
+        (ts.isIdentifier(node.expression) && node.expression.text === 'require'))
+    ) {
       const target = node.arguments[0];
       if (target && ts.isStringLiteralLikeNode(target)) specifiers.push(target.text);
-      else nonStaticLoads.push(`${path}: ${node.expression.kind === ts.SyntaxKind.ImportKeyword ? 'import' : 'require'}(...)`);
+      else
+        nonStaticLoads.push(
+          `${path}: ${node.expression.kind === ts.SyntaxKind.ImportKeyword ? 'import' : 'require'}(...)`,
+        );
     }
-    if (ts.isImportTypeNode(node)
-      && ts.isLiteralTypeNode(node.argument)
-      && ts.isStringLiteral(node.argument.literal)) {
+    if (
+      ts.isImportTypeNode(node) &&
+      ts.isLiteralTypeNode(node.argument) &&
+      ts.isStringLiteral(node.argument.literal)
+    ) {
       specifiers.push(node.argument.literal.text);
     }
     node.forEachChild(visit);
@@ -138,9 +151,11 @@ function scanModuleReferences(path: string): {
 function isGetBuiltinModuleAccess(node: ts.Node): boolean {
   if (ts.isPropertyAccessExpression(node)) return node.name.text === 'getBuiltinModule';
   if (ts.isElementAccessExpression(node)) {
-    return Boolean(node.argumentExpression
-      && ts.isStringLiteralLikeNode(node.argumentExpression)
-      && node.argumentExpression.text === 'getBuiltinModule');
+    return Boolean(
+      node.argumentExpression &&
+        ts.isStringLiteralLikeNode(node.argumentExpression) &&
+        node.argumentExpression.text === 'getBuiltinModule',
+    );
   }
   return ts.isIdentifier(node) && node.text === 'getBuiltinModule';
 }

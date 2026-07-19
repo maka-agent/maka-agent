@@ -36,10 +36,10 @@ describe('buildAbRunManifest', () => {
     });
 
     assert.equal(manifest.experimentKind, 'tools');
-    assert.deepEqual(manifest.arms.map((arm) => `${arm.kind}:${arm.id}`), [
-      'tools:tools-off',
-      'tools:tools-on',
-    ]);
+    assert.deepEqual(
+      manifest.arms.map((arm) => `${arm.kind}:${arm.id}`),
+      ['tools:tools-off', 'tools:tools-on'],
+    );
     assert.match(manifest.fingerprint, /^sha256:[a-f0-9]{64}$/);
   });
 
@@ -65,7 +65,10 @@ describe('buildAbRunManifest', () => {
       const path = join(dir, 'manifest.json');
       await writeFile(path, `${JSON.stringify({ ...manifest, taskBudgetSec: 60 })}\n`, 'utf8');
 
-      await assert.rejects(ensureAbRunManifest(path, manifest), /stored A\/B run manifest fingerprint is invalid/);
+      await assert.rejects(
+        ensureAbRunManifest(path, manifest),
+        /stored A\/B run manifest fingerprint is invalid/,
+      );
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -140,7 +143,10 @@ describe('buildAbRunManifest', () => {
       assert.equal(results.filter((result) => result.status === 'fulfilled').length, 1);
       assert.equal(results.filter((result) => result.status === 'rejected').length, 1);
       const stored = JSON.parse(await readFile(path, 'utf8'));
-      assert.equal(stored.fingerprint === flash.fingerprint || stored.fingerprint === pro.fingerprint, true);
+      assert.equal(
+        stored.fingerprint === flash.fingerprint || stored.fingerprint === pro.fingerprint,
+        true,
+      );
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

@@ -68,11 +68,7 @@ export function launchDetachedRuntimeHostCandidate(
   return { spawned };
 }
 
-function appendArgument(
-  args: string[],
-  key: string,
-  value: string | number | undefined,
-): void {
+function appendArgument(args: string[], key: string, value: string | number | undefined): void {
   if (value === undefined) return;
   args.push(key, String(value));
 }

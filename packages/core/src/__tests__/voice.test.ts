@@ -64,7 +64,10 @@ describe('voice mode and policy normalizers', () => {
 
   it('allows only bounded input modes', () => {
     assert.deepEqual(normalizeVoiceInputMode('push_to_talk'), { ok: true, value: 'push_to_talk' });
-    assert.deepEqual(normalizeVoiceInputMode('toggle_to_record'), { ok: true, value: 'toggle_to_record' });
+    assert.deepEqual(normalizeVoiceInputMode('toggle_to_record'), {
+      ok: true,
+      value: 'toggle_to_record',
+    });
   });
 });
 
@@ -100,8 +103,17 @@ describe('voice capture validation', () => {
   });
 
   it('enforces duration, byte, sample-rate, and channel caps', () => {
-    assert.equal(validateVoiceCaptureRequest({ ...validCapture, durationMs: VOICE_MAX_CAPTURE_DURATION_MS + 1 }).ok, false);
-    assert.equal(validateVoiceCaptureRequest({ ...validCapture, audioBytes: VOICE_MAX_AUDIO_BYTES + 1 }).ok, false);
+    assert.equal(
+      validateVoiceCaptureRequest({
+        ...validCapture,
+        durationMs: VOICE_MAX_CAPTURE_DURATION_MS + 1,
+      }).ok,
+      false,
+    );
+    assert.equal(
+      validateVoiceCaptureRequest({ ...validCapture, audioBytes: VOICE_MAX_AUDIO_BYTES + 1 }).ok,
+      false,
+    );
     assert.equal(validateVoiceCaptureRequest({ ...validCapture, sampleRate: 96_000 }).ok, false);
     assert.equal(validateVoiceCaptureRequest({ ...validCapture, channels: 2 }).ok, false);
   });
@@ -114,7 +126,10 @@ describe('voice capture validation', () => {
 
 describe('transcript validation', () => {
   it('normalizes transcript text and strips control characters', () => {
-    assert.deepEqual(normalizeVoiceTranscriptText(' hello\u0000\nworld '), { ok: true, value: 'hello world' });
+    assert.deepEqual(normalizeVoiceTranscriptText(' hello\u0000\nworld '), {
+      ok: true,
+      value: 'hello world',
+    });
   });
 
   it('rejects empty transcript text', () => {
@@ -154,7 +169,10 @@ describe('transcript validation', () => {
       editableBeforeSend: true,
       persistence: 'composer_only',
     };
-    assert.equal(validateVoiceTranscriptResult({ ...base, durationMs: VOICE_MAX_CAPTURE_DURATION_MS + 1 }).ok, false);
+    assert.equal(
+      validateVoiceTranscriptResult({ ...base, durationMs: VOICE_MAX_CAPTURE_DURATION_MS + 1 }).ok,
+      false,
+    );
     assert.equal(validateVoiceTranscriptResult({ ...base, sampleRate: 96_000 }).ok, false);
     assert.equal(validateVoiceTranscriptResult({ ...base, channels: 2 }).ok, false);
   });
@@ -206,10 +224,18 @@ describe('TTS validation', () => {
   });
 
   it('allows manual preview only when a provider is explicitly selected', () => {
-    const valid = validateVoiceTtsRequest({ text: 'hello', provider: 'local', policy: 'manual_preview' });
+    const valid = validateVoiceTtsRequest({
+      text: 'hello',
+      provider: 'local',
+      policy: 'manual_preview',
+    });
     assert.equal(valid.ok, true);
 
-    const invalid = validateVoiceTtsRequest({ text: 'hello', provider: 'disabled', policy: 'manual_preview' });
+    const invalid = validateVoiceTtsRequest({
+      text: 'hello',
+      provider: 'disabled',
+      policy: 'manual_preview',
+    });
     assert.equal(invalid.ok, false);
     assert.equal(invalid.ok ? undefined : invalid.reason, 'provider_not_ready');
   });

@@ -18,6 +18,8 @@
   ],
   "scripts": {
     "lint": "biome lint .",
+    "format": "biome format --write .",
+    "format:check": "biome format .",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run clean && npm run build:test && npm run test:scripts && node scripts/run-workspace-tests-parallel.mjs",
     "test:dist": "npm run test:scripts && node scripts/run-workspace-tests-parallel.mjs --serial",

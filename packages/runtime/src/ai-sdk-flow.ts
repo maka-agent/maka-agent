@@ -44,14 +44,14 @@ import type {
   SandboxEscalationRequest,
 } from '@maka/core/permission';
 import type { UserQuestionResponse } from '@maka/core/user-question';
-import { isTerminalRuntimeEvent, type RuntimeEvent, type RuntimeEventStatus } from '@maka/core/runtime-event';
+import {
+  isTerminalRuntimeEvent,
+  type RuntimeEvent,
+  type RuntimeEventStatus,
+} from '@maka/core/runtime-event';
 
 import type { AgentBackend, BackendSessionEvent } from '@maka/core/backend-types';
-import {
-  type AgentFlow,
-  type AgentFlowControl,
-  type FlowInput,
-} from './agent-flow.js';
+import { type AgentFlow, type AgentFlowControl, type FlowInput } from './agent-flow.js';
 import type { InvocationContext } from './invocation-context.js';
 
 // ============================================================================
@@ -162,9 +162,9 @@ function mapAdditionalPermissionRequest(
     throw malformedAdditionalPermissionRequest(event.requestId, 'alsoApprovesToolExecution');
   }
   if (
-    event.availableDecisions?.length !== 2
-    || event.availableDecisions[0] !== 'allow_once'
-    || event.availableDecisions[1] !== 'deny'
+    event.availableDecisions?.length !== 2 ||
+    event.availableDecisions[0] !== 'allow_once' ||
+    event.availableDecisions[1] !== 'deny'
   ) {
     throw malformedAdditionalPermissionRequest(event.requestId, 'availableDecisions');
   }
@@ -193,25 +193,23 @@ function malformedAdditionalPermissionRequest(requestId: string, field: string):
   );
 }
 
-function mapSandboxEscalationRequest(
-  event: AnyPermissionRequestEvent,
-): SandboxEscalationRequest {
+function mapSandboxEscalationRequest(event: AnyPermissionRequestEvent): SandboxEscalationRequest {
   if (event.kind !== 'sandbox_escalation') {
     throw malformedSandboxEscalationRequest(event.requestId, 'kind');
   }
   if (
-    event.reason !== 'sandbox_escalation'
-    || typeof event.command !== 'string'
-    || typeof event.cwd !== 'string'
-    || typeof event.justification !== 'string'
-    || typeof event.intentHash !== 'string'
-    || typeof event.commandHash !== 'string'
-    || (event.trigger !== 'proactive' && event.trigger !== 'sandbox_denial')
-    || !event.risk
-    || typeof event.alsoApprovesToolExecution !== 'boolean'
-    || event.availableDecisions?.length !== 2
-    || event.availableDecisions[0] !== 'allow_once'
-    || event.availableDecisions[1] !== 'deny'
+    event.reason !== 'sandbox_escalation' ||
+    typeof event.command !== 'string' ||
+    typeof event.cwd !== 'string' ||
+    typeof event.justification !== 'string' ||
+    typeof event.intentHash !== 'string' ||
+    typeof event.commandHash !== 'string' ||
+    (event.trigger !== 'proactive' && event.trigger !== 'sandbox_denial') ||
+    !event.risk ||
+    typeof event.alsoApprovesToolExecution !== 'boolean' ||
+    event.availableDecisions?.length !== 2 ||
+    event.availableDecisions[0] !== 'allow_once' ||
+    event.availableDecisions[1] !== 'deny'
   ) {
     throw malformedSandboxEscalationRequest(event.requestId, 'payload');
   }
@@ -348,7 +346,11 @@ function mapBackendSessionEvent(
           ...(event.stepId !== undefined ? { stepId: event.stepId } : {}),
         },
       };
-      if (event.activityKind !== undefined || event.displayName !== undefined || event.intent !== undefined) {
+      if (
+        event.activityKind !== undefined ||
+        event.displayName !== undefined ||
+        event.intent !== undefined
+      ) {
         const stateDelta: Record<string, unknown> = {};
         if (event.activityKind !== undefined) stateDelta.activityKind = event.activityKind;
         if (event.displayName !== undefined) stateDelta.displayName = event.displayName;
@@ -417,7 +419,9 @@ function mapBackendSessionEvent(
           permissionDecision: {
             requestId: event.requestId,
             decision: event.decision,
-            ...(event.rememberForTurn !== undefined ? { rememberForTurn: event.rememberForTurn } : {}),
+            ...(event.rememberForTurn !== undefined
+              ? { rememberForTurn: event.rememberForTurn }
+              : {}),
             ...(event.reviewer !== undefined ? { reviewer: event.reviewer } : {}),
             ...(event.rationale !== undefined ? { rationale: event.rationale } : {}),
             ...(event.riskLevel !== undefined ? { riskLevel: event.riskLevel } : {}),
@@ -489,10 +493,14 @@ function mapBackendSessionEvent(
             ...(event.cacheMissInputSource !== undefined
               ? { cacheMissInputSource: event.cacheMissInputSource }
               : {}),
-            ...(event.cacheWriteInput !== undefined ? { cacheWriteInput: event.cacheWriteInput } : {}),
+            ...(event.cacheWriteInput !== undefined
+              ? { cacheWriteInput: event.cacheWriteInput }
+              : {}),
             ...(event.reasoning !== undefined ? { reasoning: event.reasoning } : {}),
             ...(event.total !== undefined ? { total: event.total } : {}),
-            ...(event.rawFinishReason !== undefined ? { rawFinishReason: event.rawFinishReason } : {}),
+            ...(event.rawFinishReason !== undefined
+              ? { rawFinishReason: event.rawFinishReason }
+              : {}),
             ...(event.runtimeSteps !== undefined ? { runtimeSteps: event.runtimeSteps } : {}),
             ...(event.cacheRead !== undefined ? { cacheRead: event.cacheRead } : {}),
             ...(event.cacheCreation !== undefined ? { cacheCreation: event.cacheCreation } : {}),
@@ -500,12 +508,16 @@ function mapBackendSessionEvent(
             ...(event.contextRemaining !== undefined
               ? { contextRemaining: event.contextRemaining }
               : {}),
-            ...(event.systemPromptHash !== undefined ? { systemPromptHash: event.systemPromptHash } : {}),
+            ...(event.systemPromptHash !== undefined
+              ? { systemPromptHash: event.systemPromptHash }
+              : {}),
             ...(event.prefixHash !== undefined ? { prefixHash: event.prefixHash } : {}),
             ...(event.prefixChangeReason !== undefined
               ? { prefixChangeReason: event.prefixChangeReason }
               : {}),
-            ...(event.requestShapeHash !== undefined ? { requestShapeHash: event.requestShapeHash } : {}),
+            ...(event.requestShapeHash !== undefined
+              ? { requestShapeHash: event.requestShapeHash }
+              : {}),
             ...(event.requestShapeChangeReason !== undefined
               ? { requestShapeChangeReason: event.requestShapeChangeReason }
               : {}),
@@ -568,14 +580,14 @@ function completeRuntimeEvent(
   memory: SessionEventMapMemory,
 ): RuntimeEvent {
   const stopReason = event.stopReason;
-  const status = memory.failureClass && stopReason !== 'user_stop'
-    ? 'failed'
-    : mapCompleteStopReason(stopReason);
+  const status =
+    memory.failureClass && stopReason !== 'user_stop'
+      ? 'failed'
+      : mapCompleteStopReason(stopReason);
   const stateDelta: Record<string, unknown> = { stopReason };
   if (status === 'failed') {
-    stateDelta.failureClass = memory.failureClass
-      ?? failureClassFromCompleteStopReason(stopReason)
-      ?? 'runtime_error';
+    stateDelta.failureClass =
+      memory.failureClass ?? failureClassFromCompleteStopReason(stopReason) ?? 'runtime_error';
   }
   // The context_budget_exhausted outcome carries which invariant made the turn
   // unrecoverable; the durable terminal state must not collapse it to a bare
@@ -720,7 +732,9 @@ export class AiSdkFlow implements AgentFlow, AgentFlowControl {
         yield runtimeEvent;
       }
       if (!terminalEmitted) {
-        for (const sessionEvent of missingTerminalSessionEvents(ctx, { includeError: !errorEmitted })) {
+        for (const sessionEvent of missingTerminalSessionEvents(ctx, {
+          includeError: !errorEmitted,
+        })) {
           const runtimeEvent = mapSessionEventToRuntimeEvent(sessionEvent, ctx, memory);
           await this.onSessionEvent?.(sessionEvent, runtimeEvent);
           if (isTerminalRuntimeEvent(runtimeEvent)) terminalEmitted = true;

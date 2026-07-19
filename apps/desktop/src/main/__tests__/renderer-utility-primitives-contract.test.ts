@@ -342,7 +342,7 @@ describe('renderer utility surfaces use shared UI primitives', () => {
     assert.match(checklist, /import \{ Button as BaseButton \} from '@base-ui\/react\/button';/);
     assert.match(checklist, /<BaseButton[^>]*onClick=\{item\.onClick\}/);
     assert.match(composer, /variant="quiet"\s+size="icon-sm"\s+shape="pill"[\s\S]*aria-label=\{pendingImportAction/);
-    assert.match(composer, /variant="default"\s+size="icon"\s+shape="pill"[\s\S]*aria-label=\{buttonCopy\.sendLabel\}/);
+    assert.match(composer, /variant="default"\s+size="icon"\s+shape="pill"[\s\S]*aria-label=\{copy\.sendLabel\}/);
     assert.match(plan, /variant="secondary"\s+size="sm"[\s\S]*onClick=\{\(\) => applyRunAtPreset/);
 
     assert.match(story, /import \{ SessionListPanel \} from '\.\.\/src\/session-list-panel\.js';/);

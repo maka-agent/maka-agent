@@ -34,7 +34,7 @@ import { ChatComposerRegion } from './chat-composer-region';
 import { ChatWorkbar } from './chat-workbar';
 import { McpPage } from './mcp-page';
 import { useOnboardingSnapshot } from './use-onboarding-snapshot';
-import type { OnboardingSnapshot } from '../global';
+import type { OnboardingSnapshot } from '../preload/bridge-contract.js';
 import { ProviderLogo } from './settings/provider-display';
 import { ProviderBrandMark } from './settings/provider-brand-marks';
 import { getShellCopy, localizedShellErrorMessage } from './locales/shell-copy';
@@ -61,6 +61,7 @@ import { AppShellTopbarActions, AppShellWorkspaceTopActions } from './app-shell-
 import { AppShellOverlays } from './app-shell-overlays';
 import { createAppShellDailyReviewBridge } from './app-shell-daily-review-bridge';
 import { useAppShellModuleData } from './use-module-data';
+import { useKeepSystemAwake } from './use-keep-system-awake';
 import { useAppShellProjectContext } from './use-project-context';
 import { createAppShellSessionEventHandlers } from './app-shell-session-events';
 import { createAppShellVisualSmokeActions } from './app-shell-visual-smoke';
@@ -285,8 +286,8 @@ function AppShellContent({
   // in their own group, preserving the PR48 pin-floats behavior.
   const visibleSessions = useMemo(() => filterSessions(sessions, navSelection), [sessions, navSelection]);
   const sessionStatusGroups = useMemo(
-    () => deriveSessionStatusGroups(visibleSessions, { pinFirst: true }),
-    [visibleSessions],
+    () => deriveSessionStatusGroups(visibleSessions, { pinFirst: true, locale: uiLocale }),
+    [visibleSessions, uiLocale],
   );
   const sessionProjectGroups = useMemo(() => deriveProjectGroups(visibleSessions), [visibleSessions]);
   const sessionListGroups = viewMode === 'project' ? sessionProjectGroups : sessionStatusGroups;
@@ -361,6 +362,7 @@ function AppShellContent({
     setPendingNewChatThinkingLevel,
     sessionHealthNotice,
   } = useShellChatModel({
+    uiLocale,
     connections,
     connectionsRevision,
     defaultConnection,
@@ -477,13 +479,14 @@ function AppShellContent({
     useMemo(
       () =>
         deriveAppShellTurnViewModel({
-      activeId,
-      messages,
-      pendingTurnActions,
-      pendingKeyOf,
-    }),
-    [activeId, messages, pendingTurnActions],
-  );
+          uiLocale,
+          activeId,
+          messages,
+          pendingTurnActions,
+          pendingKeyOf,
+        }),
+      [activeId, messages, pendingTurnActions, uiLocale],
+    );
 
   // PR109e-e: click handler for lineage badge → scroll target turn into
   // view. Avoids pulling a separate ref-tracker: relies on the
@@ -772,6 +775,11 @@ function AppShellContent({
     toastApi,
   });
 
+  // 保持系统唤醒 capability for the 定时任务 page: reads/writes
+  // settings.system.keepSystemAwake over the existing settings bridge. When
+  // the bridge is absent the panel hides the row (fail-soft).
+  const keepSystemAwakeController = useKeepSystemAwake();
+
   // Composer mention popups: `/` skills (enabled only) + `@` workspace file
   // search. The hook owns the window.maka IPC wrapper so app-shell keeps no
   // inline mention state.
@@ -897,6 +905,7 @@ function AppShellContent({
   }
 
   const stop = createAppShellStopAction({
+    uiLocale,
     activeIdRef,
     addPendingSessionAction,
     clearPendingSessionAction,
@@ -906,6 +915,7 @@ function AppShellContent({
   });
 
   const { handleEvent, reconcilePersistedMessages, settleAssistantStreaming } = useStableActions(createAppShellSessionEventHandlers, {
+    uiLocale,
     activeIdRef,
     liveTurnBySessionRef,
     refreshMessages,
@@ -968,6 +978,7 @@ function AppShellContent({
     setLiveBrowserSessionIds,
   });
   useAppShellBootstrapSubscriptions({
+    uiLocale,
     activeIdRef,
     applyVisualSmokeFixture,
     bootstrapSessions,
@@ -1155,7 +1166,7 @@ function AppShellContent({
   }
 
   function showModelSetupToast(description: string, reason?: string) {
-    const copy = modelSetupToastCopy(reason, description);
+    const copy = modelSetupToastCopy(reason, description, uiLocale);
     toastApi.toast({
       title: copy.title,
       description: copy.description,
@@ -1333,6 +1344,16 @@ function AppShellContent({
                 <AutomationsPage
                   skills={skills}
                   reminders={planReminders}
+                  keepSystemAwake={
+                    keepSystemAwakeController.supported
+                      ? keepSystemAwakeController.keepSystemAwake
+                      : undefined
+                  }
+                  onKeepSystemAwakeChange={
+                    keepSystemAwakeController.supported
+                      ? keepSystemAwakeController.setKeepSystemAwake
+                      : undefined
+                  }
                     onRefresh={() =>
                       refreshPlanReminders({
                         shouldShowError: isAutomationsSurfaceActive,

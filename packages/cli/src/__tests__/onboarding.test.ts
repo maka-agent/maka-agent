@@ -18,7 +18,11 @@ describe('setupApiKeyConnection', () => {
         get: async () => null,
         create: async (input) => {
           createdInputs.push({ slug: input.slug, providerType: input.providerType });
-          return makeConnection({ slug: input.slug, providerType: input.providerType, defaultModel: 'gpt-5.5' });
+          return makeConnection({
+            slug: input.slug,
+            providerType: input.providerType,
+            defaultModel: 'gpt-5.5',
+          });
         },
         remove: async () => {},
         getDefault: async () => null,
@@ -38,7 +42,10 @@ describe('setupApiKeyConnection', () => {
     assert.deepEqual(storedSecrets, [{ slug: 'openai', kind: 'api_key', value: 'sk-test' }]);
     // The created connection and the discovered models come back for the next step.
     assert.equal(result.connection.slug, 'openai');
-    assert.deepEqual(result.models.map((m) => m.id), ['gpt-5.5', 'gpt-5.5-mini']);
+    assert.deepEqual(
+      result.models.map((m) => m.id),
+      ['gpt-5.5', 'gpt-5.5-mini'],
+    );
   });
 
   test('records a model-fetch failure as a non-blocking test error instead of throwing', async () => {
@@ -48,7 +55,8 @@ describe('setupApiKeyConnection', () => {
       apiKey: 'sk-test',
       connectionStore: {
         get: async () => null,
-        create: async (input) => makeConnection({ slug: input.slug, providerType: input.providerType }),
+        create: async (input) =>
+          makeConnection({ slug: input.slug, providerType: input.providerType }),
         remove: async () => {},
         getDefault: async () => null,
         setDefault: async () => {},
@@ -56,7 +64,9 @@ describe('setupApiKeyConnection', () => {
       credentialStore: {
         setSecret: async () => {},
       },
-      fetchModels: async () => { throw new Error('HTTP 401'); },
+      fetchModels: async () => {
+        throw new Error('HTTP 401');
+      },
     });
 
     // A failing probe (wrong key, offline, no /models endpoint) must not abort
@@ -73,7 +83,8 @@ describe('setupApiKeyConnection', () => {
       apiKey: 'sk-typo',
       connectionStore: {
         get: async () => null,
-        create: async (input) => makeConnection({ slug: input.slug, providerType: input.providerType }),
+        create: async (input) =>
+          makeConnection({ slug: input.slug, providerType: input.providerType }),
         remove: async () => {},
         getDefault: async () => null,
         setDefault: async (slug) => {
@@ -83,7 +94,9 @@ describe('setupApiKeyConnection', () => {
       credentialStore: {
         setSecret: async () => {},
       } satisfies Pick<CredentialStore, 'setSecret'>,
-      fetchModels: async () => { throw new Error('HTTP 401'); },
+      fetchModels: async () => {
+        throw new Error('HTTP 401');
+      },
     });
 
     // The connection is saved (retrying rotates the key), but a broken key
@@ -138,7 +151,8 @@ describe('setupApiKeyConnection', () => {
       apiKey: 'sk-test',
       connectionStore: {
         get: async () => null,
-        create: async (input) => makeConnection({ slug: input.slug, providerType: input.providerType }),
+        create: async (input) =>
+          makeConnection({ slug: input.slug, providerType: input.providerType }),
         remove: async () => {},
         getDefault: async () => defaultSlug,
         setDefault: async (slug) => {
@@ -251,7 +265,8 @@ describe('setupApiKeyConnection', () => {
         apiKey: 'sk-test',
         connectionStore: {
           get: async () => null,
-          create: async (input) => makeConnection({ slug: input.slug, providerType: input.providerType }),
+          create: async (input) =>
+            makeConnection({ slug: input.slug, providerType: input.providerType }),
           remove: async (slug) => {
             removedSlugs.push(slug);
           },
@@ -259,7 +274,9 @@ describe('setupApiKeyConnection', () => {
           setDefault: async () => {},
         },
         credentialStore: {
-          setSecret: async () => { throw new Error('disk full'); },
+          setSecret: async () => {
+            throw new Error('disk full');
+          },
         },
         fetchModels: async () => [],
       }),
@@ -291,7 +308,9 @@ describe('setupApiKeyConnection', () => {
           setDefault: async () => {},
         },
         credentialStore: {
-          setSecret: async () => { throw new Error('disk full'); },
+          setSecret: async () => {
+            throw new Error('disk full');
+          },
         },
         fetchModels: async () => [],
       }),

@@ -29,8 +29,12 @@ function runCliProcess(
     const child = spawn(process.execPath, [entrypoint, ...args], { env });
     let stdout = '';
     let stderr = '';
-    child.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString('utf8'); });
-    child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString('utf8'); });
+    child.stdout.on('data', (chunk: Buffer) => {
+      stdout += chunk.toString('utf8');
+    });
+    child.stderr.on('data', (chunk: Buffer) => {
+      stderr += chunk.toString('utf8');
+    });
     child.on('close', (code) => resolve({ code, stdout, stderr }));
     child.stdin.end();
   });
@@ -156,7 +160,7 @@ describe('Maka CLI args', () => {
     const child = spawn(process.execPath, ['--input-type=module', '-e', childSource], {
       stdio: 'ignore',
     });
-    const [code, signal] = await once(child, 'exit') as [number | null, NodeJS.Signals | null];
+    const [code, signal] = (await once(child, 'exit')) as [number | null, NodeJS.Signals | null];
 
     assert.equal(signal, null);
     assert.equal(code, 1);
@@ -175,7 +179,7 @@ describe('Maka CLI args', () => {
       stdio: 'ignore',
     });
     const watchdog = setTimeout(() => child.kill('SIGKILL'), 5_000);
-    const [code, signal] = await once(child, 'exit') as [number | null, NodeJS.Signals | null];
+    const [code, signal] = (await once(child, 'exit')) as [number | null, NodeJS.Signals | null];
     clearTimeout(watchdog);
 
     assert.equal(signal, null);
@@ -184,10 +188,7 @@ describe('Maka CLI args', () => {
   });
 
   test('prints version from the executable entrypoint', async () => {
-    const { stdout } = await execFileAsync(process.execPath, [
-      cliPath,
-      '--version',
-    ]);
+    const { stdout } = await execFileAsync(process.execPath, [cliPath, '--version']);
 
     assert.equal(stdout.trim(), '0.1.0');
   });
@@ -196,11 +197,21 @@ describe('Maka CLI args', () => {
     const root = await mkdtemp(join(tmpdir(), 'maka-cli-inspect-'));
     try {
       const session = await createSessionStore(root).create({
-        cwd: '/tmp/workspace', name: 'CLI inspect', backend: 'fake',
-        llmConnectionSlug: 'fake', model: 'fake-model', permissionMode: 'ask',
+        cwd: '/tmp/workspace',
+        name: 'CLI inspect',
+        backend: 'fake',
+        llmConnectionSlug: 'fake',
+        model: 'fake-model',
+        permissionMode: 'ask',
       });
       const result = await runCliProcess(cliPath, [
-        'inspect', session.id, '--store', root, '--kind', 'session', '--json',
+        'inspect',
+        session.id,
+        '--store',
+        root,
+        '--kind',
+        'session',
+        '--json',
       ]);
 
       assert.equal(result.code, 0);
@@ -220,15 +231,23 @@ describe('Maka CLI args', () => {
       await writeFile(join(dir, 'fixture', 'marker.txt'), 'ok', 'utf8');
       const specPath = join(dir, 'spec.json');
       const outDir = join(dir, 'out');
-      await writeFile(specPath, JSON.stringify({
-        configs: [{ id: 'fake-cfg', backend: 'fake', llmConnectionSlug: 'fake', model: 'fake-model' }],
-        tasks: [{
-          id: 't-pass',
-          instruction: 'go',
-          workspaceDir: 'fixture',
-          verification: { command: 'test -f marker.txt', protectedPaths: [] },
-        }],
-      }), 'utf8');
+      await writeFile(
+        specPath,
+        JSON.stringify({
+          configs: [
+            { id: 'fake-cfg', backend: 'fake', llmConnectionSlug: 'fake', model: 'fake-model' },
+          ],
+          tasks: [
+            {
+              id: 't-pass',
+              instruction: 'go',
+              workspaceDir: 'fixture',
+              verification: { command: 'test -f marker.txt', protectedPaths: [] },
+            },
+          ],
+        }),
+        'utf8',
+      );
 
       const result = await runCliProcess(cliPath, ['eval', 'run', specPath, '--out', outDir]);
 
@@ -292,7 +311,7 @@ describe('Maka CLI args', () => {
 });
 
 describe('resolveTuiResumeTarget', () => {
-  test('anchors the resumed session\'s stored connection and model', async () => {
+  test("anchors the resumed session's stored connection and model", async () => {
     const root = await mkdtemp(join(tmpdir(), 'maka-cli-resume-target-'));
     try {
       const session = await createSessionStore(root).create({
@@ -370,6 +389,9 @@ describe('startup connection-error guidance', () => {
   });
 
   test('returns null for an unrelated startup error so it propagates unchanged', () => {
-    assert.equal(formatStartupConnectionError(new Error('ENOENT: workspace missing'), workspaceRoot), null);
+    assert.equal(
+      formatStartupConnectionError(new Error('ENOENT: workspace missing'), workspaceRoot),
+      null,
+    );
   });
 });

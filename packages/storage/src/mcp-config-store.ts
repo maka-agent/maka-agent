@@ -87,7 +87,8 @@ class FileMcpConfigStore implements McpConfigStore {
   private async readOrCreate(): Promise<McpConfigFile> {
     try {
       const text = await readFile(this.path, 'utf8');
-      if (Buffer.byteLength(text, 'utf8') > MAX_CONFIG_BYTES) throw new Error('MCP config exceeds 1 MiB');
+      if (Buffer.byteLength(text, 'utf8') > MAX_CONFIG_BYTES)
+        throw new Error('MCP config exceeds 1 MiB');
       return normalizeMcpConfig(JSON.parse(text));
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
@@ -104,7 +105,9 @@ class FileMcpConfigStore implements McpConfigStore {
     const tempPath = join(dir, `.mcp-${randomUUID()}.tmp`);
     try {
       await writeFile(tempPath, `${JSON.stringify(config, null, 2)}\n`, {
-        encoding: 'utf8', mode: 0o600, flag: 'wx',
+        encoding: 'utf8',
+        mode: 0o600,
+        flag: 'wx',
       });
       if (process.platform !== 'win32') await chmod(tempPath, 0o600);
       await rename(tempPath, this.path);
@@ -117,9 +120,15 @@ class FileMcpConfigStore implements McpConfigStore {
   private async serial<T>(operation: () => Promise<T>): Promise<T> {
     const previous = this.queue;
     let release!: () => void;
-    this.queue = new Promise<void>((resolve) => { release = resolve; });
+    this.queue = new Promise<void>((resolve) => {
+      release = resolve;
+    });
     await previous;
-    try { return await operation(); } finally { release(); }
+    try {
+      return await operation();
+    } finally {
+      release();
+    }
   }
 }
 
@@ -138,7 +147,11 @@ function normalizeServer(value: unknown, serverId: string): McpServerConfig {
   }
   const url = nonEmptyString(value.url, `${serverId}.url`);
   let parsed: URL;
-  try { parsed = new URL(url); } catch { throw new Error(`${serverId}.url must be a valid URL`); }
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error(`${serverId}.url must be a valid URL`);
+  }
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
     throw new Error(`${serverId}.url must use http or https`);
   }
@@ -159,7 +172,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function assertSafeKey(value: string, label: string): void {
-  if (!value.trim() || value.length > MAX_ID_LENGTH || FORBIDDEN_KEYS.has(value)) throw new Error(`Invalid ${label}`);
+  if (!value.trim() || value.length > MAX_ID_LENGTH || FORBIDDEN_KEYS.has(value))
+    throw new Error(`Invalid ${label}`);
   if (/[\u0000-\u001f\u007f]/u.test(value)) throw new Error(`Invalid ${label}`);
 }
 
@@ -187,7 +201,8 @@ function stringArray(value: unknown, label: string): string[] {
 }
 
 function stringMap(value: unknown, label: string): Record<string, string> {
-  if (!isRecord(value) || Object.keys(value).length > 1_000) throw new Error(`${label} must be an object`);
+  if (!isRecord(value) || Object.keys(value).length > 1_000)
+    throw new Error(`${label} must be an object`);
   const result: Record<string, string> = Object.create(null);
   for (const [key, item] of Object.entries(value)) {
     assertSafeKey(key, `${label} key`);

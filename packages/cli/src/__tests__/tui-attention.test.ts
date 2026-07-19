@@ -56,6 +56,17 @@ describe('AttentionController title', () => {
     assert.equal(terminal.title, 'Maka');
   });
 
+  test('updates the base title while preserving the current state marker', () => {
+    const { terminal, controller } = makeController();
+    controller.promptTurnStarted();
+
+    controller.setBaseTitle('Generated title');
+
+    assert.equal(terminal.title, `${BUSY_SPINNER_FRAMES[0]} Generated title`);
+    controller.promptTurnEnded();
+    assert.equal(terminal.title, 'Generated title');
+  });
+
   test('marks busy while a turn runs and returns to plain when it ends quickly', () => {
     const { terminal, controller, advance } = makeController(8000);
     controller.promptTurnStarted();

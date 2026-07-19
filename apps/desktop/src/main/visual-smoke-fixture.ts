@@ -63,6 +63,11 @@ const VISUAL_SMOKE_SCENARIOS = new Set<VisualSmokeScenario>([
   'settings-usage',
   'settings-health',
   'module-skills',
+  // MCP module page (SVG-governance + polish campaign): opens the 扩展 → MCP
+  // surface with a seeded mcp.json so the market grid, tab row, hero banner,
+  // and the installed server list all render for the alignment auditor + CDP
+  // capture in light / dark.
+  'module-mcp',
   'module-daily-review',
   // PR109b: workstation-statuses — seed one session per SessionStatus
   // (running / waiting_for_user / blocked × 4 reasons / active / review
@@ -418,6 +423,10 @@ export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualS
       return { ...state, activeSessionId: TURN_SESSION_ID, openSettingsSection: 'health' };
     case 'module-skills':
       return { ...state, activeSessionId: TURN_SESSION_ID, sidebarSection: 'skills', sidebarCollapsed: false };
+    case 'module-mcp':
+      // Open the 扩展 → MCP module directly so the CDP baseline captures the
+      // real market grid, tab row, hero banner, and installed server list.
+      return { ...state, activeSessionId: TURN_SESSION_ID, sidebarSection: 'mcp', sidebarCollapsed: false };
     case 'module-daily-review':
       return { ...state, activeSessionId: TURN_SESSION_ID, sidebarSection: 'daily-review', sidebarCollapsed: false };
     case 'workstation-statuses':
@@ -603,6 +612,37 @@ export async function seedVisualSmokeFixture(input: {
   if (input.fixture.scenario === 'module-skills') {
     await seedSkillsMarketFixture(input.workspaceRoot);
   }
+  if (input.fixture.scenario === 'module-mcp') {
+    await seedMcpFixture(input.workspaceRoot);
+  }
+}
+
+/**
+ * MCP module fixture: seeds an mcp.json with a couple of installed servers so
+ * the 已安装 tab and the server rows render for the alignment auditor + CDP
+ * capture. Both are `enabled: false` so no real `npx` / HTTP connection is
+ * attempted in visual-smoke mode — the rows render deterministically in the
+ * neutral 已停用 state (exception-only status: no color unless a real failure).
+ * The 市场 tab is the default surface and is driven by the static MCP_CATALOG,
+ * so it renders without any on-disk seed.
+ */
+async function seedMcpFixture(workspaceRoot: string): Promise<void> {
+  const config = {
+    version: 1,
+    mcpServers: {
+      filesystem: {
+        enabled: false,
+        command: 'npx',
+        args: ['-y', '@modelcontextprotocol/server-filesystem', '/workspace/maka'],
+      },
+      'linear-remote': {
+        enabled: false,
+        url: 'https://mcp.linear.app/sse',
+        transport: 'sse',
+      },
+    },
+  };
+  await writeJson(join(workspaceRoot, 'mcp.json'), config);
 }
 
 /**
@@ -2001,6 +2041,7 @@ function header(input: {
     lastUsedAt: input.lastMessageAt,
     lastMessageAt: input.lastMessageAt,
     name: input.name,
+    titleIsManual: true,
     isFlagged: input.isFlagged ?? false,
     labels: [],
     isArchived: input.isArchived ?? false,

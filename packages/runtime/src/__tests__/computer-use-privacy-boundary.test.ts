@@ -18,18 +18,24 @@ test('Computer Use snapshots execution args and persists only the approval summa
   const observedSandboxArgs: unknown[] = [];
   const observedPermissionContexts: unknown[] = [];
   let release!: () => void;
-  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
   const runtime = new ToolRuntime({
     sessionId: 'session-1',
     header: header(),
     connection: connection(),
     modelId: 'mock-model',
-    appendMessage: async (message) => { messages.push(message); },
+    appendMessage: async (message) => {
+      messages.push(message);
+    },
     permissionEngine: new PermissionEngine({ newId: nextId(), now: () => 1 }),
     newId: nextId(),
     now: () => 1,
     getPermissionPauseTarget: () => null,
-    recordToolInvocation: (record) => { invocations.push(record); },
+    recordToolInvocation: (record) => {
+      invocations.push(record);
+    },
   });
   const tool: MakaTool = {
     name: 'maka_computer',
@@ -76,25 +82,31 @@ test('Computer Use snapshots execution args and persists only the approval summa
   release();
   await execution;
 
-  assert.deepEqual(observedImplArgs, [{
-    action: 'type',
-    app: 'Example',
-    observation_id: 'frame-1',
-    text: 'secret text',
-    coordinate: [123, 456],
-  }]);
-  assert.deepEqual(observedSandboxArgs, [{
-    action: 'type',
-    app: 'Example',
-    observation_id: 'frame-1',
-    text: 'secret text',
-    coordinate: [123, 456],
-  }]);
-  assert.deepEqual(observedPermissionContexts, [{
-    sessionId: 'session-1',
-    turnId: 'turn-1',
-    toolCallId: 'tool-1',
-  }]);
+  assert.deepEqual(observedImplArgs, [
+    {
+      action: 'type',
+      app: 'Example',
+      observation_id: 'frame-1',
+      text: 'secret text',
+      coordinate: [123, 456],
+    },
+  ]);
+  assert.deepEqual(observedSandboxArgs, [
+    {
+      action: 'type',
+      app: 'Example',
+      observation_id: 'frame-1',
+      text: 'secret text',
+      coordinate: [123, 456],
+    },
+  ]);
+  assert.deepEqual(observedPermissionContexts, [
+    {
+      sessionId: 'session-1',
+      turnId: 'turn-1',
+      toolCallId: 'tool-1',
+    },
+  ]);
   const expectedSummary = {
     action: 'type',
     approvalClass: 'keyboard_mutation',
@@ -121,12 +133,16 @@ test('Computer Use validation failures still persist a redacted call and result'
     header: header(),
     connection: connection(),
     modelId: 'mock-model',
-    appendMessage: async (message) => { messages.push(message); },
+    appendMessage: async (message) => {
+      messages.push(message);
+    },
     permissionEngine: new PermissionEngine({ newId: nextId(), now: () => 1 }),
     newId: nextId(),
     now: () => 1,
     getPermissionPauseTarget: () => null,
-    recordToolInvocation: (record) => { invocations.push(record); },
+    recordToolInvocation: (record) => {
+      invocations.push(record);
+    },
   });
   const tool: MakaTool = {
     name: 'maka_computer',
@@ -142,24 +158,39 @@ test('Computer Use validation failures still persist a redacted call and result'
     },
   };
 
-  const result = await runtime.wrapToolExecute(tool, 'turn-1', {
+  const result = (await runtime.wrapToolExecute(tool, 'turn-1', {
     push: (event) => events.push(event),
-  })({
-    action: 'type',
-    text: 'private text',
-    coordinate: [123, 456],
-  }, {
-    toolCallId: 'tool-invalid',
-    abortSignal: new AbortController().signal,
-  }) as { error?: string };
+  })(
+    {
+      action: 'type',
+      text: 'private text',
+      coordinate: [123, 456],
+    },
+    {
+      toolCallId: 'tool-invalid',
+      abortSignal: new AbortController().signal,
+    },
+  )) as { error?: string };
 
   assert.equal(result.error, 'Computer Use arguments failed validation');
   const serialized = JSON.stringify({ messages, events, invocations });
   assert.doesNotMatch(serialized, /Customer SSN|123-45-6789|private text|123|456/);
-  assert.equal(messages.some((message) => message.type === 'tool_call'), true);
-  assert.equal(messages.some((message) => message.type === 'tool_result'), true);
-  assert.equal(events.some((event) => event.type === 'tool_start'), true);
-  assert.equal(events.some((event) => event.type === 'tool_result'), true);
+  assert.equal(
+    messages.some((message) => message.type === 'tool_call'),
+    true,
+  );
+  assert.equal(
+    messages.some((message) => message.type === 'tool_result'),
+    true,
+  );
+  assert.equal(
+    events.some((event) => event.type === 'tool_start'),
+    true,
+  );
+  assert.equal(
+    events.some((event) => event.type === 'tool_result'),
+    true,
+  );
   assert.equal(invocations[0]?.errorClass, 'InvalidArguments');
 });
 
@@ -176,6 +207,7 @@ function header(): SessionHeader {
     createdAt: 1,
     lastUsedAt: 1,
     name: 'Test',
+    titleIsManual: true,
     isFlagged: false,
     labels: [],
     isArchived: false,

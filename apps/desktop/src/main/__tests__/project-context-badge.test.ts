@@ -68,7 +68,7 @@ describe('project context workspace picker', () => {
     const appIpc = await readRepo(APP_IPC);
     const controller = await readRepo(CONTROLLER);
     const preload = await readRepo('apps/desktop/src/preload/preload.ts');
-    const globalTypes = await readRepo('apps/desktop/src/global.d.ts');
+    const globalTypes = await readRepo('apps/desktop/src/preload/bridge-contract.d.ts');
 
     assert.match(main, /fallbackRoots: \(\) => \[process\.cwd\(\), app\.getAppPath\(\)\]/);
     assert.match(appIpc, /projectGit:\s*await resolveProjectGitInfo\(projectPath\)/);
@@ -87,7 +87,7 @@ describe('project context workspace picker', () => {
     const controller = await readRepo(CONTROLLER);
     const mainWindow = await readRepo(MAIN_WINDOW);
     const preload = await readRepo('apps/desktop/src/preload/preload.ts');
-    const globalTypes = await readRepo('apps/desktop/src/global.d.ts');
+    const globalTypes = await readRepo('apps/desktop/src/preload/bridge-contract.d.ts');
     const renderer = await readRendererShellCombinedSource();
     const workspacePickerBlock = renderer.match(/workspacePicker=\{\{[\s\S]*?\n\s*\}\}/)?.[0] ?? '';
 
@@ -231,8 +231,8 @@ describe('project context workspace picker', () => {
     // is only rendered when no directory has been selected yet. Once
     // a label is set, the picker renders `.maka-composer-workspace-current`
     // alone — no more "选择工作目录 ai ▾" doubled string.
-    assert.match(workspaceRow, /\? <span className="maka-composer-workspace-current">\{wp\.label\}<\/span>[\s\S]*?: <span>选择工作目录<\/span>/);
-    assert.match(workspaceRow, /当前分支 \$\{wp\.branch\}/);
+    assert.match(workspaceRow, /\? <span className="maka-composer-workspace-current">\{wp\.label\}<\/span>[\s\S]*?: <span>\{copy\.choose\}<\/span>/);
+    assert.match(workspaceRow, /title=\{copy\.branchTitle\(bp\.branch \?\? undefined\)\}/);
     // Workspace picker must track the shared chat/composer measure token,
     // not a bespoke hard-coded width, so future measure updates keep the
     // row aligned with the composer card automatically.

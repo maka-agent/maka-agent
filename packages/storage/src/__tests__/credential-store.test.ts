@@ -111,7 +111,9 @@ describe('FileCredentialStore', () => {
     });
   });
 
-  test('re-chmods a pre-existing world-readable file to 0600 on write', { skip: !isPosix }, async () => {
+  test('re-chmods a pre-existing world-readable file to 0600 on write', {
+    skip: !isPosix,
+  }, async () => {
     await withTempDir(async (dir) => {
       const path = join(dir, 'credentials.json');
       // A valid v1 file that was created with a loose mode.
@@ -126,7 +128,9 @@ describe('FileCredentialStore', () => {
     });
   });
 
-  test('hardens a pre-existing world-accessible workspace dir to 0700 on write', { skip: !isPosix }, async () => {
+  test('hardens a pre-existing world-accessible workspace dir to 0700 on write', {
+    skip: !isPosix,
+  }, async () => {
     await withTempDir(async (dir) => {
       await chmod(dir, 0o777); // a loose dir that predates the hardening
       const store = createFileCredentialStore(dir);
@@ -146,7 +150,9 @@ describe('FileCredentialStore', () => {
       const store = createFileCredentialStore(dir);
       const count = 8;
       await Promise.all(
-        Array.from({ length: count }, (_unused, i) => store.setSecret(`conn-${i}`, 'api_key', `key-${i}`)),
+        Array.from({ length: count }, (_unused, i) =>
+          store.setSecret(`conn-${i}`, 'api_key', `key-${i}`),
+        ),
       );
       for (let i = 0; i < count; i++) {
         assert.equal(await store.getSecret(`conn-${i}`, 'api_key'), `key-${i}`);
@@ -206,8 +212,8 @@ describe('FileCredentialStore', () => {
       await assert.rejects(
         withCredentialFileLock(path, async () => 'unreachable', 60),
         (error: Error) =>
-          error.message.includes(`${path}.lock`)
-          && /remove that directory and retry/.test(error.message),
+          error.message.includes(`${path}.lock`) &&
+          /remove that directory and retry/.test(error.message),
       );
     });
   });

@@ -1,20 +1,13 @@
 import { describe, test } from 'node:test';
 import { expect } from '../test-helpers.js';
-import {
-  RuntimeRunner,
-  runtimeGateFromCallback,
-  type RuntimeGate,
-} from '../runtime-runner.js';
+import { RuntimeRunner, runtimeGateFromCallback, type RuntimeGate } from '../runtime-runner.js';
 import type { AttachmentRef } from '@maka/core/events';
 import type {
   InvocationContext,
   InvocationProviders,
   InvocationRequest,
 } from '../invocation-context.js';
-import type {
-  RuntimeEvent,
-  RuntimeEventStatus,
-} from '@maka/core/runtime-event';
+import type { RuntimeEvent, RuntimeEventStatus } from '@maka/core/runtime-event';
 import type { AgentFlow, FlowInput, RunnableAgentFlow } from '../agent-flow.js';
 
 // ============================================================================
@@ -63,8 +56,7 @@ class ScriptFlow implements RunnableAgentFlow {
   readonly seen: InvocationContext[] = [];
   readonly seenInputs: FlowInput[] = [];
   constructor(
-    private readonly script: (ctx: InvocationContext) =>
-      RuntimeEvent[] | Promise<RuntimeEvent[]>,
+    private readonly script: (ctx: InvocationContext) => RuntimeEvent[] | Promise<RuntimeEvent[]>,
   ) {}
 
   async *run(ctx: InvocationContext, input: FlowInput): AsyncIterable<RuntimeEvent> {
@@ -102,10 +94,7 @@ function flowTextEvent(ctx: InvocationContext, text: string): RuntimeEvent {
   };
 }
 
-function flowTerminalEvent(
-  ctx: InvocationContext,
-  status: RuntimeEventStatus,
-): RuntimeEvent {
+function flowTerminalEvent(ctx: InvocationContext, status: RuntimeEventStatus): RuntimeEvent {
   return {
     id: ctx.newId(),
     invocationId: ctx.invocationId,
@@ -489,13 +478,15 @@ describe('RuntimeRunner', () => {
 
   test('a failed terminal event preserves its state-delta failure class', async () => {
     const providers = makeProviders();
-    const flow = new ScriptFlow((ctx) => [{
-      ...flowTerminalEvent(ctx, 'failed'),
-      actions: {
-        endInvocation: true,
-        stateDelta: { stopReason: 'step_limit', failureClass: 'tool_step_cap_reached' },
+    const flow = new ScriptFlow((ctx) => [
+      {
+        ...flowTerminalEvent(ctx, 'failed'),
+        actions: {
+          endInvocation: true,
+          stateDelta: { stopReason: 'step_limit', failureClass: 'tool_step_cap_reached' },
+        },
       },
-    }]);
+    ]);
     const runner = new RuntimeRunner({ flow, providers });
 
     const result = await runner.run(makeRequest());
@@ -669,9 +660,11 @@ describe('RuntimeRunner', () => {
     const flow = new ScriptFlow((ctx) => [flowTerminalEvent(ctx, 'completed')]);
     const runner = new RuntimeRunner({ flow, providers });
 
-    await runner.run(makeRequest({
-      lineage: { parentRunId: 'parent-run-1' },
-    }));
+    await runner.run(
+      makeRequest({
+        lineage: { parentRunId: 'parent-run-1' },
+      }),
+    );
 
     expect(flow.seenInputs[0]?.parentRunId).toBe('parent-run-1');
   });

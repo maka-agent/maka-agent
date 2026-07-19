@@ -38,7 +38,9 @@ export class FramedTransport {
     this.closed = new Promise((resolve) => {
       this.#resolveClosed = resolve;
     });
-    socket.on('data', (chunk) => this.#receive(typeof chunk === 'string' ? Buffer.from(chunk) : chunk));
+    socket.on('data', (chunk) =>
+      this.#receive(typeof chunk === 'string' ? Buffer.from(chunk) : chunk),
+    );
     socket.once('end', () => {
       try {
         this.#decoder.end();
@@ -57,14 +59,20 @@ export class FramedTransport {
     if (this.#queue.length > 0) return this.#queue.shift();
     if (this.#failure) throw this.#failure;
     if (this.#waiter) {
-      throw new RuntimeHostTransportError('concurrent_read', 'Only one Runtime Host frame read may be pending');
+      throw new RuntimeHostTransportError(
+        'concurrent_read',
+        'Only one Runtime Host frame read may be pending',
+      );
     }
     return new Promise((resolve, reject) => {
       const waiter: ReadWaiter = { resolve, reject };
       if (timeoutMs > 0) {
         waiter.timer = setTimeout(() => {
           if (this.#waiter !== waiter) return;
-          const error = new RuntimeHostTransportError('read_timeout', 'Timed out waiting for Runtime Host frame');
+          const error = new RuntimeHostTransportError(
+            'read_timeout',
+            'Timed out waiting for Runtime Host frame',
+          );
           this.#fail(error);
           this.socket.destroy();
         }, timeoutMs);
@@ -111,10 +119,12 @@ export class FramedTransport {
       } else {
         this.#queue.push(frame);
         if (this.#queue.length > MAX_QUEUED_FRAMES) {
-          this.#fail(new RuntimeHostTransportError(
-            'inbound_queue_full',
-            'Runtime Host inbound frame queue is full',
-          ));
+          this.#fail(
+            new RuntimeHostTransportError(
+              'inbound_queue_full',
+              'Runtime Host inbound frame queue is full',
+            ),
+          );
           this.socket.destroy();
           return;
         }

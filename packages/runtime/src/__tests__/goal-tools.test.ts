@@ -15,11 +15,18 @@ import type { MakaTool, MakaToolContext } from '../tool-runtime.js';
 const SESSION = 'sess-1';
 
 function ctx(turnId = 't'): MakaToolContext {
-  return { sessionId: SESSION, turnId, cwd: '/', toolCallId: 'tc', abortSignal: new AbortController().signal, emitOutput: () => {} };
+  return {
+    sessionId: SESSION,
+    turnId,
+    cwd: '/',
+    toolCallId: 'tc',
+    abortSignal: new AbortController().signal,
+    emitOutput: () => {},
+  };
 }
 
 function findTool(tools: MakaTool[], name: string): MakaTool {
-  const t = tools.find(x => x.name === name);
+  const t = tools.find((x) => x.name === name);
   assert.ok(t, `tool ${name} exists`);
   return t!;
 }
@@ -45,11 +52,17 @@ function makeTools(getTokenCount?: (s: string) => number) {
 describe('goal tools', () => {
   test('exposes 5 tools', () => {
     const { tools } = makeTools();
-    const names = tools.map(t => t.name).sort();
-    assert.deepEqual(names, [
-      GOAL_CLEAR_TOOL_NAME, GOAL_PAUSE_TOOL_NAME, GOAL_RESUME_TOOL_NAME,
-      GOAL_SET_TOOL_NAME, GOAL_STATUS_TOOL_NAME,
-    ].sort());
+    const names = tools.map((t) => t.name).sort();
+    assert.deepEqual(
+      names,
+      [
+        GOAL_CLEAR_TOOL_NAME,
+        GOAL_PAUSE_TOOL_NAME,
+        GOAL_RESUME_TOOL_NAME,
+        GOAL_SET_TOOL_NAME,
+        GOAL_STATUS_TOOL_NAME,
+      ].sort(),
+    );
   });
 
   test('all tools are permission-free', () => {
@@ -60,7 +73,10 @@ describe('goal tools', () => {
   test('GoalSet creates a goal with custom limits', async () => {
     const { mgr, tools } = makeTools();
     const set = findTool(tools, GOAL_SET_TOOL_NAME);
-    const out = await set.impl({ condition: 'all tests pass', max_iterations: 10, block_cap: 3, token_budget: 5000 }, ctx()) as string;
+    const out = (await set.impl(
+      { condition: 'all tests pass', max_iterations: 10, block_cap: 3, token_budget: 5000 },
+      ctx(),
+    )) as string;
     assert.ok(out.includes('Goal set'));
     assert.ok(out.includes('all tests pass'));
     assert.ok(out.includes('max 10 turns'));
@@ -84,7 +100,7 @@ describe('goal tools', () => {
     await set.impl({ condition: 'first' }, ctx());
     const first = mgr.get(SESSION);
 
-    const out = await set.impl({ condition: 'replacement' }, ctx()) as string;
+    const out = (await set.impl({ condition: 'replacement' }, ctx())) as string;
 
     assert.match(out, /unfinished goal/);
     assert.strictEqual(mgr.get(SESSION), first);
@@ -94,40 +110,46 @@ describe('goal tools', () => {
     const { mgr, tools, goalContinuation } = makeTools();
     await findTool(tools, GOAL_SET_TOOL_NAME).impl({ condition: 'x' }, ctx());
 
-    const pauseOut = await findTool(tools, GOAL_PAUSE_TOOL_NAME).impl({}, ctx()) as string;
+    const pauseOut = (await findTool(tools, GOAL_PAUSE_TOOL_NAME).impl({}, ctx())) as string;
     assert.ok(pauseOut.includes('paused'));
     assert.equal(mgr.get(SESSION)?.status, 'paused');
 
     assert.equal(goalContinuation.beginExternalTurn(SESSION, 'resume-turn').kind, 'registered');
-    const resumeOut = await findTool(tools, GOAL_RESUME_TOOL_NAME).impl({}, ctx('resume-turn')) as string;
+    const resumeOut = (await findTool(tools, GOAL_RESUME_TOOL_NAME).impl(
+      {},
+      ctx('resume-turn'),
+    )) as string;
     assert.ok(resumeOut.includes('resumed'));
     assert.equal(mgr.get(SESSION)?.status, 'active');
   });
 
   test('GoalPause with no goal', async () => {
     const { tools } = makeTools();
-    const out = await findTool(tools, GOAL_PAUSE_TOOL_NAME).impl({}, ctx()) as string;
+    const out = (await findTool(tools, GOAL_PAUSE_TOOL_NAME).impl({}, ctx())) as string;
     assert.ok(out.includes('No active goal'));
   });
 
   test('GoalResume with no paused goal', async () => {
     const { tools } = makeTools();
     await findTool(tools, GOAL_SET_TOOL_NAME).impl({ condition: 'x' }, ctx());
-    const out = await findTool(tools, GOAL_RESUME_TOOL_NAME).impl({}, ctx()) as string;
+    const out = (await findTool(tools, GOAL_RESUME_TOOL_NAME).impl({}, ctx())) as string;
     assert.ok(out.includes('No paused goal'));
   });
 
   test('GoalClear', async () => {
     const { mgr, tools } = makeTools();
     await findTool(tools, GOAL_SET_TOOL_NAME).impl({ condition: 'x' }, ctx());
-    const out = await findTool(tools, GOAL_CLEAR_TOOL_NAME).impl({}, ctx()) as string;
+    const out = (await findTool(tools, GOAL_CLEAR_TOOL_NAME).impl({}, ctx())) as string;
     assert.ok(out.includes('cleared'));
     assert.equal(mgr.get(SESSION)?.status, 'cleared');
   });
 
   test('GoalStatus shows full lifecycle detail', async () => {
     const { mgr, tools } = makeTools();
-    await findTool(tools, GOAL_SET_TOOL_NAME).impl({ condition: 'deploy', token_budget: 5000 }, ctx());
+    await findTool(tools, GOAL_SET_TOOL_NAME).impl(
+      { condition: 'deploy', token_budget: 5000 },
+      ctx(),
+    );
     const first = mgr.getActive(SESSION)!;
     mgr.settleTurn(SESSION, {
       checkpoint: goalCheckpoint(first),
@@ -144,7 +166,7 @@ describe('goal tools', () => {
       madeProgress: true,
       tokensNow: 2500,
     });
-    const out = await findTool(tools, GOAL_STATUS_TOOL_NAME).impl({}, ctx()) as string;
+    const out = (await findTool(tools, GOAL_STATUS_TOOL_NAME).impl({}, ctx())) as string;
     assert.ok(out.includes('deploy'));
     assert.ok(out.includes('Status: active'));
     assert.ok(out.includes('No-progress streak: 0/8'));
@@ -153,7 +175,7 @@ describe('goal tools', () => {
 
   test('GoalStatus with no goal', async () => {
     const { tools } = makeTools();
-    const out = await findTool(tools, GOAL_STATUS_TOOL_NAME).impl({}, ctx()) as string;
+    const out = (await findTool(tools, GOAL_STATUS_TOOL_NAME).impl({}, ctx())) as string;
     assert.ok(out.includes('No goal set'));
   });
 });

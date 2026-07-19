@@ -24,11 +24,15 @@ describe('ModelAdapter.startStream onError', () => {
   test('a provider stream failure never reaches console.error', async () => {
     const logged: unknown[] = [];
     const original = console.error;
-    console.error = (...args: unknown[]) => { logged.push(args); };
+    console.error = (...args: unknown[]) => {
+      logged.push(args);
+    };
     try {
       const model = new MockLanguageModelV4({
         doStream: async () => {
-          throw new Error('Client network socket disconnected before secure TLS connection was established');
+          throw new Error(
+            'Client network socket disconnected before secure TLS connection was established',
+          );
         },
       });
       const result = await newAdapter().startStream({
@@ -48,6 +52,10 @@ describe('ModelAdapter.startStream onError', () => {
     } finally {
       console.error = original;
     }
-    assert.deepEqual(logged, [], 'stream errors must surface via the error chunk, not console.error');
+    assert.deepEqual(
+      logged,
+      [],
+      'stream errors must surface via the error chunk, not console.error',
+    );
   });
 });

@@ -14,7 +14,7 @@ describe('Chat save-conversation-to-file contract (PR-CMD-PALETTE-SAVE-CONVERSAT
     const palette = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/renderer/command-palette-commands.ts'), 'utf8');
     const catalog = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/renderer/locales/shell-copy.ts'), 'utf8');
     const renderer = await readRendererShellCombinedSource();
-    const globalDts = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/global.d.ts'), 'utf8');
+    const globalDts = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/preload/bridge-contract.d.ts'), 'utf8');
 
     // IPC handler is registered. It delegates to the shared helper, so
     // we pin the channel name + reuse of the shared validation surface.
@@ -32,8 +32,8 @@ describe('Chat save-conversation-to-file contract (PR-CMD-PALETTE-SAVE-CONVERSAT
     assert.match(preload, /chat:saveConversationToFile/);
     assert.match(preload, /saveConversationToFile\(input:/);
 
-    // global.d.ts declares the renderer-visible session method so
-    // type-checking catches drift between preload and renderer.
+    // The shared bridge contract declares the renderer-visible session method
+    // so type-checking catches drift between preload and renderer.
     assert.match(globalDts, /saveConversationToFile\(input:/);
 
     // Command palette entry sits under the same 诊断 group as the

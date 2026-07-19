@@ -13,9 +13,7 @@ import {
   fingerprintFixedPromptTaskTree,
   resolveFixedPromptRunRoot,
 } from '#fixed-prompt-task-source';
-import {
-  createHarborTaskRunner,
-} from '#harbor-task-runner';
+import { createHarborTaskRunner } from '#harbor-task-runner';
 import {
   buildHarnessOracleExecutionPolicyFingerprint,
   HARBOR_ORACLE_DOCKER_PLATFORM,
@@ -44,25 +42,19 @@ import {
   TERMINAL_BENCH_2_1_REVISION,
   TERMINAL_BENCH_2_1_TASK_IDS,
 } from '#harness-ab-manifest';
-import {
-  runHarnessAbComparisonUnlocked,
-  withHarnessAbRunLock,
-} from '#harness-ab-run';
+import { runHarnessAbComparisonUnlocked, withHarnessAbRunLock } from '#harness-ab-run';
 import {
   assertHarnessAbReportCompleted,
   buildHarnessAbReport,
   renderHarnessAbReportCsv,
   renderHarnessAbReportMarkdown,
 } from '#harness-ab-report';
-import {
-  buildSubjectFingerprint,
-  buildToolchainFingerprint,
-} from './run-prompt-ab.mjs';
+import { buildSubjectFingerprint, buildToolchainFingerprint } from './run-prompt-ab.mjs';
 
 const execFileAsync = promisify(execFile);
 
 const EXPECTED_SOURCE_TASKS = TERMINAL_BENCH_2_1_TASK_IDS.length;
-export const DEFAULT_HARNESS_AB_RUN_ID = 'k3-maka-vs-kimi-code-tbench-2.1-full-v1';
+export const DEFAULT_HARNESS_AB_RUN_ID = 'k3-maka-vs-kimi-code-tbench-2.1-full-v2';
 const CANARY_TASKS = 5;
 const PROVIDER = 'kimi-coding-plan';
 const MODEL = 'k3';
@@ -118,16 +110,35 @@ export const HARNESS_COMPETITOR_PROFILES = Object.freeze({
 export function resolveHarnessCompetitorProfile(raw = 'kimi-code') {
   const profile = HARNESS_COMPETITOR_PROFILES[raw];
   if (!profile) {
-    throw new Error(`MAKA_HARNESS_AB_COMPETITOR must be one of: ${Object.keys(HARNESS_COMPETITOR_PROFILES).join(', ')}`);
+    throw new Error(
+      `MAKA_HARNESS_AB_COMPETITOR must be one of: ${Object.keys(HARNESS_COMPETITOR_PROFILES).join(', ')}`,
+    );
   }
   return profile;
 }
 
-export function resolveHarnessAbRunId(competitorProfile, explicitRunId) {
-  return explicitRunId
-    || (competitorProfile.id === 'kimi-code'
+export function resolveHarnessAbRunId(competitorProfile, explicitRunId, isolatedTaskId) {
+  if (isolatedTaskId?.trim() && !explicitRunId?.trim()) {
+    throw new Error('MAKA_HARNESS_AB_RUN_ID is required with MAKA_HARNESS_AB_TASK_ID');
+  }
+  return (
+    explicitRunId ||
+    (competitorProfile.id === 'kimi-code'
       ? DEFAULT_HARNESS_AB_RUN_ID
-      : `k3-maka-vs-${competitorProfile.id}-tbench-2.1-full-v1`);
+      : `k3-maka-vs-${competitorProfile.id}-tbench-2.1-full-v1`)
+  );
+}
+
+export function resolveHarnessCompetitorToolchainPath(runRoot, competitorProfile) {
+  const fingerprintPrefix = competitorProfile.toolchainFingerprint.slice(
+    'sha256:'.length,
+    'sha256:'.length + 12,
+  );
+  return join(
+    runRoot,
+    'toolchains',
+    `${competitorProfile.id}-${competitorProfile.version}-${fingerprintPrefix}-linux-x64`,
+  );
 }
 
 function envPath(name, fallback) {
@@ -142,6 +153,32 @@ function runLimit(raw) {
     throw new Error(`MAKA_HARNESS_AB_LIMIT must be ${CANARY_TASKS} or ${EXPECTED_SOURCE_TASKS}`);
   }
   return parsed;
+}
+
+function runPairConcurrency(raw) {
+  const parsed = Number(raw ?? PAIR_CONCURRENCY);
+  if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > PAIR_CONCURRENCY) {
+    throw new Error(
+      `MAKA_HARNESS_AB_PAIR_CONCURRENCY must be an integer between 1 and ${PAIR_CONCURRENCY}`,
+    );
+  }
+  return parsed;
+}
+
+export function resolveHarnessAbTaskSelection(rawTaskId, rawLimit, rawPairConcurrency) {
+  const pairConcurrency = runPairConcurrency(rawPairConcurrency);
+  const taskId = rawTaskId?.trim();
+  if (!taskId) {
+    return {
+      taskIds: TERMINAL_BENCH_2_1_TASK_IDS,
+      limit: runLimit(rawLimit),
+      pairConcurrency,
+    };
+  }
+  if (!TERMINAL_BENCH_2_1_TASK_IDS.includes(taskId)) {
+    throw new Error('MAKA_HARNESS_AB_TASK_ID must name a Terminal-Bench 2.1 task');
+  }
+  return { taskIds: [taskId], limit: 1, pairConcurrency: 1 };
 }
 
 export function harnessMakaContextBudgetEnv() {
@@ -169,6 +206,7 @@ export function buildHarnessAbManifest({
   taskSourceFingerprint,
   toolchainFingerprint,
   taskIds = TERMINAL_BENCH_2_1_TASK_IDS,
+  pairConcurrency = Math.min(PAIR_CONCURRENCY, taskIds.length),
   oracleEvidence,
   competitorProfile = resolveHarnessCompetitorProfile(),
 }) {
@@ -183,7 +221,7 @@ export function buildHarnessAbManifest({
     },
     taskIds,
     orderSeed: ORDER_SEED,
-    pilotTaskCount: CANARY_TASKS,
+    pilotTaskCount: Math.min(CANARY_TASKS, taskIds.length),
     model: { provider: PROVIDER, id: MODEL, reasoningEffort: REASONING_EFFORT },
     pricing: PRICING,
     arms: [
@@ -203,7 +241,11 @@ export function buildHarnessAbManifest({
       {
         id: competitorProfile.id,
         version: competitorProfile.version,
-        config: { ...competitorProfile.config, externalSystemPrompt: 'empty', profile: competitorProfile.id },
+        config: {
+          ...competitorProfile.config,
+          externalSystemPrompt: 'empty',
+          profile: competitorProfile.id,
+        },
       },
     ],
     taskBudgetSec: null,
@@ -211,7 +253,7 @@ export function buildHarnessAbManifest({
     subjectFingerprint,
     taskSourceFingerprint,
     toolchainFingerprint,
-    pairConcurrency: PAIR_CONCURRENCY,
+    pairConcurrency,
     ...(oracleEvidence ? { oracleEvidence } : {}),
   });
 }
@@ -223,16 +265,34 @@ export async function main() {
     : repoRoot;
   const outDir = envPath('MAKA_HARNESS_AB_OUT_DIR');
   const tasksRoot = envPath('MAKA_HARNESS_AB_TASKS_ROOT', join(homedir(), '.cache/harbor/tasks'));
-  const competitorProfile = resolveHarnessCompetitorProfile(process.env.MAKA_HARNESS_AB_COMPETITOR || 'kimi-code');
-  const runId = resolveHarnessAbRunId(competitorProfile, process.env.MAKA_HARNESS_AB_RUN_ID);
-  const limit = runLimit(process.env.MAKA_HARNESS_AB_LIMIT);
+  const competitorProfile = resolveHarnessCompetitorProfile(
+    process.env.MAKA_HARNESS_AB_COMPETITOR || 'kimi-code',
+  );
+  const runId = resolveHarnessAbRunId(
+    competitorProfile,
+    process.env.MAKA_HARNESS_AB_RUN_ID,
+    process.env.MAKA_HARNESS_AB_TASK_ID,
+  );
+  const selection = resolveHarnessAbTaskSelection(
+    process.env.MAKA_HARNESS_AB_TASK_ID,
+    process.env.MAKA_HARNESS_AB_LIMIT,
+    process.env.MAKA_HARNESS_AB_PAIR_CONCURRENCY,
+  );
   const runRoot = resolveFixedPromptRunRoot(outDir, runId, 'MAKA_HARNESS_AB_RUN_ID');
   await withHarnessAbRunLock(runRoot, async () => {
     const journal = backgroundJournal(runRoot);
     if (journal) await writeBackgroundJournal(journal.path, { ...journal.base, status: 'running' });
     let exitCode = 0;
     try {
-      await runLocked({ repoRoot, makaRepoPath, tasksRoot, runId, limit, runRoot, competitorProfile });
+      await runLocked({
+        repoRoot,
+        makaRepoPath,
+        tasksRoot,
+        runId,
+        selection,
+        runRoot,
+        competitorProfile,
+      });
     } catch (error) {
       exitCode = 1;
       throw error;
@@ -249,14 +309,24 @@ export async function main() {
   });
 }
 
-async function runLocked({ repoRoot, makaRepoPath, tasksRoot, runId, limit, runRoot, competitorProfile }) {
+async function runLocked({
+  repoRoot,
+  makaRepoPath,
+  tasksRoot,
+  runId,
+  selection,
+  runRoot,
+  competitorProfile,
+}) {
   const allTasks = await discoverCachedHarborTasks(tasksRoot);
   assertTerminalBench21TaskSet(allTasks.map((task) => task.id));
   const taskSourceFingerprint = await fingerprintFixedPromptTaskTree(allTasks);
   assertTerminalBench21TaskTreeFingerprint(taskSourceFingerprint);
 
   if (process.env.MAKA_HARNESS_AB_DRY_RUN === '1') {
-    console.log(`dry-run: frozen ${EXPECTED_SOURCE_TASKS}-task profile will run ${limit} paired Pass@1 cells; Oracle evidence is advisory`);
+    console.log(
+      `dry-run: frozen ${EXPECTED_SOURCE_TASKS}-task source will run ${selection.limit} paired Pass@1 cells; Oracle evidence is advisory`,
+    );
     return;
   }
 
@@ -280,48 +350,61 @@ async function runLocked({ repoRoot, makaRepoPath, tasksRoot, runId, limit, runR
 
   const tasksById = new Map(allTasks.map((task) => [task.id, task]));
   const manifestPath = join(runRoot, 'harness-ab-manifest.json');
-  const oracleEvidence = await resolveHarnessOracleEvidenceForRun(manifestPath, () => (
+  const oracleEvidence = await resolveHarnessOracleEvidenceForRun(manifestPath, () =>
     resolveAdvisoryOracleEvidence({
       allTasks,
       executionPolicyFingerprint,
-    })
-  ));
+    }),
+  );
   for (const warning of oracleEvidence.warnings) console.warn(`warning: ${warning}`);
 
-  const toolchainFingerprint = `sha256:${createHash('sha256').update(JSON.stringify({
-    hostToolchainFingerprint,
-    competitor: competitorProfile.id,
-    competitorToolchainFingerprint: competitorProfile.toolchainFingerprint,
-  })).digest('hex')}`;
+  const toolchainFingerprint = `sha256:${createHash('sha256')
+    .update(
+      JSON.stringify({
+        hostToolchainFingerprint,
+        competitor: competitorProfile.id,
+        competitorToolchainFingerprint: competitorProfile.toolchainFingerprint,
+      }),
+    )
+    .digest('hex')}`;
   const manifest = buildHarnessAbManifest({
     subjectFingerprint,
     taskSourceFingerprint,
     toolchainFingerprint,
-    taskIds: TERMINAL_BENCH_2_1_TASK_IDS,
+    taskIds: selection.taskIds,
+    pairConcurrency: selection.pairConcurrency,
     oracleEvidence,
     competitorProfile,
   });
   await ensureAbRunManifest(manifestPath, manifest);
-  const evaluationTasks = manifest.evaluationTaskIds.slice(0, limit).map((taskId) => tasksById.get(taskId));
-  if (evaluationTasks.some((task) => !task)) throw new Error('manifest contains a task absent from the frozen task source');
+  const evaluationTasks = manifest.evaluationTaskIds
+    .slice(0, selection.limit)
+    .map((taskId) => tasksById.get(taskId));
+  if (evaluationTasks.some((task) => !task))
+    throw new Error('manifest contains a task absent from the frozen task source');
 
-  const competitorToolchain = competitorProfile.id === 'kimi-code'
-    ? {
-        path: process.env.MAKA_HARNESS_AB_KIMI_CODE_TOOLCHAIN
-          ? resolve(process.env.MAKA_HARNESS_AB_KIMI_CODE_TOOLCHAIN)
-          : join(runRoot, 'toolchains', `kimi-code-${KIMI_CODE_TOOLCHAIN_SPEC.kimiCode.version}-linux-x64`),
-        prepare: prepareKimiCodeToolchain,
-      }
-    : {
-        path: process.env.MAKA_HARNESS_AB_OPENCODE_TOOLCHAIN
-          ? resolve(process.env.MAKA_HARNESS_AB_OPENCODE_TOOLCHAIN)
-          : join(runRoot, 'toolchains', `opencode-${OPENCODE_TOOLCHAIN_SPEC.opencode.version}-linux-x64`),
-        prepare: prepareOpenCodeToolchain,
-      };
+  const competitorToolchain =
+    competitorProfile.id === 'kimi-code'
+      ? {
+          path: process.env.MAKA_HARNESS_AB_KIMI_CODE_TOOLCHAIN
+            ? resolve(process.env.MAKA_HARNESS_AB_KIMI_CODE_TOOLCHAIN)
+            : resolveHarnessCompetitorToolchainPath(runRoot, competitorProfile),
+          prepare: prepareKimiCodeToolchain,
+        }
+      : {
+          path: process.env.MAKA_HARNESS_AB_OPENCODE_TOOLCHAIN
+            ? resolve(process.env.MAKA_HARNESS_AB_OPENCODE_TOOLCHAIN)
+            : resolveHarnessCompetitorToolchainPath(runRoot, competitorProfile),
+          prepare: prepareOpenCodeToolchain,
+        };
   await competitorToolchain.prepare(competitorToolchain.path);
 
-  const keyFile = envPath('MAKA_HARNESS_AB_KEY_FILE', join(homedir(), '.maka/secrets/kimi-coding-plan.key'));
-  if ((await readFile(keyFile, 'utf8')).trim().length === 0) throw new Error('MAKA_HARNESS_AB_KEY_FILE is empty');
+  const keyFile = envPath(
+    'MAKA_HARNESS_AB_KEY_FILE',
+    join(homedir(), '.maka/secrets/kimi-coding-plan.key'),
+  );
+  if ((await readFile(keyFile, 'utf8')).trim().length === 0)
+    throw new Error('MAKA_HARNESS_AB_KEY_FILE is empty');
   const controllerDir = join(runRoot, 'controller');
   const promptsDir = join(runRoot, 'prompts');
   const jobsDir = join(runRoot, 'jobs');
@@ -391,21 +474,37 @@ async function runLocked({ repoRoot, makaRepoPath, tasksRoot, runId, limit, runR
         }),
       },
     ],
-    pairConcurrency: PAIR_CONCURRENCY,
+    pairConcurrency: selection.pairConcurrency,
   });
   const evaluatedTaskIds = new Set(evaluationTasks.map((task) => task.id));
-  const report = buildHarnessAbReport(summary, {
-    ...(oracleEvidence.resolvedSnapshotFingerprint
-      ? { snapshotFingerprint: oracleEvidence.resolvedSnapshotFingerprint }
-      : {}),
-    annotations: oracleEvidence.annotations.filter((annotation) => evaluatedTaskIds.has(annotation.taskId)),
-    warnings: oracleEvidence.warnings,
-  }, BILLING_MODE);
-  await writeFile(join(runRoot, 'harness-ab-report.json'), `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+  const report = buildHarnessAbReport(
+    summary,
+    {
+      ...(oracleEvidence.resolvedSnapshotFingerprint
+        ? { snapshotFingerprint: oracleEvidence.resolvedSnapshotFingerprint }
+        : {}),
+      annotations: oracleEvidence.annotations.filter((annotation) =>
+        evaluatedTaskIds.has(annotation.taskId),
+      ),
+      warnings: oracleEvidence.warnings,
+    },
+    BILLING_MODE,
+  );
+  await writeFile(
+    join(runRoot, 'harness-ab-report.json'),
+    `${JSON.stringify(report, null, 2)}\n`,
+    'utf8',
+  );
   await writeFile(join(runRoot, 'harness-ab-report.csv'), renderHarnessAbReportCsv(report), 'utf8');
-  await writeFile(join(runRoot, 'harness-ab-report.md'), renderHarnessAbReportMarkdown(report), 'utf8');
+  await writeFile(
+    join(runRoot, 'harness-ab-report.md'),
+    renderHarnessAbReportMarkdown(report),
+    'utf8',
+  );
   assertHarnessAbReportCompleted(report);
-  console.log(`${report.runStatus}: ${report.coverage.attemptedCells}/${report.coverage.scheduledCells} cells attempted; ${report.effectiveness.pairedEvaluated} paired Pass@1 outcomes -> ${runRoot}`);
+  console.log(
+    `${report.runStatus}: ${report.coverage.attemptedCells}/${report.coverage.scheduledCells} cells attempted; ${report.effectiveness.pairedEvaluated} paired Pass@1 outcomes -> ${runRoot}`,
+  );
 }
 
 export async function resolveAdvisoryOracleEvidence({
@@ -437,9 +536,8 @@ export async function resolveAdvisoryOracleEvidence({
           executionPolicyFingerprint,
           environment: 'docker',
           platform: HARBOR_ORACLE_DOCKER_PLATFORM,
-          resolveBaseImageDigest: (reference, platform) => (
-            resolveBaseImageDigest(reference, platform, digestCache, controller.signal)
-          ),
+          resolveBaseImageDigest: (reference, platform) =>
+            resolveBaseImageDigest(reference, platform, digestCache, controller.signal),
         });
         return resolveHarnessOracleAnnotations(auditTasks, snapshot);
       })();
@@ -459,7 +557,9 @@ export async function resolveAdvisoryOracleEvidence({
       clearTimeout(timeout);
     }
   } else {
-    warnings.push('Oracle registry URL and fingerprint are not both configured; A/B continues without it');
+    warnings.push(
+      'Oracle registry URL and fingerprint are not both configured; A/B continues without it',
+    );
   }
   annotations ??= allTasks.map((task) => ({ taskId: task.id, state: 'missing' }));
   return {
@@ -479,17 +579,22 @@ export async function resolveHarnessOracleEvidenceForRun(manifestPath, resolveEv
   return resolveEvidence();
 }
 
-export async function resolveHarnessOracleBaseImageDigest(reference, platform, cache = new Map(), signal) {
+export async function resolveHarnessOracleBaseImageDigest(
+  reference,
+  platform,
+  cache = new Map(),
+  signal,
+) {
   const key = `${platform}:${reference}`;
   if (!cache.has(key)) {
-    cache.set(key, execFileAsync('docker', [
-      'buildx',
-      'imagetools',
-      'inspect',
-      reference,
-      '--format',
-      '{{json .Manifest}}',
-    ], { signal }).then(({ stdout }) => resolvedImageDigestFromInspect(stdout, platform)));
+    cache.set(
+      key,
+      execFileAsync(
+        'docker',
+        ['buildx', 'imagetools', 'inspect', reference, '--format', '{{json .Manifest}}'],
+        { signal },
+      ).then(({ stdout }) => resolvedImageDigestFromInspect(stdout, platform)),
+    );
   }
   return cache.get(key);
 }
@@ -498,10 +603,10 @@ export function resolvedImageDigestFromInspect(raw, platform) {
   const value = JSON.parse(raw);
   const [os, architecture] = platform.split('/');
   const selected = Array.isArray(value.manifests)
-    ? value.manifests.find((manifest) => (
-        manifest?.platform?.os === os
-        && manifest?.platform?.architecture === architecture
-      ))?.digest
+    ? value.manifests.find(
+        (manifest) =>
+          manifest?.platform?.os === os && manifest?.platform?.architecture === architecture,
+      )?.digest
     : value.digest;
   if (typeof selected !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(selected)) {
     throw new Error(`Docker image manifest has no ${platform} digest`);
@@ -525,7 +630,10 @@ function backgroundJournal(runRoot) {
 
 async function writeBackgroundJournal(path, value) {
   const pendingPath = `${path}.${process.pid}.tmp`;
-  await writeFile(pendingPath, `${JSON.stringify(value, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+  await writeFile(pendingPath, `${JSON.stringify(value, null, 2)}\n`, {
+    encoding: 'utf8',
+    mode: 0o600,
+  });
   await rename(pendingPath, path);
 }
 

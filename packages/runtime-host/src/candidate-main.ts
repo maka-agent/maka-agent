@@ -30,9 +30,11 @@ function parseArguments(args: string[]): RuntimeHostCandidateOptions {
   for (let index = 0; index < args.length; index += 2) {
     const key = args[index];
     const value = args[index + 1];
-    if (!key?.startsWith('--') || value === undefined) throw new Error('Invalid Runtime Host candidate arguments');
+    if (!key?.startsWith('--') || value === undefined)
+      throw new Error('Invalid Runtime Host candidate arguments');
     const name = key.slice(2);
-    if (!allowedKeys.has(name) || values.has(name)) throw new Error(`Invalid Runtime Host candidate argument: ${key}`);
+    if (!allowedKeys.has(name) || values.has(name))
+      throw new Error(`Invalid Runtime Host candidate argument: ${key}`);
     values.set(name, value);
   }
   const rootPath = values.get('root');

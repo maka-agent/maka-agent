@@ -51,7 +51,20 @@ describe('normalizePricingModelKey (PR-UI-IPC-3)', () => {
 
   describe('reject', () => {
     it('non-string types reject with typed error', () => {
-      for (const bad of [undefined, null, 42, 0, NaN, true, false, {}, [], Symbol('x'), () => '', BigInt(1)]) {
+      for (const bad of [
+        undefined,
+        null,
+        42,
+        0,
+        NaN,
+        true,
+        false,
+        {},
+        [],
+        Symbol('x'),
+        () => '',
+        BigInt(1),
+      ]) {
         const result = normalizePricingModelKey(bad);
         assert.equal(result.ok, false, `bad input ${String(bad)} must reject`);
         if (!result.ok) {
@@ -82,7 +95,10 @@ describe('normalizePricingModelKey (PR-UI-IPC-3)', () => {
 
     it('never throws on bad runtime types', () => {
       for (const bad of [undefined, null, 42, true, {}, [], Symbol('x'), () => '', BigInt(1)]) {
-        assert.doesNotThrow(() => normalizePricingModelKey(bad), `bad input ${String(bad)} must not throw`);
+        assert.doesNotThrow(
+          () => normalizePricingModelKey(bad),
+          `bad input ${String(bad)} must not throw`,
+        );
       }
     });
   });
@@ -213,7 +229,9 @@ describe('normalizePricingConfig (PR-UI-IPC-3)', () => {
     });
 
     it('explicit undefined treated as omit (NOT reject)', () => {
-      const result = normalizePricingConfig(valid({ cacheReadUsdPer1M: undefined, cacheWriteUsdPer1M: undefined }));
+      const result = normalizePricingConfig(
+        valid({ cacheReadUsdPer1M: undefined, cacheWriteUsdPer1M: undefined }),
+      );
       assert.ok(result.ok);
       if (result.ok) {
         assert.ok(!('cacheReadUsdPer1M' in result.value));
@@ -222,7 +240,9 @@ describe('normalizePricingConfig (PR-UI-IPC-3)', () => {
     });
 
     it('present-valid optionals carry through', () => {
-      const result = normalizePricingConfig(valid({ cacheReadUsdPer1M: 0.3, cacheWriteUsdPer1M: 3.75 }));
+      const result = normalizePricingConfig(
+        valid({ cacheReadUsdPer1M: 0.3, cacheWriteUsdPer1M: 3.75 }),
+      );
       assert.ok(result.ok);
       if (result.ok) {
         assert.equal(result.value.cacheReadUsdPer1M, 0.3);
@@ -249,15 +269,21 @@ describe('normalizePricingConfig (PR-UI-IPC-3)', () => {
 
   describe('extra fields stripped (canonical return)', () => {
     it('arbitrary extra keys are dropped from the canonical value', () => {
-      const result = normalizePricingConfig(valid({
-        evil: 'payload',
-        rate: 999,
-        modelId: 'shadow',
-        nested: { x: 1 },
-      }));
+      const result = normalizePricingConfig(
+        valid({
+          evil: 'payload',
+          rate: 999,
+          modelId: 'shadow',
+          nested: { x: 1 },
+        }),
+      );
       assert.ok(result.ok);
       if (result.ok) {
-        assert.deepEqual(Object.keys(result.value).sort(), ['inputUsdPer1M', 'modelKey', 'outputUsdPer1M']);
+        assert.deepEqual(Object.keys(result.value).sort(), [
+          'inputUsdPer1M',
+          'modelKey',
+          'outputUsdPer1M',
+        ]);
       }
     });
 
@@ -272,10 +298,12 @@ describe('normalizePricingConfig (PR-UI-IPC-3)', () => {
       });
       assert.ok(result.ok);
       if (result.ok) {
-        assert.deepEqual(
-          Object.keys(result.value).sort(),
-          ['cacheReadUsdPer1M', 'inputUsdPer1M', 'modelKey', 'outputUsdPer1M'],
-        );
+        assert.deepEqual(Object.keys(result.value).sort(), [
+          'cacheReadUsdPer1M',
+          'inputUsdPer1M',
+          'modelKey',
+          'outputUsdPer1M',
+        ]);
         assert.equal(result.value.cacheReadUsdPer1M, 1.25);
         assert.ok(!('cacheWriteUsdPer1M' in result.value));
         assert.ok(!('evilExtra' in result.value));

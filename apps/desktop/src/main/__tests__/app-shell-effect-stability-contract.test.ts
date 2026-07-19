@@ -199,6 +199,7 @@ function BootstrapSubscriptionProbe(props: {
   refs: ReturnType<typeof createBootstrapRefs>;
 }) {
   props.effects.useAppShellBootstrapSubscriptions({
+    uiLocale: 'zh',
     activeIdRef: props.refs.activeIdRef,
     applyVisualSmokeFixture: async () => {},
     bootstrapSessions: async () => {},

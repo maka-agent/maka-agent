@@ -1,8 +1,20 @@
 import { isPartialRuntimeEvent, isTerminalRuntimeEvent } from '@maka/core';
-import type { AgentRunEvent, AgentRunHeader, AgentRunStore, RuntimeEvent, RuntimeEventStore } from '@maka/core';
-import { classifyRuntimeEventTerminalFact, type RuntimeEventTerminalFact } from './runtime-event-read-model.js';
+import type {
+  AgentRunEvent,
+  AgentRunHeader,
+  AgentRunStore,
+  RuntimeEvent,
+  RuntimeEventStore,
+} from '@maka/core';
+import {
+  classifyRuntimeEventTerminalFact,
+  type RuntimeEventTerminalFact,
+} from './runtime-event-read-model.js';
 
-export type TerminalAgentRunStatus = Extract<AgentRunHeader['status'], 'completed' | 'failed' | 'cancelled'>;
+export type TerminalAgentRunStatus = Extract<
+  AgentRunHeader['status'],
+  'completed' | 'failed' | 'cancelled'
+>;
 
 export type TerminalRuntimeLedgerClassification =
   | {
@@ -76,7 +88,9 @@ export async function commitTerminalRunWithRuntimeFact(
     throw new Error('terminal RuntimeEvent must carry a terminal status');
   }
   if (terminalStatus !== input.status) {
-    throw new Error(`terminal RuntimeEvent status ${input.terminalEvent.status} cannot commit ${input.status} run header`);
+    throw new Error(
+      `terminal RuntimeEvent status ${input.terminalEvent.status} cannot commit ${input.status} run header`,
+    );
   }
   if (
     input.terminalEvent.sessionId !== input.sessionId ||
@@ -97,7 +111,7 @@ export async function commitTerminalRunWithRuntimeFact(
 async function commitTerminalRunProjection(
   input: CommitTerminalRunWithRuntimeFactInput,
 ): Promise<void> {
-  const failureClass = input.status === 'failed' ? input.failureClass ?? 'unknown' : undefined;
+  const failureClass = input.status === 'failed' ? (input.failureClass ?? 'unknown') : undefined;
   const abortSource = input.status === 'cancelled' ? input.abortSource : undefined;
   await input.runStore.updateRun(
     input.sessionId,
@@ -132,10 +146,8 @@ async function commitTerminalRunProjection(
   );
 }
 
-export interface CommitOrCreateTerminalRunFactInput extends Omit<
-  CommitTerminalRunWithRuntimeFactInput,
-  'status' | 'terminalEvent'
-> {
+export interface CommitOrCreateTerminalRunFactInput
+  extends Omit<CommitTerminalRunWithRuntimeFactInput, 'status' | 'terminalEvent'> {
   terminalEvent?: RuntimeEvent;
   allowHeaderCommitFailure?: boolean;
   fallbackStatus: TerminalAgentRunStatus;
@@ -157,25 +169,26 @@ export async function commitOrCreateTerminalRunFact(
   input: CommitOrCreateTerminalRunFactInput,
 ): Promise<CommitOrCreateTerminalRunFactResult> {
   const createdTerminalEvent = !input.terminalEvent;
-  const effectiveAbortSource = input.fallbackStatus === 'cancelled'
-    ? input.abortSource ?? 'user_stop'
-    : input.abortSource;
-  const terminalEvent = input.terminalEvent ?? buildSyntheticTerminalRuntimeEvent({
-    id: input.newId(),
-    invocationId: input.fallbackInvocationId,
-    run: {
-      sessionId: input.sessionId,
-      runId: input.runId,
-      turnId: input.turnId,
-    },
-    status: input.fallbackStatus,
-    ts: input.ts,
-    ...(input.fallbackFailureClass ? { failureClass: input.fallbackFailureClass } : {}),
-    ...(effectiveAbortSource ? { abortSource: effectiveAbortSource } : {}),
-    ...(input.fallbackFailureMessage ?? input.failureMessage
-      ? { message: input.fallbackFailureMessage ?? input.failureMessage }
-      : {}),
-  });
+  const effectiveAbortSource =
+    input.fallbackStatus === 'cancelled' ? (input.abortSource ?? 'user_stop') : input.abortSource;
+  const terminalEvent =
+    input.terminalEvent ??
+    buildSyntheticTerminalRuntimeEvent({
+      id: input.newId(),
+      invocationId: input.fallbackInvocationId,
+      run: {
+        sessionId: input.sessionId,
+        runId: input.runId,
+        turnId: input.turnId,
+      },
+      status: input.fallbackStatus,
+      ts: input.ts,
+      ...(input.fallbackFailureClass ? { failureClass: input.fallbackFailureClass } : {}),
+      ...(effectiveAbortSource ? { abortSource: effectiveAbortSource } : {}),
+      ...((input.fallbackFailureMessage ?? input.failureMessage)
+        ? { message: input.fallbackFailureMessage ?? input.failureMessage }
+        : {}),
+    });
   const status = terminalRunStatusFromRuntimeEvent(terminalEvent);
   if (!status) {
     throw new Error('terminal RuntimeEvent must carry a terminal status');
@@ -190,9 +203,10 @@ export async function commitOrCreateTerminalRunFact(
   ) {
     throw new Error('terminal RuntimeEvent identity does not match run header commit');
   }
-  const failureClass = status === 'failed'
-    ? runtimeEventFailureClass(terminalEvent) ?? input.failureClass ?? 'unknown'
-    : undefined;
+  const failureClass =
+    status === 'failed'
+      ? (runtimeEventFailureClass(terminalEvent) ?? input.failureClass ?? 'unknown')
+      : undefined;
   await input.runtimeEventStore.ensureTerminalRuntimeEventDurable(
     input.sessionId,
     input.runId,
@@ -239,7 +253,7 @@ export interface BuildSyntheticTerminalRuntimeEventInput {
 export function buildSyntheticTerminalRuntimeEvent(
   input: BuildSyntheticTerminalRuntimeEventInput,
 ): RuntimeEvent {
-  const failureClass = input.status === 'failed' ? input.failureClass ?? 'unknown' : undefined;
+  const failureClass = input.status === 'failed' ? (input.failureClass ?? 'unknown') : undefined;
   const abortSource = input.status === 'cancelled' ? input.abortSource : undefined;
   return {
     id: input.id,
@@ -292,8 +306,7 @@ export function buildRecoveredTerminalRuntimeEvent(
 ): RuntimeEvent {
   return buildSyntheticTerminalRuntimeEvent({
     id: input.id,
-    invocationId:
-      input.run.invocationId ?? input.invocationId ?? `recovery-${input.run.runId}`,
+    invocationId: input.run.invocationId ?? input.invocationId ?? `recovery-${input.run.runId}`,
     run: input.run,
     ts: input.ts,
     status: input.status,
@@ -306,10 +319,11 @@ export function buildRecoveredTerminalRuntimeEvent(
 }
 
 export function hasTerminalAgentRunEvent(events: readonly Pick<AgentRunEvent, 'type'>[]): boolean {
-  return events.some((event) =>
-    event.type === 'run_completed' ||
-    event.type === 'run_failed' ||
-    event.type === 'run_cancelled'
+  return events.some(
+    (event) =>
+      event.type === 'run_completed' ||
+      event.type === 'run_failed' ||
+      event.type === 'run_cancelled',
   );
 }
 
@@ -341,7 +355,9 @@ function runtimeEventFailureClass(event: RuntimeEvent): string | undefined {
   return undefined;
 }
 
-export function terminalRunStatusFromRuntimeEvent(event: RuntimeEvent): TerminalAgentRunStatus | undefined {
+export function terminalRunStatusFromRuntimeEvent(
+  event: RuntimeEvent,
+): TerminalAgentRunStatus | undefined {
   if (event.status === 'completed') return 'completed';
   if (event.status === 'failed') return 'failed';
   if (event.status === 'aborted' || event.status === 'cancelled') return 'cancelled';
@@ -362,9 +378,15 @@ export function effectiveRunHeaderFromTerminalFact(
     status: fact.runStatus,
     updatedAt: Math.max(run.updatedAt, completedAt),
     completedAt,
-    ...(fact.runStatus === 'failed' && fact.failureClass ? { failureClass: fact.failureClass } : {}),
-    ...(fact.runStatus === 'failed' && run.failureMessage ? { failureMessage: run.failureMessage } : {}),
-    ...(fact.runStatus === 'cancelled' && fact.abortSource ? { abortSource: fact.abortSource } : {}),
+    ...(fact.runStatus === 'failed' && fact.failureClass
+      ? { failureClass: fact.failureClass }
+      : {}),
+    ...(fact.runStatus === 'failed' && run.failureMessage
+      ? { failureMessage: run.failureMessage }
+      : {}),
+    ...(fact.runStatus === 'cancelled' && fact.abortSource
+      ? { abortSource: fact.abortSource }
+      : {}),
   };
 }
 
@@ -382,11 +404,12 @@ export function matchingTerminalRuntimeEvents(
   run: AgentRunHeader,
   events: readonly RuntimeEvent[],
 ): RuntimeEvent[] {
-  return events.filter((event) =>
-    !isPartialRuntimeEvent(event) &&
-    event.sessionId === run.sessionId &&
-    event.runId === run.runId &&
-    event.turnId === run.turnId &&
-    isTerminalRuntimeEvent(event)
+  return events.filter(
+    (event) =>
+      !isPartialRuntimeEvent(event) &&
+      event.sessionId === run.sessionId &&
+      event.runId === run.runId &&
+      event.turnId === run.turnId &&
+      isTerminalRuntimeEvent(event),
   );
 }

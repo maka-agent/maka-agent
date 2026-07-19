@@ -51,12 +51,18 @@ function buildTeamMessageTool(mailbox: AgentMailboxStore): MakaTool {
   return {
     name: TEAM_MESSAGE_TOOL_NAME,
     displayName: 'Team Message',
-    description: 'Send one bounded, durable message to the team lead role, a member role mailbox, or the whole current expert-team run.',
+    description:
+      'Send one bounded, durable message to the team lead role, a member role mailbox, or the whole current expert-team run.',
     parameters: z.discriminatedUnion('type', [
       z.object({
         type: z.literal('message'),
-        recipient: z.string().min(1).max(128)
-          .describe('Use "lead" or a member id from the team roster. A member id addresses its shared role mailbox.'),
+        recipient: z
+          .string()
+          .min(1)
+          .max(128)
+          .describe(
+            'Use "lead" or a member id from the team roster. A member id addresses its shared role mailbox.',
+          ),
         content: z.string().min(1).max(AGENT_MAILBOX_CONTENT_MAX_CHARS),
       }),
       z.object({
@@ -68,11 +74,14 @@ function buildTeamMessageTool(mailbox: AgentMailboxStore): MakaTool {
     categoryHint: 'read',
     impl: async (input: unknown, ctx) => {
       const execution = requireAgentTeamExecution(ctx);
-      const parsed = input as { type: 'message' | 'broadcast'; recipient?: string; content: string };
+      const parsed = input as {
+        type: 'message' | 'broadcast';
+        recipient?: string;
+        content: string;
+      };
       const from = participantFromContext(execution, ctx);
-      const to = parsed.type === 'message'
-        ? resolveRecipient(execution, parsed.recipient)
-        : undefined;
+      const to =
+        parsed.type === 'message' ? resolveRecipient(execution, parsed.recipient) : undefined;
       return await mailbox.send(ctx.sessionId, {
         teamId: execution.teamId,
         parentRunId: parentRunIdFor(execution, ctx),
@@ -90,8 +99,8 @@ function buildTeamInboxTool(mailbox: AgentMailboxStore): MakaTool {
     name: TEAM_INBOX_TOOL_NAME,
     displayName: 'Team Inbox',
     description:
-      'Read durable direct messages and teammate broadcasts for this role in the current expert-team run. '
-      + 'Repeated or concurrent invocations of one member share this history; each caller must pass its own after_seq cursor.',
+      'Read durable direct messages and teammate broadcasts for this role in the current expert-team run. ' +
+      'Repeated or concurrent invocations of one member share this history; each caller must pass its own after_seq cursor.',
     parameters: z.object({
       after_seq: z.number().int().min(0).optional(),
       limit: z.number().int().min(1).max(AGENT_MAILBOX_LIST_MAX).optional(),
@@ -116,20 +125,24 @@ function buildTeamTaskListTool(taskLedger: TaskLedgerStore): MakaTool {
   return {
     name: TEAM_TASK_LIST_TOOL_NAME,
     displayName: 'Team Tasks',
-    description: 'List Task Ledger items shared by the current lead AgentRun and eligible for atomic child self-claim.',
+    description:
+      'List Task Ledger items shared by the current lead AgentRun and eligible for atomic child self-claim.',
     parameters: z.object({}),
     permissionRequired: false,
     categoryHint: 'read',
     impl: async (_input, ctx) => {
       const execution = requireMemberExecution(ctx);
-      const tasks = filterModelVisibleTaskLedgerTasks(await taskLedger.list(ctx.sessionId, {
-        includeTerminal: false,
-        classifyResumeTrust: true,
-      }))
-        .filter((task) =>
-          (task.status === 'pending' || task.status === 'blocked')
-          && task.owner?.actor === 'main_agent'
-          && task.owner.runId === execution.parentRunId
+      const tasks = filterModelVisibleTaskLedgerTasks(
+        await taskLedger.list(ctx.sessionId, {
+          includeTerminal: false,
+          classifyResumeTrust: true,
+        }),
+      )
+        .filter(
+          (task) =>
+            (task.status === 'pending' || task.status === 'blocked') &&
+            task.owner?.actor === 'main_agent' &&
+            task.owner.runId === execution.parentRunId,
         )
         .map((task) => {
           const safe = sanitizeTaskLedgerTask(task);
@@ -151,9 +164,14 @@ function buildTeamTaskClaimTool(taskLedger: TaskLedgerStore): MakaTool {
   return {
     name: TEAM_TASK_CLAIM_TOOL_NAME,
     displayName: 'Claim Team Task',
-    description: 'Atomically claim one available shared Task Ledger item for this child turn. This grants work ownership, never completion authority.',
+    description:
+      'Atomically claim one available shared Task Ledger item for this child turn. This grants work ownership, never completion authority.',
     parameters: z.object({
-      task_id: z.string().min(1).max(TASK_ID_MAX_CHARS).refine(isSafeTaskId)
+      task_id: z
+        .string()
+        .min(1)
+        .max(TASK_ID_MAX_CHARS)
+        .refine(isSafeTaskId)
         .describe('Task UUID or short key from team_task_list.'),
     }),
     permissionRequired: false,
@@ -167,23 +185,30 @@ function buildTeamTaskClaimTool(taskLedger: TaskLedgerStore): MakaTool {
         runId: requireRunId(ctx),
         turnId: ctx.turnId,
       };
-      const result = await taskLedger.claimAvailable(ctx.sessionId, parsed.task_id, owner, {
-        parentRunId: execution.parentRunId,
-      }, {
-        runId: owner.runId,
-        turnId: owner.turnId,
-        toolCallId: ctx.toolCallId,
-        source: 'tool',
-        actor: 'child_agent',
-        reason: `self-claimed by expert team member ${execution.agentId}`,
-      });
+      const result = await taskLedger.claimAvailable(
+        ctx.sessionId,
+        parsed.task_id,
+        owner,
+        {
+          parentRunId: execution.parentRunId,
+        },
+        {
+          runId: owner.runId,
+          turnId: owner.turnId,
+          toolCallId: ctx.toolCallId,
+          source: 'tool',
+          actor: 'child_agent',
+          reason: `self-claimed by expert team member ${execution.agentId}`,
+        },
+      );
       return { task: sanitizeTaskLedgerTask(result.updated), total: result.total };
     },
   };
 }
 
 function requireAgentTeamExecution(ctx: MakaToolContext): AgentTeamExecutionContext {
-  if (!ctx.agentTeam) throw new Error('Agent team capability is unavailable outside an expert-team run');
+  if (!ctx.agentTeam)
+    throw new Error('Agent team capability is unavailable outside an expert-team run');
   requireRunId(ctx);
   if (ctx.agentTeam.role === 'member' && !ctx.agentTeam.parentRunId) {
     throw new Error('Expert-team member is missing its parent AgentRun identity');
@@ -191,7 +216,9 @@ function requireAgentTeamExecution(ctx: MakaToolContext): AgentTeamExecutionCont
   return ctx.agentTeam;
 }
 
-function requireMemberExecution(ctx: MakaToolContext): AgentTeamExecutionContext & { role: 'member'; parentRunId: string } {
+function requireMemberExecution(
+  ctx: MakaToolContext,
+): AgentTeamExecutionContext & { role: 'member'; parentRunId: string } {
   const execution = requireAgentTeamExecution(ctx);
   if (execution.role !== 'member' || !execution.parentRunId) {
     throw new Error('Shared task self-claim is available only to expert-team members');
@@ -231,7 +258,8 @@ function resolveRecipient(
   }
   const team = getExpertTeam(execution.teamId);
   const member = team?.members.find((candidate) => candidate.id === recipient);
-  if (!team || !member) throw new Error(`Unknown member "${recipient}" for expert team "${execution.teamId}"`);
+  if (!team || !member)
+    throw new Error(`Unknown member "${recipient}" for expert team "${execution.teamId}"`);
   const agentId = buildExpertAgentId(team.id, member.id);
   if (agentId === execution.agentId) throw new Error('Team messages cannot target the sender');
   return { role: 'member', agentId };

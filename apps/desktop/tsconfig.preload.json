@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src/preload",
+    "outDir": "dist-preload-types",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "types": ["node", "electron"]
+  },
+  "include": ["src/preload/preload.ts"]
+}

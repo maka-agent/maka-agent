@@ -71,15 +71,15 @@ describe('PR-SESSION-STICKY-MODEL-0 contract', () => {
     const providers = await readProviderSettingsCombinedSource();
 
     assert.match(renderer, /normalizeActiveChatModel\(activeSession, activeConnection, chatModelChoices\)/);
-    assert.match(ui, /本会话固定模型：\$\{props\.activeConnectionLabel\} · \$\{props\.activeModelLabel\}/);
-    assert.match(ui, /设置里的默认模型只影响新建会话/);
+    assert.match(ui, /copy\.pinnedSession\(props\.activeConnectionLabel, props\.activeModelLabel\)/);
+    assert.match(ui, /copy\.switchTitle\(currentSessionModelTitle\)/);
     assert.match(providers, /勾选的模型会出现在模型选择器中/);
   });
 
   it('lets the user explicitly switch the current session model from the chat header', async () => {
     const main = await readMainProcessCombinedSource();
     const preload = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/preload/preload.ts'), 'utf8');
-    const globalTypes = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/global.d.ts'), 'utf8');
+    const globalTypes = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/preload/bridge-contract.d.ts'), 'utf8');
     const renderer = await readRendererShellCombinedSource();
     const ui = await readModelSwitcherUiSource();
     const uiPrimitives = await readFile(resolve(REPO_ROOT, 'packages/ui/src/ui.tsx'), 'utf8');
@@ -140,7 +140,7 @@ describe('PR-SESSION-STICKY-MODEL-0 contract', () => {
     assert.match(ui, /pending=\{props\.modelChangePending\}/);
     assert.match(ui, /activeModel\?: string/);
     assert.match(ui, /const currentModel = props\.activeModel \?\? props\.activeSession\.model/);
-    assert.match(ui, /ariaLabel="切换当前会话模型"/);
+    assert.match(ui, /ariaLabel=\{copy\.switchAriaLabel\}/);
     assert.match(ui, /pending\?: boolean/);
     assert.match(ui, /const \[localPending,\s*setLocalPending\] = useState\(false\);/);
     assert.match(ui, /const pendingRef = useRef\(false\);/);
@@ -187,7 +187,7 @@ describe('PR-SESSION-STICKY-MODEL-0 contract', () => {
     assert.match(ui, /<BaseCombobox\.Item[\s\S]*<span className="min-w-0">\{children\}<\/span>/);
     assert.doesNotMatch(uiPrimitives, /BaseCombobox/, 'Combobox stays private to ModelPicker until a second real consumer appears');
     assert.doesNotMatch(ui, /<select\b[\s\S]*aria-label="切换当前会话模型"/);
-    assert.match(ui, /<span className="maka-model-switcher-label">\{pending \? '切换中' : '模型'\}<\/span>/);
+    assert.match(ui, /<span className="maka-model-switcher-label">\{pending \? copy\.switching : copy\.model\}<\/span>/);
     assert.match(styles, /\.maka-model-switcher\s*\{/);
     assert.match(styles, /\.maka-model-switcher\[data-pending="true"\]\s*\{[\s\S]*cursor: progress;[\s\S]*\}/);
     assert.match(styles, /\.maka-model-switcher-trigger\s*\{/);

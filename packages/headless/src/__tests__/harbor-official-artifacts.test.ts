@@ -63,13 +63,27 @@ describe('Harbor official verifier artifacts', () => {
       const ctrfJsonPath = join(dir, 'ctrf.json');
       await writeFile(resultJsonPath, JSON.stringify({ taskId: 'example' }), 'utf8');
       await writeFile(rewardPath, '1\n', 'utf8');
-      await writeFile(ctrfJsonPath, JSON.stringify({ results: { summary: { tests: 3, passed: 3, failed: 0 } } }), 'utf8');
+      await writeFile(
+        ctrfJsonPath,
+        JSON.stringify({ results: { summary: { tests: 3, passed: 3, failed: 0 } } }),
+        'utf8',
+      );
 
-      const output = await readHarborOfficialVerifierOutput({ resultJsonPath, rewardPath, ctrfJsonPath });
+      const output = await readHarborOfficialVerifierOutput({
+        resultJsonPath,
+        rewardPath,
+        ctrfJsonPath,
+      });
 
       assert.equal(output.passed, true);
       assert.equal(output.score, 1);
-      assert.deepEqual(output.details?.ctrf, { passed: true, score: 1, maxScore: 1, tests: 3, failed: 0 });
+      assert.deepEqual(output.details?.ctrf, {
+        passed: true,
+        score: 1,
+        maxScore: 1,
+        tests: 3,
+        failed: 0,
+      });
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

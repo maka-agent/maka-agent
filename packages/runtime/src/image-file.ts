@@ -1,7 +1,11 @@
 import { stat, readFile } from 'node:fs/promises';
 import { extname } from 'node:path';
 import { imageDimensionsFromData } from 'image-dimensions';
-import { MAX_MODEL_IMAGE_EDGE, MAX_READ_IMAGE_BYTES, READ_IMAGE_TOO_LARGE_MESSAGE } from '@maka/core';
+import {
+  MAX_MODEL_IMAGE_EDGE,
+  MAX_READ_IMAGE_BYTES,
+  READ_IMAGE_TOO_LARGE_MESSAGE,
+} from '@maka/core';
 
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp']);
 const PNG_SIGNATURE = Buffer.from('\x89PNG\r\n\x1a\n', 'latin1');
@@ -16,11 +20,17 @@ export function isSupportedImagePath(path: string): boolean {
   return IMAGE_EXTENSIONS.has(extname(path).toLowerCase());
 }
 
-export async function readWorkspaceImage(path: string): Promise<{ bytes: Uint8Array; mimeType: ImageMimeType }> {
-  const size = await stat(path).catch(() => { throw new Error('Image could not be read.'); });
+export async function readWorkspaceImage(
+  path: string,
+): Promise<{ bytes: Uint8Array; mimeType: ImageMimeType }> {
+  const size = await stat(path).catch(() => {
+    throw new Error('Image could not be read.');
+  });
   if (!size.isFile()) throw new Error('Image path is not a file.');
   if (size.size > MAX_READ_IMAGE_BYTES) throw imageTooLargeError();
-  const bytes = await readFile(path).catch(() => { throw new Error('Image could not be read.'); });
+  const bytes = await readFile(path).catch(() => {
+    throw new Error('Image could not be read.');
+  });
   if (bytes.length > MAX_READ_IMAGE_BYTES) throw imageTooLargeError();
   const mimeType = sniffImageMime(bytes);
   if (!mimeType) throw new Error('Image content is not a supported PNG, JPEG, GIF, or WebP file.');
@@ -40,12 +50,16 @@ function imageTooLargeError(): Error {
 function sniffImageMime(bytes: Uint8Array): ImageMimeType | undefined {
   if (startsWith(bytes, PNG_SIGNATURE)) return 'image/png';
   if (startsWith(bytes, JPEG_SIGNATURE)) return 'image/jpeg';
-  if (startsWith(bytes, GIF87A_SIGNATURE) || startsWith(bytes, GIF89A_SIGNATURE)) return 'image/gif';
-  if (startsWith(bytes, RIFF_SIGNATURE) && startsWith(bytes, WEBP_SIGNATURE, 8)) return 'image/webp';
+  if (startsWith(bytes, GIF87A_SIGNATURE) || startsWith(bytes, GIF89A_SIGNATURE))
+    return 'image/gif';
+  if (startsWith(bytes, RIFF_SIGNATURE) && startsWith(bytes, WEBP_SIGNATURE, 8))
+    return 'image/webp';
   return undefined;
 }
 
 function startsWith(bytes: Uint8Array, prefix: Uint8Array, offset = 0): boolean {
-  return bytes.length >= offset + prefix.length
-    && prefix.every((value, index) => bytes[offset + index] === value);
+  return (
+    bytes.length >= offset + prefix.length &&
+    prefix.every((value, index) => bytes[offset + index] === value)
+  );
 }

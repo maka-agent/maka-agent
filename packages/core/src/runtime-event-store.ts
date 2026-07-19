@@ -4,7 +4,10 @@ import type { RuntimeEvent } from './runtime-event.js';
 export class DurableStoreWriteError extends Error {
   readonly name = 'DurableStoreWriteError';
 
-  constructor(message: string, readonly storeCause: unknown) {
+  constructor(
+    message: string,
+    readonly storeCause: unknown,
+  ) {
     super(message);
   }
 }

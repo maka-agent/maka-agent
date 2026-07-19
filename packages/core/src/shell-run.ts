@@ -7,7 +7,7 @@ export const SHELL_RUN_STATUSES = [
   'orphaned',
 ] as const;
 
-export type ShellRunStatus = typeof SHELL_RUN_STATUSES[number];
+export type ShellRunStatus = (typeof SHELL_RUN_STATUSES)[number];
 
 export const SHELL_RUN_TERMINAL_STATUSES = [
   'completed',
@@ -43,7 +43,7 @@ const PTY_SHELL_OUTPUT_KEYS = new Set([
 ]);
 const PTY_CURSOR_KEYS = new Set(['x', 'y', 'visible']);
 
-export type ShellRunTerminalStatus = typeof SHELL_RUN_TERMINAL_STATUSES[number];
+export type ShellRunTerminalStatus = (typeof SHELL_RUN_TERMINAL_STATUSES)[number];
 export type ShellMode = 'pipes' | 'pty';
 
 export interface PipeShellOutput {
@@ -123,16 +123,12 @@ export interface ShellRunRecord {
   };
 }
 
-export type ShellRunPatch = Partial<Pick<
-  ShellRunRecord,
-  | 'status'
-  | 'exitCode'
-  | 'failureMessage'
-  | 'updatedAt'
-  | 'completedAt'
-  | 'observedAt'
-  | 'output'
->>;
+export type ShellRunPatch = Partial<
+  Pick<
+    ShellRunRecord,
+    'status' | 'exitCode' | 'failureMessage' | 'updatedAt' | 'completedAt' | 'observedAt' | 'output'
+  >
+>;
 
 export interface ShellRunStore {
   createShellRun(record: ShellRunRecord): Promise<ShellRunRecord>;
@@ -161,35 +157,39 @@ export function isShellOutput(value: unknown): value is ShellOutput {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const output = value as Partial<ShellOutput>;
   if (output.mode === 'pipes') {
-    return hasOnlyKeys(output, PIPE_SHELL_OUTPUT_KEYS)
-      && typeof output.stdout === 'string'
-      && typeof output.stderr === 'string'
-      && (output.latestStream === undefined
-        || output.latestStream === 'stdout'
-        || output.latestStream === 'stderr')
-      && typeof output.stdoutTruncated === 'boolean'
-      && typeof output.stderrTruncated === 'boolean'
-      && typeof output.redacted === 'boolean';
+    return (
+      hasOnlyKeys(output, PIPE_SHELL_OUTPUT_KEYS) &&
+      typeof output.stdout === 'string' &&
+      typeof output.stderr === 'string' &&
+      (output.latestStream === undefined ||
+        output.latestStream === 'stdout' ||
+        output.latestStream === 'stderr') &&
+      typeof output.stdoutTruncated === 'boolean' &&
+      typeof output.stderrTruncated === 'boolean' &&
+      typeof output.redacted === 'boolean'
+    );
   }
   if (output.mode !== 'pty') return false;
   const pty = output as Partial<PtyShellOutput>;
   const cursor = pty.cursor;
-  return hasOnlyKeys(pty, PTY_SHELL_OUTPUT_KEYS)
-    && typeof pty.screen === 'string'
-    && typeof pty.scrollback === 'string'
-    && (pty.lastAlternateScreen === undefined || typeof pty.lastAlternateScreen === 'string')
-    && isPositiveInteger(pty.cols)
-    && isPositiveInteger(pty.rows)
-    && !!cursor
-    && hasOnlyKeys(cursor, PTY_CURSOR_KEYS)
-    && isNonNegativeInteger(cursor.x)
-    && cursor.x <= pty.cols
-    && isNonNegativeInteger(cursor.y)
-    && cursor.y < pty.rows
-    && typeof cursor.visible === 'boolean'
-    && typeof pty.alternateScreen === 'boolean'
-    && typeof pty.truncated === 'boolean'
-    && typeof pty.redacted === 'boolean';
+  return (
+    hasOnlyKeys(pty, PTY_SHELL_OUTPUT_KEYS) &&
+    typeof pty.screen === 'string' &&
+    typeof pty.scrollback === 'string' &&
+    (pty.lastAlternateScreen === undefined || typeof pty.lastAlternateScreen === 'string') &&
+    isPositiveInteger(pty.cols) &&
+    isPositiveInteger(pty.rows) &&
+    !!cursor &&
+    hasOnlyKeys(cursor, PTY_CURSOR_KEYS) &&
+    isNonNegativeInteger(cursor.x) &&
+    cursor.x <= pty.cols &&
+    isNonNegativeInteger(cursor.y) &&
+    cursor.y < pty.rows &&
+    typeof cursor.visible === 'boolean' &&
+    typeof pty.alternateScreen === 'boolean' &&
+    typeof pty.truncated === 'boolean' &&
+    typeof pty.redacted === 'boolean'
+  );
 }
 
 export function isValidShellRunState(value: {
@@ -201,29 +201,37 @@ export function isValidShellRunState(value: {
 }): boolean {
   switch (value.status) {
     case 'running':
-      return value.completedAt === undefined
-        && value.exitCode === undefined
-        && value.failureMessage === undefined
-        && value.observedAt === undefined;
+      return (
+        value.completedAt === undefined &&
+        value.exitCode === undefined &&
+        value.failureMessage === undefined &&
+        value.observedAt === undefined
+      );
     case 'completed':
-      return isFiniteNumber(value.completedAt)
-        && value.exitCode === 0
-        && value.failureMessage === undefined;
+      return (
+        isFiniteNumber(value.completedAt) &&
+        value.exitCode === 0 &&
+        value.failureMessage === undefined
+      );
     case 'failed':
-      return isFiniteNumber(value.completedAt)
-        && ((isFiniteNumber(value.exitCode) && value.exitCode !== 0)
-          || (value.exitCode === undefined
-            && typeof value.failureMessage === 'string'
-            && value.failureMessage.length > 0));
+      return (
+        isFiniteNumber(value.completedAt) &&
+        ((isFiniteNumber(value.exitCode) && value.exitCode !== 0) ||
+          (value.exitCode === undefined &&
+            typeof value.failureMessage === 'string' &&
+            value.failureMessage.length > 0))
+      );
     case 'timed_out':
       return isFiniteNumber(value.completedAt) && value.exitCode === 124;
     case 'cancelled':
       return isFiniteNumber(value.completedAt) && value.exitCode === 130;
     case 'orphaned':
-      return isFiniteNumber(value.completedAt)
-        && value.exitCode === undefined
-        && typeof value.failureMessage === 'string'
-        && value.failureMessage.length > 0;
+      return (
+        isFiniteNumber(value.completedAt) &&
+        value.exitCode === undefined &&
+        typeof value.failureMessage === 'string' &&
+        value.failureMessage.length > 0
+      );
     default:
       return false;
   }

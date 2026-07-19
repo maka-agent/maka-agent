@@ -26,7 +26,10 @@ describe('WechatBridge', () => {
 
   test('normalizes only the iLink base URL for direct WeChat login', () => {
     assert.equal(normalizeWechatIlinkBaseUrl(undefined), null);
-    assert.equal(normalizeWechatIlinkBaseUrl(' https://ilinkai.weixin.qq.com/ '), 'https://ilinkai.weixin.qq.com');
+    assert.equal(
+      normalizeWechatIlinkBaseUrl(' https://ilinkai.weixin.qq.com/ '),
+      'https://ilinkai.weixin.qq.com',
+    );
     assert.equal(normalizeWechatIlinkBaseUrl('http://ilinkai.weixin.qq.com'), null);
     assert.equal(normalizeWechatIlinkBaseUrl('https://example.com'), null);
     assert.equal(normalizeWechatIlinkBaseUrl('http://127.0.0.1:18400'), null);
@@ -53,11 +56,13 @@ describe('WechatBridge', () => {
     const server = createServer((req, res) => {
       if (req.url === '/api/weixin/qrcode') {
         res.setHeader('Content-Type', 'application/json');
-        res.end(JSON.stringify({
-          qrcode: 'weixin://scan-login/example-token',
-          expired: false,
-          loggedIn: false,
-        }));
+        res.end(
+          JSON.stringify({
+            qrcode: 'weixin://scan-login/example-token',
+            expired: false,
+            loggedIn: false,
+          }),
+        );
         return;
       }
       res.statusCode = 404;
@@ -81,7 +86,9 @@ describe('WechatBridge', () => {
       assert.equal(result.loggedIn, false);
       assert.match(result.qrcode ?? '', /^data:image\/png;base64,/);
     } finally {
-      await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve())),
+      );
     }
   });
 
@@ -119,20 +126,26 @@ describe('WechatBridge', () => {
   });
 
   test('drops self messages and unmentioned group messages', () => {
-    assert.equal(mapWechatBridgeMessage({
-      chatId: 'wxid_friend',
-      senderId: 'wxid_friend',
-      messageId: 'self',
-      body: 'loop',
-      fromSelf: true,
-    }), null);
+    assert.equal(
+      mapWechatBridgeMessage({
+        chatId: 'wxid_friend',
+        senderId: 'wxid_friend',
+        messageId: 'self',
+        body: 'loop',
+        fromSelf: true,
+      }),
+      null,
+    );
 
-    assert.equal(mapWechatBridgeMessage({
-      chatId: 'room@chatroom',
-      senderId: 'wxid_member',
-      messageId: 'group-no-at',
-      body: 'not for maka',
-    }), null);
+    assert.equal(
+      mapWechatBridgeMessage({
+        chatId: 'room@chatroom',
+        senderId: 'wxid_member',
+        messageId: 'group-no-at',
+        body: 'not for maka',
+      }),
+      null,
+    );
   });
 
   test('accepts mentioned group messages and common bridge aliases', () => {
@@ -189,33 +202,45 @@ describe('WechatBridge', () => {
   });
 
   test('maps bridge media kinds and rejects empty non-media messages', () => {
-    assert.equal(mapWechatBridgeMessage({
-      chatId: 'wxid_friend',
-      senderId: 'wxid_friend',
-      messageId: 'empty',
-      body: '',
-    }), null);
+    assert.equal(
+      mapWechatBridgeMessage({
+        chatId: 'wxid_friend',
+        senderId: 'wxid_friend',
+        messageId: 'empty',
+        body: '',
+      }),
+      null,
+    );
 
-    assert.equal(mapWechatBridgeMessage({
-      chatId: 'wxid_friend',
-      senderId: 'wxid_friend',
-      messageId: 'image',
-      messageKind: 'image',
-    })?.attachmentKind, 'photo');
+    assert.equal(
+      mapWechatBridgeMessage({
+        chatId: 'wxid_friend',
+        senderId: 'wxid_friend',
+        messageId: 'image',
+        messageKind: 'image',
+      })?.attachmentKind,
+      'photo',
+    );
 
-    assert.equal(mapWechatBridgeMessage({
-      chatId: 'wxid_friend',
-      senderId: 'wxid_friend',
-      messageId: 'voice',
-      mediaType: 'voice',
-    })?.attachmentKind, 'voice');
+    assert.equal(
+      mapWechatBridgeMessage({
+        chatId: 'wxid_friend',
+        senderId: 'wxid_friend',
+        messageId: 'voice',
+        mediaType: 'voice',
+      })?.attachmentKind,
+      'voice',
+    );
 
-    assert.equal(mapWechatBridgeMessage({
-      chatId: 'wxid_friend',
-      senderId: 'wxid_friend',
-      messageId: 'file',
-      type: 'file',
-    })?.attachmentKind, 'document');
+    assert.equal(
+      mapWechatBridgeMessage({
+        chatId: 'wxid_friend',
+        senderId: 'wxid_friend',
+        messageId: 'file',
+        type: 'file',
+      })?.attachmentKind,
+      'document',
+    );
   });
 
   test('parses SSE data objects with LF and CRLF event boundaries', async () => {

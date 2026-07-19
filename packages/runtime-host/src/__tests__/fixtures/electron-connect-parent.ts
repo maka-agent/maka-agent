@@ -8,7 +8,8 @@ import { RUNTIME_HOST_PROTOCOL_VERSION } from '../../protocol/index.js';
 
 const [rootPath] = process.argv.slice(2);
 if (!rootPath) throw new Error('usage: electron-connect-parent <root>');
-if (!process.versions.electron) throw new Error('electron-connect-parent requires Electron Node mode');
+if (!process.versions.electron)
+  throw new Error('electron-connect-parent requires Electron Node mode');
 
 const result = await connectOrSpawnRuntimeHost({
   rootPath,
@@ -38,7 +39,8 @@ await sendToParent({
 process.disconnect?.();
 
 function sendToParent(message: unknown): Promise<void> {
-  if (!process.send) return Promise.reject(new Error('electron-connect-parent requires an IPC parent'));
+  if (!process.send)
+    return Promise.reject(new Error('electron-connect-parent requires an IPC parent'));
   return new Promise((resolve, reject) => {
     process.send?.(message, (error) => {
       if (error) reject(error);

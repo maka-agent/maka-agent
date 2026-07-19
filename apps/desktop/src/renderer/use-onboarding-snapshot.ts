@@ -16,7 +16,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { generalizedErrorMessage, generalizedErrorMessageChinese, type LlmConnection, type OnboardingState, type SessionSummary, type UiLocale } from '@maka/core';
 import { useUiLocale } from '@maka/ui';
-import type { OnboardingSnapshot } from '../global';
+import type { OnboardingSnapshot } from '../preload/bridge-contract.js';
 import { getOnboardingCopy } from './locales/onboarding-copy.js';
 
 /**

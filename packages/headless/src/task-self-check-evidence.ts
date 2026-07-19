@@ -40,24 +40,27 @@ export function bindSelfCheckEvidence(
 ): SelfCheckEvidenceBindingResult {
   const selfCheck = input.selfCheckRecord.event.selfCheck;
   const observation = input.workspaceObservation.observation;
-  if (selfCheck.taskRunId !== input.taskRunId || input.selfCheckRecord.event.taskRunId !== input.taskRunId) {
+  if (
+    selfCheck.taskRunId !== input.taskRunId ||
+    input.selfCheckRecord.event.taskRunId !== input.taskRunId
+  ) {
     return { ok: false, reason: 'Self-check does not belong to the TaskRun' };
   }
   if (selfCheck.attemptId !== input.attemptId) {
     return { ok: false, reason: 'Self-check does not belong to the attempt' };
   }
   if (
-    (selfCheck.source.sessionId && selfCheck.source.sessionId !== input.sessionId)
-    || (selfCheck.source.agentRunId && selfCheck.source.agentRunId !== input.agentRunId)
-    || (selfCheck.source.turnId && selfCheck.source.turnId !== input.turnId)
+    (selfCheck.source.sessionId && selfCheck.source.sessionId !== input.sessionId) ||
+    (selfCheck.source.agentRunId && selfCheck.source.agentRunId !== input.agentRunId) ||
+    (selfCheck.source.turnId && selfCheck.source.turnId !== input.turnId)
   ) {
     return { ok: false, reason: 'Self-check source does not match the Runtime invocation' };
   }
   if (
-    observation.taskRunId !== input.taskRunId
-    || input.workspaceObservation.taskRunId !== input.taskRunId
-    || observation.status !== 'ok'
-    || !observation.revision
+    observation.taskRunId !== input.taskRunId ||
+    input.workspaceObservation.taskRunId !== input.taskRunId ||
+    observation.status !== 'ok' ||
+    !observation.revision
   ) {
     return { ok: false, reason: 'A successful workspace manifest revision is required' };
   }

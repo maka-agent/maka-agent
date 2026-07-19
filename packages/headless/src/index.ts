@@ -22,9 +22,7 @@ export {
   ISOLATED_WORKSPACE_EXECUTOR_FACTS,
   isolatedToolExecutorToWorkspaceExecutor,
 } from './workspace-executor-adapter.js';
-export type {
-  IsolatedWorkspaceExecutorAdapter,
-} from './workspace-executor-adapter.js';
+export type { IsolatedWorkspaceExecutorAdapter } from './workspace-executor-adapter.js';
 export type {
   ArtifactFreezeResult,
   BenchmarkContract,
@@ -146,7 +144,11 @@ export {
   type NormalizedPermissionArgs,
 } from './permission-grants.js';
 export type { TaskEventLedgerEntry, TaskRunProjection, TaskRunStore } from './task-run-store.js';
-export { createInMemoryTaskRunStore, createTaskRunStore, projectTaskRun } from './task-run-store.js';
+export {
+  createInMemoryTaskRunStore,
+  createTaskRunStore,
+  projectTaskRun,
+} from './task-run-store.js';
 export {
   TASK_RUN_INSPECT_SCHEMA_VERSION,
   inspectTaskRun,
@@ -182,8 +184,14 @@ export type {
   TaskEvidenceRuntimeProvenanceInput,
   TaskEvidenceRuntimeProvenanceLink,
 } from './task-evidence-provenance.js';
-export { runtimeToolFactCoverage, taskEvidenceRuntimeProvenanceLinks } from './task-evidence-provenance.js';
-export type { SelfCheckEvidenceBindingInput, SelfCheckEvidenceBindingResult } from './task-self-check-evidence.js';
+export {
+  runtimeToolFactCoverage,
+  taskEvidenceRuntimeProvenanceLinks,
+} from './task-evidence-provenance.js';
+export type {
+  SelfCheckEvidenceBindingInput,
+  SelfCheckEvidenceBindingResult,
+} from './task-self-check-evidence.js';
 export { bindSelfCheckEvidence } from './task-self-check-evidence.js';
 export type {
   AutonomousDecisionInput,
@@ -212,7 +220,13 @@ export {
   type MatrixRetryPlanOptions,
 } from './matrix-resume.js';
 export { defaultFinalScorer } from './scorer.js';
-export { readResults, summarizeMatrix, writeResults, toComparisonTable, type MatrixSummary } from './results.js';
+export {
+  readResults,
+  summarizeMatrix,
+  writeResults,
+  toComparisonTable,
+  type MatrixSummary,
+} from './results.js';
 export {
   classifyExternalHarborBenchmarkFailure,
   type ExternalHarborBenchmarkFailureClassification,
@@ -293,7 +307,11 @@ export {
   validateMakaAheTargetComponents,
   validateMakaAheTargetSnapshot,
 } from './ahe-target-protocol.js';
-export type { TaskRunExport, WriteTaskRunExportOptions, WriteTaskRunExportResult } from './result-export.js';
+export type {
+  TaskRunExport,
+  WriteTaskRunExportOptions,
+  WriteTaskRunExportResult,
+} from './result-export.js';
 export {
   exportContentHash,
   renderTaskRunMarkdown,
@@ -382,9 +400,7 @@ export type {
   HeavyTaskRuntimeCapKind,
   HeavyTaskSemanticStatus,
 } from './heavy-task-finalization.js';
-export {
-  evaluateHeavyTaskCompletionStatus,
-} from './heavy-task-finalization.js';
+export { evaluateHeavyTaskCompletionStatus } from './heavy-task-finalization.js';
 export type {
   HeadlessBackendContext,
   IsolatedCommandInput,
@@ -401,9 +417,8 @@ export type {
   IsolatedWriteFileResult,
   RealBackendIsolation,
 } from './isolation.js';
-export {
-  ISOLATED_HEADLESS_TOOL_NAMES,
-} from './isolation.js';
+export type { HeadlessSessionCapabilities } from './session-capabilities.js';
+export { ISOLATED_HEADLESS_TOOL_NAMES } from './isolation.js';
 export {
   buildIsolatedBashTool,
   buildIsolatedEditTool,

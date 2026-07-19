@@ -1,6 +1,8 @@
 import { useRef, useState } from 'react';
 import type { SessionSummary, StoredMessage } from '@maka/core';
-import { generalizedErrorMessageChinese } from '@maka/core';
+import { useUiLocale } from '@maka/ui';
+import { getDesktopConversationCopy } from './locales/conversation-copy.js';
+import { localizedShellErrorMessage } from './locales/shell-copy.js';
 import { normalizeSessionSummaryForDisplay } from './session-status-presentation';
 import {
   applyLocalSessionRead,
@@ -15,6 +17,9 @@ type ToastApi = {
 };
 
 export function useAppShellSessionList(toastApi: ToastApi) {
+  const uiLocale = useUiLocale();
+  const uiLocaleRef = useRef(uiLocale);
+  uiLocaleRef.current = uiLocale;
   const [sessions, setSessionsState] = useState<SessionSummary[]>([]);
   const sessionsRef = useRef<SessionSummary[]>([]);
   const sessionReadBoundariesRef = useRef<SessionReadBoundaries>({});
@@ -40,7 +45,12 @@ export function useAppShellSessionList(toastApi: ToastApi) {
       currentSessions: () => sessionsRef.current,
       commitSessions: (next) => commitSessions(next.map(normalizeSessionSummaryForDisplay)),
       onError: (error) => {
-        toastApi.error('刷新会话列表失败', generalizedErrorMessageChinese(error, '刷新会话列表失败，请稍后重试。'));
+        const locale = uiLocaleRef.current;
+        const copy = getDesktopConversationCopy(locale).actions;
+        toastApi.error(
+          copy.refreshSessionsFailedTitle,
+          localizedShellErrorMessage(error, copy.refreshSessionsFailedFallback, locale),
+        );
       },
     });
   }

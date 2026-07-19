@@ -3,7 +3,14 @@ import { writeFile } from 'node:fs/promises';
 import { describe, test } from 'node:test';
 import { readFixedPromptWal } from '../fixed-prompt-controller.js';
 import { hashHeldInTaskSet } from '../prompt-candidate-loop.js';
-import { execFileAsync, fakeMetaAgent, makeTasks, runLoop, taskIndex, withHarness } from './helpers/prompt-optimization-loop-harness.js';
+import {
+  execFileAsync,
+  fakeMetaAgent,
+  makeTasks,
+  runLoop,
+  taskIndex,
+  withHarness,
+} from './helpers/prompt-optimization-loop-harness.js';
 
 describe('runPromptOptimizationLoop replay attribution guards', () => {
   test('fails closed when a replayed decision is missing RSI attribution evidence', async () => {
@@ -25,8 +32,9 @@ describe('runPromptOptimizationLoop replay attribution guards', () => {
         baselineRuns: 1,
       });
       const events = await readFixedPromptWal(harness.resultsJsonlPath);
-      const withoutAttribution = events.filter((event) =>
-        !(event.type === 'rsi_controller_attribution' && event.roundId === 'round-0'));
+      const withoutAttribution = events.filter(
+        (event) => !(event.type === 'rsi_controller_attribution' && event.roundId === 'round-0'),
+      );
       await writeFile(
         harness.resultsJsonlPath,
         `${withoutAttribution.map((event) => JSON.stringify(event)).join('\n')}\n`,
@@ -71,15 +79,18 @@ describe('runPromptOptimizationLoop replay attribution guards', () => {
         baselineRuns: 1,
       });
       const events = await readFixedPromptWal(harness.resultsJsonlPath);
-      const attributionIndex = events.findIndex((event) =>
-        event.type === 'rsi_controller_attribution' && event.roundId === 'round-0');
-      const decisionIndex = events.findIndex((event) =>
-        event.type === 'prompt_candidate_decided' && event.roundId === 'round-0');
+      const attributionIndex = events.findIndex(
+        (event) => event.type === 'rsi_controller_attribution' && event.roundId === 'round-0',
+      );
+      const decisionIndex = events.findIndex(
+        (event) => event.type === 'prompt_candidate_decided' && event.roundId === 'round-0',
+      );
       assert.ok(attributionIndex > decisionIndex);
       const attribution = events[attributionIndex]!;
       const withoutAttribution = events.filter((_event, index) => index !== attributionIndex);
-      const decisionIndexAfterRemoval = withoutAttribution.findIndex((event) =>
-        event.type === 'prompt_candidate_decided' && event.roundId === 'round-0');
+      const decisionIndexAfterRemoval = withoutAttribution.findIndex(
+        (event) => event.type === 'prompt_candidate_decided' && event.roundId === 'round-0',
+      );
       const attributionBeforeDecision = [
         ...withoutAttribution.slice(0, decisionIndexAfterRemoval),
         attribution,
@@ -129,10 +140,13 @@ describe('runPromptOptimizationLoop replay attribution guards', () => {
         baselineRuns: 1,
       });
       const events = await readFixedPromptWal(harness.resultsJsonlPath);
-      const attribution = events.find((event): event is Extract<typeof event, { type: 'rsi_controller_attribution' }> =>
-        event.type === 'rsi_controller_attribution' && event.roundId === 'round-0');
-      const decisionIndex = events.findIndex((event) =>
-        event.type === 'prompt_candidate_decided' && event.roundId === 'round-0');
+      const attribution = events.find(
+        (event): event is Extract<typeof event, { type: 'rsi_controller_attribution' }> =>
+          event.type === 'rsi_controller_attribution' && event.roundId === 'round-0',
+      );
+      const decisionIndex = events.findIndex(
+        (event) => event.type === 'prompt_candidate_decided' && event.roundId === 'round-0',
+      );
       assert.ok(attribution);
       assert.ok(decisionIndex > -1);
       const wrongCandidateAttribution = {
@@ -189,16 +203,19 @@ describe('runPromptOptimizationLoop replay attribution guards', () => {
         baselineRuns: 1,
       });
       const events = await readFixedPromptWal(harness.resultsJsonlPath);
-      const attributionIndex = events.findIndex((event) =>
-        event.type === 'rsi_controller_attribution' && event.roundId === 'round-0');
-      const nextCandidateIndex = events.findIndex((event) =>
-        event.type === 'prompt_candidate_committed' && event.roundId === 'round-1');
+      const attributionIndex = events.findIndex(
+        (event) => event.type === 'rsi_controller_attribution' && event.roundId === 'round-0',
+      );
+      const nextCandidateIndex = events.findIndex(
+        (event) => event.type === 'prompt_candidate_committed' && event.roundId === 'round-1',
+      );
       assert.ok(attributionIndex > -1);
       assert.ok(nextCandidateIndex > attributionIndex);
       const attribution = events[attributionIndex]!;
       const withoutAttribution = events.filter((_event, index) => index !== attributionIndex);
-      const nextCandidateIndexAfterRemoval = withoutAttribution.findIndex((event) =>
-        event.type === 'prompt_candidate_committed' && event.roundId === 'round-1');
+      const nextCandidateIndexAfterRemoval = withoutAttribution.findIndex(
+        (event) => event.type === 'prompt_candidate_committed' && event.roundId === 'round-1',
+      );
       const attributionAfterNextCandidate = [
         ...withoutAttribution.slice(0, nextCandidateIndexAfterRemoval + 1),
         attribution,
@@ -209,8 +226,9 @@ describe('runPromptOptimizationLoop replay attribution guards', () => {
         `${attributionAfterNextCandidate.map((event) => JSON.stringify(event)).join('\n')}\n`,
         'utf8',
       );
-      const candidateCommitCountBefore = attributionAfterNextCandidate.filter((event) =>
-        event.type === 'prompt_candidate_committed').length;
+      const candidateCommitCountBefore = attributionAfterNextCandidate.filter(
+        (event) => event.type === 'prompt_candidate_committed',
+      ).length;
 
       let laterRoundPrompted = false;
       await assert.rejects(
@@ -233,8 +251,12 @@ describe('runPromptOptimizationLoop replay attribution guards', () => {
         eventsAfterResume.filter((event) => event.type === 'prompt_candidate_committed').length,
         candidateCommitCountBefore,
       );
-      assert.equal(eventsAfterResume.some((event) =>
-        event.type === 'prompt_candidate_committed' && event.roundId === 'round-2'), false);
+      assert.equal(
+        eventsAfterResume.some(
+          (event) => event.type === 'prompt_candidate_committed' && event.roundId === 'round-2',
+        ),
+        false,
+      );
     });
   });
 
@@ -257,11 +279,11 @@ describe('runPromptOptimizationLoop replay attribution guards', () => {
         baselineRuns: 1,
       });
       const events = await readFixedPromptWal(harness.resultsJsonlPath);
-      const tamperedAttribution = events.map((event) => (
+      const tamperedAttribution = events.map((event) =>
         event.type === 'rsi_controller_attribution' && event.roundId === 'round-0'
           ? { ...event, predictedFixes: [{ taskId: 'hout-0', outcome: 'improved' }] }
-          : event
-      ));
+          : event,
+      );
       await writeFile(
         harness.resultsJsonlPath,
         `${tamperedAttribution.map((event) => JSON.stringify(event)).join('\n')}\n`,
@@ -323,15 +345,17 @@ describe('runPromptOptimizationLoop replay attribution guards', () => {
         metaAgent,
       });
       const events = await readFixedPromptWal(harness.resultsJsonlPath);
-      const attribution = events.find((event): event is Extract<typeof event, { type: 'rsi_controller_attribution' }> =>
-        event.type === 'rsi_controller_attribution' && event.roundId === 'round-0');
+      const attribution = events.find(
+        (event): event is Extract<typeof event, { type: 'rsi_controller_attribution' }> =>
+          event.type === 'rsi_controller_attribution' && event.roundId === 'round-0',
+      );
       assert.ok(attribution);
       assert.deepEqual(attribution.predictedFixes, [{ taskId: 'hin-0', outcome: 'unchanged' }]);
-      const tamperedEvents = events.map((event) => (
+      const tamperedEvents = events.map((event) =>
         event.type === 'rsi_controller_attribution' && event.roundId === 'round-0'
           ? { ...event, predictedFixes: [{ taskId: 'hin-0', outcome: 'improved' }] }
-          : event
-      ));
+          : event,
+      );
       await writeFile(
         harness.resultsJsonlPath,
         `${tamperedEvents.map((event) => JSON.stringify(event)).join('\n')}\n`,
@@ -423,5 +447,4 @@ describe('runPromptOptimizationLoop replay attribution guards', () => {
       assert.equal(nextRoundPrompted, false);
     });
   });
-
 });

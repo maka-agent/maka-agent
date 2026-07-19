@@ -3,10 +3,7 @@ import type { Config, ResultRecord, Task } from './contracts.js';
 import { validateRealBackendIsolation } from './isolation.js';
 import { resolveHeavyTaskMode } from './heavy-task-policy.js';
 import { renderHeavyTaskProgressForPrompt } from './heavy-task-progress.js';
-import {
-  backendNeedsIsolation,
-  validateTaskVerification,
-} from './runner.js';
+import { backendNeedsIsolation, validateTaskVerification } from './runner.js';
 import { budgetExtensionInboxItem } from './task-inbox.js';
 import {
   runTaskOnce,
@@ -24,11 +21,7 @@ import {
   type TaskRunError,
   type TaskRunResult,
 } from './task-contracts.js';
-import {
-  createTaskRunStore,
-  type TaskRunProjection,
-  type TaskRunStore,
-} from './task-run-store.js';
+import { createTaskRunStore, type TaskRunProjection, type TaskRunStore } from './task-run-store.js';
 import { taskDefinitionFromTask } from './task-run-adapter.js';
 
 export interface AutonomousLoopBudget {
@@ -148,8 +141,20 @@ export async function runAutonomousTask(
   const budgetError = validateBudget(options.budget);
   if (budgetError) {
     const finishedAt = now();
-    const resultRecord = syntheticResultRecord(config, task, taskRunId, 'setup_failed', budgetError, startedAt, finishedAt);
-    await appendTaskEvent(taskRunStore, taskRunId, terminalEventFromResultRecord(resultRecord, taskRunId, newId));
+    const resultRecord = syntheticResultRecord(
+      config,
+      task,
+      taskRunId,
+      'setup_failed',
+      budgetError,
+      startedAt,
+      finishedAt,
+    );
+    await appendTaskEvent(
+      taskRunStore,
+      taskRunId,
+      terminalEventFromResultRecord(resultRecord, taskRunId, newId),
+    );
     return { taskRunId, attempts, projection: await taskRunStore.project(taskRunId), resultRecord };
   }
 
@@ -174,7 +179,11 @@ export async function runAutonomousTask(
       startedAt,
       finishedAt,
     );
-    await appendTaskEvent(taskRunStore, taskRunId, terminalEventFromResultRecord(resultRecord, taskRunId, newId));
+    await appendTaskEvent(
+      taskRunStore,
+      taskRunId,
+      terminalEventFromResultRecord(resultRecord, taskRunId, newId),
+    );
     return { taskRunId, attempts, projection: await taskRunStore.project(taskRunId), resultRecord };
   }
 
@@ -184,7 +193,13 @@ export async function runAutonomousTask(
   let priorRuntimeContext = options.priorRuntimeContext ? [...options.priorRuntimeContext] : [];
 
   while (attempts.length < options.budget.maxAttempts) {
-    const beforeAttemptBudget = budgetSnapshot(options.budget, attempts.length, runtimeStepsUsed, startedAt, now());
+    const beforeAttemptBudget = budgetSnapshot(
+      options.budget,
+      attempts.length,
+      runtimeStepsUsed,
+      startedAt,
+      now(),
+    );
     if (isWallTimeExhausted(beforeAttemptBudget)) {
       await appendSystemFeedback(
         taskRunStore,
@@ -196,15 +211,17 @@ export async function runAutonomousTask(
         { budget: beforeAttemptBudget },
       );
       const finishedAt = now();
-      const resultRecord = latestResultRecord ?? syntheticResultRecord(
-        config,
-        task,
-        taskRunId,
-        'budget_exhausted',
-        'wall time cap reached before attempt',
-        startedAt,
-        finishedAt,
-      );
+      const resultRecord =
+        latestResultRecord ??
+        syntheticResultRecord(
+          config,
+          task,
+          taskRunId,
+          'budget_exhausted',
+          'wall time cap reached before attempt',
+          startedAt,
+          finishedAt,
+        );
       await appendBudgetTerminal(
         taskRunStore,
         taskRunId,
@@ -214,7 +231,12 @@ export async function runAutonomousTask(
         'wall time cap reached before attempt',
         options.interventionPolicy,
       );
-      return { taskRunId, attempts, projection: await taskRunStore.project(taskRunId), resultRecord };
+      return {
+        taskRunId,
+        attempts,
+        projection: await taskRunStore.project(taskRunId),
+        resultRecord,
+      };
     }
 
     const attemptNumber = attempts.length + 1;
@@ -236,15 +258,29 @@ export async function runAutonomousTask(
       priorRuntimeContext = [...priorRuntimeContext, ...attempt.invocation.events];
     }
 
-    const afterAttemptBudget = budgetSnapshot(options.budget, attempts.length, runtimeStepsUsed, startedAt, now());
+    const afterAttemptBudget = budgetSnapshot(
+      options.budget,
+      attempts.length,
+      runtimeStepsUsed,
+      startedAt,
+      now(),
+    );
     const selfCheck = isWallTimeExhausted(afterAttemptBudget)
       ? undefined
-      : await maybeRecordSelfCheck(options.selfCheck, {
-          config,
-          task,
-          attempt,
-          budget: afterAttemptBudget,
-        }, taskRunStore, taskRunId, attemptId, now, newId);
+      : await maybeRecordSelfCheck(
+          options.selfCheck,
+          {
+            config,
+            task,
+            attempt,
+            budget: afterAttemptBudget,
+          },
+          taskRunStore,
+          taskRunId,
+          attemptId,
+          now,
+          newId,
+        );
     const verifierFeedback = await appendVerifierFeedback(
       taskRunStore,
       taskRunId,
@@ -272,14 +308,17 @@ export async function runAutonomousTask(
       ? await options.decision({ config, task, attempt, budget: afterAttemptBudget, selfCheck })
       : defaultDecision;
     const decision = enforceCaps(policyDecision, attempt, afterAttemptBudget);
-    const nextInstruction = decision.instructionOverride ?? options.feedbackPrompt?.({
-      config,
-      task,
-      attempt,
-      budget: afterAttemptBudget,
-      feedback: [verifierFeedback],
-      ...(selfCheck ? { selfCheck } : {}),
-    }) ?? defaultContinuationPrompt(config, task, attempt, selfCheck);
+    const nextInstruction =
+      decision.instructionOverride ??
+      options.feedbackPrompt?.({
+        config,
+        task,
+        attempt,
+        budget: afterAttemptBudget,
+        feedback: [verifierFeedback],
+        ...(selfCheck ? { selfCheck } : {}),
+      }) ??
+      defaultContinuationPrompt(config, task, attempt, selfCheck);
 
     await appendDecision(
       taskRunStore,
@@ -309,10 +348,14 @@ export async function runAutonomousTask(
         options.interventionPolicy,
       );
     } else {
-      await appendTaskEvent(taskRunStore, taskRunId, terminalEventFromResultRecord(attempt.resultRecord, taskRunId, newId, {
-        verifierResultId: attempt.projection.latestVerifierResult?.id,
-        scoreResultId: attempt.projection.latestScoreResult?.id,
-      }));
+      await appendTaskEvent(
+        taskRunStore,
+        taskRunId,
+        terminalEventFromResultRecord(attempt.resultRecord, taskRunId, newId, {
+          verifierResultId: attempt.projection.latestVerifierResult?.id,
+          scoreResultId: attempt.projection.latestScoreResult?.id,
+        }),
+      );
     }
     return {
       taskRunId,
@@ -322,14 +365,29 @@ export async function runAutonomousTask(
     };
   }
 
-  const exhaustedBudget = budgetSnapshot(options.budget, attempts.length, runtimeStepsUsed, startedAt, now());
+  const exhaustedBudget = budgetSnapshot(
+    options.budget,
+    attempts.length,
+    runtimeStepsUsed,
+    startedAt,
+    now(),
+  );
   if (latestResultRecord?.passed) {
     const latestAttempt = attempts[attempts.length - 1];
-    await appendTaskEvent(taskRunStore, taskRunId, terminalEventFromResultRecord(latestResultRecord, taskRunId, newId, {
-      verifierResultId: latestAttempt?.projection.latestVerifierResult?.id,
-      scoreResultId: latestAttempt?.projection.latestScoreResult?.id,
-    }));
-    return { taskRunId, attempts, projection: await taskRunStore.project(taskRunId), resultRecord: latestResultRecord };
+    await appendTaskEvent(
+      taskRunStore,
+      taskRunId,
+      terminalEventFromResultRecord(latestResultRecord, taskRunId, newId, {
+        verifierResultId: latestAttempt?.projection.latestVerifierResult?.id,
+        scoreResultId: latestAttempt?.projection.latestScoreResult?.id,
+      }),
+    );
+    return {
+      taskRunId,
+      attempts,
+      projection: await taskRunStore.project(taskRunId),
+      resultRecord: latestResultRecord,
+    };
   }
   await appendBudgetTerminal(
     taskRunStore,
@@ -340,15 +398,17 @@ export async function runAutonomousTask(
     'max attempts exhausted',
     options.interventionPolicy,
   );
-  const resultRecord = latestResultRecord ?? syntheticResultRecord(
-    config,
-    task,
-    taskRunId,
-    'budget_exhausted',
-    'max attempts exhausted',
-    startedAt,
-    now(),
-  );
+  const resultRecord =
+    latestResultRecord ??
+    syntheticResultRecord(
+      config,
+      task,
+      taskRunId,
+      'budget_exhausted',
+      'max attempts exhausted',
+      startedAt,
+      now(),
+    );
   return { taskRunId, attempts, projection: await taskRunStore.project(taskRunId), resultRecord };
 }
 
@@ -356,10 +416,16 @@ function validateBudget(budget: AutonomousLoopBudget): string | undefined {
   if (!Number.isInteger(budget.maxAttempts) || budget.maxAttempts < 1) {
     return 'budget.maxAttempts must be a positive integer';
   }
-  if (budget.maxRuntimeSteps !== undefined && (!Number.isInteger(budget.maxRuntimeSteps) || budget.maxRuntimeSteps < 1)) {
+  if (
+    budget.maxRuntimeSteps !== undefined &&
+    (!Number.isInteger(budget.maxRuntimeSteps) || budget.maxRuntimeSteps < 1)
+  ) {
     return 'budget.maxRuntimeSteps must be a positive integer when provided';
   }
-  if (budget.maxWallTimeMs !== undefined && (!Number.isInteger(budget.maxWallTimeMs) || budget.maxWallTimeMs < 1)) {
+  if (
+    budget.maxWallTimeMs !== undefined &&
+    (!Number.isInteger(budget.maxWallTimeMs) || budget.maxWallTimeMs < 1)
+  ) {
     return 'budget.maxWallTimeMs must be a positive integer when provided';
   }
   return undefined;
@@ -395,7 +461,10 @@ function defaultDecisionForAttempt(
     return { decision: 'stop', reason: 'authoritative verification passed' };
   }
   if (isNonRetryable(taxonomy)) {
-    return { decision: taxonomy === 'aborted' || taxonomy === 'cancelled' ? 'abort' : 'stop', reason: `${taxonomy} is not retryable` };
+    return {
+      decision: taxonomy === 'aborted' || taxonomy === 'cancelled' ? 'abort' : 'stop',
+      reason: `${taxonomy} is not retryable`,
+    };
   }
   if (budget.attemptsUsed >= budget.maxAttempts) {
     return { decision: 'stop', reason: 'max attempts exhausted' };
@@ -415,12 +484,15 @@ function enforceCaps(
   budget: LoopBudgetSnapshot,
 ): AutonomousDecisionPolicyResult {
   if (decision.decision !== 'continue' && decision.decision !== 'retry') return decision;
-  if (attempt.resultRecord.passed) return { ...decision, decision: 'stop', reason: 'authoritative verification passed' };
-  if (budget.attemptsUsed >= budget.maxAttempts) return { ...decision, decision: 'stop', reason: 'max attempts exhausted' };
+  if (attempt.resultRecord.passed)
+    return { ...decision, decision: 'stop', reason: 'authoritative verification passed' };
+  if (budget.attemptsUsed >= budget.maxAttempts)
+    return { ...decision, decision: 'stop', reason: 'max attempts exhausted' };
   if (budget.maxRuntimeSteps !== undefined && budget.runtimeStepsUsed >= budget.maxRuntimeSteps) {
     return { ...decision, decision: 'stop', reason: 'runtime step cap reached' };
   }
-  if (isWallTimeExhausted(budget)) return { ...decision, decision: 'stop', reason: 'wall time cap reached' };
+  if (isWallTimeExhausted(budget))
+    return { ...decision, decision: 'stop', reason: 'wall time cap reached' };
   return decision;
 }
 
@@ -432,17 +504,20 @@ function shouldBudgetTerminal(
   if (attempt.resultRecord.passed) return false;
   if (decision.reason?.includes('max attempts') || decision.reason?.includes('cap')) return true;
   if (budget.attemptsUsed >= budget.maxAttempts) return true;
-  if (budget.maxRuntimeSteps !== undefined && budget.runtimeStepsUsed >= budget.maxRuntimeSteps) return true;
+  if (budget.maxRuntimeSteps !== undefined && budget.runtimeStepsUsed >= budget.maxRuntimeSteps)
+    return true;
   return isWallTimeExhausted(budget);
 }
 
 function isNonRetryable(taxonomy: AutonomousResultTaxonomy): boolean {
-  return taxonomy === 'policy_denied' ||
+  return (
+    taxonomy === 'policy_denied' ||
     taxonomy === 'blocked' ||
     taxonomy === 'aborted' ||
     taxonomy === 'cancelled' ||
     taxonomy === 'setup_failed' ||
-    taxonomy === 'infra_failed';
+    taxonomy === 'infra_failed'
+  );
 }
 
 async function maybeRecordSelfCheck(
@@ -703,7 +778,10 @@ function syntheticResultRecord(
   };
 }
 
-function errorFromResultRecord(record: ResultRecord, taxonomy: AutonomousResultTaxonomy): TaskRunError {
+function errorFromResultRecord(
+  record: ResultRecord,
+  taxonomy: AutonomousResultTaxonomy,
+): TaskRunError {
   return {
     message: record.error ?? errorMessageFromTaxonomy(taxonomy),
     ...(record.errorClass ? { class: record.errorClass } : { class: taxonomy }),

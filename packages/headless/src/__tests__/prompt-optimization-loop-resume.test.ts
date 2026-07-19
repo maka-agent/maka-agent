@@ -2,7 +2,14 @@ import assert from 'node:assert/strict';
 import { readFile, rm, writeFile } from 'node:fs/promises';
 import { describe, test } from 'node:test';
 import { readFixedPromptWal } from '../fixed-prompt-controller.js';
-import { execFileAsync, fakeMetaAgent, makeTasks, runLoop, taskIndex, withHarness } from './helpers/prompt-optimization-loop-harness.js';
+import {
+  execFileAsync,
+  fakeMetaAgent,
+  makeTasks,
+  runLoop,
+  taskIndex,
+  withHarness,
+} from './helpers/prompt-optimization-loop-harness.js';
 
 describe('runPromptOptimizationLoop resume replay', () => {
   test('resumes after a decided candidate and continues with the next round', async () => {
@@ -23,7 +30,10 @@ describe('runPromptOptimizationLoop resume replay', () => {
         rounds: 1,
         baselineRuns: 1,
       });
-      assert.deepEqual(first.decisions.map((decision) => decision.decision), ['keep']);
+      assert.deepEqual(
+        first.decisions.map((decision) => decision.decision),
+        ['keep'],
+      );
 
       const resumedMetaAgentRounds: string[] = [];
       const resumedTaskRuns: string[] = [];
@@ -41,7 +51,10 @@ describe('runPromptOptimizationLoop resume replay', () => {
       });
 
       assert.deepEqual(resumedMetaAgentRounds, ['round-1']);
-      assert.deepEqual(resumed.decisions.map((decision) => decision.decision), ['keep', 'discard']);
+      assert.deepEqual(
+        resumed.decisions.map((decision) => decision.decision),
+        ['keep', 'discard'],
+      );
       assert.equal(resumed.keptCount, 1);
       assert.equal(resumed.stopReason, 'rounds_complete');
       assert.equal(resumed.smoke.status, 'pass');
@@ -52,8 +65,18 @@ describe('runPromptOptimizationLoop resume replay', () => {
       );
 
       const events = await readFixedPromptWal(harness.resultsJsonlPath);
-      assert.equal(events.filter((event) => event.type === 'prompt_candidate_decided' && event.roundId === 'round-0').length, 1);
-      assert.equal(events.filter((event) => event.type === 'prompt_candidate_decided' && event.roundId === 'round-1').length, 1);
+      assert.equal(
+        events.filter(
+          (event) => event.type === 'prompt_candidate_decided' && event.roundId === 'round-0',
+        ).length,
+        1,
+      );
+      assert.equal(
+        events.filter(
+          (event) => event.type === 'prompt_candidate_decided' && event.roundId === 'round-1',
+        ).length,
+        1,
+      );
     });
   });
 
@@ -76,11 +99,16 @@ describe('runPromptOptimizationLoop resume replay', () => {
         baselineRuns: 1,
       });
       const events = await readFixedPromptWal(harness.resultsJsonlPath);
-      const commitIndex = events.findIndex((event) => event.type === 'prompt_candidate_committed' && event.roundId === 'round-0');
+      const commitIndex = events.findIndex(
+        (event) => event.type === 'prompt_candidate_committed' && event.roundId === 'round-0',
+      );
       assert.ok(commitIndex > -1);
       await writeFile(
         harness.resultsJsonlPath,
-        `${events.slice(0, commitIndex + 1).map((event) => JSON.stringify(event)).join('\n')}\n`,
+        `${events
+          .slice(0, commitIndex + 1)
+          .map((event) => JSON.stringify(event))
+          .join('\n')}\n`,
         'utf8',
       );
 
@@ -98,11 +126,24 @@ describe('runPromptOptimizationLoop resume replay', () => {
       });
 
       assert.deepEqual(resumedMetaAgentRounds, []);
-      assert.deepEqual(resumed.decisions.map((decision) => decision.decision), ['keep']);
+      assert.deepEqual(
+        resumed.decisions.map((decision) => decision.decision),
+        ['keep'],
+      );
       assert.equal(resumed.smoke.status, 'pass');
       const resumedEvents = await readFixedPromptWal(harness.resultsJsonlPath);
-      assert.equal(resumedEvents.filter((event) => event.type === 'prompt_candidate_committed' && event.roundId === 'round-0').length, 1);
-      assert.equal(resumedEvents.filter((event) => event.type === 'prompt_candidate_decided' && event.roundId === 'round-0').length, 1);
+      assert.equal(
+        resumedEvents.filter(
+          (event) => event.type === 'prompt_candidate_committed' && event.roundId === 'round-0',
+        ).length,
+        1,
+      );
+      assert.equal(
+        resumedEvents.filter(
+          (event) => event.type === 'prompt_candidate_decided' && event.roundId === 'round-0',
+        ).length,
+        1,
+      );
     });
   });
 
@@ -125,16 +166,23 @@ describe('runPromptOptimizationLoop resume replay', () => {
         baselineRuns: 1,
       });
       const events = await readFixedPromptWal(harness.resultsJsonlPath);
-      const committed = events.find((event): event is Extract<typeof event, { type: 'prompt_candidate_committed' }> =>
-        event.type === 'prompt_candidate_committed' && event.roundId === 'round-0');
+      const committed = events.find(
+        (event): event is Extract<typeof event, { type: 'prompt_candidate_committed' }> =>
+          event.type === 'prompt_candidate_committed' && event.roundId === 'round-0',
+      );
       assert.ok(committed);
       const commitIndex = events.indexOf(committed);
       await writeFile(
         harness.resultsJsonlPath,
-        `${events.slice(0, commitIndex + 1).map((event) => JSON.stringify(event)).join('\n')}\n`,
+        `${events
+          .slice(0, commitIndex + 1)
+          .map((event) => JSON.stringify(event))
+          .join('\n')}\n`,
         'utf8',
       );
-      await execFileAsync('git', ['reset', '--hard', committed.commitSha], { cwd: harness.repoDir });
+      await execFileAsync('git', ['reset', '--hard', committed.commitSha], {
+        cwd: harness.repoDir,
+      });
 
       const resumed = await runLoop(harness, {
         heldInTasks,
@@ -144,14 +192,21 @@ describe('runPromptOptimizationLoop resume replay', () => {
         baselineRuns: 1,
       });
 
-      assert.deepEqual(resumed.decisions.map((decision) => decision.decision), ['discard']);
+      assert.deepEqual(
+        resumed.decisions.map((decision) => decision.decision),
+        ['discard'],
+      );
       assert.equal(resumed.decisions[0]?.previousLastKeptCommitSha, harness.originalCommitSha);
       assert.equal(resumed.lastKeptCommitSha, harness.originalCommitSha);
-      const head = (await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: harness.repoDir })).stdout.trim();
+      const head = (
+        await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: harness.repoDir })
+      ).stdout.trim();
       assert.equal(head, harness.originalCommitSha);
       const resumedEvents = await readFixedPromptWal(harness.resultsJsonlPath);
-      const decision = resumedEvents.find((event): event is Extract<typeof event, { type: 'prompt_candidate_decided' }> =>
-        event.type === 'prompt_candidate_decided' && event.roundId === 'round-0');
+      const decision = resumedEvents.find(
+        (event): event is Extract<typeof event, { type: 'prompt_candidate_decided' }> =>
+          event.type === 'prompt_candidate_decided' && event.roundId === 'round-0',
+      );
       assert.equal(decision?.lastKeptCommitSha, harness.originalCommitSha);
     });
   });
@@ -175,15 +230,19 @@ describe('runPromptOptimizationLoop resume replay', () => {
         baselineRuns: 1,
       });
       const events = await readFixedPromptWal(harness.resultsJsonlPath);
-      const tornEvents = events.filter((event) =>
-        !(event.type === 'prompt_candidate_decided' && event.roundId === 'round-0')
-        && !(event.type === 'rsi_controller_attribution' && event.roundId === 'round-0'));
+      const tornEvents = events.filter(
+        (event) =>
+          !(event.type === 'prompt_candidate_decided' && event.roundId === 'round-0') &&
+          !(event.type === 'rsi_controller_attribution' && event.roundId === 'round-0'),
+      );
       await writeFile(
         harness.resultsJsonlPath,
         `${tornEvents.map((event) => JSON.stringify(event)).join('\n')}\n`,
         'utf8',
       );
-      const rolledBackHead = (await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: harness.repoDir })).stdout.trim();
+      const rolledBackHead = (
+        await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: harness.repoDir })
+      ).stdout.trim();
       assert.equal(rolledBackHead, harness.originalCommitSha);
 
       const resumedMetaAgentRounds: string[] = [];
@@ -200,9 +259,14 @@ describe('runPromptOptimizationLoop resume replay', () => {
       });
 
       assert.deepEqual(resumedMetaAgentRounds, []);
-      assert.deepEqual(resumed.decisions.map((decision) => decision.decision), ['discard']);
+      assert.deepEqual(
+        resumed.decisions.map((decision) => decision.decision),
+        ['discard'],
+      );
       assert.equal(resumed.lastKeptCommitSha, harness.originalCommitSha);
-      const head = (await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: harness.repoDir })).stdout.trim();
+      const head = (
+        await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: harness.repoDir })
+      ).stdout.trim();
       assert.equal(head, harness.originalCommitSha);
     });
   });
@@ -228,7 +292,9 @@ describe('runPromptOptimizationLoop resume replay', () => {
       });
       assert.equal(stopped.stopReason, 'cost_ceiling_exceeded');
       assert.deepEqual(stopped.decisions, []);
-      const rolledBackHead = (await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: harness.repoDir })).stdout.trim();
+      const rolledBackHead = (
+        await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: harness.repoDir })
+      ).stdout.trim();
       assert.equal(rolledBackHead, harness.originalCommitSha);
 
       const resumedMetaAgentRounds: string[] = [];
@@ -248,7 +314,10 @@ describe('runPromptOptimizationLoop resume replay', () => {
       });
 
       assert.deepEqual(resumedMetaAgentRounds, []);
-      assert.deepEqual(resumed.decisions.map((decision) => decision.decision), ['keep']);
+      assert.deepEqual(
+        resumed.decisions.map((decision) => decision.decision),
+        ['keep'],
+      );
       assert.equal(resumed.stopReason, 'rounds_complete');
       assert.ok(
         resumedTaskRuns.every((call) => call.startsWith('round-0:hout-')),
@@ -294,7 +363,10 @@ describe('runPromptOptimizationLoop resume replay', () => {
         },
       });
 
-      assert.deepEqual(resumed.decisions.map((decision) => decision.decision), ['keep', 'discard']);
+      assert.deepEqual(
+        resumed.decisions.map((decision) => decision.decision),
+        ['keep', 'discard'],
+      );
       assert.match(roundOneResultsTsv, /^task_id\tstatus\tpassed\t/);
       assert.match(roundOneResultsTsv, /hin-0\t/);
       assert.doesNotMatch(roundOneResultsTsv, /hout-0\t/);
@@ -302,5 +374,4 @@ describe('runPromptOptimizationLoop resume replay', () => {
       assert.doesNotMatch(diskHeldInTsvDuringPrompt, /hout-0\t/);
     });
   });
-
 });

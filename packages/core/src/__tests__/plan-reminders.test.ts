@@ -1,10 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  BOT_DELIVERY_PROVIDERS,
-  BOT_PROVIDERS,
-  isBotDeliveryProvider,
-} from '../settings.js';
+import { BOT_DELIVERY_PROVIDERS, BOT_PROVIDERS, isBotDeliveryProvider } from '../settings.js';
 import {
   isPlanReminderDue,
   nextPlanReminderStateAfterTrigger,
@@ -21,11 +17,14 @@ describe('plan reminder contract', () => {
   const now = 1_700_000_000_000;
 
   it('normalizes create input for explicit future one-shot reminders', () => {
-    const result = normalizeCreatePlanReminderInput({
-      title: '  复盘   周报  ',
-      note: '  带上本周 blocker  ',
-      runAt: now + 60_000,
-    }, now);
+    const result = normalizeCreatePlanReminderInput(
+      {
+        title: '  复盘   周报  ',
+        note: '  带上本周 blocker  ',
+        runAt: now + 60_000,
+      },
+      now,
+    );
 
     assert.equal(result.ok, true);
     if (!result.ok) return;
@@ -39,11 +38,14 @@ describe('plan reminder contract', () => {
   });
 
   it('normalizes recurring reminders using a closed recurrence enum', () => {
-    const result = normalizeCreatePlanReminderInput({
-      title: '每日复盘',
-      runAt: now + 60_000,
-      recurrence: 'daily',
-    }, now);
+    const result = normalizeCreatePlanReminderInput(
+      {
+        title: '每日复盘',
+        runAt: now + 60_000,
+        recurrence: 'daily',
+      },
+      now,
+    );
     assert.equal(result.ok, true);
     if (!result.ok) return;
     assert.deepEqual(result.value.schedule, {
@@ -51,17 +53,24 @@ describe('plan reminder contract', () => {
       startAt: now + 60_000,
       recurrence: 'daily',
     });
-    assert.equal(normalizeCreatePlanReminderInput({ title: 'x', runAt: now + 1, recurrence: 'hourly' }, now).ok, false);
+    assert.equal(
+      normalizeCreatePlanReminderInput({ title: 'x', runAt: now + 1, recurrence: 'hourly' }, now)
+        .ok,
+      false,
+    );
   });
 
   it('normalizes 5-field cron reminders and computes the next matching minute', () => {
     const start = new Date(2026, 0, 5, 8, 0, 0, 0).getTime();
-    const result = normalizeCreatePlanReminderInput({
-      title: '工作日早报',
-      runAt: start,
-      recurrence: 'cron',
-      cronExpression: '30 9 * * 1-5',
-    }, start - 60_000);
+    const result = normalizeCreatePlanReminderInput(
+      {
+        title: '工作日早报',
+        runAt: start,
+        recurrence: 'cron',
+        cronExpression: '30 9 * * 1-5',
+      },
+      start - 60_000,
+    );
 
     assert.equal(result.ok, true);
     if (!result.ok) return;
@@ -72,7 +81,10 @@ describe('plan reminder contract', () => {
     });
     assert.equal(result.value.nextRunAt, new Date(2026, 0, 5, 9, 30, 0, 0).getTime());
     assert.equal(
-      nextPlanReminderRunAtAfter(result.value.schedule, new Date(2026, 0, 5, 9, 30, 0, 0).getTime()),
+      nextPlanReminderRunAtAfter(
+        result.value.schedule,
+        new Date(2026, 0, 5, 9, 30, 0, 0).getTime(),
+      ),
       new Date(2026, 0, 6, 9, 30, 0, 0).getTime(),
     );
   });
@@ -94,25 +106,41 @@ describe('plan reminder contract', () => {
     assert.equal(normalizePlanReminderCronExpression('* * * * * *').ok, false);
     assert.equal(normalizePlanReminderCronExpression('60 * * * *').ok, false);
     assert.equal(normalizePlanReminderCronExpression('@daily').ok, false);
-    assert.equal(normalizeCreatePlanReminderInput({ title: 'x', runAt: now + 1, recurrence: 'cron' }, now).ok, false);
+    assert.equal(
+      normalizeCreatePlanReminderInput({ title: 'x', runAt: now + 1, recurrence: 'cron' }, now).ok,
+      false,
+    );
   });
 
   it('normalizes bot delivery with a closed platform and sanitized chat id', () => {
-    const result = normalizeCreatePlanReminderInput({
-      title: '站会',
-      runAt: now + 60_000,
-      delivery: { channel: 'bot', platform: 'telegram', chatId: ' 123\u0000\u200B456 ' },
-    }, now);
+    const result = normalizeCreatePlanReminderInput(
+      {
+        title: '站会',
+        runAt: now + 60_000,
+        delivery: { channel: 'bot', platform: 'telegram', chatId: ' 123\u0000\u200B456 ' },
+      },
+      now,
+    );
 
     assert.equal(result.ok, true);
     if (!result.ok) return;
-    assert.deepEqual(result.value.delivery, { channel: 'bot', platform: 'telegram', chatId: '123 456' });
+    assert.deepEqual(result.value.delivery, {
+      channel: 'bot',
+      platform: 'telegram',
+      chatId: '123 456',
+    });
   });
 
   it('rejects unsupported delivery targets instead of silently falling back', () => {
     assert.equal(normalizePlanReminderDeliveryTarget({ channel: 'email', address: 'x' }).ok, false);
-    assert.equal(normalizePlanReminderDeliveryTarget({ channel: 'bot', platform: 'mastodon', chatId: '1' }).ok, false);
-    assert.equal(normalizePlanReminderDeliveryTarget({ channel: 'bot', platform: 'telegram', chatId: ' ' }).ok, false);
+    assert.equal(
+      normalizePlanReminderDeliveryTarget({ channel: 'bot', platform: 'mastodon', chatId: '1' }).ok,
+      false,
+    );
+    assert.equal(
+      normalizePlanReminderDeliveryTarget({ channel: 'bot', platform: 'telegram', chatId: ' ' }).ok,
+      false,
+    );
   });
 
   it('only accepts live send-capable bot platforms for reminder delivery', () => {
@@ -123,7 +151,11 @@ describe('plan reminder contract', () => {
     assert.equal(isBotDeliveryProvider('dingtalk'), true);
     assert.equal(isBotDeliveryProvider('qq'), true);
     for (const provider of BOT_PROVIDERS) {
-      const result = normalizePlanReminderDeliveryTarget({ channel: 'bot', platform: provider, chatId: '123' });
+      const result = normalizePlanReminderDeliveryTarget({
+        channel: 'bot',
+        platform: provider,
+        chatId: '123',
+      });
       assert.equal(
         result.ok,
         isBotDeliveryProvider(provider),
@@ -172,7 +204,10 @@ describe('plan reminder contract', () => {
     assert.equal(next.nextRunAt, undefined);
     assert.equal(next.runCount, 1);
     assert.equal(next.lastRun?.status, 'triggered');
-    assert.deepEqual(next.runs.map((run) => run.id), ['run1']);
+    assert.deepEqual(
+      next.runs.map((run) => run.id),
+      ['run1'],
+    );
   });
 
   it('keeps recurring reminders scheduled after each trigger', () => {
@@ -200,7 +235,10 @@ describe('plan reminder contract', () => {
     assert.equal(next.enabled, true);
     assert.equal(next.nextRunAt, now + 24 * 60 * 60 * 1000);
     assert.equal(next.runCount, 1);
-    assert.deepEqual(next.runs.map((run) => run.id), ['run1']);
+    assert.deepEqual(
+      next.runs.map((run) => run.id),
+      ['run1'],
+    );
   });
 
   it('keeps cron reminders scheduled after each trigger', () => {
@@ -268,7 +306,10 @@ describe('plan reminder contract', () => {
     const jan31 = new Date(2026, 0, 31, 9, 0, 0, 0).getTime();
     const feb28 = new Date(2026, 1, 28, 9, 0, 0, 0).getTime();
     assert.equal(
-      nextPlanReminderRunAtAfter({ kind: 'recurring', startAt: jan31, recurrence: 'monthly' }, jan31),
+      nextPlanReminderRunAtAfter(
+        { kind: 'recurring', startAt: jan31, recurrence: 'monthly' },
+        jan31,
+      ),
       feb28,
     );
   });

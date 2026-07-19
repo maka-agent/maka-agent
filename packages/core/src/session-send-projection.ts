@@ -66,7 +66,9 @@ export type SessionSendProjection =
   | { kind: 'rebind'; connectionSlug: string; model: string }
   | { kind: 'blocked'; reason: ChatConfigurationReason; connectionLocked: boolean };
 
-export function projectSessionSendOutcome(input: SessionSendProjectionInput): SessionSendProjection {
+export function projectSessionSendOutcome(
+  input: SessionSendProjectionInput,
+): SessionSendProjection {
   const { session, connections, defaultSlug, hasSecret } = input;
 
   const ownReason = ownConnectionBlockReason(session, connections, hasSecret);
@@ -132,9 +134,10 @@ function ownConnectionBlockReason(
   connections: readonly LlmConnection[],
   hasSecret: (slug: string) => boolean,
 ): ChatConfigurationReason | undefined {
-  const own = session.backend === 'fake'
-    ? null
-    : connections.find((entry) => entry.slug === session.llmConnectionSlug) ?? null;
+  const own =
+    session.backend === 'fake'
+      ? null
+      : (connections.find((entry) => entry.slug === session.llmConnectionSlug) ?? null);
   return sessionOwnConnectionBlockReason(session, own, hasSecret);
 }
 
@@ -146,10 +149,12 @@ function ownConnectionBlockReason(
  * the user explicitly configured would be surprising.
  */
 export function shouldRebindSessionToDefault(reason: string | undefined): boolean {
-  return reason === 'fake_backend' ||
+  return (
+    reason === 'fake_backend' ||
     reason === 'connection_missing' ||
     reason === 'missing_model' ||
     reason === 'empty_model_list' ||
     reason === 'model_not_enabled' ||
-    reason === 'model_not_chat_capable';
+    reason === 'model_not_chat_capable'
+  );
 }

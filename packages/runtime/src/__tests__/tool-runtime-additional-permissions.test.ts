@@ -114,17 +114,16 @@ describe('ToolRuntime additional permission orchestration', () => {
     assert.equal(receivedContext?.additionalGrant?.toolUseId, 'tool-1');
     assert.equal(Object.isFrozen(receivedContext), true);
     assert.throws(
-      () => harness.permissionEngine.consumeAdditionalPermissionGrant({
-        sessionId: 'session-1',
-        turnId: 'turn-1',
-        toolUseId: 'tool-1',
-        toolName: 'Bash',
-        intentHash: proposal.intentHash,
-      }),
-      (error: unknown) => (
-        error instanceof AdditionalPermissionError
-        && error.reason === 'grant_already_consumed'
-      ),
+      () =>
+        harness.permissionEngine.consumeAdditionalPermissionGrant({
+          sessionId: 'session-1',
+          turnId: 'turn-1',
+          toolUseId: 'tool-1',
+          toolName: 'Bash',
+          intentHash: proposal.intentHash,
+        }),
+      (error: unknown) =>
+        error instanceof AdditionalPermissionError && error.reason === 'grant_already_consumed',
     );
   });
 
@@ -219,13 +218,19 @@ describe('ToolRuntime additional permission orchestration', () => {
 
       const result = await harness.runtime.wrapToolExecute(tool, 'turn-1', {
         push: (event) => harness.events.push(event),
-      })({ path: '/outside/file.txt' }, {
-        toolCallId: 'tool-1',
-        abortSignal: new AbortController().signal,
-      });
+      })(
+        { path: '/outside/file.txt' },
+        {
+          toolCallId: 'tool-1',
+          abortSignal: new AbortController().signal,
+        },
+      );
 
       assert.equal(implementationCalled, false);
-      assert.equal(harness.events.some((event) => event.type === 'permission_request'), false);
+      assert.equal(
+        harness.events.some((event) => event.type === 'permission_request'),
+        false,
+      );
       assert.match(JSON.stringify(result), /explicitly denied|invalid result/);
     }
   });
@@ -290,9 +295,10 @@ async function waitForAdditionalRequest(
   events: readonly SessionEvent[],
 ): Promise<AdditionalPermissionRequestEvent> {
   for (let attempt = 0; attempt < 100; attempt += 1) {
-    const request = events.find((event): event is AdditionalPermissionRequestEvent => (
-      event.type === 'permission_request' && event.kind === 'additional_permissions'
-    ));
+    const request = events.find(
+      (event): event is AdditionalPermissionRequestEvent =>
+        event.type === 'permission_request' && event.kind === 'additional_permissions',
+    );
     if (request) return request;
     await new Promise((resolve) => setTimeout(resolve, 1));
   }
@@ -307,6 +313,7 @@ function testHeader(cwd: string): SessionHeader {
     createdAt: 1,
     lastUsedAt: 1,
     name: 'Test',
+    titleIsManual: true,
     isFlagged: false,
     labels: [],
     isArchived: false,

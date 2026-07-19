@@ -21,7 +21,7 @@ import {
   isSetupRequired,
   onboardingSnapshotErrorMessage,
 } from '../../renderer/use-onboarding-snapshot.js';
-import type { OnboardingSnapshot } from '../../global.js';
+import type { OnboardingSnapshot } from '../../preload/bridge-contract.js';
 
 const READY_SNAPSHOT: OnboardingSnapshot = {
   state: {

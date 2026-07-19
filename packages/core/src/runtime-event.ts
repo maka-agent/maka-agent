@@ -49,7 +49,7 @@ import { isTokenUsageFields } from './usage-record-schema.js';
  * system). Role is about *what lane* the content belongs to.
  */
 export const RUNTIME_EVENT_ROLES = ['user', 'model', 'tool', 'system'] as const;
-export type RuntimeEventRole = typeof RUNTIME_EVENT_ROLES[number];
+export type RuntimeEventRole = (typeof RUNTIME_EVENT_ROLES)[number];
 
 export function isRuntimeEventRole(value: unknown): value is RuntimeEventRole {
   return typeof value === 'string' && (RUNTIME_EVENT_ROLES as readonly string[]).includes(value);
@@ -65,7 +65,7 @@ export function isRuntimeEventRole(value: unknown): value is RuntimeEventRole {
  * not this type module — owns the policy that constrains them.
  */
 export const RUNTIME_EVENT_AUTHORS = ['user', 'agent', 'tool', 'system'] as const;
-export type RuntimeEventAuthor = typeof RUNTIME_EVENT_AUTHORS[number];
+export type RuntimeEventAuthor = (typeof RUNTIME_EVENT_AUTHORS)[number];
 
 export function isRuntimeEventAuthor(value: unknown): value is RuntimeEventAuthor {
   return typeof value === 'string' && (RUNTIME_EVENT_AUTHORS as readonly string[]).includes(value);
@@ -85,7 +85,7 @@ export const RUNTIME_EVENT_STATUSES = [
   'aborted',
   'cancelled',
 ] as const;
-export type RuntimeEventStatus = typeof RUNTIME_EVENT_STATUSES[number];
+export type RuntimeEventStatus = (typeof RUNTIME_EVENT_STATUSES)[number];
 
 export const TERMINAL_RUNTIME_EVENT_STATUSES: readonly RuntimeEventStatus[] = [
   'completed',
@@ -189,7 +189,7 @@ export const RUNTIME_EVENT_CONTENT_KINDS = [
   'function_response',
   'error',
 ] as const;
-export type RuntimeEventContentKind = typeof RUNTIME_EVENT_CONTENT_KINDS[number];
+export type RuntimeEventContentKind = (typeof RUNTIME_EVENT_CONTENT_KINDS)[number];
 
 // ============================================================================
 // Actions (control / side-effect intent)
@@ -335,7 +335,10 @@ const TEXT_CONTENT_SHAPE = defineObjectShape<RuntimeEventTextContent>()(
   ['kind', 'text'],
   ['displayText', 'attachments', 'steering'],
 );
-const THINKING_CONTENT_SHAPE = defineObjectShape<RuntimeEventThinkingContent>()(['kind', 'text'], ['signature']);
+const THINKING_CONTENT_SHAPE = defineObjectShape<RuntimeEventThinkingContent>()(
+  ['kind', 'text'],
+  ['signature'],
+);
 const FUNCTION_CALL_CONTENT_SHAPE = defineObjectShape<RuntimeEventFunctionCallContent>()(
   ['kind', 'id', 'name', 'args'],
   [],
@@ -469,7 +472,8 @@ function isRuntimeEventActions(value: unknown): value is RuntimeEventActions {
         Object.values(value.artifactDelta).every(
           (item) => typeof item === 'string' || typeof item === 'boolean' || isFiniteNumber(item),
         ))) &&
-    (value.permissionRequest === undefined || isPermissionRequestPayload(value.permissionRequest)) &&
+    (value.permissionRequest === undefined ||
+      isPermissionRequestPayload(value.permissionRequest)) &&
     (value.permissionDecision === undefined || isPermissionResponse(value.permissionDecision)) &&
     (value.userQuestionRequest === undefined || isUserQuestionRequest(value.userQuestionRequest)) &&
     isOptionalString(value.transferToAgent) &&
@@ -479,7 +483,9 @@ function isRuntimeEventActions(value: unknown): value is RuntimeEventActions {
 }
 
 function isRuntimeTokenUsage(value: unknown): value is RuntimeEventTokenUsage {
-  return isRecord(value) && hasExactShape(value, RUNTIME_TOKEN_USAGE_SHAPE) && isTokenUsageFields(value);
+  return (
+    isRecord(value) && hasExactShape(value, RUNTIME_TOKEN_USAGE_SHAPE) && isTokenUsageFields(value)
+  );
 }
 
 function isRuntimeEventRefs(value: unknown): value is RuntimeEventRefs {

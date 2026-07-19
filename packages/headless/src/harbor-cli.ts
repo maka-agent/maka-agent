@@ -136,13 +136,15 @@ async function runHarborCellMode(options: HarborRunOptions): Promise<number> {
     now: options.now,
     newId: options.newId,
   });
-  process.stdout.write(`${JSON.stringify({
-    mode: 'cell',
-    status: result.output.status,
-    errorClass: result.output.errorClass,
-    outputPath: result.outputPath,
-    runtimeEventsPath: result.runtimeEventsPath,
-  })}\n`);
+  process.stdout.write(
+    `${JSON.stringify({
+      mode: 'cell',
+      status: result.output.status,
+      errorClass: result.output.errorClass,
+      outputPath: result.outputPath,
+      runtimeEventsPath: result.runtimeEventsPath,
+    })}\n`,
+  );
   return result.output.status === 'completed' ? 0 : 1;
 }
 
@@ -168,67 +170,91 @@ async function runHarborTaskRunMode(options: HarborRunOptions): Promise<number> 
         ...common,
         budget: {
           maxAttempts: options.maxAttempts,
-          ...(options.maxRuntimeSteps !== undefined ? { maxRuntimeSteps: options.maxRuntimeSteps } : {}),
+          ...(options.maxRuntimeSteps !== undefined
+            ? { maxRuntimeSteps: options.maxRuntimeSteps }
+            : {}),
           ...(options.maxWallTimeMs !== undefined ? { maxWallTimeMs: options.maxWallTimeMs } : {}),
         },
-        ...(options.replayPriorAttemptRuntimeContext ? { replayPriorAttemptRuntimeContext: true } : {}),
+        ...(options.replayPriorAttemptRuntimeContext
+          ? { replayPriorAttemptRuntimeContext: true }
+          : {}),
         decision: ({ attempt, budget }) => {
-          const taxonomy = attempt.projection.latestScoreResult?.taxonomy
-            ?? attempt.projection.result?.taxonomy
-            ?? taxonomyFromResultRecord(attempt.resultRecord);
+          const taxonomy =
+            attempt.projection.latestScoreResult?.taxonomy ??
+            attempt.projection.result?.taxonomy ??
+            taxonomyFromResultRecord(attempt.resultRecord);
           if (taxonomy === 'unsupported_adapter') {
             return { decision: 'stop', reason: 'official Harbor verifier is external and pending' };
           }
           if (['policy_denied', 'blocked', 'setup_failed', 'infra_failed'].includes(taxonomy)) {
             return { decision: 'stop', reason: `${taxonomy} is not retryable` };
           }
-          if (attempt.resultRecord.passed) return { decision: 'stop', reason: 'authoritative verification passed' };
-          if (budget.attemptsUsed >= budget.maxAttempts) return { decision: 'stop', reason: 'max attempts exhausted' };
-          if (budget.maxRuntimeSteps !== undefined && budget.runtimeStepsUsed >= budget.maxRuntimeSteps) {
+          if (attempt.resultRecord.passed)
+            return { decision: 'stop', reason: 'authoritative verification passed' };
+          if (budget.attemptsUsed >= budget.maxAttempts)
+            return { decision: 'stop', reason: 'max attempts exhausted' };
+          if (
+            budget.maxRuntimeSteps !== undefined &&
+            budget.runtimeStepsUsed >= budget.maxRuntimeSteps
+          ) {
             return { decision: 'stop', reason: 'runtime step cap reached' };
           }
           if (budget.maxWallTimeMs !== undefined && budget.elapsedMs >= budget.maxWallTimeMs) {
             return { decision: 'stop', reason: 'wall time cap reached' };
           }
-          return { decision: 'continue', reason: `${taxonomy} can be retried while budget remains` };
+          return {
+            decision: 'continue',
+            reason: `${taxonomy} can be retried while budget remains`,
+          };
         },
       })
     : await runTaskOnce(options.config, task, common);
 
   const exportDir = join(options.outDir, 'exports', run.taskRunId);
-  const exported = await writeTaskRunExport(exportDir, run.projection, { includeEvents: options.includeEvents });
+  const exported = await writeTaskRunExport(exportDir, run.projection, {
+    includeEvents: options.includeEvents,
+  });
   const latestScore = run.projection.latestScoreResult;
-  const taxonomy = latestScore?.taxonomy ?? run.projection.result?.taxonomy ?? taxonomyFromResultRecord(run.resultRecord);
+  const taxonomy =
+    latestScore?.taxonomy ??
+    run.projection.result?.taxonomy ??
+    taxonomyFromResultRecord(run.resultRecord);
   const benchmarkFailure = classifyExternalHarborBenchmarkFailure({
     status: run.resultRecord.status,
     errorClass: run.resultRecord.errorClass,
     error: run.resultRecord.error,
     taxonomy,
   });
-  process.stdout.write(`${JSON.stringify({
-    mode: 'task-run',
-    taskRunId: run.taskRunId,
-    status: run.projection.status,
-    taxonomy,
-    scored: latestScore?.scored ?? run.resultRecord.scored ?? false,
-    authoritative: latestScore?.authority?.authoritative ?? false,
-    benchmarkFailureKind: benchmarkFailure.kind,
-    benchmarkFailureShouldThrow: benchmarkFailure.shouldThrow,
-    exportDir,
-    files: exported.files,
-    result: {
-      status: run.resultRecord.status,
-      passed: run.resultRecord.passed,
-      errorClass: run.resultRecord.errorClass,
-    },
-    runtimeRefs: latestScore?.details?.runtimeRefs,
-  })}\n`);
+  process.stdout.write(
+    `${JSON.stringify({
+      mode: 'task-run',
+      taskRunId: run.taskRunId,
+      status: run.projection.status,
+      taxonomy,
+      scored: latestScore?.scored ?? run.resultRecord.scored ?? false,
+      authoritative: latestScore?.authority?.authoritative ?? false,
+      benchmarkFailureKind: benchmarkFailure.kind,
+      benchmarkFailureShouldThrow: benchmarkFailure.shouldThrow,
+      exportDir,
+      files: exported.files,
+      result: {
+        status: run.resultRecord.status,
+        passed: run.resultRecord.passed,
+        errorClass: run.resultRecord.errorClass,
+      },
+      runtimeRefs: latestScore?.details?.runtimeRefs,
+    })}\n`,
+  );
   return benchmarkFailure.shouldThrow ? 1 : 0;
 }
 
-export async function resolveHarborRunOptions(args: string[], baseEnv: NodeJS.ProcessEnv): Promise<HarborRunOptions> {
+export async function resolveHarborRunOptions(
+  args: string[],
+  baseEnv: NodeJS.ProcessEnv,
+): Promise<HarborRunOptions> {
   const parsed = parseArgs(args, HARBOR_RUN_FLAGS, HARBOR_RUN_BOOLS);
-  if (parsed.positional.length > 0) throw new Error(`unexpected positional argument: ${parsed.positional[0]}`);
+  if (parsed.positional.length > 0)
+    throw new Error(`unexpected positional argument: ${parsed.positional[0]}`);
   const env = cliEnv(parsed, baseEnv);
   // Resolve backend before applying desktop defaults so --backend fake /
   // pi-agent never picks up the workspace's default connection. cliEnv does
@@ -240,21 +266,25 @@ export async function resolveHarborRunOptions(args: string[], baseEnv: NodeJS.Pr
   }
   applyApiKeyFile(parsed, env);
   const mode = harborMode(valueOf(parsed, env, 'mode', 'MAKA_HARBOR_MODE') ?? 'task-run');
-  const isolation = optionalIsolation(valueOf(parsed, env, 'isolation', 'MAKA_HARBOR_ISOLATION') ?? env.MAKA_ISOLATION);
+  const isolation = optionalIsolation(
+    valueOf(parsed, env, 'isolation', 'MAKA_HARBOR_ISOLATION') ?? env.MAKA_ISOLATION,
+  );
   preflightIsolation(backend, isolation, env);
 
   const outDir = resolve(valueOf(parsed, env, 'out', 'MAKA_OUTPUT_DIR') ?? '/logs/agent');
   const storageRoot = resolve(
     valueOf(parsed, env, 'storage-root', 'MAKA_STORAGE_ROOT') ??
-    (mode === 'task-run' ? join(outDir, 'runs') : join(outDir, 'maka-storage')),
+      (mode === 'task-run' ? join(outDir, 'runs') : join(outDir, 'maka-storage')),
   );
-  const taskId = valueOf(parsed, env, 'task-id', 'MAKA_TASK_ID') ?? env.HARBOR_SESSION_ID ?? 'terminal-bench-task';
+  const taskId =
+    valueOf(parsed, env, 'task-id', 'MAKA_TASK_ID') ??
+    env.HARBOR_SESSION_ID ??
+    'terminal-bench-task';
   const taskRunId = valueOf(parsed, env, 'task-run-id', 'MAKA_TASK_RUN_ID') ?? `harbor-${taskId}`;
   const requestedWorkdir = valueOf(parsed, env, 'workdir', 'MAKA_WORKDIR') ?? process.cwd();
   const workdir = isolation === 'harbor-http' ? requestedWorkdir : resolve(requestedWorkdir);
-  const sourceWorkspaceDir = isolation === 'harbor-http'
-    ? resolve(join(outDir, 'host-workspace-source'))
-    : workdir;
+  const sourceWorkspaceDir =
+    isolation === 'harbor-http' ? resolve(join(outDir, 'host-workspace-source')) : workdir;
   const instruction = await instructionFromOptions(parsed, env);
   const officialVerifier = officialVerifierKind(
     valueOf(parsed, env, 'official-verifier', 'MAKA_OFFICIAL_VERIFIER') ?? 'external-harbor',
@@ -262,7 +292,10 @@ export async function resolveHarborRunOptions(args: string[], baseEnv: NodeJS.Pr
   const now = Date.now;
   const newId = randomUUID;
   const contextBudgetPolicy = buildHarborCellContextBudgetPolicySnapshot(env);
-  const maxSteps = optionalPositiveInt(valueOf(parsed, env, 'max-steps', 'MAKA_MAX_STEPS'), '--max-steps');
+  const maxSteps = optionalPositiveInt(
+    valueOf(parsed, env, 'max-steps', 'MAKA_MAX_STEPS'),
+    '--max-steps',
+  );
   const maxRuntimeSteps = optionalPositiveInt(
     valueOf(parsed, env, 'max-runtime-steps', 'MAKA_MAX_RUNTIME_STEPS'),
     '--max-runtime-steps',
@@ -303,7 +336,8 @@ export async function resolveHarborRunOptions(args: string[], baseEnv: NodeJS.Pr
     ),
     ...(maxRuntimeSteps !== undefined ? { maxRuntimeSteps } : {}),
     ...(maxWallTimeSec !== undefined ? { maxWallTimeMs: maxWallTimeSec * 1000 } : {}),
-    replayPriorAttemptRuntimeContext: parsed.bools['replay-prior-attempt-runtime-context'] ||
+    replayPriorAttemptRuntimeContext:
+      parsed.bools['replay-prior-attempt-runtime-context'] ||
       truthyEnv(env.MAKA_REPLAY_PRIOR_ATTEMPT_RUNTIME_CONTEXT),
     now,
     newId,
@@ -345,7 +379,9 @@ function externalHarborBenchmarkAdapters(): BenchmarkAdapterRegistry {
       name: 'terminal-bench',
       runVerifier: ({ verifier }) => {
         if (verifier.kind !== 'terminal_bench') {
-          throw new Error(`external Harbor adapter received unsupported verifier kind: ${verifier.kind}`);
+          throw new Error(
+            `external Harbor adapter received unsupported verifier kind: ${verifier.kind}`,
+          );
         }
         return {
           kind: 'terminal_bench',
@@ -353,14 +389,20 @@ function externalHarborBenchmarkAdapters(): BenchmarkAdapterRegistry {
           exitCode: null,
           error: 'official Harbor verifier runs after the agent exits',
           errorClass: 'external_verifier_pending',
-          authority: { source: 'system', authoritative: false, label: 'external Harbor verifier pending' },
+          authority: {
+            source: 'system',
+            authoritative: false,
+            label: 'external Harbor verifier pending',
+          },
           details: {
             adapter: verifier.adapter,
             instanceId: verifier.instanceId,
             ...(verifier.dataset ? { dataset: verifier.dataset } : {}),
             ...(verifier.datasetPath ? { datasetPath: verifier.datasetPath } : {}),
             ...(verifier.taskDir ? { taskDir: verifier.taskDir } : {}),
-            ...(verifier.taskDescriptionKey ? { taskDescriptionKey: verifier.taskDescriptionKey } : {}),
+            ...(verifier.taskDescriptionKey
+              ? { taskDescriptionKey: verifier.taskDescriptionKey }
+              : {}),
             officialVerifier: 'external_harbor_post_exit',
             pendingExternalHarborVerifier: true,
           },
@@ -383,25 +425,38 @@ function buildConfig(input: {
       backend: 'fake',
       llmConnectionSlug: input.env.MAKA_LLM_CONNECTION_SLUG ?? 'fake',
       model: input.env.MAKA_MODEL ?? input.env.HARBOR_MODEL ?? 'fake',
-      ...(input.heavyTask ? { heavyTaskMode: { enabled: true, reason: 'maka eval harbor run --heavy-task' } } : {}),
-      ...(input.economyTask ? { economyTaskMode: { enabled: true, reason: 'maka eval harbor run --economy-task' } } : {}),
+      ...(input.heavyTask
+        ? { heavyTaskMode: { enabled: true, reason: 'maka eval harbor run --heavy-task' } }
+        : {}),
+      ...(input.economyTask
+        ? { economyTaskMode: { enabled: true, reason: 'maka eval harbor run --economy-task' } }
+        : {}),
     };
   }
   if (input.backend !== 'ai-sdk') {
-    throw new Error(`maka eval harbor run task-run currently supports backend fake or ai-sdk, got ${input.backend}`);
+    throw new Error(
+      `maka eval harbor run task-run currently supports backend fake or ai-sdk, got ${input.backend}`,
+    );
   }
   const modelSpec = parseModelSpec(
     input.env.MAKA_MODEL ?? input.env.HARBOR_MODEL ?? 'deepseek/deepseek-v4-flash',
     input.env.MAKA_PROVIDER,
   );
   return {
-    id: input.parsed.flags['config-id'] ?? input.env.MAKA_CONFIG_ID ?? `harbor-${modelSpec.provider}`,
+    id:
+      input.parsed.flags['config-id'] ?? input.env.MAKA_CONFIG_ID ?? `harbor-${modelSpec.provider}`,
     backend: 'ai-sdk',
     llmConnectionSlug: input.env.MAKA_LLM_CONNECTION_SLUG ?? modelSpec.provider,
     model: modelSpec.model,
-    ...(input.env.MAKA_SYSTEM_PROMPT !== undefined ? { systemPrompt: input.env.MAKA_SYSTEM_PROMPT } : {}),
-    ...(input.heavyTask ? { heavyTaskMode: { enabled: true, reason: 'maka eval harbor run --heavy-task' } } : {}),
-    ...(input.economyTask ? { economyTaskMode: { enabled: true, reason: 'maka eval harbor run --economy-task' } } : {}),
+    ...(input.env.MAKA_SYSTEM_PROMPT !== undefined
+      ? { systemPrompt: input.env.MAKA_SYSTEM_PROMPT }
+      : {}),
+    ...(input.heavyTask
+      ? { heavyTaskMode: { enabled: true, reason: 'maka eval harbor run --heavy-task' } }
+      : {}),
+    ...(input.economyTask
+      ? { economyTaskMode: { enabled: true, reason: 'maka eval harbor run --economy-task' } }
+      : {}),
   };
 }
 
@@ -450,13 +505,21 @@ function buildIsolation(
   };
 }
 
-function preflightIsolation(backend: BackendKind, isolation: HarborIsolationMode | undefined, env: RunHarborCellEnv): void {
+function preflightIsolation(
+  backend: BackendKind,
+  isolation: HarborIsolationMode | undefined,
+  env: RunHarborCellEnv,
+): void {
   if (backendNeedsIsolation(backend) && (!isolation || isolation === 'none')) {
-    throw new Error(`backend "${backend}" requires --isolation harbor-local|harbor-http for maka eval harbor run`);
+    throw new Error(
+      `backend "${backend}" requires --isolation harbor-local|harbor-http for maka eval harbor run`,
+    );
   }
   if (isolation === 'harbor-http') {
-    if (!env.MAKA_HARBOR_TOOL_EXECUTOR_URL) throw new Error('MAKA_HARBOR_TOOL_EXECUTOR_URL is required for --isolation harbor-http');
-    if (!env.MAKA_HARBOR_TOOL_EXECUTOR_TOKEN) throw new Error('MAKA_HARBOR_TOOL_EXECUTOR_TOKEN is required for --isolation harbor-http');
+    if (!env.MAKA_HARBOR_TOOL_EXECUTOR_URL)
+      throw new Error('MAKA_HARBOR_TOOL_EXECUTOR_URL is required for --isolation harbor-http');
+    if (!env.MAKA_HARBOR_TOOL_EXECUTOR_TOKEN)
+      throw new Error('MAKA_HARBOR_TOOL_EXECUTOR_TOKEN is required for --isolation harbor-http');
   }
 }
 
@@ -487,7 +550,11 @@ function cliEnv(parsed: ParsedArgs, baseEnv: NodeJS.ProcessEnv): RunHarborCellEn
  */
 function applyApiKeyFile(parsed: ParsedArgs, env: RunHarborCellEnv): void {
   if (!parsed.flags['api-key-file']) return;
-  const provider = providerFromValue(parsed.flags.provider ?? env.MAKA_PROVIDER ?? providerFromModel(env.MAKA_MODEL ?? env.HARBOR_MODEL));
+  const provider = providerFromValue(
+    parsed.flags.provider ??
+      env.MAKA_PROVIDER ??
+      providerFromModel(env.MAKA_MODEL ?? env.HARBOR_MODEL),
+  );
   env[apiKeyFileEnvName(provider)] = parsed.flags['api-key-file'];
 }
 
@@ -497,19 +564,35 @@ async function instructionFromOptions(parsed: ParsedArgs, env: RunHarborCellEnv)
   }
   const filePath = parsed.flags['instruction-file'] ?? env.MAKA_INSTRUCTION_FILE;
   if (filePath) return await readFile(filePath, 'utf8');
-  throw new Error('--instruction, --instruction-file, MAKA_INSTRUCTION, or MAKA_INSTRUCTION_FILE is required');
+  throw new Error(
+    '--instruction, --instruction-file, MAKA_INSTRUCTION, or MAKA_INSTRUCTION_FILE is required',
+  );
 }
 
-function valueOf(parsed: ParsedArgs, env: RunHarborCellEnv, flag: string, envName: string): string | undefined {
+function valueOf(
+  parsed: ParsedArgs,
+  env: RunHarborCellEnv,
+  flag: string,
+  envName: string,
+): string | undefined {
   return parsed.flags[flag] ?? env[envName];
 }
 
-function setFlagEnv(env: RunHarborCellEnv, parsed: ParsedArgs, flag: string, envName: string): void {
+function setFlagEnv(
+  env: RunHarborCellEnv,
+  parsed: ParsedArgs,
+  flag: string,
+  envName: string,
+): void {
   const value = parsed.flags[flag];
   if (value !== undefined) env[envName] = value;
 }
 
-function parseArgs(args: string[], knownFlags: readonly string[], boolFlags: readonly string[]): ParsedArgs {
+function parseArgs(
+  args: string[],
+  knownFlags: readonly string[],
+  boolFlags: readonly string[],
+): ParsedArgs {
   const positional: string[] = [];
   const flags: Record<string, string> = {};
   const bools: Record<string, boolean> = {};
@@ -541,7 +624,9 @@ function harborMode(value: string): HarborMode {
 function optionalIsolation(value: string | undefined): HarborIsolationMode | undefined {
   if (value === undefined || value === '') return undefined;
   if (value === 'none' || value === 'harbor-local' || value === 'harbor-http') return value;
-  throw new Error(`--isolation must be none, harbor-local, or harbor-http, got ${JSON.stringify(value)}`);
+  throw new Error(
+    `--isolation must be none, harbor-local, or harbor-http, got ${JSON.stringify(value)}`,
+  );
 }
 
 function officialVerifierKind(value: string): OfficialVerifier {
@@ -568,7 +653,8 @@ function backendKind(value: string): BackendKind {
  */
 export function applyConnectionDefaults(env: Record<string, string | undefined>): void {
   // Skip if any explicit model/provider/connection input is set
-  if (env.MAKA_MODEL || env.HARBOR_MODEL || env.MAKA_PROVIDER || env.MAKA_LLM_CONNECTION_SLUG) return;
+  if (env.MAKA_MODEL || env.HARBOR_MODEL || env.MAKA_PROVIDER || env.MAKA_LLM_CONNECTION_SLUG)
+    return;
   // Skip for non-ai-sdk backends
   if (env.MAKA_BACKEND === 'fake' || env.MAKA_BACKEND === 'pi-agent') return;
 
@@ -576,10 +662,16 @@ export function applyConnectionDefaults(env: Record<string, string | undefined>)
   try {
     const file = JSON.parse(readFileSync(connectionsPath, 'utf8')) as {
       defaultSlug?: string | null;
-      connections?: Array<{ slug: string; providerType?: string; defaultModel?: string; baseUrl?: string; enabled?: boolean }>;
+      connections?: Array<{
+        slug: string;
+        providerType?: string;
+        defaultModel?: string;
+        baseUrl?: string;
+        enabled?: boolean;
+      }>;
     };
     if (!file.defaultSlug || !Array.isArray(file.connections)) return;
-    const conn = file.connections.find(c => c.slug === file.defaultSlug && c.enabled !== false);
+    const conn = file.connections.find((c) => c.slug === file.defaultSlug && c.enabled !== false);
     if (!conn?.providerType || !conn.defaultModel) return;
     // Normalize legacy persisted providerType ids (e.g. codex-subscription ->
     // openai-codex) so connections stored before a rename keep resolving.
@@ -606,16 +698,40 @@ export function resolveDefaultConnectionsPath(): string {
   const home = homedir();
   switch (process.platform) {
     case 'darwin':
-      return join(home, 'Library', 'Application Support', 'Maka', 'workspaces', 'default', 'llm-connections.json');
+      return join(
+        home,
+        'Library',
+        'Application Support',
+        'Maka',
+        'workspaces',
+        'default',
+        'llm-connections.json',
+      );
     case 'win32':
-      return join(process.env.APPDATA ?? join(home, 'AppData', 'Roaming'), 'Maka', 'workspaces', 'default', 'llm-connections.json');
+      return join(
+        process.env.APPDATA ?? join(home, 'AppData', 'Roaming'),
+        'Maka',
+        'workspaces',
+        'default',
+        'llm-connections.json',
+      );
     default:
-      return join(process.env.XDG_CONFIG_HOME ?? join(home, '.config'), 'Maka', 'workspaces', 'default', 'llm-connections.json');
+      return join(
+        process.env.XDG_CONFIG_HOME ?? join(home, '.config'),
+        'Maka',
+        'workspaces',
+        'default',
+        'llm-connections.json',
+      );
   }
 }
 
-function parseModelSpec(rawModel: string, rawProvider: string | undefined): { provider: ProviderType; model: string } {
-  if (rawProvider !== undefined) return { provider: providerFromValue(rawProvider), model: requireModel(rawModel) };
+function parseModelSpec(
+  rawModel: string,
+  rawProvider: string | undefined,
+): { provider: ProviderType; model: string } {
+  if (rawProvider !== undefined)
+    return { provider: providerFromValue(rawProvider), model: requireModel(rawModel) };
   const separator = rawModel.indexOf('/');
   const provider = separator >= 0 ? rawModel.slice(0, separator) : 'deepseek';
   const model = separator >= 0 ? rawModel.slice(separator + 1) : rawModel;
@@ -629,7 +745,8 @@ function providerFromModel(rawModel: string | undefined): ProviderType {
 }
 
 function providerFromValue(value: string | undefined): ProviderType {
-  if (!value || !(value in PROVIDER_DEFAULTS)) throw new Error(`unsupported MAKA_PROVIDER: ${value ?? ''}`);
+  if (!value || !(value in PROVIDER_DEFAULTS))
+    throw new Error(`unsupported MAKA_PROVIDER: ${value ?? ''}`);
   return value as ProviderType;
 }
 
@@ -649,7 +766,8 @@ function optionalPositiveInt(raw: string | undefined, flagName: string): number 
 
 function positiveInt(raw: string, flagName: string): number {
   const value = Number(raw);
-  if (!Number.isInteger(value) || value < 1) throw new Error(`${flagName} must be a positive integer`);
+  if (!Number.isInteger(value) || value < 1)
+    throw new Error(`${flagName} must be a positive integer`);
   return value;
 }
 

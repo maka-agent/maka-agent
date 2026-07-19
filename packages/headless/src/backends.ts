@@ -9,7 +9,14 @@ import { type BackendRegistry, FakeBackend } from '@maka/runtime';
 
 /** Register the deterministic stub backend ('fake') — no model, no tools. */
 export function registerFakeBackend(registry: BackendRegistry): void {
-  registry.register('fake', (ctx) =>
-    new FakeBackend({ sessionId: ctx.sessionId, header: ctx.header, store: ctx.store, appendMessage: ctx.appendMessage }),
+  registry.register(
+    'fake',
+    (ctx) =>
+      new FakeBackend({
+        sessionId: ctx.sessionId,
+        header: ctx.header,
+        store: ctx.store,
+        appendMessage: ctx.appendMessage,
+      }),
   );
 }

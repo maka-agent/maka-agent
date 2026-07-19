@@ -298,7 +298,7 @@ describe('Bot settings UI contract', () => {
     const onboardingModal = await readRepo('apps/desktop/src/renderer/settings/bot-onboarding-modal.tsx');
     const onboardingContract = await readRepo('packages/core/src/bot-onboarding.ts');
     const preload = await readRepo('apps/desktop/src/preload/preload.ts');
-    const globalTypes = await readRepo('apps/desktop/src/global.d.ts');
+    const globalTypes = await readRepo('apps/desktop/src/preload/bridge-contract.d.ts');
     const scanLogin = await readRepo('apps/desktop/src/main/wechat-scan-login.ts');
     const desktopPackage = await readRepo('apps/desktop/package.json');
 

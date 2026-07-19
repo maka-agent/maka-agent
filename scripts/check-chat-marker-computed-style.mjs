@@ -81,14 +81,18 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const REPO_ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
-const { buttonVariants, cn } = await import(pathToFileURL(resolve(REPO_ROOT, 'packages/ui/dist/ui.js')).href);
-const { markerVariants, toolVariants } = await import(pathToFileURL(resolve(REPO_ROOT, 'packages/ui/dist/primitives/chat.js')).href);
-const {
-  TOOL_OUTPUT_PANEL_CLASS,
-  TOOL_OUTPUT_BODY_CLASS,
-  TOOL_OUTPUT_COMMAND_CLASS,
-} = await import(pathToFileURL(resolve(REPO_ROOT, 'packages/ui/dist/tool-activity/tool-result-preview.js')).href);
-const { Alert, AlertTitle, AlertDescription, AlertAction } = await import(pathToFileURL(resolve(REPO_ROOT, 'packages/ui/dist/primitives/alert.js')).href);
+const { buttonVariants, cn } = await import(
+  pathToFileURL(resolve(REPO_ROOT, 'packages/ui/dist/ui.js')).href
+);
+const { markerVariants, toolVariants } = await import(
+  pathToFileURL(resolve(REPO_ROOT, 'packages/ui/dist/primitives/chat.js')).href
+);
+const { TOOL_OUTPUT_PANEL_CLASS, TOOL_OUTPUT_BODY_CLASS, TOOL_OUTPUT_COMMAND_CLASS } = await import(
+  pathToFileURL(resolve(REPO_ROOT, 'packages/ui/dist/tool-activity/tool-result-preview.js')).href
+);
+const { Alert, AlertTitle, AlertDescription, AlertAction } = await import(
+  pathToFileURL(resolve(REPO_ROOT, 'packages/ui/dist/primitives/alert.js')).href
+);
 
 const mainCssPath = process.argv[2] && resolve(process.argv[2]);
 const headCssPath = process.argv[3] && resolve(process.argv[3]);
@@ -96,8 +100,10 @@ if (!mainCssPath || !headCssPath || !existsSync(mainCssPath) || !existsSync(head
   console.error('usage: npm run check:chat-visual -- <baseline.css> <head.css>');
   console.error('  <baseline.css>  pre-PR2 renderer CSS — still carries the bespoke');
   console.error('                  .maka-turn-* / .maka-tool-output-stream-* rules (build it');
-  console.error('                  from a checkout at e033a8c4~1; see this file\'s header).');
-  console.error('  <head.css>      this branch\'s built renderer CSS (npm -w @maka/desktop run build:renderer).');
+  console.error("                  from a checkout at e033a8c4~1; see this file's header).");
+  console.error(
+    "  <head.css>      this branch's built renderer CSS (npm -w @maka/desktop run build:renderer).",
+  );
   process.exit(2);
 }
 
@@ -109,16 +115,34 @@ const pair = (m, h) => ({ main: m, head: h });
 // EVERY head state — the inert pending `secondary` branch is dropped — so
 // its head column is always `quiet`, matched against `main`'s pending-time
 // `secondary` to prove that switch was pixel-equal.
-const fa = (variant) => pair(cn(bv(variant, 'sm'), 'maka-turn-footer-action'), cn(bv('quiet', 'nav'), mv('footer-action')));
-const lb = pair(cn(bv('quiet', 'sm'), 'maka-turn-lineage-badge'), cn(bv('quiet', 'nav'), mv('lineage-badge')));
+const fa = (variant) =>
+  pair(
+    cn(bv(variant, 'sm'), 'maka-turn-footer-action'),
+    cn(bv('quiet', 'nav'), mv('footer-action')),
+  );
+const lb = pair(
+  cn(bv('quiet', 'sm'), 'maka-turn-lineage-badge'),
+  cn(bv('quiet', 'nav'), mv('lineage-badge')),
+);
 
 // Quiet tool-output panel (production shell after streamVariants retirement).
 // Both sides use the same production classes — this pins layout invariants
 // (max-height, mono, panel surface) rather than a retired stream migration pair.
 const toolOutputPanel = (el, id) =>
-  el('div', id, pair(TOOL_OUTPUT_PANEL_CLASS, TOOL_OUTPUT_PANEL_CLASS), 'data-slot="tool-output"',
-    el('code', `${id}-cmd`, pair(TOOL_OUTPUT_COMMAND_CLASS, TOOL_OUTPUT_COMMAND_CLASS), '', 'npm test')
-    + el('pre', `${id}-body`, pair(TOOL_OUTPUT_BODY_CLASS, TOOL_OUTPUT_BODY_CLASS), '', 'out\nerr'));
+  el(
+    'div',
+    id,
+    pair(TOOL_OUTPUT_PANEL_CLASS, TOOL_OUTPUT_PANEL_CLASS),
+    'data-slot="tool-output"',
+    el(
+      'code',
+      `${id}-cmd`,
+      pair(TOOL_OUTPUT_COMMAND_CLASS, TOOL_OUTPUT_COMMAND_CLASS),
+      '',
+      'npm test',
+    ) +
+      el('pre', `${id}-body`, pair(TOOL_OUTPUT_BODY_CLASS, TOOL_OUTPUT_BODY_CLASS), '', 'out\nerr'),
+  );
 
 // PR3b — the `ToolActivity` card shell. The only part NOT diffed is the RUNNING
 // status dot (its `maka-tool-pulse` ring is animated → phase-dependent
@@ -160,37 +184,85 @@ const toolCardSection = (el) => {
   // each measured once in their visible state — including the `[open]>summary`
   // divider.
   const waitingInner =
-    el('summary', 'tool-summary', hdr, '',
-        dotEl('waiting_permission', 'tool-dot-waiting_permission')
-        + el('span', 'tool-name', pair('maka-tool-name', tv('name')), '', 'Bash')
-        + el('span', 'tool-meta', pair('maka-tool-meta', tv('meta')), '',
-            el('span', 'tool-duration', pair('maka-tool-duration', tv('duration')), '', '1.2s')
-            + el('span', 'tool-statuslabel', pair('maka-tool-status-label', tv('status-label')), '', '等待权限')))
-      + el('div', 'tool-body', body, '',
-          el('p', 'tool-intent', pair('maka-tool-intent', tv('intent')), '', 'run a command')
-          + el('pre', 'tool-args', pair('maka-code toolArgs', cn('maka-code', tv('args'))), '', '{ "cmd": "ls" }'));
+    el(
+      'summary',
+      'tool-summary',
+      hdr,
+      '',
+      dotEl('waiting_permission', 'tool-dot-waiting_permission') +
+        el('span', 'tool-name', pair('maka-tool-name', tv('name')), '', 'Bash') +
+        el(
+          'span',
+          'tool-meta',
+          pair('maka-tool-meta', tv('meta')),
+          '',
+          el('span', 'tool-duration', pair('maka-tool-duration', tv('duration')), '', '1.2s') +
+            el(
+              'span',
+              'tool-statuslabel',
+              pair('maka-tool-status-label', tv('status-label')),
+              '',
+              '等待权限',
+            ),
+        ),
+    ) +
+    el(
+      'div',
+      'tool-body',
+      body,
+      '',
+      el('p', 'tool-intent', pair('maka-tool-intent', tv('intent')), '', 'run a command') +
+        el(
+          'pre',
+          'tool-args',
+          pair('maka-code toolArgs', cn('maka-code', tv('args'))),
+          '',
+          '{ "cmd": "ls" }',
+        ),
+    );
   // The COLLAPSED `completed` card — the default history state (the collapsed
   // `errored` card shares the same default branch now). The summary loses
   // its `[open]>summary` divider (border-bottom 0px vs the open card's 1px — the
   // non-vacuous proof the collapsed branch is really exercised); the body's box /
   // typography parity is diffed too. Both read identical across main/head.
   const completedInner =
-    el('summary', 'tool-summary-collapsed', hdr, '',
-        dotEl('completed', 'tool-dot-completed')
-        + el('span', 'tool-name-collapsed', pair('maka-tool-name', tv('name')), '', 'Read'))
-      + el('div', 'tool-body-collapsed', body, '', 'hidden while collapsed');
+    el(
+      'summary',
+      'tool-summary-collapsed',
+      hdr,
+      '',
+      dotEl('completed', 'tool-dot-completed') +
+        el('span', 'tool-name-collapsed', pair('maka-tool-name', tv('name')), '', 'Read'),
+    ) + el('div', 'tool-body-collapsed', body, '', 'hidden while collapsed');
   const inner = (s) =>
-    s === 'waiting_permission' ? waitingInner
-    : s === 'completed' ? completedInner
-    // running dot excluded from IDS (animated); other open/collapsed dots diffed.
-    : el('summary', `tool-sum-${s}`, hdr, '', dotEl(s, `tool-dot-${s}`));
+    s === 'waiting_permission'
+      ? waitingInner
+      : s === 'completed'
+        ? completedInner
+        : // running dot excluded from IDS (animated); other open/collapsed dots diffed.
+          el('summary', `tool-sum-${s}`, hdr, '', dotEl(s, `tool-dot-${s}`));
   const card = (s) =>
-    el('details', `tool-item-${s}`, item, `data-slot="tool" data-status="${s}" ${openByDefault(s) ? 'open' : ''}`, inner(s));
-  return el('section', 'tool-section', pair('toolInline', tv('container')), 'aria-label="工具调用记录"',
-    el('header', 'tool-section-header', pair('', tv('container-header')), '',
-      '<strong>工具调用</strong>'
-      + el('span', 'tool-count', pair('maka-tool-count', tv('count')), '', String(STAT.length)))
-    + STAT.map(card).join('\n'));
+    el(
+      'details',
+      `tool-item-${s}`,
+      item,
+      `data-slot="tool" data-status="${s}" ${openByDefault(s) ? 'open' : ''}`,
+      inner(s),
+    );
+  return el(
+    'section',
+    'tool-section',
+    pair('toolInline', tv('container')),
+    'aria-label="工具调用记录"',
+    el(
+      'header',
+      'tool-section-header',
+      pair('', tv('container-header')),
+      '',
+      '<strong>工具调用</strong>' +
+        el('span', 'tool-count', pair('maka-tool-count', tv('count')), '', String(STAT.length)),
+    ) + STAT.map(card).join('\n'),
+  );
 };
 
 // PR3c — the tool-error banner CONTAINER. The ONE thing this harness uniquely proves
@@ -215,35 +287,102 @@ const errorBanner = (el) => {
   // The svg + title / description / action slot children carry their real Alert slot
   // classes only so Alert's `has-[>svg]:has-data-[slot=alert-action]` 3-col grid
   // resolves on the container exactly as in production; only `err-banner` is diffed.
-  return el('div', 'err-banner', cont, 'data-slot="alert" role="alert"',
-      '<svg width="16" height="16" aria-hidden="true"></svg>'
-      + el('div', 'err-title', pair(ALERT_TITLE, ALERT_TITLE), 'data-slot="alert-title"', '工具调用失败')
-      + el('div', 'err-text', pair(ALERT_DESC, ALERT_DESC), 'data-slot="alert-description"', 'boom: command not found')
-      + el('div', 'err-action', pair(ALERT_ACTION, ALERT_ACTION), 'data-slot="alert-action"',
-          el('button', 'err-copy', pair(bv('ghost', 'sm'), bv('ghost', 'sm')), 'type="button"', '<svg width="11" height="11"></svg><span>复制</span>')));
+  return el(
+    'div',
+    'err-banner',
+    cont,
+    'data-slot="alert" role="alert"',
+    '<svg width="16" height="16" aria-hidden="true"></svg>' +
+      el(
+        'div',
+        'err-title',
+        pair(ALERT_TITLE, ALERT_TITLE),
+        'data-slot="alert-title"',
+        '工具调用失败',
+      ) +
+      el(
+        'div',
+        'err-text',
+        pair(ALERT_DESC, ALERT_DESC),
+        'data-slot="alert-description"',
+        'boom: command not found',
+      ) +
+      el(
+        'div',
+        'err-action',
+        pair(ALERT_ACTION, ALERT_ACTION),
+        'data-slot="alert-action"',
+        el(
+          'button',
+          'err-copy',
+          pair(bv('ghost', 'sm'), bv('ghost', 'sm')),
+          'type="button"',
+          '<svg width="11" height="11"></svg><span>复制</span>',
+        ),
+      ),
+  );
 };
 
 // DOM tree mirroring TurnView nesting.
 const TREE = (side) => {
   const C = (p) => p[side];
-  const el = (tag, id, p, attrs, kids = '') => `<${tag} id="${id}" class="${C(p)}" ${attrs}>${kids}</${tag}>`;
-  const action = (id, p, attrs) => el('button', id, p, `${attrs} type="button"`, '<svg width="11" height="11"></svg><span>复制中…</span>');
+  const el = (tag, id, p, attrs, kids = '') =>
+    `<${tag} id="${id}" class="${C(p)}" ${attrs}>${kids}</${tag}>`;
+  const action = (id, p, attrs) =>
+    el(
+      'button',
+      id,
+      p,
+      `${attrs} type="button"`,
+      '<svg width="11" height="11"></svg><span>复制中…</span>',
+    );
   return [
-    el('div', 'footer', pair('maka-turn-footer', mv('footer')), 'role="toolbar"',
+    el(
+      'div',
+      'footer',
+      pair('maka-turn-footer', mv('footer')),
+      'role="toolbar"',
       action('footer-rest', fa('quiet'), '') +
-      action('footer-pending', fa('secondary'), 'data-pending="true" aria-busy="true"') +
-      action('footer-copy-pending', fa('secondary'), 'data-pending="true" data-copy-feedback="pending" aria-busy="true" aria-disabled="true"') +
-      action('footer-copied', fa('quiet'), 'data-copy-feedback="copied"') +
-      action('footer-failed', fa('quiet'), 'data-copy-feedback="failed"')),
-    el('div', 'lineage-row', pair('maka-turn-lineage-row', mv('lineage-row')), '',
-      action('lineage-fwd', lb, 'data-direction="forward"')),
+        action('footer-pending', fa('secondary'), 'data-pending="true" aria-busy="true"') +
+        action(
+          'footer-copy-pending',
+          fa('secondary'),
+          'data-pending="true" data-copy-feedback="pending" aria-busy="true" aria-disabled="true"',
+        ) +
+        action('footer-copied', fa('quiet'), 'data-copy-feedback="copied"') +
+        action('footer-failed', fa('quiet'), 'data-copy-feedback="failed"'),
+    ),
+    el(
+      'div',
+      'lineage-row',
+      pair('maka-turn-lineage-row', mv('lineage-row')),
+      '',
+      action('lineage-fwd', lb, 'data-direction="forward"'),
+    ),
     // Reverse lineage lives in its own `-reverse` container (margin-top 4px vs
     // the forward row's 2px), a separately migrated container variant.
-    el('div', 'lineage-row-reverse', pair('maka-turn-lineage-row maka-turn-lineage-row-reverse', mv('lineage-row-reverse')), '',
-      action('lineage-rev', lb, 'data-direction="reverse"')),
+    el(
+      'div',
+      'lineage-row-reverse',
+      pair('maka-turn-lineage-row maka-turn-lineage-row-reverse', mv('lineage-row-reverse')),
+      '',
+      action('lineage-rev', lb, 'data-direction="reverse"'),
+    ),
     el('div', 'aborted', pair('maka-turn-aborted-marker', mv('aborted')), '', '<span>x</span>'),
-    el('div', 'failed-banner', pair('maka-turn-failed-banner', mv('failed-banner')), '',
-      '<span>x</span>' + el('span', 'failed-recovery', pair('maka-turn-failed-recovery', mv('failed-recovery')), '', '<span>x</span>')),
+    el(
+      'div',
+      'failed-banner',
+      pair('maka-turn-failed-banner', mv('failed-banner')),
+      '',
+      '<span>x</span>' +
+        el(
+          'span',
+          'failed-recovery',
+          pair('maka-turn-failed-recovery', mv('failed-recovery')),
+          '',
+          '<span>x</span>',
+        ),
+    ),
     // Quiet tool-output panel (command + body) used by ToolCardBody / TerminalPreview.
     toolOutputPanel(el, 'tool-output'),
     // The PR3b tool-activity card shell.
@@ -253,22 +392,98 @@ const TREE = (side) => {
   ].join('\n');
 };
 
-const PROPS = ['display', 'height', 'minHeight', 'width', 'maxWidth', 'maxHeight', 'minWidth', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft', 'marginTop', 'marginRight', 'marginBottom', 'marginLeft', 'borderTopWidth', 'borderRightWidth', 'borderBottomWidth', 'borderLeftWidth', 'borderTopColor', 'borderBottomColor', 'borderTopStyle', 'borderTopLeftRadius', 'boxShadow', 'overflowX', 'overflowY', 'fontFamily', 'fontSize', 'fontWeight', 'fontStyle', 'letterSpacing', 'lineHeight', 'textTransform', 'gridTemplateColumns', 'columnGap', 'color', 'backgroundColor', 'opacity', 'transition', 'justifyContent', 'alignItems', 'flexWrap', 'flexDirection', 'fontVariantNumeric', 'whiteSpace', 'wordBreak', 'textOverflow', 'textAlign', 'cursor'];
-const IDS = ['footer', 'footer-rest', 'footer-pending', 'footer-copy-pending', 'footer-copied', 'footer-failed', 'lineage-row', 'lineage-fwd', 'lineage-row-reverse', 'lineage-rev', 'aborted', 'failed-banner', 'failed-recovery',
+const PROPS = [
+  'display',
+  'height',
+  'minHeight',
+  'width',
+  'maxWidth',
+  'maxHeight',
+  'minWidth',
+  'paddingTop',
+  'paddingRight',
+  'paddingBottom',
+  'paddingLeft',
+  'marginTop',
+  'marginRight',
+  'marginBottom',
+  'marginLeft',
+  'borderTopWidth',
+  'borderRightWidth',
+  'borderBottomWidth',
+  'borderLeftWidth',
+  'borderTopColor',
+  'borderBottomColor',
+  'borderTopStyle',
+  'borderTopLeftRadius',
+  'boxShadow',
+  'overflowX',
+  'overflowY',
+  'fontFamily',
+  'fontSize',
+  'fontWeight',
+  'fontStyle',
+  'letterSpacing',
+  'lineHeight',
+  'textTransform',
+  'gridTemplateColumns',
+  'columnGap',
+  'color',
+  'backgroundColor',
+  'opacity',
+  'transition',
+  'justifyContent',
+  'alignItems',
+  'flexWrap',
+  'flexDirection',
+  'fontVariantNumeric',
+  'whiteSpace',
+  'wordBreak',
+  'textOverflow',
+  'textAlign',
+  'cursor',
+];
+const IDS = [
+  'footer',
+  'footer-rest',
+  'footer-pending',
+  'footer-copy-pending',
+  'footer-copied',
+  'footer-failed',
+  'lineage-row',
+  'lineage-fwd',
+  'lineage-row-reverse',
+  'lineage-rev',
+  'aborted',
+  'failed-banner',
+  'failed-recovery',
   // Quiet tool-output panel (panel + command + body).
-  'tool-output', 'tool-output-cmd', 'tool-output-body',
+  'tool-output',
+  'tool-output-cmd',
+  'tool-output-body',
   // PR3b tool-card shell: section + count, all six `[data-status]` card
   // containers at their production default open/collapsed state, the summary header
   // grid, the static dot colors (running dot excluded — animated ring), the
   // status-invariant inner parts (on the open `waiting_permission` card), and
   // the COLLAPSED `completed` / `errored` defaults — the collapsed summary (no
   // `[open]` divider) + UA-hidden body.
-  'tool-section', 'tool-section-header', 'tool-count',
+  'tool-section',
+  'tool-section-header',
+  'tool-count',
   // Derived from the same STAT as the cards (no second hand-kept list to drift):
   // every status' `[data-status]` container is diffed…
   ...STAT.map((s) => `tool-item-${s}`),
-  'tool-summary', 'tool-name', 'tool-meta', 'tool-duration', 'tool-statuslabel', 'tool-body', 'tool-intent', 'tool-args',
-  'tool-summary-collapsed', 'tool-name-collapsed', 'tool-body-collapsed',
+  'tool-summary',
+  'tool-name',
+  'tool-meta',
+  'tool-duration',
+  'tool-statuslabel',
+  'tool-body',
+  'tool-intent',
+  'tool-args',
+  'tool-summary-collapsed',
+  'tool-name-collapsed',
+  'tool-body-collapsed',
   // …and every static dot, EXCEPT running's (its `maka-tool-pulse` ring is
   // animated → phase-dependent `getComputedStyle`; pinned by the keyframe contract).
   ...STAT.filter((s) => s !== 'running').map((s) => `tool-dot-${s}`),
@@ -276,7 +491,8 @@ const IDS = ['footer', 'footer-rest', 'footer-pending', 'footer-copy-pending', '
   // inert (shadowed by Alert's `@layer utilities`). The description / copy-button leaf
   // utilities are arbitrary-value (source == computed) and pinned by
   // visible-copy-hygiene-contract, so they are not re-diffed here.
-  'err-banner'];
+  'err-banner',
+];
 // `::before` middot separators are now diffed for real (they render once the
 // CSS is inlined — the old `<link>` build couldn't apply them, masking this).
 // failed-recovery carries the always-on `before:content-['·']`.
@@ -316,7 +532,12 @@ async function read(win, cssPath, side) {
 
 app.commandLine.appendSwitch('disable-gpu');
 app.whenReady().then(async () => {
-  const win = new BrowserWindow({ show: false, width: 900, height: 700, webPreferences: { sandbox: false } });
+  const win = new BrowserWindow({
+    show: false,
+    width: 900,
+    height: 700,
+    webPreferences: { sandbox: false },
+  });
   const main = await read(win, mainCssPath, 'main');
   const head = await read(win, headCssPath, 'head');
   const ROWS = [
@@ -325,11 +546,20 @@ app.whenReady().then(async () => {
   ];
   let total = 0;
   for (const [key, props] of ROWS) {
-    const diffs = props.filter((p) => main[key][p] !== head[key][p]).map((p) => `${p}: main=${JSON.stringify(main[key][p])} head=${JSON.stringify(head[key][p])}`);
+    const diffs = props
+      .filter((p) => main[key][p] !== head[key][p])
+      .map(
+        (p) => `${p}: main=${JSON.stringify(main[key][p])} head=${JSON.stringify(head[key][p])}`,
+      );
     total += diffs.length;
     if (diffs.length === 0) console.log(`  ok ${key}: ${props.length}/${props.length} identical`);
-    else { console.log(`  XX ${key}: ${diffs.length} DIFF`); for (const d of diffs) console.log(`       ${d}`); }
+    else {
+      console.log(`  XX ${key}: ${diffs.length} DIFF`);
+      for (const d of diffs) console.log(`       ${d}`);
+    }
   }
-  console.log(`\n${IDS.length} resting element/state rows + ${PSEUDO_IDS.length} ::before middots — TOTAL DIFFS: ${total}`);
+  console.log(
+    `\n${IDS.length} resting element/state rows + ${PSEUDO_IDS.length} ::before middots — TOTAL DIFFS: ${total}`,
+  );
   app.exit(total === 0 ? 0 : 1);
 });

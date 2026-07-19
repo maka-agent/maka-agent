@@ -7,7 +7,7 @@ import { SKILL_INVOCATION_TOKEN_SOURCE } from './skill-token.js';
 // only execute at line start, so the provider offers `/skill:xxx` (not plain
 // commands) for a mid-message `/`. Line-start `/` is left to pi-tui's own
 // slash trigger; this matches only mid-message tokens (after whitespace).
-const MID_MESSAGE_SLASH_TOKEN = /(?:\s)\/\S*$/;;
+const MID_MESSAGE_SLASH_TOKEN = /(?:\s)\/\S*$/;
 
 /**
  * Editor with `/skill:<name>` invocation highlighting (issue #1148). Valid
@@ -38,11 +38,13 @@ export class MakaSkillHighlightEditor extends Editor {
 
   override render(width: number): string[] {
     const pattern = new RegExp(SKILL_INVOCATION_TOKEN_SOURCE, 'g');
-    return super.render(width).map((line) =>
-      line.replace(pattern, (whole, name: string) =>
-        this.isInvocable(name) ? ansi.accent(whole) : whole,
-      ),
-    );
+    return super
+      .render(width)
+      .map((line) =>
+        line.replace(pattern, (whole, name: string) =>
+          this.isInvocable(name) ? ansi.accent(whole) : whole,
+        ),
+      );
   }
 
   override handleInput(data: string): void {

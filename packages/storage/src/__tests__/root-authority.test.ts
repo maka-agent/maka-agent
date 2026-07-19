@@ -1,6 +1,18 @@
 import assert from 'node:assert/strict';
 import { fork, spawnSync, type ChildProcess } from 'node:child_process';
-import { chmod, cp, lstat, mkdir, mkdtemp, readdir, readFile, rename, rm, symlink, writeFile } from 'node:fs/promises';
+import {
+  chmod,
+  cp,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rename,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
@@ -43,8 +55,8 @@ describe('storage root authority', () => {
 
       await assert.rejects(
         () => resolveStorageRoot({ path: copiedRoot, kind: 'interactive' }),
-        (error: unknown) => error instanceof StorageRootAuthorityError
-          && error.code === 'root_identity_collision',
+        (error: unknown) =>
+          error instanceof StorageRootAuthorityError && error.code === 'root_identity_collision',
       );
     });
   });
@@ -62,12 +74,14 @@ describe('storage root authority', () => {
       await rename(root, join(base, 'original-root'));
       await mkdir(root);
       await assert.rejects(
-        () => resolveExistingStorageRoot({
-          path: root,
-          kind: 'interactive',
-          expectedRootId: initialized.rootId,
-        }),
-        (error: unknown) => error instanceof StorageRootAuthorityError && error.code === 'invalid_marker',
+        () =>
+          resolveExistingStorageRoot({
+            path: root,
+            kind: 'interactive',
+            expectedRootId: initialized.rootId,
+          }),
+        (error: unknown) =>
+          error instanceof StorageRootAuthorityError && error.code === 'invalid_marker',
       );
       await assert.rejects(readFile(join(root, STORAGE_ROOT_MARKER_FILE)), { code: 'ENOENT' });
     });
@@ -84,7 +98,8 @@ describe('storage root authority', () => {
       try {
         await waitForChildMessage(
           child,
-          (message): message is { type: 'marker_open_pending' } => message.type === 'marker_open_pending',
+          (message): message is { type: 'marker_open_pending' } =>
+            message.type === 'marker_open_pending',
           'marker_open_pending',
         );
         await rename(root, originalRoot);
@@ -92,7 +107,8 @@ describe('storage root authority', () => {
 
         const outcomePromise = waitForChildMessage(
           child,
-          (message): message is RootResolverMessage => message.type === 'resolved' || message.type === 'error',
+          (message): message is RootResolverMessage =>
+            message.type === 'resolved' || message.type === 'error',
           'resolver outcome',
         );
         child.send('resume');
@@ -116,43 +132,55 @@ describe('storage root authority', () => {
   });
 
   test('rejects a regular file as a typed invalid root', async () => {
-    await withRoots(async ({ root }) => {
-      await writeFile(root, 'not a directory');
-      await assert.rejects(
-        () => resolveStorageRoot({ path: root, kind: 'interactive' }),
-        (error: unknown) => error instanceof StorageRootAuthorityError
-          && error.code === 'invalid_root',
-      );
-    }, { createRoot: false });
+    await withRoots(
+      async ({ root }) => {
+        await writeFile(root, 'not a directory');
+        await assert.rejects(
+          () => resolveStorageRoot({ path: root, kind: 'interactive' }),
+          (error: unknown) =>
+            error instanceof StorageRootAuthorityError && error.code === 'invalid_root',
+        );
+      },
+      { createRoot: false },
+    );
   });
 
   test('rejects an unsupported root kind before creating filesystem state', async () => {
-    await withRoots(async ({ root }) => {
-      await assert.rejects(
-        () => resolveStorageRoot({ path: root, kind: 'unsupported' as 'interactive' }),
-        (error: unknown) => error instanceof StorageRootAuthorityError
-          && error.code === 'invalid_root_kind',
-      );
-      await assert.rejects(lstat(root), { code: 'ENOENT' });
-    }, { createRoot: false });
+    await withRoots(
+      async ({ root }) => {
+        await assert.rejects(
+          () => resolveStorageRoot({ path: root, kind: 'unsupported' as 'interactive' }),
+          (error: unknown) =>
+            error instanceof StorageRootAuthorityError && error.code === 'invalid_root_kind',
+        );
+        await assert.rejects(lstat(root), { code: 'ENOENT' });
+      },
+      { createRoot: false },
+    );
   });
 
   test('normalizes root filesystem failures at the public authority boundary', async () => {
-    await withRoots(async ({ base }) => {
-      const blockingFile = join(base, 'blocking-file');
-      await writeFile(blockingFile, 'not a directory');
+    await withRoots(
+      async ({ base }) => {
+        const blockingFile = join(base, 'blocking-file');
+        await writeFile(blockingFile, 'not a directory');
 
-      await assert.rejects(
-        () => resolveStorageRoot({ path: join(blockingFile, 'root'), kind: 'interactive' }),
-        (error: unknown) => error instanceof StorageRootAuthorityError
-          && error.code === 'root_io_failed'
-          && error.cause instanceof Error,
-      );
-    }, { createRoot: false });
+        await assert.rejects(
+          () => resolveStorageRoot({ path: join(blockingFile, 'root'), kind: 'interactive' }),
+          (error: unknown) =>
+            error instanceof StorageRootAuthorityError &&
+            error.code === 'root_io_failed' &&
+            error.cause instanceof Error,
+        );
+      },
+      { createRoot: false },
+    );
   });
 
   test('preserves unexpected marker I/O failures at the public authority boundary', {
-    skip: process.platform === 'win32' || (typeof process.getuid === 'function' && process.getuid() === 0),
+    skip:
+      process.platform === 'win32' ||
+      (typeof process.getuid === 'function' && process.getuid() === 0),
   }, async () => {
     await withRoots(async ({ root }) => {
       const capability = await resolveStorageRoot({ path: root, kind: 'interactive' });
@@ -161,11 +189,12 @@ describe('storage root authority', () => {
       try {
         await assert.rejects(
           () => assertStorageRootCapability(capability, 'interactive'),
-          (error: unknown) => error instanceof StorageRootAuthorityError
-            && error.code === 'root_io_failed'
-            && error.cause instanceof Error
-            && 'code' in error.cause
-            && (error.cause as NodeJS.ErrnoException).code === 'EACCES',
+          (error: unknown) =>
+            error instanceof StorageRootAuthorityError &&
+            error.code === 'root_io_failed' &&
+            error.cause instanceof Error &&
+            'code' in error.cause &&
+            (error.cause as NodeJS.ErrnoException).code === 'EACCES',
         );
       } finally {
         await chmod(markerPath, 0o600);
@@ -195,17 +224,20 @@ describe('storage root authority', () => {
   });
 
   test('atomically fixes a root kind under concurrent initialization', async () => {
-    await withRoots(async ({ root }) => {
-      const outcomes = await Promise.allSettled([
-        resolveStorageRoot({ path: root, kind: 'interactive' }),
-        resolveStorageRoot({ path: root, kind: 'headless' }),
-      ]);
-      assert.equal(outcomes.filter((outcome) => outcome.status === 'fulfilled').length, 1);
-      const rejection = outcomes.find((outcome) => outcome.status === 'rejected');
-      assert.ok(rejection && rejection.status === 'rejected');
-      assert.ok(rejection.reason instanceof StorageRootAuthorityError);
-      assert.equal(rejection.reason.code, 'root_kind_mismatch');
-    }, { createRoot: false });
+    await withRoots(
+      async ({ root }) => {
+        const outcomes = await Promise.allSettled([
+          resolveStorageRoot({ path: root, kind: 'interactive' }),
+          resolveStorageRoot({ path: root, kind: 'headless' }),
+        ]);
+        assert.equal(outcomes.filter((outcome) => outcome.status === 'fulfilled').length, 1);
+        const rejection = outcomes.find((outcome) => outcome.status === 'rejected');
+        assert.ok(rejection && rejection.status === 'rejected');
+        assert.ok(rejection.reason instanceof StorageRootAuthorityError);
+        assert.equal(rejection.reason.code, 'root_kind_mismatch');
+      },
+      { createRoot: false },
+    );
   });
 
   test('rejects an unbounded root marker before parsing it', async () => {
@@ -213,12 +245,15 @@ describe('storage root authority', () => {
       await writeFile(join(root, STORAGE_ROOT_MARKER_FILE), Buffer.alloc(1_025, 0x20));
       await assert.rejects(
         () => resolveStorageRoot({ path: root, kind: 'interactive' }),
-        (error: unknown) => error instanceof StorageRootAuthorityError && error.code === 'invalid_marker',
+        (error: unknown) =>
+          error instanceof StorageRootAuthorityError && error.code === 'invalid_marker',
       );
     });
   });
 
-  test('rejects FIFO marker paths without blocking root resolution', { skip: process.platform === 'win32' }, async () => {
+  test('rejects FIFO marker paths without blocking root resolution', {
+    skip: process.platform === 'win32',
+  }, async () => {
     await withRoots(async ({ base, root }) => {
       const markerPath = join(root, STORAGE_ROOT_MARKER_FILE);
       createFifo(markerPath);
@@ -247,7 +282,8 @@ describe('storage root authority', () => {
       } as StorageRootCapability<'interactive'>;
       await assert.rejects(
         () => assertStorageRootCapability(forged, 'interactive'),
-        (error: unknown) => error instanceof StorageRootAuthorityError && error.code === 'invalid_capability',
+        (error: unknown) =>
+          error instanceof StorageRootAuthorityError && error.code === 'invalid_capability',
       );
 
       const capability = await resolveStorageRoot({ path: root, kind: 'interactive' });
@@ -257,7 +293,8 @@ describe('storage root authority', () => {
       await owner.close();
       await assert.rejects(
         () => assertStorageRootLease(owner.lease, 'interactive', 'write'),
-        (error: unknown) => error instanceof StorageRootAuthorityError && error.code === 'invalid_lease',
+        (error: unknown) =>
+          error instanceof StorageRootAuthorityError && error.code === 'invalid_lease',
       );
 
       const forgedLease = {
@@ -268,7 +305,8 @@ describe('storage root authority', () => {
       } as StorageRootLease<'interactive', 'write'>;
       await assert.rejects(
         () => assertStorageRootLease(forgedLease, 'interactive', 'write'),
-        (error: unknown) => error instanceof StorageRootAuthorityError && error.code === 'invalid_lease',
+        (error: unknown) =>
+          error instanceof StorageRootAuthorityError && error.code === 'invalid_lease',
       );
     });
   });
@@ -288,15 +326,10 @@ describe('storage root authority', () => {
       const admitted = new Promise<void>((resolve) => {
         operationAdmitted = resolve;
       });
-      const operation = runWithStorageRootLease(
-        owner.lease,
-        'interactive',
-        'write',
-        async () => {
-          operationAdmitted();
-          await operationBlocked;
-        },
-      );
+      const operation = runWithStorageRootLease(owner.lease, 'interactive', 'write', async () => {
+        operationAdmitted();
+        await operationBlocked;
+      });
       await admitted;
 
       const closing = owner.close();
@@ -304,7 +337,8 @@ describe('storage root authority', () => {
       assert.equal(await tryAcquireInteractiveRootOwner(capability), undefined);
       await assert.rejects(
         () => runWithStorageRootLease(owner.lease, 'interactive', 'write', async () => {}),
-        (error: unknown) => error instanceof StorageRootAuthorityError && error.code === 'invalid_lease',
+        (error: unknown) =>
+          error instanceof StorageRootAuthorityError && error.code === 'invalid_lease',
       );
 
       releaseOperation();
@@ -331,10 +365,10 @@ describe('storage root authority', () => {
       const firstReader = spawnHolder(root, 'read');
       const secondReader = spawnHolder(root, 'read');
       try {
-        assert.deepEqual(await Promise.all([
-          waitForHolder(firstReader),
-          waitForHolder(secondReader),
-        ]), ['locked', 'locked']);
+        assert.deepEqual(
+          await Promise.all([waitForHolder(firstReader), waitForHolder(secondReader)]),
+          ['locked', 'locked'],
+        );
         const localReader = await tryAcquireInteractiveRootReader(capability);
         assert.ok(localReader);
         assert.equal(await tryAcquireInteractiveRootOwner(capability), undefined);
@@ -349,7 +383,9 @@ describe('storage root authority', () => {
     });
   });
 
-  test('rejects a lock path that aliases another filesystem object', { skip: process.platform === 'win32' }, async () => {
+  test('rejects a lock path that aliases another filesystem object', {
+    skip: process.platform === 'win32',
+  }, async () => {
     await withRoots(async ({ base, root }) => {
       const capability = await resolveStorageRoot({ path: root, kind: 'interactive' });
       const { controlDirectory } = await prepareStorageRootControlDirectory(capability);
@@ -359,7 +395,8 @@ describe('storage root authority', () => {
 
       await assert.rejects(
         () => tryAcquireInteractiveRootOwner(capability),
-        (error: unknown) => error instanceof StorageRootAuthorityError && error.code === 'invalid_lock_artifact',
+        (error: unknown) =>
+          error instanceof StorageRootAuthorityError && error.code === 'invalid_lock_artifact',
       );
     });
   });
@@ -372,9 +409,10 @@ describe('storage root authority', () => {
 
       await assert.rejects(
         () => tryAcquireInteractiveRootOwner(capability),
-        (error: unknown) => error instanceof StorageRootAuthorityError
-          && error.code === 'lock_failed'
-          && error.cause instanceof Error,
+        (error: unknown) =>
+          error instanceof StorageRootAuthorityError &&
+          error.code === 'lock_failed' &&
+          error.cause instanceof Error,
       );
     });
   });
@@ -431,7 +469,8 @@ describe('storage root authority', () => {
       await mkdir(root);
       await assert.rejects(
         () => assertStorageRootCapability(capability, 'interactive'),
-        (error: unknown) => error instanceof StorageRootAuthorityError && error.code === 'root_identity_changed',
+        (error: unknown) =>
+          error instanceof StorageRootAuthorityError && error.code === 'root_identity_changed',
       );
     });
   });
@@ -440,8 +479,13 @@ describe('storage root authority', () => {
     await withRoots(async ({ root }) => {
       const capability = await resolveStorageRoot({ path: root, kind: 'interactive' });
       assert.throws(
-        () => createHeadlessRootLease(capability as unknown as StorageRootCapability<'headless'>, 'write'),
-        (error: unknown) => error instanceof StorageRootAuthorityError && error.code === 'invalid_capability',
+        () =>
+          createHeadlessRootLease(
+            capability as unknown as StorageRootCapability<'headless'>,
+            'write',
+          ),
+        (error: unknown) =>
+          error instanceof StorageRootAuthorityError && error.code === 'invalid_capability',
       );
     });
   });
@@ -464,7 +508,10 @@ async function withRoots(
 
 function waitForHolder(child: ChildProcess): Promise<'locked' | 'denied'> {
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('lock holder did not report readiness')), 5_000);
+    const timer = setTimeout(
+      () => reject(new Error('lock holder did not report readiness')),
+      5_000,
+    );
     child.once('error', reject);
     child.once('message', (message) => {
       clearTimeout(timer);
@@ -479,9 +526,12 @@ function waitForHolder(child: ChildProcess): Promise<'locked' | 'denied'> {
 }
 
 function isHolderMessage(value: unknown): value is { type: 'locked' | 'denied' } {
-  return !!value
-    && typeof value === 'object'
-    && ((value as { type?: unknown }).type === 'locked' || (value as { type?: unknown }).type === 'denied');
+  return (
+    !!value &&
+    typeof value === 'object' &&
+    ((value as { type?: unknown }).type === 'locked' ||
+      (value as { type?: unknown }).type === 'denied')
+  );
 }
 
 function waitForExit(child: ChildProcess): Promise<void> {
@@ -495,9 +545,7 @@ function spawnHolder(root: string, access: 'read' | 'write'): ChildProcess {
   });
 }
 
-type RootResolverMessage =
-  | { type: 'resolved' }
-  | { type: 'error'; code: string };
+type RootResolverMessage = { type: 'resolved' } | { type: 'error'; code: string };
 
 type InitializationRaceMessage = RootResolverMessage | { type: 'marker_open_pending' };
 
@@ -584,9 +632,11 @@ function waitForChildMessage<T extends InitializationRaceMessage>(
         resolve(value);
       } else {
         cleanup();
-        reject(new Error(
-          `initialization race fixture reported ${value.type} while waiting for ${expected}`,
-        ));
+        reject(
+          new Error(
+            `initialization race fixture reported ${value.type} while waiting for ${expected}`,
+          ),
+        );
       }
     };
     child.once('error', onError);
@@ -598,13 +648,18 @@ function waitForChildMessage<T extends InitializationRaceMessage>(
 function isRootResolverMessage(value: unknown): value is RootResolverMessage {
   if (!value || typeof value !== 'object') return false;
   const message = value as Record<string, unknown>;
-  return message.type === 'resolved'
-    || (message.type === 'error' && typeof message.code === 'string');
+  return (
+    message.type === 'resolved' || (message.type === 'error' && typeof message.code === 'string')
+  );
 }
 
 function isInitializationRaceMessage(value: unknown): value is InitializationRaceMessage {
-  return isRootResolverMessage(value)
-    || (!!value && typeof value === 'object' && (value as { type?: unknown }).type === 'marker_open_pending');
+  return (
+    isRootResolverMessage(value) ||
+    (!!value &&
+      typeof value === 'object' &&
+      (value as { type?: unknown }).type === 'marker_open_pending')
+  );
 }
 
 async function closeHolder(child: ChildProcess): Promise<void> {
@@ -616,9 +671,17 @@ async function closeHolder(child: ChildProcess): Promise<void> {
 
 function waitForDescendant(child: ChildProcess): Promise<number> {
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('lock holder did not report its descendant')), 5_000);
+    const timer = setTimeout(
+      () => reject(new Error('lock holder did not report its descendant')),
+      5_000,
+    );
     child.once('message', (message) => {
-      if (!message || typeof message !== 'object' || (message as { type?: unknown }).type !== 'descendant') return;
+      if (
+        !message ||
+        typeof message !== 'object' ||
+        (message as { type?: unknown }).type !== 'descendant'
+      )
+        return;
       clearTimeout(timer);
       resolve((message as { pid: number }).pid);
     });
@@ -635,7 +698,11 @@ function isProcessAlive(pid: number): boolean {
     process.kill(pid, 0);
     return true;
   } catch (error) {
-    if (error instanceof Error && 'code' in error && (error as NodeJS.ErrnoException).code === 'ESRCH') {
+    if (
+      error instanceof Error &&
+      'code' in error &&
+      (error as NodeJS.ErrnoException).code === 'ESRCH'
+    ) {
       return false;
     }
     throw error;
@@ -647,7 +714,13 @@ function terminateProcess(pid: number | undefined): void {
   try {
     process.kill(pid, 'SIGKILL');
   } catch (error) {
-    if (!(error instanceof Error && 'code' in error && (error as NodeJS.ErrnoException).code === 'ESRCH')) {
+    if (
+      !(
+        error instanceof Error &&
+        'code' in error &&
+        (error as NodeJS.ErrnoException).code === 'ESRCH'
+      )
+    ) {
       throw error;
     }
   }
@@ -668,9 +741,11 @@ async function retryAcquire(
 async function removeControlDirectoriesForRootsUnder(base: string): Promise<void> {
   const rootIds = new Set<string>();
   await collectRootIds(base, rootIds);
-  await Promise.all([...rootIds].map((rootId) => (
-    rm(join(resolveRootControlNamespace(), rootId), { recursive: true, force: true })
-  )));
+  await Promise.all(
+    [...rootIds].map((rootId) =>
+      rm(join(resolveRootControlNamespace(), rootId), { recursive: true, force: true }),
+    ),
+  );
 }
 
 async function collectRootIds(directory: string, rootIds: Set<string>): Promise<void> {

@@ -6,7 +6,12 @@ import { describe, test } from 'node:test';
 import type { ResultRecord } from '../contracts.js';
 import { readResults, summarizeMatrix, toComparisonTable, writeResults } from '../results.js';
 
-function record(taskId: string, configId: string, passed: boolean, extra: Partial<ResultRecord> = {}): ResultRecord {
+function record(
+  taskId: string,
+  configId: string,
+  passed: boolean,
+  extra: Partial<ResultRecord> = {},
+): ResultRecord {
   return {
     taskId,
     configId,
@@ -54,7 +59,9 @@ describe('toComparisonTable', () => {
   });
 
   test('marks errored cells distinctly from plain failures', () => {
-    const table = toComparisonTable([record('t1', 'a', false, { status: 'failed', error: 'boom' })]);
+    const table = toComparisonTable([
+      record('t1', 'a', false, { status: 'failed', error: 'boom' }),
+    ]);
     assert.match(table, /\| t1 \| ⚠️ \|/);
   });
 
@@ -79,7 +86,11 @@ describe('summarizeMatrix', () => {
   test('uses official denominator fields and excludes setup failures', () => {
     const summary = summarizeMatrix([
       record('pass', 'a', true, { scored: true, eligible: true }),
-      record('fail', 'a', false, { scored: true, eligible: true, errorClass: 'verification_failed' }),
+      record('fail', 'a', false, {
+        scored: true,
+        eligible: true,
+        errorClass: 'verification_failed',
+      }),
       record('runner-error', 'a', false, {
         status: 'failed',
         runnerCompleted: false,
@@ -112,7 +123,11 @@ describe('summarizeMatrix', () => {
 
   test('aggregates structured error classes and taxonomy counts', () => {
     const summary = summarizeMatrix([
-      record('a', 'cfg', false, { scored: true, eligible: true, errorClass: 'verification_failed' }),
+      record('a', 'cfg', false, {
+        scored: true,
+        eligible: true,
+        errorClass: 'verification_failed',
+      }),
       record('b', 'cfg', false, {
         status: 'failed',
         scored: false,

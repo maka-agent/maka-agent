@@ -71,7 +71,7 @@ describe('active session message lifecycle contract', () => {
     );
     assert.match(
       activeReadCatch,
-      /const message = messageReadErrorMessage\(error, options\.uiLocale\);[\s\S]*options\.setMessageLoadErrorBySession\(\(current\) => \(\{\s*\.\.\.current,\s*\[sessionId\]: message,?\s*\}\)\);[\s\S]*options\.setMessageLoadPending\(false\);[\s\S]*options\.toastApi\.error\('读取对话失败', message\)/,
+      /const message = messageReadErrorMessage\(error, options\.uiLocale\);[\s\S]*options\.setMessageLoadErrorBySession\(\(current\) => \(\{\s*\.\.\.current,\s*\[sessionId\]: message,?\s*\}\)\);[\s\S]*options\.setMessageLoadPending\(false\);[\s\S]*options\.toastApi\.error\(getDesktopConversationCopy\(options\.uiLocale\)\.actions\.messageReadFailedTitle, message\)/,
       'active-session read failures must clear pending and set a visible per-session load error after stale content was cleared',
     );
     assert.doesNotMatch(activeReadCatch, /const message = cleanErrorMessage\(error\)/);
@@ -153,7 +153,7 @@ describe('active session message lifecycle contract', () => {
     );
     assert.match(
       ui,
-      /props\.messageLoadError \? \([\s\S]*role="alert" aria-busy=\{props\.messageLoadRetryPending \? 'true' : undefined\}[\s\S]*title="对话载入失败"[\s\S]*body=\{props\.messageLoadError\}[\s\S]*label: props\.messageLoadRetryPending \? '载入中…' : '重试载入'[\s\S]*disabled: props\.messageLoadRetryPending/,
+      /props\.messageLoadError \? \([\s\S]*role="alert" aria-busy=\{props\.messageLoadRetryPending \? 'true' : undefined\}[\s\S]*title=\{copy\.loadFailed\}[\s\S]*body=\{props\.messageLoadError\}[\s\S]*label: props\.messageLoadRetryPending \? copy\.loading : copy\.retryLoad[\s\S]*disabled: props\.messageLoadRetryPending/,
       'ChatView must render an explicit load-error state instead of the normal empty chat hero',
     );
   });

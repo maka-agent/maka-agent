@@ -12,7 +12,9 @@ export function buildSpawnStdio(
   const stdio: Array<'ignore' | 'pipe'> = ['ignore', 'pipe', 'pipe'];
   for (const input of fdInputs ?? []) {
     if (!Number.isInteger(input.fd) || input.fd < 3 || input.fd > 16) {
-      throw new Error(`Child fd input must use an integer fd between 3 and 16; received ${input.fd}`);
+      throw new Error(
+        `Child fd input must use an integer fd between 3 and 16; received ${input.fd}`,
+      );
     }
     while (stdio.length <= input.fd) stdio.push('ignore');
     if (stdio[input.fd] === 'pipe') throw new Error(`Duplicate child fd input ${input.fd}`);

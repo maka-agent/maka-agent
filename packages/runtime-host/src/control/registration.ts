@@ -17,7 +17,9 @@ export class RuntimeHostRegistrationError extends Error {
   }
 }
 
-export async function readHostRegistration(controlDirectory: string): Promise<HostRegistration | undefined> {
+export async function readHostRegistration(
+  controlDirectory: string,
+): Promise<HostRegistration | undefined> {
   const path = join(controlDirectory, RUNTIME_HOST_REGISTRATION_FILE);
   let contents: string;
   try {
@@ -106,7 +108,7 @@ async function syncDirectory(path: string): Promise<void> {
 }
 
 function isNodeError(error: unknown, code: string): boolean {
-  return error instanceof Error
-    && 'code' in error
-    && (error as NodeJS.ErrnoException).code === code;
+  return (
+    error instanceof Error && 'code' in error && (error as NodeJS.ErrnoException).code === code
+  );
 }

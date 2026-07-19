@@ -13,7 +13,10 @@ import type {
 } from './task-contracts.js';
 import type { TaskRunStore } from './task-run-store.js';
 
-export const HEAVY_TASK_SELF_CHECK_TOOL_NAMES = ['self_check_plan_submit', 'self_check_submit'] as const;
+export const HEAVY_TASK_SELF_CHECK_TOOL_NAMES = [
+  'self_check_plan_submit',
+  'self_check_submit',
+] as const;
 
 const MAX_REASON_CHARS = 2_000;
 const MAX_COMMAND_CHARS = 1_000;
@@ -29,106 +32,165 @@ const MAX_GUARD_STRING_CHARS = 2_000;
 const MAX_PLAN_ITEMS = 20;
 const MAX_PLAN_PURPOSE_CHARS = 500;
 
-const metadataValueSchema: z.ZodType<unknown> = z.lazy(() => z.union([
-  z.string().max(MAX_METADATA_STRING_CHARS),
-  z.number().finite(),
-  z.boolean(),
-  z.null(),
-  z.array(metadataValueSchema).max(MAX_METADATA_KEYS),
-  z.record(z.string(), metadataValueSchema),
-]));
+const metadataValueSchema: z.ZodType<unknown> = z.lazy(() =>
+  z.union([
+    z.string().max(MAX_METADATA_STRING_CHARS),
+    z.number().finite(),
+    z.boolean(),
+    z.null(),
+    z.array(metadataValueSchema).max(MAX_METADATA_KEYS),
+    z.record(z.string(), metadataValueSchema),
+  ]),
+);
 
-export const heavyTaskCommandEvidenceSchema = z.object({
-  command: z.string().trim().min(1).max(MAX_COMMAND_CHARS),
-  exitCode: z.number().int().optional().nullable(),
-  timedOut: z.boolean().optional(),
-  outputExcerpt: z.string().trim().min(1).max(MAX_OUTPUT_CHARS).optional(),
-  artifactRefs: z.array(z.string().trim().min(1).max(MAX_PATH_CHARS)).max(MAX_ARTIFACT_REFS).optional(),
-}).strict();
+export const heavyTaskCommandEvidenceSchema = z
+  .object({
+    command: z.string().trim().min(1).max(MAX_COMMAND_CHARS),
+    exitCode: z.number().int().optional().nullable(),
+    timedOut: z.boolean().optional(),
+    outputExcerpt: z.string().trim().min(1).max(MAX_OUTPUT_CHARS).optional(),
+    artifactRefs: z
+      .array(z.string().trim().min(1).max(MAX_PATH_CHARS))
+      .max(MAX_ARTIFACT_REFS)
+      .optional(),
+  })
+  .strict();
 
-export const heavyTaskArtifactEvidenceSchema = z.object({
-  path: z.string().trim().min(1).max(MAX_PATH_CHARS),
-  kind: z.enum(['file', 'directory', 'log', 'build_output', 'generated_output', 'other']),
-  exists: z.boolean().optional(),
-  sizeBytes: z.number().int().nonnegative().optional(),
-  hash: z.string().trim().min(1).max(MAX_HASH_CHARS).optional(),
-  metadata: z.record(z.string(), metadataValueSchema).optional(),
-}).strict().superRefine((value, ctx) => {
-  if (value.metadata && !metadataWithinBounds(value.metadata)) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['metadata'],
-      message: `artifact metadata must be bounded to depth ${MAX_METADATA_DEPTH}`,
-    });
-  }
-});
+export const heavyTaskArtifactEvidenceSchema = z
+  .object({
+    path: z.string().trim().min(1).max(MAX_PATH_CHARS),
+    kind: z.enum(['file', 'directory', 'log', 'build_output', 'generated_output', 'other']),
+    exists: z.boolean().optional(),
+    sizeBytes: z.number().int().nonnegative().optional(),
+    hash: z.string().trim().min(1).max(MAX_HASH_CHARS).optional(),
+    metadata: z.record(z.string(), metadataValueSchema).optional(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.metadata && !metadataWithinBounds(value.metadata)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['metadata'],
+        message: `artifact metadata must be bounded to depth ${MAX_METADATA_DEPTH}`,
+      });
+    }
+  });
 
-export const heavyTaskSelfCheckExecutionHygieneSchema = z.object({
-  sandbox: z.object({
-    root: z.string().trim().min(1).max(MAX_PATH_CHARS),
-    strategy: z.enum(['scratch_dir', 'copied_inputs', 'read_only_deliverable_refs']).optional(),
-    inputPaths: z.array(z.string().trim().min(1).max(MAX_PATH_CHARS)).max(MAX_ARTIFACT_REFS).optional(),
-    commandCwd: z.string().trim().min(1).max(MAX_PATH_CHARS).optional(),
-    outputPolicy: z.enum(['scratch_only', 'read_only_deliverable_refs']).optional(),
+export const heavyTaskSelfCheckExecutionHygieneSchema = z
+  .object({
+    sandbox: z
+      .object({
+        root: z.string().trim().min(1).max(MAX_PATH_CHARS),
+        strategy: z.enum(['scratch_dir', 'copied_inputs', 'read_only_deliverable_refs']).optional(),
+        inputPaths: z
+          .array(z.string().trim().min(1).max(MAX_PATH_CHARS))
+          .max(MAX_ARTIFACT_REFS)
+          .optional(),
+        commandCwd: z.string().trim().min(1).max(MAX_PATH_CHARS).optional(),
+        outputPolicy: z.enum(['scratch_only', 'read_only_deliverable_refs']).optional(),
+        publicReason: z.string().trim().min(1).max(MAX_REASON_CHARS).optional(),
+      })
+      .strict()
+      .optional(),
+    scratchUsed: z.boolean().optional(),
+    scratchPath: z.string().trim().min(1).max(MAX_PATH_CHARS).optional(),
+    cleanupPerformed: z.boolean().optional(),
+    workspaceSideEffects: z.enum(['none', 'cleaned', 'present', 'unknown']).optional(),
+    remainingSideEffectPaths: z
+      .array(z.string().trim().min(1).max(MAX_PATH_CHARS))
+      .max(MAX_ARTIFACT_REFS)
+      .optional(),
+    workspaceGuard: z
+      .object({
+        checked: z.boolean().optional(),
+        checkedPaths: z
+          .array(z.string().trim().min(1).max(MAX_PATH_CHARS))
+          .max(MAX_ARTIFACT_REFS)
+          .optional(),
+        beforeListingCommand: z.string().trim().min(1).max(MAX_COMMAND_CHARS).optional(),
+        afterListingCommand: z.string().trim().min(1).max(MAX_COMMAND_CHARS).optional(),
+        addedPaths: z
+          .array(z.string().trim().min(1).max(MAX_PATH_CHARS))
+          .max(MAX_ARTIFACT_REFS)
+          .optional(),
+        modifiedPaths: z
+          .array(z.string().trim().min(1).max(MAX_PATH_CHARS))
+          .max(MAX_ARTIFACT_REFS)
+          .optional(),
+        removedPaths: z
+          .array(z.string().trim().min(1).max(MAX_PATH_CHARS))
+          .max(MAX_ARTIFACT_REFS)
+          .optional(),
+        publicReason: z.string().trim().min(1).max(MAX_REASON_CHARS).optional(),
+      })
+      .strict()
+      .optional(),
     publicReason: z.string().trim().min(1).max(MAX_REASON_CHARS).optional(),
-  }).strict().optional(),
-  scratchUsed: z.boolean().optional(),
-  scratchPath: z.string().trim().min(1).max(MAX_PATH_CHARS).optional(),
-  cleanupPerformed: z.boolean().optional(),
-  workspaceSideEffects: z.enum(['none', 'cleaned', 'present', 'unknown']).optional(),
-  remainingSideEffectPaths: z.array(z.string().trim().min(1).max(MAX_PATH_CHARS)).max(MAX_ARTIFACT_REFS).optional(),
-  workspaceGuard: z.object({
-    checked: z.boolean().optional(),
-    checkedPaths: z.array(z.string().trim().min(1).max(MAX_PATH_CHARS)).max(MAX_ARTIFACT_REFS).optional(),
-    beforeListingCommand: z.string().trim().min(1).max(MAX_COMMAND_CHARS).optional(),
-    afterListingCommand: z.string().trim().min(1).max(MAX_COMMAND_CHARS).optional(),
-    addedPaths: z.array(z.string().trim().min(1).max(MAX_PATH_CHARS)).max(MAX_ARTIFACT_REFS).optional(),
-    modifiedPaths: z.array(z.string().trim().min(1).max(MAX_PATH_CHARS)).max(MAX_ARTIFACT_REFS).optional(),
-    removedPaths: z.array(z.string().trim().min(1).max(MAX_PATH_CHARS)).max(MAX_ARTIFACT_REFS).optional(),
-    publicReason: z.string().trim().min(1).max(MAX_REASON_CHARS).optional(),
-  }).strict().optional(),
-  publicReason: z.string().trim().min(1).max(MAX_REASON_CHARS).optional(),
-}).strict();
+  })
+  .strict();
 
-export const heavyTaskSelfCheckSubmitSchema = z.object({
-  status: z.enum(['pass', 'fail', 'inconclusive']),
-  publicReason: z.string().trim().min(1).max(MAX_REASON_CHARS),
-  commandEvidence: z.array(heavyTaskCommandEvidenceSchema).max(MAX_EVIDENCE_ITEMS).optional(),
-  artifactEvidence: z.array(heavyTaskArtifactEvidenceSchema).max(MAX_EVIDENCE_ITEMS).optional(),
-  executionHygiene: heavyTaskSelfCheckExecutionHygieneSchema.optional(),
-}).strict().superRefine((value, ctx) => {
-  if ((value.commandEvidence?.length ?? 0) + (value.artifactEvidence?.length ?? 0) === 0) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['commandEvidence'],
-      message: 'at least one commandEvidence or artifactEvidence item is required',
-    });
-  }
-});
+export const heavyTaskSelfCheckSubmitSchema = z
+  .object({
+    status: z.enum(['pass', 'fail', 'inconclusive']),
+    publicReason: z.string().trim().min(1).max(MAX_REASON_CHARS),
+    commandEvidence: z.array(heavyTaskCommandEvidenceSchema).max(MAX_EVIDENCE_ITEMS).optional(),
+    artifactEvidence: z.array(heavyTaskArtifactEvidenceSchema).max(MAX_EVIDENCE_ITEMS).optional(),
+    executionHygiene: heavyTaskSelfCheckExecutionHygieneSchema.optional(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if ((value.commandEvidence?.length ?? 0) + (value.artifactEvidence?.length ?? 0) === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['commandEvidence'],
+        message: 'at least one commandEvidence or artifactEvidence item is required',
+      });
+    }
+  });
 
 export type HeavyTaskSelfCheckSubmitInput = z.infer<typeof heavyTaskSelfCheckSubmitSchema>;
 
-export const heavyTaskSelfCheckPlanArtifactSchema = z.object({
-  path: z.string().trim().min(1).max(MAX_PATH_CHARS),
-  purpose: z.string().trim().min(1).max(MAX_PLAN_PURPOSE_CHARS),
-  publicReason: z.string().trim().min(1).max(MAX_REASON_CHARS),
-}).strict();
+export const heavyTaskSelfCheckPlanArtifactSchema = z
+  .object({
+    path: z.string().trim().min(1).max(MAX_PATH_CHARS),
+    purpose: z.string().trim().min(1).max(MAX_PLAN_PURPOSE_CHARS),
+    publicReason: z.string().trim().min(1).max(MAX_REASON_CHARS),
+  })
+  .strict();
 
-export const heavyTaskSelfCheckPlanSubmitSchema = z.object({
-  finalArtifacts: z.array(heavyTaskSelfCheckPlanArtifactSchema).min(1).max(MAX_PLAN_ITEMS),
-  selfCheckScratch: z.object({
-    root: z.string().trim().min(1).max(MAX_PATH_CHARS),
-    expectedGeneratedPaths: z.array(z.string().trim().min(1).max(MAX_PATH_CHARS)).max(MAX_PLAN_ITEMS).optional(),
+export const heavyTaskSelfCheckPlanSubmitSchema = z
+  .object({
+    finalArtifacts: z.array(heavyTaskSelfCheckPlanArtifactSchema).min(1).max(MAX_PLAN_ITEMS),
+    selfCheckScratch: z
+      .object({
+        root: z.string().trim().min(1).max(MAX_PATH_CHARS),
+        expectedGeneratedPaths: z
+          .array(z.string().trim().min(1).max(MAX_PATH_CHARS))
+          .max(MAX_PLAN_ITEMS)
+          .optional(),
+        publicReason: z.string().trim().min(1).max(MAX_REASON_CHARS),
+      })
+      .strict(),
+    workspaceGuardPlan: z
+      .object({
+        checkedPaths: z
+          .array(z.string().trim().min(1).max(MAX_PATH_CHARS))
+          .min(1)
+          .max(MAX_PLAN_ITEMS),
+        expectedAddedPaths: z
+          .array(z.string().trim().min(1).max(MAX_PATH_CHARS))
+          .max(MAX_PLAN_ITEMS)
+          .optional(),
+        expectedGeneratedPathsOutsideScratch: z
+          .array(z.string().trim().min(1).max(MAX_PATH_CHARS))
+          .max(MAX_PLAN_ITEMS)
+          .optional(),
+        publicReason: z.string().trim().min(1).max(MAX_REASON_CHARS),
+      })
+      .strict(),
     publicReason: z.string().trim().min(1).max(MAX_REASON_CHARS),
-  }).strict(),
-  workspaceGuardPlan: z.object({
-    checkedPaths: z.array(z.string().trim().min(1).max(MAX_PATH_CHARS)).min(1).max(MAX_PLAN_ITEMS),
-    expectedAddedPaths: z.array(z.string().trim().min(1).max(MAX_PATH_CHARS)).max(MAX_PLAN_ITEMS).optional(),
-    expectedGeneratedPathsOutsideScratch: z.array(z.string().trim().min(1).max(MAX_PATH_CHARS)).max(MAX_PLAN_ITEMS).optional(),
-    publicReason: z.string().trim().min(1).max(MAX_REASON_CHARS),
-  }).strict(),
-  publicReason: z.string().trim().min(1).max(MAX_REASON_CHARS),
-}).strict();
+  })
+  .strict();
 
 export type HeavyTaskSelfCheckPlanSubmitInput = z.infer<typeof heavyTaskSelfCheckPlanSubmitSchema>;
 
@@ -227,17 +289,21 @@ export function buildHeavyTaskSelfCheckTools(recorder: HeavyTaskSelfCheckRecorde
   return [
     {
       name: 'self_check_plan_submit',
-      description: 'Submit the public final-artifact, scratch, and workspace-guard plan required before final heavy-task self_check_submit.',
+      description:
+        'Submit the public final-artifact, scratch, and workspace-guard plan required before final heavy-task self_check_submit.',
       parameters: heavyTaskSelfCheckPlanSubmitSchema,
       permissionRequired: false,
-      impl: async (args, ctx) => recorder.recordSelfCheckPlan(heavyTaskSelfCheckPlanSubmitSchema.parse(args), ctx),
+      impl: async (args, ctx) =>
+        recorder.recordSelfCheckPlan(heavyTaskSelfCheckPlanSubmitSchema.parse(args), ctx),
     },
     {
       name: 'self_check_submit',
-      description: 'Submit public, task-derived advisory semantic self-check evidence for this heavy-task run, including scratch/cleanup hygiene for any local check side effects.',
+      description:
+        'Submit public, task-derived advisory semantic self-check evidence for this heavy-task run, including scratch/cleanup hygiene for any local check side effects.',
       parameters: heavyTaskSelfCheckSubmitSchema,
       permissionRequired: false,
-      impl: async (args, ctx) => recorder.recordSelfCheck(heavyTaskSelfCheckSubmitSchema.parse(args), ctx),
+      impl: async (args, ctx) =>
+        recorder.recordSelfCheck(heavyTaskSelfCheckSubmitSchema.parse(args), ctx),
     },
   ];
 }
@@ -254,7 +320,10 @@ export function validateHeavyTaskPublicSelfCheckPlan(
 }
 
 export function validateHeavyTaskPublicSelfCheck(
-  input: Pick<HeavyTaskSelfCheckSubmitInput, 'publicReason' | 'commandEvidence' | 'artifactEvidence' | 'executionHygiene'>,
+  input: Pick<
+    HeavyTaskSelfCheckSubmitInput,
+    'publicReason' | 'commandEvidence' | 'artifactEvidence' | 'executionHygiene'
+  >,
   now: number,
 ): HeavyTaskPublicSelfCheckValidation {
   return validateHeavyTaskPublicStrings(
@@ -282,7 +351,8 @@ export function validateHeavyTaskPublicStrings(
         status: 'rejected',
         checkedAt: now,
         categories: [...categories].sort(),
-        publicReason: 'Rejected because submitted evidence referenced private, hidden, or evaluator-only material.',
+        publicReason:
+          'Rejected because submitted evidence referenced private, hidden, or evaluator-only material.',
       },
     };
   }
@@ -313,7 +383,11 @@ export function auditSelfCheckPlanConsistency(
     return {
       status: 'fail',
       riskFlags: ['missing_self_check_plan'],
-      diagnostics: ['Self-check plan consistency error:', '- no accepted self_check_plan_submit state is available', '- risks: missing_self_check_plan'],
+      diagnostics: [
+        'Self-check plan consistency error:',
+        '- no accepted self_check_plan_submit state is available',
+        '- risks: missing_self_check_plan',
+      ],
     };
   }
   if (!selfCheck) {
@@ -335,11 +409,19 @@ export function auditSelfCheckPlanConsistency(
     `- accepted plan finalArtifacts: ${listForDiagnostic(plan.finalArtifacts.map((artifact) => artifact.path))}`,
     `- accepted plan scratch root: ${plan.selfCheckScratch.root}`,
   ];
-  const finalArtifactPaths = new Set(plan.finalArtifacts.map((artifact) => normalizePlanPath(artifact.path)));
-  const expectedAddedPaths = new Set((plan.workspaceGuardPlan.expectedAddedPaths ?? []).map(normalizePlanPath));
-  const expectedOutsideScratchPaths = new Set((plan.workspaceGuardPlan.expectedGeneratedPathsOutsideScratch ?? []).map(normalizePlanPath));
+  const finalArtifactPaths = new Set(
+    plan.finalArtifacts.map((artifact) => normalizePlanPath(artifact.path)),
+  );
+  const expectedAddedPaths = new Set(
+    (plan.workspaceGuardPlan.expectedAddedPaths ?? []).map(normalizePlanPath),
+  );
+  const expectedOutsideScratchPaths = new Set(
+    (plan.workspaceGuardPlan.expectedGeneratedPathsOutsideScratch ?? []).map(normalizePlanPath),
+  );
   const allowedAddedPaths = new Set([...finalArtifactPaths, ...expectedAddedPaths]);
-  const addedPaths = uniqueStrings((selfCheck.executionHygiene?.workspaceGuard?.addedPaths ?? []).map(normalizePlanPath));
+  const addedPaths = uniqueStrings(
+    (selfCheck.executionHygiene?.workspaceGuard?.addedPaths ?? []).map(normalizePlanPath),
+  );
   const unplannedAddedPaths = addedPaths.filter((path) => !allowedAddedPaths.has(path));
   const plannedAddedPaths = addedPaths.filter((path) => allowedAddedPaths.has(path));
   if (plannedAddedPaths.length > 0) {
@@ -348,20 +430,27 @@ export function auditSelfCheckPlanConsistency(
   }
   if (unplannedAddedPaths.length > 0) {
     riskFlags.push('unplanned_added_path');
-    diagnostics.push(`- unplanned workspace added paths: ${listForDiagnostic(unplannedAddedPaths)}`);
+    diagnostics.push(
+      `- unplanned workspace added paths: ${listForDiagnostic(unplannedAddedPaths)}`,
+    );
   }
 
   const mentionedPaths = evidenceGeneratedOutputPaths(selfCheck);
   const scratchRoot = normalizePlanPath(plan.selfCheckScratch.root);
-  const scratchEscapes = mentionedPaths.filter((path) =>
-    !isPathWithin(path, scratchRoot)
-    && !finalArtifactPaths.has(path)
-    && !expectedOutsideScratchPaths.has(path)
+  const scratchEscapes = mentionedPaths.filter(
+    (path) =>
+      !isPathWithin(path, scratchRoot) &&
+      !finalArtifactPaths.has(path) &&
+      !expectedOutsideScratchPaths.has(path),
   );
   if (scratchEscapes.length > 0) {
     riskFlags.push('scratch_escape');
-    diagnostics.push(`- observed command/artifact evidence mentions: ${listForDiagnostic(scratchEscapes)}`);
-    diagnostics.push(`- mentioned paths are not declared as final artifacts or expected outside-scratch generated paths`);
+    diagnostics.push(
+      `- observed command/artifact evidence mentions: ${listForDiagnostic(scratchEscapes)}`,
+    );
+    diagnostics.push(
+      `- mentioned paths are not declared as final artifacts or expected outside-scratch generated paths`,
+    );
   }
 
   const uniqueRiskFlags = uniqueStrings(riskFlags) as HeavyTaskSelfCheckPlanRiskFlag[];
@@ -370,14 +459,15 @@ export function auditSelfCheckPlanConsistency(
     return {
       status: 'pass',
       riskFlags: uniqueRiskFlags,
-      diagnostics: uniqueRiskFlags.length > 0
-        ? [
-            'Self-check plan consistency passed:',
-            `- accepted plan finalArtifacts: ${listForDiagnostic(plan.finalArtifacts.map((artifact) => artifact.path))}`,
-            `- accepted plan scratch root: ${plan.selfCheckScratch.root}`,
-            `- risks: ${uniqueRiskFlags.join(', ')}`,
-          ]
-        : [],
+      diagnostics:
+        uniqueRiskFlags.length > 0
+          ? [
+              'Self-check plan consistency passed:',
+              `- accepted plan finalArtifacts: ${listForDiagnostic(plan.finalArtifacts.map((artifact) => artifact.path))}`,
+              `- accepted plan scratch root: ${plan.selfCheckScratch.root}`,
+              `- risks: ${uniqueRiskFlags.join(', ')}`,
+            ]
+          : [],
     };
   }
 
@@ -389,7 +479,9 @@ export function auditSelfCheckPlanConsistency(
   };
 }
 
-export function renderSelfCheckPlanAuditDiagnostic(audit: HeavyTaskSelfCheckPlanAuditSummary): string {
+export function renderSelfCheckPlanAuditDiagnostic(
+  audit: HeavyTaskSelfCheckPlanAuditSummary,
+): string {
   return audit.diagnostics.join('\n');
 }
 
@@ -403,10 +495,11 @@ export function hasBlockingHeavyTaskSelfCheckWorkspaceDelta(
   const audit = plan ? auditSelfCheckPlanConsistency(plan, selfCheck) : undefined;
   if (hygiene.workspaceSideEffects === 'present') {
     const addedPaths = hygiene.workspaceGuard?.addedPaths ?? [];
-    const onlyPlannedAddedPaths = addedPaths.length > 0
-      && audit?.status === 'pass'
-      && audit.riskFlags.length > 0
-      && audit.riskFlags.every((flag) => flag === 'planned_final_artifact_added');
+    const onlyPlannedAddedPaths =
+      addedPaths.length > 0 &&
+      audit?.status === 'pass' &&
+      audit.riskFlags.length > 0 &&
+      audit.riskFlags.every((flag) => flag === 'planned_final_artifact_added');
     return !onlyPlannedAddedPaths;
   }
   if ((hygiene.workspaceGuard?.addedPaths?.length ?? 0) > 0) {
@@ -453,7 +546,11 @@ export function heavyTaskSelfCheckWorkspaceGuardStatus(
   const hygiene = selfCheck.executionHygiene;
   if (!hygiene) return 'unchecked';
   if (hasBlockingHeavyTaskSelfCheckWorkspaceDelta(selfCheck, plan)) return 'dirty';
-  if (hygiene.workspaceGuard?.checked === true || hygiene.workspaceSideEffects === 'none' || hygiene.workspaceSideEffects === 'cleaned') {
+  if (
+    hygiene.workspaceGuard?.checked === true ||
+    hygiene.workspaceSideEffects === 'none' ||
+    hygiene.workspaceSideEffects === 'cleaned'
+  ) {
     return 'clean';
   }
   return 'unknown';
@@ -479,7 +576,9 @@ export function renderHeavyTaskSelfCheckForPrompt(projection: {
     }
   }
   for (const command of selfCheck.commandEvidence.slice(0, 5)) {
-    lines.push(`  - command: ${oneLine(command.command, 160)} exit=${command.exitCode ?? 'unknown'}`);
+    lines.push(
+      `  - command: ${oneLine(command.command, 160)} exit=${command.exitCode ?? 'unknown'}`,
+    );
   }
   for (const artifact of selfCheck.artifactEvidence.slice(0, 5)) {
     lines.push(`  - artifact: ${artifact.kind} ${oneLine(artifact.path, 160)}`);
@@ -487,24 +586,48 @@ export function renderHeavyTaskSelfCheckForPrompt(projection: {
   if (selfCheck.executionHygiene) {
     const hygiene = selfCheck.executionHygiene;
     if (hygiene.sandbox) {
-      lines.push(`- Self-check sandbox: root=${oneLine(hygiene.sandbox.root, 160)} strategy=${hygiene.sandbox.strategy ?? 'unknown'} outputPolicy=${hygiene.sandbox.outputPolicy ?? 'unknown'}`);
+      lines.push(
+        `- Self-check sandbox: root=${oneLine(hygiene.sandbox.root, 160)} strategy=${hygiene.sandbox.strategy ?? 'unknown'} outputPolicy=${hygiene.sandbox.outputPolicy ?? 'unknown'}`,
+      );
     }
-    lines.push(`- Self-check execution hygiene: scratchUsed=${hygiene.scratchUsed ?? 'unknown'} cleanupPerformed=${hygiene.cleanupPerformed ?? 'unknown'} workspaceSideEffects=${hygiene.workspaceSideEffects ?? 'unknown'}`);
+    lines.push(
+      `- Self-check execution hygiene: scratchUsed=${hygiene.scratchUsed ?? 'unknown'} cleanupPerformed=${hygiene.cleanupPerformed ?? 'unknown'} workspaceSideEffects=${hygiene.workspaceSideEffects ?? 'unknown'}`,
+    );
     if (hygiene.scratchPath) lines.push(`  - scratch: ${oneLine(hygiene.scratchPath, 160)}`);
     if (hygiene.remainingSideEffectPaths?.length) {
-      lines.push(`  - remaining side-effect paths: ${hygiene.remainingSideEffectPaths.slice(0, 5).map((path) => oneLine(path, 120)).join(', ')}`);
+      lines.push(
+        `  - remaining side-effect paths: ${hygiene.remainingSideEffectPaths
+          .slice(0, 5)
+          .map((path) => oneLine(path, 120))
+          .join(', ')}`,
+      );
     }
     if (hygiene.workspaceGuard) {
       const guard = hygiene.workspaceGuard;
-      lines.push(`  - workspace guard: checked=${guard.checked ?? 'unknown'} added=${guard.addedPaths?.length ?? 0} modified=${guard.modifiedPaths?.length ?? 0} removed=${guard.removedPaths?.length ?? 0}`);
-      if (guard.checkedPaths?.length) lines.push(`  - checked paths: ${guard.checkedPaths.slice(0, 5).map((path) => oneLine(path, 120)).join(', ')}`);
+      lines.push(
+        `  - workspace guard: checked=${guard.checked ?? 'unknown'} added=${guard.addedPaths?.length ?? 0} modified=${guard.modifiedPaths?.length ?? 0} removed=${guard.removedPaths?.length ?? 0}`,
+      );
+      if (guard.checkedPaths?.length)
+        lines.push(
+          `  - checked paths: ${guard.checkedPaths
+            .slice(0, 5)
+            .map((path) => oneLine(path, 120))
+            .join(', ')}`,
+        );
     }
   }
-  lines.push('Use self_check_submit to refresh advisory public semantic evidence after running public checks.');
+  lines.push(
+    'Use self_check_submit to refresh advisory public semantic evidence after running public checks.',
+  );
   return lines.join('\n');
 }
 
-function stringsFromSelfCheck(input: Pick<HeavyTaskSelfCheckSubmitInput, 'publicReason' | 'commandEvidence' | 'artifactEvidence' | 'executionHygiene'>): string[] {
+function stringsFromSelfCheck(
+  input: Pick<
+    HeavyTaskSelfCheckSubmitInput,
+    'publicReason' | 'commandEvidence' | 'artifactEvidence' | 'executionHygiene'
+  >,
+): string[] {
   const strings = [input.publicReason];
   for (const command of input.commandEvidence ?? []) {
     strings.push(command.command);
@@ -516,11 +639,18 @@ function stringsFromSelfCheck(input: Pick<HeavyTaskSelfCheckSubmitInput, 'public
     collectMetadataStrings(artifact.metadata, strings);
   }
   collectExecutionHygieneStrings(input.executionHygiene, strings);
-  return strings.filter((value) => value.length > 0).map((value) => value.slice(0, MAX_GUARD_STRING_CHARS));
+  return strings
+    .filter((value) => value.length > 0)
+    .map((value) => value.slice(0, MAX_GUARD_STRING_CHARS));
 }
 
 function stringsFromSelfCheckPlan(input: HeavyTaskSelfCheckPlanSubmitInput): string[] {
-  const strings = [input.publicReason, input.selfCheckScratch.root, input.selfCheckScratch.publicReason, input.workspaceGuardPlan.publicReason];
+  const strings = [
+    input.publicReason,
+    input.selfCheckScratch.root,
+    input.selfCheckScratch.publicReason,
+    input.workspaceGuardPlan.publicReason,
+  ];
   strings.push(...(input.selfCheckScratch.expectedGeneratedPaths ?? []));
   strings.push(...input.workspaceGuardPlan.checkedPaths);
   strings.push(...(input.workspaceGuardPlan.expectedAddedPaths ?? []));
@@ -528,10 +658,15 @@ function stringsFromSelfCheckPlan(input: HeavyTaskSelfCheckPlanSubmitInput): str
   for (const artifact of input.finalArtifacts) {
     strings.push(artifact.path, artifact.purpose, artifact.publicReason);
   }
-  return strings.filter((value) => value.length > 0).map((value) => value.slice(0, MAX_GUARD_STRING_CHARS));
+  return strings
+    .filter((value) => value.length > 0)
+    .map((value) => value.slice(0, MAX_GUARD_STRING_CHARS));
 }
 
-function collectExecutionHygieneStrings(value: HeavyTaskSelfCheckExecutionHygiene | undefined, output: string[]): void {
+function collectExecutionHygieneStrings(
+  value: HeavyTaskSelfCheckExecutionHygiene | undefined,
+  output: string[],
+): void {
   if (!value) return;
   if (value.sandbox?.root) output.push(value.sandbox.root);
   if (value.sandbox?.commandCwd) output.push(value.sandbox.commandCwd);
@@ -589,7 +724,10 @@ function categoriesForString(value: string): string[] {
     ['official_verifier_artifacts', /\bofficial[ _-]?verifier\b|\bverifier[ _-]?output\.json\b/],
     ['hidden_assertion_text', /\bhidden[ _-]?assertion[ _-]?text\b|\bprivate[ _-]?assertion\b/],
     ['non_public_evaluator_files', EVALUATOR_FILE_PATTERN],
-    ['private_verifier_details', /\bprivate[ _-]?verifier\b|\bverifier[ _-]?(?:timing|order|execution[ _-]?order)\b/],
+    [
+      'private_verifier_details',
+      /\bprivate[ _-]?verifier\b|\bverifier[ _-]?(?:timing|order|execution[ _-]?order)\b/,
+    ],
     ['private_benchmark_identifiers', /\bprivate[ _-]?benchmark\b|\bbenchmark[ _-]?private\b/],
   ];
   for (const [category, pattern] of checks) {
@@ -604,7 +742,9 @@ function evidenceGeneratedOutputPaths(selfCheck: HeavyTaskSemanticSelfCheckState
   const paths = [
     ...selfCheck.commandEvidence.flatMap((evidence) => commandOutputPaths(evidence.command)),
     ...selfCheck.artifactEvidence
-      .filter((artifact) => artifact.kind === 'build_output' || artifact.kind === 'generated_output')
+      .filter(
+        (artifact) => artifact.kind === 'build_output' || artifact.kind === 'generated_output',
+      )
       .map((artifact) => artifact.path),
     ...(selfCheck.executionHygiene?.remainingSideEffectPaths ?? []),
     ...(selfCheck.executionHygiene?.workspaceGuard?.addedPaths ?? []),
@@ -644,11 +784,20 @@ function metadataWithinBounds(value: unknown, depth = 0): boolean {
   if (depth > MAX_METADATA_DEPTH) return false;
   if (typeof value === 'string') return value.length <= MAX_METADATA_STRING_CHARS;
   if (value === null || typeof value === 'number' || typeof value === 'boolean') return true;
-  if (Array.isArray(value)) return value.length <= MAX_METADATA_KEYS && value.every((item) => metadataWithinBounds(item, depth + 1));
+  if (Array.isArray(value))
+    return (
+      value.length <= MAX_METADATA_KEYS &&
+      value.every((item) => metadataWithinBounds(item, depth + 1))
+    );
   if (!recordValue(value)) return false;
   const entries = Object.entries(value);
-  return entries.length <= MAX_METADATA_KEYS
-    && entries.every(([key, item]) => key.length <= MAX_METADATA_STRING_CHARS && metadataWithinBounds(item, depth + 1));
+  return (
+    entries.length <= MAX_METADATA_KEYS &&
+    entries.every(
+      ([key, item]) =>
+        key.length <= MAX_METADATA_STRING_CHARS && metadataWithinBounds(item, depth + 1),
+    )
+  );
 }
 
 function sourceFromContext(ctx: MakaToolContext): HeavyTaskSemanticSelfCheckState['source'] {
@@ -670,5 +819,12 @@ function recordValue(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-export type HeavyTaskSelfCheckEvent = Extract<TaskEvent, { type: 'heavy_task_self_check_recorded' }>;
-export type { HeavyTaskArtifactEvidence, HeavyTaskCommandEvidence, HeavyTaskSemanticSelfCheckState };
+export type HeavyTaskSelfCheckEvent = Extract<
+  TaskEvent,
+  { type: 'heavy_task_self_check_recorded' }
+>;
+export type {
+  HeavyTaskArtifactEvidence,
+  HeavyTaskCommandEvidence,
+  HeavyTaskSemanticSelfCheckState,
+};

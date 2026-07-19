@@ -25,8 +25,12 @@ describe('LocalWorkspaceExecutor exec', () => {
       stdout: 'from-cwd',
       stderr: 'err-data',
     });
-    expect(events.some((event) => event.stream === 'stdout' && event.chunk.includes('from-cwd'))).toBe(true);
-    expect(events.some((event) => event.stream === 'stderr' && event.chunk.includes('err-data'))).toBe(true);
+    expect(
+      events.some((event) => event.stream === 'stdout' && event.chunk.includes('from-cwd')),
+    ).toBe(true);
+    expect(
+      events.some((event) => event.stream === 'stderr' && event.chunk.includes('err-data')),
+    ).toBe(true);
   });
 
   test('reports non-zero exit without throwing so tools can preserve their own error contract', async () => {
@@ -54,7 +58,12 @@ describe('LocalWorkspaceExecutor exec', () => {
 
     const result = await executor.exec({
       command: 'ignored display command',
-      argv: [process.execPath, '-e', 'process.stdout.write(process.argv[1])', 'literal $HOME && ok'],
+      argv: [
+        process.execPath,
+        '-e',
+        'process.stdout.write(process.argv[1])',
+        'literal $HOME && ok',
+      ],
       cwd,
       timeoutMs: 5_000,
     });
@@ -149,7 +158,10 @@ describe('LocalWorkspaceExecutor file operations', () => {
       executor.readFile({ cwd, path: fake }),
       /^Error: Image content is not a supported PNG, JPEG, GIF, or WebP file\.$/,
     );
-    await assert.rejects(executor.readFile({ cwd, path: huge }), /exceeds the 5MB model input limit/);
+    await assert.rejects(
+      executor.readFile({ cwd, path: huge }),
+      /exceeds the 5MB model input limit/,
+    );
   });
 
   test('reads and writes text files by absolute path', async () => {

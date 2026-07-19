@@ -11,7 +11,9 @@ const outputIndex = args.indexOf('--output');
 const graceIndex = args.indexOf('--grace-ms');
 
 if (commandIndex < 0 || outputIndex < 0 || outputIndex + 1 >= args.length) {
-  console.error('usage: opencode-stop-runner.mjs --output PATH [--grace-ms MS] -- COMMAND [ARGS...]');
+  console.error(
+    'usage: opencode-stop-runner.mjs --output PATH [--grace-ms MS] -- COMMAND [ARGS...]',
+  );
   process.exit(2);
 }
 

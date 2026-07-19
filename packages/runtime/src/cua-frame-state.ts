@@ -30,9 +30,7 @@ export type CuaActionRejectionReason =
   | 'duplicate_action'
   | 'action_not_claimed';
 
-export type CuaActionClaimResult =
-  | { ok: true }
-  | { ok: false; reason: CuaActionRejectionReason };
+export type CuaActionClaimResult = { ok: true } | { ok: false; reason: CuaActionRejectionReason };
 
 export type CuaActionConfirmationResult =
   | { ok: true; epoch: number }
@@ -44,9 +42,7 @@ export class CuaFrameState {
   private readonly claimedActions = new Set<string>();
   private readonly consumedActions = new Set<string>();
 
-  constructor(
-    private readonly createFrameId: (epoch: number) => string = () => randomUUID(),
-  ) {}
+  constructor(private readonly createFrameId: (epoch: number) => string = () => randomUUID()) {}
 
   observe(snapshot: CuaObservationSnapshot): CuaObservation {
     const frame = {
@@ -101,9 +97,9 @@ export class CuaFrameState {
 
   private requireTarget(frame: CuaFrameIdentity): ComputerUseWindowIdentity {
     if (
-      this.currentFrame
-      && this.currentFrame.frameId === frame.frameId
-      && this.currentFrame.epoch === frame.epoch
+      this.currentFrame &&
+      this.currentFrame.frameId === frame.frameId &&
+      this.currentFrame.epoch === frame.epoch
     ) {
       return this.currentFrame.target;
     }
@@ -168,11 +164,7 @@ export function bindCuaActionToObservation(
   observation: CuaObservation,
   action: CuAction,
 ): CuaBoundAction | undefined {
-  const base = bindCuaAction(
-    observation,
-    fingerprintCuaAction(action),
-    observation.target,
-  );
+  const base = bindCuaAction(observation, fingerprintCuaAction(action), observation.target);
   if (action.type === 'zoom') {
     const start = bindWindowPoint(observation, {
       x: Math.min(action.region.x1, action.region.x2),
@@ -186,11 +178,11 @@ export function bindCuaActionToObservation(
     return {
       ...finalizeBoundAction({
         ...base,
-      sourceStartCoordinate: start,
-      sourceCoordinate: end,
-      windowStartCoordinate: start,
-      windowCoordinate: end,
-      coordinateSpace: 'window-screenshot-local',
+        sourceStartCoordinate: start,
+        sourceCoordinate: end,
+        windowStartCoordinate: start,
+        windowCoordinate: end,
+        coordinateSpace: 'window-screenshot-local',
       }),
     };
   }
@@ -219,22 +211,15 @@ export function bindCuaActionToObservation(
   return base;
 }
 
-function bindWindowPoint(
-  observation: CuaObservation,
-  point: CuPoint,
-): CuPoint | undefined {
-  const width = observation.screenshotWidthPx
-    ?? observation.target.sourceBoundsPx?.width
-    ?? 0;
-  const height = observation.screenshotHeightPx
-    ?? observation.target.sourceBoundsPx?.height
-    ?? 0;
-  return width > 0
-    && height > 0
-    && point.x >= 0
-    && point.y >= 0
-    && point.x < width
-    && point.y < height
+function bindWindowPoint(observation: CuaObservation, point: CuPoint): CuPoint | undefined {
+  const width = observation.screenshotWidthPx ?? observation.target.sourceBoundsPx?.width ?? 0;
+  const height = observation.screenshotHeightPx ?? observation.target.sourceBoundsPx?.height ?? 0;
+  return width > 0 &&
+    height > 0 &&
+    point.x >= 0 &&
+    point.y >= 0 &&
+    point.x < width &&
+    point.y < height
     ? point
     : undefined;
 }

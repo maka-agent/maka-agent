@@ -1,6 +1,9 @@
 import type { Task } from './contracts.js';
 import { evaluateHeavyTaskCompletionStatus } from './heavy-task-finalization.js';
-import { heavyTaskSelfCheckStrongPassBlocker, isAcceptedHeavyTaskSelfCheck } from './heavy-task-self-check.js';
+import {
+  heavyTaskSelfCheckStrongPassBlocker,
+  isAcceptedHeavyTaskSelfCheck,
+} from './heavy-task-self-check.js';
 import type { HeavyTaskModeSelection } from './heavy-task-policy.js';
 import type {
   HeavyTaskAcceptanceCheck,
@@ -12,9 +15,24 @@ import type {
 import type { TaskRunProjection } from './task-run-store.js';
 
 export type HeavyTaskSelfCheckGateDecision =
-  | { action: 'allow_finalize'; reason: string; checklist: HeavyTaskAcceptanceCheck[]; selfCheckId: string }
-  | { action: 'repair_prompt'; reason: string; checklist: HeavyTaskAcceptanceCheck[]; prompt: string; attempt: 1 }
-  | { action: 'allow_official_verifier_after_bounded_attempt'; reason: string; checklist: HeavyTaskAcceptanceCheck[] };
+  | {
+      action: 'allow_finalize';
+      reason: string;
+      checklist: HeavyTaskAcceptanceCheck[];
+      selfCheckId: string;
+    }
+  | {
+      action: 'repair_prompt';
+      reason: string;
+      checklist: HeavyTaskAcceptanceCheck[];
+      prompt: string;
+      attempt: 1;
+    }
+  | {
+      action: 'allow_official_verifier_after_bounded_attempt';
+      reason: string;
+      checklist: HeavyTaskAcceptanceCheck[];
+    };
 
 export interface HeavyTaskSelfCheckGateInput {
   task: Task;
@@ -24,7 +42,9 @@ export interface HeavyTaskSelfCheckGateInput {
   maxRepairAttempts?: number;
 }
 
-export function evaluateHeavyTaskSelfCheckGate(input: HeavyTaskSelfCheckGateInput): HeavyTaskSelfCheckGateDecision {
+export function evaluateHeavyTaskSelfCheckGate(
+  input: HeavyTaskSelfCheckGateInput,
+): HeavyTaskSelfCheckGateDecision {
   const checklist = deriveHeavyTaskAcceptanceChecks(input.task, input.projection);
   if (!input.heavyTaskMode.enabled) {
     return {
@@ -138,7 +158,8 @@ export function deriveHeavyTaskAcceptanceChecks(
   }
 
   for (const item of projection.latestHeavyTaskTodos?.items ?? []) {
-    if (!['runnable_artifact', 'public_check', 'final_self_check'].includes(item.kind ?? '')) continue;
+    if (!['runnable_artifact', 'public_check', 'final_self_check'].includes(item.kind ?? ''))
+      continue;
     add({
       kind: item.kind === 'public_check' ? 'public_command' : 'task_family_hint',
       source: 'todo',
@@ -152,7 +173,8 @@ export function deriveHeavyTaskAcceptanceChecks(
     add({
       kind: 'task_family_hint',
       source: 'terminal_bench_hint',
-      description: 'Terminal-bench task should verify required /app deliverables with public commands or artifact inspections',
+      description:
+        'Terminal-bench task should verify required /app deliverables with public commands or artifact inspections',
       evidenceRequired: 'command_or_artifact',
       path: '/app',
       commandHint: 'find /app -maxdepth 2 -type f | sort | sed -n "1,120p"',
@@ -162,7 +184,8 @@ export function deriveHeavyTaskAcceptanceChecks(
     add({
       kind: 'fresh_context',
       source: 'terminal_bench_hint',
-      description: 'Package/library task should include a fresh-context import or execution check where practical',
+      description:
+        'Package/library task should include a fresh-context import or execution check where practical',
       evidenceRequired: 'command',
     });
   }
@@ -170,7 +193,8 @@ export function deriveHeavyTaskAcceptanceChecks(
     add({
       kind: 'public_command',
       source: 'terminal_bench_hint',
-      description: 'CLI/script task should include a direct public invocation check where practical',
+      description:
+        'CLI/script task should include a direct public invocation check where practical',
       evidenceRequired: 'command',
     });
   }
@@ -178,7 +202,8 @@ export function deriveHeavyTaskAcceptanceChecks(
   add({
     kind: 'workspace_hygiene',
     source: 'generic_heavy_task',
-    description: 'Pass self-check must include sandbox execution evidence and a public workspace hygiene guard',
+    description:
+      'Pass self-check must include sandbox execution evidence and a public workspace hygiene guard',
     evidenceRequired: 'command_or_artifact',
   });
 
@@ -221,7 +246,8 @@ function gateBlockerReason(
   checklist: readonly HeavyTaskAcceptanceCheck[],
 ): string | undefined {
   if (!selfCheck) return 'missing accepted public self-check evidence';
-  if (!isAcceptedHeavyTaskSelfCheck(selfCheck)) return 'latest self-check evidence was not accepted as public';
+  if (!isAcceptedHeavyTaskSelfCheck(selfCheck))
+    return 'latest self-check evidence was not accepted as public';
   if (selfCheck.freshness === 'stale') {
     return `latest self-check is stale: ${selfCheck.freshnessReasons.join(', ') || 'workspace changed'}`;
   }
@@ -234,7 +260,10 @@ function gateBlockerReason(
   if (!selfCheckAddressesRequiredArtifacts(selfCheck, checklist)) {
     return 'latest self-check does not address visible required artifact contract';
   }
-  if (semanticReason !== 'accepted public self-check passed, todos are resolved/nonblocking, and early runnable/check phase gate is complete') {
+  if (
+    semanticReason !==
+    'accepted public self-check passed, todos are resolved/nonblocking, and early runnable/check phase gate is complete'
+  ) {
     return semanticReason;
   }
   return undefined;
@@ -256,8 +285,14 @@ function selfCheckAddressesRequiredArtifacts(
       ...(evidence.artifactRefs ?? []),
     ]),
     ...selfCheck.artifactEvidence.map((evidence) => evidence.path),
-  ].join('\n').toLowerCase();
-  return requiredPaths.some((path) => evidenceText.includes(path.toLowerCase()) || evidenceText.includes(basename(path).toLowerCase()));
+  ]
+    .join('\n')
+    .toLowerCase();
+  return requiredPaths.some(
+    (path) =>
+      evidenceText.includes(path.toLowerCase()) ||
+      evidenceText.includes(basename(path).toLowerCase()),
+  );
 }
 
 function parseCheckForPath(
@@ -290,8 +325,14 @@ function parseCheckForPath(
 
 function latestSelfCheckSummary(selfCheck: HeavyTaskSemanticSelfCheckState | undefined): string {
   if (!selfCheck) return 'Latest self-check summary: none accepted yet.';
-  const commands = selfCheck.commandEvidence.slice(0, 3).map((evidence) => `${cleanOneLine(evidence.command, 140)} exit=${evidence.exitCode ?? 'unknown'}`);
-  const artifacts = selfCheck.artifactEvidence.slice(0, 3).map((evidence) => `${evidence.path} exists=${evidence.exists ?? 'unknown'}`);
+  const commands = selfCheck.commandEvidence
+    .slice(0, 3)
+    .map(
+      (evidence) => `${cleanOneLine(evidence.command, 140)} exit=${evidence.exitCode ?? 'unknown'}`,
+    );
+  const artifacts = selfCheck.artifactEvidence
+    .slice(0, 3)
+    .map((evidence) => `${evidence.path} exists=${evidence.exists ?? 'unknown'}`);
   return [
     `Latest self-check summary: id=${selfCheck.selfCheckId} status=${selfCheck.status}`,
     `- reason: ${cleanOneLine(selfCheck.publicReason, 240)}`,
@@ -300,7 +341,9 @@ function latestSelfCheckSummary(selfCheck: HeavyTaskSemanticSelfCheckState | und
   ].join('\n');
 }
 
-function latestWorkspaceObservationSummary(observation: HeavyTaskWorkspaceObservationState | undefined): string[] {
+function latestWorkspaceObservationSummary(
+  observation: HeavyTaskWorkspaceObservationState | undefined,
+): string[] {
   if (!observation) return [];
   if (observation.status !== 'ok') {
     return [
@@ -311,7 +354,8 @@ function latestWorkspaceObservationSummary(observation: HeavyTaskWorkspaceObserv
     ];
   }
   const entries = observation.entries.slice(0, 40).map((entry) => {
-    const suffix = entry.kind === 'symlink' && entry.symlinkTarget ? ` -> ${entry.symlinkTarget}` : '';
+    const suffix =
+      entry.kind === 'symlink' && entry.symlinkTarget ? ` -> ${entry.symlinkTarget}` : '';
     return `- ${entry.kind} ${entry.path}${suffix}`;
   });
   return [
@@ -319,7 +363,9 @@ function latestWorkspaceObservationSummary(observation: HeavyTaskWorkspaceObserv
     'Machine workspace observation facts (directory listing only; compare with the task instructions and your accepted plan):',
     `- roots: ${observation.roots.join(', ') || '(none)'}`,
     ...entries,
-    ...(observation.entries.length > entries.length ? [`- ... ${observation.entries.length - entries.length} more entries omitted`] : []),
+    ...(observation.entries.length > entries.length
+      ? [`- ... ${observation.entries.length - entries.length} more entries omitted`]
+      : []),
   ];
 }
 
@@ -328,7 +374,8 @@ function publicMetadata(metadata: Record<string, unknown> | undefined): Record<s
   const output: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(metadata)) {
     if (/hidden|private|evaluator|official|scorer/i.test(key)) continue;
-    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') output[key] = value;
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean')
+      output[key] = value;
   }
   return output;
 }

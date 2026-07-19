@@ -9,24 +9,20 @@ const repoRoot = join(here, '..');
 const harnessPath = join(here, 'cu-real-ax-model-e2e.mjs');
 const monitorPath = join(here, 'cu-real-e2e-monitor.swift');
 const inputAgeSource = join(here, 'cu-physical-input-age.swift');
-const labRoot = process.env.MAKA_CU_AX_MODEL_LAB_ROOT
-  ?? '/Users/haoqing/Documents/Learning/codex-computer-use-lab';
+const labRoot =
+  process.env.MAKA_CU_AX_MODEL_LAB_ROOT ??
+  '/Users/haoqing/Documents/Learning/codex-computer-use-lab';
 const statePath = join(labRoot, 'test-app/runtime/state.json');
 const fixtureBundleId = 'com.openai.codex.cualab';
 const expectedAppPath = join(labRoot, 'test-app/build/Codex CUA Lab.app');
 const scenario = process.env.MAKA_CU_AX_MODEL_SCENARIO ?? 'set-value';
-const reportPath = process.env.MAKA_CU_AX_MODEL_REPORT
-  ?? join(
-    repoRoot,
-    '.agents-workspace-data',
-    'cu-real-ax-model',
-    `report-${Date.now()}.json`,
-  );
+const reportPath =
+  process.env.MAKA_CU_AX_MODEL_REPORT ??
+  join(repoRoot, '.agents-workspace-data', 'cu-real-ax-model', `report-${Date.now()}.json`);
 const driverOverride = process.env.MAKA_CU_AX_MODEL_DRIVER_OVERRIDE;
 const overrideSha256 = process.env.MAKA_CU_AX_MODEL_EXPECTED_SHA256;
 const overrideVersion = process.env.MAKA_CU_AX_MODEL_EXPECTED_VERSION;
-const overrideConfigured = [driverOverride, overrideSha256, overrideVersion]
-  .filter(Boolean).length;
+const overrideConfigured = [driverOverride, overrideSha256, overrideVersion].filter(Boolean).length;
 if (overrideConfigured !== 0 && overrideConfigured !== 3) {
   throw new Error(
     'candidate driver qualification requires override path, expected SHA-256, and expected version',
@@ -35,8 +31,7 @@ if (overrideConfigured !== 0 && overrideConfigured !== 3) {
 if (overrideSha256 && !/^[a-f0-9]{64}$/.test(overrideSha256)) {
   throw new Error('candidate driver expected SHA-256 is invalid');
 }
-const delay = (milliseconds) =>
-  new Promise((resolve) => setTimeout(resolve, milliseconds));
+const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 function runChild(file, args, options = {}) {
   return new Promise((resolve, reject) => {
@@ -59,7 +54,7 @@ async function terminateChild(child, label, timeoutMs = 3_000) {
   child.kill('SIGTERM');
   if (await Promise.race([exited.then(() => true), delay(timeoutMs).then(() => false)])) return;
   child.kill('SIGKILL');
-  if (!await Promise.race([exited.then(() => true), delay(timeoutMs).then(() => false)])) {
+  if (!(await Promise.race([exited.then(() => true), delay(timeoutMs).then(() => false)]))) {
     throw new Error(`${label} did not exit after SIGKILL`);
   }
 }
@@ -74,21 +69,18 @@ async function waitForFixture(timeoutMs = 15_000) {
     try {
       const state = JSON.parse(await readFile(statePath, 'utf8'));
       if (
-        state.synthetic === true
-        && state.bundleIdentifier === fixtureBundleId
-        && state.appPath === expectedAppPath
-        && Number.isInteger(state.oop?.hostPID)
-        && state.oop.hostPID > 0
+        state.synthetic === true &&
+        state.bundleIdentifier === fixtureBundleId &&
+        state.appPath === expectedAppPath &&
+        Number.isInteger(state.oop?.hostPID) &&
+        state.oop.hostPID > 0
       ) {
         process.kill(state.oop.hostPID, 0);
         return state;
       }
     } catch (error) {
-      if (
-        error?.code !== 'ENOENT'
-        && error?.code !== 'ESRCH'
-        && !(error instanceof SyntaxError)
-      ) throw error;
+      if (error?.code !== 'ENOENT' && error?.code !== 'ESRCH' && !(error instanceof SyntaxError))
+        throw error;
     }
     await delay(50);
   }
@@ -123,11 +115,7 @@ async function waitForJson(path, label, timeoutMs = 15_000) {
 }
 
 function startMonitor(fixturePID) {
-  const child = spawn('swift', [
-    monitorPath,
-    '--concurrent-user',
-    String(fixturePID),
-  ], {
+  const child = spawn('swift', [monitorPath, '--concurrent-user', String(fixturePID)], {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let buffer = '';
@@ -141,7 +129,9 @@ function startMonitor(fixturePID) {
     readyResolve = resolve;
     readyReject = reject;
   });
-  const failure = new Promise((resolve) => { failureResolve = resolve; });
+  const failure = new Promise((resolve) => {
+    failureResolve = resolve;
+  });
   const fail = (error) => {
     const normalized = error instanceof Error ? error : new Error(String(error));
     if (!readySettled) {
@@ -176,14 +166,17 @@ function startMonitor(fixturePID) {
     }
   });
   child.stderr.setEncoding('utf8');
-  child.stderr.on('data', (chunk) => { stderr += chunk; });
+  child.stderr.on('data', (chunk) => {
+    stderr += chunk;
+  });
   child.on('error', fail);
   child.on('exit', (code, signal) => {
     if (!failureSettled && code !== 0 && signal !== 'SIGTERM') {
-      fail(new Error(
-        `monitor exited (${signal ?? code})`
-        + `${stderr.trim() ? `: ${stderr.trim()}` : ''}`,
-      ));
+      fail(
+        new Error(
+          `monitor exited (${signal ?? code})` + `${stderr.trim() ? `: ${stderr.trim()}` : ''}`,
+        ),
+      );
     }
   });
   return {
@@ -224,7 +217,12 @@ async function run() {
     caffeinate = spawn('/usr/bin/caffeinate', ['-dimsu'], {
       stdio: ['ignore', 'ignore', 'inherit'],
     });
-    for (const workspace of ['@maka/core', '@maka/storage', '@maka/runtime', '@maka/computer-use']) {
+    for (const workspace of [
+      '@maka/core',
+      '@maka/storage',
+      '@maka/runtime',
+      '@maka/computer-use',
+    ]) {
       await runChild('npm', ['--workspace', workspace, 'run', 'build'], {
         cwd: repoRoot,
       });
@@ -232,10 +230,7 @@ async function run() {
     await runChild('npm', ['run', 'prepare:cua-driver'], { cwd: repoRoot });
     await runChild('npm', ['run', 'check:cua-driver-artifact'], { cwd: repoRoot });
     if (driverOverride) {
-      await copyFile(
-        driverOverride,
-        join(repoRoot, 'apps/desktop/resources/bin/cua-driver'),
-      );
+      await copyFile(driverOverride, join(repoRoot, 'apps/desktop/resources/bin/cua-driver'));
     }
     await runChild('swiftc', [inputAgeSource, '-o', inputAgePath], {
       stdio: ['ignore', 'ignore', 'inherit'],
@@ -254,11 +249,7 @@ async function run() {
         throw new Error('AX model safety monitor startup timeout');
       }),
     ]);
-    validateMonitorBaseline(
-      baseline,
-      fixture.oop.hostPID,
-      'AX model safety monitor',
-    );
+    validateMonitorBaseline(baseline, fixture.oop.hostPID, 'AX model safety monitor');
     harness = spawn(process.execPath, [harnessPath], {
       cwd: repoRoot,
       env: {
@@ -269,12 +260,8 @@ async function run() {
         MAKA_CU_AX_MODEL_TEMP_DIR: temporaryDirectory,
         MAKA_CU_AX_MODEL_SCENARIO: scenario,
         MAKA_CU_AX_MODEL_REPORT: reportPath,
-        ...(overrideSha256
-          ? { MAKA_CU_AX_MODEL_EXPECTED_SHA256: overrideSha256 }
-          : {}),
-        ...(overrideVersion
-          ? { MAKA_CU_AX_MODEL_EXPECTED_VERSION: overrideVersion }
-          : {}),
+        ...(overrideSha256 ? { MAKA_CU_AX_MODEL_EXPECTED_SHA256: overrideSha256 } : {}),
+        ...(overrideVersion ? { MAKA_CU_AX_MODEL_EXPECTED_VERSION: overrideVersion } : {}),
       },
       stdio: ['ignore', 'inherit', 'inherit'],
     });
@@ -284,16 +271,15 @@ async function run() {
     });
     if (scenario === 'restart-recovery') {
       const request = await Promise.race([
-        waitForJson(
-          join(temporaryDirectory, 'restart-request.json'),
-          'AX model restart request',
-        ),
+        waitForJson(join(temporaryDirectory, 'restart-request.json'), 'AX model restart request'),
         exit.then((result) => {
           throw new Error(
             `AX model harness exited before restart request (${result.signal ?? result.code})`,
           );
         }),
-        monitor.failure.then((error) => { throw error; }),
+        monitor.failure.then((error) => {
+          throw error;
+        }),
       ]);
       if (request.oldPID !== fixture.oop.hostPID) {
         throw new Error('AX model restart request PID mismatch');
@@ -317,15 +303,19 @@ async function run() {
         restarted.oop.hostPID,
         'restarted AX model safety monitor',
       );
-      await runChild(process.execPath, [
-        '-e',
-        "require('fs').writeFileSync(process.argv[1], process.argv[2], {flag:'wx',mode:0o600})",
-        join(temporaryDirectory, 'restart-complete.json'),
-        JSON.stringify({
-          oldPID: request.oldPID,
-          newPID: restarted.oop.hostPID,
-        }),
-      ], { stdio: ['ignore', 'ignore', 'inherit'] });
+      await runChild(
+        process.execPath,
+        [
+          '-e',
+          "require('fs').writeFileSync(process.argv[1], process.argv[2], {flag:'wx',mode:0o600})",
+          join(temporaryDirectory, 'restart-complete.json'),
+          JSON.stringify({
+            oldPID: request.oldPID,
+            newPID: restarted.oop.hostPID,
+          }),
+        ],
+        { stdio: ['ignore', 'ignore', 'inherit'] },
+      );
     }
     const first = await Promise.race([
       exit.then((result) => ({ type: 'exit', result })),

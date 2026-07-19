@@ -152,11 +152,11 @@ export function assertAdditionalPermissionProposal(input: {
   const { proposal } = input;
   const validated = validateAdditionalPermissionProfile(proposal.profile);
   if (
-    !validated.ok
-    || proposal.permissionsHash !== hashAdditionalPermissionProfile(proposal.profile)
-    || proposal.intentHash !== stableHash({ toolName: input.toolName, args: input.args })
-    || !proposal.justification.trim()
-    || proposal.justification.length > MAX_ADDITIONAL_PERMISSION_JUSTIFICATION_CHARS
+    !validated.ok ||
+    proposal.permissionsHash !== hashAdditionalPermissionProfile(proposal.profile) ||
+    proposal.intentHash !== stableHash({ toolName: input.toolName, args: input.args }) ||
+    !proposal.justification.trim() ||
+    proposal.justification.length > MAX_ADDITIONAL_PERMISSION_JUSTIFICATION_CHARS
   ) {
     throw invalidProfile('Additional permission proposal integrity validation failed.');
   }
@@ -166,15 +166,16 @@ export function assertAdditionalPermissionProposal(input: {
     throw invalidProfile('Additional permission proposal path metadata did not match its profile.');
   }
   for (const entry of profileEntries) {
-    const normalized = proposal.normalizedPaths.find((candidate) => (
-      candidate.enforcementPath === entry.path
-      && candidate.access === entry.access
-      && candidate.scope === entry.scope
-    ));
+    const normalized = proposal.normalizedPaths.find(
+      (candidate) =>
+        candidate.enforcementPath === entry.path &&
+        candidate.access === entry.access &&
+        candidate.scope === entry.scope,
+    );
     if (
-      !normalized
-      || !isAbsolute(normalized.displayPath)
-      || !['file', 'directory', 'other', 'missing'].includes(normalized.targetType)
+      !normalized ||
+      !isAbsolute(normalized.displayPath) ||
+      !['file', 'directory', 'other', 'missing'].includes(normalized.targetType)
     ) {
       throw invalidProfile('Additional permission proposal path metadata was invalid.');
     }
@@ -188,7 +189,8 @@ export async function normalizeAdditionalPermissionProfile(input: {
   profile: AdditionalPermissionProfile;
   normalizedPaths: readonly NormalizedAdditionalPermissionPath[];
 }> {
-  if (!isRecord(input.profile)) throw invalidProfile('Additional permission profile must be an object.');
+  if (!isRecord(input.profile))
+    throw invalidProfile('Additional permission profile must be an object.');
   if (hasUnexpectedKeys(input.profile, ['fileSystem', 'network'])) {
     throw invalidProfile('Additional permission profile contains unsupported fields.');
   }
@@ -218,24 +220,30 @@ export async function normalizeAdditionalPermissionProfile(input: {
   const validated = validateAdditionalPermissionProfile(candidate);
   if (!validated.ok) throw invalidProfile(validated.message);
 
-  const normalizedByKey = new Map(normalizedPaths.map((entry) => [permissionPathKey(entry), entry]));
+  const normalizedByKey = new Map(
+    normalizedPaths.map((entry) => [permissionPathKey(entry), entry]),
+  );
   return {
     profile: validated.profile,
-    normalizedPaths: validated.profile.fileSystem?.entries.map((entry) => (
-      normalizedByKey.get(permissionPathKey({
-        displayPath: entry.path,
-        enforcementPath: entry.path,
-        access: entry.access,
-        scope: entry.scope,
-        targetType: 'missing',
-      })) ?? {
-        displayPath: entry.path,
-        enforcementPath: entry.path,
-        access: entry.access,
-        scope: entry.scope,
-        targetType: 'missing',
-      }
-    )) ?? [],
+    normalizedPaths:
+      validated.profile.fileSystem?.entries.map(
+        (entry) =>
+          normalizedByKey.get(
+            permissionPathKey({
+              displayPath: entry.path,
+              enforcementPath: entry.path,
+              access: entry.access,
+              scope: entry.scope,
+              targetType: 'missing',
+            }),
+          ) ?? {
+            displayPath: entry.path,
+            enforcementPath: entry.path,
+            access: entry.access,
+            scope: entry.scope,
+            targetType: 'missing',
+          },
+      ) ?? [],
   };
 }
 
@@ -250,9 +258,8 @@ export async function normalizeAdditionalPermissionPath(input: {
   const displayPath = resolve(canonicalCwd, input.path);
   const enforcementPath = await realpathAllowMissing(displayPath);
   const targetType = await additionalPermissionTargetType(enforcementPath);
-  const scope = input.scope === 'auto'
-    ? targetType === 'directory' ? 'subtree' : 'exact'
-    : input.scope;
+  const scope =
+    input.scope === 'auto' ? (targetType === 'directory' ? 'subtree' : 'exact') : input.scope;
   if (scope === 'subtree' && targetType !== 'directory') {
     throw invalidProfile('A subtree additional permission must target an existing directory.');
   }
@@ -310,16 +317,21 @@ async function revalidateApprovedAdditionalPermissions(input: {
     cwd: input.cwd,
   });
   if (
-    serializeAdditionalPermissionProfile(current.profile)
-    !== serializeAdditionalPermissionProfile(input.profile)
+    serializeAdditionalPermissionProfile(current.profile) !==
+    serializeAdditionalPermissionProfile(input.profile)
   ) {
     throw pathChanged('An approved additional permission path changed before execution.');
   }
 
-  const currentByKey = new Map(current.normalizedPaths.map((entry) => [permissionPathKey(entry), entry]));
-  if (input.normalizedPaths.some((approved) => (
-    currentByKey.get(permissionPathKey(approved))?.targetType !== approved.targetType
-  ))) {
+  const currentByKey = new Map(
+    current.normalizedPaths.map((entry) => [permissionPathKey(entry), entry]),
+  );
+  if (
+    input.normalizedPaths.some(
+      (approved) =>
+        currentByKey.get(permissionPathKey(approved))?.targetType !== approved.targetType,
+    )
+  ) {
     throw pathChanged('An approved additional permission target changed type before execution.');
   }
 }
@@ -332,14 +344,12 @@ export async function planFileToolAdditionalPermission(input: {
   args: unknown;
   context: AdditionalPermissionPlanningContext;
 }): Promise<AdditionalPermissionPlanResult> {
-  const access: AdditionalPermissionAccess = input.toolName === 'Write'
-    || input.toolName === 'Edit'
-    || input.toolName === 'FormatJson'
-    ? 'write'
-    : 'read';
-  const scope: AdditionalPermissionScope | 'auto' = input.toolName === 'Glob'
-    ? 'subtree'
-    : input.toolName === 'Grep' ? 'auto' : 'exact';
+  const access: AdditionalPermissionAccess =
+    input.toolName === 'Write' || input.toolName === 'Edit' || input.toolName === 'FormatJson'
+      ? 'write'
+      : 'read';
+  const scope: AdditionalPermissionScope | 'auto' =
+    input.toolName === 'Glob' ? 'subtree' : input.toolName === 'Grep' ? 'auto' : 'exact';
 
   let normalized: Awaited<ReturnType<typeof normalizeAdditionalPermissionProfile>>;
   try {
@@ -366,12 +376,14 @@ export async function planFileToolAdditionalPermission(input: {
     ...input.context.pathContext,
     workspaceRoots: input.context.workspaceRoots,
   };
-  if (!additionalPermissionRequiredForPath({
-    profile: input.context.profile,
-    path,
-    access,
-    context: matchContext,
-  })) {
+  if (
+    !additionalPermissionRequiredForPath({
+      profile: input.context.profile,
+      path,
+      access,
+      context: matchContext,
+    })
+  ) {
     return { kind: 'not_required' };
   }
   if (input.mode === 'explore' || input.mode === 'bypass') {
@@ -411,16 +423,16 @@ export async function planDeclaredBashAdditionalPermission(input: {
 }): Promise<AdditionalPermissionPlanResult> {
   if (input.declaration === undefined) return { kind: 'not_required' };
   if (
-    !isRecord(input.declaration)
-    || hasUnexpectedKeys(input.declaration, ['mode', 'file_system', 'network', 'justification'])
+    !isRecord(input.declaration) ||
+    hasUnexpectedKeys(input.declaration, ['mode', 'file_system', 'network', 'justification'])
   ) {
     return blockInvalid('Bash sandbox_permissions declaration is invalid.');
   }
   if (input.declaration.mode === 'use_default') {
     if (
-      input.declaration.file_system !== undefined
-      || input.declaration.network !== undefined
-      || input.declaration.justification !== undefined
+      input.declaration.file_system !== undefined ||
+      input.declaration.network !== undefined ||
+      input.declaration.justification !== undefined
     ) {
       return blockInvalid('use_default cannot include additional permissions.');
     }
@@ -471,16 +483,18 @@ export async function planDeclaredBashAdditionalPermission(input: {
     }
   }
 
-  const neededEntries = normalized.profile.fileSystem?.entries.filter((entry) => (
-    additionalPermissionRequiredForPath({
-      profile: input.context.profile,
-      path: entry.path,
-      access: entry.access,
-      context: matchContext,
-    })
-  )) ?? [];
-  const networkNeeded = Boolean(normalized.profile.network?.enabled)
-    && !permissionProfileHasNetwork(input.context.profile);
+  const neededEntries =
+    normalized.profile.fileSystem?.entries.filter((entry) =>
+      additionalPermissionRequiredForPath({
+        profile: input.context.profile,
+        path: entry.path,
+        access: entry.access,
+        context: matchContext,
+      }),
+    ) ?? [];
+  const networkNeeded =
+    Boolean(normalized.profile.network?.enabled) &&
+    !permissionProfileHasNetwork(input.context.profile);
   if (neededEntries.length === 0 && !networkNeeded) return { kind: 'not_required' };
 
   const requiredProfile: AdditionalPermissionProfile = {
@@ -488,9 +502,9 @@ export async function planDeclaredBashAdditionalPermission(input: {
     ...(networkNeeded ? { network: { enabled: true } } : {}),
   };
   const neededPathKeys = new Set(neededEntries.map((entry) => permissionEntryKey(entry)));
-  const requiredPaths = normalized.normalizedPaths.filter((entry) => (
-    neededPathKeys.has(permissionPathKey(entry))
-  ));
+  const requiredPaths = normalized.normalizedPaths.filter((entry) =>
+    neededPathKeys.has(permissionPathKey(entry)),
+  );
 
   return {
     kind: 'request',
@@ -513,12 +527,14 @@ export function buildAdditionalPermissionProposal(input: {
   args: unknown;
   workspaceRoots: readonly string[];
 }): AdditionalPermissionProposal {
-  const protectedMetadata = input.profile.fileSystem?.entries.some((entry) => (
-    isProtectedMetadataPath(entry.path, input.workspaceRoots)
-  )) ?? false;
-  const outsideWorkspace = input.profile.fileSystem?.entries.some((entry) => (
-    !input.workspaceRoots.some((root) => isPathInside(root, entry.path))
-  )) ?? false;
+  const protectedMetadata =
+    input.profile.fileSystem?.entries.some((entry) =>
+      isProtectedMetadataPath(entry.path, input.workspaceRoots),
+    ) ?? false;
+  const outsideWorkspace =
+    input.profile.fileSystem?.entries.some(
+      (entry) => !input.workspaceRoots.some((root) => isPathInside(root, entry.path)),
+    ) ?? false;
   return freezeAdditionalPermissionProposal({
     profile: input.profile,
     normalizedPaths: input.normalizedPaths,
@@ -566,11 +582,13 @@ function parseRawEntries(input: unknown): AdditionalFileSystemPermission[] {
       throw invalidProfile('Additional filesystem permission contains unsupported fields.');
     }
     if (
-      typeof candidate.path !== 'string'
-      || (candidate.access !== 'read' && candidate.access !== 'write')
-      || (candidate.scope !== 'exact' && candidate.scope !== 'subtree')
+      typeof candidate.path !== 'string' ||
+      (candidate.access !== 'read' && candidate.access !== 'write') ||
+      (candidate.scope !== 'exact' && candidate.scope !== 'subtree')
     ) {
-      throw invalidProfile('Additional filesystem permission must contain path, access, and scope.');
+      throw invalidProfile(
+        'Additional filesystem permission must contain path, access, and scope.',
+      );
     }
     validateRawPath(candidate.path);
     return {

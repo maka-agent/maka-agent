@@ -23,21 +23,23 @@ describe('session projection helpers', () => {
   });
 
   test('buildTurnStateMessage preserves lineage and terminal status fields', () => {
-    expect(buildTurnStateMessage({
-      id: 'state-1',
-      turnId: 'turn-1',
-      ts: 100,
-      status: 'aborted',
-      lineage: {
-        parentTurnId: 'parent',
-        retriedFromTurnId: 'retry-source',
-        regeneratedFromTurnId: 'regen-source',
-        branchOfTurnId: 'branch-source',
-        parentSessionId: 'parent-session',
-      },
-      abortSource: 'renderer.stop_button',
-      partialOutputRetained: true,
-    })).toEqual({
+    expect(
+      buildTurnStateMessage({
+        id: 'state-1',
+        turnId: 'turn-1',
+        ts: 100,
+        status: 'aborted',
+        lineage: {
+          parentTurnId: 'parent',
+          retriedFromTurnId: 'retry-source',
+          regeneratedFromTurnId: 'regen-source',
+          branchOfTurnId: 'branch-source',
+          parentSessionId: 'parent-session',
+        },
+        abortSource: 'renderer.stop_button',
+        partialOutputRetained: true,
+      }),
+    ).toEqual({
       type: 'turn_state',
       id: 'state-1',
       turnId: 'turn-1',
@@ -53,13 +55,15 @@ describe('session projection helpers', () => {
       partialOutputRetained: true,
     });
 
-    expect(buildTurnStateMessage({
-      id: 'state-2',
-      turnId: 'turn-2',
-      ts: 101,
-      status: 'failed',
-      partialOutputRetained: false,
-    })).toMatchObject({
+    expect(
+      buildTurnStateMessage({
+        id: 'state-2',
+        turnId: 'turn-2',
+        ts: 101,
+        status: 'failed',
+        partialOutputRetained: false,
+      }),
+    ).toMatchObject({
       type: 'turn_state',
       id: 'state-2',
       turnId: 'turn-2',

@@ -22,7 +22,9 @@ const SCAN_ROOTS = ['packages', 'apps'];
 // prefix matching (`trimTrailingSlashes` + `startsWith`), not `node:path`
 // relative containment, so the name is not a reliable signal across packages.
 const RETIRED = ['isInside', 'isContainedPath', 'isInsidePosix'];
-const RETIRED_RE = new RegExp(`(?:export\\s+)?(?:function|(?:const|let|var))\\s+(${RETIRED.join('|')})\\b`);
+const RETIRED_RE = new RegExp(
+  `(?:export\\s+)?(?:function|(?:const|let|var))\\s+(${RETIRED.join('|')})\\b`,
+);
 
 async function* walk(dir: string): AsyncGenerator<string> {
   let entries;
@@ -32,7 +34,8 @@ async function* walk(dir: string): AsyncGenerator<string> {
     return;
   }
   for (const entry of entries) {
-    if (['node_modules', '__tests__', 'dist', '.worktree', '.pi', 'e2e'].includes(entry.name)) continue;
+    if (['node_modules', '__tests__', 'dist', '.worktree', '.pi', 'e2e'].includes(entry.name))
+      continue;
     const full = resolve(dir, entry.name);
     if (entry.isDirectory()) yield* walk(full);
     else if (entry.name.endsWith('.ts') || entry.name.endsWith('.tsx')) yield full;
@@ -42,7 +45,11 @@ async function* walk(dir: string): AsyncGenerator<string> {
 describe('containment-guard contract', () => {
   it('the shared isPathInside home exists and exports isPathInside', async () => {
     const home = await readFile(PATH_CONTAINMENT_HOME, 'utf8');
-    assert.match(home, /export function isPathInside\b/, 'path-containment.ts must export isPathInside');
+    assert.match(
+      home,
+      /export function isPathInside\b/,
+      'path-containment.ts must export isPathInside',
+    );
   });
 
   it('no retired private containment predicate is redefined outside the shared home', async () => {

@@ -1,5 +1,8 @@
 import type { AbComparisonSummary, AbTokenCostSummary } from './ab-types.js';
-import type { HarnessOracleAnnotation, HarnessOracleAnnotationState } from './harness-oracle-registry.js';
+import type {
+  HarnessOracleAnnotation,
+  HarnessOracleAnnotationState,
+} from './harness-oracle-registry.js';
 
 export interface HarnessAbArmEffectiveness {
   armId: string;
@@ -77,9 +80,13 @@ export function buildHarnessAbReport(
     attemptedCells: summary.baseline.observed + summary.candidate.observed,
     modelScoredCells: summary.baseline.completed + summary.candidate.completed,
     infraFailedCells: summary.baseline.infraFailed + summary.candidate.infraFailed,
-    unscoredCells: summary.baseline.observed + summary.candidate.observed
-      - summary.baseline.completed - summary.candidate.completed,
-    missingFinalUsageCells: summary.baseline.missingFinalUsage + summary.candidate.missingFinalUsage,
+    unscoredCells:
+      summary.baseline.observed +
+      summary.candidate.observed -
+      summary.baseline.completed -
+      summary.candidate.completed,
+    missingFinalUsageCells:
+      summary.baseline.missingFinalUsage + summary.candidate.missingFinalUsage,
   };
   const runStatus = summary.stopReason
     ? 'stopped'
@@ -115,9 +122,10 @@ export function buildHarnessAbReport(
       ties: summary.pairedAttempts.ties,
     },
     economy: {
-      basis: billingMode === 'account-plan'
-        ? 'account-plan-recorded-usd'
-        : 'cache-aware-api-equivalent-usd',
+      basis:
+        billingMode === 'account-plan'
+          ? 'account-plan-recorded-usd'
+          : 'cache-aware-api-equivalent-usd',
       pairedMetered: summary.pairedAttempts.fullyMeteredPairs,
       missingUsagePairs: summary.pairedAttempts.missingUsagePairIds.length,
       baseline: armEconomy(
@@ -133,16 +141,18 @@ export function buildHarnessAbReport(
         summary.pairedAttempts.candidateMeteredPassed,
       ),
     },
-    ...(oracleEvidence ? {
-      oracleEvidence: {
-        ...(oracleEvidence.snapshotFingerprint
-          ? { snapshotFingerprint: oracleEvidence.snapshotFingerprint }
-          : {}),
-        stateCounts: countOracleStates(oracleEvidence.annotations),
-        annotations: oracleEvidence.annotations.map((annotation) => ({ ...annotation })),
-        warnings: [...oracleEvidence.warnings],
-      },
-    } : {}),
+    ...(oracleEvidence
+      ? {
+          oracleEvidence: {
+            ...(oracleEvidence.snapshotFingerprint
+              ? { snapshotFingerprint: oracleEvidence.snapshotFingerprint }
+              : {}),
+            stateCounts: countOracleStates(oracleEvidence.annotations),
+            annotations: oracleEvidence.annotations.map((annotation) => ({ ...annotation })),
+            warnings: [...oracleEvidence.warnings],
+          },
+        }
+      : {}),
   };
 }
 
@@ -151,42 +161,138 @@ export function renderHarnessAbReportCsv(report: HarnessAbReport): string {
   const candidateEffectiveness = report.effectiveness.candidate;
   const baselineEconomy = report.economy.baseline;
   const candidateEconomy = report.economy.candidate;
-  const rows: Array<[string, string, string, number | null, string, number | null, number | null]> = [
-    ['effectiveness', 'pass_rate', baselineEffectiveness.armId, baselineEffectiveness.passRate, candidateEffectiveness.armId, candidateEffectiveness.passRate, report.effectiveness.candidateMinusBaseline],
-    ['effectiveness', 'passed', baselineEffectiveness.armId, baselineEffectiveness.passed, candidateEffectiveness.armId, candidateEffectiveness.passed, candidateEffectiveness.passed - baselineEffectiveness.passed],
-    ['economy', 'input_tokens', baselineEconomy.armId, baselineEconomy.inputTokens, candidateEconomy.armId, candidateEconomy.inputTokens, candidateEconomy.inputTokens - baselineEconomy.inputTokens],
-    ['economy', 'cached_input_tokens', baselineEconomy.armId, baselineEconomy.cachedInputTokens, candidateEconomy.armId, candidateEconomy.cachedInputTokens, candidateEconomy.cachedInputTokens - baselineEconomy.cachedInputTokens],
-    ['economy', 'uncached_input_tokens', baselineEconomy.armId, baselineEconomy.uncachedInputTokens, candidateEconomy.armId, candidateEconomy.uncachedInputTokens, candidateEconomy.uncachedInputTokens - baselineEconomy.uncachedInputTokens],
-    ['economy', 'output_tokens', baselineEconomy.armId, baselineEconomy.outputTokens, candidateEconomy.armId, candidateEconomy.outputTokens, candidateEconomy.outputTokens - baselineEconomy.outputTokens],
-    ['economy', 'total_tokens', baselineEconomy.armId, baselineEconomy.totalTokens, candidateEconomy.armId, candidateEconomy.totalTokens, candidateEconomy.totalTokens - baselineEconomy.totalTokens],
-    ['economy', 'recorded_cost_usd', baselineEconomy.armId, baselineEconomy.costUsd, candidateEconomy.armId, candidateEconomy.costUsd, candidateEconomy.costUsd - baselineEconomy.costUsd],
-    ['economy', 'tokens_per_metered', baselineEconomy.armId, baselineEconomy.tokensPerMetered, candidateEconomy.armId, candidateEconomy.tokensPerMetered, nullableDelta(candidateEconomy.tokensPerMetered, baselineEconomy.tokensPerMetered)],
-    ['economy', 'cost_per_metered_usd', baselineEconomy.armId, baselineEconomy.costPerMeteredUsd, candidateEconomy.armId, candidateEconomy.costPerMeteredUsd, nullableDelta(candidateEconomy.costPerMeteredUsd, baselineEconomy.costPerMeteredUsd)],
-    ['economy', 'cost_per_pass_usd', baselineEconomy.armId, baselineEconomy.costPerPassUsd, candidateEconomy.armId, candidateEconomy.costPerPassUsd, nullableDelta(candidateEconomy.costPerPassUsd, baselineEconomy.costPerPassUsd)],
-  ];
-  return [
-    'run_status,stop_reason,billing_mode,economy_basis,scheduled_cells,attempted_cells,model_scored_cells,infra_failed_cells,unscored_cells,missing_final_usage_cells,paired_evaluated,paired_metered,missing_usage_pairs,axis,metric,baseline_arm,baseline_value,candidate_arm,candidate_value,candidate_minus_baseline',
-    ...rows.map((row) => [
-      report.runStatus,
-      report.stopReason ?? '',
-      report.billingMode,
-      report.economy.basis,
-      report.coverage.scheduledCells,
-      report.coverage.attemptedCells,
-      report.coverage.modelScoredCells,
-      report.coverage.infraFailedCells,
-      report.coverage.unscoredCells,
-      report.coverage.missingFinalUsageCells,
-      report.effectiveness.pairedEvaluated,
-      report.economy.pairedMetered,
-      report.economy.missingUsagePairs,
-      ...row,
-    ].map(csvCell).join(',')),
-  ].join('\n') + '\n';
+  const rows: Array<[string, string, string, number | null, string, number | null, number | null]> =
+    [
+      [
+        'effectiveness',
+        'pass_rate',
+        baselineEffectiveness.armId,
+        baselineEffectiveness.passRate,
+        candidateEffectiveness.armId,
+        candidateEffectiveness.passRate,
+        report.effectiveness.candidateMinusBaseline,
+      ],
+      [
+        'effectiveness',
+        'passed',
+        baselineEffectiveness.armId,
+        baselineEffectiveness.passed,
+        candidateEffectiveness.armId,
+        candidateEffectiveness.passed,
+        candidateEffectiveness.passed - baselineEffectiveness.passed,
+      ],
+      [
+        'economy',
+        'input_tokens',
+        baselineEconomy.armId,
+        baselineEconomy.inputTokens,
+        candidateEconomy.armId,
+        candidateEconomy.inputTokens,
+        candidateEconomy.inputTokens - baselineEconomy.inputTokens,
+      ],
+      [
+        'economy',
+        'cached_input_tokens',
+        baselineEconomy.armId,
+        baselineEconomy.cachedInputTokens,
+        candidateEconomy.armId,
+        candidateEconomy.cachedInputTokens,
+        candidateEconomy.cachedInputTokens - baselineEconomy.cachedInputTokens,
+      ],
+      [
+        'economy',
+        'uncached_input_tokens',
+        baselineEconomy.armId,
+        baselineEconomy.uncachedInputTokens,
+        candidateEconomy.armId,
+        candidateEconomy.uncachedInputTokens,
+        candidateEconomy.uncachedInputTokens - baselineEconomy.uncachedInputTokens,
+      ],
+      [
+        'economy',
+        'output_tokens',
+        baselineEconomy.armId,
+        baselineEconomy.outputTokens,
+        candidateEconomy.armId,
+        candidateEconomy.outputTokens,
+        candidateEconomy.outputTokens - baselineEconomy.outputTokens,
+      ],
+      [
+        'economy',
+        'total_tokens',
+        baselineEconomy.armId,
+        baselineEconomy.totalTokens,
+        candidateEconomy.armId,
+        candidateEconomy.totalTokens,
+        candidateEconomy.totalTokens - baselineEconomy.totalTokens,
+      ],
+      [
+        'economy',
+        'recorded_cost_usd',
+        baselineEconomy.armId,
+        baselineEconomy.costUsd,
+        candidateEconomy.armId,
+        candidateEconomy.costUsd,
+        candidateEconomy.costUsd - baselineEconomy.costUsd,
+      ],
+      [
+        'economy',
+        'tokens_per_metered',
+        baselineEconomy.armId,
+        baselineEconomy.tokensPerMetered,
+        candidateEconomy.armId,
+        candidateEconomy.tokensPerMetered,
+        nullableDelta(candidateEconomy.tokensPerMetered, baselineEconomy.tokensPerMetered),
+      ],
+      [
+        'economy',
+        'cost_per_metered_usd',
+        baselineEconomy.armId,
+        baselineEconomy.costPerMeteredUsd,
+        candidateEconomy.armId,
+        candidateEconomy.costPerMeteredUsd,
+        nullableDelta(candidateEconomy.costPerMeteredUsd, baselineEconomy.costPerMeteredUsd),
+      ],
+      [
+        'economy',
+        'cost_per_pass_usd',
+        baselineEconomy.armId,
+        baselineEconomy.costPerPassUsd,
+        candidateEconomy.armId,
+        candidateEconomy.costPerPassUsd,
+        nullableDelta(candidateEconomy.costPerPassUsd, baselineEconomy.costPerPassUsd),
+      ],
+    ];
+  return (
+    [
+      'run_status,stop_reason,billing_mode,economy_basis,scheduled_cells,attempted_cells,model_scored_cells,infra_failed_cells,unscored_cells,missing_final_usage_cells,paired_evaluated,paired_metered,missing_usage_pairs,axis,metric,baseline_arm,baseline_value,candidate_arm,candidate_value,candidate_minus_baseline',
+      ...rows.map((row) =>
+        [
+          report.runStatus,
+          report.stopReason ?? '',
+          report.billingMode,
+          report.economy.basis,
+          report.coverage.scheduledCells,
+          report.coverage.attemptedCells,
+          report.coverage.modelScoredCells,
+          report.coverage.infraFailedCells,
+          report.coverage.unscoredCells,
+          report.coverage.missingFinalUsageCells,
+          report.effectiveness.pairedEvaluated,
+          report.economy.pairedMetered,
+          report.economy.missingUsagePairs,
+          ...row,
+        ]
+          .map(csvCell)
+          .join(','),
+      ),
+    ].join('\n') + '\n'
+  );
 }
 
 export function renderHarnessAbReportMarkdown(report: HarnessAbReport): string {
-  const { baseline: baselineEffectiveness, candidate: candidateEffectiveness } = report.effectiveness;
+  const { baseline: baselineEffectiveness, candidate: candidateEffectiveness } =
+    report.effectiveness;
   const { baseline: baselineEconomy, candidate: candidateEconomy } = report.economy;
   return [
     `# ${baselineEffectiveness.armId} vs ${candidateEffectiveness.armId} — Harness Comparison`,
@@ -200,7 +306,11 @@ export function renderHarnessAbReportMarkdown(report: HarnessAbReport): string {
     '',
     '## Effectiveness',
     '',
-    '| Metric | ' + baselineEffectiveness.armId + ' | ' + candidateEffectiveness.armId + ' | Candidate − baseline |',
+    '| Metric | ' +
+      baselineEffectiveness.armId +
+      ' | ' +
+      candidateEffectiveness.armId +
+      ' | Candidate − baseline |',
     '| --- | ---: | ---: | ---: |',
     `| Pass@1 | ${rate(baselineEffectiveness.passRate)} (${baselineEffectiveness.passed}/${baselineEffectiveness.evaluated}) | ${rate(candidateEffectiveness.passRate)} (${candidateEffectiveness.passed}/${candidateEffectiveness.evaluated}) | ${rate(report.effectiveness.candidateMinusBaseline)} |`,
     `| Paired outcomes | — | wins ${report.effectiveness.candidateWins}, losses ${report.effectiveness.baselineWins}, ties ${report.effectiveness.ties} | — |`,
@@ -230,7 +340,8 @@ function countOracleStates(
   annotations: readonly HarnessOracleAnnotation[],
 ): Partial<Record<HarnessOracleAnnotationState, number>> {
   const counts: Partial<Record<HarnessOracleAnnotationState, number>> = {};
-  for (const annotation of annotations) counts[annotation.state] = (counts[annotation.state] ?? 0) + 1;
+  for (const annotation of annotations)
+    counts[annotation.state] = (counts[annotation.state] ?? 0) + 1;
   return counts;
 }
 
@@ -259,10 +370,14 @@ export function assertHarnessAbReportCompleted(report: HarnessAbReport): void {
     throw new Error(`harness A/B stopped: ${report.stopReason ?? 'unknown_reason'}`);
   }
   if (report.runStatus === 'incomplete') {
-    throw new Error(`harness A/B incomplete: ${report.coverage.attemptedCells}/${report.coverage.scheduledCells} scheduled cells attempted`);
+    throw new Error(
+      `harness A/B incomplete: ${report.coverage.attemptedCells}/${report.coverage.scheduledCells} scheduled cells attempted`,
+    );
   }
   if (report.runStatus === 'completed_with_gaps') {
-    throw new Error(`harness A/B completed with gaps: ${report.coverage.unscoredCells} unscored cells; ${report.coverage.missingFinalUsageCells} missing final usage`);
+    throw new Error(
+      `harness A/B completed with gaps: ${report.coverage.unscoredCells} unscored cells; ${report.coverage.missingFinalUsageCells} missing final usage`,
+    );
   }
 }
 

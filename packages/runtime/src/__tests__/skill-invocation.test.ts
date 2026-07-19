@@ -19,24 +19,36 @@ import {
 describe('skill invocation', () => {
   it('lists only enabled, host-eligible skills as slim entries', async () => {
     await withWorkspace(async (workspaceRoot, homeDir) => {
-      await writeSkill(workspaceRoot, 'plain-helper', `---
+      await writeSkill(
+        workspaceRoot,
+        'plain-helper',
+        `---
 name: Plain Helper
 description: Helps with plain things.
 ---
 # Plain Helper
-Do plain things.`);
-      await writeSkill(workspaceRoot, 'office-helper', `---
+Do plain things.`,
+      );
+      await writeSkill(
+        workspaceRoot,
+        'office-helper',
+        `---
 name: Office Helper
 description: Needs the Office tools.
 required-tools: [OfficeDocument]
 ---
 # Office Helper
-Do office things.`);
-      await writeSkill(workspaceRoot, 'off-helper', `---
+Do office things.`,
+      );
+      await writeSkill(
+        workspaceRoot,
+        'off-helper',
+        `---
 name: Off Helper
 description: Disabled by workspace state.
 ---
-# Off Helper`);
+# Off Helper`,
+      );
       await writeSkillRuntimeState(workspaceRoot, new Map([['off-helper', false]]));
 
       const source = resolveSkillDiscoveryPaths(workspaceRoot, workspaceRoot, homeDir);
@@ -46,36 +58,63 @@ description: Disabled by workspace state.
         ['office-helper', 'plain-helper'],
         'disabled skills are not invocable',
       );
-      assert.deepEqual(Object.keys(all[0] ?? {}).sort(), ['description', 'id', 'name'], 'slim entries only');
+      assert.deepEqual(
+        Object.keys(all[0] ?? {}).sort(),
+        ['description', 'id', 'name'],
+        'slim entries only',
+      );
 
       const host: HostCapabilities = { toolNames: new Set(['Read', 'Write']) };
       const gated = await listInvocableSkills(source, host);
-      assert.deepEqual(gated.map((skill) => skill.id), ['plain-helper'], 'required-tools mismatch is hidden');
+      assert.deepEqual(
+        gated.map((skill) => skill.id),
+        ['plain-helper'],
+        'required-tools mismatch is hidden',
+      );
 
       const officeHost: HostCapabilities = { toolNames: new Set(['Read', 'OfficeDocument']) };
       const officeGated = await listInvocableSkills(source, officeHost);
-      assert.deepEqual(officeGated.map((skill) => skill.id).sort(), ['office-helper', 'plain-helper']);
+      assert.deepEqual(officeGated.map((skill) => skill.id).sort(), [
+        'office-helper',
+        'plain-helper',
+      ]);
     });
   });
 
   it('discovers skills across all standard paths with first-found-wins dedupe', async () => {
     await withWorkspace(async (workspaceRoot, homeDir) => {
       const projectDir = join(workspaceRoot, 'project');
-      await writeSkillAt(projectDir, '.agents', 'skills', 'project-skill', `---
+      await writeSkillAt(
+        projectDir,
+        '.agents',
+        'skills',
+        'project-skill',
+        `---
 name: Project Skill
 description: Project level.
 ---
-# Project Skill`);
-      await writeSkillAt(projectDir, '.agents', 'skills', 'shadowed', `---
+# Project Skill`,
+      );
+      await writeSkillAt(
+        projectDir,
+        '.agents',
+        'skills',
+        'shadowed',
+        `---
 name: Project Shadow
 description: Project copy wins.
 ---
-# Project Shadow`);
-      await writeSkill(workspaceRoot, 'shadowed', `---
+# Project Shadow`,
+      );
+      await writeSkill(
+        workspaceRoot,
+        'shadowed',
+        `---
 name: Workspace Shadow
 description: Workspace copy loses.
 ---
-# Workspace Shadow`);
+# Workspace Shadow`,
+      );
 
       const source = resolveSkillDiscoveryPaths(projectDir, workspaceRoot, homeDir);
       const listed = await listInvocableSkills(source);
@@ -87,30 +126,50 @@ description: Workspace copy loses.
 
   it('resolves several requests against one scan with per-request failures', async () => {
     await withWorkspace(async (workspaceRoot, homeDir) => {
-      await writeSkill(workspaceRoot, 'alpha', `---
+      await writeSkill(
+        workspaceRoot,
+        'alpha',
+        `---
 name: Alpha
 description: First.
 ---
 # Alpha
-Alpha body.`);
-      await writeSkill(workspaceRoot, 'beta', `---
+Alpha body.`,
+      );
+      await writeSkill(
+        workspaceRoot,
+        'beta',
+        `---
 name: Beta
 description: Second.
 required-tools: [MissingTool]
 ---
 # Beta
-Beta body.`);
-      await writeSkill(workspaceRoot, 'gamma', `---
+Beta body.`,
+      );
+      await writeSkill(
+        workspaceRoot,
+        'gamma',
+        `---
 name: Gamma
 description: Disabled.
 ---
-# Gamma`);
+# Gamma`,
+      );
       await writeSkillRuntimeState(workspaceRoot, new Map([['gamma', false]]));
 
       const source = resolveSkillDiscoveryPaths(workspaceRoot, workspaceRoot, homeDir);
       const host: HostCapabilities = { toolNames: new Set(['Read']) };
-      const resolved = await resolveSkillInvocations(source, host, ['alpha', 'Beta', 'missing', 'gamma']);
-      assert.deepEqual(resolved.map((entry) => entry.request), ['alpha', 'Beta', 'missing', 'gamma']);
+      const resolved = await resolveSkillInvocations(source, host, [
+        'alpha',
+        'Beta',
+        'missing',
+        'gamma',
+      ]);
+      assert.deepEqual(
+        resolved.map((entry) => entry.request),
+        ['alpha', 'Beta', 'missing', 'gamma'],
+      );
       const [alpha, beta, missing, gamma] = resolved.map((entry) => entry.result);
       assert.equal(alpha.ok, true);
       if (alpha.ok) {
@@ -136,12 +195,16 @@ description: Disabled.
 
   it('matches loadSkillInstructions one-for-one against the same scan', async () => {
     await withWorkspace(async (workspaceRoot, homeDir) => {
-      await writeSkill(workspaceRoot, 'alpha', `---
+      await writeSkill(
+        workspaceRoot,
+        'alpha',
+        `---
 name: Alpha
 description: First.
 ---
 # Alpha
-Body.`);
+Body.`,
+      );
       const source = resolveSkillDiscoveryPaths(workspaceRoot, workspaceRoot, homeDir);
       const host: HostCapabilities = { toolNames: new Set(['Read']) };
       const [batched] = await resolveSkillInvocations(source, host, ['alpha']);
@@ -154,16 +217,31 @@ Body.`);
     const text = composeSkillInvocationMessage({
       userText: '帮我整理这周的进展',
       skills: [
-        fakeLoadedSkill({ id: 'weekly-report', name: '写周报', instructions: '# 写周报\n按模板整理。' }),
-        fakeLoadedSkill({ id: 'data<crunch>', name: 'Data "Crunch"', instructions: '# Data\nCrunch it.' }),
+        fakeLoadedSkill({
+          id: 'weekly-report',
+          name: '写周报',
+          instructions: '# 写周报\n按模板整理。',
+        }),
+        fakeLoadedSkill({
+          id: 'data<crunch>',
+          name: 'Data "Crunch"',
+          instructions: '# Data\nCrunch it.',
+        }),
       ],
     });
     const skillSectionEnd = text.indexOf('</invoked-skill>');
     assert.ok(text.startsWith('The user explicitly invoked'), 'trust framing opens the message');
     assert.match(text, /lower priority than system, developer, safety, and permission rules/);
     assert.match(text, /do not call the Skill tool again for these skills/);
-    assert.match(text, /<invoked-skill id="weekly-report" name="写周报">\n# 写周报\n按模板整理。\n<\/invoked-skill>/);
-    assert.match(text, /<invoked-skill id="data_crunch_" name="Data _Crunch_">/, 'attributes are sanitized');
+    assert.match(
+      text,
+      /<invoked-skill id="weekly-report" name="写周报">\n# 写周报\n按模板整理。\n<\/invoked-skill>/,
+    );
+    assert.match(
+      text,
+      /<invoked-skill id="data_crunch_" name="Data _Crunch_">/,
+      'attributes are sanitized',
+    );
     assert.ok(text.indexOf('data_crunch_') > skillSectionEnd - 400, 'block order is request order');
     assert.ok(text.endsWith('<user-message>\n帮我整理这周的进展\n</user-message>'));
   });
@@ -174,7 +252,11 @@ Body.`);
       skills: [fakeLoadedSkill({ id: 'weekly-report', name: '写周报', instructions: '# 写周报' })],
     });
     assert.doesNotMatch(text, /<user-message>/);
-    assert.ok(text.endsWith('The user provided no additional task text; follow the skill instructions above.'));
+    assert.ok(
+      text.endsWith(
+        'The user provided no additional task text; follow the skill instructions above.',
+      ),
+    );
   });
 
   it('preserves significant leading indentation in the user-message body', () => {
@@ -204,7 +286,9 @@ function fakeLoadedSkill(overrides: Partial<LoadedSkillInstructions>): LoadedSki
 
 // Tests pass an isolated homeDir so real user-level skills (~/.maka, ~/.agents)
 // on the dev machine never leak into discovery results.
-async function withWorkspace(fn: (workspaceRoot: string, homeDir: string) => Promise<void>): Promise<void> {
+async function withWorkspace(
+  fn: (workspaceRoot: string, homeDir: string) => Promise<void>,
+): Promise<void> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-runtime-skill-invocation-'));
   const homeDir = await mkdtemp(join(tmpdir(), 'maka-runtime-skill-invocation-home-'));
   try {

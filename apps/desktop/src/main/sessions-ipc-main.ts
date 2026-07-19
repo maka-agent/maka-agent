@@ -3,6 +3,7 @@ import { basename } from 'node:path';
 import { stat } from 'node:fs/promises';
 import { ipcMain } from 'electron';
 import {
+  DEFAULT_SESSION_NAME,
   isPermissionMode,
   isThinkingLevel,
   sanitizeTaskLedgerTask,
@@ -188,7 +189,7 @@ export function registerSessionsIpc(deps: SessionsIpcDeps): void {
         llmConnectionSlug: input.llmConnectionSlug ?? 'fake',
         model: input.model ?? 'fake-model',
         permissionMode: input.permissionMode ?? (await resolveDefaultPermissionMode(() => settingsStore.get())),
-        name: input.name ?? 'New Chat',
+        name: input.name ?? DEFAULT_SESSION_NAME,
         labels: input.labels,
       });
       emitSessionsChanged('created', session.id);
@@ -206,7 +207,7 @@ export function registerSessionsIpc(deps: SessionsIpcDeps): void {
       model,
       ...(thinkingLevel !== undefined ? { thinkingLevel } : {}),
       permissionMode: input?.permissionMode ?? (await resolveDefaultPermissionMode(() => settingsStore.get())),
-      name: input?.name ?? 'New Chat',
+      name: input?.name ?? DEFAULT_SESSION_NAME,
       labels: input?.labels,
     });
     emitSessionsChanged('created', session.id);

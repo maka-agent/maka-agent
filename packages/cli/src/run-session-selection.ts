@@ -61,12 +61,10 @@ async function selectLatestSession(
   deps: MakaRunSessionSelectionDeps,
 ): Promise<Extract<MakaRunSessionSelection, { kind: 'existing' }>> {
   const cwd = await deps.canonicalizeDirectory(input.explicitCwd ?? input.processCwd);
-  const candidates = input.sessions
-    .filter(isContinueCandidate)
-    .sort((left, right) => {
-      const timeDelta = right.lastMessageAt! - left.lastMessageAt!;
-      return timeDelta !== 0 ? timeDelta : left.id.localeCompare(right.id);
-    });
+  const candidates = input.sessions.filter(isContinueCandidate).sort((left, right) => {
+    const timeDelta = right.lastMessageAt! - left.lastMessageAt!;
+    return timeDelta !== 0 ? timeDelta : left.id.localeCompare(right.id);
+  });
   for (const session of candidates) {
     const sessionCwd = await tryCanonicalSessionCwd(session, deps);
     if (sessionCwd !== cwd) continue;
@@ -77,12 +75,14 @@ async function selectLatestSession(
 }
 
 function isContinueCandidate(session: SessionSummary): boolean {
-  return !session.isArchived
-    && (session.status === 'active' || session.status === 'aborted')
-    && typeof session.lastMessageAt === 'number'
-    && Number.isFinite(session.lastMessageAt)
-    && session.backend === 'ai-sdk'
-    && session.permissionMode !== 'ask';
+  return (
+    !session.isArchived &&
+    (session.status === 'active' || session.status === 'aborted') &&
+    typeof session.lastMessageAt === 'number' &&
+    Number.isFinite(session.lastMessageAt) &&
+    session.backend === 'ai-sdk' &&
+    session.permissionMode !== 'ask'
+  );
 }
 
 function assertSupportedSession(session: SessionSummary): void {
@@ -106,8 +106,8 @@ function assertExplicitConfigurationCompatible(
   >,
 ): void {
   if (
-    input.explicitConnection !== undefined
-    && input.explicitConnection !== session.llmConnectionSlug
+    input.explicitConnection !== undefined &&
+    input.explicitConnection !== session.llmConnectionSlug
   ) {
     throw new Error(`--connection conflicts with resumed session ${session.id}`);
   }
@@ -118,8 +118,8 @@ function assertExplicitConfigurationCompatible(
     throw new Error(`--thinking conflicts with resumed session ${session.id}`);
   }
   if (
-    input.explicitPermissionMode !== undefined
-    && input.explicitPermissionMode !== session.permissionMode
+    input.explicitPermissionMode !== undefined &&
+    input.explicitPermissionMode !== session.permissionMode
   ) {
     throw new Error(`--permission-mode conflicts with resumed session ${session.id}`);
   }

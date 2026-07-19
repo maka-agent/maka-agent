@@ -178,9 +178,12 @@ export function buildSmokeJobConfig(input: {
     agentEnv.MAKA_BENCHMARK_DATASET = overrides.benchmarkDataset || datasetName;
   }
 
-  const extraInstructionPaths = Object.prototype.hasOwnProperty.call(profile, 'extraInstructionPaths')
-    ? profile.extraInstructionPaths ?? []
-    : defaults.modelExtraInstructionPaths ?? [];
+  const extraInstructionPaths = Object.prototype.hasOwnProperty.call(
+    profile,
+    'extraInstructionPaths',
+  )
+    ? (profile.extraInstructionPaths ?? [])
+    : (defaults.modelExtraInstructionPaths ?? []);
 
   const config: Record<string, unknown> = {
     job_name: jobName,

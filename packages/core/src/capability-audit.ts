@@ -1,22 +1,22 @@
 import type { PlanReminder, PlanReminderRunStatus } from './plan-reminders.js';
 
 export const SOURCE_RECORD_TYPES = ['mcp', 'api', 'local'] as const;
-export type SourceRecordType = typeof SOURCE_RECORD_TYPES[number];
+export type SourceRecordType = (typeof SOURCE_RECORD_TYPES)[number];
 
 export const SOURCE_AUTH_TYPES = ['oauth', 'bearer', 'none'] as const;
-export type SourceAuthType = typeof SOURCE_AUTH_TYPES[number];
+export type SourceAuthType = (typeof SOURCE_AUTH_TYPES)[number];
 
 export const SOURCE_RECORD_STATUSES = ['ready', 'needs_auth', 'error', 'disabled'] as const;
-export type SourceRecordStatus = typeof SOURCE_RECORD_STATUSES[number];
+export type SourceRecordStatus = (typeof SOURCE_RECORD_STATUSES)[number];
 
 export const CAPABILITY_AUDIT_PERMISSION_MODES = ['explore', 'ask', 'execute'] as const;
-export type CapabilityAuditPermissionMode = typeof CAPABILITY_AUDIT_PERMISSION_MODES[number];
+export type CapabilityAuditPermissionMode = (typeof CAPABILITY_AUDIT_PERMISSION_MODES)[number];
 
 export const AUTOMATION_RECORD_TRIGGERS = ['manual', 'schedule', 'event'] as const;
-export type AutomationRecordTrigger = typeof AUTOMATION_RECORD_TRIGGERS[number];
+export type AutomationRecordTrigger = (typeof AUTOMATION_RECORD_TRIGGERS)[number];
 
 export const AUTOMATION_LAST_RUN_STATUSES = ['ok', 'error', 'skipped'] as const;
-export type AutomationLastRunStatus = typeof AUTOMATION_LAST_RUN_STATUSES[number];
+export type AutomationLastRunStatus = (typeof AUTOMATION_LAST_RUN_STATUSES)[number];
 
 export const LOCAL_SKILL_SOURCE_SLUG = 'workspace-skills';
 
@@ -93,15 +93,19 @@ export interface DeriveCapabilityAuditReportInput {
   planReminders?: readonly PlanReminder[];
 }
 
-export function deriveCapabilityAuditReport(input: DeriveCapabilityAuditReportInput = {}): CapabilityAuditReport {
+export function deriveCapabilityAuditReport(
+  input: DeriveCapabilityAuditReportInput = {},
+): CapabilityAuditReport {
   const now = Math.trunc(input.now ?? Date.now());
   const skills = normalizeSkillInputs(input.skills ?? []);
   const declaredToolKindCount = distinctDeclaredToolKinds(skills).length;
   const sources = normalizeSourceRecords(input.sources ?? []);
-  const needsLocalSkillSource = sources.length === 0 || skills.some((skill) => skill.sourceSlug === LOCAL_SKILL_SOURCE_SLUG);
-  const allSources = needsLocalSkillSource && !sources.some((source) => source.slug === LOCAL_SKILL_SOURCE_SLUG)
-    ? [localSkillSource(skills.length, declaredToolKindCount, now), ...sources]
-    : sources;
+  const needsLocalSkillSource =
+    sources.length === 0 || skills.some((skill) => skill.sourceSlug === LOCAL_SKILL_SOURCE_SLUG);
+  const allSources =
+    needsLocalSkillSource && !sources.some((source) => source.slug === LOCAL_SKILL_SOURCE_SLUG)
+      ? [localSkillSource(skills.length, declaredToolKindCount, now), ...sources]
+      : sources;
   const automations = (input.planReminders ?? []).map(planReminderToAutomationRecord);
 
   return {
@@ -140,13 +144,19 @@ function normalizeSourceRecords(sources: readonly SourceRecord[]): SourceRecord[
       authType: source.authType,
       scopeSummary: uniqueNonEmptyStrings(source.scopeSummary),
       status: source.status,
-      ...(typeof source.lastTestAt === 'number' ? { lastTestAt: Math.trunc(source.lastTestAt) } : {}),
+      ...(typeof source.lastTestAt === 'number'
+        ? { lastTestAt: Math.trunc(source.lastTestAt) }
+        : {}),
       ...(source.lastErrorReason ? { lastErrorReason: source.lastErrorReason } : {}),
     };
   });
 }
 
-function localSkillSource(skillCount: number, declaredToolKindCount: number, now: number): SourceRecord {
+function localSkillSource(
+  skillCount: number,
+  declaredToolKindCount: number,
+  now: number,
+): SourceRecord {
   const hasSkills = skillCount > 0;
   return {
     slug: LOCAL_SKILL_SOURCE_SLUG,
@@ -170,7 +180,9 @@ function planReminderToAutomationRecord(reminder: PlanReminder): AutomationRecor
     trigger: 'schedule',
     permissionMode: planReminderPermissionMode(reminder),
     ...(typeof reminder.lastRun?.at === 'number' ? { lastRunAt: reminder.lastRun.at } : {}),
-    ...(reminder.lastRun ? { lastRunStatus: mapPlanReminderRunStatus(reminder.lastRun.status) } : {}),
+    ...(reminder.lastRun
+      ? { lastRunStatus: mapPlanReminderRunStatus(reminder.lastRun.status) }
+      : {}),
   };
 }
 
@@ -203,13 +215,20 @@ function summarizeCapabilityAudit(
     declaredToolKindCount: distinctDeclaredToolKinds(skills).length,
     automationCount: automations.length,
     enabledAutomationCount: automations.filter((automation) => automation.enabled).length,
-    executableAutomationCount: automations.filter((automation) => automation.permissionMode === 'execute').length,
-    failedAutomationCount: automations.filter((automation) => automation.lastRunStatus === 'error').length,
-    skippedAutomationCount: automations.filter((automation) => automation.lastRunStatus === 'skipped').length,
+    executableAutomationCount: automations.filter(
+      (automation) => automation.permissionMode === 'execute',
+    ).length,
+    failedAutomationCount: automations.filter((automation) => automation.lastRunStatus === 'error')
+      .length,
+    skippedAutomationCount: automations.filter(
+      (automation) => automation.lastRunStatus === 'skipped',
+    ).length,
   };
 }
 
-function distinctDeclaredToolKinds(skills: readonly Pick<SkillAuditRecord, 'declaredTools'>[]): string[] {
+function distinctDeclaredToolKinds(
+  skills: readonly Pick<SkillAuditRecord, 'declaredTools'>[],
+): string[] {
   return uniqueNonEmptyStrings(skills.flatMap((skill) => skill.declaredTools));
 }
 

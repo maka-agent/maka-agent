@@ -25,7 +25,9 @@ afterEach(() => {
   for (const dir of cleanupDirs) {
     try {
       rmSync(dir, { recursive: true, force: true });
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }
   cleanupDirs = [];
 });
@@ -60,7 +62,13 @@ describe('applyConnectionDefaults', () => {
     const connectionsPath = makeTempConnections({
       defaultSlug: 'harbor-anthropic',
       connections: [
-        { slug: 'harbor-anthropic', providerType: 'anthropic', defaultModel: 'claude-sonnet-4-20250514', baseUrl: 'http://127.0.0.1:8537', enabled: true },
+        {
+          slug: 'harbor-anthropic',
+          providerType: 'anthropic',
+          defaultModel: 'claude-sonnet-4-20250514',
+          baseUrl: 'http://127.0.0.1:8537',
+          enabled: true,
+        },
       ],
     });
     const env: Record<string, string | undefined> = { MAKA_CONNECTIONS_PATH: connectionsPath };
@@ -432,15 +440,24 @@ describe('resolveHarborRunOptions backend guard', () => {
     const connectionsPath = makeTempConnections({
       defaultSlug: 'harbor-anthropic',
       connections: [
-        { slug: 'harbor-anthropic', providerType: 'anthropic', defaultModel: 'claude-sonnet-4-20250514', baseUrl: 'http://127.0.0.1:8537', enabled: true },
+        {
+          slug: 'harbor-anthropic',
+          providerType: 'anthropic',
+          defaultModel: 'claude-sonnet-4-20250514',
+          baseUrl: 'http://127.0.0.1:8537',
+          enabled: true,
+        },
       ],
     });
-    const opts = await resolveHarborRunOptions(
-      ['--backend', 'fake', '--instruction', 'test'],
-      { MAKA_CONNECTIONS_PATH: connectionsPath },
-    );
+    const opts = await resolveHarborRunOptions(['--backend', 'fake', '--instruction', 'test'], {
+      MAKA_CONNECTIONS_PATH: connectionsPath,
+    });
     assert.equal(opts.backend, 'fake');
-    assert.equal(opts.env.MAKA_MODEL, undefined, 'desktop default connection must not pollute fake backend');
+    assert.equal(
+      opts.env.MAKA_MODEL,
+      undefined,
+      'desktop default connection must not pollute fake backend',
+    );
     assert.equal(opts.env.MAKA_LLM_CONNECTION_SLUG, undefined);
   });
 
@@ -452,7 +469,13 @@ describe('resolveHarborRunOptions backend guard', () => {
     const connectionsPath = makeTempConnections({
       defaultSlug: 'harbor-anthropic',
       connections: [
-        { slug: 'harbor-anthropic', providerType: 'anthropic', defaultModel: 'claude-sonnet-4-20250514', baseUrl: 'http://127.0.0.1:8537', enabled: true },
+        {
+          slug: 'harbor-anthropic',
+          providerType: 'anthropic',
+          defaultModel: 'claude-sonnet-4-20250514',
+          baseUrl: 'http://127.0.0.1:8537',
+          enabled: true,
+        },
       ],
     });
     const opts = await resolveHarborRunOptions(
@@ -466,11 +489,16 @@ describe('resolveHarborRunOptions backend guard', () => {
   test('--api-key-file uses the SiliconFlow credential file env', async () => {
     const opts = await resolveHarborRunOptions(
       [
-        '--provider', 'siliconflow',
-        '--model', 'moonshotai/Kimi-K2.6',
-        '--instruction', 'test',
-        '--api-key-file', '/tmp/siliconflow-key',
-        '--isolation', 'harbor-local',
+        '--provider',
+        'siliconflow',
+        '--model',
+        'moonshotai/Kimi-K2.6',
+        '--instruction',
+        'test',
+        '--api-key-file',
+        '/tmp/siliconflow-key',
+        '--isolation',
+        'harbor-local',
       ],
       {},
     );
@@ -482,11 +510,16 @@ describe('resolveHarborRunOptions backend guard', () => {
   test('--api-key-file uses the Vercel Gateway namespace without consuming the creator/model prefix', async () => {
     const opts = await resolveHarborRunOptions(
       [
-        '--provider', 'vercel',
-        '--model', 'xai/grok-4.3',
-        '--instruction', 'test',
-        '--api-key-file', '/tmp/vercel-key',
-        '--isolation', 'harbor-local',
+        '--provider',
+        'vercel',
+        '--model',
+        'xai/grok-4.3',
+        '--instruction',
+        'test',
+        '--api-key-file',
+        '/tmp/vercel-key',
+        '--isolation',
+        'harbor-local',
       ],
       {},
     );

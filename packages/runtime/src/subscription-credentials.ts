@@ -1,7 +1,10 @@
 import type { ProviderType } from '@maka/core/llm-connections';
 import { TOKEN_REFRESH_SKEW_MS } from '@maka/core';
 
-export type OAuthSubscriptionProvider = Extract<ProviderType, 'claude-subscription' | 'openai-codex' | 'github-copilot'>;
+export type OAuthSubscriptionProvider = Extract<
+  ProviderType,
+  'claude-subscription' | 'openai-codex' | 'github-copilot'
+>;
 
 export interface OAuthSubscriptionTokens {
   access_token: string;
@@ -15,10 +18,14 @@ export interface OAuthSubscriptionTokens {
   base_url?: string;
 }
 
-export function isOAuthSubscriptionProvider(providerType: ProviderType): providerType is OAuthSubscriptionProvider {
-  return providerType === 'claude-subscription'
-    || providerType === 'openai-codex'
-    || providerType === 'github-copilot';
+export function isOAuthSubscriptionProvider(
+  providerType: ProviderType,
+): providerType is OAuthSubscriptionProvider {
+  return (
+    providerType === 'claude-subscription' ||
+    providerType === 'openai-codex' ||
+    providerType === 'github-copilot'
+  );
 }
 
 export function parseOAuthSubscriptionTokens(raw: string): OAuthSubscriptionTokens | null {
@@ -91,9 +98,9 @@ export type RefreshAndPersistOAuthSubscriptionTokensInput = {
 } & (
   | { providerType: OAuthSubscriptionProvider; refreshTokens?: never }
   | {
-    providerType?: never;
-    refreshTokens: (tokens: OAuthSubscriptionTokens) => Promise<OAuthSubscriptionTokens>;
-  }
+      providerType?: never;
+      refreshTokens: (tokens: OAuthSubscriptionTokens) => Promise<OAuthSubscriptionTokens>;
+    }
 );
 
 export type ResolveAndPersistOAuthSubscriptionTokensInput =
@@ -118,7 +125,9 @@ export async function resolveOAuthSubscriptionTokens(
   input: ResolveOAuthSubscriptionAccessTokenInput,
 ): Promise<OAuthSubscriptionTokens | null> {
   const result = await resolveAndPersistOAuthSubscriptionTokens(input);
-  return result.outcome === 'current' || result.outcome === 'refreshed' || result.outcome === 'superseded'
+  return result.outcome === 'current' ||
+    result.outcome === 'refreshed' ||
+    result.outcome === 'superseded'
     ? result.tokens
     : null;
 }
@@ -177,11 +186,11 @@ async function refreshAndPersistOAuthSubscriptionTokensFromRaw(
     refreshed = input.refreshTokens
       ? await input.refreshTokens(tokens)
       : await refreshOAuthSubscriptionTokens({
-        providerType: input.providerType,
-        tokens,
-        now: input.now,
-        fetchFn: input.fetchFn,
-      });
+          providerType: input.providerType,
+          tokens,
+          now: input.now,
+          fetchFn: input.fetchFn,
+        });
   } catch (error) {
     return { outcome: 'refresh-failed', error };
   }
@@ -260,7 +269,6 @@ export function isSupportedGitHubCopilotAccountToken(token: string): boolean {
   return token.startsWith('gho_') || token.startsWith('ghu_') || token.startsWith('github_pat_');
 }
 
-
 /**
  * Guard a refresh response before it may replace the stored authority:
  * a 200 with a missing/empty access token or a non-positive expiry must
@@ -273,8 +281,13 @@ function requireRefreshedTokenFields(
 ): { accessToken: string; expiresInMs: number } {
   const accessToken = payload.access_token;
   const expiresIn = payload.expires_in;
-  if (typeof accessToken !== 'string' || accessToken.length === 0
-    || typeof expiresIn !== 'number' || !Number.isFinite(expiresIn) || expiresIn <= 0) {
+  if (
+    typeof accessToken !== 'string' ||
+    accessToken.length === 0 ||
+    typeof expiresIn !== 'number' ||
+    !Number.isFinite(expiresIn) ||
+    expiresIn <= 0
+  ) {
     throw new Error(`${provider} OAuth token refresh returned an invalid token payload.`);
   }
   return { accessToken, expiresInMs: 1000 * expiresIn };
@@ -303,7 +316,7 @@ async function refreshClaudeSubscriptionTokens(
     }),
   });
   if (!response.ok) throw new Error(`Claude OAuth token refresh failed (${response.status}).`);
-  const payload = await response.json() as {
+  const payload = (await response.json()) as {
     access_token?: string;
     refresh_token?: string;
     expires_in?: number;
@@ -341,7 +354,7 @@ async function refreshOpenAiCodexTokens(
     body: body.toString(),
   });
   if (!response.ok) throw new Error(`Codex OAuth token refresh failed (${response.status}).`);
-  const payload = await response.json() as {
+  const payload = (await response.json()) as {
     access_token?: string;
     refresh_token?: string;
     id_token?: string;

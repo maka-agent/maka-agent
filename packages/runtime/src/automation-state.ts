@@ -79,7 +79,7 @@ export function computeJitter(
     return Math.floor(random() * maxJitter);
   }
   if (firesAtMs !== undefined && new Date(firesAtMs).getMinutes() % 30 === 0) {
-    return -(Math.floor(random() * ONE_SHOT_JITTER_MS));
+    return -Math.floor(random() * ONE_SHOT_JITTER_MS);
   }
   return 0;
 }
@@ -100,15 +100,19 @@ export class AutomationManager {
     durable?: boolean;
   }): AutomationDefinition | { error: string } {
     // Only count active/paused automations toward the limit (not completed/expired).
-    const activeCount = this.listForSession(input.sessionId)
-      .filter(a => a.status === 'active' || a.status === 'paused').length;
+    const activeCount = this.listForSession(input.sessionId).filter(
+      (a) => a.status === 'active' || a.status === 'paused',
+    ).length;
     if (activeCount >= MAX_AUTOMATIONS_PER_SESSION) {
-      return { error: `Maximum ${MAX_AUTOMATIONS_PER_SESSION} active automations per session reached.` };
+      return {
+        error: `Maximum ${MAX_AUTOMATIONS_PER_SESSION} active automations per session reached.`,
+      };
     }
 
     if (input.kind === 'heartbeat') {
-      const existing = this.listForSession(input.sessionId)
-        .filter(a => a.kind === 'heartbeat' && a.status === 'active');
+      const existing = this.listForSession(input.sessionId).filter(
+        (a) => a.kind === 'heartbeat' && a.status === 'active',
+      );
       if (existing.length >= 5) {
         return { error: 'Maximum 5 active heartbeat automations per session.' };
       }
@@ -119,7 +123,9 @@ export class AutomationManager {
     const nextFireAt = this.computeNextFire(input.schedule, now);
 
     if (nextFireAt === null && input.schedule.type === 'cron') {
-      return { error: `Invalid cron expression: "${input.schedule.expression}". Could not compute next fire time.` };
+      return {
+        error: `Invalid cron expression: "${input.schedule.expression}". Could not compute next fire time.`,
+      };
     }
 
     const defaultExpiry = now + DEFAULT_EXPIRY_DAYS * 24 * 60 * 60 * 1000;
@@ -203,7 +209,7 @@ export class AutomationManager {
   }
 
   listForSession(sessionId: string): AutomationDefinition[] {
-    return [...this.automations.values()].filter(a => a.sessionId === sessionId);
+    return [...this.automations.values()].filter((a) => a.sessionId === sessionId);
   }
 
   /**
@@ -214,7 +220,9 @@ export class AutomationManager {
    * manage them. Non-durable heartbeats stay private to their session.
    */
   listVisibleForSession(sessionId: string): AutomationDefinition[] {
-    return [...this.automations.values()].filter(a => a.sessionId === sessionId || a.durable === true);
+    return [...this.automations.values()].filter(
+      (a) => a.sessionId === sessionId || a.durable === true,
+    );
   }
 
   /** A session may manage its own automations plus any durable (app-global) one. */
@@ -223,7 +231,7 @@ export class AutomationManager {
   }
 
   listActive(): AutomationDefinition[] {
-    return [...this.automations.values()].filter(a => a.status === 'active');
+    return [...this.automations.values()].filter((a) => a.status === 'active');
   }
 
   /**
@@ -268,9 +276,8 @@ export class AutomationManager {
     // A one-shot does not auto-retry: null its nextFireAt now. A recurring job
     // advances to its next slot. Completion (once / maxFires) is committed only
     // after a successful outcome in attemptSucceeded.
-    automation.nextFireAt = automation.schedule.type === 'once'
-      ? null
-      : this.computeNextFire(automation.schedule, now);
+    automation.nextFireAt =
+      automation.schedule.type === 'once' ? null : this.computeNextFire(automation.schedule, now);
 
     // maxFires is a hard cap on the number of fire ATTEMPTS: once this attempt
     // reaches the cap, no further fire is scheduled — regardless of whether this
@@ -396,7 +403,8 @@ export class AutomationManager {
           // Its outcome was never committed, so record the uncertainty instead of
           // asserting a clean success — a genuine success leaves lastError null.
           automation.status = 'completed';
-          automation.lastError = 'Interrupted on restart before the fire outcome was recorded; not re-run.';
+          automation.lastError =
+            'Interrupted on restart before the fire outcome was recorded; not re-run.';
         } else {
           // A recurring automation should always carry a future fire time; a null
           // here is a corrupt/interrupted state — re-arm it.
@@ -415,8 +423,9 @@ export class AutomationManager {
   /** Remove completed/expired automations beyond a grace buffer (matches the
    *  old wakeup-scheduler's MAX_RECORDS_PER_SESSION=50 observable history). */
   private pruneTerminal(sessionId: string): void {
-    const terminal = this.listForSession(sessionId)
-      .filter(a => a.status === 'completed' || a.status === 'expired');
+    const terminal = this.listForSession(sessionId).filter(
+      (a) => a.status === 'completed' || a.status === 'expired',
+    );
     const MAX_TERMINAL_KEPT = 50;
     if (terminal.length <= MAX_TERMINAL_KEPT) return;
     terminal.sort((a, b) => a.updatedAt - b.updatedAt);
@@ -472,10 +481,27 @@ const MINUTES_PER_DAY = 24 * 60;
 const MAX_SEARCH_MINUTES = 8 * 366 * MINUTES_PER_DAY; // ~8 years, bounded
 
 const CRON_MONTH_ALIASES: Record<string, number> = {
-  jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12,
+  jan: 1,
+  feb: 2,
+  mar: 3,
+  apr: 4,
+  may: 5,
+  jun: 6,
+  jul: 7,
+  aug: 8,
+  sep: 9,
+  oct: 10,
+  nov: 11,
+  dec: 12,
 };
 const CRON_DOW_ALIASES: Record<string, number> = {
-  sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6,
+  sun: 0,
+  mon: 1,
+  tue: 2,
+  wed: 3,
+  thu: 4,
+  fri: 5,
+  sat: 6,
 };
 // Leap-year max days per month (Feb=29) — used only for impossible-date detection.
 const CRON_MAX_DAYS_IN_MONTH = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
@@ -507,10 +533,12 @@ function expandCronField(field: string, min: number, max: number): number[] | 's
     let lo: number;
     let hi: number;
     if (range === '*') {
-      lo = min; hi = max;
+      lo = min;
+      hi = max;
     } else if (range.includes('-')) {
       const [a, b] = range.split('-');
-      lo = parseInt(a, 10); hi = parseInt(b, 10);
+      lo = parseInt(a, 10);
+      hi = parseInt(b, 10);
       if (!Number.isInteger(lo) || !Number.isInteger(hi)) return null;
     } else {
       lo = parseInt(range, 10);
@@ -524,7 +552,11 @@ function expandCronField(field: string, min: number, max: number): number[] | 's
 }
 
 interface NormalizedCron {
-  minuteField: string; hourField: string; domField: string; monthField: string; dowField: string;
+  minuteField: string;
+  hourField: string;
+  domField: string;
+  monthField: string;
+  dowField: string;
 }
 
 /**
@@ -620,8 +652,8 @@ export function computeNextCronFire(expression: string, fromTime: number): numbe
     // returns 0-6 (0=Sunday). Match against the raw value, plus the 7-alias when
     // the day is Sunday, so fields like "7", "5-7", "0,7" all fire on Sundays.
     const dow = candidate.getDay();
-    const dowMatch = matchesCronField(dowField, dow, 0, 7)
-      || (dow === 0 && matchesCronField(dowField, 7, 0, 7));
+    const dowMatch =
+      matchesCronField(dowField, dow, 0, 7) || (dow === 0 && matchesCronField(dowField, 7, 0, 7));
     const dayMatch = bothDayFieldsRestricted
       ? domMatch || dowMatch // OR when both are constrained
       : domMatch && dowMatch; // AND when one is "*"

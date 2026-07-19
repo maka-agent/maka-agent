@@ -99,7 +99,9 @@ export function computeRequestShapeDiagnostic(
       // schema hash must reflect that subset — otherwise an inactive deferred
       // tool's schema change would falsely fire `tool_schema_changed`, and a
       // load would not be distinguishable from churn.
-      providerTools: providerVisibleTools(input.providerTools, input.activeTools).map(toolShapeForDiagnostics),
+      providerTools: providerVisibleTools(input.providerTools, input.activeTools).map(
+        toolShapeForDiagnostics,
+      ),
     }),
     historyProjectionHash: stableHash(input.priorMessages.map(messageShapeForHash)),
   };
@@ -119,10 +121,7 @@ export function computeRequestShapeDiagnostic(
       prior ? durableComponents(prior.componentHashes) : undefined,
     ),
     requestShapeHash,
-    requestShapeChangeReason: classifyRequestShapeChange(
-      componentHashes,
-      prior?.componentHashes,
-    ),
+    requestShapeChangeReason: classifyRequestShapeChange(componentHashes, prior?.componentHashes),
     componentHashes,
     ...(toolSchemaChangeReason !== undefined ? { toolSchemaChangeReason } : {}),
     ...(input.toolAvailability !== undefined ? { toolAvailability: input.toolAvailability } : {}),
@@ -177,7 +176,8 @@ function classifyRequestShapeChange(
   if (current.systemPromptHash !== prior.systemPromptHash) return 'system_prompt_changed';
   if (current.toolSchemaHash !== prior.toolSchemaHash) return 'tool_schema_changed';
   if (current.providerOptionsHash !== prior.providerOptionsHash) return 'provider_options_changed';
-  if (current.historyProjectionHash !== prior.historyProjectionHash) return 'history_projection_changed';
+  if (current.historyProjectionHash !== prior.historyProjectionHash)
+    return 'history_projection_changed';
   return 'stable';
 }
 
@@ -188,7 +188,10 @@ function classifyToolSchemaChange(
   priorAvail: ToolAvailabilityDiagnostic | undefined,
 ): ToolSchemaChangeReason | undefined {
   if (!prior || current.toolSchemaHash === prior.toolSchemaHash) return undefined;
-  if (isEnabledSourceStrictSuperset(currentAvail, priorAvail) && sourceCatalogStable(currentAvail, priorAvail)) {
+  if (
+    isEnabledSourceStrictSuperset(currentAvail, priorAvail) &&
+    sourceCatalogStable(currentAvail, priorAvail)
+  ) {
     return 'tool_source_enabled';
   }
   if (sourceStateChanged(currentAvail, priorAvail)) {
@@ -216,7 +219,9 @@ function sourceCatalogStable(
   prior: ToolAvailabilityDiagnostic | undefined,
 ): boolean {
   if (!current || !prior) return false;
-  return stableStringify(sourceCatalogShape(current)) === stableStringify(sourceCatalogShape(prior));
+  return (
+    stableStringify(sourceCatalogShape(current)) === stableStringify(sourceCatalogShape(prior))
+  );
 }
 
 function sourceStateChanged(
@@ -254,13 +259,15 @@ function toolShapeForDiagnostics(tool: MakaTool): unknown {
 function schemaShapeForHash(schema: unknown): unknown {
   if (isObjectLike(schema)) {
     try {
-      return stripJsonSchemaRuntimeFields(toJSONSchema(schema as never, {
-        io: 'input',
-        target: 'draft-07',
-        unrepresentable: 'any',
-        cycles: 'ref',
-        reused: 'inline',
-      }));
+      return stripJsonSchemaRuntimeFields(
+        toJSONSchema(schema as never, {
+          io: 'input',
+          target: 'draft-07',
+          unrepresentable: 'any',
+          cycles: 'ref',
+          reused: 'inline',
+        }),
+      );
     } catch {
       // Fall through to structural canonicalization for plain JSON-schema-like objects.
     }
@@ -319,7 +326,8 @@ function payloadShapeForHash(value: unknown): unknown {
 
 function canonicalize(value: unknown, parentKey?: string): unknown {
   if (value === null) return null;
-  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return value;
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean')
+    return value;
   if (typeof value === 'bigint') return value.toString();
   if (typeof value === 'undefined' || typeof value === 'function' || typeof value === 'symbol') {
     return `[${typeof value}]`;

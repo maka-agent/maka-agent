@@ -20,7 +20,8 @@ export const OPENCODE_TOOLCHAIN_SPEC = {
   opencode: {
     version: '1.17.18',
     archiveUrl: 'https://registry.npmjs.org/opencode-linux-x64/-/opencode-linux-x64-1.17.18.tgz',
-    archiveIntegrity: 'sha512-8BmT22yp7pCXXu/HvAMaJsNNd6xhmlUrGs5YZSfU0neZfkSZg+Dkf9IGsuOugOtL0x2erDg2/6rRBpcJAGmTrA==',
+    archiveIntegrity:
+      'sha512-8BmT22yp7pCXXu/HvAMaJsNNd6xhmlUrGs5YZSfU0neZfkSZg+Dkf9IGsuOugOtL0x2erDg2/6rRBpcJAGmTrA==',
     binarySha256: '0cbfb6de55aa4ce3c74da12d8516376033693a88abca6238c5be32bf98130636',
   },
 } as const;
@@ -43,15 +44,19 @@ const DEFINITION: PinnedNodeCliToolchainDefinition<typeof OPENCODE_TOOLCHAIN_SPE
     url: OPENCODE_TOOLCHAIN_SPEC.opencode.archiveUrl,
     integrity: OPENCODE_TOOLCHAIN_SPEC.opencode.archiveIntegrity,
   },
-  packageFiles: [{
-    archivePath: 'package/bin/opencode',
-    installedPath: 'bin/opencode',
-    sha256: OPENCODE_TOOLCHAIN_SPEC.opencode.binarySha256,
-    executable: true,
-  }],
+  packageFiles: [
+    {
+      archivePath: 'package/bin/opencode',
+      installedPath: 'bin/opencode',
+      sha256: OPENCODE_TOOLCHAIN_SPEC.opencode.binarySha256,
+      executable: true,
+    },
+  ],
 };
 
-export async function validatePreparedOpenCodeToolchain(path: string): Promise<PreparedOpenCodeToolchain> {
+export async function validatePreparedOpenCodeToolchain(
+  path: string,
+): Promise<PreparedOpenCodeToolchain> {
   await validatePreparedNodeCliToolchain(path, DEFINITION);
   return { path, fingerprint: OPENCODE_TOOLCHAIN_FINGERPRINT };
 }

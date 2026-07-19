@@ -30,11 +30,13 @@ describe('runOneShotCompletion provider registry path', () => {
           object: 'chat.completion',
           created: 1,
           model: 'moonshotai/Kimi-K2.6',
-          choices: [{
-            index: 0,
-            message: { role: 'assistant', content: 'OK' },
-            finish_reason: 'stop',
-          }],
+          choices: [
+            {
+              index: 0,
+              message: { role: 'assistant', content: 'OK' },
+              finish_reason: 'stop',
+            },
+          ],
           usage: { prompt_tokens: 4, completion_tokens: 1, total_tokens: 5 },
         });
       },

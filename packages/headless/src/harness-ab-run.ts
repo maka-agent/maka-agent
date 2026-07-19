@@ -9,10 +9,7 @@ import {
   type FixedPromptTask,
   type HarborTaskRunner,
 } from './fixed-prompt-controller.js';
-import {
-  HARNESS_AB_PAIR_CONCURRENCY,
-  type HarnessAbArmId,
-} from './harness-ab-manifest.js';
+import { HARNESS_AB_PAIR_CONCURRENCY, type HarnessAbArmId } from './harness-ab-manifest.js';
 
 export interface HarnessAbRuntimeArm {
   id: HarnessAbArmId;

@@ -9,6 +9,8 @@
 import { Check, ChevronDown, FolderOpen, GitBranch, History } from './icons.js';
 import { Button as UiButton } from './ui.js';
 import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from './primitives/menu.js';
+import { useUiLocale } from './locale-context.js';
+import { getConversationCopy } from './conversation-copy.js';
 
 export interface ComposerWorkspacePicker {
   label?: string;
@@ -38,6 +40,7 @@ export function ComposerWorkspaceRow(props: {
   branchPicker?: ComposerBranchPicker;
 }) {
   const wp = props.workspacePicker;
+  const copy = getConversationCopy(useUiLocale()).workspace;
   return (
     <div className="maka-composer-workspace-row">
       {/* The workspace and branch pickers are standard compact menu
@@ -57,15 +60,13 @@ export function ComposerWorkspaceRow(props: {
               className="maka-composer-workspace-picker"
               disabled={wp.pending === true}
               aria-busy={wp.pending === true ? 'true' : undefined}
-              title={wp.branch ? `选择工作目录 · ${wp.branch}` : '选择工作目录'}
-              aria-label={wp.branch
-                ? `选择工作目录：${wp.label ?? '当前工作目录'}，当前分支 ${wp.branch}`
-                : `选择工作目录：${wp.label ?? '当前工作目录'}`}
+              title={copy.chooseTitle(wp.branch ?? undefined)}
+              aria-label={copy.chooseAriaLabel(wp.label ?? copy.current, wp.branch ?? undefined)}
             >
               <FolderOpen size={13} aria-hidden="true" />
               {wp.label
                 ? <span className="maka-composer-workspace-current">{wp.label}</span>
-                : <span>选择工作目录</span>}
+                : <span>{copy.choose}</span>}
               <ChevronDown size={12} aria-hidden="true" />
             </UiButton>
           )}
@@ -83,14 +84,14 @@ export function ComposerWorkspaceRow(props: {
                 <MenuSeparator />
                 <MenuItem onClick={() => { wp.onOpen(); }}>
                   <FolderOpen size={13} aria-hidden="true" />
-                  <span>选择其他目录...</span>
+                  <span>{copy.chooseOther}</span>
                 </MenuItem>
               </>
             )
             : (
               <MenuItem onClick={() => { wp.onOpen(); }}>
                 <FolderOpen size={13} aria-hidden="true" />
-                <span>选择工作目录...</span>
+                <span>{copy.choose}</span>
               </MenuItem>
             )}
         </MenuPopup>
@@ -114,10 +115,8 @@ export function ComposerWorkspaceRow(props: {
                   className="maka-composer-branch-picker"
                   disabled={triggerDisabled}
                   aria-busy={triggerDisabled ? 'true' : undefined}
-                  title={bp.branch ? `分支：${bp.branch}` : '选择分支'}
-                  aria-label={bp.branch
-                    ? `切换分支：${bp.branch}`
-                    : '选择分支'}
+                  title={copy.branchTitle(bp.branch ?? undefined)}
+                  aria-label={copy.branchAriaLabel(bp.branch ?? undefined)}
                 >
                   <GitBranch size={13} aria-hidden="true" />
                   <span className="maka-composer-branch-current">{bp.branch ?? '—'}</span>
@@ -127,7 +126,7 @@ export function ComposerWorkspaceRow(props: {
             />
             <MenuPopup className="maka-composer-branch-menu" align="start" side="top" sideOffset={6}>
               {bp.branches.length === 0 ? (
-                <div className="maka-composer-branch-empty">无本地分支</div>
+                <div className="maka-composer-branch-empty">{copy.noBranches}</div>
               ) : (
                 bp.branches.map((b) => (
                   <MenuItem
@@ -158,5 +157,5 @@ export function ComposerWorkspaceRow(props: {
 function basenameFromPath(value: string): string {
   const trimmed = value.replace(/[\\/]+$/, '');
   const name = trimmed.split(/[\\/]/).filter(Boolean).pop();
-  return name || trimmed || '当前项目';
+  return name || trimmed;
 }

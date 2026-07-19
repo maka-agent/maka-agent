@@ -12,18 +12,23 @@ import { buildBuiltinTools } from '../builtin-tools.js';
 
 const capability = detectLinuxSandboxCapability();
 const requireLinuxSandboxSmoke = process.env.MAKA_REQUIRE_LINUX_SANDBOX_SMOKE === '1';
-const skipReason = process.platform !== 'linux'
-  ? 'Linux sandbox smoke runs only on Linux'
-  : capability.available
-    ? false
-    : 'bubblewrap is not available';
+const skipReason =
+  process.platform !== 'linux'
+    ? 'Linux sandbox smoke runs only on Linux'
+    : capability.available
+      ? false
+      : 'bubblewrap is not available';
 
 describe('Linux sandbox smoke', () => {
-  test('required Linux sandbox capability is available', { skip: !requireLinuxSandboxSmoke }, () => {
+  test('required Linux sandbox capability is available', {
+    skip: !requireLinuxSandboxSmoke,
+  }, () => {
     assert.equal(skipReason, false, capabilityFailureMessage());
   });
 
-  test('workspace-write can write workspace files and blocks sibling paths', { skip: skipReason }, async () => {
+  test('workspace-write can write workspace files and blocks sibling paths', {
+    skip: skipReason,
+  }, async () => {
     if (!capability.available) return;
     const workspace = await mkdtemp(join(tmpdir(), 'maka-linux-sandbox-workspace-'));
     const outside = await mkdtemp(join(tmpdir(), 'maka-linux-sandbox-outside-'));
@@ -32,7 +37,10 @@ describe('Linux sandbox smoke', () => {
       platform: 'linux',
       command: {
         program: '/bin/sh',
-        args: ['-lc', `echo ok > inside.txt && echo temp-ok > /tmp/maka-sandbox-temp.txt && ! echo nope > ${shellQuote(join(outside, 'outside.txt'))}`],
+        args: [
+          '-lc',
+          `echo ok > inside.txt && echo temp-ok > /tmp/maka-sandbox-temp.txt && ! echo nope > ${shellQuote(join(outside, 'outside.txt'))}`,
+        ],
         cwd: workspace,
         profile: createWorkspaceWritePermissionProfile(),
         pathContext: { workspaceRoots: [workspace], tmpdir: tmpdir(), slashTmp: '/tmp' },
@@ -41,11 +49,15 @@ describe('Linux sandbox smoke', () => {
     assert.equal(request.ok, true);
     if (!request.ok) return;
 
-    const result = await runProcessWithBoundedTail(request.exec.argv[0] ?? '', request.exec.argv.slice(1), {
-      cwd: workspace,
-      timeoutMs: 10_000,
-      fdInputs: request.exec.fdInputs,
-    });
+    const result = await runProcessWithBoundedTail(
+      request.exec.argv[0] ?? '',
+      request.exec.argv.slice(1),
+      {
+        cwd: workspace,
+        timeoutMs: 10_000,
+        fdInputs: request.exec.fdInputs,
+      },
+    );
 
     assert.equal(result.exitCode, 0, result.stderr);
     assert.equal(await readFile(join(workspace, 'inside.txt'), 'utf8'), 'ok\n');
@@ -71,18 +83,26 @@ describe('Linux sandbox smoke', () => {
     assert.equal(request.ok, true);
     if (!request.ok) return;
 
-    const result = await runProcessWithBoundedTail(request.exec.argv[0] ?? '', request.exec.argv.slice(1), {
-      cwd: workspace,
-      timeoutMs: 10_000,
-      fdInputs: request.exec.fdInputs,
-    });
+    const result = await runProcessWithBoundedTail(
+      request.exec.argv[0] ?? '',
+      request.exec.argv.slice(1),
+      {
+        cwd: workspace,
+        timeoutMs: 10_000,
+        fdInputs: request.exec.fdInputs,
+      },
+    );
 
     assert.equal(result.exitCode, 0, result.stderr);
     await assert.rejects(() => readFile(join(workspace, '.git', 'config'), 'utf8'));
-    await assert.rejects(() => readFile(join(workspace, 'packages', 'pkg', '.git', 'config'), 'utf8'));
+    await assert.rejects(() =>
+      readFile(join(workspace, 'packages', 'pkg', '.git', 'config'), 'utf8'),
+    );
   });
 
-  test('shell-launched Node uses runtime roots and the seccomp socket filter', { skip: skipReason }, async () => {
+  test('shell-launched Node uses runtime roots and the seccomp socket filter', {
+    skip: skipReason,
+  }, async () => {
     if (!capability.available) return;
     const workspace = await mkdtemp(join(tmpdir(), 'maka-linux-sandbox-network-'));
     const backend = new LinuxBubblewrapBackend({ capability });
@@ -111,17 +131,23 @@ describe('Linux sandbox smoke', () => {
     assert.equal(request.ok, true);
     if (!request.ok) return;
 
-    const result = await runProcessWithBoundedTail(request.exec.argv[0] ?? '', request.exec.argv.slice(1), {
-      cwd: workspace,
-      timeoutMs: 10_000,
-      fdInputs: request.exec.fdInputs,
-    });
+    const result = await runProcessWithBoundedTail(
+      request.exec.argv[0] ?? '',
+      request.exec.argv.slice(1),
+      {
+        cwd: workspace,
+        timeoutMs: 10_000,
+        fdInputs: request.exec.fdInputs,
+      },
+    );
 
     assert.equal(result.exitCode, 0, result.stderr);
     assert.equal(result.stdout, 'EPERM');
   });
 
-  test('builtin Bash executes a tool from a nonstandard host PATH inside bubblewrap', { skip: skipReason }, async () => {
+  test('builtin Bash executes a tool from a nonstandard host PATH inside bubblewrap', {
+    skip: skipReason,
+  }, async () => {
     if (!capability.available) return;
     const workspace = await mkdtemp(join(tmpdir(), 'maka-linux-sandbox-builtin-'));
     const toolRoot = await mkdtemp(join(homedir(), '.maka-linux-sandbox-tool-'));
@@ -142,15 +168,18 @@ describe('Linux sandbox smoke', () => {
       }).find((candidate) => candidate.name === 'Bash');
       if (!bash) throw new Error('Bash tool missing');
 
-      const result = await bash.impl({ command: 'maka-path-probe' }, {
-        sessionId: 'session-1',
-        turnId: 'turn-1',
-        toolCallId: 'tool-1',
-        cwd: workspace,
-        permissionMode: 'execute',
-        abortSignal: new AbortController().signal,
-        emitOutput: () => {},
-      }) as { output: { mode: string; stdout: string; stderr: string } };
+      const result = (await bash.impl(
+        { command: 'maka-path-probe' },
+        {
+          sessionId: 'session-1',
+          turnId: 'turn-1',
+          toolCallId: 'tool-1',
+          cwd: workspace,
+          permissionMode: 'execute',
+          abortSignal: new AbortController().signal,
+          emitOutput: () => {},
+        },
+      )) as { output: { mode: string; stdout: string; stderr: string } };
 
       assert.equal(result.output.mode, 'pipes');
       assert.equal(result.output.stdout, 'custom-tool-ok');

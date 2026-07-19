@@ -38,15 +38,24 @@ function fakeCtx(calls: unknown[], result?: Record<string, unknown>) {
   };
 }
 
-function recordingTaskLedger(task: Task): { taskLedger: TaskLedgerStore; outcomes: TaskAgentOutcome[] } {
+function recordingTaskLedger(task: Task): {
+  taskLedger: TaskLedgerStore;
+  outcomes: TaskAgentOutcome[];
+} {
   const outcomes: TaskAgentOutcome[] = [];
   const taskLedger = {
     list: async () => [task],
     get: async () => task,
     create: async () => ({ created: [], total: 1 }),
     update: async () => ({ updated: task, total: 1 }),
-    claim: async (_sessionId: string, _id: string, owner: TaskOwner) => ({ updated: { ...task, owner }, total: 1 }),
-    claimAvailable: async (_sessionId: string, _id: string, owner: TaskOwner) => ({ updated: { ...task, owner }, total: 1 }),
+    claim: async (_sessionId: string, _id: string, owner: TaskOwner) => ({
+      updated: { ...task, owner },
+      total: 1,
+    }),
+    claimAvailable: async (_sessionId: string, _id: string, owner: TaskOwner) => ({
+      updated: { ...task, owner },
+      total: 1,
+    }),
     settleAgentOutcome: async (_sessionId: string, _id: string, outcome: TaskAgentOutcome) => {
       outcomes.push(outcome);
       task.owner = outcome.owner;
@@ -124,19 +133,29 @@ describe('expert_dispatch tool', () => {
 
   test('settles a member self-claimed task with the real child run refs without auto-completing it', async () => {
     const task: Task = {
-      id: 'task-1', key: 'T1', subject: 'review correctness', status: 'in_progress',
+      id: 'task-1',
+      key: 'T1',
+      subject: 'review correctness',
+      status: 'in_progress',
       owner: {
-        actor: 'child_agent', agentId: 'expert:code-review:correctness-reviewer',
-        runId: 'claimed-child-run', turnId: 'child-turn',
+        actor: 'child_agent',
+        agentId: 'expert:code-review:correctness-reviewer',
+        runId: 'claimed-child-run',
+        turnId: 'child-turn',
       },
-      createdAt: 1, updatedAt: 1,
+      createdAt: 1,
+      updatedAt: 1,
     };
     const { taskLedger, outcomes } = recordingTaskLedger(task);
     const tool = buildExpertDispatchTool(CODE_REVIEW, { taskLedger });
     const base = fakeCtx([]) as ReturnType<typeof fakeCtx>;
     base.spawnChildAgent = async (raw: unknown) => {
       const input = raw as {
-        onReady?: (value: { turnId: string; agentId: string; agentName: string }) => void | Promise<void>;
+        onReady?: (value: {
+          turnId: string;
+          agentId: string;
+          agentName: string;
+        }) => void | Promise<void>;
       };
       await input.onReady?.({
         turnId: 'child-turn',
@@ -144,22 +163,29 @@ describe('expert_dispatch tool', () => {
         agentName: 'Correctness Reviewer',
       });
       return {
-        agentId: 'expert:code-review:correctness-reviewer', agentName: 'Correctness Reviewer',
-        turnId: 'child-turn', runId: 'child-run', status: 'completed', permissionMode: 'explore',
-        summary: 'evidence only', artifactIds: [],
+        agentId: 'expert:code-review:correctness-reviewer',
+        agentName: 'Correctness Reviewer',
+        turnId: 'child-turn',
+        runId: 'child-run',
+        status: 'completed',
+        permissionMode: 'explore',
+        summary: 'evidence only',
+        artifactIds: [],
       };
     };
     await tool.impl({ member: 'correctness-reviewer', task: 'review' }, base as never);
-    assert.deepEqual(outcomes, [{
-      status: 'completed',
-      owner: {
-        actor: 'child_agent',
-        agentId: 'expert:code-review:correctness-reviewer',
-        runId: 'child-run',
-        turnId: 'child-turn',
+    assert.deepEqual(outcomes, [
+      {
+        status: 'completed',
+        owner: {
+          actor: 'child_agent',
+          agentId: 'expert:code-review:correctness-reviewer',
+          runId: 'child-run',
+          turnId: 'child-turn',
+        },
+        reason: 'evidence only',
       },
-      reason: 'evidence only',
-    }]);
+    ]);
     assert.equal(task.status, 'in_progress');
   });
 
@@ -171,12 +197,18 @@ describe('expert_dispatch tool', () => {
     ] as const;
     for (const { status, failureClass } of cases) {
       const task: Task = {
-        id: `task-${status}`, key: `T-${status}`, subject: status, status: 'in_progress',
+        id: `task-${status}`,
+        key: `T-${status}`,
+        subject: status,
+        status: 'in_progress',
         owner: {
-          actor: 'child_agent', agentId: 'expert:code-review:correctness-reviewer',
-          runId: 'claimed-child-run', turnId: 'child-turn',
+          actor: 'child_agent',
+          agentId: 'expert:code-review:correctness-reviewer',
+          runId: 'claimed-child-run',
+          turnId: 'child-turn',
         },
-        createdAt: 1, updatedAt: 1,
+        createdAt: 1,
+        updatedAt: 1,
       };
       const { taskLedger, outcomes } = recordingTaskLedger(task);
       const tool = buildExpertDispatchTool(CODE_REVIEW, { taskLedger });
@@ -184,7 +216,11 @@ describe('expert_dispatch tool', () => {
       const spawn = ctx.spawnChildAgent;
       ctx.spawnChildAgent = async (raw: unknown) => {
         const input = raw as {
-          onReady?: (value: { turnId: string; agentId: string; agentName: string }) => void | Promise<void>;
+          onReady?: (value: {
+            turnId: string;
+            agentId: string;
+            agentName: string;
+          }) => void | Promise<void>;
         };
         await input.onReady?.({
           turnId: 'child-turn',
@@ -195,34 +231,46 @@ describe('expert_dispatch tool', () => {
       };
 
       await tool.impl({ member: 'correctness-reviewer', task: 'review' }, ctx as never);
-      assert.deepEqual(outcomes, [{
-        status,
-        owner: {
-          actor: 'child_agent',
-          agentId: 'expert:code-review:correctness-reviewer',
-          runId: 'claimed-child-run',
-          turnId: 'child-turn',
+      assert.deepEqual(outcomes, [
+        {
+          status,
+          owner: {
+            actor: 'child_agent',
+            agentId: 'expert:code-review:correctness-reviewer',
+            runId: 'claimed-child-run',
+            turnId: 'child-turn',
+          },
+          reason: failureClass,
         },
-        reason: failureClass,
-      }]);
+      ]);
     }
   });
 
   test('records a startup failure for a task claimed before the child throws', async () => {
     const task: Task = {
-      id: 'task-failed', key: 'T-failed', subject: 'failed', status: 'in_progress',
+      id: 'task-failed',
+      key: 'T-failed',
+      subject: 'failed',
+      status: 'in_progress',
       owner: {
-        actor: 'child_agent', agentId: 'expert:code-review:correctness-reviewer',
-        runId: 'claimed-child-run', turnId: 'child-turn',
+        actor: 'child_agent',
+        agentId: 'expert:code-review:correctness-reviewer',
+        runId: 'claimed-child-run',
+        turnId: 'child-turn',
       },
-      createdAt: 1, updatedAt: 1,
+      createdAt: 1,
+      updatedAt: 1,
     };
     const { taskLedger, outcomes } = recordingTaskLedger(task);
     const tool = buildExpertDispatchTool(CODE_REVIEW, { taskLedger });
     const ctx = fakeCtx([]);
     ctx.spawnChildAgent = async (raw: unknown) => {
       const input = raw as {
-        onReady?: (value: { turnId: string; agentId: string; agentName: string }) => void | Promise<void>;
+        onReady?: (value: {
+          turnId: string;
+          agentId: string;
+          agentName: string;
+        }) => void | Promise<void>;
       };
       await input.onReady?.({
         turnId: 'child-turn',
@@ -236,36 +284,32 @@ describe('expert_dispatch tool', () => {
       async () => await tool.impl({ member: 'correctness-reviewer', task: 'review' }, ctx as never),
       /child startup failed/,
     );
-    assert.deepEqual(outcomes, [{
-      status: 'failed',
-      owner: {
-        actor: 'child_agent',
-        agentId: 'expert:code-review:correctness-reviewer',
-        runId: 'claimed-child-run',
-        turnId: 'child-turn',
+    assert.deepEqual(outcomes, [
+      {
+        status: 'failed',
+        owner: {
+          actor: 'child_agent',
+          agentId: 'expert:code-review:correctness-reviewer',
+          runId: 'claimed-child-run',
+          turnId: 'child-turn',
+        },
+        reason: 'child startup failed',
       },
-      reason: 'child startup failed',
-    }]);
+    ]);
   });
 
   test('fails clearly when the runtime lacks the spawnChildAgent capability', async () => {
     const tool = buildExpertDispatchTool(CODE_REVIEW);
-    await assert.rejects(
-      async () => {
-        await tool.impl(
-          { member: 'correctness-reviewer', task: 'x' },
-          {
-            sessionId: 's',
-            turnId: 't',
-            cwd: '/tmp',
-            toolCallId: 'c',
-            abortSignal: new AbortController().signal,
-            emitOutput: () => {},
-          } as never,
-        );
-      },
-      /spawnChildAgent capability is unavailable/,
-    );
+    await assert.rejects(async () => {
+      await tool.impl({ member: 'correctness-reviewer', task: 'x' }, {
+        sessionId: 's',
+        turnId: 't',
+        cwd: '/tmp',
+        toolCallId: 'c',
+        abortSignal: new AbortController().signal,
+        emitOutput: () => {},
+      } as never);
+    }, /spawnChildAgent capability is unavailable/);
   });
 
   test('builds a tool by team id and returns undefined for unknown teams', () => {

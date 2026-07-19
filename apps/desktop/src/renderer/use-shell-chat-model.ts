@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { LlmConnection, SessionSummary, SettingsSection, ThinkingLevel } from '@maka/core';
+import type { LlmConnection, SessionSummary, SettingsSection, ThinkingLevel, UiLocale } from '@maka/core';
 import { thinkingVariantsForModel } from '@maka/core';
 import type { ChatModelChoice } from '@maka/ui';
 import { deriveSessionHealthNotice } from './session-health-notice';
 import { pickCatalogDefaultChatModel } from './model-catalog-choices';
 import { buildChatModelChoices, chatModelChoiceLabel, normalizeActiveChatModel } from './chat-model-selection';
 import type { ComposerDefaults } from './composer-defaults';
+import { getDesktopConversationCopy } from './locales/conversation-copy.js';
 
 type NewChatModel = { llmConnectionSlug: string; model: string };
 
@@ -33,6 +34,7 @@ export type SessionHealthNoticeView = {
  * the dep array (see the inline note).
  */
 export function useShellChatModel(options: {
+  uiLocale: UiLocale;
   connections: LlmConnection[];
   /**
    * Refresh counter from `useShellConnections`: bumps on every successful
@@ -74,7 +76,8 @@ export function useShellChatModel(options: {
   setPendingNewChatThinkingLevel: (next: ThinkingLevel | null) => void;
   sessionHealthNotice: SessionHealthNoticeView | undefined;
 } {
-  const { connections, connectionsRevision, defaultConnection, activeSession, activeSessionHasUserMessage, persistedComposerDefaults, openSettingsSection } = options;
+  const { uiLocale, connections, connectionsRevision, defaultConnection, activeSession, activeSessionHasUserMessage, persistedComposerDefaults, openSettingsSection } = options;
+  const conversationCopy = getDesktopConversationCopy(uiLocale);
   // Persisted composer defaults seed the empty-state model so the home view is
   // populated before the async `app:info` round-trip completes on mount.
   const [pendingNewChatModel, setPendingNewChatModel] = useState<NewChatModel | null>(
@@ -110,7 +113,7 @@ export function useShellChatModel(options: {
     : undefined;
   const newChatModel = validPendingNewChatModel ?? catalogDefaultNewChatModel;
   const activeConnectionLabel = activeSession?.backend === 'fake'
-    ? '本地模拟连接'
+    ? conversationCopy.model.fakeBackendLabel
     : activeConnection?.name ?? activeSession?.llmConnectionSlug;
   const activeModel = activeSession?.backend === 'fake'
     ? undefined
@@ -174,6 +177,7 @@ export function useShellChatModel(options: {
   // wrap the returned `onClickTarget` here with the Settings-jump action.
   const sessionHealthNotice = useMemo<SessionHealthNoticeView | undefined>(() => {
     const derived = deriveSessionHealthNotice({
+      locale: uiLocale,
       session: activeSession
         ? {
             backend: activeSession.backend,
@@ -214,6 +218,7 @@ export function useShellChatModel(options: {
     defaultConnection,
     secretPresence,
     activeConnection?.lastTestStatus,
+    uiLocale,
   ]);
 
   return {

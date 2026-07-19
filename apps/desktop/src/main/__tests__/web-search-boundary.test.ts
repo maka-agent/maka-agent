@@ -452,8 +452,8 @@ describe('web-search renderer boundary (PR-WEB-SEARCH-TAVILY-0)', () => {
     assert.ok(toolResultPreview, 'ToolResultPreview block must exist');
     assert.match(toolResultPreview![0], /content\.kind === 'web_search_error'/);
     assert.ok(errorPreview, 'WebSearchErrorPreview block must exist');
-    assert.match(errorPreview![0], /环境变量/);
-    assert.match(errorPreview![0], /设置 · 联网搜索/);
+    assert.match(errorPreview![0], /copy\.credentialSource\.env/);
+    assert.match(errorPreview![0], /copy\.webGuidance\.settings/);
     assert.doesNotMatch(errorPreview![0], /JSON\.stringify|<pre/);
   });
 });

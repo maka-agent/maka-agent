@@ -26,7 +26,8 @@ const CANDIDATE_RATIONALE_MAX_TEXT_CHARS = 280;
 const CANDIDATE_RATIONALE_MAX_SERIALIZED_CHARS = 2000;
 const META_AGENT_MAX_ATTEMPTS = 3;
 const META_AGENT_RETRY_ERROR_MAX_CHARS = 240;
-const FORBIDDEN_RATIONALE_TEXT_RE = /```|\r|\n|held[-_]out|verifier|expected[- ]output|\/app\/|tests\/|test\.sh|canary|runtime-events|events\.jsonl|raw trace/i;
+const FORBIDDEN_RATIONALE_TEXT_RE =
+  /```|\r|\n|held[-_]out|verifier|expected[- ]output|\/app\/|tests\/|test\.sh|canary|runtime-events|events\.jsonl|raw trace/i;
 
 export interface TrajectoryDigest {
   taskId: string;
@@ -162,10 +163,11 @@ export async function runPromptCandidateRound(
   if (input.agentCwdPath === undefined) {
     throw new Error('agentCwdPath is required before exposing controller artifacts');
   }
-  await assertControllerOnlyArtifactsOutsideAgentCwd(
-    input.agentCwdPath,
-    [input.resultsTsvPath, input.resultsJsonlPath, ...heldOutArtifactPaths],
-  );
+  await assertControllerOnlyArtifactsOutsideAgentCwd(input.agentCwdPath, [
+    input.resultsTsvPath,
+    input.resultsJsonlPath,
+    ...heldOutArtifactPaths,
+  ]);
   await assertSystemPromptPathMatchesGit(input.systemPromptPath, input.git);
   await assertRegularSystemPromptFile(input.systemPromptPath, input.git.gitRootPath);
   await input.git.assertSystemPromptClean();
@@ -188,7 +190,11 @@ export async function runPromptCandidateRound(
     ...(input.rsiAnalysis ? { rsiAnalysis: input.rsiAnalysis } : {}),
     ...(promptAttribution ? { promptAttribution } : {}),
   });
-  const candidateRationale = validateCandidateRationale(result.candidateRationale, input.heldInTaskIds, input.rsiAnalysis);
+  const candidateRationale = validateCandidateRationale(
+    result.candidateRationale,
+    input.heldInTaskIds,
+    input.rsiAnalysis,
+  );
 
   await writeFile(input.systemPromptPath, result.systemPrompt, 'utf8');
   let commitSha: string;
@@ -200,17 +206,20 @@ export async function runPromptCandidateRound(
     throw error;
   }
   try {
-    await appendFixedPromptWalEvent(input.resultsJsonlPath, promptCandidateCommittedEvent({
-      runId: input.runId,
-      roundId: input.roundId,
-      id: newId(),
-      ts: now(),
-      commitSha,
-      summary: result.summary,
-      systemPrompt: result.systemPrompt,
-      heldInTaskIds: input.heldInTaskIds,
-      candidateRationale,
-    }));
+    await appendFixedPromptWalEvent(
+      input.resultsJsonlPath,
+      promptCandidateCommittedEvent({
+        runId: input.runId,
+        roundId: input.roundId,
+        id: newId(),
+        ts: now(),
+        commitSha,
+        summary: result.summary,
+        systemPrompt: result.systemPrompt,
+        heldInTaskIds: input.heldInTaskIds,
+        candidateRationale,
+      }),
+    );
   } catch (error) {
     await input.git.rollbackCommit(commitSha);
     throw error;
@@ -270,18 +279,34 @@ async function assertControllerOnlyArtifactsOutsideAgentCwd(
   const artifactTargetPaths: ArtifactTargetPath[] = [];
   for (const artifactPath of artifactPaths) {
     const artifactAbsolutePath = resolve(artifactPath);
-    if (artifactAbsolutePath === agentCwdAbsolutePath || isPathInside(agentCwdAbsolutePath, artifactAbsolutePath)) {
-      visibleArtifacts.add(normalizeGitPath(relative(agentCwdAbsolutePath, artifactAbsolutePath) || basename(artifactPath)));
+    if (
+      artifactAbsolutePath === agentCwdAbsolutePath ||
+      isPathInside(agentCwdAbsolutePath, artifactAbsolutePath)
+    ) {
+      visibleArtifacts.add(
+        normalizeGitPath(
+          relative(agentCwdAbsolutePath, artifactAbsolutePath) || basename(artifactPath),
+        ),
+      );
     }
     const artifactRealPath = await realOrParentResolvedPath(artifactPath);
     artifactTargetPaths.push({ absolutePath: artifactAbsolutePath, realPath: artifactRealPath });
     if (artifactRealPath === agentCwdRealPath || isPathInside(agentCwdRealPath, artifactRealPath)) {
-      visibleArtifacts.add(normalizeGitPath(relative(agentCwdRealPath, artifactRealPath) || basename(artifactPath)));
+      visibleArtifacts.add(
+        normalizeGitPath(relative(agentCwdRealPath, artifactRealPath) || basename(artifactPath)),
+      );
     }
   }
-  await addSymlinkedControllerArtifacts(agentCwdAbsolutePath, agentCwdAbsolutePath, artifactTargetPaths, visibleArtifacts);
+  await addSymlinkedControllerArtifacts(
+    agentCwdAbsolutePath,
+    agentCwdAbsolutePath,
+    artifactTargetPaths,
+    visibleArtifacts,
+  );
   if (visibleArtifacts.size > 0) {
-    throw new Error(`controller-only artifacts must stay outside agent cwd: ${[...visibleArtifacts].join(', ')}`);
+    throw new Error(
+      `controller-only artifacts must stay outside agent cwd: ${[...visibleArtifacts].join(', ')}`,
+    );
   }
 }
 
@@ -302,20 +327,28 @@ async function addSymlinkedControllerArtifacts(
       } catch (error) {
         if (!isNotFound(error)) throw error;
       }
-      if (artifactPaths.some((artifactPath) => (
-        artifactPath.absolutePath === targetPath
-        || artifactPath.realPath === targetPath
-        || artifactPath.realPath === targetRealPath
-        || isPathInside(targetPath, artifactPath.absolutePath)
-        || isPathInside(targetPath, artifactPath.realPath)
-        || (targetRealPath !== undefined && isPathInside(targetRealPath, artifactPath.realPath))
-      ))) {
+      if (
+        artifactPaths.some(
+          (artifactPath) =>
+            artifactPath.absolutePath === targetPath ||
+            artifactPath.realPath === targetPath ||
+            artifactPath.realPath === targetRealPath ||
+            isPathInside(targetPath, artifactPath.absolutePath) ||
+            isPathInside(targetPath, artifactPath.realPath) ||
+            (targetRealPath !== undefined && isPathInside(targetRealPath, artifactPath.realPath)),
+        )
+      ) {
         visibleArtifacts.add(normalizeGitPath(relative(agentCwdPath, entryPath)));
       }
       continue;
     }
     if (entry.isDirectory()) {
-      await addSymlinkedControllerArtifacts(agentCwdPath, entryPath, artifactPaths, visibleArtifacts);
+      await addSymlinkedControllerArtifacts(
+        agentCwdPath,
+        entryPath,
+        artifactPaths,
+        visibleArtifacts,
+      );
     }
   }
 }
@@ -394,7 +427,10 @@ export function createScriptedMetaAgent(input: CreateScriptedMetaAgentInput): Me
     let lastParseError = 'unknown schema error';
     for (let attempt = 1; attempt <= META_AGENT_MAX_ATTEMPTS; attempt += 1) {
       const raw = await input.complete({
-        prompt: attempt === 1 ? basePrompt : renderMetaAgentRetryPrompt(basePrompt, attempt, lastParseError),
+        prompt:
+          attempt === 1
+            ? basePrompt
+            : renderMetaAgentRetryPrompt(basePrompt, attempt, lastParseError),
       });
       try {
         return parseMetaAgentResult(raw);
@@ -407,7 +443,11 @@ export function createScriptedMetaAgent(input: CreateScriptedMetaAgentInput): Me
   };
 }
 
-function renderMetaAgentRetryPrompt(basePrompt: string, attempt: number, validationError: string): string {
+function renderMetaAgentRetryPrompt(
+  basePrompt: string,
+  attempt: number,
+  validationError: string,
+): string {
   return [
     basePrompt.trimEnd(),
     '',
@@ -450,17 +490,18 @@ export function renderMetaAgentPrompt(input: MetaAgentPromptInput): string {
 }
 
 function renderRsiAnalysis(analysis: RsiRoundAnalysis | undefined): string[] {
-  return analysis ? [
-    '# RSI R2 Held-In Analysis',
-    JSON.stringify(analysis, null, 2),
-  ] : [];
+  return analysis ? ['# RSI R2 Held-In Analysis', JSON.stringify(analysis, null, 2)] : [];
 }
 
-function renderPromptAttribution(attribution: ProjectRsiPromptAttributionInput | undefined): string[] {
-  return attribution ? [
-    '# RSI R2 Previous Prompt Attribution',
-    JSON.stringify(projectRsiPromptAttribution(attribution), null, 2),
-  ] : [];
+function renderPromptAttribution(
+  attribution: ProjectRsiPromptAttributionInput | undefined,
+): string[] {
+  return attribution
+    ? [
+        '# RSI R2 Previous Prompt Attribution',
+        JSON.stringify(projectRsiPromptAttribution(attribution), null, 2),
+      ]
+    : [];
 }
 
 export function filterResultsTsvForHeldIn(
@@ -522,16 +563,22 @@ function parseCandidateRationaleShape(value: unknown): CandidateRationale {
   }
   const serialized = JSON.stringify(value);
   if (serialized.length > CANDIDATE_RATIONALE_MAX_SERIALIZED_CHARS) {
-    throw new Error(`candidateRationale must serialize to at most ${CANDIDATE_RATIONALE_MAX_SERIALIZED_CHARS} characters`);
+    throw new Error(
+      `candidateRationale must serialize to at most ${CANDIDATE_RATIONALE_MAX_SERIALIZED_CHARS} characters`,
+    );
   }
   if (value.editedSurface !== 'system_prompt') {
     throw new Error('candidateRationale.editedSurface must be "system_prompt"');
   }
   if (
-    typeof value.failurePattern !== 'undefined'
-    && !PROMPT_CANDIDATE_FAILURE_PATTERNS.includes(value.failurePattern as PromptCandidateFailurePattern)
+    typeof value.failurePattern !== 'undefined' &&
+    !PROMPT_CANDIDATE_FAILURE_PATTERNS.includes(
+      value.failurePattern as PromptCandidateFailurePattern,
+    )
   ) {
-    throw new Error(`candidateRationale.failurePattern must be one of: ${PROMPT_CANDIDATE_FAILURE_PATTERNS.join(', ')}`);
+    throw new Error(
+      `candidateRationale.failurePattern must be one of: ${PROMPT_CANDIDATE_FAILURE_PATTERNS.join(', ')}`,
+    );
   }
   const hypothesis = parseRationaleTextShape(value.hypothesis, 'hypothesis');
   const targetedFix = parseRationaleTextShape(value.targetedFix, 'targetedFix');
@@ -540,10 +587,14 @@ function parseCandidateRationaleShape(value: unknown): CandidateRationale {
   const riskTasks = parseTaskIdArrayShape(value.riskTasks, 'riskTasks');
   const failurePattern = value.failurePattern as CandidateFailurePattern | undefined;
   if (evidenceRefs.length === 0 && typeof failurePattern === 'undefined') {
-    throw new Error('candidateRationale.failurePattern fallback is required when evidenceRefs is empty');
+    throw new Error(
+      'candidateRationale.failurePattern fallback is required when evidenceRefs is empty',
+    );
   }
   if (evidenceRefs.length > 0 && typeof failurePattern !== 'undefined') {
-    throw new Error('candidateRationale.failurePattern must be omitted when evidenceRefs cites current analysis');
+    throw new Error(
+      'candidateRationale.failurePattern must be omitted when evidenceRefs cites current analysis',
+    );
   }
   return {
     editedSurface: 'system_prompt',
@@ -556,7 +607,10 @@ function parseCandidateRationaleShape(value: unknown): CandidateRationale {
   };
 }
 
-function validateEvidenceRefs(candidateRationale: CandidateRationale, rsiAnalysis: RsiRoundAnalysis | undefined): void {
+function validateEvidenceRefs(
+  candidateRationale: CandidateRationale,
+  rsiAnalysis: RsiRoundAnalysis | undefined,
+): void {
   const { evidenceRefs } = candidateRationale;
   if (!rsiAnalysis) {
     if (evidenceRefs.length > 0) {
@@ -565,12 +619,16 @@ function validateEvidenceRefs(candidateRationale: CandidateRationale, rsiAnalysi
     return;
   }
   if (rsiAnalysis.signals.length > 0 && evidenceRefs.length === 0) {
-    throw new Error('candidateRationale.evidenceRefs must cite at least one current analysis signal');
+    throw new Error(
+      'candidateRationale.evidenceRefs must cite at least one current analysis signal',
+    );
   }
   const known = new Set(rsiAnalysis.signals.map((signal) => signal.id));
   for (const ref of evidenceRefs) {
     if (!known.has(ref)) {
-      throw new Error(`candidateRationale.evidenceRefs contains unknown analysis signal id: ${ref}`);
+      throw new Error(
+        `candidateRationale.evidenceRefs contains unknown analysis signal id: ${ref}`,
+      );
     }
   }
 }
@@ -580,7 +638,9 @@ function parseRationaleTextShape(value: unknown, field: string): string {
     throw new Error(`candidateRationale.${field} must be a non-empty string`);
   }
   if (value.length > CANDIDATE_RATIONALE_MAX_TEXT_CHARS) {
-    throw new Error(`candidateRationale.${field} must be at most ${CANDIDATE_RATIONALE_MAX_TEXT_CHARS} characters`);
+    throw new Error(
+      `candidateRationale.${field} must be at most ${CANDIDATE_RATIONALE_MAX_TEXT_CHARS} characters`,
+    );
   }
   if (FORBIDDEN_RATIONALE_TEXT_RE.test(value)) {
     throw new Error(`candidateRationale.${field} contains forbidden prompt-memory content`);
@@ -588,7 +648,11 @@ function parseRationaleTextShape(value: unknown, field: string): string {
   return value;
 }
 
-function validateHeldInTaskIds(value: unknown, field: string, heldInTaskIds: readonly string[]): void {
+function validateHeldInTaskIds(
+  value: unknown,
+  field: string,
+  heldInTaskIds: readonly string[],
+): void {
   const taskIds = parseTaskIdArrayShape(value, field);
   const heldIn = new Set(heldInTaskIds);
   for (const item of taskIds) {
@@ -603,7 +667,9 @@ function parseTaskIdArrayShape(value: unknown, field: string): readonly string[]
     throw new Error(`candidateRationale.${field} must be an array`);
   }
   if (value.length > CANDIDATE_RATIONALE_MAX_TASK_IDS) {
-    throw new Error(`candidateRationale.${field} must contain at most ${CANDIDATE_RATIONALE_MAX_TASK_IDS} items`);
+    throw new Error(
+      `candidateRationale.${field} must contain at most ${CANDIDATE_RATIONALE_MAX_TASK_IDS} items`,
+    );
   }
   for (const item of value) {
     if (typeof item !== 'string' || item.length === 0) {
@@ -664,7 +730,10 @@ export function assertOnlySystemPromptChanged(
   }
 }
 
-async function assertRegularSystemPromptFile(systemPromptPath: string, gitRootPath: string): Promise<void> {
+async function assertRegularSystemPromptFile(
+  systemPromptPath: string,
+  gitRootPath: string,
+): Promise<void> {
   const stat = await lstat(systemPromptPath);
   if (!stat.isFile() || stat.isSymbolicLink()) {
     throw new Error('system_prompt.md must be a regular file');
@@ -678,7 +747,9 @@ async function assertRegularSystemPromptFile(systemPromptPath: string, gitRootPa
   }
 }
 
-export function createCliPromptCandidateGit(input: CreateCliPromptCandidateGitInput): PromptCandidateGit {
+export function createCliPromptCandidateGit(
+  input: CreateCliPromptCandidateGitInput,
+): PromptCandidateGit {
   const gitRootPath = realpathSync(findGitRoot(input.cwd));
   const systemPromptPath = isAbsolute(input.systemPromptPath)
     ? realpathSync(input.systemPromptPath)
@@ -710,14 +781,14 @@ export function createCliPromptCandidateGit(input: CreateCliPromptCandidateGitIn
       const baseline = statusBaseline ?? new Map<string, string>();
       const current = await gitStatusSnapshot(gitRootPath);
       const paths = new Set([...baseline.keys(), ...current.keys()]);
-      return [...paths].filter((path) => (
-        baseline.get(path) !== current.get(path)
-      ));
+      return [...paths].filter((path) => baseline.get(path) !== current.get(path));
     },
     async commit(message: string): Promise<string> {
       await assertGitHeadUnchanged(gitRootPath, headBaseline);
       await execFileAsync('git', ['add', '--', systemPromptGitPath], { cwd: gitRootPath });
-      await execFileAsync('git', ['commit', '-m', message, '--', systemPromptGitPath], { cwd: gitRootPath });
+      await execFileAsync('git', ['commit', '-m', message, '--', systemPromptGitPath], {
+        cwd: gitRootPath,
+      });
       const { stdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: gitRootPath });
       return stdout.trim();
     },
@@ -727,10 +798,14 @@ export function createCliPromptCandidateGit(input: CreateCliPromptCandidateGitIn
         throw new Error('candidate prompt commit cannot be rolled back because HEAD moved');
       }
       await execFileAsync('git', ['reset', '--soft', `${commitSha}^`], { cwd: gitRootPath });
-      await execFileAsync('git', ['restore', '--staged', '--worktree', '--', systemPromptGitPath], { cwd: gitRootPath });
+      await execFileAsync('git', ['restore', '--staged', '--worktree', '--', systemPromptGitPath], {
+        cwd: gitRootPath,
+      });
     },
     async restoreSystemPrompt(): Promise<void> {
-      await execFileAsync('git', ['restore', '--staged', '--worktree', '--', systemPromptGitPath], { cwd: gitRootPath });
+      await execFileAsync('git', ['restore', '--staged', '--worktree', '--', systemPromptGitPath], {
+        cwd: gitRootPath,
+      });
     },
   };
 }
@@ -767,11 +842,11 @@ async function hasGitDiff(cwd: string, args: readonly string[]): Promise<boolean
 }
 
 async function gitStatusFiles(cwd: string): Promise<readonly string[]> {
-  const { stdout } = await execFileAsync('git', [
-    'status',
-    '--porcelain',
-    '--untracked-files=all',
-  ], { cwd });
+  const { stdout } = await execFileAsync(
+    'git',
+    ['status', '--porcelain', '--untracked-files=all'],
+    { cwd },
+  );
   return stdout
     .split('\n')
     .map((line) => statusPath(line))
@@ -824,7 +899,12 @@ function findGitRoot(cwd: string): string {
 
 function isPathInside(rootPath: string, targetPath: string): boolean {
   const relativePath = relative(rootPath, targetPath).split('\\').join('/');
-  return relativePath !== '' && relativePath !== '..' && !relativePath.startsWith('../') && !isAbsolute(relativePath);
+  return (
+    relativePath !== '' &&
+    relativePath !== '..' &&
+    !relativePath.startsWith('../') &&
+    !isAbsolute(relativePath)
+  );
 }
 
 function toGitRelativePath(cwd: string, path: string): string {
@@ -877,19 +957,23 @@ async function extractToolFailureDigests(
       count: (current?.count ?? 0) + 1,
     });
   }
-  return [...failures.values()]
-    .sort(compareToolFailures)
-    .slice(0, 5);
+  return [...failures.values()].sort(compareToolFailures).slice(0, 5);
 }
 
-function renderToolFailureSummary(digests: readonly TrajectoryDigest[], resultsTsv: string): string[] {
+function renderToolFailureSummary(
+  digests: readonly TrajectoryDigest[],
+  resultsTsv: string,
+): string[] {
   const passedByTask = passedResultsByTask(resultsTsv);
   const failures = new Map<string, { digest: TrajectoryToolFailureDigest; taskIds: Set<string> }>();
   for (const digest of digests) {
     if (passedByTask?.get(digest.taskId) === true) continue;
     for (const failure of digest.toolFailures ?? []) {
       const key = [failure.name, failure.errorClass ?? '', failure.argsPreview ?? ''].join('\0');
-      const current = failures.get(key) ?? { digest: { ...failure, count: 0 }, taskIds: new Set<string>() };
+      const current = failures.get(key) ?? {
+        digest: { ...failure, count: 0 },
+        taskIds: new Set<string>(),
+      };
       current.digest = { ...failure, count: current.digest.count + failure.count };
       current.taskIds.add(digest.taskId);
       failures.set(key, current);
@@ -898,12 +982,14 @@ function renderToolFailureSummary(digests: readonly TrajectoryDigest[], resultsT
   const lines = [...failures.values()]
     .sort((a, b) => compareToolFailures(a.digest, b.digest))
     .slice(0, 10)
-    .map(({ digest, taskIds }) => [
-      `${digest.name} x${digest.count}`,
-      ...(digest.errorClass ? [`error=${digest.errorClass}`] : []),
-      ...(digest.argsPreview ? [`args=${digest.argsPreview}`] : []),
-      `tasks=${[...taskIds].sort((a, b) => a.localeCompare(b)).join(',')}`,
-    ].join(' '));
+    .map(({ digest, taskIds }) =>
+      [
+        `${digest.name} x${digest.count}`,
+        ...(digest.errorClass ? [`error=${digest.errorClass}`] : []),
+        ...(digest.argsPreview ? [`args=${digest.argsPreview}`] : []),
+        `tasks=${[...taskIds].sort((a, b) => a.localeCompare(b)).join(',')}`,
+      ].join(' '),
+    );
   return lines.length > 0 ? ['# Held-In Tool Failure Summary', ...lines] : [];
 }
 
@@ -934,9 +1020,12 @@ function functionCallDigest(event: unknown): TrajectoryToolCallDigest | undefine
   };
 }
 
-function functionCallDigestWithId(event: unknown): (TrajectoryToolCallDigest & { id: string }) | undefined {
+function functionCallDigestWithId(
+  event: unknown,
+): (TrajectoryToolCallDigest & { id: string }) | undefined {
   const call = functionCallDigest(event);
-  if (!call || !isRecord(event) || !isRecord(event.content) || typeof event.content.id !== 'string') return undefined;
+  if (!call || !isRecord(event) || !isRecord(event.content) || typeof event.content.id !== 'string')
+    return undefined;
   return { ...call, id: event.content.id };
 }
 
@@ -951,16 +1040,23 @@ function toolFailureDigest(
   return {
     name: promptSafeToken(data.toolName, 'unknown_tool'),
     count: 1,
-    ...(typeof data.errorClass === 'string' ? { errorClass: promptSafeToken(data.errorClass, 'unknown_error') } : {}),
+    ...(typeof data.errorClass === 'string'
+      ? { errorClass: promptSafeToken(data.errorClass, 'unknown_error') }
+      : {}),
     ...(call?.argsPreview ? { argsPreview: call.argsPreview } : {}),
   };
 }
 
-function compareToolFailures(a: TrajectoryToolFailureDigest, b: TrajectoryToolFailureDigest): number {
-  return b.count - a.count
-    || a.name.localeCompare(b.name)
-    || (a.errorClass ?? '').localeCompare(b.errorClass ?? '')
-    || (a.argsPreview ?? '').localeCompare(b.argsPreview ?? '');
+function compareToolFailures(
+  a: TrajectoryToolFailureDigest,
+  b: TrajectoryToolFailureDigest,
+): number {
+  return (
+    b.count - a.count ||
+    a.name.localeCompare(b.name) ||
+    (a.errorClass ?? '').localeCompare(b.errorClass ?? '') ||
+    (a.argsPreview ?? '').localeCompare(b.argsPreview ?? '')
+  );
 }
 
 function modelVisibleStrings(event: unknown): readonly string[] {
@@ -989,7 +1085,9 @@ function argsPreview(args: unknown): string {
     .join(',');
 }
 
-function stripPromptOnlyToolFailures(digests: readonly TrajectoryDigest[]): readonly Omit<TrajectoryDigest, 'toolFailures'>[] {
+function stripPromptOnlyToolFailures(
+  digests: readonly TrajectoryDigest[],
+): readonly Omit<TrajectoryDigest, 'toolFailures'>[] {
   return digests.map(({ toolFailures: _toolFailures, ...digest }) => digest);
 }
 

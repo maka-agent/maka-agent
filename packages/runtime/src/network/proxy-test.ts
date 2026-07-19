@@ -19,7 +19,8 @@ export async function testProxyConnection(
   const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
   if (!proxy.enabled) return { ok: false, latencyMs: 0, error: 'Proxy disabled' };
-  if (!proxy.host || !proxy.port) return { ok: false, latencyMs: 0, error: 'Proxy host/port required' };
+  if (!proxy.host || !proxy.port)
+    return { ok: false, latencyMs: 0, error: 'Proxy host/port required' };
 
   const dispatcher = buildProxyDispatcher(proxy);
   const controller = new AbortController();
@@ -30,10 +31,13 @@ export async function testProxyConnection(
       destroy?: (error?: Error) => void | Promise<void>;
     };
     if (force && typeof disposable.destroy === 'function') {
-      await Promise.resolve(disposable.destroy.call(dispatcher, new Error('Proxy test timeout'))).catch(() => {});
+      await Promise.resolve(
+        disposable.destroy.call(dispatcher, new Error('Proxy test timeout')),
+      ).catch(() => {});
       return;
     }
-    if (typeof disposable.close === 'function') await disposable.close.call(dispatcher).catch(() => {});
+    if (typeof disposable.close === 'function')
+      await disposable.close.call(dispatcher).catch(() => {});
   };
   const timeout = new Promise<never>((_resolve, reject) => {
     const timer = setTimeout(() => {
@@ -54,13 +58,22 @@ export async function testProxyConnection(
     });
     const response = await Promise.race([request, timeout]);
     const latencyMs = Date.now() - startedAt;
-    if (!response.ok) return { ok: false, status: response.status, latencyMs, error: `HTTP ${response.status}` };
+    if (!response.ok)
+      return { ok: false, status: response.status, latencyMs, error: `HTTP ${response.status}` };
 
     const ip = (await response.text()).trim() || undefined;
-    const countryCode = ip ? await lookupCountry(ip, dispatcher as Dispatcher, controller.signal) : undefined;
-    const countryFlag = countryCode && countryCode.length === 2
-      ? String.fromCodePoint(...countryCode.toUpperCase().split('').map((char) => 127_397 + char.charCodeAt(0)))
+    const countryCode = ip
+      ? await lookupCountry(ip, dispatcher as Dispatcher, controller.signal)
       : undefined;
+    const countryFlag =
+      countryCode && countryCode.length === 2
+        ? String.fromCodePoint(
+            ...countryCode
+              .toUpperCase()
+              .split('')
+              .map((char) => 127_397 + char.charCodeAt(0)),
+          )
+        : undefined;
 
     return { ok: true, status: response.status, latencyMs, ip, countryCode, countryFlag };
   } catch (error) {
@@ -81,8 +94,11 @@ async function lookupCountry(
   signal: AbortSignal,
 ): Promise<string | undefined> {
   try {
-    // @ts-expect-error undici fetch accepts dispatcher.
-    const response = await fetch(`https://api.country.is/${encodeURIComponent(ip)}`, { dispatcher, signal });
+    const response = await fetch(`https://api.country.is/${encodeURIComponent(ip)}`, {
+      // @ts-expect-error undici fetch accepts dispatcher.
+      dispatcher,
+      signal,
+    });
     if (!response.ok) return undefined;
     const json = (await response.json()) as { country?: string };
     return json.country;

@@ -118,10 +118,7 @@ function normalizeTelegramReplyToMessageId(value: string | undefined): number | 
  * trims, dedups, and caps the persisted array, so this function only
  * has to do membership.
  */
-function isAllowedUser(
-  allowedUserIds: ReadonlyArray<string> | undefined,
-  userId: string,
-): boolean {
+function isAllowedUser(allowedUserIds: ReadonlyArray<string> | undefined, userId: string): boolean {
   if (!allowedUserIds || allowedUserIds.length === 0) return true;
   return allowedUserIds.includes(userId);
 }
@@ -147,13 +144,8 @@ function telegramAttachmentKind(message: any): BotAttachmentKind | undefined {
   if (message.animation) return 'animation';
   if (message.video || message.video_note) return 'video';
   if (message.document) return 'document';
-  if (
-    message.location ||
-    message.contact ||
-    message.poll ||
-    message.dice ||
-    message.venue
-  ) return 'unknown';
+  if (message.location || message.contact || message.poll || message.dice || message.venue)
+    return 'unknown';
   return undefined;
 }
 
@@ -172,10 +164,7 @@ const EPHEMERAL_REPLY_MAX_MS = 48 * 60 * 60 * 1_000;
 function ephemeralDelayFromOptions(options: BotSendOptions | undefined): number | undefined {
   if (!options || typeof options.ephemeralTtlMs !== 'number') return undefined;
   if (!Number.isFinite(options.ephemeralTtlMs) || options.ephemeralTtlMs <= 0) return undefined;
-  return Math.min(
-    Math.max(options.ephemeralTtlMs, EPHEMERAL_REPLY_MIN_MS),
-    EPHEMERAL_REPLY_MAX_MS,
-  );
+  return Math.min(Math.max(options.ephemeralTtlMs, EPHEMERAL_REPLY_MIN_MS), EPHEMERAL_REPLY_MAX_MS);
 }
 
 /**
@@ -213,7 +202,10 @@ const TELEGRAM_RETRY_MAX_MS = 30_000;
 function classifyTelegramSendResponse(response: any): TelegramSendClassification {
   if (response && response.ok === true) {
     const id = response.result?.message_id;
-    return { kind: 'ok', messageId: typeof id === 'number' || typeof id === 'string' ? String(id) : null };
+    return {
+      kind: 'ok',
+      messageId: typeof id === 'number' || typeof id === 'string' ? String(id) : null,
+    };
   }
   if (response && response.error_code === 429) {
     const raw = Number(response.parameters?.retry_after ?? 0);
@@ -221,7 +213,8 @@ function classifyTelegramSendResponse(response: any): TelegramSendClassification
     const delayMs = Math.min(Math.max(requested, TELEGRAM_RETRY_MIN_MS), TELEGRAM_RETRY_MAX_MS);
     return { kind: 'retry', delayMs };
   }
-  const description = typeof response?.description === 'string' ? response.description : 'send-failed';
+  const description =
+    typeof response?.description === 'string' ? response.description : 'send-failed';
   return { kind: 'fatal', description };
 }
 
@@ -245,10 +238,7 @@ export class SimpleBotBridge extends BaseBotAdapter implements SendCapable {
   private abortController: AbortController | null = null;
   private offset = 0;
 
-  constructor(
-    platform: BotPlatform,
-    settings: BotChannelSettings,
-  ) {
+  constructor(platform: BotPlatform, settings: BotChannelSettings) {
     super(platform, settings);
   }
 
@@ -297,7 +287,11 @@ export class SimpleBotBridge extends BaseBotAdapter implements SendCapable {
     this.emitStatusChange();
   }
 
-  async sendMessage(chatId: string, text: string, options?: BotSendOptions): Promise<string | null> {
+  async sendMessage(
+    chatId: string,
+    text: string,
+    options?: BotSendOptions,
+  ): Promise<string | null> {
     if (this.platform !== 'telegram' || !this.running) return null;
     // PR-TELEGRAM-UTF16-LIMIT-0: split first if the message would
     // exceed Telegram's 4096 UTF-16 code unit cap. The split helper
@@ -321,9 +315,7 @@ export class SimpleBotBridge extends BaseBotAdapter implements SendCapable {
       }
       if (classification.kind !== 'ok') {
         this.readiness = this.readiness === 'operational' ? 'degraded' : 'credentials_valid';
-        this.reason = classification.kind === 'retry'
-          ? 'rate-limited'
-          : classification.description;
+        this.reason = classification.kind === 'retry' ? 'rate-limited' : classification.description;
         this.emitStatusChange();
         return null;
       }
@@ -397,7 +389,8 @@ export class SimpleBotBridge extends BaseBotAdapter implements SendCapable {
       void this.pollTelegram();
     } catch (error) {
       this.reason = generalizedErrorMessage(error);
-      this.readiness = this.readiness === 'operational' ? 'degraded' : botReadinessFromSettings(this.settings);
+      this.readiness =
+        this.readiness === 'operational' ? 'degraded' : botReadinessFromSettings(this.settings);
       this.emitStatusChange();
     }
   }
@@ -438,7 +431,8 @@ export class SimpleBotBridge extends BaseBotAdapter implements SendCapable {
     } catch (error) {
       this.running = false;
       this.reason = generalizedErrorMessage(error);
-      this.readiness = this.readiness === 'operational' ? 'degraded' : botReadinessFromSettings(this.settings);
+      this.readiness =
+        this.readiness === 'operational' ? 'degraded' : botReadinessFromSettings(this.settings);
       this.emitStatusChange();
     }
   }
@@ -507,10 +501,14 @@ export class SimpleBotBridge extends BaseBotAdapter implements SendCapable {
   }
 }
 
-async function telegramApi(token: string, method: string, body?: Record<string, unknown>, signal?: AbortSignal): Promise<any> {
-  const timeoutMs = typeof body?.timeout === 'number'
-    ? (body.timeout + 5) * 1_000
-    : TELEGRAM_REQUEST_TIMEOUT_MS;
+async function telegramApi(
+  token: string,
+  method: string,
+  body?: Record<string, unknown>,
+  signal?: AbortSignal,
+): Promise<any> {
+  const timeoutMs =
+    typeof body?.timeout === 'number' ? (body.timeout + 5) * 1_000 : TELEGRAM_REQUEST_TIMEOUT_MS;
   const response = await proxiedFetch(`https://api.telegram.org/bot${token}/${method}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -521,13 +519,19 @@ async function telegramApi(token: string, method: string, body?: Record<string, 
   return response.json();
 }
 
-async function feishuTenantAccessToken(appId: string, appSecret: string): Promise<{ ok: true; token: string } | { ok: false; error: string }> {
-  const response = await proxiedFetch('https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ app_id: appId, app_secret: appSecret }),
-    timeoutMs: FEISHU_REQUEST_TIMEOUT_MS,
-  });
+async function feishuTenantAccessToken(
+  appId: string,
+  appSecret: string,
+): Promise<{ ok: true; token: string } | { ok: false; error: string }> {
+  const response = await proxiedFetch(
+    'https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ app_id: appId, app_secret: appSecret }),
+      timeoutMs: FEISHU_REQUEST_TIMEOUT_MS,
+    },
+  );
   const json = await response.json();
   if (json.code !== 0 || !json.tenant_access_token) {
     return { ok: false, error: json.msg ?? 'Failed to issue tenant_access_token' };

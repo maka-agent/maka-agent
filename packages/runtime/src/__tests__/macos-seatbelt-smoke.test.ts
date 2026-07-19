@@ -12,10 +12,7 @@ import {
 } from '@maka/core/permission-profile';
 import type { AdditionalPermissionProfile } from '@maka/core/additional-permissions';
 
-import {
-  MACOS_SEATBELT_EXECUTABLE,
-  MacosSeatbeltBackend,
-} from '../sandbox/macos-seatbelt.js';
+import { MACOS_SEATBELT_EXECUTABLE, MacosSeatbeltBackend } from '../sandbox/macos-seatbelt.js';
 import { SandboxManager } from '../sandbox/sandbox-manager.js';
 
 const canRunSeatbelt = process.platform === 'darwin' && existsSync(MACOS_SEATBELT_EXECUTABLE);

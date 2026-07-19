@@ -1,7 +1,7 @@
 import { StrictMode, useEffect } from 'react';
 import { ToastProvider } from '@maka/ui';
 import { AppShell } from './app-shell';
-import type { OnboardingSnapshot } from '../global';
+import type { OnboardingSnapshot } from '../preload/bridge-contract.js';
 
 export function App({
   initialOnboardingSnapshot = null,

@@ -49,7 +49,10 @@ describe('external Harbor benchmark failure policy', () => {
 
   test('completed runs never force a Harbor process error', () => {
     assert.deepEqual(
-      classifyExternalHarborBenchmarkFailure({ status: 'completed', errorClass: 'unsupported_adapter' }),
+      classifyExternalHarborBenchmarkFailure({
+        status: 'completed',
+        errorClass: 'unsupported_adapter',
+      }),
       { kind: 'none', shouldThrow: false },
     );
   });

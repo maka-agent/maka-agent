@@ -10,6 +10,8 @@ import {
   createQuestionDrafts,
   type QuestionAnswerDraft,
 } from './user-question-prompt-state.js';
+import { useUiLocale } from './locale-context.js';
+import { getConversationCopy } from './conversation-copy.js';
 
 const OTHER_VALUE = '__other__';
 
@@ -19,6 +21,7 @@ export function UserQuestionPrompt(props: {
   onStop(): void | Promise<void>;
   stopPending?: boolean;
 }) {
+  const copy = getConversationCopy(useUiLocale()).questions;
   const titleId = useId();
   const [questionIndex, setQuestionIndex] = useState(0);
   const [drafts, setDrafts] = useState<QuestionAnswerDraft[]>(() => createQuestionDrafts(props.request.questions));
@@ -121,8 +124,8 @@ export function UserQuestionPrompt(props: {
           >
             <span className="maka-question-radio" aria-hidden="true" />
             <span className="maka-question-option-copy">
-              <strong>其他</strong>
-              <small>输入一个不同的答案。</small>
+              <strong>{copy.other}</strong>
+              <small>{copy.otherDescription}</small>
             </span>
           </ChoiceCard>
         </ChoiceCardGroup>
@@ -130,9 +133,9 @@ export function UserQuestionPrompt(props: {
         {draft?.kind === 'other' && (
           <Input
             autoFocus
-            aria-label="其他答案"
+            aria-label={copy.otherAriaLabel}
             className="maka-question-other-input"
-            placeholder="输入你的答案"
+            placeholder={copy.otherPlaceholder}
             value={draft.value}
             disabled={interactionDisabled}
             onChange={(event) => updateDraft({ kind: 'other', value: event.currentTarget.value })}
@@ -147,7 +150,7 @@ export function UserQuestionPrompt(props: {
             disabled={props.stopPending}
             onClick={() => void props.onStop()}
           >
-            {props.stopPending ? '停止中…' : '停止'}
+            {props.stopPending ? copy.stopping : copy.stop}
           </Button>
           <Button
             type="button"
@@ -156,7 +159,7 @@ export function UserQuestionPrompt(props: {
             disabled={questionIndex === 0 || interactionDisabled}
             onClick={() => setQuestionIndex((current) => current - 1)}
           >
-            上一题
+            {copy.previous}
           </Button>
           <Button
             type="button"
@@ -165,7 +168,7 @@ export function UserQuestionPrompt(props: {
             disabled={!canContinue}
             onClick={() => isLast ? void submit() : setQuestionIndex((current) => current + 1)}
           >
-            {responsePending ? '正在提交…' : isLast ? '提交答案' : '下一题'}
+            {responsePending ? copy.submitting : isLast ? copy.submit : copy.next}
           </Button>
         </footer>
       </div>

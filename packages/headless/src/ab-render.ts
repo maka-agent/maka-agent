@@ -50,14 +50,29 @@ export function renderAbComparisonMarkdown(summary: AbComparisonSummary): string
     '',
   ];
   if (summary.taskLevel.missingTaskIds.length > 0) {
-    lines.push('## Missing Tasks', '', ...summary.taskLevel.missingTaskIds.map((taskId) => `- ${taskId}`), '');
+    lines.push(
+      '## Missing Tasks',
+      '',
+      ...summary.taskLevel.missingTaskIds.map((taskId) => `- ${taskId}`),
+      '',
+    );
   }
   if (summary.taskLevel.excludedTaskIds.length > 0) {
-    lines.push('## Excluded Tasks', '', ...summary.taskLevel.excludedTaskIds.map((taskId) => `- ${taskId}`), '');
+    lines.push(
+      '## Excluded Tasks',
+      '',
+      ...summary.taskLevel.excludedTaskIds.map((taskId) => `- ${taskId}`),
+      '',
+    );
   }
   const losses = summary.taskLevel.tasks.filter((task) => task.outcome === 'baseline_win');
   if (losses.length > 0) {
-    lines.push('## B Losses', '', ...losses.map((task) => `- ${task.taskId}: delta=${rate(task.passRateDelta)}`), '');
+    lines.push(
+      '## B Losses',
+      '',
+      ...losses.map((task) => `- ${task.taskId}: delta=${rate(task.passRateDelta)}`),
+      '',
+    );
   }
   if (investigationRefLines.length > 0) {
     lines.push(...investigationRefLines);
@@ -72,16 +87,38 @@ function renderTokenCost(summary: AbTokenCostSummary): string {
 function renderInvestigationRefLines(summary: AbComparisonSummary): string[] {
   const lines: string[] = [];
   if (summary.investigationRefs.activatedAttempts.length > 0) {
-    lines.push('## Activated Attempts', '', ...summary.investigationRefs.activatedAttempts.map((ref) => `- ${renderAttemptRef(ref)}`), '');
+    lines.push(
+      '## Activated Attempts',
+      '',
+      ...summary.investigationRefs.activatedAttempts.map((ref) => `- ${renderAttemptRef(ref)}`),
+      '',
+    );
   }
   if (summary.investigationRefs.candidateLosses.length > 0) {
-    lines.push('## B Loss Refs', '', ...summary.investigationRefs.candidateLosses.map((ref) => `- ${renderPairRef(ref)}`), '');
+    lines.push(
+      '## B Loss Refs',
+      '',
+      ...summary.investigationRefs.candidateLosses.map((ref) => `- ${renderPairRef(ref)}`),
+      '',
+    );
   }
   if (summary.investigationRefs.budgetDiscordantPairs.length > 0) {
-    lines.push('## Budget Discordant Refs', '', ...summary.investigationRefs.budgetDiscordantPairs.map((ref) => `- ${renderPairRef(ref)}`), '');
+    lines.push(
+      '## Budget Discordant Refs',
+      '',
+      ...summary.investigationRefs.budgetDiscordantPairs.map((ref) => `- ${renderPairRef(ref)}`),
+      '',
+    );
   }
   if (summary.investigationRefs.infraOrPlumbingDiscordantPairs.length > 0) {
-    lines.push('## Infra Or Plumbing Discordant Refs', '', ...summary.investigationRefs.infraOrPlumbingDiscordantPairs.map((ref) => `- ${renderPairRef(ref)}`), '');
+    lines.push(
+      '## Infra Or Plumbing Discordant Refs',
+      '',
+      ...summary.investigationRefs.infraOrPlumbingDiscordantPairs.map(
+        (ref) => `- ${renderPairRef(ref)}`,
+      ),
+      '',
+    );
   }
   return lines;
 }
@@ -95,7 +132,8 @@ function renderAttemptRef(ref: AbAttemptRef): string {
 }
 
 function renderContextBudgetPolicyLine(summary: AbComparisonSummary): string | undefined {
-  if (!summary.baseline.contextBudgetPolicy && !summary.candidate.contextBudgetPolicy) return undefined;
+  if (!summary.baseline.contextBudgetPolicy && !summary.candidate.contextBudgetPolicy)
+    return undefined;
   const baseline = summary.baseline.contextBudgetPolicy;
   const candidate = summary.candidate.contextBudgetPolicy;
   return `- Context budget policy: A enabled=${baseline?.enabledAttempts ?? 0}/${baseline?.attempts ?? 0} snapshots=${JSON.stringify(baseline?.snapshots ?? [])}, B enabled=${candidate?.enabledAttempts ?? 0}/${candidate?.attempts ?? 0} snapshots=${JSON.stringify(candidate?.snapshots ?? [])}`;
@@ -134,28 +172,32 @@ function renderTaskToolMetrics(summary: AbTaskToolSummary): string {
 }
 
 function taskToolsOrZero(summary: AbTaskToolSummary | undefined): AbTaskToolSummary {
-  return summary ?? {
-    attempts: 0,
-    activatedAttempts: 0,
-    activatedAttemptIds: [],
-    todoWriteCalls: 0,
-  };
+  return (
+    summary ?? {
+      attempts: 0,
+      activatedAttempts: 0,
+      activatedAttemptIds: [],
+      todoWriteCalls: 0,
+    }
+  );
 }
 
 function continuationOrZero(summary: AbContinuationSummary | undefined): AbContinuationSummary {
-  return summary ?? {
-    attempts: 0,
-    enabledAttempts: 0,
-    wallTimeoutMs: null,
-    turnsUsed: 0,
-    continuedTurns: 0,
-    stepCapHits: 0,
-    perTurnStepCapHits: [],
-    capExhaustedAttempts: 0,
-    totalRuntimeSteps: 0,
-    maxTurns: null,
-    maxTotalRuntimeSteps: null,
-  };
+  return (
+    summary ?? {
+      attempts: 0,
+      enabledAttempts: 0,
+      wallTimeoutMs: null,
+      turnsUsed: 0,
+      continuedTurns: 0,
+      stepCapHits: 0,
+      perTurnStepCapHits: [],
+      capExhaustedAttempts: 0,
+      totalRuntimeSteps: 0,
+      maxTurns: null,
+      maxTotalRuntimeSteps: null,
+    }
+  );
 }
 
 function decisionLabel(decision: AbDecision): string {
@@ -212,10 +254,14 @@ function renderContextBudgetMetrics(summary: AbContextBudgetSummary): string {
 }
 
 function renderCountRecord(record: Record<string, number>): string {
-  return JSON.stringify(Object.fromEntries(Object.entries(record).sort(([left], [right]) => left.localeCompare(right))));
+  return JSON.stringify(
+    Object.fromEntries(Object.entries(record).sort(([left], [right]) => left.localeCompare(right))),
+  );
 }
 
-function renderActivePruneSubsetMetrics(summary: NonNullable<AbComparisonSummary['candidate']['activePruneSubset']>): string {
+function renderActivePruneSubsetMetrics(
+  summary: NonNullable<AbComparisonSummary['candidate']['activePruneSubset']>,
+): string {
   const contextBudget = contextBudgetOrZero(summary.contextBudget);
   return [
     `tasks=${summary.taskCount}`,
@@ -236,58 +282,62 @@ function renderActivePruneSubsetMetrics(summary: NonNullable<AbComparisonSummary
 }
 
 function contextBudgetOrZero(summary: AbContextBudgetSummary | undefined): AbContextBudgetSummary {
-  return summary ?? {
-    diagnosticAttempts: 0,
-    activatedAttempts: 0,
-    activatedAttemptIds: [],
-    diagnosticEvents: 0,
-    prunedToolResults: 0,
-    activePrunedToolResults: 0,
-    activeEstimatedTokensSaved: 0,
-    activeArchiveFailures: 0,
-    archivePlaceholders: 0,
-    archivePlaceholderReasonCounts: {},
-    archiveWriteFailures: 0,
-    retrievedArchiveToolResults: 0,
-    retrievedArchiveEstimatedTokens: 0,
-    archiveRetrievalSkipped: 0,
-    archiveRetrievalSkippedReasonCounts: {},
-    archiveRetrievalFailures: 0,
-    archiveRetrievalFailureReasonCounts: {},
-  };
+  return (
+    summary ?? {
+      diagnosticAttempts: 0,
+      activatedAttempts: 0,
+      activatedAttemptIds: [],
+      diagnosticEvents: 0,
+      prunedToolResults: 0,
+      activePrunedToolResults: 0,
+      activeEstimatedTokensSaved: 0,
+      activeArchiveFailures: 0,
+      archivePlaceholders: 0,
+      archivePlaceholderReasonCounts: {},
+      archiveWriteFailures: 0,
+      retrievedArchiveToolResults: 0,
+      retrievedArchiveEstimatedTokens: 0,
+      archiveRetrievalSkipped: 0,
+      archiveRetrievalSkippedReasonCounts: {},
+      archiveRetrievalFailures: 0,
+      archiveRetrievalFailureReasonCounts: {},
+    }
+  );
 }
 
 function activePruneSubsetOrZero(
   summary: AbComparisonSummary['candidate']['activePruneSubset'] | undefined,
 ): NonNullable<AbComparisonSummary['candidate']['activePruneSubset']> {
-  return summary ?? {
-    taskCount: 0,
-    attempts: 0,
-    observed: 0,
-    valid: 0,
-    passed: 0,
-    passRate: null,
-    completed: 0,
-    budgetExhausted: 0,
-    infraFailed: 0,
-    plumbingFailed: 0,
-    attestationWarnings: 0,
-    missing: 0,
-    coverageRate: 1,
-    totalCostUsd: 0,
-    meanDurationMs: null,
-    tokenCostSummary: {
-      input: 0,
-      cachedInput: 0,
-      cacheHitInput: 0,
-      cacheMissInput: 0,
-      cacheWriteInput: 0,
-      output: 0,
-      reasoning: 0,
-      total: 0,
-      costUsd: 0,
+  return (
+    summary ?? {
+      taskCount: 0,
+      attempts: 0,
+      observed: 0,
+      valid: 0,
+      passed: 0,
+      passRate: null,
+      completed: 0,
+      budgetExhausted: 0,
+      infraFailed: 0,
+      plumbingFailed: 0,
+      attestationWarnings: 0,
+      missing: 0,
+      coverageRate: 1,
+      totalCostUsd: 0,
       meanDurationMs: null,
-    },
-    contextBudget: contextBudgetOrZero(undefined),
-  };
+      tokenCostSummary: {
+        input: 0,
+        cachedInput: 0,
+        cacheHitInput: 0,
+        cacheMissInput: 0,
+        cacheWriteInput: 0,
+        output: 0,
+        reasoning: 0,
+        total: 0,
+        costUsd: 0,
+        meanDurationMs: null,
+      },
+      contextBudget: contextBudgetOrZero(undefined),
+    }
+  );
 }

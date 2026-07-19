@@ -37,11 +37,14 @@ describe('subscription model fetch', () => {
     assert.equal(observedHeaders.get('user-agent'), 'claude-cli/2.1.153 (external, cli)');
     assert.equal(observedHeaders.get('x-api-key'), null);
     assert.equal(observedHeaders.get('X-Claude-Code-Session-Id'), 'session-123');
-    assert.equal(body.metadata.user_id, JSON.stringify({
-      device_id: 'device-123',
-      account_uuid: 'account-123',
-      session_id: 'session-123',
-    }));
+    assert.equal(
+      body.metadata.user_id,
+      JSON.stringify({
+        device_id: 'device-123',
+        account_uuid: 'account-123',
+        session_id: 'session-123',
+      }),
+    );
     assert.equal(body.system[0].text.startsWith('x-anthropic-billing-header:'), true);
     assert.equal(body.system[1].text, "You are Claude Code, Anthropic's official CLI for Claude.");
     assert.equal(body.system[2].text, 'Use the Maka system prompt.');
@@ -64,23 +67,25 @@ describe('subscription model fetch', () => {
 
   test('rejects Claude subscription cloaking without complete metadata', () => {
     assert.throws(
-      () => buildSubscriptionModelFetch({
-        connection: claudeSubscriptionConnection(),
-        sessionId: 'session-123',
-        modelId: 'claude-sonnet-4-5',
-      }),
+      () =>
+        buildSubscriptionModelFetch({
+          connection: claudeSubscriptionConnection(),
+          sessionId: 'session-123',
+          modelId: 'claude-sonnet-4-5',
+        }),
       /Claude subscription cloaking requires deviceId and accountUuid metadata/,
     );
     assert.throws(
-      () => buildSubscriptionModelFetch({
-        connection: claudeSubscriptionConnection(),
-        sessionId: 'session-123',
-        modelId: 'claude-sonnet-4-5',
-        claude: {
-          deviceId: 'device-123',
-          accountUuid: '',
-        },
-      }),
+      () =>
+        buildSubscriptionModelFetch({
+          connection: claudeSubscriptionConnection(),
+          sessionId: 'session-123',
+          modelId: 'claude-sonnet-4-5',
+          claude: {
+            deviceId: 'device-123',
+            accountUuid: '',
+          },
+        }),
       /Claude subscription cloaking requires deviceId and accountUuid metadata/,
     );
   });
@@ -149,7 +154,9 @@ describe('subscription model fetch', () => {
       body: toolBody,
     });
     const responsesBody = JSON.stringify({
-      input: [{ role: 'user', content: [{ type: 'input_text', text: 'look' }, { type: 'input_image' }] }],
+      input: [
+        { role: 'user', content: [{ type: 'input_text', text: 'look' }, { type: 'input_image' }] },
+      ],
     });
     await modelFetch('https://api.githubcopilot.com/responses', {
       method: 'POST',

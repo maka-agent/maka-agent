@@ -106,10 +106,13 @@ it('rejects projected previews that bypass the display safety boundary', () => {
     'password=not-redacted',
     'x'.repeat(WRITE_STDIN_INPUT_PREVIEW_MAX_CHARS + 1),
   ]) {
-    assert.deepEqual(projectToolActivityArgs('WriteStdin', {
-      ref,
-      inputPreview: { text, bytes: 20, truncated: false },
-    }), { ref });
+    assert.deepEqual(
+      projectToolActivityArgs('WriteStdin', {
+        ref,
+        inputPreview: { text, bytes: 20, truncated: false },
+      }),
+      { ref },
+    );
   }
 });
 

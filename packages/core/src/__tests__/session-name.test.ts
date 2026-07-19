@@ -10,15 +10,25 @@
 
 import { strict as assert } from 'node:assert';
 import { describe, it } from 'node:test';
-import {
-  SESSION_NAME_MAX_CODE_POINTS,
-  normalizeUserSessionName,
-} from '../session-name.js';
+import { SESSION_NAME_MAX_CODE_POINTS, normalizeUserSessionName } from '../session-name.js';
 
 describe('normalizeUserSessionName (PR-UI-IPC-2)', () => {
   describe('runtime-type guard', () => {
     it('non-string inputs reject with typed error (never throw)', () => {
-      for (const bad of [undefined, null, 42, 0, NaN, true, false, {}, [], Symbol('x'), () => '', BigInt(1)]) {
+      for (const bad of [
+        undefined,
+        null,
+        42,
+        0,
+        NaN,
+        true,
+        false,
+        {},
+        [],
+        Symbol('x'),
+        () => '',
+        BigInt(1),
+      ]) {
         const result = normalizeUserSessionName(bad);
         assert.equal(result.ok, false, `bad input ${String(bad)} must reject`);
         if (!result.ok) {
@@ -29,14 +39,20 @@ describe('normalizeUserSessionName (PR-UI-IPC-2)', () => {
 
     it('never throws on bad runtime type — sanity gate against `.normalize()` on non-string', () => {
       for (const bad of [undefined, null, 42, true, {}, [], Symbol('x'), () => '', BigInt(1)]) {
-        assert.doesNotThrow(() => normalizeUserSessionName(bad), `bad input ${String(bad)} must not throw`);
+        assert.doesNotThrow(
+          () => normalizeUserSessionName(bad),
+          `bad input ${String(bad)} must not throw`,
+        );
       }
     });
   });
 
   describe('happy path', () => {
     it('plain ASCII text passes through unchanged', () => {
-      assert.deepEqual(normalizeUserSessionName('My chat session'), { ok: true, value: 'My chat session' });
+      assert.deepEqual(normalizeUserSessionName('My chat session'), {
+        ok: true,
+        value: 'My chat session',
+      });
     });
 
     it('Chinese text passes through unchanged', () => {
@@ -48,10 +64,10 @@ describe('normalizeUserSessionName (PR-UI-IPC-2)', () => {
     });
 
     it('mixed CJK + emoji + ASCII passes through', () => {
-      assert.deepEqual(
-        normalizeUserSessionName('帮我写 Python 🐍 代码'),
-        { ok: true, value: '帮我写 Python 🐍 代码' },
-      );
+      assert.deepEqual(normalizeUserSessionName('帮我写 Python 🐍 代码'), {
+        ok: true,
+        value: '帮我写 Python 🐍 代码',
+      });
     });
 
     it('trim leading and trailing whitespace', () => {
@@ -90,36 +106,30 @@ describe('normalizeUserSessionName (PR-UI-IPC-2)', () => {
 
   describe('C0/C1 control character handling', () => {
     it('newline / tab replaced with space (not removed)', () => {
-      assert.deepEqual(
-        normalizeUserSessionName('line1\nline2'),
-        { ok: true, value: 'line1 line2' },
-      );
-      assert.deepEqual(
-        normalizeUserSessionName('col1\tcol2'),
-        { ok: true, value: 'col1 col2' },
-      );
+      assert.deepEqual(normalizeUserSessionName('line1\nline2'), {
+        ok: true,
+        value: 'line1 line2',
+      });
+      assert.deepEqual(normalizeUserSessionName('col1\tcol2'), { ok: true, value: 'col1 col2' });
     });
 
     it('ANSI escape sequences (C0 ESC) replaced with space', () => {
       // Raw ESC byte (U+001B) — common in tool output paste.
-      assert.deepEqual(
-        normalizeUserSessionName('green\x1b[32mtext\x1b[0m'),
-        { ok: true, value: 'green [32mtext [0m' },
-      );
+      assert.deepEqual(normalizeUserSessionName('green\x1b[32mtext\x1b[0m'), {
+        ok: true,
+        value: 'green [32mtext [0m',
+      });
     });
 
     it('NUL byte (U+0000) replaced with space', () => {
-      assert.deepEqual(
-        normalizeUserSessionName('safe\x00name'),
-        { ok: true, value: 'safe name' },
-      );
+      assert.deepEqual(normalizeUserSessionName('safe\x00name'), { ok: true, value: 'safe name' });
     });
 
     it('DEL (U+007F) and C1 controls (U+0080..U+009F) replaced', () => {
-      assert.deepEqual(
-        normalizeUserSessionName('a\x7fb\x80c\x9fd'),
-        { ok: true, value: 'a b c d' },
-      );
+      assert.deepEqual(normalizeUserSessionName('a\x7fb\x80c\x9fd'), {
+        ok: true,
+        value: 'a b c d',
+      });
     });
   });
 
@@ -128,10 +138,10 @@ describe('normalizeUserSessionName (PR-UI-IPC-2)', () => {
       // Classic RLO spoof: a string "file‮txt.exe" displays as
       // "fileexe.txt" in some renderers. Replacing with space
       // prevents the spoof and shows what the bytes actually are.
-      assert.deepEqual(
-        normalizeUserSessionName('file‮txt.exe'),
-        { ok: true, value: 'file txt.exe' },
-      );
+      assert.deepEqual(normalizeUserSessionName('file‮txt.exe'), {
+        ok: true,
+        value: 'file txt.exe',
+      });
     });
 
     it('LRE / RLE / PDF / LRO removed too', () => {
@@ -140,7 +150,10 @@ describe('normalizeUserSessionName (PR-UI-IPC-2)', () => {
         const result = normalizeUserSessionName(input);
         assert.ok(result.ok);
         if (result.ok) {
-          assert.ok(!result.value.includes(ch), `${ch.codePointAt(0)?.toString(16)} must be removed`);
+          assert.ok(
+            !result.value.includes(ch),
+            `${ch.codePointAt(0)?.toString(16)} must be removed`,
+          );
         }
       }
     });
@@ -168,7 +181,11 @@ describe('normalizeUserSessionName (PR-UI-IPC-2)', () => {
         const result = normalizeUserSessionName(input);
         assert.ok(result.ok);
         if (result.ok) {
-          assert.equal(result.value, 'cleanname', `${ch.codePointAt(0)?.toString(16)} must be removed, not space-replaced`);
+          assert.equal(
+            result.value,
+            'cleanname',
+            `${ch.codePointAt(0)?.toString(16)} must be removed, not space-replaced`,
+          );
         }
       }
     });
@@ -177,10 +194,7 @@ describe('normalizeUserSessionName (PR-UI-IPC-2)', () => {
       // Common spoof: prefix ZWSP between letters to evade exact-
       // string filters. After normalize, the string is what the
       // user sees: "admin".
-      assert.deepEqual(
-        normalizeUserSessionName('ad​min'),
-        { ok: true, value: 'admin' },
-      );
+      assert.deepEqual(normalizeUserSessionName('ad​min'), { ok: true, value: 'admin' });
     });
   });
 
@@ -202,7 +216,11 @@ describe('normalizeUserSessionName (PR-UI-IPC-2)', () => {
       // boundary. Zero-width chars survive NFC; the dedicated strip
       // step (L5) is what removes them.
       const withZwsp = 'a​b';
-      assert.equal(withZwsp.normalize('NFC'), withZwsp, 'NFC keeps ZWSP — security requires explicit strip');
+      assert.equal(
+        withZwsp.normalize('NFC'),
+        withZwsp,
+        'NFC keeps ZWSP — security requires explicit strip',
+      );
       // Our normalize DOES strip it:
       const result = normalizeUserSessionName(withZwsp);
       assert.ok(result.ok);

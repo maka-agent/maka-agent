@@ -71,7 +71,9 @@ export async function freezeSubmittedWorkspace(input: {
   };
 }
 
-export async function prepareScoringWorkspace(snapshot: SubmittedSnapshot): Promise<PreparedWorkspace> {
+export async function prepareScoringWorkspace(
+  snapshot: SubmittedSnapshot,
+): Promise<PreparedWorkspace> {
   const dir = await mkdtemp(join(tmpdir(), 'maka-headless-score-'));
   try {
     await cp(await realpath(snapshot.snapshotPath), dir, { recursive: true });

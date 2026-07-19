@@ -23,7 +23,10 @@ describe('ephemeralDelayFromOptions (PR-BOT-EPHEMERAL-REPLY-0)', () => {
 
   it('returns undefined for non-finite ephemeralTtlMs (defends against NaN / Infinity)', () => {
     assert.equal(ephemeralDelayFromOptions({ ephemeralTtlMs: Number.NaN }), undefined);
-    assert.equal(ephemeralDelayFromOptions({ ephemeralTtlMs: Number.POSITIVE_INFINITY }), undefined);
+    assert.equal(
+      ephemeralDelayFromOptions({ ephemeralTtlMs: Number.POSITIVE_INFINITY }),
+      undefined,
+    );
   });
 
   it('floors a too-small TTL at the minimum so an immediate self-delete cannot race the send', () => {

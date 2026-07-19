@@ -1,9 +1,10 @@
 import type { UiLocale } from './locale-helpers.js';
 import { redactSecrets } from './redact.js';
+import { getToolActivityCopy } from './tool-activity/copy.js';
 
 /** Locale-aware display name for the group-activation connector. */
 export function loadToolDisplayName(locale: UiLocale): string {
-  return locale === 'en' ? 'Load tools' : '加载工具组';
+  return getToolActivityCopy(locale).loadTools.displayName;
 }
 
 interface LoadToolResultDescription {
@@ -36,19 +37,12 @@ export function describeLoadToolResult(
   const namespace =
     typeof rawGroup === 'string' && rawGroup.length > 0 ? rawGroup : undefined;
   const n = tools.length;
-  if (locale === 'en') {
-    return {
-      title: namespace ? `Loaded ${namespace} tool group` : 'Tools loaded',
-      countLabel: n === 1 ? '1 tool now available:' : `${n} tools now available:`,
-      toolsText: tools.join(', '),
-      footer: 'Ready to use on the next step',
-    };
-  }
+  const copy = getToolActivityCopy(locale).loadTools;
   return {
-    title: namespace ? `已加载 ${namespace} 工具组` : '已加载工具组',
-    countLabel: `新增 ${n} 个可用工具：`,
-    toolsText: tools.join('、'),
-    footer: '下一步即可调用',
+    title: copy.loaded(namespace),
+    countLabel: copy.count(n),
+    toolsText: tools.join(locale === 'en' ? ', ' : '、'),
+    footer: copy.footer,
   };
 }
 

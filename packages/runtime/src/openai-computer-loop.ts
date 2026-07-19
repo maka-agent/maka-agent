@@ -16,10 +16,7 @@ import {
   type OpenAIComputerSafetyCheck,
   type OpenAIComputerScreenshot,
 } from './openai-computer-codec.js';
-import type {
-  CuDispatchOutcome,
-  CuRunResult,
-} from './computer-use-tools.js';
+import type { CuDispatchOutcome, CuRunResult } from './computer-use-tools.js';
 
 export const DEFAULT_OPENAI_COMPUTER_MAX_TURNS = 12;
 export const DEFAULT_OPENAI_COMPUTER_MAX_ACTIONS_PER_CALL = 8;
@@ -104,9 +101,11 @@ function outcomeIsUnknown(
   outcome: Extract<CuDispatchOutcome, { ok: false }>,
   completedActions: number,
 ): boolean {
-  return outcome.error === 'outcome_unknown'
-    || completedActions > 0
-    || (outcome.completedSubSteps ?? 0) > 0;
+  return (
+    outcome.error === 'outcome_unknown' ||
+    completedActions > 0 ||
+    (outcome.completedSubSteps ?? 0) > 0
+  );
 }
 
 export async function runOpenAIComputerLoop(input: {
@@ -120,7 +119,11 @@ export async function runOpenAIComputerLoop(input: {
   maxTurns?: number;
   maxActionsPerCall?: number;
   deadlineMs?: number;
-  display?: { widthPx: number; heightPx: number; environment: 'browser' | 'mac' | 'windows' | 'linux' };
+  display?: {
+    widthPx: number;
+    heightPx: number;
+    environment: 'browser' | 'mac' | 'windows' | 'linux';
+  };
   acknowledgeSafetyChecks?: (
     checks: OpenAIComputerSafetyCheck[],
     call: OpenAIComputerCall,
@@ -175,7 +178,9 @@ export async function runOpenAIComputerLoop(input: {
         return { status: 'completed', response, turns };
       }
       if (response.calls.length !== 1) {
-        throw new Error(`unsupported_openai_computer_parallel_calls: received ${response.calls.length}`);
+        throw new Error(
+          `unsupported_openai_computer_parallel_calls: received ${response.calls.length}`,
+        );
       }
 
       const call = response.calls[0];
@@ -184,17 +189,14 @@ export async function runOpenAIComputerLoop(input: {
       }
       if (call.actions.length > maxActionsPerCall) {
         throw new Error(
-          `openai_computer_action_batch_limit_exceeded: `
-          + `${call.actions.length} > ${maxActionsPerCall}`,
+          `openai_computer_action_batch_limit_exceeded: ` +
+            `${call.actions.length} > ${maxActionsPerCall}`,
         );
       }
       let acknowledgedSafetyChecks: OpenAIComputerSafetyCheck[] | undefined;
       if (call.pendingSafetyChecks.length > 0) {
-        const acknowledged = await input.acknowledgeSafetyChecks?.(
-          call.pendingSafetyChecks,
-          call,
-          signal,
-        ) ?? false;
+        const acknowledged =
+          (await input.acknowledgeSafetyChecks?.(call.pendingSafetyChecks, call, signal)) ?? false;
         if (!acknowledged) {
           return {
             status: 'safety_blocked',
@@ -223,8 +225,8 @@ export async function runOpenAIComputerLoop(input: {
               ok: false,
               code: 'unsupported_action_policy',
               message:
-                `OpenAI computer action '${action.type}' is disabled by the current `
-                + 'physical-input safety policy',
+                `OpenAI computer action '${action.type}' is disabled by the current ` +
+                'physical-input safety policy',
             },
             turns,
           };

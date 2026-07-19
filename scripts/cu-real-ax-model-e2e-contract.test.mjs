@@ -30,10 +30,16 @@ test('real AX model E2E uses production Runtime and backend with an enforced sem
   assert.match(harness, /scenario === 'ax-click'/);
   assert.match(harness, /scenario === 'ax-multi-step'/);
   assert.match(harness, /scenario === 'ambiguity'/);
-  assert.match(harness, /model ambiguity scenario did not attempt and observe fail-closed rejection/);
+  assert.match(
+    harness,
+    /model ambiguity scenario did not attempt and observe fail-closed rejection/,
+  );
   assert.doesNotMatch(harness, /safelyDeclined/);
   assert.match(harness, /error: 'user_intervened'/);
-  assert.match(harness, /evidenceClass = scenario === 'intervention-recovery'[\s\S]*'fault-injection'/);
+  assert.match(
+    harness,
+    /evidenceClass = scenario === 'intervention-recovery'[\s\S]*'fault-injection'/,
+  );
   assert.match(harness, /layer: 'runtime'/);
   assert.match(harness, /target_missing/);
   assert.match(harness, /ambiguousRecoveryObserved/);
@@ -48,7 +54,10 @@ test('real AX model E2E uses production Runtime and backend with an enforced sem
   assert.match(harness, /unsupported_action_policy/);
   assert.match(harness, /action_budget_exceeded/);
   assert.match(harness, /target_mismatch/);
-  assert.match(harness, /catch \(error\)[\s\S]*attempt\.text = `maka_computer\.\$\{action\} failed/);
+  assert.match(
+    harness,
+    /catch \(error\)[\s\S]*attempt\.text = `maka_computer\.\$\{action\} failed/,
+  );
   assert.match(harness, /actions\.push\(attempt\)[\s\S]*throw new Error\(message\)/);
   assert.match(harness, /actionResultsPassed = actions\.every/);
   assert.match(harness, /status: qualified \? 'pass' : 'fail'/);
@@ -65,7 +74,10 @@ test('real AX model E2E uses production Runtime and backend with an enforced sem
   assert.match(harness, /sanitizeCuDirectReport/);
   assert.match(harness, /trace\.toolCallId !== 'fixture-mutate-ambiguity'/);
   assert.match(harness, /actionAttempts: totalActionAttempts/);
-  assert.match(harness, /restart recovery requires stale target_missing, fresh observation, and successful AX retry/);
+  assert.match(
+    harness,
+    /restart recovery requires stale target_missing, fresh observation, and successful AX retry/,
+  );
   assert.match(harness, /runId: randomUUID\(\)/);
   assert.match(harness, /contentLineage/);
   assert.match(launcher, /MAKA_CU_AX_MODEL_REPORT: reportPath/);
@@ -94,7 +106,10 @@ test('candidate qualification keeps artifact identity checks and supports a relo
   assert.match(launcher, /overrideConfigured !== 0 && overrideConfigured !== 3/);
   assert.match(launcher, /expected SHA-256, and expected version/);
   assert.match(launcher, /\^\[a-f0-9\]\{64\}\$/);
-  assert.match(launcher, /copyFile\([\s\S]*MAKA_CU_AX_MODEL_DRIVER_OVERRIDE|copyFile\([\s\S]*driverOverride/);
+  assert.match(
+    launcher,
+    /copyFile\([\s\S]*MAKA_CU_AX_MODEL_DRIVER_OVERRIDE|copyFile\([\s\S]*driverOverride/,
+  );
   assert.match(launcher, /MAKA_CU_AX_MODEL_EXPECTED_SHA256/);
   assert.match(launcher, /MAKA_CU_AX_MODEL_EXPECTED_VERSION/);
   assert.match(harness, /expectedBinarySha256/);

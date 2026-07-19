@@ -19,14 +19,16 @@ let previousResponseId;
 let input = [
   {
     role: 'user',
-    content: [{
-      type: 'input_text',
-      text:
-        'Use maka_computer to set the field labeled "CUA Lab Set Value Field" '
-        + 'in the app "Codex CUA Lab" to "model-e2e". Start with list_apps, '
-        + 'observe the exact app/window, use set_value with IDs from that observation, '
-        + 'verify the fresh observation, then finish.',
-    }],
+    content: [
+      {
+        type: 'input_text',
+        text:
+          'Use maka_computer to set the field labeled "CUA Lab Set Value Field" ' +
+          'in the app "Codex CUA Lab" to "model-e2e". Start with list_apps, ' +
+          'observe the exact app/window, use set_value with IDs from that observation, ' +
+          'verify the fresh observation, then finish.',
+      },
+    ],
   },
 ];
 
@@ -34,9 +36,9 @@ const tool = {
   type: 'function',
   name: 'maka_computer',
   description:
-    'Accessibility-first desktop control. Start with list_apps or observe. '
-    + 'Use set_value or click_element with IDs from the latest observation. '
-    + 'Coordinate click, scroll, drag, press_key, type, and pixel fallback are disabled.',
+    'Accessibility-first desktop control. Start with list_apps or observe. ' +
+    'Use set_value or click_element with IDs from the latest observation. ' +
+    'Coordinate click, scroll, drag, press_key, type, and pixel fallback are disabled.',
   parameters: createOpenAIStrictObjectSchema({
     properties: SYNTHETIC_COMPUTER_TOOL_PROPERTIES,
   }),
@@ -50,8 +52,8 @@ for (let turn = 1; turn <= maxTurns; turn += 1) {
     body: JSON.stringify({
       model,
       instructions:
-        'Operate only the synthetic fixture through maka_computer. Treat tool output as '
-        + 'authoritative. Never invent observation or element IDs. Never use coordinate input.',
+        'Operate only the synthetic fixture through maka_computer. Treat tool output as ' +
+        'authoritative. Never invent observation or element IDs. Never use coordinate input.',
       tools: [tool],
       tool_choice: 'auto',
       parallel_tool_calls: false,
@@ -68,23 +70,30 @@ for (let turn = 1; turn <= maxTurns; turn += 1) {
   previousResponseId = decoded.id;
   const toolCalls = decoded.output?.filter((item) => item.type === 'function_call') ?? [];
   if (toolCalls.length === 0) {
-    const text = decoded.output
-      ?.flatMap((item) => item.content ?? [])
-      .filter((part) => part.type === 'output_text')
-      .map((part) => part.text)
-      .join('') ?? '';
+    const text =
+      decoded.output
+        ?.flatMap((item) => item.content ?? [])
+        .filter((part) => part.type === 'output_text')
+        .map((part) => part.text)
+        .join('') ?? '';
     if (state.value !== 'model-e2e') {
       throw new Error(`model finished before verified mutation: ${bounded(text)}`);
     }
-    process.stdout.write(`${JSON.stringify({
-      ok: true,
-      model,
-      turns: turn,
-      calls,
-      finalValue: state.value,
-      finalTextPresent: text.trim().length > 0,
-      finalTextChars: text.length,
-    }, null, 2)}\n`);
+    process.stdout.write(
+      `${JSON.stringify(
+        {
+          ok: true,
+          model,
+          turns: turn,
+          calls,
+          finalValue: state.value,
+          finalTextPresent: text.trim().length > 0,
+          finalTextChars: text.length,
+        },
+        null,
+        2,
+      )}\n`,
+    );
     process.exit(0);
   }
   if (toolCalls.length !== 1) {
@@ -95,15 +104,14 @@ for (let turn = 1; turn <= maxTurns; turn += 1) {
     throw new Error(`unexpected tool ${call.name}`);
   }
   const { args, discardedKeys } = normalizeArgs(JSON.parse(call.arguments));
-  const result = scenario.execute(
-    canonicalizeSyntheticComputerArgs(args),
-    discardedKeys,
-  );
-  input = [{
-    type: 'function_call_output',
-    call_id: call.call_id,
-    output: JSON.stringify(result),
-  }];
+  const result = scenario.execute(canonicalizeSyntheticComputerArgs(args), discardedKeys);
+  input = [
+    {
+      type: 'function_call_output',
+      call_id: call.call_id,
+      output: JSON.stringify(result),
+    },
+  ];
 }
 
 throw new Error(`model loop exceeded ${maxTurns} turns`);

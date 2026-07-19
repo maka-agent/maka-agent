@@ -43,12 +43,19 @@ export interface SkillInvocationResolution {
  * autocomplete, and highlight validation never advertise a skill that would
  * fail at load time.
  */
-export async function listInvocableSkills(source: SkillSource, host?: HostCapabilities): Promise<InvocableSkillEntry[]> {
+export async function listInvocableSkills(
+  source: SkillSource,
+  host?: HostCapabilities,
+): Promise<InvocableSkillEntry[]> {
   const skills = (await scanSkills(source)).filter((skill) => skill.enabled);
   const eligible = host
     ? gateSkillsByHostCapabilities(skills, host).filter((gated) => gated.eligible)
     : skills;
-  return eligible.map((skill) => ({ id: skill.id, name: skill.name, description: skill.description }));
+  return eligible.map((skill) => ({
+    id: skill.id,
+    name: skill.name,
+    description: skill.description,
+  }));
 }
 
 /**
@@ -109,5 +116,7 @@ export function composeSkillInvocationMessage(input: {
 function sanitizeAttribute(value: string): string {
   // Mirrors skills.ts: strip control chars, then neutralize tag delimiters.
   // eslint-disable-next-line no-control-regex
-  return value.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '').replace(/[<>"&]/g, '_');
+  return value
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '')
+    .replace(/[<>"&]/g, '_');
 }

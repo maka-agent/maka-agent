@@ -75,10 +75,11 @@ export async function rewriteActiveToolResultsInMessages(
   }
 
   const maxResultEstimatedTokens =
-    finitePositive(policy.maxCurrentResultEstimatedTokens)
-    ?? DEFAULT_MAX_CURRENT_RESULT_ESTIMATED_TOKENS;
+    finitePositive(policy.maxCurrentResultEstimatedTokens) ??
+    DEFAULT_MAX_CURRENT_RESULT_ESTIMATED_TOKENS;
   const charsPerToken = input.charsPerToken ?? DEFAULT_CHARS_PER_TOKEN;
-  const archivedPlaceholders = input.archivedPlaceholders ?? new Map<string, ActiveArchivedToolResultPlaceholder>();
+  const archivedPlaceholders =
+    input.archivedPlaceholders ?? new Map<string, ActiveArchivedToolResultPlaceholder>();
 
   let rewritten = 0;
   let archiveFailures = 0;
@@ -163,7 +164,10 @@ async function rewriteToolResultPart(input: {
   const payload = extractPayload(input.part);
   if (!payload) return { changed: false };
   if (isActiveArchivedToolResultPlaceholder(payload.value)) return { changed: false };
-  if (typeof payload.value === 'string' && isActiveArchivedToolResultPlaceholderText(payload.value)) {
+  if (
+    typeof payload.value === 'string' &&
+    isActiveArchivedToolResultPlaceholderText(payload.value)
+  ) {
     return { changed: false };
   }
 
@@ -213,10 +217,11 @@ async function rewriteToolResultPart(input: {
     input.archivedPlaceholders.set(cacheKey, placeholder);
   }
 
-  const placeholderText = payload.field === 'output'
-    && (payload.outputKind === 'text' || payload.outputKind === 'error-text')
-    ? activePlaceholderText(placeholder)
-    : serializeToolResultForArchive(placeholder);
+  const placeholderText =
+    payload.field === 'output' &&
+    (payload.outputKind === 'text' || payload.outputKind === 'error-text')
+      ? activePlaceholderText(placeholder)
+      : serializeToolResultForArchive(placeholder);
   const placeholderEstimatedTokens = estimateTokens(placeholderText.length, input.charsPerToken);
 
   return {
@@ -226,7 +231,12 @@ async function rewriteToolResultPart(input: {
   };
 }
 
-function extractPayload(part: ToolResultPartish): { field: 'output'; value: unknown; outputKind: string } | { field: 'result'; value: unknown } | undefined {
+function extractPayload(
+  part: ToolResultPartish,
+):
+  | { field: 'output'; value: unknown; outputKind: string }
+  | { field: 'result'; value: unknown }
+  | undefined {
   if ('output' in part) {
     const output = part.output;
     if (!output || typeof output !== 'object') return undefined;
@@ -263,7 +273,7 @@ function replacePayload(
   const nextValue =
     payload.outputKind === 'text' || payload.outputKind === 'error-text'
       ? activePlaceholderText(placeholder)
-      : placeholder as unknown as JSONValue;
+      : (placeholder as unknown as JSONValue);
   return {
     ...part,
     output: {
@@ -278,25 +288,27 @@ export function isActiveArchivedToolResultPlaceholder(
 ): value is ActiveArchivedToolResultPlaceholder {
   if (!value || typeof value !== 'object') return false;
   const candidate = value as Partial<ActiveArchivedToolResultPlaceholder>;
-  return candidate.kind === ACTIVE_ARCHIVED_TOOL_RESULT_PLACEHOLDER_KIND
-    && candidate.rewriteVersion === ARCHIVED_TOOL_RESULT_REWRITE_VERSION
-    && typeof candidate.artifactId === 'string'
-    && isUsableArtifactId(candidate.artifactId)
-    && typeof candidate.turnId === 'string'
-    && candidate.turnId.length > 0
-    && typeof candidate.toolCallId === 'string'
-    && candidate.toolCallId.length > 0
-    && typeof candidate.toolName === 'string'
-    && candidate.toolName.length > 0
-    && typeof candidate.bodySha256 === 'string'
-    && candidate.bodySha256.length > 0
-    && typeof candidate.originalEstimatedTokens === 'number'
-    && Number.isFinite(candidate.originalEstimatedTokens)
-    && candidate.originalEstimatedTokens > 0
-    && typeof candidate.originalBytes === 'number'
-    && Number.isFinite(candidate.originalBytes)
-    && candidate.originalBytes > 0
-    && candidate.reason === 'active_current_turn_tool_result_pruned_before_next_step';
+  return (
+    candidate.kind === ACTIVE_ARCHIVED_TOOL_RESULT_PLACEHOLDER_KIND &&
+    candidate.rewriteVersion === ARCHIVED_TOOL_RESULT_REWRITE_VERSION &&
+    typeof candidate.artifactId === 'string' &&
+    isUsableArtifactId(candidate.artifactId) &&
+    typeof candidate.turnId === 'string' &&
+    candidate.turnId.length > 0 &&
+    typeof candidate.toolCallId === 'string' &&
+    candidate.toolCallId.length > 0 &&
+    typeof candidate.toolName === 'string' &&
+    candidate.toolName.length > 0 &&
+    typeof candidate.bodySha256 === 'string' &&
+    candidate.bodySha256.length > 0 &&
+    typeof candidate.originalEstimatedTokens === 'number' &&
+    Number.isFinite(candidate.originalEstimatedTokens) &&
+    candidate.originalEstimatedTokens > 0 &&
+    typeof candidate.originalBytes === 'number' &&
+    Number.isFinite(candidate.originalBytes) &&
+    candidate.originalBytes > 0 &&
+    candidate.reason === 'active_current_turn_tool_result_pruned_before_next_step'
+  );
 }
 
 /**
@@ -315,7 +327,7 @@ export function activeToolResultLineageIdentity(
   const placeholder = isActiveArchivedToolResultPlaceholder(payload.value)
     ? payload.value
     : typeof payload.value === 'string' && isActiveArchivedToolResultPlaceholderText(payload.value)
-      ? JSON.parse(payload.value) as ActiveArchivedToolResultPlaceholder
+      ? (JSON.parse(payload.value) as ActiveArchivedToolResultPlaceholder)
       : undefined;
   return {
     toolCallId: value.toolCallId,
@@ -327,7 +339,9 @@ export function activeToolResultLineageIdentity(
 }
 
 function isToolResultPartish(value: unknown): value is ToolResultPartish {
-  return Boolean(value && typeof value === 'object' && (value as ToolResultPartish).type === 'tool-result');
+  return Boolean(
+    value && typeof value === 'object' && (value as ToolResultPartish).type === 'tool-result',
+  );
 }
 
 function activePlaceholderText(placeholder: ActiveArchivedToolResultPlaceholder): string {
@@ -355,7 +369,5 @@ function sha256(value: string): string {
 }
 
 function finitePositive(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isFinite(value) && value > 0
-    ? value
-    : undefined;
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined;
 }

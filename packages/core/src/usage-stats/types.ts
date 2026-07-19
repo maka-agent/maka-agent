@@ -1,9 +1,4 @@
-export type TimeRange =
-  | '24h'
-  | '7d'
-  | '30d'
-  | 'all'
-  | { from: number; to: number };
+export type TimeRange = '24h' | '7d' | '30d' | 'all' | { from: number; to: number };
 
 export type UsageGroupBy = 'provider' | 'model' | 'tool' | 'day' | 'hour';
 
@@ -277,7 +272,12 @@ export interface ContextBudgetDiagnostic {
   historyAroundEstimatedTokens?: number;
   historyAroundSkippedEvents?: number;
   synthesisCacheEnabled?: boolean;
-  synthesisCacheMode?: 'off' | 'lookup' | 'read_write' | 'write_only' | 'fallback_archive_retrieval';
+  synthesisCacheMode?:
+    | 'off'
+    | 'lookup'
+    | 'read_write'
+    | 'write_only'
+    | 'fallback_archive_retrieval';
   synthesisCacheBlocksLoaded?: number;
   synthesisCacheLoadSkipped?: number;
   synthesisCacheLoadSkippedReasonCounts?: Record<string, number>;
@@ -341,6 +341,17 @@ export interface ContextBudgetDiagnostic {
   historyRewriteGate?: string;
 }
 
+export interface ToolInvocationResultSummary {
+  kind: string;
+  status?: string;
+  itemCount?: number;
+  startedItemCount?: number;
+  completedItemCount?: number;
+  failedItemCount?: number;
+  cancelledItemCount?: number;
+  artifactCount?: number;
+}
+
 export interface ToolInvocationRecord {
   sessionId?: string;
   turnId?: string;
@@ -352,6 +363,8 @@ export interface ToolInvocationRecord {
   status: 'success' | 'error' | 'aborted';
   errorClass?: string;
   argsSummary?: string;
+  /** Bounded structured-result projection for diagnostics; never raw output. */
+  resultSummary?: ToolInvocationResultSummary;
   bytesIn?: number;
   bytesOut?: number;
   startedAt: number;

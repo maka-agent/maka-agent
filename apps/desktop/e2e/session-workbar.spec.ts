@@ -31,7 +31,7 @@ test('session tools share one user-controlled workbar', async ({ sessionWorkbarW
 });
 
 test('workbar toggle stays unmounted without an active session', async ({ window: page }) => {
-  const toggle = page.getByRole('button', { name: '暂无可用的会话工作栏' });
+  const toggle = page.locator('.maka-workspace-top-actions button[aria-expanded]');
 
   await expect(toggle).toHaveCount(0);
 });

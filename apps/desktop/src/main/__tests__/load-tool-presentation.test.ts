@@ -29,22 +29,22 @@ describe('load_tools presentation', () => {
   test('describes a load in English with singular/plural counts', () => {
     const one = describeLoadToolResult({ group: 'office' }, { loaded: ['OfficeDocument'] }, 'en');
     assert.ok(one);
-    assert.equal(one.title, 'Loaded office tool group');
-    assert.equal(one.countLabel, '1 tool now available:');
+    assert.equal(one.title, 'Loaded office tools');
+    assert.equal(one.countLabel, 'Added 1 available tool:');
     assert.equal(one.toolsText, 'OfficeDocument');
 
     const many = describeLoadToolResult({ group: 'office' }, { loaded: ['a', 'b'] }, 'en');
-    assert.equal(many?.countLabel, '2 tools now available:');
+    assert.equal(many?.countLabel, 'Added 2 available tools:');
   });
 
   test('historical load_tool namespace arg still renders (replayed old sessions)', () => {
     assert.equal(describeLoadToolResult({ namespace: 'browser' }, { loaded: ['x'] }, 'zh')?.title, '已加载 browser 工具组');
-    assert.equal(describeLoadToolResult({ namespace: 'office' }, { loaded: ['x'] }, 'en')?.title, 'Loaded office tool group');
+    assert.equal(describeLoadToolResult({ namespace: 'office' }, { loaded: ['x'] }, 'en')?.title, 'Loaded office tools');
   });
 
   test('missing group falls back to a generic title', () => {
     assert.equal(describeLoadToolResult({}, { loaded: ['x'] }, 'zh')?.title, '已加载工具组');
-    assert.equal(describeLoadToolResult(undefined, { loaded: ['x'] }, 'en')?.title, 'Tools loaded');
+    assert.equal(describeLoadToolResult(undefined, { loaded: ['x'] }, 'en')?.title, 'Loaded tools');
   });
 
   test('unexpected result shape → null so the caller uses the generic JSON preview', () => {

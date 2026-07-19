@@ -60,10 +60,14 @@ export function estimateNextRequestTokens(input: EstimateNextRequestTokensInput)
   if (input.priorUsageTokens !== undefined && Number.isFinite(input.priorUsageTokens)) {
     return Math.max(
       0,
-      Math.max(0, Math.floor(input.priorUsageTokens)) + estimateSignedChars(input.appendedChars, charsPerToken),
+      Math.max(0, Math.floor(input.priorUsageTokens)) +
+        estimateSignedChars(input.appendedChars, charsPerToken),
     );
   }
-  return Math.max(0, estimateSignedChars(input.coldStartChars ?? input.appendedChars, charsPerToken));
+  return Math.max(
+    0,
+    estimateSignedChars(input.coldStartChars ?? input.appendedChars, charsPerToken),
+  );
 }
 
 /** Proactive threshold: the next request would cross `contextWindow - reserve`. */
@@ -120,7 +124,9 @@ export function selectMidTurnSafeBoundary(
   // retreats to strictly before the first partial in the pool. A pinned event
   // (see MidTurnBoundaryOptions.isPinned) bounds the cut the same way.
   const firstPartialIndex = events.findIndex((event) => event.partial === true);
-  const firstPinnedIndex = options.isPinned ? events.findIndex((event) => options.isPinned!(event)) : -1;
+  const firstPinnedIndex = options.isPinned
+    ? events.findIndex((event) => options.isPinned!(event))
+    : -1;
   const maxCut = Math.min(
     events.length - reserveTail,
     firstPartialIndex === -1 ? events.length : firstPartialIndex,
@@ -235,9 +241,7 @@ export type PlanMidTurnCapacityCompactionResult =
       estimatedTokensAfter: number;
     };
 
-export type MidTurnFailReason =
-  | 'no_safe_completed_span'
-  | 'summarizer_failed';
+export type MidTurnFailReason = 'no_safe_completed_span' | 'summarizer_failed';
 
 /**
  * Decide, deterministically, how a long active turn compacts before the next
@@ -264,9 +268,9 @@ export async function planMidTurnCapacityCompaction(
   const boundary = selectMidTurnSafeBoundary(input.orderedEvents, {
     reserveTailEvents: input.reserveTailEvents ?? 1,
     isPinned: (event) =>
-      event.turnId === input.headAnchor.turnId
-      && event.content?.kind === 'text'
-      && event.content.steering === true,
+      event.turnId === input.headAnchor.turnId &&
+      event.content?.kind === 'text' &&
+      event.content.steering === true,
   });
   const headAnchorIndex = input.orderedEvents.findIndex(
     (event) => event.id === input.headAnchor.runtimeEventId,
@@ -274,10 +278,10 @@ export async function planMidTurnCapacityCompaction(
   // Coverage must include the head anchor and at least one other event, since the
   // anchor is re-rendered verbatim — folding only the anchor saves nothing.
   if (
-    !boundary.ok
-    || headAnchorIndex < 0
-    || boundary.coveredCount <= headAnchorIndex
-    || boundary.coveredCount < 2
+    !boundary.ok ||
+    headAnchorIndex < 0 ||
+    boundary.coveredCount <= headAnchorIndex ||
+    boundary.coveredCount < 2
   ) {
     return { decision: 'fail_open', reason: 'no_safe_completed_span' };
   }
@@ -290,18 +294,23 @@ export async function planMidTurnCapacityCompaction(
   const checkpointMatch = input.previousCheckpoint
     ? matchHistoryCompactCheckpointPrefix(input.previousCheckpoint, coveredRuntimeEvents)
     : undefined;
-  const previousCheckpoint = checkpointMatch && !checkpointMatch.reason ? input.previousCheckpoint : undefined;
+  const previousCheckpoint =
+    checkpointMatch && !checkpointMatch.reason ? input.previousCheckpoint : undefined;
   const newlyFoldedRuntimeEvents = previousCheckpoint
     ? checkpointMatch!.successorRuntimeEvents
     : coveredRuntimeEvents;
 
   let summary: string | undefined;
   try {
-    summary = (await Promise.resolve(input.summarize({
-      coveredRuntimeEvents,
-      newlyFoldedRuntimeEvents,
-      ...(previousCheckpoint ? { previousCheckpoint } : {}),
-    })))?.trim();
+    summary = (
+      await Promise.resolve(
+        input.summarize({
+          coveredRuntimeEvents,
+          newlyFoldedRuntimeEvents,
+          ...(previousCheckpoint ? { previousCheckpoint } : {}),
+        }),
+      )
+    )?.trim();
   } catch (error) {
     if (error instanceof HistoryCompactSummarizerError) {
       return {

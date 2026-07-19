@@ -16,11 +16,7 @@ import { isPathInside } from '../path-containment.js';
  * duplicating the read path.
  */
 
-export const WORKSPACE_INSTRUCTION_FILES = [
-  'AGENTS.md',
-  'CLAUDE.md',
-  'GEMINI.md',
-] as const;
+export const WORKSPACE_INSTRUCTION_FILES = ['AGENTS.md', 'CLAUDE.md', 'GEMINI.md'] as const;
 
 export const MAX_WORKSPACE_INSTRUCTION_FILE_CHARS = 6000;
 export const MAX_WORKSPACE_INSTRUCTIONS_PROMPT_CHARS = 14000;
@@ -53,7 +49,9 @@ export interface WorkspaceInstructionsState {
   promptCharLimit: number;
 }
 
-export async function buildWorkspaceInstructionsPromptFragment(cwd: string): Promise<string | undefined> {
+export async function buildWorkspaceInstructionsPromptFragment(
+  cwd: string,
+): Promise<string | undefined> {
   const instructions = await readWorkspaceInstructions(cwd);
   if (instructions.length === 0) return undefined;
 
@@ -65,15 +63,13 @@ export async function buildWorkspaceInstructionsPromptFragment(cwd: string): Pro
   let usedChars = parts.join('\n').length;
 
   for (const instruction of instructions) {
-    const header = [
-      '',
-      `<workspace-instructions file="${instruction.file}">`,
-    ].join('\n');
+    const header = ['', `<workspace-instructions file="${instruction.file}">`].join('\n');
     const footer = [
       instruction.truncated ? '\n[instructions truncated]' : '',
       '</workspace-instructions>',
     ].join('\n');
-    const remaining = MAX_WORKSPACE_INSTRUCTIONS_PROMPT_CHARS - usedChars - header.length - footer.length;
+    const remaining =
+      MAX_WORKSPACE_INSTRUCTIONS_PROMPT_CHARS - usedChars - header.length - footer.length;
     if (remaining <= 80) break;
     const text = truncateCodepoints(instruction.text, remaining);
     const block = `${header}\n${text}${footer}`;
@@ -84,13 +80,17 @@ export async function buildWorkspaceInstructionsPromptFragment(cwd: string): Pro
   return parts.join('\n');
 }
 
-export async function getWorkspaceInstructionsState(cwd: string): Promise<WorkspaceInstructionsState> {
-  const files = (await scanWorkspaceInstructions(cwd)).map(({ file, status, chars, truncated }) => ({
-    file,
-    status,
-    chars,
-    truncated,
-  }));
+export async function getWorkspaceInstructionsState(
+  cwd: string,
+): Promise<WorkspaceInstructionsState> {
+  const files = (await scanWorkspaceInstructions(cwd)).map(
+    ({ file, status, chars, truncated }) => ({
+      file,
+      status,
+      chars,
+      truncated,
+    }),
+  );
   return {
     files,
     detectedCount: files.filter((file) => file.status === 'available').length,
@@ -106,9 +106,9 @@ async function readWorkspaceInstructions(cwd: string): Promise<WorkspaceInstruct
   );
 }
 
-async function scanWorkspaceInstructions(cwd: string): Promise<Array<
-  WorkspaceInstruction & { status: WorkspaceInstructionFileStatus }
->> {
+async function scanWorkspaceInstructions(
+  cwd: string,
+): Promise<Array<WorkspaceInstruction & { status: WorkspaceInstructionFileStatus }>> {
   let root: string;
   try {
     root = await realpath(cwd);

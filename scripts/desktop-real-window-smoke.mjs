@@ -57,7 +57,8 @@ export const PROGRAMMATIC_SMOKE_CHECKS = [
 export const REAL_WINDOW_SMOKE_CHECKS = [
   {
     id: 'launch-clean-window',
-    prompt: 'The app launches a real Electron window from a clean smoke user-data dir, with no ErrorBoundary/crash screen.',
+    prompt:
+      'The app launches a real Electron window from a clean smoke user-data dir, with no ErrorBoundary/crash screen.',
   },
   {
     id: 'resize-left-edge',
@@ -93,7 +94,8 @@ export const REAL_WINDOW_SMOKE_CHECKS = [
   },
   {
     id: 'keyboard-path',
-    prompt: 'Tab/Shift+Tab stays inside the active modal, Enter activates focused controls, and Escape returns focus to the trigger.',
+    prompt:
+      'Tab/Shift+Tab stays inside the active modal, Enter activates focused controls, and Escape returns focus to the trigger.',
   },
   {
     id: 'modal-resize-hit-area',
@@ -101,7 +103,8 @@ export const REAL_WINDOW_SMOKE_CHECKS = [
   },
   {
     id: 'renderer-health',
-    prompt: 'After closing the modal and switching sidebar modules, no ErrorBoundary or React hook error appears.',
+    prompt:
+      'After closing the modal and switching sidebar modules, no ErrorBoundary or React hook error appears.',
   },
 ];
 
@@ -181,8 +184,11 @@ function isStaleMakaElectronProcess(entry) {
   const command = entry.command;
   if (!command.includes('Electron.app/Contents/MacOS/Electron')) return false;
   if (!command.includes('--user-data-dir=')) return false;
-  return /--user-data-dir=(?:\/private)?\/tmp\/maka-(?:visual-smoke|real-window-smoke|p0fix|uxp|v\d|copy|long|modal|narr|test-cap-debug)/.test(command) ||
-    /--user-data-dir=(?:\/private)?\/var\/folders\/.+\/maka-real-window-smoke-/.test(command);
+  return (
+    /--user-data-dir=(?:\/private)?\/tmp\/maka-(?:visual-smoke|real-window-smoke|p0fix|uxp|v\d|copy|long|modal|narr|test-cap-debug)/.test(
+      command,
+    ) || /--user-data-dir=(?:\/private)?\/var\/folders\/.+\/maka-real-window-smoke-/.test(command)
+  );
 }
 
 async function listElectronRootProcesses() {
@@ -197,14 +203,18 @@ async function cleanupStaleElectronProcesses(enabled) {
   if (!enabled) return [];
   const stale = (await listElectronRootProcesses()).filter(isStaleMakaElectronProcess);
   if (stale.length === 0) return [];
-  console.log(`[real-window-smoke] cleaning ${stale.length} stale Maka Electron process(es): ${stale.map((entry) => entry.pid).join(', ')}`);
+  console.log(
+    `[real-window-smoke] cleaning ${stale.length} stale Maka Electron process(es): ${stale.map((entry) => entry.pid).join(', ')}`,
+  );
   await Promise.all(stale.map((entry) => execFileText('kill', [String(entry.pid)])));
   await new Promise((resolve) => setTimeout(resolve, 750));
   const survivors = (await listElectronRootProcesses()).filter((entry) =>
     stale.some((staleEntry) => staleEntry.pid === entry.pid),
   );
   if (survivors.length > 0) {
-    console.log(`[real-window-smoke] SIGKILL stale survivor(s): ${survivors.map((entry) => entry.pid).join(', ')}`);
+    console.log(
+      `[real-window-smoke] SIGKILL stale survivor(s): ${survivors.map((entry) => entry.pid).join(', ')}`,
+    );
     await Promise.all(survivors.map((entry) => execFileText('kill', ['-9', String(entry.pid)])));
   }
   return stale.map(({ pid, ppid, command }) => ({ pid, ppid, command }));
@@ -243,10 +253,7 @@ async function resolveElectronBin() {
 async function launchElectron(args, diagnostics) {
   if (args.noLaunch) return null;
   const electronBin = await resolveElectronBin();
-  const userDataDir = join(
-    os.tmpdir(),
-    `maka-real-window-smoke-${args.scenario}-${process.pid}`,
-  );
+  const userDataDir = join(os.tmpdir(), `maka-real-window-smoke-${args.scenario}-${process.pid}`);
   const env = {
     ...process.env,
     MAKA_VISUAL_SMOKE_FIXTURE: args.scenario,
@@ -269,7 +276,9 @@ async function launchElectron(args, diagnostics) {
   };
   let stdoutBuffer = '';
   diagnostics.windowDiagnostics = [];
-  console.log(`[real-window-smoke] launched Electron pid=${child.pid ?? 'unknown'} userDataDir=${userDataDir}`);
+  console.log(
+    `[real-window-smoke] launched Electron pid=${child.pid ?? 'unknown'} userDataDir=${userDataDir}`,
+  );
   child.stdout.on('data', (chunk) => {
     const text = chunk.toString();
     process.stdout.write(chunk);
@@ -297,17 +306,26 @@ async function launchElectron(args, diagnostics) {
     userDataDir,
     command: launchCommand,
     electronPid: child.pid ?? null,
-    waitForDiagnostics: (timeoutMs = 1500) => new Promise((resolve) => setTimeout(resolve, Math.max(0, timeoutMs))),
+    waitForDiagnostics: (timeoutMs = 1500) =>
+      new Promise((resolve) => setTimeout(resolve, Math.max(0, timeoutMs))),
   };
 }
 
 async function promptChecks(args) {
   if (args.unverifiedNote !== null) {
-    const note = args.unverifiedNote.trim() || 'real-window smoke could not verify the live window in this environment';
-    return REAL_WINDOW_SMOKE_CHECKS.map((check) => ({ ...check, status: 'UNVERIFIED', ok: false, note }));
+    const note =
+      args.unverifiedNote.trim() ||
+      'real-window smoke could not verify the live window in this environment';
+    return REAL_WINDOW_SMOKE_CHECKS.map((check) => ({
+      ...check,
+      status: 'UNVERIFIED',
+      ok: false,
+      note,
+    }));
   }
   if (args.failNote !== null) {
-    const note = args.failNote.trim() || 'real-window smoke was explicitly marked as failed by the reviewer';
+    const note =
+      args.failNote.trim() || 'real-window smoke was explicitly marked as failed by the reviewer';
     return REAL_WINDOW_SMOKE_CHECKS.map((check) => ({ ...check, status: 'FAIL', ok: false, note }));
   }
   const rl = createInterface({ input, output });
@@ -355,9 +373,9 @@ function buildProgrammaticResults(args, diagnostics) {
       check: PROGRAMMATIC_SMOKE_CHECKS[0],
       ok: Boolean(
         diagnostic?.windowExists &&
-        diagnostic.isVisible === true &&
-        bounds?.width === expectedWidth &&
-        bounds?.height === expectedHeight
+          diagnostic.isVisible === true &&
+          bounds?.width === expectedWidth &&
+          bounds?.height === expectedHeight,
       ),
       note: diagnostic
         ? `visible=${diagnostic.isVisible} bounds=${JSON.stringify(bounds)} expected=${expectedWidth}x${expectedHeight}`
@@ -388,7 +406,8 @@ function buildProgrammaticResults(args, diagnostics) {
       // owned by InputGroup's utility classes and isn't stable.
       ok:
         renderer.activeElementInSearchModal === true &&
-        (renderer.activeElement?.tagName === 'INPUT' || renderer.activeElement?.tagName === 'BUTTON'),
+        (renderer.activeElement?.tagName === 'INPUT' ||
+          renderer.activeElement?.tagName === 'BUTTON'),
       note: `activeElementInSearchModal=${renderer.activeElementInSearchModal ?? 'unknown'} activeElement=${JSON.stringify(renderer.activeElement ?? null)}`,
     },
     {
@@ -407,7 +426,8 @@ function buildProgrammaticResults(args, diagnostics) {
 }
 
 function buildUnverifiedOsHitTestResults(args) {
-  const note = args.unverifiedNote?.trim() ||
+  const note =
+    args.unverifiedNote?.trim() ||
     'OS hit-test requires Computer Use / real mouse access and was not verified in this run';
   return REAL_WINDOW_SMOKE_CHECKS.map((check) => ({
     ...check,
@@ -485,9 +505,15 @@ function renderMarkdown(report) {
     `- Scenario: ${report.scenario}`,
     `- Viewport: ${report.viewport.width}x${report.viewport.height}`,
     `- Platform: ${report.platform}`,
-    report.userDataDir ? `- User data dir: \`${report.userDataDir}\`` : '- User data dir: not launched by script',
-    report.diagnostics?.launch?.electronPid ? `- Electron PID: ${report.diagnostics.launch.electronPid}` : '- Electron PID: not launched by script',
-    report.diagnostics?.launch?.command ? `- Launch command: \`${escapeMd(report.diagnostics.launch.command)}\`` : '- Launch command: not launched by script',
+    report.userDataDir
+      ? `- User data dir: \`${report.userDataDir}\``
+      : '- User data dir: not launched by script',
+    report.diagnostics?.launch?.electronPid
+      ? `- Electron PID: ${report.diagnostics.launch.electronPid}`
+      : '- Electron PID: not launched by script',
+    report.diagnostics?.launch?.command
+      ? `- Launch command: \`${escapeMd(report.diagnostics.launch.command)}\``
+      : '- Launch command: not launched by script',
     `- Stale Electron processes cleaned: ${report.diagnostics?.staleElectronProcesses?.length ?? 0}`,
     `- Window diagnostics captured: ${report.diagnostics?.windowDiagnostics?.length ?? 0}`,
     '',
@@ -495,7 +521,9 @@ function renderMarkdown(report) {
     '|---|---|---|',
   ];
   for (const check of report.checks) {
-    lines.push(`| ${check.id} | ${check.status ?? (check.ok ? 'PASS' : 'FAIL')} | ${escapeMd(check.note || check.prompt)} |`);
+    lines.push(
+      `| ${check.id} | ${check.status ?? (check.ok ? 'PASS' : 'FAIL')} | ${escapeMd(check.note || check.prompt)} |`,
+    );
   }
   const programmaticChecks = report.checks.filter((check) => check.layer === 'programmatic');
   const osHitTestChecks = report.checks.filter((check) => check.layer === 'os-hit-test');
@@ -517,7 +545,9 @@ function renderMarkdown(report) {
   if ((report.diagnostics?.staleElectronProcesses?.length ?? 0) > 0) {
     lines.push('', '## Cleaned Stale Electron Processes', '');
     for (const processInfo of report.diagnostics.staleElectronProcesses) {
-      lines.push(`- pid=${processInfo.pid} ppid=${processInfo.ppid} command=\`${escapeMd(processInfo.command)}\``);
+      lines.push(
+        `- pid=${processInfo.pid} ppid=${processInfo.ppid} command=\`${escapeMd(processInfo.command)}\``,
+      );
     }
   }
   lines.push('');
@@ -546,11 +576,17 @@ async function main() {
     staleElectronProcesses: await cleanupStaleElectronProcesses(args.cleanupStale),
   };
   console.log('[real-window-smoke] This gate requires a human to test native window behavior.');
-  console.log('[real-window-smoke] Build first via `npm --workspace @maka/desktop run smoke:real-window`.');
-  console.log(`[real-window-smoke] scenario=${args.scenario} viewport=${args.width}x${args.height}`);
+  console.log(
+    '[real-window-smoke] Build first via `npm --workspace @maka/desktop run smoke:real-window`.',
+  );
+  console.log(
+    `[real-window-smoke] scenario=${args.scenario} viewport=${args.width}x${args.height}`,
+  );
   const launchInfo = await launchElectron(args, diagnostics);
   if (launchInfo?.waitForDiagnostics) {
-    await launchInfo.waitForDiagnostics(Number.isFinite(args.diagnosticWaitMs) ? args.diagnosticWaitMs : 1500);
+    await launchInfo.waitForDiagnostics(
+      Number.isFinite(args.diagnosticWaitMs) ? args.diagnosticWaitMs : 1500,
+    );
     diagnostics.windowDiagnosticObserved = (diagnostics.windowDiagnostics?.length ?? 0) > 0;
   }
   const programmaticResults = buildProgrammaticResults(args, diagnostics);

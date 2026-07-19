@@ -13,6 +13,7 @@ import type {
 import { ShellRunUpdateBuffer, generalizedErrorMessageChinese, type ShellRunUpdate } from '@maka/core';
 import type { LiveTurnProjection, NavSelection } from '@maka/ui';
 import { messageReadErrorMessage } from './app-shell-copy';
+import { getDesktopConversationCopy } from './locales/conversation-copy.js';
 import { applyTheme, applyThemePalette } from './theme';
 import { safeLocalStorageSet } from './browser-storage';
 import {
@@ -170,6 +171,7 @@ export function useAppShellPersistenceEffects(options: {
 }
 
 export function useAppShellBootstrapSubscriptions(options: {
+  uiLocale: UiLocale;
   activeIdRef: RefBox<string | undefined>;
   applyVisualSmokeFixture: () => Promise<void>;
   bootstrapSessions: () => Promise<void>;
@@ -237,8 +239,8 @@ export function useAppShellBootstrapSubscriptions(options: {
       void options.refreshMessages(changedSessionId);
     }
     if (event.reason === 'rebound') {
-      const modelSuffix = event.modelId ? ` · ${event.modelId}` : '';
-      options.toastApi.info('已切换到可用模型', `原会话使用的连接已不可用${modelSuffix}`);
+      const copy = getDesktopConversationCopy(options.uiLocale).actions;
+      options.toastApi.info(copy.modelReboundTitle, copy.modelReboundDescription(event.modelId));
     }
     if (event.reason === 'deleted' && event.sessionId && event.sessionId === options.activeIdRef.current) {
       const deletedSessionId = event.sessionId;
@@ -365,7 +367,7 @@ export function useActiveSessionEvents(options: {
         [sessionId]: message,
       }));
       options.setMessageLoadPending(false);
-      options.toastApi.error('读取对话失败', message);
+      options.toastApi.error(getDesktopConversationCopy(options.uiLocale).actions.messageReadFailedTitle, message);
     }
   });
   const handleSessionEvent = useEffectEvent((sessionId: string, event: SessionEvent) => {

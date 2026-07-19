@@ -55,7 +55,10 @@ const MACH_O_MAGICS = new Set([
 
 const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
 const cua = manifest.cuaDriver;
-const FETCH_TIMEOUT_MS = readPositiveIntEnv('MAKA_CUA_DRIVER_FETCH_TIMEOUT_MS', DEFAULT_FETCH_TIMEOUT_MS);
+const FETCH_TIMEOUT_MS = readPositiveIntEnv(
+  'MAKA_CUA_DRIVER_FETCH_TIMEOUT_MS',
+  DEFAULT_FETCH_TIMEOUT_MS,
+);
 
 export function cuaDriverSupported(platform = process.platform) {
   return platform === 'darwin';
@@ -74,27 +77,32 @@ export function assertPinnedCuaDriverChecksums(entry) {
     if (!SHA256_PATTERN.test(entry?.[field] ?? '')) {
       throw new Error(
         `bundled-tools.json cuaDriver.${field} must be a pinned lowercase 64-character SHA-256 digest ` +
-        `(received ${JSON.stringify(entry?.[field])}).`,
+          `(received ${JSON.stringify(entry?.[field])}).`,
       );
     }
   }
   if (entry.archiveSha256 === entry.binarySha256) {
-    throw new Error('bundled-tools.json must pin the cua-driver archive and extracted binary separately.');
+    throw new Error(
+      'bundled-tools.json must pin the cua-driver archive and extracted binary separately.',
+    );
   }
   if (Object.prototype.hasOwnProperty.call(entry, 'sha256')) {
-    throw new Error('bundled-tools.json cuaDriver.sha256 is ambiguous; use archiveSha256 and binarySha256.');
+    throw new Error(
+      'bundled-tools.json cuaDriver.sha256 is ambiguous; use archiveSha256 and binarySha256.',
+    );
   }
   if (
-    typeof entry?.expectedVersion !== 'string'
-    || typeof entry?.expectedProtocolVersion !== 'string'
-    || typeof entry?.sourceCommit !== 'string'
-    || typeof entry?.upstreamCommit !== 'string'
-    || typeof entry?.upstreamMergeCommit !== 'string'
-    || typeof entry?.cargoLockSha256 !== 'string'
-    || !Array.isArray(entry?.architectures)
-    || entry.architectures.length === 0
-    || !['archiveSizeBytes', 'binarySizeBytes', 'licenseSizeBytes', 'sourceSizeBytes']
-      .every((field) => Number.isSafeInteger(entry?.[field]) && entry[field] > 0)
+    typeof entry?.expectedVersion !== 'string' ||
+    typeof entry?.expectedProtocolVersion !== 'string' ||
+    typeof entry?.sourceCommit !== 'string' ||
+    typeof entry?.upstreamCommit !== 'string' ||
+    typeof entry?.upstreamMergeCommit !== 'string' ||
+    typeof entry?.cargoLockSha256 !== 'string' ||
+    !Array.isArray(entry?.architectures) ||
+    entry.architectures.length === 0 ||
+    !['archiveSizeBytes', 'binarySizeBytes', 'licenseSizeBytes', 'sourceSizeBytes'].every(
+      (field) => Number.isSafeInteger(entry?.[field]) && entry[field] > 0,
+    )
   ) {
     throw new Error(
       'bundled-tools.json cuaDriver must pin version, protocol, source commits, Cargo.lock, architectures, and exact file sizes.',
@@ -131,20 +139,22 @@ function expectedMarker() {
 
 function markerMatches(marker) {
   const expected = expectedMarker();
-  return marker?.version === expected.version
-    && marker?.expectedVersion === expected.expectedVersion
-    && marker?.expectedProtocolVersion === expected.expectedProtocolVersion
-    && marker?.sourceCommit === expected.sourceCommit
-    && marker?.upstreamCommit === expected.upstreamCommit
-    && marker?.upstreamMergeCommit === expected.upstreamMergeCommit
-    && marker?.archiveSizeBytes === expected.archiveSizeBytes
-    && marker?.binarySizeBytes === expected.binarySizeBytes
-    && marker?.licenseSizeBytes === expected.licenseSizeBytes
-    && marker?.sourceSizeBytes === expected.sourceSizeBytes
-    && marker?.archiveSha256 === expected.archiveSha256
-    && marker?.binarySha256 === expected.binarySha256
-    && marker?.licenseSha256 === expected.licenseSha256
-    && marker?.sourceSha256 === expected.sourceSha256;
+  return (
+    marker?.version === expected.version &&
+    marker?.expectedVersion === expected.expectedVersion &&
+    marker?.expectedProtocolVersion === expected.expectedProtocolVersion &&
+    marker?.sourceCommit === expected.sourceCommit &&
+    marker?.upstreamCommit === expected.upstreamCommit &&
+    marker?.upstreamMergeCommit === expected.upstreamMergeCommit &&
+    marker?.archiveSizeBytes === expected.archiveSizeBytes &&
+    marker?.binarySizeBytes === expected.binarySizeBytes &&
+    marker?.licenseSizeBytes === expected.licenseSizeBytes &&
+    marker?.sourceSizeBytes === expected.sourceSizeBytes &&
+    marker?.archiveSha256 === expected.archiveSha256 &&
+    marker?.binarySha256 === expected.binarySha256 &&
+    marker?.licenseSha256 === expected.licenseSha256 &&
+    marker?.sourceSha256 === expected.sourceSha256
+  );
 }
 
 function readPositiveIntEnv(name, fallback) {
@@ -158,7 +168,11 @@ function readPositiveIntEnv(name, fallback) {
 }
 
 function isTimeoutError(error) {
-  return Boolean(error && typeof error === 'object' && (error.name === 'AbortError' || error.name === 'TimeoutError'));
+  return Boolean(
+    error &&
+      typeof error === 'object' &&
+      (error.name === 'AbortError' || error.name === 'TimeoutError'),
+  );
 }
 
 function timeoutError(url) {
@@ -168,11 +182,7 @@ function timeoutError(url) {
 export async function downloadFileWithSha256(
   url,
   destination,
-  {
-    maxBytes,
-    fetchImpl = fetch,
-    timeoutMs = FETCH_TIMEOUT_MS,
-  } = {},
+  { maxBytes, fetchImpl = fetch, timeoutMs = FETCH_TIMEOUT_MS } = {},
 ) {
   if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) {
     throw new Error('cua-driver download maxBytes must be a positive integer');
@@ -238,18 +248,21 @@ async function alreadyPrepared() {
       stat(join(licenseDir, 'SOURCE.json')),
     ]);
     if (
-      binaryInfo.size !== cua.binarySizeBytes
-      || licenseInfo.size !== cua.licenseSizeBytes
-      || sourceInfo.size !== cua.sourceSizeBytes
-    ) return false;
+      binaryInfo.size !== cua.binarySizeBytes ||
+      licenseInfo.size !== cua.licenseSizeBytes ||
+      sourceInfo.size !== cua.sourceSizeBytes
+    )
+      return false;
     // Re-hash the actual binary so a corrupted/swapped file with an intact marker
     // is not silently trusted — on drift, fall through to re-download/re-verify.
     const actualBinarySha256 = sha256(await readFile(destinationPath()));
     const actualLicenseSha256 = sha256(await readFile(join(licenseDir, 'LICENSE.md')));
     const actualSourceSha256 = sha256(await readFile(join(licenseDir, 'SOURCE.json')));
-    return actualBinarySha256 === cua.binarySha256
-      && actualLicenseSha256 === cua.licenseSha256
-      && actualSourceSha256 === cua.sourceSha256;
+    return (
+      actualBinarySha256 === cua.binarySha256 &&
+      actualLicenseSha256 === cua.licenseSha256 &&
+      actualSourceSha256 === cua.sourceSha256
+    );
   } catch {
     return false;
   }
@@ -300,11 +313,7 @@ export function assertSafeTarEntries(entries) {
   for (const rawEntry of entries) {
     const entry = rawEntry.trim();
     if (!entry) continue;
-    if (
-      entry.startsWith('/')
-      || entry.split('/').includes('..')
-      || entry.includes('\\')
-    ) {
+    if (entry.startsWith('/') || entry.split('/').includes('..') || entry.includes('\\')) {
       throw new Error(`Unsafe cua-driver archive entry: ${JSON.stringify(entry)}`);
     }
   }
@@ -338,9 +347,9 @@ export function assertSourceProvenance(source, entry = cua) {
     }
   }
   if (
-    !Array.isArray(source?.architectures)
-    || source.architectures.length !== entry.architectures.length
-    || !entry.architectures.every((arch) => source.architectures.includes(arch))
+    !Array.isArray(source?.architectures) ||
+    source.architectures.length !== entry.architectures.length ||
+    !entry.architectures.every((arch) => source.architectures.includes(arch))
   ) {
     throw new Error('cua-driver SOURCE.json architectures do not match bundled-tools.json.');
   }
@@ -352,7 +361,12 @@ export async function prepareCuaDriver(targetPlatform = process.platform) {
   }
   assertPinnedCuaDriverChecksums(cua);
   if (await alreadyPrepared()) {
-    return { skipped: true, reason: 'up-to-date', destination: destinationPath(), version: cua.version };
+    return {
+      skipped: true,
+      reason: 'up-to-date',
+      destination: destinationPath(),
+      version: cua.version,
+    };
   }
 
   // Extract the tarball to a temp dir, then copy out the single `cua-driver`
@@ -379,8 +393,17 @@ export async function prepareCuaDriver(targetPlatform = process.platform) {
     const verboseListing = await execFileAsync('tar', ['-tvzf', tarPath]);
     assertSafeTarListing(verboseListing.stdout.split('\n'));
     await execFileAsync('tar', ['-xzf', tarPath, '-C', workDir]);
-    const { stdout } = await execFileAsync('find', [workDir, '-name', cua.binaryName, '-type', 'f']);
-    const found = stdout.split('\n').map((l) => l.trim()).filter(Boolean);
+    const { stdout } = await execFileAsync('find', [
+      workDir,
+      '-name',
+      cua.binaryName,
+      '-type',
+      'f',
+    ]);
+    const found = stdout
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean);
     if (found.length !== 1) {
       throw new Error(
         `Extracted archive ${cua.asset} must contain exactly one '${cua.binaryName}' binary (found ${found.length})`,
@@ -401,10 +424,28 @@ export async function prepareCuaDriver(targetPlatform = process.platform) {
     }
     await verifyBinaryMetadata(found[0]);
 
-    const licensePaths = await execFileAsync('find', [workDir, '-name', 'LICENSE.md', '-type', 'f']);
-    const sourcePaths = await execFileAsync('find', [workDir, '-name', 'SOURCE.json', '-type', 'f']);
-    const licenses = licensePaths.stdout.split('\n').map((line) => line.trim()).filter(Boolean);
-    const sources = sourcePaths.stdout.split('\n').map((line) => line.trim()).filter(Boolean);
+    const licensePaths = await execFileAsync('find', [
+      workDir,
+      '-name',
+      'LICENSE.md',
+      '-type',
+      'f',
+    ]);
+    const sourcePaths = await execFileAsync('find', [
+      workDir,
+      '-name',
+      'SOURCE.json',
+      '-type',
+      'f',
+    ]);
+    const licenses = licensePaths.stdout
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean);
+    const sources = sourcePaths.stdout
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean);
     if (licenses.length !== 1 || sources.length !== 1) {
       throw new Error(
         `Extracted archive ${cua.asset} must contain exactly one LICENSE.md and SOURCE.json`,

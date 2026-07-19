@@ -193,7 +193,9 @@ describe('RuntimeEvent actions', () => {
 
 describe('isTerminalRuntimeEvent', () => {
   test('a content event with no status is not terminal', () => {
-    expect(isTerminalRuntimeEvent(baseEvent({ content: { kind: 'text', text: 'hi' } }))).toBe(false);
+    expect(isTerminalRuntimeEvent(baseEvent({ content: { kind: 'text', text: 'hi' } }))).toBe(
+      false,
+    );
   });
 
   test('a terminal status makes the event terminal', () => {
@@ -207,15 +209,11 @@ describe('isTerminalRuntimeEvent', () => {
   });
 
   test('actions.endInvocation === true is terminal even without status', () => {
-    expect(
-      isTerminalRuntimeEvent(baseEvent({ actions: { endInvocation: true } })),
-    ).toBe(true);
+    expect(isTerminalRuntimeEvent(baseEvent({ actions: { endInvocation: true } }))).toBe(true);
   });
 
   test('actions.endInvocation === false is NOT terminal', () => {
-    expect(
-      isTerminalRuntimeEvent(baseEvent({ actions: { endInvocation: false } })),
-    ).toBe(false);
+    expect(isTerminalRuntimeEvent(baseEvent({ actions: { endInvocation: false } }))).toBe(false);
   });
 });
 
@@ -237,17 +235,13 @@ describe('runtimeEventHasModelVisibleContent', () => {
 
   test('empty text content is NOT model-visible', () => {
     expect(
-      runtimeEventHasModelVisibleContent(
-        baseEvent({ content: { kind: 'text', text: '' } }),
-      ),
+      runtimeEventHasModelVisibleContent(baseEvent({ content: { kind: 'text', text: '' } })),
     ).toBe(false);
   });
 
   test('thinking, function_call, and function_response are model-visible', () => {
     expect(
-      runtimeEventHasModelVisibleContent(
-        baseEvent({ content: { kind: 'thinking', text: 'r' } }),
-      ),
+      runtimeEventHasModelVisibleContent(baseEvent({ content: { kind: 'thinking', text: 'r' } })),
     ).toBe(true);
     expect(
       runtimeEventHasModelVisibleContent(
@@ -293,9 +287,9 @@ describe('runtimeEventHasModelVisibleContent', () => {
         baseEvent({ actions: { tokenUsage: { input: 1, output: 1 } } }),
       ),
     ).toBe(false);
-    expect(
-      runtimeEventHasModelVisibleContent(baseEvent({ refs: { toolCallId: 'tc-1' } })),
-    ).toBe(false);
+    expect(runtimeEventHasModelVisibleContent(baseEvent({ refs: { toolCallId: 'tc-1' } }))).toBe(
+      false,
+    );
   });
 });
 

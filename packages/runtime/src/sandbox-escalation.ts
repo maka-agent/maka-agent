@@ -108,12 +108,13 @@ export function planDeclaredBashSandboxEscalation(input: {
     };
   }
   if (input.mode === 'bypass') return { kind: 'not_required' };
-  const justification = typeof input.declaration.justification === 'string'
-    ? input.declaration.justification.trim()
-    : '';
+  const justification =
+    typeof input.declaration.justification === 'string'
+      ? input.declaration.justification.trim()
+      : '';
   if (
-    justification.length === 0
-    || justification.length > MAX_SANDBOX_ESCALATION_JUSTIFICATION_CHARS
+    justification.length === 0 ||
+    justification.length > MAX_SANDBOX_ESCALATION_JUSTIFICATION_CHARS
   ) {
     return blockInvalid('require_escalated requires a justification of at most 500 characters.');
   }
@@ -147,15 +148,15 @@ export function assertSandboxEscalationProposal(input: {
 }): void {
   const { proposal } = input;
   if (
-    input.toolName !== 'Bash'
-    || !isAbsolute(proposal.cwd)
-    || proposal.command.length === 0
-    || proposal.cwd !== input.cwd
-    || proposal.intentHash !== stableHash({ toolName: input.toolName, args: input.args })
-    || proposal.commandHash !== sandboxEscalationCommandHash(proposal.command, proposal.cwd)
-    || proposal.justification.trim().length === 0
-    || proposal.justification.length > MAX_SANDBOX_ESCALATION_JUSTIFICATION_CHARS
-    || (proposal.trigger !== 'proactive' && proposal.trigger !== 'sandbox_denial')
+    input.toolName !== 'Bash' ||
+    !isAbsolute(proposal.cwd) ||
+    proposal.command.length === 0 ||
+    proposal.cwd !== input.cwd ||
+    proposal.intentHash !== stableHash({ toolName: input.toolName, args: input.args }) ||
+    proposal.commandHash !== sandboxEscalationCommandHash(proposal.command, proposal.cwd) ||
+    proposal.justification.trim().length === 0 ||
+    proposal.justification.length > MAX_SANDBOX_ESCALATION_JUSTIFICATION_CHARS ||
+    (proposal.trigger !== 'proactive' && proposal.trigger !== 'sandbox_denial')
   ) {
     throw invalidEscalation('Sandbox escalation proposal integrity validation failed.');
   }
@@ -183,15 +184,16 @@ export function assertSandboxEscalationGrantForExecution(input: {
   cwd: string;
 }): void {
   if (
-    input.grant.command !== input.command
-    || input.grant.cwd !== input.cwd
-    || input.grant.commandHash !== sandboxEscalationCommandHash(input.command, input.cwd)
+    input.grant.command !== input.command ||
+    input.grant.cwd !== input.cwd ||
+    input.grant.commandHash !== sandboxEscalationCommandHash(input.command, input.cwd)
   ) {
     throw new SandboxEscalationError({
       stage: 'consume',
-      reason: input.grant.cwd !== input.cwd
-        ? 'sandbox_escalation_cwd_mismatch'
-        : 'sandbox_escalation_command_mismatch',
+      reason:
+        input.grant.cwd !== input.cwd
+          ? 'sandbox_escalation_cwd_mismatch'
+          : 'sandbox_escalation_command_mismatch',
       message: 'Sandbox escalation grant does not match the command being executed.',
     });
   }

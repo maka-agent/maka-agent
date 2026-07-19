@@ -2,7 +2,14 @@ import assert from 'node:assert/strict';
 import { writeFile } from 'node:fs/promises';
 import { describe, test } from 'node:test';
 import { hashSystemPrompt, readFixedPromptWal } from '../fixed-prompt-controller.js';
-import { execFileAsync, fakeMetaAgent, makeTasks, runLoop, taskIndex, withHarness } from './helpers/prompt-optimization-loop-harness.js';
+import {
+  execFileAsync,
+  fakeMetaAgent,
+  makeTasks,
+  runLoop,
+  taskIndex,
+  withHarness,
+} from './helpers/prompt-optimization-loop-harness.js';
 
 describe('runPromptOptimizationLoop replay identity guards', () => {
   test('fails closed when replayed prompt decisions belong to a different resume fingerprint', async () => {
@@ -58,11 +65,11 @@ describe('runPromptOptimizationLoop replay identity guards', () => {
         baselineRuns: 1,
       });
       const events = await readFixedPromptWal(harness.resultsJsonlPath);
-      const staleEvents = events.map((event) => (
+      const staleEvents = events.map((event) =>
         event.type === 'task_completed' && event.roundId === 'round-0' && event.taskId === 'hin-0'
           ? { ...event, promptHash: 'sha256:stale' }
-          : event
-      ));
+          : event,
+      );
       await writeFile(
         harness.resultsJsonlPath,
         `${staleEvents.map((event) => JSON.stringify(event)).join('\n')}\n`,
@@ -102,7 +109,12 @@ describe('runPromptOptimizationLoop replay identity guards', () => {
       });
       const events = await readFixedPromptWal(harness.resultsJsonlPath);
       const missingHashEvents = events.map((event) => {
-        if (event.type !== 'task_completed' || event.roundId !== 'round-0' || event.taskId !== 'hin-0') return event;
+        if (
+          event.type !== 'task_completed' ||
+          event.roundId !== 'round-0' ||
+          event.taskId !== 'hin-0'
+        )
+          return event;
         const { promptHash: _promptHash, ...withoutPromptHash } = event;
         return withoutPromptHash;
       });
@@ -192,11 +204,13 @@ describe('runPromptOptimizationLoop replay identity guards', () => {
         baselineRuns: 1,
       });
       const events = await readFixedPromptWal(harness.resultsJsonlPath);
-      const staleEvents = events.map((event) => (
-        event.type === 'task_completed' && event.roundId === 'baseline-0' && event.taskId === 'hin-0'
+      const staleEvents = events.map((event) =>
+        event.type === 'task_completed' &&
+        event.roundId === 'baseline-0' &&
+        event.taskId === 'hin-0'
           ? { ...event, promptHash: 'sha256:stale' }
-          : event
-      ));
+          : event,
+      );
       await writeFile(
         harness.resultsJsonlPath,
         `${staleEvents.map((event) => JSON.stringify(event)).join('\n')}\n`,
@@ -235,8 +249,12 @@ describe('runPromptOptimizationLoop replay identity guards', () => {
         baselineRuns: 1,
       });
       const events = await readFixedPromptWal(harness.resultsJsonlPath);
-      const duplicate = events.find((event) =>
-        event.type === 'task_completed' && event.roundId === 'baseline-0' && event.taskId === 'hin-0');
+      const duplicate = events.find(
+        (event) =>
+          event.type === 'task_completed' &&
+          event.roundId === 'baseline-0' &&
+          event.taskId === 'hin-0',
+      );
       assert.ok(duplicate);
       await writeFile(
         harness.resultsJsonlPath,
@@ -361,5 +379,4 @@ describe('runPromptOptimizationLoop replay identity guards', () => {
       assert.deepEqual(taskRuns, []);
     });
   });
-
 });

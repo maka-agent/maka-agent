@@ -8,5 +8,5 @@
     "types": ["node", "electron"],
     "incremental": true
   },
-  "include": ["src/main"]
+  "include": ["src/main", "src/global.d.ts"]
 }

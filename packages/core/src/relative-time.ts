@@ -90,10 +90,20 @@ let cachedCompactSameYearFormat: Intl.DateTimeFormat | null = null;
 let cachedCompactOtherYearFormat: Intl.DateTimeFormat | null = null;
 let cachedCompactLocale: string | null = null;
 
-function getCompactFormats(uiLocale: UiLocale): { sameYear: Intl.DateTimeFormat; otherYear: Intl.DateTimeFormat } {
+function getCompactFormats(uiLocale: UiLocale): {
+  sameYear: Intl.DateTimeFormat;
+  otherYear: Intl.DateTimeFormat;
+} {
   const locale = uiLocaleToIntlLocale(uiLocale);
-  if (!cachedCompactSameYearFormat || !cachedCompactOtherYearFormat || cachedCompactLocale !== locale) {
-    cachedCompactSameYearFormat = new Intl.DateTimeFormat(locale, { month: 'short', day: 'numeric' });
+  if (
+    !cachedCompactSameYearFormat ||
+    !cachedCompactOtherYearFormat ||
+    cachedCompactLocale !== locale
+  ) {
+    cachedCompactSameYearFormat = new Intl.DateTimeFormat(locale, {
+      month: 'short',
+      day: 'numeric',
+    });
     cachedCompactOtherYearFormat = new Intl.DateTimeFormat(locale, {
       year: 'numeric',
       month: 'short',
@@ -126,7 +136,9 @@ export function formatCompactTimestamp(
   const { sameYear, otherYear } = getCompactFormats(locale);
   const date = new Date(ts);
   const nowDate = new Date(now);
-  return date.getFullYear() === nowDate.getFullYear() ? sameYear.format(date) : otherYear.format(date);
+  return date.getFullYear() === nowDate.getFullYear()
+    ? sameYear.format(date)
+    : otherYear.format(date);
 }
 
 /**

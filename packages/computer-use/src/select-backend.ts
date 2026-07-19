@@ -67,9 +67,7 @@ export function selectComputerUseBackend(deps?: {
   physicalInputRecentlyActive?: () => boolean | Promise<boolean>;
   onTrace?: CuaDriverBackendOptions['onTrace'];
   overlay?: CuOverlayHook;
-  createBackend?: (
-    options: CuaDriverBackendOptions,
-  ) => DisposableBackend;
+  createBackend?: (options: CuaDriverBackendOptions) => DisposableBackend;
 }): SelectedComputerUseBackend {
   if (process.platform !== 'darwin') return NONE;
   if (!deps?.binaryPath || !deps.expectedBinarySha256) return NONE;
@@ -79,12 +77,8 @@ export function selectComputerUseBackend(deps?: {
       binaryPath: deps.binaryPath,
       hostBundleId: resolveHostBundleId(deps?.hostBundleId),
       expectedBinarySha256: deps.expectedBinarySha256,
-      ...(deps.expectedServerName
-        ? { expectedServerName: deps.expectedServerName }
-        : {}),
-      ...(deps.expectedServerVersion
-        ? { expectedServerVersion: deps.expectedServerVersion }
-        : {}),
+      ...(deps.expectedServerName ? { expectedServerName: deps.expectedServerName } : {}),
+      ...(deps.expectedServerVersion ? { expectedServerVersion: deps.expectedServerVersion } : {}),
       ...(deps.expectedProtocolVersion
         ? { expectedProtocolVersion: deps.expectedProtocolVersion }
         : {}),

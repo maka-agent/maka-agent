@@ -11,7 +11,11 @@ describe('PlanReminderStore', () => {
     const store = createPlanReminderStore(root);
     const runAt = Date.now() + 60_000;
 
-    const reminder = await store.create({ title: '  站会提醒 ', note: '准备昨天的 blocker', runAt });
+    const reminder = await store.create({
+      title: '  站会提醒 ',
+      note: '准备昨天的 blocker',
+      runAt,
+    });
     assert.equal(reminder.title, '站会提醒');
     assert.equal(reminder.enabled, true);
     assert.equal(reminder.nextRunAt, runAt);
@@ -40,21 +44,31 @@ describe('PlanReminderStore', () => {
     assert.deepEqual(reminder.delivery, { channel: 'bot', platform: 'telegram', chatId: '12345' });
 
     const raw = JSON.parse(await readFile(join(root, 'plan-reminders.json'), 'utf8')) as unknown[];
-    assert.deepEqual((raw[0] as { delivery?: unknown }).delivery, { channel: 'bot', platform: 'telegram', chatId: '12345' });
+    assert.deepEqual((raw[0] as { delivery?: unknown }).delivery, {
+      channel: 'bot',
+      platform: 'telegram',
+      chatId: '12345',
+    });
 
-    await writeFile(join(root, 'plan-reminders.json'), JSON.stringify([{
-      id: 'legacy',
-      title: '旧提醒',
-      note: '',
-      schedule: { kind: 'once', runAt },
-      status: 'scheduled',
-      enabled: true,
-      createdAt: runAt - 1000,
-      updatedAt: runAt - 1000,
-      nextRunAt: runAt,
-      runs: [],
-      runCount: 0,
-    }]), 'utf8');
+    await writeFile(
+      join(root, 'plan-reminders.json'),
+      JSON.stringify([
+        {
+          id: 'legacy',
+          title: '旧提醒',
+          note: '',
+          schedule: { kind: 'once', runAt },
+          status: 'scheduled',
+          enabled: true,
+          createdAt: runAt - 1000,
+          updatedAt: runAt - 1000,
+          nextRunAt: runAt,
+          runs: [],
+          runCount: 0,
+        },
+      ]),
+      'utf8',
+    );
 
     const reloaded = await createPlanReminderStore(root).list();
     assert.deepEqual(reloaded[0]?.delivery, { channel: 'local' });
@@ -77,7 +91,10 @@ describe('PlanReminderStore', () => {
     assert.equal(triggered.status, 'scheduled');
     assert.equal(triggered.enabled, true);
     assert.equal(triggered.nextRunAt, runAt + 24 * 60 * 60 * 1000);
-    assert.deepEqual(triggered.runs.map((run) => run.status), ['triggered']);
+    assert.deepEqual(
+      triggered.runs.map((run) => run.status),
+      ['triggered'],
+    );
     assert.equal((await store.listDue(runAt + 1)).length, 0);
     assert.equal((await store.listDue(runAt + 24 * 60 * 60 * 1000)).length, 1);
   });
@@ -93,7 +110,11 @@ describe('PlanReminderStore', () => {
       recurrence: 'cron',
       cronExpression: '30 9 * * 1-5',
     });
-    assert.deepEqual(reminder.schedule, { kind: 'cron', startAt: runAt, expression: '30 9 * * 1-5' });
+    assert.deepEqual(reminder.schedule, {
+      kind: 'cron',
+      startAt: runAt,
+      expression: '30 9 * * 1-5',
+    });
     assert.equal(typeof reminder.nextRunAt, 'number');
 
     const triggered = await store.markTriggered(reminder.id, {
@@ -129,7 +150,10 @@ describe('PlanReminderStore', () => {
     });
     assert.equal(triggered.status, 'completed');
     assert.equal(triggered.lastRun?.status, 'triggered');
-    assert.deepEqual(triggered.runs.map((run) => run.id), [triggered.lastRun?.id]);
+    assert.deepEqual(
+      triggered.runs.map((run) => run.id),
+      [triggered.lastRun?.id],
+    );
     assert.equal(triggered.runCount, 1);
 
     await store.remove(reminder.id);
@@ -140,7 +164,12 @@ describe('PlanReminderStore', () => {
     const root = await mkdtemp(join(tmpdir(), 'maka-plan-reminders-'));
     const store = createPlanReminderStore(root);
     const runAt = Date.now() + 60_000;
-    const reminder = await store.create({ title: '工作日早报', runAt, recurrence: 'cron', cronExpression: '0 9 * * 1-5' });
+    const reminder = await store.create({
+      title: '工作日早报',
+      runAt,
+      recurrence: 'cron',
+      cronExpression: '0 9 * * 1-5',
+    });
 
     const snoozed = await store.snooze(reminder.id, 10 * 60 * 1000, runAt - 30_000);
     assert.equal(snoozed.status, 'scheduled');
@@ -167,7 +196,11 @@ describe('PlanReminderStore', () => {
 
     assert.equal(updated.title, '新标题');
     assert.equal(updated.note, '');
-    assert.deepEqual(updated.schedule, { kind: 'recurring', startAt: nextRunAt, recurrence: 'weekly' });
+    assert.deepEqual(updated.schedule, {
+      kind: 'recurring',
+      startAt: nextRunAt,
+      recurrence: 'weekly',
+    });
     assert.deepEqual(updated.delivery, { channel: 'bot', platform: 'telegram', chatId: '42' });
     assert.equal(updated.status, 'scheduled');
     assert.equal(updated.nextRunAt, nextRunAt);
@@ -181,10 +214,11 @@ describe('PlanReminderStore', () => {
     await store.setEnabled(reminder.id, false);
 
     await assert.rejects(
-      () => store.update(reminder.id, {
-        recurrence: 'cron',
-        cronExpression: '0 9 31 2 *',
-      }),
+      () =>
+        store.update(reminder.id, {
+          recurrence: 'cron',
+          cronExpression: '0 9 31 2 *',
+        }),
       /schedule has no run within one year/,
     );
 
@@ -196,19 +230,25 @@ describe('PlanReminderStore', () => {
   it('rejects enabling legacy paused cron reminders that have no future run', async () => {
     const root = await mkdtemp(join(tmpdir(), 'maka-plan-reminders-'));
     const runAt = Date.now() + 60_000;
-    await writeFile(join(root, 'plan-reminders.json'), JSON.stringify([{
-      id: 'legacy-impossible-cron',
-      title: '坏 cron',
-      note: '',
-      schedule: { kind: 'cron', startAt: runAt, expression: '0 9 31 2 *' },
-      delivery: { channel: 'local' },
-      status: 'paused',
-      enabled: false,
-      createdAt: runAt - 1000,
-      updatedAt: runAt - 1000,
-      runs: [],
-      runCount: 0,
-    }]), 'utf8');
+    await writeFile(
+      join(root, 'plan-reminders.json'),
+      JSON.stringify([
+        {
+          id: 'legacy-impossible-cron',
+          title: '坏 cron',
+          note: '',
+          schedule: { kind: 'cron', startAt: runAt, expression: '0 9 31 2 *' },
+          delivery: { channel: 'local' },
+          status: 'paused',
+          enabled: false,
+          createdAt: runAt - 1000,
+          updatedAt: runAt - 1000,
+          runs: [],
+          runCount: 0,
+        },
+      ]),
+      'utf8',
+    );
 
     const store = createPlanReminderStore(root);
     await assert.rejects(
@@ -251,11 +291,10 @@ describe('PlanReminderStore', () => {
     });
     await store.setEnabled(paused.id, false);
 
-    assert.deepEqual((await store.list()).map((reminder) => reminder.title), [
-      '待触发',
-      '暂停中',
-      '已触发',
-    ]);
+    assert.deepEqual(
+      (await store.list()).map((reminder) => reminder.title),
+      ['待触发', '暂停中', '已触发'],
+    );
   });
 
   it('keeps recurring run history in newest-first order', async () => {
@@ -277,8 +316,14 @@ describe('PlanReminderStore', () => {
       blockReason: 'incognito_active',
     });
 
-    assert.deepEqual(first.runs.map((run) => run.id), ['run-1']);
-    assert.deepEqual(second.runs.map((run) => run.id), ['run-2', 'run-1']);
+    assert.deepEqual(
+      first.runs.map((run) => run.id),
+      ['run-1'],
+    );
+    assert.deepEqual(
+      second.runs.map((run) => run.id),
+      ['run-2', 'run-1'],
+    );
     assert.equal(second.lastRun?.id, 'run-2');
     assert.equal(second.runCount, 2);
   });
@@ -324,7 +369,10 @@ describe('PlanReminderStore', () => {
       () => store.clearRunHistory(reminder.id),
       /Completed plan reminder history cannot be cleared/,
     );
-    assert.equal((await store.list()).find((entry) => entry.id === reminder.id)?.lastRun?.id, 'run-1');
+    assert.equal(
+      (await store.list()).find((entry) => entry.id === reminder.id)?.lastRun?.id,
+      'run-1',
+    );
   });
 
   it('rejects wrong top-level reminder files instead of overwriting them as empty', async () => {
@@ -334,10 +382,7 @@ describe('PlanReminderStore', () => {
     await writeFile(filePath, invalid, 'utf8');
 
     const store = createPlanReminderStore(root);
-    await assert.rejects(
-      () => store.list(),
-      /expected an array/,
-    );
+    await assert.rejects(() => store.list(), /expected an array/);
     await assert.rejects(
       () => store.create({ title: '新提醒', runAt: Date.now() + 60_000 }),
       /expected an array/,
@@ -349,41 +394,43 @@ describe('PlanReminderStore', () => {
     const root = await mkdtemp(join(tmpdir(), 'maka-plan-reminders-'));
     const filePath = join(root, 'plan-reminders.json');
     const runAt = Date.now() + 60_000;
-    const invalid = JSON.stringify([
-      {
-        id: 'valid',
-        title: '保留提醒',
-        note: '',
-        schedule: { kind: 'once', runAt },
-        delivery: { channel: 'local' },
-        status: 'scheduled',
-        enabled: true,
-        createdAt: runAt - 1000,
-        updatedAt: runAt - 1000,
-        nextRunAt: runAt,
-        runs: [],
-        runCount: 0,
-      },
-      {
-        id: 'corrupt',
-        title: '坏提醒',
-        note: '',
-        schedule: { kind: 'once', runAt },
-        delivery: { channel: 'local' },
-        status: 'scheduled',
-        enabled: true,
-        createdAt: runAt - 1000,
-        updatedAt: runAt - 1000,
-        nextRunAt: runAt,
-      },
-    ], null, 2) + '\n';
+    const invalid =
+      JSON.stringify(
+        [
+          {
+            id: 'valid',
+            title: '保留提醒',
+            note: '',
+            schedule: { kind: 'once', runAt },
+            delivery: { channel: 'local' },
+            status: 'scheduled',
+            enabled: true,
+            createdAt: runAt - 1000,
+            updatedAt: runAt - 1000,
+            nextRunAt: runAt,
+            runs: [],
+            runCount: 0,
+          },
+          {
+            id: 'corrupt',
+            title: '坏提醒',
+            note: '',
+            schedule: { kind: 'once', runAt },
+            delivery: { channel: 'local' },
+            status: 'scheduled',
+            enabled: true,
+            createdAt: runAt - 1000,
+            updatedAt: runAt - 1000,
+            nextRunAt: runAt,
+          },
+        ],
+        null,
+        2,
+      ) + '\n';
     await writeFile(filePath, invalid, 'utf8');
 
     const store = createPlanReminderStore(root);
-    await assert.rejects(
-      () => store.list(),
-      /entry 2 is malformed/,
-    );
+    await assert.rejects(() => store.list(), /entry 2 is malformed/);
     await assert.rejects(
       () => store.create({ title: '新提醒', runAt: runAt + 60_000 }),
       /entry 2 is malformed/,
@@ -395,30 +442,34 @@ describe('PlanReminderStore', () => {
     const root = await mkdtemp(join(tmpdir(), 'maka-plan-reminders-'));
     const filePath = join(root, 'plan-reminders.json');
     const runAt = Date.now() + 60_000;
-    const invalid = JSON.stringify([{
-      id: 'run-history',
-      title: '历史提醒',
-      note: '',
-      schedule: { kind: 'recurring', startAt: runAt, recurrence: 'daily' },
-      delivery: { channel: 'local' },
-      status: 'scheduled',
-      enabled: true,
-      createdAt: runAt - 1000,
-      updatedAt: runAt - 1000,
-      nextRunAt: runAt,
-      runs: [
-        { id: 'run-1', at: runAt - 1000, status: 'triggered', message: '已触发' },
-        { id: 'run-2', at: runAt, status: 'unknown', message: '坏历史' },
-      ],
-      runCount: 2,
-    }], null, 2) + '\n';
+    const invalid =
+      JSON.stringify(
+        [
+          {
+            id: 'run-history',
+            title: '历史提醒',
+            note: '',
+            schedule: { kind: 'recurring', startAt: runAt, recurrence: 'daily' },
+            delivery: { channel: 'local' },
+            status: 'scheduled',
+            enabled: true,
+            createdAt: runAt - 1000,
+            updatedAt: runAt - 1000,
+            nextRunAt: runAt,
+            runs: [
+              { id: 'run-1', at: runAt - 1000, status: 'triggered', message: '已触发' },
+              { id: 'run-2', at: runAt, status: 'unknown', message: '坏历史' },
+            ],
+            runCount: 2,
+          },
+        ],
+        null,
+        2,
+      ) + '\n';
     await writeFile(filePath, invalid, 'utf8');
 
     const store = createPlanReminderStore(root);
-    await assert.rejects(
-      () => store.list(),
-      /entry 1 has malformed run record 2/,
-    );
+    await assert.rejects(() => store.list(), /entry 1 has malformed run record 2/);
     await assert.rejects(
       () => store.update('run-history', { title: '改名' }),
       /entry 1 has malformed run record 2/,

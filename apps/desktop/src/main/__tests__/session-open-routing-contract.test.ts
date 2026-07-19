@@ -41,14 +41,14 @@ describe('session open routing contract', () => {
     assert.match(handlerBlock, /const sessionId = activeIdRef\.current;/);
     assert.match(
       handlerBlock,
-      /await window\.maka\.sessions\.regenerateTurn\(sessionId, \{\s*sourceTurnId: turnId,?\s*\}\);[\s\S]*?if \(activeIdRef\.current === sessionId\) toastApi\.info\('已发起重新生成'/,
+      /await window\.maka\.sessions\.regenerateTurn\(sessionId, \{\s*sourceTurnId: turnId,?\s*\}\);[\s\S]*?if \(activeIdRef\.current === sessionId\) \{[\s\S]*?toastApi\.info\(copy\.regenerateStartedTitle, copy\.regenerateStartedDescription\)/,
       'regenerate feedback must stay owned by the source session',
     );
     assert.match(branchBlock, /const newSession = await window\.maka\.sessions\.branchFromTurn/);
     assert.match(branchBlock, /upsertSessionSummary\(newSession\);/);
     assert.match(
       branchBlock,
-      /if \(activeIdRef\.current === sessionId\) \{[\s\S]*openSessionInChat\(newSession\.id\);[\s\S]*setMessages\(\[\]\);[\s\S]*await refreshMessages\(newSession\.id\);[\s\S]*toastApi\.success\('已创建分支', `新会话 \$\{newSession\.name\}`\);[\s\S]*\}/,
+      /if \(activeIdRef\.current === sessionId\) \{[\s\S]*openSessionInChat\(newSession\.id\);[\s\S]*setMessages\(\[\]\);[\s\S]*await refreshMessages\(newSession\.id\);[\s\S]*toastApi\.success\(copy\.branchCreatedTitle, copy\.branchCreatedDescription\(newSession\.name\)\);[\s\S]*\}/,
       'branch completion must not navigate or toast after the user leaves the source session',
     );
     assert.match(branchBlock, /await refreshSessions\(\);/);
@@ -59,7 +59,7 @@ describe('session open routing contract', () => {
     );
     assert.match(
       handlerBlock,
-      /catch \(error\) \{[\s\S]*if \(activeIdRef\.current !== sessionId\) return;[\s\S]*if \(isSessionWorkspaceUnavailableError\(error\)\) \{[\s\S]*showSessionWorkspaceUnavailableToast\(toastApi, uiLocale\);[\s\S]*toastApi\.error\('操作失败', generalizedErrorMessageChinese\(error, '对话操作失败，请稍后重试。'\)\);[\s\S]*\} finally \{[\s\S]*clearPendingTurnAction\(key\);[\s\S]*\}/,
+      /catch \(error\) \{[\s\S]*if \(activeIdRef\.current !== sessionId\) return;[\s\S]*if \(isSessionWorkspaceUnavailableError\(error\)\) \{[\s\S]*showSessionWorkspaceUnavailableToast\(toastApi, uiLocale\);[\s\S]*\} else \{[\s\S]*toastApi\.error\([\s\S]*copy\.operationFailedTitle,[\s\S]*localizedShellErrorMessage\(error, copy\.operationFailedFallback, uiLocale\)[\s\S]*\);[\s\S]*\}[\s\S]*\} finally \{[\s\S]*clearPendingTurnAction\(key\);[\s\S]*\}/,
       'turn footer failures must stay owned by the source session and preserve workspace recovery copy',
     );
     assert.doesNotMatch(

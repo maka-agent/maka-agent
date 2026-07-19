@@ -25,7 +25,8 @@
  * sort from PR108k-yj).
  */
 
-import type { SessionStatus, SessionSummary } from '@maka/core';
+import type { SessionStatus, SessionSummary, UiLocale } from '@maka/core';
+import { getDesktopConversationCopy } from './locales/conversation-copy.js';
 
 /**
  * Stable group ordering. Used by both the renderer and node:test
@@ -74,18 +75,6 @@ export interface SessionStatusGroup {
   defaultExpanded: boolean;
 }
 
-const GROUP_LABEL: Record<SessionGroupId, string> = {
-  pinned: '已置顶',
-  running: '进行中',
-  waiting_for_user: '等待你',
-  blocked: '需要处理',
-  active: '会话',
-  review: '待审核',
-  done: '已完成',
-  archived: '归档',
-  aborted: '已中止',
-};
-
 const COLLAPSIBLE_GROUPS: ReadonlySet<SessionGroupId> = new Set(['archived', 'aborted']);
 const COLLAPSED_BY_DEFAULT: ReadonlySet<SessionGroupId> = new Set(['archived', 'aborted']);
 
@@ -114,6 +103,7 @@ export interface DeriveSessionStatusGroupsOptions {
    * pinned-floats-to-top behavior introduced in PR48 + PR108k.
    */
   pinFirst?: boolean;
+  locale?: UiLocale;
 }
 
 /**
@@ -134,6 +124,7 @@ export function deriveSessionStatusGroups(
   sessions: readonly SessionSummary[],
   options: DeriveSessionStatusGroupsOptions = {},
 ): SessionStatusGroup[] {
+  const labels = getDesktopConversationCopy(options.locale ?? 'zh').groups;
   const pinned: SessionSummary[] = [];
   const byStatus = new Map<SessionStatusGroupId, SessionSummary[]>();
   for (const status of SESSION_STATUS_GROUP_ORDER) {
@@ -152,7 +143,7 @@ export function deriveSessionStatusGroups(
   if (options.pinFirst && pinned.length > 0) {
     groups.push({
       id: 'pinned',
-      label: GROUP_LABEL.pinned,
+      label: labels.pinned,
       sessions: sortSessions(pinned),
       collapsible: false,
       defaultExpanded: true,
@@ -163,7 +154,7 @@ export function deriveSessionStatusGroups(
     if (list.length === 0) continue;
     groups.push({
       id,
-      label: GROUP_LABEL[id],
+      label: labels[id],
       sessions: sortSessions(list),
       collapsible: COLLAPSIBLE_GROUPS.has(id),
       defaultExpanded: !COLLAPSED_BY_DEFAULT.has(id),

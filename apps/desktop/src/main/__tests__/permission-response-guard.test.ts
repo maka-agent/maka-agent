@@ -25,7 +25,7 @@ describe('permission prompt response guard', () => {
       /\.\.\.\(props\.request\.rememberForTurnAllowed[\s\S]*\? \{ rememberForTurn:[\s\S]*: \{\}\)/,
       'the prompt must omit rememberForTurn unless the request explicitly allows it',
     );
-    assert.match(promptSource, /isOneShotPermissionRequest\(props\.request\) \? '允许这一次'/);
+    assert.match(promptSource, /isOneShotPermissionRequest\(props\.request\) \? copy\.allowOnce : copy\.allow/);
     assert.match(
       promptSource,
       /isAdditionalPermissionRequest\(request\) \|\| isSandboxEscalationRequest\(request\)/,
@@ -75,7 +75,7 @@ describe('permission prompt response guard', () => {
     );
     assert.match(prompt, /disabled=\{decisionsDisabled\}[\s\S]*onClick=\{\(\) => submit\('deny'\)\}/);
     assert.match(prompt, /disabled=\{decisionsDisabled\}[\s\S]*onClick=\{\(\) => submit\('allow'\)\}/);
-    assert.match(prompt, /responsePending \? '正在提交…'/);
+    assert.match(prompt, /responsePending \? copy\.submitting/);
   });
 
   it('locks permission decisions after Stop without removing Stop as a cancellation escape hatch', async () => {
@@ -90,7 +90,7 @@ describe('permission prompt response guard', () => {
     );
     assert.match(
       prompt,
-      /disabled=\{props\.stopPending\}[\s\S]*?props\.stopPending \? '停止中…' : '停止'/,
+      /disabled=\{props\.stopPending\}[\s\S]*?props\.stopPending \? copy\.stopping : copy\.stop/,
       'Stop remains independently available while a decision IPC is pending so the user can still interrupt the turn',
     );
   });

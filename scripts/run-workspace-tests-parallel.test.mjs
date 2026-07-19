@@ -21,7 +21,10 @@ function makeSpawn(plan) {
     queueMicrotask(() => {
       const step = plan[index] ?? { close: 0 };
       if (step.error) {
-        child.emit('error', step.error instanceof Error ? step.error : new Error(String(step.error)));
+        child.emit(
+          'error',
+          step.error instanceof Error ? step.error : new Error(String(step.error)),
+        );
         return;
       }
       child.emit('close', step.close ?? 0);
@@ -37,11 +40,7 @@ test('loadWorkspaceDirs reads root package.json workspaces', () => {
     join(dir, 'package.json'),
     JSON.stringify({ workspaces: ['packages/core', 'packages/headless', 'apps/desktop'] }),
   );
-  assert.deepEqual(loadWorkspaceDirs(dir), [
-    'packages/core',
-    'packages/headless',
-    'apps/desktop',
-  ]);
+  assert.deepEqual(loadWorkspaceDirs(dir), ['packages/core', 'packages/headless', 'apps/desktop']);
 });
 
 test('partitionWorkspaces keeps serial packages out of the parallel batch', () => {
@@ -89,11 +88,7 @@ test('parallel mode runs non-serial workspaces first, then serial ones', async (
   const repoRoot = '/repo';
   const workspaceDirs = ['packages/core', 'packages/headless', 'packages/ui'];
   const order = [];
-  const { spawn, calls } = makeSpawn([
-    { close: 0 },
-    { close: 0 },
-    { close: 0 },
-  ]);
+  const { spawn, calls } = makeSpawn([{ close: 0 }, { close: 0 }, { close: 0 }]);
   const trackingSpawn = (command, options) => {
     order.push(options.cwd);
     return spawn(command, options);
@@ -120,19 +115,16 @@ test('parallel mode runs non-serial workspaces first, then serial ones', async (
 test('parallel mode aggregates every failed workspace name', async () => {
   const repoRoot = '/repo';
   const workspaceDirs = ['packages/core', 'packages/ui', 'packages/headless'];
-  const { spawn } = makeSpawn([
-    { close: 1 },
-    { close: 2 },
-    { close: 0 },
-  ]);
+  const { spawn } = makeSpawn([{ close: 1 }, { close: 2 }, { close: 0 }]);
 
   await assert.rejects(
-    () => runWorkspaceTests({
-      repoRoot,
-      workspaceDirs,
-      serial: false,
-      spawn,
-    }),
+    () =>
+      runWorkspaceTests({
+        repoRoot,
+        workspaceDirs,
+        serial: false,
+        spawn,
+      }),
     (err) => {
       assert.match(err.message, /\[core\] failed with code 1/);
       assert.match(err.message, /\[ui\] failed with code 2/);
@@ -146,12 +138,13 @@ test('spawn errors are reported with the workspace name', async () => {
   const { spawn } = makeSpawn([{ error: new Error('ENOENT') }]);
 
   await assert.rejects(
-    () => runWorkspaceTests({
-      repoRoot,
-      workspaceDirs: ['packages/core'],
-      serial: true,
-      spawn,
-    }),
+    () =>
+      runWorkspaceTests({
+        repoRoot,
+        workspaceDirs: ['packages/core'],
+        serial: true,
+        spawn,
+      }),
     /\[core\] spawn failed: ENOENT/,
   );
 });

@@ -23,11 +23,14 @@ describe('PTY model output projection', () => {
     assert.equal(projected.truncated, true);
     assert.ok(modelTextBytes(projected) <= 80);
 
-    const screenOnly = projectPtyOutputForModel(ptyOutput({
-      screen: '\u754c'.repeat(100),
-      lastAlternateScreen: 'must-not-fit',
-      scrollback: 'must-not-fit',
-    }), 100);
+    const screenOnly = projectPtyOutputForModel(
+      ptyOutput({
+        screen: '\u754c'.repeat(100),
+        lastAlternateScreen: 'must-not-fit',
+        scrollback: 'must-not-fit',
+      }),
+      100,
+    );
     assert.ok(modelTextBytes(screenOnly) <= 100);
     assert.equal(screenOnly.lastAlternateScreen, undefined);
     assert.equal(screenOnly.scrollback, '');
@@ -40,18 +43,24 @@ describe('shell run sandbox denial projection', () => {
     const base = failedShellRun();
 
     assert.equal(terminalContent(base).sandboxDenial, undefined);
-    assert.deepEqual(terminalContent({
-      ...base,
-      sandboxExecution: { type: 'macos-seatbelt', enforced: true },
-    }).sandboxDenial, {
-      likely: true,
-      backend: 'macos-seatbelt',
-      recovery: 'require_escalated',
-    });
-    assert.equal(terminalContent({
-      ...base,
-      sandboxExecution: { type: 'none', enforced: false },
-    }).sandboxDenial, undefined);
+    assert.deepEqual(
+      terminalContent({
+        ...base,
+        sandboxExecution: { type: 'macos-seatbelt', enforced: true },
+      }).sandboxDenial,
+      {
+        likely: true,
+        backend: 'macos-seatbelt',
+        recovery: 'require_escalated',
+      },
+    );
+    assert.equal(
+      terminalContent({
+        ...base,
+        sandboxExecution: { type: 'none', enforced: false },
+      }).sandboxDenial,
+      undefined,
+    );
   });
 
   test('round-trips the producer sandbox denial through strict FileSessionStore recovery', async () => {

@@ -90,7 +90,7 @@ describe('sidebar project view mode', () => {
     const panel = await readRepo('packages/ui/src/session-list-panel.tsx');
 
     assert.match(appShell, /const visibleSessions = useMemo\(\(\) => filterSessions\(sessions, navSelection\), \[sessions, navSelection\]\)/);
-    assert.match(appShell, /deriveSessionStatusGroups\(visibleSessions, \{ pinFirst: true \}\)/);
+    assert.match(appShell, /deriveSessionStatusGroups\(visibleSessions, \{ pinFirst: true, locale: uiLocale \}\)/);
     assert.match(appShell, /deriveProjectGroups\(visibleSessions\)/);
     assert.match(appShell, /const sessionListGroups = viewMode === 'project' \? sessionProjectGroups : sessionStatusGroups/);
     assert.match(appShell, /statusGroups=\{sessionListGroups\}/);

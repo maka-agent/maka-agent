@@ -23,7 +23,8 @@ const usage = `Usage: node scripts/run-headless-tests.mjs
 Runs packages/headless tests with isolated user config, credentials, proxies, and Git config.
 `;
 
-const sensitiveEnvName = /(?:^|_)(?:API_KEY|ACCESS_KEY|PRIVATE_KEY|TOKEN|SECRET|PASSWORD|CREDENTIALS?)(?:_|$)/i;
+const sensitiveEnvName =
+  /(?:^|_)(?:API_KEY|ACCESS_KEY|PRIVATE_KEY|TOKEN|SECRET|PASSWORD|CREDENTIALS?)(?:_|$)/i;
 const proxyEnvName = /^(?:HTTP_PROXY|HTTPS_PROXY|ALL_PROXY|NO_PROXY)$/i;
 
 export function runHeadlessTests(options = {}) {
@@ -35,14 +36,19 @@ export function runHeadlessTests(options = {}) {
   const globalConfigPath = join(tempDir, 'gitconfig');
 
   try {
-    writeFileSync(credentialsPath, '{"version":1,"values":{}}\n', { encoding: 'utf8', mode: 0o600 });
+    writeFileSync(credentialsPath, '{"version":1,"values":{}}\n', {
+      encoding: 'utf8',
+      mode: 0o600,
+    });
     writeFileSync(globalConfigPath, '', { encoding: 'utf8', mode: 0o600 });
     const result = spawn(process.execPath, ['--test', testPattern], {
       cwd,
       env: {
-        ...Object.fromEntries(Object.entries(inheritedEnv).filter(
-          ([name]) => !sensitiveEnvName.test(name) && !proxyEnvName.test(name),
-        )),
+        ...Object.fromEntries(
+          Object.entries(inheritedEnv).filter(
+            ([name]) => !sensitiveEnvName.test(name) && !proxyEnvName.test(name),
+          ),
+        ),
         HOME: tempDir,
         USERPROFILE: tempDir,
         XDG_CONFIG_HOME: join(tempDir, 'config'),

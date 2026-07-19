@@ -22,11 +22,7 @@ import {
   terminateProcessTree,
   type ProcessTerminationSignal,
 } from './process-tree-terminator.js';
-import {
-  buildPtyShellSpawnPlan,
-  buildShellSpawnPlan,
-  defaultShellPlan,
-} from './shell-detect.js';
+import { buildPtyShellSpawnPlan, buildShellSpawnPlan, defaultShellPlan } from './shell-detect.js';
 import { PipeProcessDriver, type PipeProcessExit } from './pipe-process-driver.js';
 import { PipeTailCollector } from './pipe-tail-collector.js';
 import { PtyProcessDriver, type PtyProcessExit } from './pty-process-driver.js';
@@ -178,7 +174,9 @@ interface SessionCloseLease {
   readonly token: symbol;
 }
 
-export class ShellRunProcessManager implements RuntimeResourceReader, BackgroundTaskStopper, PtyControlWriter {
+export class ShellRunProcessManager
+  implements RuntimeResourceReader, BackgroundTaskStopper, PtyControlWriter
+{
   private readonly live = new Map<string, LiveShellRun>();
   private readonly sessionCloseLeases = new Map<string, Set<symbol>>();
   private readonly sessionTerminationEpochs = new Map<string, number>();
@@ -202,11 +200,13 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
     this.maxRetainedChars = input.maxRetainedChars ?? BASH_MAX_RETAINED_CHARS;
     this.maxLiveEmitChars = input.maxLiveEmitChars ?? BASH_MAX_LIVE_EMIT_CHARS;
     this.killGraceMs = input.killGraceMs ?? DEFAULT_PROCESS_TERMINATION_GRACE_MS;
-    this.exitAcknowledgementMs = input.exitAcknowledgementMs ?? DEFAULT_PROCESS_TERMINATION_GRACE_MS;
+    this.exitAcknowledgementMs =
+      input.exitAcknowledgementMs ?? DEFAULT_PROCESS_TERMINATION_GRACE_MS;
   }
 
   async runBackgroundBash(input: ShellRunBashInput): Promise<ShellRunToolResult> {
-    if (input.abortSignal?.aborted) throw abortError('Command aborted before shell process started');
+    if (input.abortSignal?.aborted)
+      throw abortError('Command aborted before shell process started');
     const mode: ShellMode = input.pty ? 'pty' : 'pipes';
     const timeoutMs = normalizeBackgroundTimeoutMs(input.timeoutMs);
     const live = await this.start(input, mode, timeoutMs, false);
@@ -216,9 +216,8 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
       return shellRunContent(await this.markObserved(await live.finished.join()));
     }
     live.visibleRef = true;
-    let handoffRecord = live.record && live.record.revision >= record.revision
-      ? live.record
-      : record;
+    let handoffRecord =
+      live.record && live.record.revision >= record.revision ? live.record : record;
     if (isTerminalShellRunStatus(handoffRecord.status)) {
       handoffRecord = await this.markObserved(handoffRecord);
     }
@@ -229,11 +228,13 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
   }
 
   async runForegroundBash(input: ShellRunBashInput): Promise<TerminalToolResult> {
-    if (input.pty) throw new Error('Foreground Bash does not support PTY mode; set run_in_background=true');
-    if (input.abortSignal?.aborted) throw abortError('Command aborted before shell process started');
+    if (input.pty)
+      throw new Error('Foreground Bash does not support PTY mode; set run_in_background=true');
+    if (input.abortSignal?.aborted)
+      throw abortError('Command aborted before shell process started');
     const timeoutMs = normalizeForegroundTimeoutMs(input.timeoutMs ?? DEFAULT_BASH_TIMEOUT_MS);
     const live = await this.start(input, 'pipes', timeoutMs, true);
-    if (await live.finished.waitFor(input.abortSignal) === 'abort') {
+    if ((await live.finished.waitFor(input.abortSignal)) === 'abort') {
       this.requestForcedTermination(live, 'cancel');
     }
     return this.markObservedAndReturnTerminal(await live.finished.join());
@@ -248,16 +249,22 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
     if (live.mode !== 'pty') throw new Error('WriteStdin requires a PTY background task ref');
     if (live.driverExit) {
       const record = await this.markObserved(await live.finished.join());
-      return shellRunContent(record, ptyControlOperation(input, {
-        inputQueued: false,
-        resizeApplied: false,
-        resizeChanged: false,
-      }));
+      return shellRunContent(
+        record,
+        ptyControlOperation(input, {
+          inputQueued: false,
+          resizeApplied: false,
+          resizeChanged: false,
+        }),
+      );
     }
     if (!isPtyControlOpen(live)) {
-      throw new Error('This PTY is stopping and no longer accepts input; use Read to observe its final state');
+      throw new Error(
+        'This PTY is stopping and no longer accepts input; use Read to observe its final state',
+      );
     }
-    if (input.abortSignal?.aborted) throw abortError('WriteStdin aborted before the control operation was committed');
+    if (input.abortSignal?.aborted)
+      throw abortError('WriteStdin aborted before the control operation was committed');
 
     let inputQueued = false;
     let resizeApplied = false;
@@ -300,10 +307,13 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
         }
       }
     });
-    const persistedControl = this.persistObservation(live, controlCut.then(
-      (snapshot) => operationFailed || exitBeforeControlCut ? undefined : snapshot,
-      () => undefined,
-    ));
+    const persistedControl = this.persistObservation(
+      live,
+      controlCut.then(
+        (snapshot) => (operationFailed || exitBeforeControlCut ? undefined : snapshot),
+        () => undefined,
+      ),
+    );
     try {
       await controlCut;
     } catch (error) {
@@ -328,23 +338,29 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
     } catch (error) {
       if (live.integrityFailure && !live.persistFailure) {
         record = await this.markObserved(await live.finished.join());
-        return shellRunContent(record, ptyControlOperation(input, {
-          inputQueued,
-          resizeApplied,
-          resizeChanged,
-          failed: true,
-        }));
+        return shellRunContent(
+          record,
+          ptyControlOperation(input, {
+            inputQueued,
+            resizeApplied,
+            resizeChanged,
+            failed: true,
+          }),
+        );
       }
       throw error;
     }
     if (live.integrityFailure && !live.persistFailure) {
       record = await this.markObserved(await live.finished.join());
-      return shellRunContent(record, ptyControlOperation(input, {
-        inputQueued,
-        resizeApplied,
-        resizeChanged,
-        failed: true,
-      }));
+      return shellRunContent(
+        record,
+        ptyControlOperation(input, {
+          inputQueued,
+          resizeApplied,
+          resizeChanged,
+          failed: true,
+        }),
+      );
     }
     if (isTerminalShellRunStatus(record.status)) record = await this.markObserved(record);
     return shellRunContent(record, operation);
@@ -385,7 +401,8 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
       const record = await this.markObserved(await live.finished.join());
       return shellRunContent(record, { kind: 'stop', applied: false });
     }
-    if (abortSignal.aborted) throw abortError('StopBackgroundTask aborted before termination was committed');
+    if (abortSignal.aborted)
+      throw abortError('StopBackgroundTask aborted before termination was committed');
 
     let applied = false;
     const pending = new PendingStop(abortSignal);
@@ -393,8 +410,8 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
     try {
       if (live.mode === 'pty') {
         try {
-          applied = await live.collector.mutateAtCut(
-            () => this.beginStopTermination(live, pending),
+          applied = await live.collector.mutateAtCut(() =>
+            this.beginStopTermination(live, pending),
           );
         } catch (error) {
           if (isAbortError(error)) throw error;
@@ -420,19 +437,23 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
     const lines = [
       'Background tasks for this session:',
       ...visible.map((record) => {
-        const completed = record.completedAt !== undefined ? ` completedAt=${record.completedAt}` : '';
+        const completed =
+          record.completedAt !== undefined ? ` completedAt=${record.completedAt}` : '';
         return `- ref=${shellRunResourceRef(record.shellRunId)} mode=${record.output.mode} status=${record.status} cwd=${record.cwd} updatedAt=${record.updatedAt}${completed} command=${JSON.stringify(record.command)}`;
       }),
     ];
     const overflow = records.length - visible.length;
-    if (overflow > 0) lines.push(`- ${overflow} more background task(s) not shown in this turn tail.`);
+    if (overflow > 0)
+      lines.push(`- ${overflow} more background task(s) not shown in this turn tail.`);
     const hasControllablePty = records.some((record) => {
       const live = this.liveResource(sessionId, record.shellRunId);
       return live?.mode === 'pty' && isPtyControlOpen(live);
     });
-    lines.push(hasControllablePty
-      ? 'Use Read on a ref for its bounded output snapshot; use WriteStdin to control a running PTY task.'
-      : 'Use Read on a ref for its bounded output snapshot.');
+    lines.push(
+      hasControllablePty
+        ? 'Use Read on a ref for its bounded output snapshot; use WriteStdin to control a running PTY task.'
+        : 'Use Read on a ref for its bounded output snapshot.',
+    );
     return lines.join('\n');
   }
 
@@ -517,7 +538,8 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
 
       const stack = await racePromiseWithAbort(loadPtyStack(), input.abortSignal);
       this.assertStartAllowed(input.sessionId, sessionEpoch);
-      if (input.abortSignal?.aborted) throw abortError('Command aborted before PTY process started');
+      if (input.abortSignal?.aborted)
+        throw abortError('Command aborted before PTY process started');
       return await this.startPty(input, shellRunId, timeoutMs, stack, slotReservation);
     } catch (error) {
       this.releaseSlot(slotReservation);
@@ -552,7 +574,8 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
       ...(input.env ? { env: input.env } : {}),
       ...(input.fdInputs ? { fdInputs: input.fdInputs } : {}),
       onData: (stream, data) => dispatch((target) => this.onPipeData(target, stream, data)),
-      onExit: (exit) => dispatch((target) => this.onDriverExit(target, { mode: 'pipes', value: exit })),
+      onExit: (exit) =>
+        dispatch((target) => this.onDriverExit(target, { mode: 'pipes', value: exit })),
       onFailure: (error) => dispatch((target) => this.handleIntegrityFailure(target, error)),
     });
     live = {
@@ -606,12 +629,9 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
         cols: PTY_INITIAL_COLS,
         rows: PTY_INITIAL_ROWS,
         onProtocolReply: (data) => {
-          if (!live || !driver) throw new Error('PTY protocol reply arrived before driver admission');
-          if (
-            live.driverExit
-            || live.termination
-            || live.integrityFailure
-          ) return;
+          if (!live || !driver)
+            throw new Error('PTY protocol reply arrived before driver admission');
+          if (live.driverExit || live.termination || live.integrityFailure) return;
           driver.write(data);
         },
         onDirty: () => dispatch((target) => this.scheduleAutomaticFlush(target)),
@@ -629,12 +649,22 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
         cols: PTY_INITIAL_COLS,
         rows: PTY_INITIAL_ROWS,
         onData: (data) => dispatch((target) => target.collector.accept(data)),
-        onExit: (exit) => dispatch((target) => this.onDriverExit(target, { mode: 'pty', value: exit })),
-        onInvariantFailure: (error) => dispatch((target) => this.handleIntegrityFailure(target, error)),
+        onExit: (exit) =>
+          dispatch((target) => this.onDriverExit(target, { mode: 'pty', value: exit })),
+        onInvariantFailure: (error) =>
+          dispatch((target) => this.handleIntegrityFailure(target, error)),
       });
     } catch (error) {
-      try { collector?.dispose(); } catch { /* startup cleanup continues */ }
-      try { driver?.dispose(); } catch { /* startup cleanup continues */ }
+      try {
+        collector?.dispose();
+      } catch {
+        /* startup cleanup continues */
+      }
+      try {
+        driver?.dispose();
+      } catch {
+        /* startup cleanup continues */
+      }
       throw error;
     }
     if (!driver || !collector) {
@@ -702,18 +732,22 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
       startedAt: live.startedAt,
       updatedAt: live.startedAt,
       ...(live.timeoutMs !== undefined ? { timeoutMs: live.timeoutMs } : {}),
-      ...(input.sandboxType ? {
-        sandboxExecution: {
-          type: input.sandboxType,
-          enforced: input.sandboxType !== 'none',
-        },
-      } : {}),
-      ...(input.permissionContext?.sandboxEscalationGrant ? {
-        sandboxEscalation: {
-          commandHash: input.permissionContext.sandboxEscalationGrant.commandHash,
-          unsandboxed: true,
-        },
-      } : {}),
+      ...(input.sandboxType
+        ? {
+            sandboxExecution: {
+              type: input.sandboxType,
+              enforced: input.sandboxType !== 'none',
+            },
+          }
+        : {}),
+      ...(input.permissionContext?.sandboxEscalationGrant
+        ? {
+            sandboxEscalation: {
+              commandHash: input.permissionContext.sandboxEscalationGrant.commandHash,
+              unsandboxed: true,
+            },
+          }
+        : {}),
       revision: 1,
       output: live.mode === 'pipes' ? live.collector.snapshot() : live.collector.lastGoodSnapshot(),
     };
@@ -733,7 +767,11 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
     this.scheduleAutomaticFlush(live);
   }
 
-  private emitLivePipeOutput(live: LivePipeShellRun, stream: 'stdout' | 'stderr', chunk: string): void {
+  private emitLivePipeOutput(
+    live: LivePipeShellRun,
+    stream: 'stdout' | 'stderr',
+    chunk: string,
+  ): void {
     if (!live.forwardLive || live.liveSuppressed[stream]) return;
     if (live.liveEmitted[stream] + chunk.length <= this.maxLiveEmitChars) {
       live.emitOutput(stream, chunk);
@@ -746,12 +784,13 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
 
   private scheduleAutomaticFlush(live: LiveShellRun): void {
     if (
-      !live.record
-      || live.finalizeOnce
-      || live.driverExit
-      || live.integrityFailure
-      || live.persistFailure
-    ) return;
+      !live.record ||
+      live.finalizeOnce ||
+      live.driverExit ||
+      live.integrityFailure ||
+      live.persistFailure
+    )
+      return;
     if (live.flushInFlight || live.flushTimer) return;
     if (live.mode === 'pipes') {
       if (live.pendingFlushChars >= this.flushBytes) {
@@ -777,22 +816,25 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
 
   private queueAutomaticFlush(live: LiveShellRun): void {
     if (
-      live.finalizeOnce
-      || live.driverExit
-      || live.integrityFailure
-      || live.persistFailure
-      || live.flushInFlight
-      || this.currentGeneration(live) <= live.lastPersistedGeneration
-    ) return;
+      live.finalizeOnce ||
+      live.driverExit ||
+      live.integrityFailure ||
+      live.persistFailure ||
+      live.flushInFlight ||
+      this.currentGeneration(live) <= live.lastPersistedGeneration
+    )
+      return;
     if (live.mode === 'pipes') live.pendingFlushChars = 0;
     const task = this.queuePersist(live);
     live.flushInFlight = task;
-    void task.catch(() => {}).finally(() => {
-      if (live.flushInFlight === task) live.flushInFlight = undefined;
-      if (this.currentGeneration(live) > live.lastPersistedGeneration) {
-        this.scheduleAutomaticFlush(live);
-      }
-    });
+    void task
+      .catch(() => {})
+      .finally(() => {
+        if (live.flushInFlight === task) live.flushInFlight = undefined;
+        if (this.currentGeneration(live) > live.lastPersistedGeneration) {
+          this.scheduleAutomaticFlush(live);
+        }
+      });
   }
 
   private persistObservation(
@@ -901,7 +943,9 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
   private async finalizeLive(live: LiveShellRun, abandoned: boolean): Promise<ShellRunRecord> {
     if (live.termination) await live.termination.finished.join();
     if (abandoned && !live.integrityFailure) {
-      live.integrityFailure = new Error('Shell process did not acknowledge exit after forced termination');
+      live.integrityFailure = new Error(
+        'Shell process did not acknowledge exit after forced termination',
+      );
     }
     this.clearLiveTimers(live);
     if (live.mode === 'pty') live.collector.closeDataAdmission();
@@ -932,9 +976,9 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
       try {
         const failureMessage = safeFailureMessage(integrityError);
         if (
-          finalRecord.status !== 'failed'
-          || finalRecord.exitCode !== undefined
-          || finalRecord.failureMessage !== failureMessage
+          finalRecord.status !== 'failed' ||
+          finalRecord.exitCode !== undefined ||
+          finalRecord.failureMessage !== failureMessage
         ) {
           finalRecord = await this.input.store.updateShellRun(live.sessionId, live.shellRunId, {
             status: 'failed',
@@ -951,7 +995,9 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
     }
     try {
       if (completionError || !finalRecord) {
-        const error = completionError ?? new Error(`ShellRun ${live.shellRunId} finalized without a durable record`);
+        const error =
+          completionError ??
+          new Error(`ShellRun ${live.shellRunId} finalized without a durable record`);
         live.finished.reject(error);
         throw error;
       }
@@ -976,9 +1022,10 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
     if (live.lifecycleCause === 'timeout') {
       return {
         status: 'timed_out',
-        failureMessage: live.timeoutMs === undefined
-          ? 'Command timed out'
-          : `Command timed out after ${live.timeoutMs}ms`,
+        failureMessage:
+          live.timeoutMs === undefined
+            ? 'Command timed out'
+            : `Command timed out after ${live.timeoutMs}ms`,
         exitCode: 124,
         completedAt,
       };
@@ -1018,23 +1065,15 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
     if (live.termination) return live.termination;
     const lifecycle = createTerminationLifecycle();
     live.termination = lifecycle;
-    this.startTermination(
-      live,
-      lifecycle,
-      cause,
-      () => {
-        if (live.termination !== lifecycle || live.driverExit) return false;
-        this.settlePendingStops(live, 'termination');
-        return true;
-      },
-    );
+    this.startTermination(live, lifecycle, cause, () => {
+      if (live.termination !== lifecycle || live.driverExit) return false;
+      this.settlePendingStops(live, 'termination');
+      return true;
+    });
     return lifecycle;
   }
 
-  private async beginStopTermination(
-    live: LiveShellRun,
-    pending: PendingStop,
-  ): Promise<boolean> {
+  private async beginStopTermination(live: LiveShellRun, pending: PendingStop): Promise<boolean> {
     if (live.driverExit) {
       pending.settle('exit');
       return false;
@@ -1062,7 +1101,7 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
   }
 
   private async finishPendingStop(pending: PendingStop): Promise<false> {
-    if (await pending.wait() === 'abort') {
+    if ((await pending.wait()) === 'abort') {
       throw abortError('StopBackgroundTask aborted before termination was committed');
     }
     return false;
@@ -1076,7 +1115,7 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
     lifecycle: TerminationLifecycle,
     abortSignal: AbortSignal,
   ): Promise<void> {
-    if (await lifecycle.initialDecision.waitFor(abortSignal) === 'abort') {
+    if ((await lifecycle.initialDecision.waitFor(abortSignal)) === 'abort') {
       throw abortError('StopBackgroundTask aborted before termination was committed');
     }
   }
@@ -1087,19 +1126,21 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
     cause: LifecycleCause | undefined,
     commit: () => boolean,
   ): void {
-    void this.runTermination(live, lifecycle, cause, commit).catch((error: unknown) => {
-      if (live.termination !== lifecycle) return;
-      live.integrityFailure ??= asError(error, 'Shell process termination failed');
-      if (live.mode === 'pty') live.collector.closeDataAdmission();
-      if (live.record) void this.beginFinalize(live, true).catch(() => {});
-    }).finally(() => {
-      lifecycle.initialDecision.resolve();
-      lifecycle.initialSignal.resolve(false);
-      lifecycle.finished.resolve();
-      if (live.termination === lifecycle) {
-        this.settlePendingStops(live, live.driverExit ? 'exit' : 'termination');
-      }
-    });
+    void this.runTermination(live, lifecycle, cause, commit)
+      .catch((error: unknown) => {
+        if (live.termination !== lifecycle) return;
+        live.integrityFailure ??= asError(error, 'Shell process termination failed');
+        if (live.mode === 'pty') live.collector.closeDataAdmission();
+        if (live.record) void this.beginFinalize(live, true).catch(() => {});
+      })
+      .finally(() => {
+        lifecycle.initialDecision.resolve();
+        lifecycle.initialSignal.resolve(false);
+        lifecycle.finished.resolve();
+        if (live.termination === lifecycle) {
+          this.settlePendingStops(live, live.driverExit ? 'exit' : 'termination');
+        }
+      });
   }
 
   private async runTermination(
@@ -1124,12 +1165,12 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
     lifecycle.initialSignal.resolve(applied);
     if (live.driverExit || live.finalizeOnce) return;
 
-    if (await live.nativeExit.wait(this.killGraceMs) !== 'delay') return;
+    if ((await live.nativeExit.wait(this.killGraceMs)) !== 'delay') return;
     const forced = await this.signalProcessTree(live, 'SIGKILL');
     if (forced && cause) live.lifecycleCause ??= cause;
     if (live.driverExit || live.finalizeOnce) return;
 
-    if (await live.nativeExit.wait(this.exitAcknowledgementMs) !== 'delay') return;
+    if ((await live.nativeExit.wait(this.exitAcknowledgementMs)) !== 'delay') return;
     await this.signalProcessTree(live, 'SIGKILL');
     if (live.driverExit || live.finalizeOnce) return;
 
@@ -1159,7 +1200,7 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
     return terminateProcessTree({
       pid,
       signal,
-      fallback: () => live.driverExit ? false : live.driver.kill(signal),
+      fallback: () => (live.driverExit ? false : live.driver.kill(signal)),
       hasExited: () => live.driverExit !== undefined,
       beforeSignal,
     });
@@ -1186,7 +1227,11 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
       } catch {
         // Startup already failed; continue releasing native and manager resources.
       }
-      try { live.driver.dispose(); } catch { /* startup cleanup continues */ }
+      try {
+        live.driver.dispose();
+      } catch {
+        /* startup cleanup continues */
+      }
     } finally {
       this.live.delete(live.shellRunId);
       this.releaseLiveSlot(live);
@@ -1207,18 +1252,25 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
       if (live.integrityFailure || live.driverExit) {
         record = await live.finished.join();
       } else {
-        if (abortSignal.aborted) throw abortError('Read aborted before the runtime snapshot cut was established');
+        if (abortSignal.aborted)
+          throw abortError('Read aborted before the runtime snapshot cut was established');
         record = await this.persistObservation(live);
       }
     } else {
-      if (abortSignal.aborted) throw abortError('Read aborted before the durable runtime snapshot was read');
+      if (abortSignal.aborted)
+        throw abortError('Read aborted before the durable runtime snapshot was read');
       record = await this.readDurableRecord(sessionId, target.shellRunId);
       if (record.status === 'running') {
-        record = await this.markOrphaned(record, 'Runtime restarted without a live shell process handle');
+        record = await this.markOrphaned(
+          record,
+          'Runtime restarted without a live shell process handle',
+        );
       }
-      if (abortSignal.aborted) throw abortError('Read aborted before the durable runtime snapshot was observed');
+      if (abortSignal.aborted)
+        throw abortError('Read aborted before the durable runtime snapshot was observed');
     }
-    if (markObserved && isTerminalShellRunStatus(record.status)) record = await this.markObserved(record);
+    if (markObserved && isTerminalShellRunStatus(record.status))
+      record = await this.markObserved(record);
     return shellRunContent(record);
   }
 
@@ -1235,19 +1287,26 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
       throw abortError('WriteStdin aborted before the terminal state was observed');
     }
     let record = await this.readDurableRecord(input.sessionId, shellRunId);
-    if (record.output.mode !== 'pty') throw new Error('WriteStdin requires a PTY background task ref');
+    if (record.output.mode !== 'pty')
+      throw new Error('WriteStdin requires a PTY background task ref');
     if (record.status === 'running') {
-      record = await this.markOrphaned(record, 'Runtime restarted without a live shell process handle');
+      record = await this.markOrphaned(
+        record,
+        'Runtime restarted without a live shell process handle',
+      );
     }
     if (input.abortSignal?.aborted) {
       throw abortError('WriteStdin aborted before the terminal state was observed');
     }
     record = await this.markObserved(record);
-    return shellRunContent(record, ptyControlOperation(input, {
-      inputQueued: false,
-      resizeApplied: false,
-      resizeChanged: false,
-    }));
+    return shellRunContent(
+      record,
+      ptyControlOperation(input, {
+        inputQueued: false,
+        resizeApplied: false,
+        resizeChanged: false,
+      }),
+    );
   }
 
   private async stopWithoutLive(
@@ -1260,7 +1319,10 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
     }
     let record = await this.readDurableRecord(sessionId, shellRunId);
     if (record.status === 'running') {
-      record = await this.markOrphaned(record, 'Runtime restarted without a live shell process handle');
+      record = await this.markOrphaned(
+        record,
+        'Runtime restarted without a live shell process handle',
+      );
     }
     if (abortSignal?.aborted) {
       throw abortError('StopBackgroundTask aborted before the terminal state was observed');
@@ -1278,7 +1340,9 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
       return await this.input.store.readShellRun(sessionId, shellRunId);
     } catch (error) {
       if (!isNotFoundError(error)) throw error;
-      const notFound = new Error('Runtime background task not found in this session') as NodeJS.ErrnoException;
+      const notFound = new Error(
+        'Runtime background task not found in this session',
+      ) as NodeJS.ErrnoException;
       notFound.code = 'ENOENT';
       throw notFound;
     }
@@ -1306,8 +1370,11 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
   private async actionableRecords(sessionId: string): Promise<ShellRunRecord[]> {
     const records = await this.input.store.listSessionShellRuns(sessionId);
     return records
-      .filter((record) => record.status === 'running'
-        || (record.observedAt === undefined && isTerminalShellRunStatus(record.status)))
+      .filter(
+        (record) =>
+          record.status === 'running' ||
+          (record.observedAt === undefined && isTerminalShellRunStatus(record.status)),
+      )
       .sort(compareActionableShellRuns);
   }
 
@@ -1321,7 +1388,10 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
 
   private armTimeout(live: LiveShellRun): void {
     if (live.timeoutMs === undefined) return;
-    live.timeoutTimer = setTimeout(() => this.requestForcedTermination(live, 'timeout'), live.timeoutMs);
+    live.timeoutTimer = setTimeout(
+      () => this.requestForcedTermination(live, 'timeout'),
+      live.timeoutMs,
+    );
   }
 
   private clearLiveTimers(live: LiveShellRun): void {
@@ -1345,7 +1415,10 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
     if (this.shuttingDown) {
       throw abortError('Command aborted because the shell runtime is shutting down');
     }
-    if (this.sessionCloseLeases.has(sessionId) || this.sessionTerminationEpoch(sessionId) !== sessionEpoch) {
+    if (
+      this.sessionCloseLeases.has(sessionId) ||
+      this.sessionTerminationEpoch(sessionId) !== sessionEpoch
+    ) {
       throw abortError('Command aborted because the session lifecycle changed');
     }
   }
@@ -1387,11 +1460,13 @@ function createTerminationLifecycle(): TerminationLifecycle {
 }
 
 function isPtyControlOpen(live: LivePtyShellRun): boolean {
-  return live.record !== undefined
-    && !hasUndecidedPendingStop(live)
-    && !live.driverExit
-    && !live.termination
-    && !live.integrityFailure;
+  return (
+    live.record !== undefined &&
+    !hasUndecidedPendingStop(live) &&
+    !live.driverExit &&
+    !live.termination &&
+    !live.integrityFailure
+  );
 }
 
 function hasUndecidedPendingStop(live: LivePtyShellRun): boolean {
@@ -1418,14 +1493,19 @@ function safeFailureMessage(error: Error): string {
 }
 
 function compareActionableShellRuns(a: ShellRunRecord, b: ShellRunRecord): number {
-  const rank = (record: ShellRunRecord) => record.status === 'running' ? 1 : 0;
-  return rank(a) - rank(b)
-    || b.updatedAt - a.updatedAt
-    || b.startedAt - a.startedAt
-    || a.shellRunId.localeCompare(b.shellRunId);
+  const rank = (record: ShellRunRecord) => (record.status === 'running' ? 1 : 0);
+  return (
+    rank(a) - rank(b) ||
+    b.updatedAt - a.updatedAt ||
+    b.startedAt - a.startedAt ||
+    a.shellRunId.localeCompare(b.shellRunId)
+  );
 }
 
-async function racePromiseWithAbort<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+async function racePromiseWithAbort<T>(
+  promise: Promise<T>,
+  signal: AbortSignal | undefined,
+): Promise<T> {
   if (!signal) return promise;
   if (signal.aborted) throw abortError('Operation aborted');
   return new Promise<T>((resolve, reject) => {
@@ -1436,8 +1516,14 @@ async function racePromiseWithAbort<T>(promise: Promise<T>, signal: AbortSignal 
     const cleanup = () => signal.removeEventListener('abort', onAbort);
     signal.addEventListener('abort', onAbort, { once: true });
     void promise.then(
-      (value) => { cleanup(); resolve(value); },
-      (error) => { cleanup(); reject(error); },
+      (value) => {
+        cleanup();
+        resolve(value);
+      },
+      (error) => {
+        cleanup();
+        reject(error);
+      },
     );
   });
 }
@@ -1458,7 +1544,9 @@ function requireProgram(argv: readonly string[]): string {
 
 function normalizeForegroundTimeoutMs(value: number): number {
   if (!Number.isInteger(value) || value <= 0 || value > MAX_FOREGROUND_BASH_TIMEOUT_MS) {
-    throw new Error(`Foreground Bash timeout must be between 1 and ${MAX_FOREGROUND_BASH_TIMEOUT_MS}ms`);
+    throw new Error(
+      `Foreground Bash timeout must be between 1 and ${MAX_FOREGROUND_BASH_TIMEOUT_MS}ms`,
+    );
   }
   return value;
 }

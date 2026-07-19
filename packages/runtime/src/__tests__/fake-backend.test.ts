@@ -33,20 +33,27 @@ test('AskUserQuestion scenario parks the same turn until one response continues 
     sessionId: 'session-1',
     header: { model: 'fake-model' } as SessionHeader,
     store: {} as SessionStore,
-    appendMessage: async (message) => { appended.push(message); },
+    appendMessage: async (message) => {
+      appended.push(message);
+    },
   });
-  const iterator = backend.send({
-    turnId: 'turn-1',
-    text: FAKE_ASK_USER_QUESTION_PROMPT,
-    context: [],
-  })[Symbol.asyncIterator]();
+  const iterator = backend
+    .send({
+      turnId: 'turn-1',
+      text: FAKE_ASK_USER_QUESTION_PROMPT,
+      context: [],
+    })
+    [Symbol.asyncIterator]();
 
   assert.equal((await iterator.next()).value?.type, 'tool_start');
   const request = (await iterator.next()).value;
   assert.equal(request?.type, 'user_question_request');
   if (request?.type !== 'user_question_request') assert.fail('expected user question request');
 
-  await backend.respondToUserQuestion({ requestId: request.requestId, answers: ['邀请制', null, '自定义节奏'] });
+  await backend.respondToUserQuestion({
+    requestId: request.requestId,
+    answers: ['邀请制', null, '自定义节奏'],
+  });
 
   const remaining: SessionEvent[] = [];
   for await (const event of { [Symbol.asyncIterator]: () => iterator }) remaining.push(event);
@@ -55,7 +62,10 @@ test('AskUserQuestion scenario parks the same turn until one response continues 
   const completed = remaining.find((event) => event.type === 'text_complete');
   assert.ok(completed?.type === 'text_complete');
   assert.match(completed.text, /邀请制.*未回答.*自定义节奏/s);
-  assert.deepEqual(appended.map((message) => message.type), ['tool_call', 'tool_result', 'assistant']);
+  assert.deepEqual(
+    appended.map((message) => message.type),
+    ['tool_call', 'tool_result', 'assistant'],
+  );
 });
 
 test('pullSteering drains queued messages at step boundaries as steering events', async () => {
@@ -66,7 +76,10 @@ test('pullSteering drains queued messages at step boundaries as steering events'
     appendMessage: async () => {},
   });
   // Queue two steering messages, delivered one per step boundary, then dry up.
-  const pending = [{ id: 'lease-1', text: 'do X' }, { id: 'lease-2', text: 'and Y' }];
+  const pending = [
+    { id: 'lease-1', text: 'do X' },
+    { id: 'lease-2', text: 'and Y' },
+  ];
   const acked: string[] = [];
   const steered: string[] = [];
   let completedText = '';
@@ -102,18 +115,23 @@ test('a batch of leases settles per lease: delivered ones ack, undelivered ones 
   let pulled = false;
   const acked: string[] = [];
   const nacked: string[] = [];
-  const iterator = backend.send({
-    turnId: 'turn-1',
-    text: 'hello',
-    context: [],
-    pullSteering: () => {
-      if (pulled) return [];
-      pulled = true;
-      return [{ id: 'lease-a', text: 'A' }, { id: 'lease-b', text: 'B' }];
-    },
-    ackSteering: (leaseIds) => acked.push(...leaseIds),
-    nackSteering: (leaseIds) => nacked.push(...leaseIds),
-  })[Symbol.asyncIterator]();
+  const iterator = backend
+    .send({
+      turnId: 'turn-1',
+      text: 'hello',
+      context: [],
+      pullSteering: () => {
+        if (pulled) return [];
+        pulled = true;
+        return [
+          { id: 'lease-a', text: 'A' },
+          { id: 'lease-b', text: 'B' },
+        ];
+      },
+      ackSteering: (leaseIds) => acked.push(...leaseIds),
+      nackSteering: (leaseIds) => nacked.push(...leaseIds),
+    })
+    [Symbol.asyncIterator]();
 
   const steered: string[] = [];
   for (let i = 0; i < 20 && steered.length < 2; i += 1) {
@@ -142,14 +160,16 @@ test('a lease is acked only after its event is consumed, and nacked when the con
   const pending = [{ id: 'lease-1', text: 'do X' }];
   const acked: string[] = [];
   const nacked: string[] = [];
-  const iterator = backend.send({
-    turnId: 'turn-1',
-    text: 'hello',
-    context: [],
-    pullSteering: () => pending.splice(0),
-    ackSteering: (leaseIds) => acked.push(...leaseIds),
-    nackSteering: (leaseIds) => nacked.push(...leaseIds),
-  })[Symbol.asyncIterator]();
+  const iterator = backend
+    .send({
+      turnId: 'turn-1',
+      text: 'hello',
+      context: [],
+      pullSteering: () => pending.splice(0),
+      ackSteering: (leaseIds) => acked.push(...leaseIds),
+      nackSteering: (leaseIds) => nacked.push(...leaseIds),
+    })
+    [Symbol.asyncIterator]();
 
   let received: SessionEvent | undefined;
   for (let i = 0; i < 10 && received?.type !== 'steering_message'; i += 1) {

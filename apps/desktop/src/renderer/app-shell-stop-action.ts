@@ -1,4 +1,6 @@
-import { generalizedErrorMessageChinese } from '@maka/core';
+import type { UiLocale } from '@maka/core';
+import { localizedShellErrorMessage } from './locales/shell-copy.js';
+import { getDesktopConversationCopy } from './locales/conversation-copy.js';
 
 type RefBox<T> = { current: T };
 type BooleanRecordUpdater = (updater: (current: Record<string, boolean>) => Record<string, boolean>) => void;
@@ -8,6 +10,7 @@ type ToastApi = {
 };
 
 export function createAppShellStopAction(deps: {
+  uiLocale: UiLocale;
   activeIdRef: RefBox<string | undefined>;
   addPendingSessionAction: (
     sessionId: string,
@@ -24,6 +27,7 @@ export function createAppShellStopAction(deps: {
   toastApi: ToastApi;
 }): () => Promise<void> {
   const {
+    uiLocale,
     activeIdRef,
     addPendingSessionAction,
     clearPendingSessionAction,
@@ -44,7 +48,10 @@ export function createAppShellStopAction(deps: {
       // UnhandledPromiseRejection and the user would see nothing.
       // Surface it as a toast so the user knows the model wasn't
       // actually interrupted and can retry.
-      if (activeIdRef.current === sessionId) toastApi.error('停止失败', generalizedErrorMessageChinese(error, '会话操作失败，请稍后重试。'));
+      if (activeIdRef.current === sessionId) {
+        const copy = getDesktopConversationCopy(uiLocale).actions;
+        toastApi.error(copy.stopFailedTitle, localizedShellErrorMessage(error, copy.stopFailedFallback, uiLocale));
+      }
     } finally {
       clearPendingSessionAction(sessionId, stopPendingRef, setStopPendingBySession);
     }

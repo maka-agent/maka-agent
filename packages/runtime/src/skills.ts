@@ -1,6 +1,15 @@
 import { createHash } from 'node:crypto';
 import { homedir } from 'node:os';
-import { lstat, mkdir, readdir, readFile, realpath, rename, unlink, writeFile } from 'node:fs/promises';
+import {
+  lstat,
+  mkdir,
+  readdir,
+  readFile,
+  realpath,
+  rename,
+  unlink,
+  writeFile,
+} from 'node:fs/promises';
 import { join, relative } from 'node:path';
 import { parseDocument } from 'yaml';
 import { z } from 'zod';
@@ -177,7 +186,11 @@ export interface LoadedSkillInstructions {
 
 export type LoadSkillInstructionsResult =
   | { ok: true; skill: LoadedSkillInstructions }
-  | { ok: false; reason: 'invalid_name' | 'not_found' | 'disabled' | 'host_incompatible'; availableSkills: Array<Pick<RuntimeSkillDefinition, 'id' | 'name' | 'description'>> };
+  | {
+      ok: false;
+      reason: 'invalid_name' | 'not_found' | 'disabled' | 'host_incompatible';
+      availableSkills: Array<Pick<RuntimeSkillDefinition, 'id' | 'name' | 'description'>>;
+    };
 
 export type SkillRuntimeStateReadResult =
   | { ok: true; states: Map<string, boolean> }
@@ -190,8 +203,12 @@ export type SkillRuntimeStateReadResult =
  * (lower index = higher precedence) and provides a `stateRoot` for
  * reading/writing `skills-state.json`.
  */
-export type SkillSource = string | { dirs: string[]; stateRoot: string; entries?: SkillDiscoveryEntry[] };
-export type SkillSourceResolver = (context: Pick<MakaToolContext, 'sessionId' | 'cwd'>) => SkillSource;
+export type SkillSource =
+  | string
+  | { dirs: string[]; stateRoot: string; entries?: SkillDiscoveryEntry[] };
+export type SkillSourceResolver = (
+  context: Pick<MakaToolContext, 'sessionId' | 'cwd'>,
+) => SkillSource;
 
 /**
  * Standard skill discovery paths per the Agent Skills spec
@@ -212,7 +229,11 @@ export interface SkillDiscoveryEntry {
   containmentRoot: string;
 }
 
-export function resolveSkillDiscoveryPaths(cwd: string, workspaceRoot: string, homeDir?: string): { entries: SkillDiscoveryEntry[]; dirs: string[]; stateRoot: string } {
+export function resolveSkillDiscoveryPaths(
+  cwd: string,
+  workspaceRoot: string,
+  homeDir?: string,
+): { entries: SkillDiscoveryEntry[]; dirs: string[]; stateRoot: string } {
   const home = homeDir ?? homedir();
   const entries: SkillDiscoveryEntry[] = [
     { dir: join(cwd, '.maka', 'skills'), containmentRoot: cwd },
@@ -224,9 +245,15 @@ export function resolveSkillDiscoveryPaths(cwd: string, workspaceRoot: string, h
   return { entries, dirs: entries.map((e) => e.dir), stateRoot: workspaceRoot };
 }
 
-function normalizeSkillSource(source: SkillSource): { entries: SkillDiscoveryEntry[]; stateRoot: string } {
+function normalizeSkillSource(source: SkillSource): {
+  entries: SkillDiscoveryEntry[];
+  stateRoot: string;
+} {
   if (typeof source === 'string') {
-    return { entries: [{ dir: join(source, 'skills'), containmentRoot: source }], stateRoot: source };
+    return {
+      entries: [{ dir: join(source, 'skills'), containmentRoot: source }],
+      stateRoot: source,
+    };
   }
   if (source.entries && source.entries.length > 0) {
     return { entries: source.entries, stateRoot: source.stateRoot };
@@ -234,7 +261,10 @@ function normalizeSkillSource(source: SkillSource): { entries: SkillDiscoveryEnt
   // Fallback for manually constructed { dirs, stateRoot } objects without
   // entries: use each dir as its own containment root. This is the least
   // permissive option that still works.
-  return { entries: source.dirs.map((dir) => ({ dir, containmentRoot: dir })), stateRoot: source.stateRoot };
+  return {
+    entries: source.dirs.map((dir) => ({ dir, containmentRoot: dir })),
+    stateRoot: source.stateRoot,
+  };
 }
 
 // ── Limits ───────────────────────────────────────────────────────────────
@@ -278,12 +308,14 @@ export async function scanSkillsWithDiagnostics(source: SkillSource): Promise<Sk
       const normalizedId = skill.id.toLowerCase();
       const retainedId = seenIds.get(normalizedId);
       if (retainedId) {
-        appendSkillDiagnostic(diagnostics, skill.id, skill.path, [{
-          code: 'duplicate_id',
-          severity: 'warning',
-          field: 'id',
-          message: `Skill id "${skill.id}" is shadowed by a higher-precedence discovered skill.`,
-        }]);
+        appendSkillDiagnostic(diagnostics, skill.id, skill.path, [
+          {
+            code: 'duplicate_id',
+            severity: 'warning',
+            field: 'id',
+            message: `Skill id "${skill.id}" is shadowed by a higher-precedence discovered skill.`,
+          },
+        ]);
         continue;
       }
       seenIds.set(normalizedId, skill);
@@ -297,7 +329,9 @@ export async function scanSkillsWithDiagnostics(source: SkillSource): Promise<Sk
           field: 'name',
           message: `Skill display name "${skill.name}" is also used by another discovered skill. Load by id to avoid ambiguity.`,
         };
-        appendSkillDiagnostic(diagnostics, retainedName.id, retainedName.path, [duplicateNameIssue]);
+        appendSkillDiagnostic(diagnostics, retainedName.id, retainedName.path, [
+          duplicateNameIssue,
+        ]);
         appendSkillDiagnostic(diagnostics, skill.id, skill.path, [duplicateNameIssue]);
       } else {
         seenNames.set(normalizedName, skill);
@@ -376,9 +410,12 @@ async function scanSkillDir(
         diagnostics.push({ id: entry.name, path: skillPath, issues: validation.issues });
       }
       if (!validation.valid) continue;
-      const { name, description, allowedTools, requiredTools, requiredCapabilities } = validation.manifest;
+      const { name, description, allowedTools, requiredTools, requiredCapabilities } =
+        validation.manifest;
       const runtimeStatus: SkillRuntimeStatus = runtimeState.ok
-        ? runtimeState.states.get(entry.name) === false ? 'disabled' : 'enabled'
+        ? runtimeState.states.get(entry.name) === false
+          ? 'disabled'
+          : 'enabled'
         : 'state_error';
       out.push({
         id: entry.name,
@@ -422,7 +459,10 @@ function effectiveRequiredTools(skill: RuntimeSkillDefinition): readonly string[
     : (BUNDLED_OFFICE_REQUIRED_TOOLS_BY_ID.get(skill.id) ?? []);
 }
 
-export function gateSkillsByHostCapabilities(skills: ScannedSkill[], host: HostCapabilities): GatedSkill[] {
+export function gateSkillsByHostCapabilities(
+  skills: ScannedSkill[],
+  host: HostCapabilities,
+): GatedSkill[] {
   const caps = host.capabilities ?? new Set<string>();
   return skills.map((skill) => {
     const missingDeclaredTools = skill.declaredTools.filter((tool) => !host.toolNames.has(tool));
@@ -507,7 +547,11 @@ export async function buildSkillsPromptFragment(
   return parts.join('\n');
 }
 
-export async function loadSkillInstructions(source: SkillSource, name: string, host?: HostCapabilities): Promise<LoadSkillInstructionsResult> {
+export async function loadSkillInstructions(
+  source: SkillSource,
+  name: string,
+  host?: HostCapabilities,
+): Promise<LoadSkillInstructionsResult> {
   return loadSkillInstructionsFromScan(await scanSkills(source), name, host);
 }
 
@@ -518,7 +562,11 @@ export async function loadSkillInstructions(source: SkillSource, name: string, h
  * per-call rescan, so explicit-invocation paths (TUI `/skill:` tokens,
  * desktop chips) can resolve several skills against one scan.
  */
-export function loadSkillInstructionsFromScan(skills: ScannedSkill[], name: string, host?: HostCapabilities): LoadSkillInstructionsResult {
+export function loadSkillInstructionsFromScan(
+  skills: ScannedSkill[],
+  name: string,
+  host?: HostCapabilities,
+): LoadSkillInstructionsResult {
   const raw = typeof name === 'string' ? name.trim() : '';
   const enabledSkills = skills.filter((skill) => skill.enabled);
   // Gate eligible skills before exposing them as available or loading them.
@@ -526,7 +574,12 @@ export function loadSkillInstructionsFromScan(skills: ScannedSkill[], name: stri
   // sites stay unchanged).
   const gated = host
     ? gateSkillsByHostCapabilities(enabledSkills, host)
-    : enabledSkills.map((skill) => ({ ...skill, eligible: true, hiddenReason: undefined, missingDeclaredTools: [] as string[] }));
+    : enabledSkills.map((skill) => ({
+        ...skill,
+        eligible: true,
+        hiddenReason: undefined,
+        missingDeclaredTools: [] as string[],
+      }));
   const eligibleSkills = gated.filter((candidate) => candidate.eligible);
   const availableSkills = eligibleSkills.map((skill) => ({
     id: skill.id,
@@ -541,8 +594,9 @@ export function loadSkillInstructionsFromScan(skills: ScannedSkill[], name: stri
   // Match by exact id first, then by name, so a user-level skill whose
   // frontmatter name collides with a project-level skill id does not
   // shadow the higher-precedence id match.
-  const skill = eligibleSkills.find((candidate) => candidate.id.toLowerCase() === normalized)
-    ?? eligibleSkills.find((candidate) => candidate.name.toLowerCase() === normalized);
+  const skill =
+    eligibleSkills.find((candidate) => candidate.id.toLowerCase() === normalized) ??
+    eligibleSkills.find((candidate) => candidate.name.toLowerCase() === normalized);
   if (skill) {
     const cleaned = cleanPromptText(skill.content).trim();
     const instructions = truncateCodepoints(cleaned || '(empty)', MAX_SKILL_TOOL_BODY_CHARS);
@@ -560,16 +614,17 @@ export function loadSkillInstructionsFromScan(skills: ScannedSkill[], name: stri
     };
   }
 
-  const disabledSkill = skills.find((candidate) =>
-    !candidate.enabled &&
-    (candidate.id.toLowerCase() === normalized ||
-      candidate.name.toLowerCase() === normalized),
+  const disabledSkill = skills.find(
+    (candidate) =>
+      !candidate.enabled &&
+      (candidate.id.toLowerCase() === normalized || candidate.name.toLowerCase() === normalized),
   );
   if (disabledSkill) return { ok: false, reason: 'disabled', availableSkills };
 
-  const hiddenSkill = gated.find((candidate) => !candidate.eligible &&
-      (candidate.id.toLowerCase() === normalized ||
-        candidate.name.toLowerCase() === normalized),
+  const hiddenSkill = gated.find(
+    (candidate) =>
+      !candidate.eligible &&
+      (candidate.id.toLowerCase() === normalized || candidate.name.toLowerCase() === normalized),
   );
   if (hiddenSkill) return { ok: false, reason: 'host_incompatible', availableSkills };
 
@@ -589,11 +644,8 @@ export function buildSkillAgentTool(
     }),
     permissionRequired: false,
     displayName: 'Skill',
-    impl: async ({ name }, ctx) => loadSkillInstructions(
-      typeof source === 'function' ? source(ctx) : source,
-      name,
-      host,
-    ),
+    impl: async ({ name }, ctx) =>
+      loadSkillInstructions(typeof source === 'function' ? source(ctx) : source, name, host),
   };
 }
 
@@ -626,9 +678,10 @@ export function validateSkillMetadata(text: string): SkillMetadataValidationResu
       code: extracted.reason,
       severity: 'error',
       field: 'frontmatter',
-      message: extracted.reason === 'missing_frontmatter'
-        ? 'SKILL.md must start with a YAML frontmatter block.'
-        : 'SKILL.md frontmatter is missing its closing delimiter.',
+      message:
+        extracted.reason === 'missing_frontmatter'
+          ? 'SKILL.md must start with a YAML frontmatter block.'
+          : 'SKILL.md frontmatter is missing its closing delimiter.',
     });
     return { manifest, body: extracted.body, issues, valid: false };
   }
@@ -645,7 +698,8 @@ export function validateSkillMetadata(text: string): SkillMetadataValidationResu
           code: 'malformed_frontmatter',
           severity: 'warning',
           field: 'frontmatter',
-          message: 'SKILL.md frontmatter used legacy syntax and was loaded after a compatibility repair.',
+          message:
+            'SKILL.md frontmatter used legacy syntax and was loaded after a compatibility repair.',
         });
       } catch {
         // The constrained compatibility repair was insufficient; fail closed.
@@ -737,7 +791,12 @@ export function validateSkillMetadata(text: string): SkillMetadataValidationResu
     issues,
   );
 
-  manifest.license = readOptionalSkillString(rawManifest.license, 'license', 'invalid_license', issues);
+  manifest.license = readOptionalSkillString(
+    rawManifest.license,
+    'license',
+    'invalid_license',
+    issues,
+  );
   manifest.compatibility = readOptionalSkillString(
     rawManifest.compatibility,
     'compatibility',
@@ -754,7 +813,12 @@ export function validateSkillMetadata(text: string): SkillMetadataValidationResu
   }
 
   manifest.metadata = readSkillMetadataMap(rawManifest.metadata, issues);
-  manifest.category = readOptionalSkillString(rawManifest.category, 'category', 'invalid_category', issues);
+  manifest.category = readOptionalSkillString(
+    rawManifest.category,
+    'category',
+    'invalid_category',
+    issues,
+  );
 
   if (Array.from(extracted.body).length > MAX_SKILL_TOOL_BODY_CHARS) {
     issues.push({
@@ -808,7 +872,8 @@ export async function readSkillRuntimeState(root: string): Promise<SkillRuntimeS
       throw error;
     });
     if (metadataStat === null) return { ok: true, states: new Map() };
-    if (!metadataStat.isDirectory() || metadataStat.isSymbolicLink()) return { ok: false, reason: 'blocked_path' };
+    if (!metadataStat.isDirectory() || metadataStat.isSymbolicLink())
+      return { ok: false, reason: 'blocked_path' };
     const metadataReal = await realpath(metadataDir);
     if (!isPathInside(rootReal, metadataReal)) return { ok: false, reason: 'blocked_path' };
 
@@ -817,7 +882,8 @@ export async function readSkillRuntimeState(root: string): Promise<SkillRuntimeS
       throw error;
     });
     if (stateStat === null) return { ok: true, states: new Map() };
-    if (!stateStat.isFile() || stateStat.isSymbolicLink()) return { ok: false, reason: 'blocked_path' };
+    if (!stateStat.isFile() || stateStat.isSymbolicLink())
+      return { ok: false, reason: 'blocked_path' };
     const stateReal = await realpath(stateFile);
     if (!isPathInside(metadataReal, stateReal)) return { ok: false, reason: 'blocked_path' };
 
@@ -839,16 +905,18 @@ export async function readSkillRuntimeState(root: string): Promise<SkillRuntimeS
   }
 }
 
-export async function writeSkillRuntimeState(root: string, states: Map<string, boolean>): Promise<
-  | { ok: true }
-  | { ok: false; reason: 'blocked_path' | 'write_failed' }
-> {
+export async function writeSkillRuntimeState(
+  root: string,
+  states: Map<string, boolean>,
+): Promise<{ ok: true } | { ok: false; reason: 'blocked_path' | 'write_failed' }> {
   const resolved = await resolveSkillRuntimeStateDirForWrite(root);
   if (!resolved.ok) return resolved;
   const sortedStates = [...states.entries()].sort(([a], [b]) => a.localeCompare(b));
   const file: SkillStateFile = {
     schemaVersion: 1,
-    skills: Object.fromEntries(sortedStates.map(([id, enabled]) => [id, { enabled, updatedAt: new Date().toISOString() }])),
+    skills: Object.fromEntries(
+      sortedStates.map(([id, enabled]) => [id, { enabled, updatedAt: new Date().toISOString() }]),
+    ),
   };
   const ok = await writeContainedRegularTextFile(
     resolved.metadataDir,
@@ -860,7 +928,10 @@ export async function writeSkillRuntimeState(root: string, states: Map<string, b
 
 // ── Path-safety primitives (shared with desktop governance) ──────────────
 
-export async function readContainedRegularFile(rootDir: string, filePath: string): Promise<{ ok: true; bytes: Buffer } | { ok: false }> {
+export async function readContainedRegularFile(
+  rootDir: string,
+  filePath: string,
+): Promise<{ ok: true; bytes: Buffer } | { ok: false }> {
   try {
     const [rootReal, fileStat] = await Promise.all([realpath(rootDir), lstat(filePath)]);
     if (!fileStat.isFile() || fileStat.isSymbolicLink()) return { ok: false };
@@ -872,13 +943,17 @@ export async function readContainedRegularFile(rootDir: string, filePath: string
   }
 }
 
-export async function readContainedRegularTextFile(rootDir: string, filePath: string): Promise<
+export async function readContainedRegularTextFile(
+  rootDir: string,
+  filePath: string,
+): Promise<
   | { ok: true; content: string; sha256: string }
   | { ok: false; reason: 'blocked_path' | 'read_failed' }
 > {
   try {
     const [rootReal, fileStat] = await Promise.all([realpath(rootDir), lstat(filePath)]);
-    if (!fileStat.isFile() || fileStat.isSymbolicLink()) return { ok: false, reason: 'blocked_path' };
+    if (!fileStat.isFile() || fileStat.isSymbolicLink())
+      return { ok: false, reason: 'blocked_path' };
     const fileReal = await realpath(filePath);
     if (!isPathInside(rootReal, fileReal)) return { ok: false, reason: 'blocked_path' };
     const content = await readFile(filePath, 'utf8');
@@ -888,7 +963,11 @@ export async function readContainedRegularTextFile(rootDir: string, filePath: st
   }
 }
 
-export async function writeContainedRegularTextFile(rootDir: string, filePath: string, content: string): Promise<boolean> {
+export async function writeContainedRegularTextFile(
+  rootDir: string,
+  filePath: string,
+  content: string,
+): Promise<boolean> {
   const tempPath = join(rootDir, `.maka-write.${process.pid}.${Date.now()}.tmp`);
   try {
     const rootReal = await realpath(rootDir);
@@ -935,7 +1014,9 @@ function emptySkillManifest(): SkillManifest {
   };
 }
 
-function extractSkillDocument(text: string):
+function extractSkillDocument(
+  text: string,
+):
   | { ok: true; frontmatter: string; body: string }
   | { ok: false; reason: 'missing_frontmatter' | 'malformed_frontmatter'; body: string } {
   const lines = text.replace(/^\uFEFF/, '').split(/\r?\n/);
@@ -949,7 +1030,10 @@ function extractSkillDocument(text: string):
   return {
     ok: true,
     frontmatter: lines.slice(1, close).join('\n'),
-    body: lines.slice(close + 1).join('\n').trim(),
+    body: lines
+      .slice(close + 1)
+      .join('\n')
+      .trim(),
   };
 }
 
@@ -1057,11 +1141,8 @@ function readSkillStringList(
   issues: SkillValidationIssue[],
 ): string[] {
   if (value === undefined || value === null || value === '') return [];
-  const candidates = typeof value === 'string'
-    ? value.trim().split(/[\s,]+/)
-    : Array.isArray(value)
-      ? value
-      : null;
+  const candidates =
+    typeof value === 'string' ? value.trim().split(/[\s,]+/) : Array.isArray(value) ? value : null;
   if (!candidates) {
     issues.push({
       code,
@@ -1097,7 +1178,10 @@ function readSkillStringList(
   return normalized;
 }
 
-function readSkillMetadataMap(value: unknown, issues: SkillValidationIssue[]): Record<string, string> {
+function readSkillMetadataMap(
+  value: unknown,
+  issues: SkillValidationIssue[],
+): Record<string, string> {
   if (value === undefined || value === null) return {};
   if (!isRecord(value)) {
     issues.push({
@@ -1138,10 +1222,14 @@ function appendSkillDiagnostic(
     return;
   }
   for (const issue of issues) {
-    if (!existing.issues.some((candidate) =>
-      candidate.code === issue.code
-      && candidate.field === issue.field
-      && candidate.message === issue.message)) {
+    if (
+      !existing.issues.some(
+        (candidate) =>
+          candidate.code === issue.code &&
+          candidate.field === issue.field &&
+          candidate.message === issue.message,
+      )
+    ) {
       existing.issues.push(issue);
     }
   }
@@ -1169,9 +1257,10 @@ function sanitizeAttribute(value: string): string {
   return cleanPromptText(value).replace(/[<>"&]/g, '_');
 }
 
-async function resolveSkillRuntimeStateDirForWrite(root: string): Promise<
-  | { ok: true; metadataDir: string }
-  | { ok: false; reason: 'blocked_path' | 'write_failed' }
+async function resolveSkillRuntimeStateDirForWrite(
+  root: string,
+): Promise<
+  { ok: true; metadataDir: string } | { ok: false; reason: 'blocked_path' | 'write_failed' }
 > {
   const metadataDir = join(root, '.maka');
   try {
@@ -1180,7 +1269,8 @@ async function resolveSkillRuntimeStateDirForWrite(root: string): Promise<
       if (error.code !== 'EEXIST') throw error;
     });
     const metadataStat = await lstat(metadataDir);
-    if (!metadataStat.isDirectory() || metadataStat.isSymbolicLink()) return { ok: false, reason: 'blocked_path' };
+    if (!metadataStat.isDirectory() || metadataStat.isSymbolicLink())
+      return { ok: false, reason: 'blocked_path' };
     const metadataReal = await realpath(metadataDir);
     if (!isPathInside(rootReal, metadataReal)) return { ok: false, reason: 'blocked_path' };
     return { ok: true, metadataDir };

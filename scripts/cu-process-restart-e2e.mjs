@@ -12,20 +12,19 @@ const statePath = join(labRoot, 'test-app/runtime/state.json');
 const temporaryDirectory = process.env.MAKA_CU_RESTART_TEMP_DIR;
 const oldPID = Number(process.env.MAKA_CU_RESTART_OLD_PID);
 const soakRounds = Number(process.env.MAKA_CU_RESTART_SOAK_ROUNDS);
-const expectedBinarySha256 =
-  '683dad5cccb47dd0a8bb5d534d62fbb9e6edfb1cded232509cf4c2b190066040';
+const expectedBinarySha256 = '683dad5cccb47dd0a8bb5d534d62fbb9e6edfb1cded232509cf4c2b190066040';
 
 const resolvedTemporaryDirectory = resolve(temporaryDirectory ?? '');
 const temporaryRelativePath = relative(resolve(tmpdir()), resolvedTemporaryDirectory);
 if (
-  !temporaryDirectory
-  || temporaryRelativePath.startsWith('..')
-  || temporaryRelativePath === ''
-  || !Number.isInteger(oldPID)
-  || oldPID <= 0
-  || !Number.isInteger(soakRounds)
-  || soakRounds < 1
-  || soakRounds > 20
+  !temporaryDirectory ||
+  temporaryRelativePath.startsWith('..') ||
+  temporaryRelativePath === '' ||
+  !Number.isInteger(oldPID) ||
+  oldPID <= 0 ||
+  !Number.isInteger(soakRounds) ||
+  soakRounds < 1 ||
+  soakRounds > 20
 ) {
   throw new Error('process restart E2E requires launcher-owned inputs');
 }
@@ -117,8 +116,7 @@ const context = (toolCallId, turnId) => ({
   abortSignal: new AbortController().signal,
   emitOutput() {},
 });
-const call = (input, toolCallId, turnId) =>
-  tool.impl(input, context(toolCallId, turnId));
+const call = (input, toolCallId, turnId) => tool.impl(input, context(toolCallId, turnId));
 const parseModel = (result) => JSON.parse(result.modelText ?? '{}');
 const readState = async () => JSON.parse(await readFile(statePath, 'utf8'));
 
@@ -130,11 +128,15 @@ function freshObservationFrom(result) {
 }
 
 async function observe(pid, toolCallId, turnId) {
-  const result = await call({
-    action: 'observe',
-    app: `pid:${pid}`,
-    include_screenshot: true,
-  }, toolCallId, turnId);
+  const result = await call(
+    {
+      action: 'observe',
+      app: `pid:${pid}`,
+      include_screenshot: true,
+    },
+    toolCallId,
+    turnId,
+  );
   if (result.error || !result.modelText) {
     throw new Error(`observe failed: ${result.error ?? result.text}`);
   }
@@ -152,11 +154,7 @@ async function observeUntilElement(pid, label, toolCallPrefix, turnId, timeoutMs
   let lastObservationError;
   while (Date.now() < deadline) {
     try {
-      lastObserved = await observe(
-        pid,
-        `${toolCallPrefix}-${Date.now()}`,
-        turnId,
-      );
+      lastObserved = await observe(pid, `${toolCallPrefix}-${Date.now()}`, turnId);
       lastObservationError = undefined;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -177,14 +175,15 @@ async function observeUntilElement(pid, label, toolCallPrefix, turnId, timeoutMs
     }
     await delay(200);
   }
-  const labels = lastObserved?.model.elements
-    ?.map((element) => element.label)
-    .filter(Boolean)
-    .slice(0, 30) ?? [];
+  const labels =
+    lastObserved?.model.elements
+      ?.map((element) => element.label)
+      .filter(Boolean)
+      .slice(0, 30) ?? [];
   throw new Error(
-    `${label} did not appear before timeout; `
-    + `lastObservationError=${lastObservationError ?? 'none'}; `
-    + `labels=${JSON.stringify(labels)}`,
+    `${label} did not appear before timeout; ` +
+      `lastObservationError=${lastObservationError ?? 'none'}; ` +
+      `labels=${JSON.stringify(labels)}`,
   );
 }
 
@@ -214,20 +213,17 @@ try {
   for (let round = 1; round <= soakRounds; round += 1) {
     const currentState = await readState();
     if (
-      currentState.synthetic !== true
-      || currentState.syntheticMarker !== 'CUA Lab Synthetic Surface'
-      || currentState.appPath !== expectedAppPath
-      || currentState.oop.hostPID !== currentPID
-      || !Number.isInteger(currentState.oop.webContentPID)
-      || currentState.oop.webContentPID <= 0
+      currentState.synthetic !== true ||
+      currentState.syntheticMarker !== 'CUA Lab Synthetic Surface' ||
+      currentState.appPath !== expectedAppPath ||
+      currentState.oop.hostPID !== currentPID ||
+      !Number.isInteger(currentState.oop.webContentPID) ||
+      currentState.oop.webContentPID <= 0
     ) {
       throw new Error(`round ${round} fixture provenance mismatch`);
     }
     const currentWebContentPID = currentState.oop.webContentPID;
-    if (
-      seenHostPIDs.has(currentPID)
-      || seenWebContentPIDs.has(currentWebContentPID)
-    ) {
+    if (seenHostPIDs.has(currentPID) || seenWebContentPIDs.has(currentWebContentPID)) {
       throw new Error(`round ${round} reused a prior process identity`);
     }
     seenHostPIDs.add(currentPID);
@@ -252,49 +248,48 @@ try {
       { flag: 'wx', mode: 0o600 },
     );
 
-    const restart = await waitForJson(
-      restartCompletePath(round),
-      `fixture restart ${round}`,
-    );
+    const restart = await waitForJson(restartCompletePath(round), `fixture restart ${round}`);
     const newPID = restart.newPID;
     const newWebContentPID = restart.newWebContentPID;
     if (
-      restart.round !== round
-      || restart.oldPID !== currentPID
-      || !Number.isInteger(newPID)
-      || newPID <= 0
-      || currentPID === newPID
-      || !Number.isInteger(newWebContentPID)
-      || newWebContentPID <= 0
-      || currentWebContentPID === newWebContentPID
-      || seenHostPIDs.has(newPID)
-      || seenWebContentPIDs.has(newWebContentPID)
+      restart.round !== round ||
+      restart.oldPID !== currentPID ||
+      !Number.isInteger(newPID) ||
+      newPID <= 0 ||
+      currentPID === newPID ||
+      !Number.isInteger(newWebContentPID) ||
+      newWebContentPID <= 0 ||
+      currentWebContentPID === newWebContentPID ||
+      seenHostPIDs.has(newPID) ||
+      seenWebContentPIDs.has(newWebContentPID)
     ) {
       throw new Error(`round ${round} restart identity did not advance`);
     }
 
     const staleToolCallId = `old-observation-after-restart-r${round}`;
-    const staleAttempt = await call({
-      action: 'set_value',
-      observation_id: oldObserved.model.observation_id,
-      element_id: oldReady.element.element_id,
-      value: `stale-value-r${round}`,
-    }, staleToolCallId, `turn-old-r${round}`);
+    const staleAttempt = await call(
+      {
+        action: 'set_value',
+        observation_id: oldObserved.model.observation_id,
+        element_id: oldReady.element.element_id,
+        value: `stale-value-r${round}`,
+      },
+      staleToolCallId,
+      `turn-old-r${round}`,
+    );
     await delay(150);
     const newState = await readState();
     const oldRunResult = idFlow.find(
-      (event) => event.phase === 'runSemanticResult'
-        && event.toolCallId === staleToolCallId,
+      (event) => event.phase === 'runSemanticResult' && event.toolCallId === staleToolCallId,
     );
     const staleDispatch = traces.find(
-      (event) => event.type === 'dispatch'
-        && event.toolCallId === staleToolCallId,
+      (event) => event.type === 'dispatch' && event.toolCallId === staleToolCallId,
     );
     if (
-      oldRunResult?.error !== 'target_missing'
-      || !/target_missing/.test(staleAttempt.modelText ?? '')
-      || staleDispatch
-      || newState.controls.setValue !== ''
+      oldRunResult?.error !== 'target_missing' ||
+      !/target_missing/.test(staleAttempt.modelText ?? '') ||
+      staleDispatch ||
+      newState.controls.setValue !== ''
     ) {
       throw new Error(`round ${round} old observation crossed process restart`);
     }
@@ -308,37 +303,35 @@ try {
     );
     const freshValue = `fresh-value-r${round}`;
     const freshToolCallId = `fresh-process-set-value-r${round}`;
-    const freshAction = await call({
-      action: 'set_value',
-      observation_id: freshReady.observed.model.observation_id,
-      element_id: freshReady.element.element_id,
-      value: freshValue,
-    }, freshToolCallId, `turn-new-r${round}`);
+    const freshAction = await call(
+      {
+        action: 'set_value',
+        observation_id: freshReady.observed.model.observation_id,
+        element_id: freshReady.element.element_id,
+        value: freshValue,
+      },
+      freshToolCallId,
+      `turn-new-r${round}`,
+    );
     await delay(150);
     const newStateAfterAction = await readState();
     const dispatch = traces.find(
-      (event) => event.type === 'dispatch'
-        && event.toolCallId === freshToolCallId,
+      (event) => event.type === 'dispatch' && event.toolCallId === freshToolCallId,
     );
     const freshRunResult = idFlow.find(
-      (event) => event.phase === 'runSemanticResult'
-        && event.toolCallId === freshToolCallId,
+      (event) => event.phase === 'runSemanticResult' && event.toolCallId === freshToolCallId,
     );
     const freshObservation = freshObservationFrom(freshAction);
     const freshField = freshObservation?.elements?.find(
       (element) => element.label === 'CUA Lab Set Value Field',
     );
     const freshOccluded = freshRunResult?.error === 'target_occluded';
-    const freshSucceeded = !freshAction.error
-      && freshField?.value === freshValue;
+    const freshSucceeded = !freshAction.error && freshField?.value === freshValue;
     if (
-      (!freshSucceeded && !freshOccluded)
-      || (freshOccluded && (
-        dispatch
-        || freshField?.value === freshValue
-      ))
-      || newStateAfterAction.oop.hostPID !== newPID
-      || newStateAfterAction.oop.webContentPID !== newWebContentPID
+      (!freshSucceeded && !freshOccluded) ||
+      (freshOccluded && (dispatch || freshField?.value === freshValue)) ||
+      newStateAfterAction.oop.hostPID !== newPID ||
+      newStateAfterAction.oop.webContentPID !== newWebContentPID
     ) {
       throw new Error(`round ${round} fresh process action violated its oracle`);
     }
@@ -356,8 +349,8 @@ try {
     if (!serviceGenerations) {
       serviceGenerations = generations;
     } else if (
-      generations.action !== serviceGenerations.action
-      || generations.capture !== serviceGenerations.capture
+      generations.action !== serviceGenerations.action ||
+      generations.capture !== serviceGenerations.capture
     ) {
       throw new Error(`round ${round} unexpectedly restarted cua-driver services`);
     }
@@ -374,13 +367,8 @@ try {
         dispatch: false,
       },
       fresh: {
-        outcome: freshOccluded
-          ? 'fail_closed_occluded'
-          : 'ax_set_value_succeeded',
-        mutation: [
-          '',
-          freshField?.value,
-        ],
+        outcome: freshOccluded ? 'fail_closed_occluded' : 'ax_set_value_succeeded',
+        mutation: ['', freshField?.value],
       },
       serviceGenerations: generations,
     });

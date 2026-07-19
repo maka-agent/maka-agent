@@ -27,6 +27,7 @@ This page is the authority map for Maka documentation. Code and contract tests r
 - [Execution identity and evidence spine](./execution-evidence-spine.md)
 - [AHE target protocol and evidence export](./ahe-target-protocol.md)
 - [Skill catalog policy](./skill-catalog-policy.md)
+- [Agent Swarm](./agent-swarm.md)
 - [Expert teams runtime](./expert-team-runtime.md)
 - [IM 扫码接入 runtime architecture](./architecture/bot-onboarding-runtime.zh-CN.md)
 - [Backend architecture chapters](./architecture/)

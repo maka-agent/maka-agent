@@ -1,6 +1,7 @@
 import type { SessionSummary, StoredMessage, UiLocale } from '@maka/core';
-import { generalizedErrorMessageChinese } from '@maka/core';
 import type { TurnFooterActionMeta } from '@maka/ui';
+import { getDesktopConversationCopy } from './locales/conversation-copy.js';
+import { localizedShellErrorMessage } from './locales/shell-copy.js';
 import {
   isSessionWorkspaceUnavailableError,
   showSessionWorkspaceUnavailableToast,
@@ -45,6 +46,7 @@ export function createAppShellTurnActions(deps: {
     toastApi,
     upsertSessionSummary,
   } = deps;
+  const copy = getDesktopConversationCopy(uiLocale).actions;
 
   async function handleTurnFooterAction(turnId: string, actionId: TurnFooterActionMeta['id']): Promise<void> {
     if (actionId === 'copy') return; // handled in-component
@@ -60,7 +62,9 @@ export function createAppShellTurnActions(deps: {
         await window.maka.sessions.regenerateTurn(sessionId, {
           sourceTurnId: turnId,
         });
-        if (activeIdRef.current === sessionId) toastApi.info('已发起重新生成', '正在生成新的一轮回答');
+        if (activeIdRef.current === sessionId) {
+          toastApi.info(copy.regenerateStartedTitle, copy.regenerateStartedDescription);
+        }
       } else if (actionId === 'branch') {
         const newSession = await window.maka.sessions.branchFromTurn(sessionId, { sourceTurnId: turnId });
         upsertSessionSummary(newSession);
@@ -68,7 +72,7 @@ export function createAppShellTurnActions(deps: {
           openSessionInChat(newSession.id);
           setMessages([]);
           await refreshMessages(newSession.id);
-          toastApi.success('已创建分支', `新会话 ${newSession.name}`);
+          toastApi.success(copy.branchCreatedTitle, copy.branchCreatedDescription(newSession.name));
         }
         await refreshSessions();
       }
@@ -77,7 +81,10 @@ export function createAppShellTurnActions(deps: {
       if (isSessionWorkspaceUnavailableError(error)) {
         showSessionWorkspaceUnavailableToast(toastApi, uiLocale);
       } else {
-        toastApi.error('操作失败', generalizedErrorMessageChinese(error, '对话操作失败，请稍后重试。'));
+        toastApi.error(
+          copy.operationFailedTitle,
+          localizedShellErrorMessage(error, copy.operationFailedFallback, uiLocale),
+        );
       }
     } finally {
       clearPendingTurnAction(key);

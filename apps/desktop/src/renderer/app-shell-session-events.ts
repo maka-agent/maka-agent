@@ -1,4 +1,4 @@
-import type { SessionEvent, StoredMessage } from '@maka/core';
+import type { SessionEvent, StoredMessage, UiLocale } from '@maka/core';
 import {
   applyLiveTurnEvent,
   clearInteractions,
@@ -17,6 +17,7 @@ import {
   noRealConnectionSetupDescription,
   sessionEventErrorMessage,
 } from './model-connection-errors.js';
+import { getDesktopConversationCopy } from './locales/conversation-copy.js';
 
 type RefBox<T> = { current: T };
 type StateUpdater<T> = (updater: (current: T) => T) => void;
@@ -32,6 +33,7 @@ export interface AppShellSessionEventHandlers {
 }
 
 export function createAppShellSessionEventHandlers(options: {
+  uiLocale: UiLocale;
   activeIdRef: RefBox<string | undefined>;
   liveTurnBySessionRef: RefBox<Record<string, LiveTurnProjection>>;
   refreshMessages: (sessionId: string, options?: RefreshMessagesOptions) => Promise<boolean>;
@@ -43,6 +45,7 @@ export function createAppShellSessionEventHandlers(options: {
   notifyRunEnded?: (payload: { kind: 'completed' | 'errored'; sessionId: string; body?: string }) => void;
 }): AppShellSessionEventHandlers {
   const {
+    uiLocale,
     activeIdRef,
     liveTurnBySessionRef,
     refreshMessages,
@@ -132,12 +135,13 @@ export function createAppShellSessionEventHandlers(options: {
         if (activeIdRef.current === sessionId) {
           if (isNoRealConnectionEvent(event)) {
             const reason = noRealConnectionReasonFromEvent(event);
-            showModelSetupToast(noRealConnectionSetupDescription(reason), reason);
+            showModelSetupToast(noRealConnectionSetupDescription(reason, uiLocale), reason);
           } else {
-            toastApi.error('对话出错', sessionEventErrorMessage(event));
+            const copy = getDesktopConversationCopy(uiLocale).actions;
+            toastApi.error(copy.conversationErrorTitle, sessionEventErrorMessage(event, uiLocale));
           }
         }
-        notifyRunEnded?.({ kind: 'errored', sessionId, body: sessionEventErrorMessage(event) });
+        notifyRunEnded?.({ kind: 'errored', sessionId, body: sessionEventErrorMessage(event, uiLocale) });
         void refreshSessions();
         void refreshMessages(sessionId, terminalRefreshOptions(before));
         break;

@@ -7,14 +7,22 @@ import {
   compactToolEvidence,
   renderHeavyTaskEvidenceForPrompt,
 } from '../heavy-task-evidence.js';
-import type { HeavyTaskCompactEvidenceEnvelope, HeavyTaskSemanticSelfCheckState } from '../task-contracts.js';
+import type {
+  HeavyTaskCompactEvidenceEnvelope,
+  HeavyTaskSemanticSelfCheckState,
+} from '../task-contracts.js';
 
 const base = {
   evidenceId: 'evidence-1',
   taskRunId: 'run-1',
   attemptId: 'attempt-1',
   ts: 10,
-  source: { kind: 'model_tool' as const, toolCallId: 'tool-call-1', sessionId: 'session-1', turnId: 'turn-1' },
+  source: {
+    kind: 'model_tool' as const,
+    toolCallId: 'tool-call-1',
+    sessionId: 'session-1',
+    turnId: 'turn-1',
+  },
 };
 
 describe('heavy-task compact evidence', () => {
@@ -71,7 +79,12 @@ describe('heavy-task compact evidence', () => {
       evidenceId: 'grep-evidence',
       name: 'Grep',
       input: { cwd: '/workspace', pattern: 'needle', path: 'src', glob: '*.ts' },
-      result: { matches: Array.from({ length: 200 }, (_, i) => `src/file.ts:${i + 1}:needle ${'c'.repeat(50)}`) },
+      result: {
+        matches: Array.from(
+          { length: 200 },
+          (_, i) => `src/file.ts:${i + 1}:needle ${'c'.repeat(50)}`,
+        ),
+      },
     });
 
     assert.equal(readEvidence.tool?.inputSummary.path, 'src/file.ts');
@@ -82,7 +95,10 @@ describe('heavy-task compact evidence', () => {
     assert.equal(grepEvidence.tool?.inputSummary.matchCount, 200);
     assert.equal(grepEvidence.tool?.outputs[0]?.stream, 'matches');
     assert.equal(grepEvidence.tool?.outputs[0]?.truncated, true);
-    assert.ok((grepEvidence.tool?.outputs[0]?.excerpt?.length ?? 0) < grepEvidence.tool!.outputs[0]!.byteCount!);
+    assert.ok(
+      (grepEvidence.tool?.outputs[0]?.excerpt?.length ?? 0) <
+        grepEvidence.tool!.outputs[0]!.byteCount!,
+    );
   });
 
   test('Write and Edit normalization omits mutation payloads and uses diff placeholders', () => {
@@ -132,7 +148,11 @@ describe('heavy-task compact evidence', () => {
         artifactRef: 'file:/tmp/out.log',
         hash: 'sha256:abc',
         mimeType: 'text/plain',
-        metadata: { sizeBytes: 123, content: 'raw artifact body', nested: { output: 'raw output', label: 'public label' } },
+        metadata: {
+          sizeBytes: 123,
+          content: 'raw artifact body',
+          nested: { output: 'raw output', label: 'public label' },
+        },
       },
     });
 
@@ -141,8 +161,15 @@ describe('heavy-task compact evidence', () => {
     assert.equal(evidence.artifact?.path, '/tmp/out.log');
     assert.equal(evidence.artifact?.artifactRef, 'file:/tmp/out.log');
     assert.equal(evidence.artifact?.hash, 'sha256:abc');
-    assert.deepEqual(evidence.artifact?.authority, { source: 'runtime', authoritative: false, label: 'public runtime capture' });
-    assert.deepEqual(evidence.artifact?.metadata, { sizeBytes: 123, nested: { label: 'public label' } });
+    assert.deepEqual(evidence.artifact?.authority, {
+      source: 'runtime',
+      authoritative: false,
+      label: 'public runtime capture',
+    });
+    assert.deepEqual(evidence.artifact?.metadata, {
+      sizeBytes: 123,
+      nested: { label: 'public label' },
+    });
     assert.doesNotMatch(JSON.stringify(evidence), /raw artifact body|raw output/);
   });
 
@@ -180,7 +207,10 @@ describe('heavy-task compact evidence', () => {
     const serialized = JSON.stringify([bashEvidence, readEvidence, artifactEvidence]);
 
     assert.match(serialized, /\[omitted: non-public benchmark evidence pattern\]/);
-    assert.doesNotMatch(serialized, /hidden\/tests|private_case|expected == actual|official verifier output\.json|threshold 0\.95|private benchmark|private verifier timing order/);
+    assert.doesNotMatch(
+      serialized,
+      /hidden\/tests|private_case|expected == actual|official verifier output\.json|threshold 0\.95|private benchmark|private verifier timing order/,
+    );
     assert.equal(artifactEvidence.artifact?.metadata?.safe, 'public label');
   });
 
@@ -203,7 +233,10 @@ describe('heavy-task compact evidence', () => {
 
   test('accepted self-check evidence compacts and private rejected evidence is ignored', () => {
     const accepted = selfCheck('self-check-1', 'npm test passed on public files.');
-    const privatePayload = selfCheck('self-check-private', 'hidden/tests/private_case.py revealed a failure.');
+    const privatePayload = selfCheck(
+      'self-check-private',
+      'hidden/tests/private_case.py revealed a failure.',
+    );
     const ids = idFactory();
     const acceptedEvidence = compactSelfCheckEvidence({ selfCheck: accepted, newId: ids });
     const rejectedEvidence = compactSelfCheckEvidence({ selfCheck: privatePayload, newId: ids });
@@ -211,7 +244,9 @@ describe('heavy-task compact evidence', () => {
     assert.equal(acceptedEvidence[0]?.kind, 'check');
     assert.equal(acceptedEvidence[0]?.check?.linkedSelfCheckId, 'self-check-1');
     assert.ok(acceptedEvidence.some((item) => item.tool?.name === 'self_check_submit'));
-    const artifactEvidence = acceptedEvidence.find((item) => item.artifact?.path === 'build-output.log');
+    const artifactEvidence = acceptedEvidence.find(
+      (item) => item.artifact?.path === 'build-output.log',
+    );
     assert.equal(artifactEvidence?.artifact?.authority?.source, 'self_check');
     assert.equal(artifactEvidence?.artifact?.authority?.authoritative, false);
     assert.deepEqual(rejectedEvidence, []);

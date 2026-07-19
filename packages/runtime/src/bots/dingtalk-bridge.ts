@@ -61,9 +61,7 @@ interface DingTalkBotMessagePayload {
  * was explicitly stopped, decide what to do next. Extracted so the
  * branching is unit-testable without a live WebSocket.
  */
-export type DingTalkCloseDecision =
-  | { kind: 'stopped' }
-  | { kind: 'reconnect' };
+export type DingTalkCloseDecision = { kind: 'stopped' } | { kind: 'reconnect' };
 
 export function decideDingTalkClose(
   _code: number,
@@ -127,9 +125,7 @@ export function pickDingTalkSendRoute(
   if (!targetId) return null;
   const isGroup = targetId.startsWith('cid');
   return {
-    path: isGroup
-      ? '/v1.0/robot/groupMessages/send'
-      : '/v1.0/robot/oToMessages/batchSend',
+    path: isGroup ? '/v1.0/robot/groupMessages/send' : '/v1.0/robot/oToMessages/batchSend',
     body: isGroup
       ? buildDingTalkGroupSendBody(targetId, robotCode, text)
       : buildDingTalkSingleSendBody(targetId, robotCode, text),
@@ -151,7 +147,11 @@ export function classifyDingTalkSendResponse(
   bodyJson: unknown,
 ): DingTalkSendClassification {
   if (status >= 200 && status < 300) {
-    const body = bodyJson as { errcode?: number; errmsg?: string; processQueryKey?: unknown } | null;
+    const body = bodyJson as {
+      errcode?: number;
+      errmsg?: string;
+      processQueryKey?: unknown;
+    } | null;
     if (body && typeof body.errcode === 'number' && body.errcode !== 0) {
       return { kind: 'fatal', description: body.errmsg ?? `errcode ${body.errcode}` };
     }
@@ -167,7 +167,7 @@ export function classifyDingTalkSendResponse(
       delayMs: Math.min(Math.max(SEND_RETRY_DELAY_MIN_MS, 1_000), SEND_RETRY_DELAY_MAX_MS),
     };
   }
-  const message = (bodyJson as { errmsg?: unknown; message?: unknown } | null);
+  const message = bodyJson as { errmsg?: unknown; message?: unknown } | null;
   const description =
     (typeof message?.errmsg === 'string' && message.errmsg) ||
     (typeof message?.message === 'string' && message.message) ||
@@ -275,7 +275,11 @@ export class DingTalkBotBridge extends BaseBotAdapter implements SendCapable {
     this.running = false;
     this.clearReconnect();
     if (this.ws) {
-      try { this.ws.close(1000); } catch { /* swallow */ }
+      try {
+        this.ws.close(1000);
+      } catch {
+        /* swallow */
+      }
       this.ws = null;
     }
     this.reason = 'stopped';
@@ -293,7 +297,11 @@ export class DingTalkBotBridge extends BaseBotAdapter implements SendCapable {
    * baked into the chatId structure: group conversation IDs start with
    * `cid` per DingTalk's open platform docs.
    */
-  async sendMessage(chatId: string, text: string, _options?: BotSendOptions): Promise<string | null> {
+  async sendMessage(
+    chatId: string,
+    text: string,
+    _options?: BotSendOptions,
+  ): Promise<string | null> {
     if (this.platform !== 'dingtalk' || !this.running) return null;
     const robotCode = this.settings.appId?.trim() ?? '';
     const route = pickDingTalkSendRoute(chatId, robotCode, text);
@@ -308,8 +316,7 @@ export class DingTalkBotBridge extends BaseBotAdapter implements SendCapable {
     }
     if (classification.kind !== 'ok') {
       this.readiness = this.readiness === 'operational' ? 'degraded' : 'credentials_valid';
-      this.reason =
-        classification.kind === 'retry' ? 'rate-limited' : classification.description;
+      this.reason = classification.kind === 'retry' ? 'rate-limited' : classification.description;
       this.emitStatusChange();
       return null;
     }
@@ -361,13 +368,13 @@ export class DingTalkBotBridge extends BaseBotAdapter implements SendCapable {
         '&appsecret=' +
         encodeURIComponent(appsecret);
       const response = await proxiedFetch(url, { method: 'GET', timeoutMs: 10_000 });
-      const json = await response.json().catch(() => null) as {
+      const json = (await response.json().catch(() => null)) as {
         access_token?: unknown;
         expires_in?: unknown;
         errcode?: number;
         errmsg?: string;
       } | null;
-      if (!json || json.errcode !== undefined && json.errcode !== 0) {
+      if (!json || (json.errcode !== undefined && json.errcode !== 0)) {
         this.reason = json?.errmsg ?? 'gettoken failed';
         return null;
       }
@@ -411,8 +418,15 @@ export class DingTalkBotBridge extends BaseBotAdapter implements SendCapable {
         }),
         timeoutMs: 10_000,
       });
-      const json = await response.json().catch(() => null) as DingTalkConnectionOpenResponse | null;
-      if (!response.ok || !json || typeof json.endpoint !== 'string' || typeof json.ticket !== 'string') {
+      const json = (await response
+        .json()
+        .catch(() => null)) as DingTalkConnectionOpenResponse | null;
+      if (
+        !response.ok ||
+        !json ||
+        typeof json.endpoint !== 'string' ||
+        typeof json.ticket !== 'string'
+      ) {
         this.reason = `connections-open-${response.status}`;
         this.readiness = 'configured';
         this.emitStatusChange();
@@ -472,7 +486,10 @@ export class DingTalkBotBridge extends BaseBotAdapter implements SendCapable {
     if (frame.type === 'CALLBACK' && frame.headers?.topic === DINGTALK_TOPIC_BOT_MESSAGES) {
       let payload: DingTalkBotMessagePayload | null = null;
       try {
-        payload = typeof frame.data === 'string' ? (JSON.parse(frame.data) as DingTalkBotMessagePayload) : null;
+        payload =
+          typeof frame.data === 'string'
+            ? (JSON.parse(frame.data) as DingTalkBotMessagePayload)
+            : null;
       } catch {
         payload = null;
       }

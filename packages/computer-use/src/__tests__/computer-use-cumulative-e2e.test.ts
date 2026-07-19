@@ -34,16 +34,18 @@ function fixtureObservation(overrides: Partial<CuObservation> = {}): CuObservati
     sourceBoundsPx: { x: 0, y: 0, width: 1200, height: 800 },
     contentFingerprint: 'fixture-structure-a',
     zIndex: 5,
-    elements: [{
-      elementId: '5',
-      role: 'AXButton',
-      label: 'Commit target',
-      identity: {
-        token: 'target-button-token',
+    elements: [
+      {
+        elementId: '5',
         role: 'AXButton',
         label: 'Commit target',
+        identity: {
+          token: 'target-button-token',
+          role: 'AXButton',
+          label: 'Commit target',
+        },
       },
-    }],
+    ],
     screenshot: {
       base64: 'AA==',
       mimeType: 'image/png',
@@ -135,17 +137,23 @@ describe('Computer Use cross-layer deterministic contract', () => {
       overlay: overlay.overlay,
     });
     const [tool] = tools;
-    const observed = await tool.impl({
-      action: 'observe',
-      app: 'Fixture',
-      window_id: 10,
-    } as never, context()) as { text: string; modelText?: string };
+    const observed = (await tool.impl(
+      {
+        action: 'observe',
+        app: 'Fixture',
+        window_id: 10,
+      } as never,
+      context(),
+    )) as { text: string; modelText?: string };
     const observationId = JSON.parse(observed.modelText ?? '{}').observation_id;
-    const result = await tool.impl({
-      action: 'left_click',
-      observation_id: observationId,
-      coordinate: [400, 200],
-    } as never, context({ toolCallId: 'click-target' })) as {
+    const result = (await tool.impl(
+      {
+        action: 'left_click',
+        observation_id: observationId,
+        coordinate: [400, 200],
+      } as never,
+      context({ toolCallId: 'click-target' }),
+    )) as {
       text: string;
       modelText?: string;
     };
@@ -169,11 +177,14 @@ describe('Computer Use cross-layer deterministic contract', () => {
       },
     ]);
 
-    const replay = await tool.impl({
-      action: 'left_click',
-      observation_id: observationId,
-      coordinate: [400, 200],
-    } as never, context({ toolCallId: 'duplicate' })) as { text: string };
+    const replay = (await tool.impl(
+      {
+        action: 'left_click',
+        observation_id: observationId,
+        coordinate: [400, 200],
+      } as never,
+      context({ toolCallId: 'duplicate' }),
+    )) as { text: string };
     assert.match(replay.text, /duplicate_action|stale_frame|reobserve_required/);
     assert.equal(dispatches.length, 1);
   });
@@ -212,30 +223,42 @@ describe('Computer Use cross-layer deterministic contract', () => {
     });
     const [tool] = tools;
 
-    const firstObservation = await tool.impl({
-      action: 'observe',
-      app: 'Fixture',
-      window_id: 10,
-    } as never, context()) as { modelText?: string };
-    await tool.impl({
-      action: 'left_click',
-      observation_id: JSON.parse(firstObservation.modelText ?? '{}').observation_id,
-      coordinate: [400, 200],
-    } as never, context({ toolCallId: 'target-change' }));
+    const firstObservation = (await tool.impl(
+      {
+        action: 'observe',
+        app: 'Fixture',
+        window_id: 10,
+      } as never,
+      context(),
+    )) as { modelText?: string };
+    await tool.impl(
+      {
+        action: 'left_click',
+        observation_id: JSON.parse(firstObservation.modelText ?? '{}').observation_id,
+        coordinate: [400, 200],
+      } as never,
+      context({ toolCallId: 'target-change' }),
+    );
     assert.equal(overlay.events.at(-1)?.type, 'cancel');
 
     tools.sessionEvents.reobserveRequired('session-1');
-    const secondObservation = await tool.impl({
-      action: 'observe',
-      app: 'Fixture',
-      window_id: 10,
-    } as never, context({ turnId: 'turn-2' })) as { modelText?: string };
+    const secondObservation = (await tool.impl(
+      {
+        action: 'observe',
+        app: 'Fixture',
+        window_id: 10,
+      } as never,
+      context({ turnId: 'turn-2' }),
+    )) as { modelText?: string };
     mode = 'unknown';
-    await tool.impl({
-      action: 'left_click',
-      observation_id: JSON.parse(secondObservation.modelText ?? '{}').observation_id,
-      coordinate: [400, 200],
-    } as never, context({ turnId: 'turn-2', toolCallId: 'unknown' }));
+    await tool.impl(
+      {
+        action: 'left_click',
+        observation_id: JSON.parse(secondObservation.modelText ?? '{}').observation_id,
+        coordinate: [400, 200],
+      } as never,
+      context({ turnId: 'turn-2', toolCallId: 'unknown' }),
+    );
     assert.equal(tools.sessionEvents.snapshot('session-1').status, 'reobserve_required');
     assert.equal(overlay.events.at(-1)?.type, 'cancel');
   });
@@ -248,11 +271,13 @@ describe('Computer Use cross-layer deterministic contract', () => {
       async observeApp() {
         return fixtureObservation({
           windowTitle: 'Private Window Title',
-          elements: [{
-            elementId: '5',
-            role: 'AXButton',
-            label: 'Private Customer Label',
-          }],
+          elements: [
+            {
+              elementId: '5',
+              role: 'AXButton',
+              label: 'Private Customer Label',
+            },
+          ],
         });
       },
       async run() {
@@ -266,24 +291,27 @@ describe('Computer Use cross-layer deterministic contract', () => {
     };
     const tools = buildComputerUseTools({ backend });
     const [tool] = tools;
-    const observed = await tool.impl({
-      action: 'observe',
-      app: 'Fixture',
-      window_id: 10,
-    } as never, context()) as { text: string; modelText?: string };
+    const observed = (await tool.impl(
+      {
+        action: 'observe',
+        app: 'Fixture',
+        window_id: 10,
+      } as never,
+      context(),
+    )) as { text: string; modelText?: string };
     assert.doesNotMatch(observed.text, /Private Window Title|Private Customer Label/);
-    assert.match(
-      observed.modelText ?? '',
-      /Private Window Title|Private Customer Label/,
-    );
+    assert.match(observed.modelText ?? '', /Private Window Title|Private Customer Label/);
 
     tools.clearSession('session-1');
     assert.equal(tools.sessionEvents.snapshot('session-1').status, 'user_stopped');
-    const afterTurn = await tool.impl({
-      action: 'left_click',
-      observation_id: JSON.parse(observed.modelText ?? '{}').observation_id,
-      coordinate: [400, 200],
-    } as never, context({ toolCallId: 'late-action' })) as { text: string };
+    const afterTurn = (await tool.impl(
+      {
+        action: 'left_click',
+        observation_id: JSON.parse(observed.modelText ?? '{}').observation_id,
+        coordinate: [400, 200],
+      } as never,
+      context({ toolCallId: 'late-action' }),
+    )) as { text: string };
     assert.match(afterTurn.text, /user_stopped|no_active_frame/);
   });
 });

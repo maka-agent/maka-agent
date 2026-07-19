@@ -163,33 +163,28 @@ export interface WorkspaceGrepFilesExecutor {
 
 export type WorkspaceBashExecutor = WorkspaceExecutorFactsProvider & WorkspaceCommandExecutor;
 
-export type WorkspaceReadExecutor =
-  & WorkspaceExecutorFactsProvider
-  & WorkspaceExistingPathResolver
-  & WorkspaceReadFileExecutor;
+export type WorkspaceReadExecutor = WorkspaceExecutorFactsProvider &
+  WorkspaceExistingPathResolver &
+  WorkspaceReadFileExecutor;
 
-export type WorkspaceWriteExecutor =
-  & WorkspaceExecutorFactsProvider
-  & WorkspaceWritablePathResolver
-  & WorkspaceWriteLockProvider
-  & WorkspaceWriteFileExecutor;
+export type WorkspaceWriteExecutor = WorkspaceExecutorFactsProvider &
+  WorkspaceWritablePathResolver &
+  WorkspaceWriteLockProvider &
+  WorkspaceWriteFileExecutor;
 
-export type WorkspaceEditExecutor =
-  & WorkspaceExecutorFactsProvider
-  & WorkspaceExistingPathResolver
-  & WorkspaceWriteLockProvider
-  & WorkspaceReadFileExecutor
-  & WorkspaceWriteFileExecutor;
+export type WorkspaceEditExecutor = WorkspaceExecutorFactsProvider &
+  WorkspaceExistingPathResolver &
+  WorkspaceWriteLockProvider &
+  WorkspaceReadFileExecutor &
+  WorkspaceWriteFileExecutor;
 
-export type WorkspaceGlobExecutor =
-  & WorkspaceExecutorFactsProvider
-  & WorkspaceExistingPathResolver
-  & WorkspaceGlobFilesExecutor;
+export type WorkspaceGlobExecutor = WorkspaceExecutorFactsProvider &
+  WorkspaceExistingPathResolver &
+  WorkspaceGlobFilesExecutor;
 
-export type WorkspaceGrepExecutor =
-  & WorkspaceExecutorFactsProvider
-  & WorkspaceExistingPathResolver
-  & WorkspaceGrepFilesExecutor;
+export type WorkspaceGrepExecutor = WorkspaceExecutorFactsProvider &
+  WorkspaceExistingPathResolver &
+  WorkspaceGrepFilesExecutor;
 
 export type WorkspaceSearchExecutor = WorkspaceGlobExecutor & WorkspaceGrepExecutor;
 
@@ -299,7 +294,11 @@ function shellEscape(arg: string): string {
   return `'${arg.replaceAll("'", "'\\''")}'`;
 }
 
-async function resolveWritableInsideCwd(cwd: string, inputPath: string, label: string): Promise<string> {
+async function resolveWritableInsideCwd(
+  cwd: string,
+  inputPath: string,
+  label: string,
+): Promise<string> {
   if (isAbsolute(inputPath)) {
     throw new Error(`${label} path must be relative to session cwd`);
   }
@@ -315,7 +314,11 @@ async function resolveWritableInsideCwd(cwd: string, inputPath: string, label: s
   return candidate;
 }
 
-async function resolveExistingInsideCwd(cwd: string, inputPath: string, label: string): Promise<string> {
+async function resolveExistingInsideCwd(
+  cwd: string,
+  inputPath: string,
+  label: string,
+): Promise<string> {
   if (isAbsolute(inputPath)) {
     throw new Error(`${label} path must be relative to session cwd`);
   }

@@ -25,22 +25,28 @@ describe('fetchProviderModels', () => {
       updatedAt: 1,
     } as const;
 
-    const zen = await fetchProviderModels({
-      ...base,
-      slug: 'opencode',
-      name: 'OpenCode Zen',
-      providerType: 'opencode',
-      baseUrl: `${server.url}/zen/v1`,
-      defaultModel: 'gpt-5.5',
-    }, 'opencode-test-key');
-    const go = await fetchProviderModels({
-      ...base,
-      slug: 'opencode-go',
-      name: 'OpenCode Go',
-      providerType: 'opencode-go',
-      baseUrl: `${server.url}/zen/go/v1`,
-      defaultModel: 'minimax-m3',
-    }, 'opencode-test-key');
+    const zen = await fetchProviderModels(
+      {
+        ...base,
+        slug: 'opencode',
+        name: 'OpenCode Zen',
+        providerType: 'opencode',
+        baseUrl: `${server.url}/zen/v1`,
+        defaultModel: 'gpt-5.5',
+      },
+      'opencode-test-key',
+    );
+    const go = await fetchProviderModels(
+      {
+        ...base,
+        slug: 'opencode-go',
+        name: 'OpenCode Go',
+        providerType: 'opencode-go',
+        baseUrl: `${server.url}/zen/go/v1`,
+        defaultModel: 'minimax-m3',
+      },
+      'opencode-test-key',
+    );
 
     assert.deepEqual(zen, [{ id: 'gpt-5.5' }]);
     assert.deepEqual(go, [{ id: 'minimax-m3' }]);
@@ -78,24 +84,29 @@ describe('fetchProviderModels', () => {
       });
     });
 
-    const models = await fetchProviderModels({
-      slug: 'vercel',
-      name: 'Vercel AI Gateway',
-      providerType: 'vercel',
-      baseUrl: `${server.url}/v1`,
-      defaultModel: modelId,
-      enabled: true,
-      createdAt: 1,
-      updatedAt: 1,
-    }, 'vercel-inference-key');
+    const models = await fetchProviderModels(
+      {
+        slug: 'vercel',
+        name: 'Vercel AI Gateway',
+        providerType: 'vercel',
+        baseUrl: `${server.url}/v1`,
+        defaultModel: modelId,
+        enabled: true,
+        createdAt: 1,
+        updatedAt: 1,
+      },
+      'vercel-inference-key',
+    );
 
-    assert.deepEqual(models, [{
-      id: modelId,
-      displayName: 'Claude Opus 4.8',
-      contextWindow: 1_000_000,
-      maxOutputTokens: 128_000,
-      capabilities: { vision: true, reasoning: true, functionCalling: true },
-    }]);
+    assert.deepEqual(models, [
+      {
+        id: modelId,
+        displayName: 'Claude Opus 4.8',
+        contextWindow: 1_000_000,
+        maxOutputTokens: 128_000,
+        capabilities: { vision: true, reasoning: true, functionCalling: true },
+      },
+    ]);
   });
 
   test('ZenMux intersects its public directory with the tool-capable snapshot without exposing its inference key', async () => {
@@ -138,23 +149,28 @@ describe('fetchProviderModels', () => {
       });
     });
 
-    const models = await fetchProviderModels({
-      slug: 'zenmux',
-      name: 'ZenMux',
-      providerType: 'zenmux',
-      baseUrl: `${server.url}/v1`,
-      defaultModel: modelId,
-      enabled: true,
-      createdAt: 1,
-      updatedAt: 1,
-    }, 'zenmux-inference-key');
+    const models = await fetchProviderModels(
+      {
+        slug: 'zenmux',
+        name: 'ZenMux',
+        providerType: 'zenmux',
+        baseUrl: `${server.url}/v1`,
+        defaultModel: modelId,
+        enabled: true,
+        createdAt: 1,
+        updatedAt: 1,
+      },
+      'zenmux-inference-key',
+    );
 
-    assert.deepEqual(models, [{
-      id: modelId,
-      displayName: 'Kimi K2.5',
-      contextWindow: 262_000,
-      capabilities: { vision: true, reasoning: true },
-    }]);
+    assert.deepEqual(models, [
+      {
+        id: modelId,
+        displayName: 'Kimi K2.5',
+        contextWindow: 262_000,
+        capabilities: { vision: true, reasoning: true },
+      },
+    ]);
   });
 
   test('LocalAI discovers exact model aliases without sending empty authorization', async () => {
@@ -166,16 +182,19 @@ describe('fetchProviderModels', () => {
       respondJson(response, 200, { data: [{ id: modelId }] });
     });
 
-    const models = await fetchProviderModels({
-      slug: 'localai',
-      name: 'LocalAI',
-      providerType: 'localai',
-      baseUrl: `${server.url}/v1`,
-      defaultModel: modelId,
-      enabled: true,
-      createdAt: 1,
-      updatedAt: 1,
-    }, '');
+    const models = await fetchProviderModels(
+      {
+        slug: 'localai',
+        name: 'LocalAI',
+        providerType: 'localai',
+        baseUrl: `${server.url}/v1`,
+        defaultModel: modelId,
+        enabled: true,
+        createdAt: 1,
+        updatedAt: 1,
+      },
+      '',
+    );
 
     assert.deepEqual(models, [{ id: modelId }]);
   });
@@ -186,16 +205,19 @@ describe('fetchProviderModels', () => {
       respondJson(response, 200, { data: [{ id: 'qwen3-8b' }] });
     });
 
-    await fetchProviderModels({
-      slug: 'localai-keyed',
-      name: 'LocalAI protected',
-      providerType: 'localai',
-      baseUrl: `${server.url}/v1`,
-      defaultModel: 'qwen3-8b',
-      enabled: true,
-      createdAt: 1,
-      updatedAt: 1,
-    }, 'localai-user-key');
+    await fetchProviderModels(
+      {
+        slug: 'localai-keyed',
+        name: 'LocalAI protected',
+        providerType: 'localai',
+        baseUrl: `${server.url}/v1`,
+        defaultModel: 'qwen3-8b',
+        enabled: true,
+        createdAt: 1,
+        updatedAt: 1,
+      },
+      'localai-user-key',
+    );
   });
 
   test('LM Studio discovers exact local model ids without authentication', async () => {
@@ -211,16 +233,19 @@ describe('fetchProviderModels', () => {
       });
     });
 
-    const models = await fetchProviderModels({
-      slug: 'lm-studio',
-      name: 'LM Studio',
-      providerType: 'lm-studio',
-      baseUrl: `${server.url}/v1`,
-      defaultModel: '',
-      enabled: true,
-      createdAt: 1,
-      updatedAt: 1,
-    }, '');
+    const models = await fetchProviderModels(
+      {
+        slug: 'lm-studio',
+        name: 'LM Studio',
+        providerType: 'lm-studio',
+        baseUrl: `${server.url}/v1`,
+        defaultModel: '',
+        enabled: true,
+        createdAt: 1,
+        updatedAt: 1,
+      },
+      '',
+    );
 
     assert.deepEqual(models, [
       { id: 'lmstudio-community/Qwen3-Coder-30B-A3B-Instruct-GGUF' },
@@ -237,10 +262,7 @@ describe('fetchProviderModels', () => {
       assert.equal(request.method, 'GET');
       assert.equal(request.url, '/models');
       respondJson(response, 200, {
-        data: [
-          { id: 'glm-4.6' },
-          { id: 'glm-z1-air' },
-        ],
+        data: [{ id: 'glm-4.6' }, { id: 'glm-z1-air' }],
       });
     });
 
@@ -285,16 +307,19 @@ describe('fetchProviderModels', () => {
       });
     });
 
-    const models = await fetchProviderModels({
-      slug: 'moonshot',
-      name: 'Moonshot',
-      providerType: 'moonshot',
-      baseUrl: server.url,
-      defaultModel: 'kimi-k2.7',
-      enabled: true,
-      createdAt: 1,
-      updatedAt: 1,
-    }, 'moonshot-secret');
+    const models = await fetchProviderModels(
+      {
+        slug: 'moonshot',
+        name: 'Moonshot',
+        providerType: 'moonshot',
+        baseUrl: server.url,
+        defaultModel: 'kimi-k2.7',
+        enabled: true,
+        createdAt: 1,
+        updatedAt: 1,
+      },
+      'moonshot-secret',
+    );
 
     assert.deepEqual(models, [
       {
@@ -330,22 +355,23 @@ describe('fetchProviderModels', () => {
       assert.equal(request.url, '/v1/models');
       assert.equal(request.headers.authorization, 'Bearer relay-secret');
       respondJson(response, 200, {
-        data: [
-          { id: 'custom-live-model' },
-        ],
+        data: [{ id: 'custom-live-model' }],
       });
     });
 
-    const models = await fetchProviderModels({
-      slug: 'relay',
-      name: 'Relay',
-      providerType: 'openai-compatible',
-      baseUrl: `${server.url}/v1`,
-      defaultModel: 'custom-live-model',
-      enabled: true,
-      createdAt: 1,
-      updatedAt: 1,
-    }, 'relay-secret');
+    const models = await fetchProviderModels(
+      {
+        slug: 'relay',
+        name: 'Relay',
+        providerType: 'openai-compatible',
+        baseUrl: `${server.url}/v1`,
+        defaultModel: 'custom-live-model',
+        enabled: true,
+        createdAt: 1,
+        updatedAt: 1,
+      },
+      'relay-secret',
+    );
 
     assert.deepEqual(models, [{ id: 'custom-live-model' }]);
   });
@@ -359,10 +385,7 @@ describe('fetchProviderModels', () => {
       observedKey = url.searchParams.get('key') ?? '';
       assert.equal(request.method, 'GET');
       respondJson(response, 200, {
-        models: [
-          { name: 'models/gemini-2.5-flash' },
-          { name: 'models/gemini-2.0-flash' },
-        ],
+        models: [{ name: 'models/gemini-2.5-flash' }, { name: 'models/gemini-2.0-flash' }],
       });
     });
 
@@ -390,22 +413,23 @@ describe('fetchProviderModels', () => {
       observedApp = (request.headers['x-app'] as string | undefined) ?? '';
       assert.equal(request.url, '/v1/models');
       respondJson(response, 200, {
-        data: [
-          { id: 'claude-sonnet-4-5-20250929' },
-        ],
+        data: [{ id: 'claude-sonnet-4-5-20250929' }],
       });
     });
 
-    const models = await fetchProviderModels({
-      slug: 'claude-subscription',
-      name: 'Claude OAuth',
-      providerType: 'claude-subscription',
-      baseUrl: server.url,
-      defaultModel: 'claude-sonnet-4-5-20250929',
-      enabled: true,
-      createdAt: 1,
-      updatedAt: 1,
-    }, 'oauth-access-token');
+    const models = await fetchProviderModels(
+      {
+        slug: 'claude-subscription',
+        name: 'Claude OAuth',
+        providerType: 'claude-subscription',
+        baseUrl: server.url,
+        defaultModel: 'claude-sonnet-4-5-20250929',
+        enabled: true,
+        createdAt: 1,
+        updatedAt: 1,
+      },
+      'oauth-access-token',
+    );
 
     assert.equal(observedAuth, 'Bearer oauth-access-token');
     assert.equal(observedApiKey, '');
@@ -421,16 +445,19 @@ describe('fetchProviderModels', () => {
       respondJson(response, 200, { data: [{ id: 'claude-haiku-4-5-20251001' }] });
     });
 
-    const models = await fetchProviderModels({
-      slug: 'claude-subscription',
-      name: 'Claude OAuth',
-      providerType: 'claude-subscription',
-      baseUrl: `${server.url}/v1`,
-      defaultModel: 'claude-haiku-4-5-20251001',
-      enabled: true,
-      createdAt: 1,
-      updatedAt: 1,
-    }, 'oauth-access-token');
+    const models = await fetchProviderModels(
+      {
+        slug: 'claude-subscription',
+        name: 'Claude OAuth',
+        providerType: 'claude-subscription',
+        baseUrl: `${server.url}/v1`,
+        defaultModel: 'claude-haiku-4-5-20251001',
+        enabled: true,
+        createdAt: 1,
+        updatedAt: 1,
+      },
+      'oauth-access-token',
+    );
 
     assert.equal(observedPath, '/v1/models');
     assert.deepEqual(models, [{ id: 'claude-haiku-4-5-20251001' }]);
@@ -445,23 +472,23 @@ describe('fetchProviderModels', () => {
       assert.equal(request.method, 'GET');
       assert.equal(request.url, '/anthropic/v1/models');
       respondJson(response, 200, {
-        data: [
-          { id: 'MiniMax-M3' },
-          { id: 'MiniMax-M2.7-highspeed' },
-        ],
+        data: [{ id: 'MiniMax-M3' }, { id: 'MiniMax-M2.7-highspeed' }],
       });
     });
 
-    const models = await fetchProviderModels({
-      slug: 'minimax-plan',
-      name: 'MiniMax Coding Plan',
-      providerType: 'minimax-coding-plan',
-      baseUrl: `${server.url}/anthropic`,
-      defaultModel: 'MiniMax-M3',
-      enabled: true,
-      createdAt: 1,
-      updatedAt: 1,
-    }, 'minimax-plan-secret');
+    const models = await fetchProviderModels(
+      {
+        slug: 'minimax-plan',
+        name: 'MiniMax Coding Plan',
+        providerType: 'minimax-coding-plan',
+        baseUrl: `${server.url}/anthropic`,
+        defaultModel: 'MiniMax-M3',
+        enabled: true,
+        createdAt: 1,
+        updatedAt: 1,
+      },
+      'minimax-plan-secret',
+    );
 
     assert.equal(observedAuthorization, '');
     assert.equal(observedApiKey, 'minimax-plan-secret');
@@ -483,16 +510,19 @@ describe('fetchProviderModels', () => {
       });
     });
 
-    const models = await fetchProviderModels({
-      slug: 'openai-codex',
-      name: 'Codex OAuth',
-      providerType: 'openai-codex',
-      baseUrl: server.url,
-      defaultModel: 'gpt-5.6-sol',
-      enabled: true,
-      createdAt: 1,
-      updatedAt: 1,
-    }, 'codex-oauth-token');
+    const models = await fetchProviderModels(
+      {
+        slug: 'openai-codex',
+        name: 'Codex OAuth',
+        providerType: 'openai-codex',
+        baseUrl: server.url,
+        defaultModel: 'gpt-5.6-sol',
+        enabled: true,
+        createdAt: 1,
+        updatedAt: 1,
+      },
+      'codex-oauth-token',
+    );
 
     assert.deepEqual(requests, [
       { url: '/models?client_version=1.0.0', authorization: 'Bearer codex-oauth-token' },
@@ -514,25 +544,8 @@ describe('fetchProviderModels', () => {
       capturedAccountId = request.headers['chatgpt-account-id'];
       respondJson(response, 200, { models: [] });
     });
-    await fetchProviderModels({
-      slug: 'openai-codex',
-      name: 'Codex OAuth',
-      providerType: 'openai-codex',
-      baseUrl: server.url,
-      defaultModel: 'gpt-5.6-sol',
-      enabled: true,
-      createdAt: 1,
-      updatedAt: 1,
-    }, token);
-    assert.equal(capturedAccountId, 'acct-42');
-  });
-
-  test('Codex OAuth discovery surfaces the HTTP status on auth failure for caller classification', async () => {
-    const server = await startJsonServer((_request, response) => {
-      respondJson(response, 401, { error: 'unauthorized' });
-    });
-    await assert.rejects(
-      fetchProviderModels({
+    await fetchProviderModels(
+      {
         slug: 'openai-codex',
         name: 'Codex OAuth',
         providerType: 'openai-codex',
@@ -541,7 +554,30 @@ describe('fetchProviderModels', () => {
         enabled: true,
         createdAt: 1,
         updatedAt: 1,
-      }, 'codex-oauth-token'),
+      },
+      token,
+    );
+    assert.equal(capturedAccountId, 'acct-42');
+  });
+
+  test('Codex OAuth discovery surfaces the HTTP status on auth failure for caller classification', async () => {
+    const server = await startJsonServer((_request, response) => {
+      respondJson(response, 401, { error: 'unauthorized' });
+    });
+    await assert.rejects(
+      fetchProviderModels(
+        {
+          slug: 'openai-codex',
+          name: 'Codex OAuth',
+          providerType: 'openai-codex',
+          baseUrl: server.url,
+          defaultModel: 'gpt-5.6-sol',
+          enabled: true,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+        'codex-oauth-token',
+      ),
       (err: unknown) => (err as { status?: number }).status === 401,
     );
   });
@@ -569,9 +605,10 @@ async function startJsonServer(
   assert.ok(address && typeof address === 'object');
   const control = {
     url: `http://127.0.0.1:${address.port}`,
-    close: () => new Promise<void>((resolve, reject) => {
-      server.close((error) => error ? reject(error) : resolve());
-    }),
+    close: () =>
+      new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      }),
   };
   servers.push(control);
   return control;

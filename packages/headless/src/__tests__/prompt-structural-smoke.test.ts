@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import type { FixedPromptWalEvent, PromptCandidateRationale, PromptCandidateRewardHackScan } from '../fixed-prompt-controller.js';
+import type {
+  FixedPromptWalEvent,
+  PromptCandidateRationale,
+  PromptCandidateRewardHackScan,
+} from '../fixed-prompt-controller.js';
 import {
   promptStructuralSmokeReport,
   renderPromptStructuralSmokeMarkdown,
@@ -14,7 +18,9 @@ describe('prompt structural smoke report', () => {
       const roundId = `round-${index}`;
       events.push(committedEvent(roundId));
       events.push(completedEvent(roundId, `task-${index}`, 0.1));
-      events.push(decisionEvent(roundId, 'discard', 'held_in_within_noise', 'run-1', { decision: 'clean' }));
+      events.push(
+        decisionEvent(roundId, 'discard', 'held_in_within_noise', 'run-1', { decision: 'clean' }),
+      );
     }
 
     const report = promptStructuralSmokeReport({
@@ -43,14 +49,18 @@ describe('prompt structural smoke report', () => {
       const roundId = `round-${index}`;
       events.push(committedEvent(roundId));
       events.push(completedEvent(roundId, `task-${index}`, 4));
-      events.push(decisionEvent(roundId, 'discard', 'held_in_within_noise', 'run-1', { decision: 'clean' }));
+      events.push(
+        decisionEvent(roundId, 'discard', 'held_in_within_noise', 'run-1', { decision: 'clean' }),
+      );
     }
     events.push(committedEvent('round-9'));
     events.push(completedEvent('round-9', 'task-9', 4));
-    events.push(decisionEvent('round-9', 'discard', 'reward_hack_quarantined', 'run-1', {
-      decision: 'quarantine',
-      reason: 'verifier_pattern',
-    }));
+    events.push(
+      decisionEvent('round-9', 'discard', 'reward_hack_quarantined', 'run-1', {
+        decision: 'quarantine',
+        reason: 'verifier_pattern',
+      }),
+    );
     events.push(plumbingFailedEvent('round-9', 'task-9'));
 
     const report = promptStructuralSmokeReport({
@@ -80,7 +90,9 @@ describe('prompt structural smoke report', () => {
       const roundId = `round-${index}`;
       events.push(committedEvent(roundId));
       events.push(completedEvent(roundId, `task-${index}`, 0.1));
-      events.push(decisionEvent(roundId, 'discard', 'held_in_within_noise', 'run-1', { decision: 'clean' }));
+      events.push(
+        decisionEvent(roundId, 'discard', 'held_in_within_noise', 'run-1', { decision: 'clean' }),
+      );
     }
 
     const report = promptStructuralSmokeReport({
@@ -109,7 +121,11 @@ describe('prompt structural smoke report', () => {
   test('fails when decision rounds have no task evidence', () => {
     const events: FixedPromptWalEvent[] = [];
     for (let index = 1; index <= 10; index += 1) {
-      events.push(decisionEvent(`round-${index}`, 'discard', 'held_in_within_noise', 'run-1', { decision: 'clean' }));
+      events.push(
+        decisionEvent(`round-${index}`, 'discard', 'held_in_within_noise', 'run-1', {
+          decision: 'clean',
+        }),
+      );
     }
 
     const report = promptStructuralSmokeReport({
@@ -139,7 +155,9 @@ describe('prompt structural smoke report', () => {
     for (let index = 1; index <= 10; index += 1) {
       const roundId = `round-${index}`;
       events.push(committedEvent(roundId));
-      events.push(decisionEvent(roundId, 'discard', 'coverage_regressed', 'run-1', { decision: 'clean' }));
+      events.push(
+        decisionEvent(roundId, 'discard', 'coverage_regressed', 'run-1', { decision: 'clean' }),
+      );
       events.push(infraFailedEvent(roundId, `task-${index}`));
     }
 
@@ -171,7 +189,11 @@ describe('prompt structural smoke report', () => {
       const roundId = `round-${index}`;
       events.push(committedEvent(roundId, 'run-current'));
       events.push(completedEvent(roundId, `task-${index}`, 0.1, 'run-old'));
-      events.push(decisionEvent(roundId, 'discard', 'held_in_within_noise', 'run-current', { decision: 'clean' }));
+      events.push(
+        decisionEvent(roundId, 'discard', 'held_in_within_noise', 'run-current', {
+          decision: 'clean',
+        }),
+      );
     }
 
     const report = promptStructuralSmokeReport({
@@ -202,13 +224,17 @@ describe('prompt structural smoke report', () => {
       const roundId = `round-${index}`;
       events.push(committedEvent(roundId, 'run-a'));
       events.push(completedEvent(roundId, `task-${index}`, 0.1, 'run-a'));
-      events.push(decisionEvent(roundId, 'discard', 'held_in_within_noise', 'run-a', { decision: 'clean' }));
+      events.push(
+        decisionEvent(roundId, 'discard', 'held_in_within_noise', 'run-a', { decision: 'clean' }),
+      );
     }
     for (let index = 6; index <= 10; index += 1) {
       const roundId = `round-${index}`;
       events.push(committedEvent(roundId, 'run-b'));
       events.push(completedEvent(roundId, `task-${index}`, 0.1, 'run-b'));
-      events.push(decisionEvent(roundId, 'discard', 'held_in_within_noise', 'run-b', { decision: 'clean' }));
+      events.push(
+        decisionEvent(roundId, 'discard', 'held_in_within_noise', 'run-b', { decision: 'clean' }),
+      );
     }
 
     const report = promptStructuralSmokeReport({
@@ -246,10 +272,12 @@ describe('prompt structural smoke report', () => {
       const roundId = `round-${index}`;
       events.push(committedEvent(roundId));
       events.push(completedEvent(roundId, `task-${index}`, 0.1));
-      events.push(decisionEvent(roundId, 'discard', 'held_in_within_noise', 'run-1', {
-        decision: 'quarantine',
-        reason: 'verifier_pattern',
-      }));
+      events.push(
+        decisionEvent(roundId, 'discard', 'held_in_within_noise', 'run-1', {
+          decision: 'quarantine',
+          reason: 'verifier_pattern',
+        }),
+      );
     }
 
     const report = promptStructuralSmokeReport({
@@ -269,9 +297,11 @@ describe('prompt structural smoke report', () => {
       const roundId = `round-${index}`;
       events.push(committedEvent(roundId));
       events.push(completedEvent(roundId, `task-${index}`, 0.1));
-      events.push(decisionEvent(roundId, 'discard', 'held_in_within_noise', 'run-1', {
-        decision: 'skipped',
-      } as unknown as PromptCandidateRewardHackScan));
+      events.push(
+        decisionEvent(roundId, 'discard', 'held_in_within_noise', 'run-1', {
+          decision: 'skipped',
+        } as unknown as PromptCandidateRewardHackScan),
+      );
     }
 
     const report = promptStructuralSmokeReport({
@@ -291,13 +321,9 @@ describe('prompt structural smoke report', () => {
       const roundId = `round-${index}`;
       events.push(committedEvent(roundId));
       events.push(completedEvent(roundId, `task-${index}`, 0.1));
-      const event = decisionEvent(
-        roundId,
-        'discard',
-        'held_in_within_noise',
-        'run-1',
-        { decision: 'clean' },
-      );
+      const event = decisionEvent(roundId, 'discard', 'held_in_within_noise', 'run-1', {
+        decision: 'clean',
+      });
       (event as { rewardHackScan: unknown }).rewardHackScan = null;
       events.push(event);
     }
@@ -318,7 +344,9 @@ describe('prompt structural smoke report', () => {
     for (let index = 1; index <= 10; index += 1) {
       const roundId = `round-${index}`;
       events.push(committedEvent(roundId));
-      events.push(decisionEvent(roundId, 'discard', 'held_in_within_noise', 'run-1', { decision: 'clean' }));
+      events.push(
+        decisionEvent(roundId, 'discard', 'held_in_within_noise', 'run-1', { decision: 'clean' }),
+      );
     }
     for (let index = 1; index <= 10; index += 1) {
       const roundId = `round-${index}`;
@@ -352,8 +380,12 @@ describe('prompt structural smoke report', () => {
     for (let index = 1; index <= 10; index += 1) {
       const roundId = `round-${index}`;
       events.push(committedEvent(roundId));
-      events.push(completedEvent(roundId, `task-${index}`, 0.1, 'run-1', `sha256:stale-${roundId}`));
-      events.push(decisionEvent(roundId, 'discard', 'held_in_within_noise', 'run-1', { decision: 'clean' }));
+      events.push(
+        completedEvent(roundId, `task-${index}`, 0.1, 'run-1', `sha256:stale-${roundId}`),
+      );
+      events.push(
+        decisionEvent(roundId, 'discard', 'held_in_within_noise', 'run-1', { decision: 'clean' }),
+      );
     }
 
     const report = promptStructuralSmokeReport({
@@ -383,7 +415,9 @@ describe('prompt structural smoke report', () => {
     for (let index = 1; index <= 10; index += 1) {
       const roundId = `round-${index}`;
       events.push(completedEvent(roundId, `task-${index}`, 0.1));
-      events.push(decisionEvent(roundId, 'discard', 'held_in_within_noise', 'run-1', { decision: 'clean' }));
+      events.push(
+        decisionEvent(roundId, 'discard', 'held_in_within_noise', 'run-1', { decision: 'clean' }),
+      );
     }
 
     const report = promptStructuralSmokeReport({
@@ -414,7 +448,9 @@ describe('prompt structural smoke report', () => {
       const roundId = `round-${index}`;
       events.push(completedEvent(roundId, `task-${index}`, 0.1));
       events.push(committedEvent(roundId));
-      events.push(decisionEvent(roundId, 'discard', 'held_in_within_noise', 'run-1', { decision: 'clean' }));
+      events.push(
+        decisionEvent(roundId, 'discard', 'held_in_within_noise', 'run-1', { decision: 'clean' }),
+      );
     }
 
     const report = promptStructuralSmokeReport({
@@ -513,7 +549,9 @@ describe('prompt structural smoke report', () => {
       committedEvent('round-1', 'run-1', promptHashForRound('round-1'), ['task-1']),
       completedEvent('round-1', 'task-1', 0.1),
       decisionEvent('round-1', 'discard', 'held_in_within_noise', 'run-1', { decision: 'clean' }),
-      attributionEvent('round-1', { predictedFixes: [{ taskId: 'held-out-secret', outcome: 'improved' }] }),
+      attributionEvent('round-1', {
+        predictedFixes: [{ taskId: 'held-out-secret', outcome: 'improved' }],
+      }),
     ];
     const taskScopeReport = promptStructuralSmokeReport({
       events: taskScopeMismatch,
@@ -522,7 +560,10 @@ describe('prompt structural smoke report', () => {
     });
 
     assert.equal(taskScopeReport.status, 'fail');
-    assert.deepEqual(taskScopeReport.failures, ['rsi_attribution_malformed', 'rsi_attribution_task_scope_invalid']);
+    assert.deepEqual(taskScopeReport.failures, [
+      'rsi_attribution_malformed',
+      'rsi_attribution_task_scope_invalid',
+    ]);
     assert.deepEqual(taskScopeReport.roundsWithOutOfScopeRsiAttribution, ['round-1']);
   });
 
@@ -534,7 +575,13 @@ describe('prompt structural smoke report', () => {
     });
 
     const evidenceMismatch = [
-      committedEvent('round-1', 'run-1', promptHashForRound('round-1'), ['task-1', 'task-2'], committedRationale),
+      committedEvent(
+        'round-1',
+        'run-1',
+        promptHashForRound('round-1'),
+        ['task-1', 'task-2'],
+        committedRationale,
+      ),
       completedEvent('round-1', 'task-1', 0.1),
       decisionEvent('round-1', 'discard', 'held_in_within_noise', 'run-1', { decision: 'clean' }),
       attributionEvent('round-1', {
@@ -555,7 +602,13 @@ describe('prompt structural smoke report', () => {
     assert.deepEqual(evidenceReport.roundsWithMalformedRsiAttribution, ['round-1']);
 
     const taskListMismatch = [
-      committedEvent('round-1', 'run-1', promptHashForRound('round-1'), ['task-1', 'task-2'], committedRationale),
+      committedEvent(
+        'round-1',
+        'run-1',
+        promptHashForRound('round-1'),
+        ['task-1', 'task-2'],
+        committedRationale,
+      ),
       completedEvent('round-1', 'task-1', 0.1),
       decisionEvent('round-1', 'discard', 'held_in_within_noise', 'run-1', { decision: 'clean' }),
       attributionEvent('round-1', {
@@ -599,7 +652,9 @@ describe('prompt structural smoke report', () => {
       committedEvent('round-1'),
       completedEvent('round-1', 'task-1', 0.1),
       decisionEvent('round-1', 'discard', 'held_out_regressed', 'run-1', { decision: 'clean' }),
-      attributionEvent('round-1', { decision: { decision: 'discard', reason: 'held_out_regressed' } }),
+      attributionEvent('round-1', {
+        decision: { decision: 'discard', reason: 'held_out_regressed' },
+      }),
     ];
 
     const report = promptStructuralSmokeReport({
@@ -614,19 +669,29 @@ describe('prompt structural smoke report', () => {
 
   test('passes R2 smoke when nested controller-only fields stay out of prompt projection', () => {
     const events = [
-      committedEvent('round-1', 'run-1', promptHashForRound('round-1'), ['task-1'], candidateRationale({
-        predictedFixes: ['task-1'],
-        riskTasks: ['task-1'],
-      })),
+      committedEvent(
+        'round-1',
+        'run-1',
+        promptHashForRound('round-1'),
+        ['task-1'],
+        candidateRationale({
+          predictedFixes: ['task-1'],
+          riskTasks: ['task-1'],
+        }),
+      ),
       completedEvent('round-1', 'task-1', 0.1),
       decisionEvent('round-1', 'discard', 'held_in_within_noise', 'run-1', { decision: 'clean' }),
-      attributionEvent('round-1', ({
-        predictedFixes: [{ taskId: 'task-1', outcome: 'improved', candidateCommitSha: 'nested-commit-secret' }],
+      attributionEvent('round-1', {
+        predictedFixes: [
+          { taskId: 'task-1', outcome: 'improved', candidateCommitSha: 'nested-commit-secret' },
+        ],
         riskTasks: [{ taskId: 'task-1', outcome: 'safe', threshold: 'nested-threshold-secret' }],
         unexpectedHeldInFlips: [
           { taskId: 'task-1', from: 'fail', to: 'pass', heldOutMetric: 'nested-held-out-secret' },
         ],
-      } as unknown) as Partial<Extract<FixedPromptWalEvent, { type: 'rsi_controller_attribution' }>>),
+      } as unknown as Partial<
+        Extract<FixedPromptWalEvent, { type: 'rsi_controller_attribution' }>
+      >),
     ];
 
     const report = promptStructuralSmokeReport({
@@ -685,7 +750,9 @@ function committedEvent(
   };
 }
 
-function candidateRationale(overrides: Partial<PromptCandidateRationale> = {}): PromptCandidateRationale {
+function candidateRationale(
+  overrides: Partial<PromptCandidateRationale> = {},
+): PromptCandidateRationale {
   return {
     editedSurface: 'system_prompt',
     failurePattern: 'coverage_regression' as const,
@@ -756,7 +823,11 @@ function completedEvent(
   };
 }
 
-function budgetExhaustedEvent(roundId: string, taskId: string, costUsd: number): FixedPromptWalEvent {
+function budgetExhaustedEvent(
+  roundId: string,
+  taskId: string,
+  costUsd: number,
+): FixedPromptWalEvent {
   return {
     schemaVersion: 1,
     type: 'task_budget_exhausted',
@@ -776,7 +847,10 @@ function budgetExhaustedEvent(roundId: string, taskId: string, costUsd: number):
   };
 }
 
-function attributionEvent(roundId: string, overrides: Partial<Extract<FixedPromptWalEvent, { type: 'rsi_controller_attribution' }>> = {}): FixedPromptWalEvent {
+function attributionEvent(
+  roundId: string,
+  overrides: Partial<Extract<FixedPromptWalEvent, { type: 'rsi_controller_attribution' }>> = {},
+): FixedPromptWalEvent {
   const event: Extract<FixedPromptWalEvent, { type: 'rsi_controller_attribution' }> = {
     schemaVersion: 1,
     type: 'rsi_controller_attribution',

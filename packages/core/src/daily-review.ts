@@ -31,11 +31,7 @@
  * - Aggregator is pure: take inputs, return DailyReviewSummary.
  */
 
-import type {
-  UsageBucket,
-  UsageQuery,
-  UsageSummaryV2,
-} from './usage-stats/types.js';
+import type { UsageBucket, UsageQuery, UsageSummaryV2 } from './usage-stats/types.js';
 import type { SessionSummary } from './session.js';
 
 /** Inclusive `from` and exclusive `to` millisecond bounds for one day. */
@@ -146,13 +142,15 @@ export function pickDailyReviewTopEntries(
   buckets: ReadonlyArray<UsageBucket>,
   limit: number,
 ): DailyReviewTopEntry[] {
-  const rows = buckets.map((b): DailyReviewTopEntry => ({
-    key: b.key,
-    label: b.label,
-    requests: b.requests,
-    totalTokens: b.totalTokens,
-    costUsd: b.costUsd,
-  }));
+  const rows = buckets.map(
+    (b): DailyReviewTopEntry => ({
+      key: b.key,
+      label: b.label,
+      requests: b.requests,
+      totalTokens: b.totalTokens,
+      costUsd: b.costUsd,
+    }),
+  );
   rows.sort((a, b) => b.requests - a.requests);
   return rows.slice(0, Math.max(0, limit));
 }
@@ -208,10 +206,7 @@ export const DAILY_REVIEW_LIST_LIMIT = 8;
 
 export type DailyReviewMode = 'daily' | 'deep';
 
-export const DAILY_REVIEW_MODES: readonly DailyReviewMode[] = [
-  'daily',
-  'deep',
-] as const;
+export const DAILY_REVIEW_MODES: readonly DailyReviewMode[] = ['daily', 'deep'] as const;
 
 export type DailyReviewSectionKey = 'summary' | 'gaps' | 'usage' | 'code';
 
@@ -250,12 +245,7 @@ export interface DailyReviewConfig {
   readonly externalNotify: DailyReviewExternalNotify;
 }
 
-export type DailyReviewArchiveStatus =
-  | 'ok'
-  | 'no_model'
-  | 'no_data'
-  | 'failed'
-  | 'skipped';
+export type DailyReviewArchiveStatus = 'ok' | 'no_model' | 'no_data' | 'failed' | 'skipped';
 
 export const DAILY_REVIEW_ARCHIVE_STATUSES: readonly DailyReviewArchiveStatus[] = [
   'ok',
@@ -333,19 +323,14 @@ export function normalizeDailyReviewConfig(
   const externalNotify = input.externalNotify ?? base.externalNotify;
   return {
     enabled: typeof input.enabled === 'boolean' ? input.enabled : base.enabled,
-    executeTime: isDailyReviewExecuteTime(input.executeTime)
-      ? input.executeTime
-      : base.executeTime,
+    executeTime: isDailyReviewExecuteTime(input.executeTime) ? input.executeTime : base.executeTime,
     sections: {
-      summary:
-        typeof sections.summary === 'boolean' ? sections.summary : base.sections.summary,
+      summary: typeof sections.summary === 'boolean' ? sections.summary : base.sections.summary,
       gaps: typeof sections.gaps === 'boolean' ? sections.gaps : base.sections.gaps,
-      usage:
-        typeof sections.usage === 'boolean' ? sections.usage : base.sections.usage,
+      usage: typeof sections.usage === 'boolean' ? sections.usage : base.sections.usage,
       code: typeof sections.code === 'boolean' ? sections.code : base.sections.code,
     },
-    deepEnabled:
-      typeof input.deepEnabled === 'boolean' ? input.deepEnabled : base.deepEnabled,
+    deepEnabled: typeof input.deepEnabled === 'boolean' ? input.deepEnabled : base.deepEnabled,
     modelKey: typeof input.modelKey === 'string' ? input.modelKey : base.modelKey,
     includeClaudeCode:
       typeof input.includeClaudeCode === 'boolean'
@@ -357,9 +342,7 @@ export function normalizeDailyReviewConfig(
           ? externalNotify.enabled
           : base.externalNotify.enabled,
       channelId:
-        typeof externalNotify.channelId === 'string'
-          ? externalNotify.channelId
-          : undefined,
+        typeof externalNotify.channelId === 'string' ? externalNotify.channelId : undefined,
     },
   };
 }

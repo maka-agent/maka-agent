@@ -134,8 +134,8 @@ describe('provider catalog contract — structural invariants over CATALOG_PROVI
         assert.notEqual(
           def.modelDiscovery.kind,
           'fallback',
-          `${type} ships no default model snapshot, so it must declare live model discovery — `
-            + 'static-fallback discovery would leave it with no model source at all',
+          `${type} ships no default model snapshot, so it must declare live model discovery — ` +
+            'static-fallback discovery would leave it with no model source at all',
         );
       }
     }

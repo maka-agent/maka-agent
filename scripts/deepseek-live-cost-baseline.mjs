@@ -30,11 +30,15 @@ import {
 
 const apiKey = process.env.DEEPSEEK_API_KEY;
 if (!apiKey) {
-  throw new Error('DEEPSEEK_API_KEY is not set. Source your local secret env before running this script.');
+  throw new Error(
+    'DEEPSEEK_API_KEY is not set. Source your local secret env before running this script.',
+  );
 }
 
 const repoRoot = resolve(new URL('..', import.meta.url).pathname);
-const outputRoot = resolve(process.env.MAKA_COST_BASELINE_OUTPUT ?? join(tmpdir(), 'maka-deepseek-cost-baseline'));
+const outputRoot = resolve(
+  process.env.MAKA_COST_BASELINE_OUTPUT ?? join(tmpdir(), 'maka-deepseek-cost-baseline'),
+);
 const runId = new Date().toISOString().replace(/[:.]/g, '-');
 const workspaceRoot = join(outputRoot, runId, 'workspace');
 await mkdir(workspaceRoot, { recursive: true });
@@ -133,8 +137,10 @@ const durablePrefix = [
   'Always answer exactly: OK',
   'The following stable policy block is intentionally repeated to make provider prefix caching observable.',
   '<stable-policy>',
-  Array.from({ length: stablePolicyLines }, (_, index) =>
-    `Stable policy line ${String(index + 1).padStart(3, '0')}: preserve the durable system prefix, avoid unnecessary wording churn, and keep responses short.`,
+  Array.from(
+    { length: stablePolicyLines },
+    (_, index) =>
+      `Stable policy line ${String(index + 1).padStart(3, '0')}: preserve the durable system prefix, avoid unnecessary wording churn, and keep responses short.`,
   ).join('\n'),
   '</stable-policy>',
 ].join('\n');
@@ -149,56 +155,59 @@ function turnTailPrompt() {
   ].join('\n');
 }
 
-backends.register('ai-sdk', async (ctx) =>
-  new AiSdkBackend({
-    sessionId: ctx.sessionId,
-    header: { ...ctx.header, model },
-    appendMessage: (message) => ctx.store.appendMessage(ctx.sessionId, message),
-    connection,
-    apiKey,
-    modelId: model,
-    permissionEngine,
-    modelFactory: getAIModel,
-    tools,
-    providerOptions: buildProviderOptions(connection, model),
-    contextBudget,
-    systemPrompt: durablePrefix,
-    turnTailPrompt,
-    recordLlmCall: (record) => llmRecords.push(record),
-    recordRunTrace: (event) => runTraceEvents.push(event),
-    archiveToolResult: async (event) => {
-      const artifact = await artifactStore.create({
-        sessionId: event.sessionId,
-        turnId: event.turnId,
-        name: `tool-result-${event.runtimeEventId}.json`,
-        kind: 'file',
-        content: event.serializedResult,
-        mimeType: 'application/json',
-        source: 'tool_result_archive',
-        summary: `Archived ${event.toolName} tool result for DeepSeek cost baseline replay`,
-      });
-      return { artifactId: artifact.id };
-    },
-    readToolResultArchive: async (event) => {
-      const record = await artifactStore.get(event.artifactId);
-      if (!record) return { ok: false, reason: 'not_found' };
-      if (record.status === 'deleted') return { ok: false, reason: 'deleted' };
-      if (record.source !== 'tool_result_archive') return { ok: false, reason: 'source_mismatch' };
-      if (record.sessionId !== event.sessionId) return { ok: false, reason: 'session_mismatch' };
-      if (record.sizeBytes !== event.originalBytes) return { ok: false, reason: 'size_mismatch' };
-      const read = await artifactStore.readText(event.artifactId, {
-        maxBytes: event.maxBytes ?? event.originalBytes,
-      });
-      if (!read.ok) return read;
-      if (sha256(read.text) !== event.bodySha256) return { ok: false, reason: 'corrupt' };
-      return { ok: true, serializedResult: read.text };
-    },
-    newId: randomUUID,
-    now: Date.now,
-    maxSteps: 1,
-    streamConnectTimeoutMs: 30_000,
-    streamIdleTimeoutMs: 120_000,
-  }),
+backends.register(
+  'ai-sdk',
+  async (ctx) =>
+    new AiSdkBackend({
+      sessionId: ctx.sessionId,
+      header: { ...ctx.header, model },
+      appendMessage: (message) => ctx.store.appendMessage(ctx.sessionId, message),
+      connection,
+      apiKey,
+      modelId: model,
+      permissionEngine,
+      modelFactory: getAIModel,
+      tools,
+      providerOptions: buildProviderOptions(connection, model),
+      contextBudget,
+      systemPrompt: durablePrefix,
+      turnTailPrompt,
+      recordLlmCall: (record) => llmRecords.push(record),
+      recordRunTrace: (event) => runTraceEvents.push(event),
+      archiveToolResult: async (event) => {
+        const artifact = await artifactStore.create({
+          sessionId: event.sessionId,
+          turnId: event.turnId,
+          name: `tool-result-${event.runtimeEventId}.json`,
+          kind: 'file',
+          content: event.serializedResult,
+          mimeType: 'application/json',
+          source: 'tool_result_archive',
+          summary: `Archived ${event.toolName} tool result for DeepSeek cost baseline replay`,
+        });
+        return { artifactId: artifact.id };
+      },
+      readToolResultArchive: async (event) => {
+        const record = await artifactStore.get(event.artifactId);
+        if (!record) return { ok: false, reason: 'not_found' };
+        if (record.status === 'deleted') return { ok: false, reason: 'deleted' };
+        if (record.source !== 'tool_result_archive')
+          return { ok: false, reason: 'source_mismatch' };
+        if (record.sessionId !== event.sessionId) return { ok: false, reason: 'session_mismatch' };
+        if (record.sizeBytes !== event.originalBytes) return { ok: false, reason: 'size_mismatch' };
+        const read = await artifactStore.readText(event.artifactId, {
+          maxBytes: event.maxBytes ?? event.originalBytes,
+        });
+        if (!read.ok) return read;
+        if (sha256(read.text) !== event.bodySha256) return { ok: false, reason: 'corrupt' };
+        return { ok: true, serializedResult: read.text };
+      },
+      newId: randomUUID,
+      now: Date.now,
+      maxSteps: 1,
+      streamConnectTimeoutMs: 30_000,
+      streamIdleTimeoutMs: 120_000,
+    }),
 );
 
 const manager = new SessionManager({
@@ -219,8 +228,10 @@ const session = await manager.createSession({
 });
 
 const turns = [];
-const repeatedPayload = Array.from({ length: payloadLines }, (_, index) =>
-  `baseline fact ${String(index + 1).padStart(2, '0')}: this stable user payload is repeated to expose how much new-tail text becomes cache miss.`,
+const repeatedPayload = Array.from(
+  { length: payloadLines },
+  (_, index) =>
+    `baseline fact ${String(index + 1).padStart(2, '0')}: this stable user payload is repeated to expose how much new-tail text becomes cache miss.`,
 ).join('\n');
 
 for (let i = 1; i <= turnCount; i += 1) {
@@ -289,53 +300,59 @@ for (let i = 1; i <= turnCount; i += 1) {
     retrievedArchiveEstimatedTokens: contextBudgetDiagnostic?.retrievedArchiveEstimatedTokens ?? 0,
     archiveRetrievalSkipped: contextBudgetDiagnostic?.archiveRetrievalSkipped ?? 0,
     archiveRetrievalFailures: contextBudgetDiagnostic?.archiveRetrievalFailures ?? 0,
-    archiveRetrievalFailureReasonCounts: contextBudgetDiagnostic?.archiveRetrievalFailureReasonCounts,
+    archiveRetrievalFailureReasonCounts:
+      contextBudgetDiagnostic?.archiveRetrievalFailureReasonCounts,
     errorReason: errorEvent?.reason,
   });
 }
 
-const totals = turns.reduce((acc, turn) => {
-  acc.input += turn.input ?? 0;
-  acc.cacheHitInput += turn.cacheHitInput ?? 0;
-  acc.cacheMissInput += turn.cacheMissInput ?? 0;
-  acc.cacheWriteInput += turn.cacheWriteInput ?? 0;
-  acc.output += turn.output ?? 0;
-  acc.estimatedCostUsd += turn.estimatedCostUsd ?? 0;
-  if (turn.cacheMissInputSource === 'explicit') acc.explicitCacheMissTurns += 1;
-  else if (turn.cacheMissInputSource === 'derived') acc.derivedCacheMissTurns += 1;
-  else acc.unknownCacheMissTurns += 1;
-  acc.archivePlaceholders += turn.archivePlaceholders ?? 0;
-  acc.archiveWriteFailures += turn.archiveWriteFailures ?? 0;
-  acc.retrievedArchiveToolResults += turn.retrievedArchiveToolResults ?? 0;
-  acc.retrievedArchiveEstimatedTokens += turn.retrievedArchiveEstimatedTokens ?? 0;
-  acc.archiveRetrievalSkipped += turn.archiveRetrievalSkipped ?? 0;
-  acc.archiveRetrievalFailures += turn.archiveRetrievalFailures ?? 0;
-  for (const [reason, count] of Object.entries(turn.archivePlaceholderReasonCounts ?? {})) {
-    acc.archivePlaceholderReasonCounts[reason] = (acc.archivePlaceholderReasonCounts[reason] ?? 0) + count;
-  }
-  for (const [reason, count] of Object.entries(turn.archiveRetrievalFailureReasonCounts ?? {})) {
-    acc.archiveRetrievalFailureReasonCounts[reason] = (acc.archiveRetrievalFailureReasonCounts[reason] ?? 0) + count;
-  }
-  return acc;
-}, {
-  input: 0,
-  cacheHitInput: 0,
-  cacheMissInput: 0,
-  cacheWriteInput: 0,
-  output: 0,
-  estimatedCostUsd: 0,
-  explicitCacheMissTurns: 0,
-  derivedCacheMissTurns: 0,
-  unknownCacheMissTurns: 0,
-  archivePlaceholders: 0,
-  archiveWriteFailures: 0,
-  archivePlaceholderReasonCounts: {},
-  retrievedArchiveToolResults: 0,
-  retrievedArchiveEstimatedTokens: 0,
-  archiveRetrievalSkipped: 0,
-  archiveRetrievalFailures: 0,
-  archiveRetrievalFailureReasonCounts: {},
-});
+const totals = turns.reduce(
+  (acc, turn) => {
+    acc.input += turn.input ?? 0;
+    acc.cacheHitInput += turn.cacheHitInput ?? 0;
+    acc.cacheMissInput += turn.cacheMissInput ?? 0;
+    acc.cacheWriteInput += turn.cacheWriteInput ?? 0;
+    acc.output += turn.output ?? 0;
+    acc.estimatedCostUsd += turn.estimatedCostUsd ?? 0;
+    if (turn.cacheMissInputSource === 'explicit') acc.explicitCacheMissTurns += 1;
+    else if (turn.cacheMissInputSource === 'derived') acc.derivedCacheMissTurns += 1;
+    else acc.unknownCacheMissTurns += 1;
+    acc.archivePlaceholders += turn.archivePlaceholders ?? 0;
+    acc.archiveWriteFailures += turn.archiveWriteFailures ?? 0;
+    acc.retrievedArchiveToolResults += turn.retrievedArchiveToolResults ?? 0;
+    acc.retrievedArchiveEstimatedTokens += turn.retrievedArchiveEstimatedTokens ?? 0;
+    acc.archiveRetrievalSkipped += turn.archiveRetrievalSkipped ?? 0;
+    acc.archiveRetrievalFailures += turn.archiveRetrievalFailures ?? 0;
+    for (const [reason, count] of Object.entries(turn.archivePlaceholderReasonCounts ?? {})) {
+      acc.archivePlaceholderReasonCounts[reason] =
+        (acc.archivePlaceholderReasonCounts[reason] ?? 0) + count;
+    }
+    for (const [reason, count] of Object.entries(turn.archiveRetrievalFailureReasonCounts ?? {})) {
+      acc.archiveRetrievalFailureReasonCounts[reason] =
+        (acc.archiveRetrievalFailureReasonCounts[reason] ?? 0) + count;
+    }
+    return acc;
+  },
+  {
+    input: 0,
+    cacheHitInput: 0,
+    cacheMissInput: 0,
+    cacheWriteInput: 0,
+    output: 0,
+    estimatedCostUsd: 0,
+    explicitCacheMissTurns: 0,
+    derivedCacheMissTurns: 0,
+    unknownCacheMissTurns: 0,
+    archivePlaceholders: 0,
+    archiveWriteFailures: 0,
+    archivePlaceholderReasonCounts: {},
+    retrievedArchiveToolResults: 0,
+    retrievedArchiveEstimatedTokens: 0,
+    archiveRetrievalSkipped: 0,
+    archiveRetrievalFailures: 0,
+    archiveRetrievalFailureReasonCounts: {},
+  },
+);
 
 const report = {
   sourceRef: process.env.MAKA_COST_BASELINE_SOURCE_REF ?? 'local-build',
@@ -354,11 +371,12 @@ const report = {
   totals,
   turns,
   runTracePrefixEvents: runTraceEvents
-    .filter((event) =>
-      event.data?.prefixHash ||
-      event.data?.prefixChangeReason ||
-      event.data?.requestShapeHash ||
-      event.data?.requestShapeChangeReason
+    .filter(
+      (event) =>
+        event.data?.prefixHash ||
+        event.data?.prefixChangeReason ||
+        event.data?.requestShapeHash ||
+        event.data?.requestShapeChangeReason,
     )
     .map((event) => ({
       phase: event.phase,
@@ -378,16 +396,22 @@ const jsonPath = join(outputDir, 'deepseek-live-cost-baseline.json');
 const markdownPath = join(outputDir, 'deepseek-live-cost-baseline.md');
 await writeFile(jsonPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
 await writeFile(markdownPath, renderMarkdown(report, jsonPath), 'utf8');
-console.log(JSON.stringify({ jsonPath, markdownPath, totals, turnCount, toolMode, contextBudget }, null, 2));
+console.log(
+  JSON.stringify({ jsonPath, markdownPath, totals, turnCount, toolMode, contextBudget }, null, 2),
+);
 
 async function runPhase7ToolMatrix(input) {
   const matrixOutputRoot = join(input.outputRoot, input.runId, 'phase7-tool-matrix');
   await mkdir(matrixOutputRoot, { recursive: true });
-  const sentinel = process.env.MAKA_COST_BASELINE_PHASE7_SENTINEL
-    ?? `PHASE7_SENTINEL_${sha256(`${input.seed}:phase7`).slice(0, 16)}`;
+  const sentinel =
+    process.env.MAKA_COST_BASELINE_PHASE7_SENTINEL ??
+    `PHASE7_SENTINEL_${sha256(`${input.seed}:phase7`).slice(0, 16)}`;
   const lookupKey = process.env.MAKA_COST_BASELINE_PHASE7_LOOKUP_KEY ?? 'phase7-live-key';
   const resultLines = parsePositiveInt(process.env.MAKA_COST_BASELINE_PHASE7_RESULT_LINES, 220);
-  const noisyArchiveCount = parsePositiveInt(process.env.MAKA_COST_BASELINE_PHASE7_NOISY_ARCHIVES, 8);
+  const noisyArchiveCount = parsePositiveInt(
+    process.env.MAKA_COST_BASELINE_PHASE7_NOISY_ARCHIVES,
+    8,
+  );
   const cases = [];
   for (const matrixCase of [
     { name: 'single_archive_recovery', noiseArchiveCount: 0 },
@@ -395,16 +419,18 @@ async function runPhase7ToolMatrix(input) {
   ]) {
     const scenarios = [];
     for (const mode of ['full', 'prune', 'eager', 'gated']) {
-      scenarios.push(await runPhase7ToolScenario({
-        ...input,
-        matrixOutputRoot: join(matrixOutputRoot, matrixCase.name),
-        matrixCase: matrixCase.name,
-        mode,
-        sentinel,
-        lookupKey,
-        resultLines,
-        noiseArchiveCount: matrixCase.noiseArchiveCount,
-      }));
+      scenarios.push(
+        await runPhase7ToolScenario({
+          ...input,
+          matrixOutputRoot: join(matrixOutputRoot, matrixCase.name),
+          matrixCase: matrixCase.name,
+          mode,
+          sentinel,
+          lookupKey,
+          resultLines,
+          noiseArchiveCount: matrixCase.noiseArchiveCount,
+        }),
+      );
     }
     cases.push({
       name: matrixCase.name,
@@ -437,35 +463,43 @@ async function runPhase7ToolMatrix(input) {
     scenarios,
   };
   const jsonPath = resolve(
-    process.env.MAKA_COST_BASELINE_PHASE7_MATRIX_JSON
-      ?? join(matrixOutputRoot, 'phase7-tool-live-matrix.json'),
+    process.env.MAKA_COST_BASELINE_PHASE7_MATRIX_JSON ??
+      join(matrixOutputRoot, 'phase7-tool-live-matrix.json'),
   );
   await mkdir(resolve(jsonPath, '..'), { recursive: true });
   await writeFile(jsonPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
-  console.log(JSON.stringify({
-    jsonPath,
-    model: input.model,
-    scenario: report.scenario.name,
-    cases: cases.map((matrixCase) => ({
-      name: matrixCase.name,
-      modes: matrixCase.scenarios.map((scenario) => ({
-        mode: scenario.mode,
-        recoveredSentinel: scenario.recoveredSentinel,
-        finalAnswerExactlySentinel: scenario.finalAnswerExactlySentinel,
-        archivedToolResultsRead: scenario.archivedToolResultsRead,
-        finalArchivedToolResultsRead: scenario.finalArchivedToolResultsRead,
-        finalUsage: scenario.finalUsage,
-        scenarioUsageTotals: scenario.scenarioUsageTotals,
-        toolCalls: scenario.toolCalls.length,
-      })),
-    })),
-    invariantFailures,
-  }, null, 2));
+  console.log(
+    JSON.stringify(
+      {
+        jsonPath,
+        model: input.model,
+        scenario: report.scenario.name,
+        cases: cases.map((matrixCase) => ({
+          name: matrixCase.name,
+          modes: matrixCase.scenarios.map((scenario) => ({
+            mode: scenario.mode,
+            recoveredSentinel: scenario.recoveredSentinel,
+            finalAnswerExactlySentinel: scenario.finalAnswerExactlySentinel,
+            archivedToolResultsRead: scenario.archivedToolResultsRead,
+            finalArchivedToolResultsRead: scenario.finalArchivedToolResultsRead,
+            finalUsage: scenario.finalUsage,
+            scenarioUsageTotals: scenario.scenarioUsageTotals,
+            toolCalls: scenario.toolCalls.length,
+          })),
+        })),
+        invariantFailures,
+      },
+      null,
+      2,
+    ),
+  );
   if (invariantFailures.length > 0) {
-    console.error([
-      'Phase 7 tool matrix invariant failures:',
-      ...invariantFailures.map((failure) => `- ${failure}`),
-    ].join('\n'));
+    console.error(
+      [
+        'Phase 7 tool matrix invariant failures:',
+        ...invariantFailures.map((failure) => `- ${failure}`),
+      ].join('\n'),
+    );
     return 1;
   }
   return 0;
@@ -506,62 +540,67 @@ async function runPhase7ToolScenario(input) {
     'Do not call Phase7Lookup during sentinel recovery; recovery must use prior context only.',
   ].join('\n');
 
-  backends.register('ai-sdk', async (ctx) =>
-    new AiSdkBackend({
-      sessionId: ctx.sessionId,
-      header: { ...ctx.header, model: input.model },
-      appendMessage: (message) => ctx.store.appendMessage(ctx.sessionId, message),
-      connection,
-      apiKey: input.apiKey,
-      modelId: input.model,
-      permissionEngine,
-      modelFactory: getAIModel,
-      tools,
-      providerOptions: buildProviderOptions(connection, input.model),
-      contextBudget,
-      systemPrompt,
-      turnTailPrompt: phase7TurnTailPrompt(input.cwd),
-      recordLlmCall: (record) => llmRecords.push(record),
-      recordRunTrace: (event) => runTraceEvents.push(event),
-      archiveToolResult: async (event) => {
-        const artifact = await artifactStore.create({
-          sessionId: event.sessionId,
-          turnId: event.turnId,
-          name: `phase7-tool-result-${event.runtimeEventId}.json`,
-          kind: 'file',
-          content: event.serializedResult,
-          mimeType: 'application/json',
-          source: 'tool_result_archive',
-          summary: `Archived ${event.toolName} Phase 7 tool result for ${input.mode}`,
-        });
-        return { artifactId: artifact.id };
-      },
-      readToolResultArchive: async (event) => {
-        archiveReads.push({
-          requestTurnId: activeTurnId,
-          runtimeEventId: event.runtimeEventId,
-          turnId: event.turnId,
-          artifactId: event.artifactId,
-        });
-        const record = await artifactStore.get(event.artifactId);
-        if (!record) return { ok: false, reason: 'not_found' };
-        if (record.status === 'deleted') return { ok: false, reason: 'deleted' };
-        if (record.source !== 'tool_result_archive') return { ok: false, reason: 'source_mismatch' };
-        if (record.sessionId !== event.sessionId) return { ok: false, reason: 'session_mismatch' };
-        if (record.sizeBytes !== event.originalBytes) return { ok: false, reason: 'size_mismatch' };
-        const read = await artifactStore.readText(event.artifactId, {
-          maxBytes: event.maxBytes ?? event.originalBytes,
-        });
-        if (!read.ok) return read;
-        if (sha256(read.text) !== event.bodySha256) return { ok: false, reason: 'corrupt' };
-        return { ok: true, serializedResult: read.text };
-      },
-      newId: randomUUID,
-      now: Date.now,
-      maxSteps: 4,
-      streamConnectTimeoutMs: 30_000,
-      streamIdleTimeoutMs: 120_000,
-    }),
+  backends.register(
+    'ai-sdk',
+    async (ctx) =>
+      new AiSdkBackend({
+        sessionId: ctx.sessionId,
+        header: { ...ctx.header, model: input.model },
+        appendMessage: (message) => ctx.store.appendMessage(ctx.sessionId, message),
+        connection,
+        apiKey: input.apiKey,
+        modelId: input.model,
+        permissionEngine,
+        modelFactory: getAIModel,
+        tools,
+        providerOptions: buildProviderOptions(connection, input.model),
+        contextBudget,
+        systemPrompt,
+        turnTailPrompt: phase7TurnTailPrompt(input.cwd),
+        recordLlmCall: (record) => llmRecords.push(record),
+        recordRunTrace: (event) => runTraceEvents.push(event),
+        archiveToolResult: async (event) => {
+          const artifact = await artifactStore.create({
+            sessionId: event.sessionId,
+            turnId: event.turnId,
+            name: `phase7-tool-result-${event.runtimeEventId}.json`,
+            kind: 'file',
+            content: event.serializedResult,
+            mimeType: 'application/json',
+            source: 'tool_result_archive',
+            summary: `Archived ${event.toolName} Phase 7 tool result for ${input.mode}`,
+          });
+          return { artifactId: artifact.id };
+        },
+        readToolResultArchive: async (event) => {
+          archiveReads.push({
+            requestTurnId: activeTurnId,
+            runtimeEventId: event.runtimeEventId,
+            turnId: event.turnId,
+            artifactId: event.artifactId,
+          });
+          const record = await artifactStore.get(event.artifactId);
+          if (!record) return { ok: false, reason: 'not_found' };
+          if (record.status === 'deleted') return { ok: false, reason: 'deleted' };
+          if (record.source !== 'tool_result_archive')
+            return { ok: false, reason: 'source_mismatch' };
+          if (record.sessionId !== event.sessionId)
+            return { ok: false, reason: 'session_mismatch' };
+          if (record.sizeBytes !== event.originalBytes)
+            return { ok: false, reason: 'size_mismatch' };
+          const read = await artifactStore.readText(event.artifactId, {
+            maxBytes: event.maxBytes ?? event.originalBytes,
+          });
+          if (!read.ok) return read;
+          if (sha256(read.text) !== event.bodySha256) return { ok: false, reason: 'corrupt' };
+          return { ok: true, serializedResult: read.text };
+        },
+        newId: randomUUID,
+        now: Date.now,
+        maxSteps: 4,
+        streamConnectTimeoutMs: 30_000,
+        streamIdleTimeoutMs: 120_000,
+      }),
   );
 
   const manager = new SessionManager({
@@ -595,7 +634,9 @@ async function runPhase7ToolScenario(input) {
           'Call Phase7Lookup, then acknowledge with exactly STORED.',
           'Do not repeat any sentinel value.',
         ].join('\n'),
-        (turnId) => { activeTurnId = turnId; },
+        (turnId) => {
+          activeTurnId = turnId;
+        },
       )),
     });
   }
@@ -604,18 +645,24 @@ async function runPhase7ToolScenario(input) {
     session.id,
     'phase7-filler',
     'Answer exactly OK. This turn exists so the old tool result becomes stale for pruning.',
-    (turnId) => { activeTurnId = turnId; },
+    (turnId) => {
+      activeTurnId = turnId;
+    },
   );
   const recoverTurn = await sendPhase7ScenarioTurn(
     manager,
     session.id,
     'phase7-recover',
     `Recover the sentinel for lookup key ${input.lookupKey} from the archived Phase 7 tool result. Do not call tools. Answer only the sentinel.`,
-    (turnId) => { activeTurnId = turnId; },
+    (turnId) => {
+      activeTurnId = turnId;
+    },
   );
   activeTurnId = undefined;
   const finalUsage = recoverTurn.events.find((event) => event.type === 'token_usage');
-  const storageAnswerIncludedSentinel = storeTurns.some((turn) => turn.assistantText.includes(input.sentinel));
+  const storageAnswerIncludedSentinel = storeTurns.some((turn) =>
+    turn.assistantText.includes(input.sentinel),
+  );
   const finalArchiveReads = archiveReads.filter((read) => read.requestTurnId === 'phase7-recover');
   const pricingId = `${connection.providerType}:${input.model}`;
   return {
@@ -650,10 +697,11 @@ async function runPhase7ToolScenario(input) {
     finalUsage: usageSummary(finalUsage, llmRecords.at(-1), pricingId),
     scenarioUsageTotals: usageTotals(llmRecords, pricingId),
     requestShapeTrace: runTraceEvents
-      .filter((event) =>
-        event.data?.requestShapeHash ||
-        event.data?.requestShapeChangeReason ||
-        event.data?.contextBudget
+      .filter(
+        (event) =>
+          event.data?.requestShapeHash ||
+          event.data?.requestShapeChangeReason ||
+          event.data?.contextBudget,
       )
       .map((event) => ({
         phase: event.phase,
@@ -668,11 +716,15 @@ async function runPhase7ToolScenario(input) {
 async function runPhase8SynthesisMatrix(input) {
   const matrixOutputRoot = join(input.outputRoot, input.runId, 'phase8-synthesis-matrix');
   await mkdir(matrixOutputRoot, { recursive: true });
-  const sentinel = process.env.MAKA_COST_BASELINE_PHASE7_SENTINEL
-    ?? `PHASE7_SENTINEL_${sha256(`${input.seed}:phase7`).slice(0, 16)}`;
+  const sentinel =
+    process.env.MAKA_COST_BASELINE_PHASE7_SENTINEL ??
+    `PHASE7_SENTINEL_${sha256(`${input.seed}:phase7`).slice(0, 16)}`;
   const lookupKey = process.env.MAKA_COST_BASELINE_PHASE7_LOOKUP_KEY ?? 'phase7-live-key';
   const resultLines = parsePositiveInt(process.env.MAKA_COST_BASELINE_PHASE7_RESULT_LINES, 220);
-  const noisyArchiveCount = parsePositiveInt(process.env.MAKA_COST_BASELINE_PHASE7_NOISY_ARCHIVES, 8);
+  const noisyArchiveCount = parsePositiveInt(
+    process.env.MAKA_COST_BASELINE_PHASE7_NOISY_ARCHIVES,
+    8,
+  );
   const cases = [];
   for (const matrixCase of [
     { name: 'single_archive_recovery', noiseArchiveCount: 0 },
@@ -680,16 +732,18 @@ async function runPhase8SynthesisMatrix(input) {
   ]) {
     const scenarios = [];
     for (const mode of ['full', 'gated', 'synthesis_gated']) {
-      scenarios.push(await runPhase8SynthesisScenario({
-        ...input,
-        matrixOutputRoot: join(matrixOutputRoot, matrixCase.name),
-        matrixCase: matrixCase.name,
-        mode,
-        sentinel,
-        lookupKey,
-        resultLines,
-        noiseArchiveCount: matrixCase.noiseArchiveCount,
-      }));
+      scenarios.push(
+        await runPhase8SynthesisScenario({
+          ...input,
+          matrixOutputRoot: join(matrixOutputRoot, matrixCase.name),
+          matrixCase: matrixCase.name,
+          mode,
+          sentinel,
+          lookupKey,
+          resultLines,
+          noiseArchiveCount: matrixCase.noiseArchiveCount,
+        }),
+      );
     }
     cases.push({
       name: matrixCase.name,
@@ -721,38 +775,47 @@ async function runPhase8SynthesisMatrix(input) {
     scenarios,
   };
   const jsonPath = resolve(
-    process.env.MAKA_COST_BASELINE_PHASE8_MATRIX_JSON
-      ?? join(matrixOutputRoot, 'phase8-synthesis-live-matrix.json'),
+    process.env.MAKA_COST_BASELINE_PHASE8_MATRIX_JSON ??
+      join(matrixOutputRoot, 'phase8-synthesis-live-matrix.json'),
   );
   await mkdir(resolve(jsonPath, '..'), { recursive: true });
   await writeFile(jsonPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
-  console.log(JSON.stringify({
-    jsonPath,
-    model: input.model,
-    scenario: report.scenario.name,
-    cases: cases.map((matrixCase) => ({
-      name: matrixCase.name,
-      modes: matrixCase.scenarios.map((scenario) => ({
-        mode: scenario.mode,
-        recoveryArchivedToolResultsRead: scenario.recoveryArchivedToolResultsRead,
-        repeatedAnswerExactlySentinel: scenario.repeatedAnswerExactlySentinel,
-        repeatedArchivedToolResultsRead: scenario.repeatedArchivedToolResultsRead,
-        rawEvidenceArchivedToolResultsRead: scenario.rawEvidenceArchivedToolResultsRead,
-        noiseCoverageArchivedToolResultsRead: scenario.noiseCoverageArchivedToolResultsRead,
-        selectedSynthesisBlockIds: scenario.repeatedContextBudget?.synthesisCacheBlockIds ?? [],
-        noiseSynthesisSelected: scenario.noiseCoverageContextBudget?.synthesisCacheBlocksSelected ?? 0,
-        recoveryUsage: scenario.recoveryUsage,
-        repeatedUsage: scenario.repeatedUsage,
-        scenarioUsageTotals: scenario.scenarioUsageTotals,
-      })),
-    })),
-    invariantFailures,
-  }, null, 2));
+  console.log(
+    JSON.stringify(
+      {
+        jsonPath,
+        model: input.model,
+        scenario: report.scenario.name,
+        cases: cases.map((matrixCase) => ({
+          name: matrixCase.name,
+          modes: matrixCase.scenarios.map((scenario) => ({
+            mode: scenario.mode,
+            recoveryArchivedToolResultsRead: scenario.recoveryArchivedToolResultsRead,
+            repeatedAnswerExactlySentinel: scenario.repeatedAnswerExactlySentinel,
+            repeatedArchivedToolResultsRead: scenario.repeatedArchivedToolResultsRead,
+            rawEvidenceArchivedToolResultsRead: scenario.rawEvidenceArchivedToolResultsRead,
+            noiseCoverageArchivedToolResultsRead: scenario.noiseCoverageArchivedToolResultsRead,
+            selectedSynthesisBlockIds: scenario.repeatedContextBudget?.synthesisCacheBlockIds ?? [],
+            noiseSynthesisSelected:
+              scenario.noiseCoverageContextBudget?.synthesisCacheBlocksSelected ?? 0,
+            recoveryUsage: scenario.recoveryUsage,
+            repeatedUsage: scenario.repeatedUsage,
+            scenarioUsageTotals: scenario.scenarioUsageTotals,
+          })),
+        })),
+        invariantFailures,
+      },
+      null,
+      2,
+    ),
+  );
   if (invariantFailures.length > 0) {
-    console.error([
-      'Phase 8 synthesis matrix invariant failures:',
-      ...invariantFailures.map((failure) => `- ${failure}`),
-    ].join('\n'));
+    console.error(
+      [
+        'Phase 8 synthesis matrix invariant failures:',
+        ...invariantFailures.map((failure) => `- ${failure}`),
+      ].join('\n'),
+    );
     return 1;
   }
   return 0;
@@ -761,11 +824,15 @@ async function runPhase8SynthesisMatrix(input) {
 async function runPhase9SynthesisLifecycleMatrix(input) {
   const matrixOutputRoot = join(input.outputRoot, input.runId, 'phase9-synthesis-lifecycle');
   await mkdir(matrixOutputRoot, { recursive: true });
-  const sentinel = process.env.MAKA_COST_BASELINE_PHASE7_SENTINEL
-    ?? `PHASE9_SENTINEL_${sha256(`${input.seed}:phase9`).slice(0, 16)}`;
+  const sentinel =
+    process.env.MAKA_COST_BASELINE_PHASE7_SENTINEL ??
+    `PHASE9_SENTINEL_${sha256(`${input.seed}:phase9`).slice(0, 16)}`;
   const lookupKey = process.env.MAKA_COST_BASELINE_PHASE7_LOOKUP_KEY ?? 'phase9-live-key';
   const resultLines = parsePositiveInt(process.env.MAKA_COST_BASELINE_PHASE7_RESULT_LINES, 220);
-  const noisyArchiveCount = parsePositiveInt(process.env.MAKA_COST_BASELINE_PHASE7_NOISY_ARCHIVES, 8);
+  const noisyArchiveCount = parsePositiveInt(
+    process.env.MAKA_COST_BASELINE_PHASE7_NOISY_ARCHIVES,
+    8,
+  );
   const cases = [];
   for (const matrixCase of [
     { name: 'generated_block_reuse', noiseArchiveCount: 0 },
@@ -773,16 +840,18 @@ async function runPhase9SynthesisLifecycleMatrix(input) {
   ]) {
     const scenarios = [];
     for (const mode of ['full', 'gated', 'synthesis_read_write']) {
-      scenarios.push(await runPhase8SynthesisScenario({
-        ...input,
-        matrixOutputRoot: join(matrixOutputRoot, matrixCase.name),
-        matrixCase: matrixCase.name,
-        mode,
-        sentinel,
-        lookupKey,
-        resultLines,
-        noiseArchiveCount: matrixCase.noiseArchiveCount,
-      }));
+      scenarios.push(
+        await runPhase8SynthesisScenario({
+          ...input,
+          matrixOutputRoot: join(matrixOutputRoot, matrixCase.name),
+          matrixCase: matrixCase.name,
+          mode,
+          sentinel,
+          lookupKey,
+          resultLines,
+          noiseArchiveCount: matrixCase.noiseArchiveCount,
+        }),
+      );
     }
     cases.push({
       name: matrixCase.name,
@@ -814,39 +883,51 @@ async function runPhase9SynthesisLifecycleMatrix(input) {
     scenarios,
   };
   const jsonPath = resolve(
-    process.env.MAKA_COST_BASELINE_PHASE9_MATRIX_JSON
-      ?? join(matrixOutputRoot, 'phase9-synthesis-lifecycle-matrix.json'),
+    process.env.MAKA_COST_BASELINE_PHASE9_MATRIX_JSON ??
+      join(matrixOutputRoot, 'phase9-synthesis-lifecycle-matrix.json'),
   );
   await mkdir(resolve(jsonPath, '..'), { recursive: true });
   await writeFile(jsonPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
-  console.log(JSON.stringify({
-    jsonPath,
-    model: input.model,
-    scenario: report.scenario.name,
-    cases: cases.map((matrixCase) => ({
-      name: matrixCase.name,
-      modes: matrixCase.scenarios.map((scenario) => ({
-        mode: scenario.mode,
-        writesAttempted: scenario.recoveryContextBudget?.synthesisCacheWritesAttempted ?? 0,
-        blocksWritten: scenario.recoveryContextBudget?.synthesisCacheBlocksWritten ?? 0,
-        artifactBackedWrites: scenario.synthesisCacheWrites
-          ?.reduce((total, write) => total + (write.blockIds?.length ?? 0), 0) ?? 0,
-        persistedArtifacts: scenario.persistedSynthesisArtifactIds?.length ?? 0,
-        repeatedLoadedBlocks: scenario.repeatedContextBudget?.synthesisCacheBlocksLoaded ?? 0,
-        repeatedSelectedBlocks: scenario.repeatedContextBudget?.synthesisCacheBlocksSelected ?? 0,
-        repeatedArchivedToolResultsRead: scenario.repeatedArchivedToolResultsRead,
-        rawEvidenceArchivedToolResultsRead: scenario.rawEvidenceArchivedToolResultsRead,
-        recoveryUsage: scenario.recoveryUsage,
-        repeatedUsage: scenario.repeatedUsage,
-      })),
-    })),
-    invariantFailures,
-  }, null, 2));
+  console.log(
+    JSON.stringify(
+      {
+        jsonPath,
+        model: input.model,
+        scenario: report.scenario.name,
+        cases: cases.map((matrixCase) => ({
+          name: matrixCase.name,
+          modes: matrixCase.scenarios.map((scenario) => ({
+            mode: scenario.mode,
+            writesAttempted: scenario.recoveryContextBudget?.synthesisCacheWritesAttempted ?? 0,
+            blocksWritten: scenario.recoveryContextBudget?.synthesisCacheBlocksWritten ?? 0,
+            artifactBackedWrites:
+              scenario.synthesisCacheWrites?.reduce(
+                (total, write) => total + (write.blockIds?.length ?? 0),
+                0,
+              ) ?? 0,
+            persistedArtifacts: scenario.persistedSynthesisArtifactIds?.length ?? 0,
+            repeatedLoadedBlocks: scenario.repeatedContextBudget?.synthesisCacheBlocksLoaded ?? 0,
+            repeatedSelectedBlocks:
+              scenario.repeatedContextBudget?.synthesisCacheBlocksSelected ?? 0,
+            repeatedArchivedToolResultsRead: scenario.repeatedArchivedToolResultsRead,
+            rawEvidenceArchivedToolResultsRead: scenario.rawEvidenceArchivedToolResultsRead,
+            recoveryUsage: scenario.recoveryUsage,
+            repeatedUsage: scenario.repeatedUsage,
+          })),
+        })),
+        invariantFailures,
+      },
+      null,
+      2,
+    ),
+  );
   if (invariantFailures.length > 0) {
-    console.error([
-      'Phase 9 synthesis lifecycle matrix invariant failures:',
-      ...invariantFailures.map((failure) => `- ${failure}`),
-    ].join('\n'));
+    console.error(
+      [
+        'Phase 9 synthesis lifecycle matrix invariant failures:',
+        ...invariantFailures.map((failure) => `- ${failure}`),
+      ].join('\n'),
+    );
     return 1;
   }
   return 0;
@@ -855,8 +936,9 @@ async function runPhase9SynthesisLifecycleMatrix(input) {
 async function runPhase10HistoryCompactMatrix(input) {
   const matrixOutputRoot = join(input.outputRoot, input.runId, 'phase10-history-compact');
   await mkdir(matrixOutputRoot, { recursive: true });
-  const sentinel = process.env.MAKA_COST_BASELINE_PHASE10_SENTINEL
-    ?? `PHASE10_SENTINEL_${sha256(`${input.seed}:phase10`).slice(0, 16)}`;
+  const sentinel =
+    process.env.MAKA_COST_BASELINE_PHASE10_SENTINEL ??
+    `PHASE10_SENTINEL_${sha256(`${input.seed}:phase10`).slice(0, 16)}`;
   const payloadLines = parsePositiveInt(process.env.MAKA_COST_BASELINE_PHASE10_PAYLOAD_LINES, 120);
   const matrixCase = {
     name: 'text_history_recovery',
@@ -865,19 +947,23 @@ async function runPhase10HistoryCompactMatrix(input) {
   };
   const scenarios = [];
   for (const mode of ['full', 'deterministic', 'history_compact_read_write']) {
-    scenarios.push(await runPhase10HistoryCompactScenario({
-      ...input,
-      matrixOutputRoot: join(matrixOutputRoot, matrixCase.name),
-      matrixCase: matrixCase.name,
-      mode,
-      sentinel,
-      payloadLines,
-    }));
+    scenarios.push(
+      await runPhase10HistoryCompactScenario({
+        ...input,
+        matrixOutputRoot: join(matrixOutputRoot, matrixCase.name),
+        matrixCase: matrixCase.name,
+        mode,
+        sentinel,
+        payloadLines,
+      }),
+    );
   }
-  const cases = [{
-    ...matrixCase,
-    scenarios,
-  }];
+  const cases = [
+    {
+      ...matrixCase,
+      scenarios,
+    },
+  ];
   const invariantFailures = validatePhase10HistoryCompactMatrix(cases, sentinel);
   const byMode = new Map(scenarios.map((scenario) => [scenario.mode, scenario]));
   const full = byMode.get('full');
@@ -901,47 +987,64 @@ async function runPhase10HistoryCompactMatrix(input) {
     comparisons: {
       deterministicRepeatedVsFull: usageDelta(full?.repeatedUsage, deterministic?.repeatedUsage),
       readWriteRepeatedVsFull: usageDelta(full?.repeatedUsage, readWrite?.repeatedUsage),
-      readWriteRepeatedVsDeterministic: usageDelta(deterministic?.repeatedUsage, readWrite?.repeatedUsage),
+      readWriteRepeatedVsDeterministic: usageDelta(
+        deterministic?.repeatedUsage,
+        readWrite?.repeatedUsage,
+      ),
     },
     cases,
     scenarios,
   };
   const jsonPath = resolve(
-    process.env.MAKA_COST_BASELINE_PHASE10_MATRIX_JSON
-      ?? join(matrixOutputRoot, 'phase10-history-compact-live-matrix.json'),
+    process.env.MAKA_COST_BASELINE_PHASE10_MATRIX_JSON ??
+      join(matrixOutputRoot, 'phase10-history-compact-live-matrix.json'),
   );
   await mkdir(resolve(jsonPath, '..'), { recursive: true });
   await writeFile(jsonPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
-  console.log(JSON.stringify({
-    jsonPath,
-    model: input.model,
-    scenario: report.scenario.name,
-    cases: cases.map((item) => ({
-      name: item.name,
-      modes: item.scenarios.map((scenario) => ({
-        mode: scenario.mode,
-        recoveryAnswerExactlySentinel: scenario.recoveryAnswerExactlySentinel,
-        repeatedAnswerExactlySentinel: scenario.repeatedAnswerExactlySentinel,
-        recoveryHistoryCompactSelected: scenario.recoveryContextBudget?.historyCompactBlocksSelected ?? 0,
-        recoveryHistoryCompactWritten: scenario.recoveryContextBudget?.historyCompactBlocksWritten ?? 0,
-        repeatedHistoryCompactLoaded: scenario.repeatedContextBudget?.historyCompactBlocksLoaded ?? 0,
-        repeatedHistoryCompactSelected: scenario.repeatedContextBudget?.historyCompactBlocksSelected ?? 0,
-        repeatedHistoryCompactWriteAttempts: scenario.repeatedContextBudget?.historyCompactWritesAttempted ?? 0,
-        persistedBlockArtifacts: scenario.persistedHistoryCompactArtifactIds?.length ?? 0,
-        persistedSourceArtifacts: scenario.persistedHistoryCompactSourceArtifactIds?.length ?? 0,
-        recoveryUsage: scenario.recoveryUsage,
-        repeatedUsage: scenario.repeatedUsage,
-        scenarioUsageTotals: scenario.scenarioUsageTotals,
-      })),
-    })),
-    comparisons: report.comparisons,
-    invariantFailures,
-  }, null, 2));
+  console.log(
+    JSON.stringify(
+      {
+        jsonPath,
+        model: input.model,
+        scenario: report.scenario.name,
+        cases: cases.map((item) => ({
+          name: item.name,
+          modes: item.scenarios.map((scenario) => ({
+            mode: scenario.mode,
+            recoveryAnswerExactlySentinel: scenario.recoveryAnswerExactlySentinel,
+            repeatedAnswerExactlySentinel: scenario.repeatedAnswerExactlySentinel,
+            recoveryHistoryCompactSelected:
+              scenario.recoveryContextBudget?.historyCompactBlocksSelected ?? 0,
+            recoveryHistoryCompactWritten:
+              scenario.recoveryContextBudget?.historyCompactBlocksWritten ?? 0,
+            repeatedHistoryCompactLoaded:
+              scenario.repeatedContextBudget?.historyCompactBlocksLoaded ?? 0,
+            repeatedHistoryCompactSelected:
+              scenario.repeatedContextBudget?.historyCompactBlocksSelected ?? 0,
+            repeatedHistoryCompactWriteAttempts:
+              scenario.repeatedContextBudget?.historyCompactWritesAttempted ?? 0,
+            persistedBlockArtifacts: scenario.persistedHistoryCompactArtifactIds?.length ?? 0,
+            persistedSourceArtifacts:
+              scenario.persistedHistoryCompactSourceArtifactIds?.length ?? 0,
+            recoveryUsage: scenario.recoveryUsage,
+            repeatedUsage: scenario.repeatedUsage,
+            scenarioUsageTotals: scenario.scenarioUsageTotals,
+          })),
+        })),
+        comparisons: report.comparisons,
+        invariantFailures,
+      },
+      null,
+      2,
+    ),
+  );
   if (invariantFailures.length > 0) {
-    console.error([
-      'Phase 10 history compact matrix invariant failures:',
-      ...invariantFailures.map((failure) => `- ${failure}`),
-    ].join('\n'));
+    console.error(
+      [
+        'Phase 10 history compact matrix invariant failures:',
+        ...invariantFailures.map((failure) => `- ${failure}`),
+      ].join('\n'),
+    );
     return 1;
   }
   return 0;
@@ -986,7 +1089,12 @@ async function loadPersistedHistoryCompactBlocksFromArtifacts(artifactStore, inp
       incrementCount(skippedReasonCounts, 'invalid_json');
       continue;
     }
-    if (parsed && typeof parsed === 'object' && typeof parsed.sessionId === 'string' && parsed.sessionId !== input.sessionId) {
+    if (
+      parsed &&
+      typeof parsed === 'object' &&
+      typeof parsed.sessionId === 'string' &&
+      parsed.sessionId !== input.sessionId
+    ) {
       incrementCount(skippedReasonCounts, 'session_mismatch');
       continue;
     }
@@ -1118,57 +1226,65 @@ async function runPhase10HistoryCompactScenario(input) {
     'Never call tools for this harness.',
   ].join('\n');
 
-  backends.register('ai-sdk', async (ctx) =>
-    new AiSdkBackend({
-      sessionId: ctx.sessionId,
-      header: { ...ctx.header, model: input.model },
-      appendMessage: (message) => ctx.store.appendMessage(ctx.sessionId, message),
-      connection,
-      apiKey: input.apiKey,
-      modelId: input.model,
-      permissionEngine,
-      modelFactory: getAIModel,
-      tools: [],
-      providerOptions: buildProviderOptions(connection, input.model),
-      contextBudget,
-      systemPrompt,
-      turnTailPrompt: phase7TurnTailPrompt(input.cwd),
-      recordLlmCall: (record) => llmRecords.push(record),
-      recordRunTrace: (event) => runTraceEvents.push(event),
-      loadHistoryCompact: async (event) => {
-        const loaded = await loadPersistedHistoryCompactBlocksFromArtifacts(artifactStore, event);
-        historyCompactLoads.push({
-          requestTurnId: activeTurnId,
-          blockIds: loaded.blocks.map((block) => block.blockId),
-          skipped: loaded.skipped ?? 0,
-          skippedReasonCounts: loaded.skippedReasonCounts ?? {},
-        });
-        return loaded;
-      },
-      writeHistoryCompact: async (event) => {
-        const persisted = await persistPhase10HistoryCompactBlocksToArtifacts(artifactStore, event, input);
-        persistedHistoryCompactArtifactIds.push(...(persisted.blockArtifactIds ?? []));
-        persistedHistoryCompactSourceArtifactIds.push(...(persisted.sourceArtifactIds ?? []));
-        historyCompactWrites.push({
-          requestTurnId: activeTurnId,
-          blockIds: persisted.blocks.map((block) => block.blockId),
-          blockArtifactIds: persisted.blockArtifactIds ?? [],
-          sourceArtifactIds: persisted.sourceArtifactIds ?? [],
-          skipped: persisted.skipped ?? 0,
-          skippedReasonCounts: persisted.skippedReasonCounts ?? {},
-        });
-        return {
-          blocks: persisted.blocks,
-          ...(persisted.skipped > 0 ? { skipped: persisted.skipped } : {}),
-          ...(persisted.skippedReasonCounts ? { skippedReasonCounts: persisted.skippedReasonCounts } : {}),
-        };
-      },
-      newId: randomUUID,
-      now: Date.now,
-      maxSteps: 1,
-      streamConnectTimeoutMs: 30_000,
-      streamIdleTimeoutMs: 120_000,
-    }),
+  backends.register(
+    'ai-sdk',
+    async (ctx) =>
+      new AiSdkBackend({
+        sessionId: ctx.sessionId,
+        header: { ...ctx.header, model: input.model },
+        appendMessage: (message) => ctx.store.appendMessage(ctx.sessionId, message),
+        connection,
+        apiKey: input.apiKey,
+        modelId: input.model,
+        permissionEngine,
+        modelFactory: getAIModel,
+        tools: [],
+        providerOptions: buildProviderOptions(connection, input.model),
+        contextBudget,
+        systemPrompt,
+        turnTailPrompt: phase7TurnTailPrompt(input.cwd),
+        recordLlmCall: (record) => llmRecords.push(record),
+        recordRunTrace: (event) => runTraceEvents.push(event),
+        loadHistoryCompact: async (event) => {
+          const loaded = await loadPersistedHistoryCompactBlocksFromArtifacts(artifactStore, event);
+          historyCompactLoads.push({
+            requestTurnId: activeTurnId,
+            blockIds: loaded.blocks.map((block) => block.blockId),
+            skipped: loaded.skipped ?? 0,
+            skippedReasonCounts: loaded.skippedReasonCounts ?? {},
+          });
+          return loaded;
+        },
+        writeHistoryCompact: async (event) => {
+          const persisted = await persistPhase10HistoryCompactBlocksToArtifacts(
+            artifactStore,
+            event,
+            input,
+          );
+          persistedHistoryCompactArtifactIds.push(...(persisted.blockArtifactIds ?? []));
+          persistedHistoryCompactSourceArtifactIds.push(...(persisted.sourceArtifactIds ?? []));
+          historyCompactWrites.push({
+            requestTurnId: activeTurnId,
+            blockIds: persisted.blocks.map((block) => block.blockId),
+            blockArtifactIds: persisted.blockArtifactIds ?? [],
+            sourceArtifactIds: persisted.sourceArtifactIds ?? [],
+            skipped: persisted.skipped ?? 0,
+            skippedReasonCounts: persisted.skippedReasonCounts ?? {},
+          });
+          return {
+            blocks: persisted.blocks,
+            ...(persisted.skipped > 0 ? { skipped: persisted.skipped } : {}),
+            ...(persisted.skippedReasonCounts
+              ? { skippedReasonCounts: persisted.skippedReasonCounts }
+              : {}),
+          };
+        },
+        newId: randomUUID,
+        now: Date.now,
+        maxSteps: 1,
+        streamConnectTimeoutMs: 30_000,
+        streamIdleTimeoutMs: 120_000,
+      }),
   );
 
   const manager = new SessionManager({
@@ -1203,10 +1319,7 @@ async function runPhase10HistoryCompactScenario(input) {
     }
   }
 
-  const storeTurn = await sendRecordedTurn(
-    'phase10-store-old',
-    buildPhase10StoragePrompt(input),
-  );
+  const storeTurn = await sendRecordedTurn('phase10-store-old', buildPhase10StoragePrompt(input));
   const fillerTurn = await sendRecordedTurn(
     'phase10-filler',
     'Answer exactly OK. This small turn keeps the large Phase 10 memory outside the retained tail during recovery.',
@@ -1245,10 +1358,11 @@ async function runPhase10HistoryCompactScenario(input) {
     repeatedUsage: usageSummary(repeatedTurn.usageEvent, repeatedTurn.llmRecord, pricingId),
     scenarioUsageTotals: usageTotals(llmRecords, pricingId),
     requestShapeTrace: runTraceEvents
-      .filter((event) =>
-        event.data?.requestShapeHash ||
-        event.data?.requestShapeChangeReason ||
-        event.data?.contextBudget
+      .filter(
+        (event) =>
+          event.data?.requestShapeHash ||
+          event.data?.requestShapeChangeReason ||
+          event.data?.contextBudget,
       )
       .map((event) => ({
         phase: event.phase,
@@ -1299,7 +1413,12 @@ async function loadPersistedSynthesisCacheBlocksFromArtifacts(artifactStore, inp
       incrementCount(skippedReasonCounts, 'invalid_json');
       continue;
     }
-    if (parsed && typeof parsed === 'object' && typeof parsed.sessionId === 'string' && parsed.sessionId !== input.sessionId) {
+    if (
+      parsed &&
+      typeof parsed === 'object' &&
+      typeof parsed.sessionId === 'string' &&
+      parsed.sessionId !== input.sessionId
+    ) {
       incrementCount(skippedReasonCounts, 'session_mismatch');
       continue;
     }
@@ -1365,133 +1484,144 @@ async function runPhase8SynthesisScenario(input) {
     'Do not call Phase7Lookup during sentinel recovery; recovery must use prior context only.',
   ].join('\n');
 
-  backends.register('ai-sdk', async (ctx) =>
-    new AiSdkBackend({
-      sessionId: ctx.sessionId,
-      header: { ...ctx.header, model: input.model },
-      appendMessage: (message) => ctx.store.appendMessage(ctx.sessionId, message),
-      connection,
-      apiKey: input.apiKey,
-      modelId: input.model,
-      permissionEngine,
-      modelFactory: getAIModel,
-      tools,
-      providerOptions: buildProviderOptions(connection, input.model),
-      contextBudget,
-      systemPrompt,
-      turnTailPrompt: phase7TurnTailPrompt(input.cwd),
-      recordLlmCall: (record) => llmRecords.push(record),
-      recordRunTrace: (event) => runTraceEvents.push(event),
-      archiveToolResult: async (event) => {
-        const cached = archiveRefsByRuntimeEventId.get(event.runtimeEventId);
-        if (
-          cached &&
-          cached.bodySha256 === event.bodySha256 &&
-          cached.originalBytes === event.originalBytes &&
-          cached.originalEstimatedTokens === event.originalEstimatedTokens
-        ) {
-          return { artifactId: cached.artifactId };
-        }
-        const artifact = await artifactStore.create({
-          sessionId: event.sessionId,
-          turnId: event.turnId,
-          name: `phase8-tool-result-${event.runtimeEventId}.json`,
-          kind: 'file',
-          content: event.serializedResult,
-          mimeType: 'application/json',
-          source: 'tool_result_archive',
-          summary: `Archived ${event.toolName} Phase 8 tool result for ${input.mode}`,
-        });
-        archiveRefsByRuntimeEventId.set(event.runtimeEventId, {
-          sessionId: event.sessionId,
-          turnId: event.turnId,
-          runtimeEventId: event.runtimeEventId,
-          toolCallId: event.toolCallId,
-          toolName: event.toolName,
-          artifactId: artifact.id,
-          bodySha256: event.bodySha256,
-          originalEstimatedTokens: event.originalEstimatedTokens,
-          originalBytes: event.originalBytes,
-          placeholderReason: event.reason,
-        });
-        return { artifactId: artifact.id };
-      },
-      readToolResultArchive: async (event) => {
-        archiveReads.push({
-          requestTurnId: activeTurnId,
-          runtimeEventId: event.runtimeEventId,
-          turnId: event.turnId,
-          artifactId: event.artifactId,
-        });
-        const record = await artifactStore.get(event.artifactId);
-        if (!record) return { ok: false, reason: 'not_found' };
-        if (record.status === 'deleted') return { ok: false, reason: 'deleted' };
-        if (record.source !== 'tool_result_archive') return { ok: false, reason: 'source_mismatch' };
-        if (record.sessionId !== event.sessionId) return { ok: false, reason: 'session_mismatch' };
-        if (record.sizeBytes !== event.originalBytes) return { ok: false, reason: 'size_mismatch' };
-        const read = await artifactStore.readText(event.artifactId, {
-          maxBytes: event.maxBytes ?? event.originalBytes,
-        });
-        if (!read.ok) return read;
-        if (sha256(read.text) !== event.bodySha256) return { ok: false, reason: 'corrupt' };
-        return { ok: true, serializedResult: read.text };
-      },
-      loadSynthesisCache: async (event) => {
-        const loaded = await loadPersistedSynthesisCacheBlocksFromArtifacts(artifactStore, event);
-        synthesisCacheLoads.push({
-          requestTurnId: activeTurnId,
-          blockIds: loaded.blocks.map((block) => block.blockId),
-          skipped: loaded.skipped ?? 0,
-          skippedReasonCounts: loaded.skippedReasonCounts ?? {},
-        });
-        return loaded;
-      },
-      writeSynthesisCache: async (event) => {
-        const built = buildSynthesisCacheBlocksFromHydratedArchives({
-          sessionId: event.sessionId,
-          query: event.source.query,
-          hydratedRuntimeEvents: event.source.hydratedRuntimeEvents,
-          retrievedArchiveRefs: event.source.retrievedArchiveRefs,
-          archiveRetrievalMode: event.source.archiveRetrievalMode,
-          limits: event.limits,
-          ...(event.requestShapeHashBefore ? { requestShapeHashBefore: event.requestShapeHashBefore } : {}),
-          ...(event.requestShapeHashAfter ? { requestShapeHashAfter: event.requestShapeHashAfter } : {}),
-          now: Date.now(),
-        });
-        const artifactIds = [];
-        for (const block of built.blocks) {
+  backends.register(
+    'ai-sdk',
+    async (ctx) =>
+      new AiSdkBackend({
+        sessionId: ctx.sessionId,
+        header: { ...ctx.header, model: input.model },
+        appendMessage: (message) => ctx.store.appendMessage(ctx.sessionId, message),
+        connection,
+        apiKey: input.apiKey,
+        modelId: input.model,
+        permissionEngine,
+        modelFactory: getAIModel,
+        tools,
+        providerOptions: buildProviderOptions(connection, input.model),
+        contextBudget,
+        systemPrompt,
+        turnTailPrompt: phase7TurnTailPrompt(input.cwd),
+        recordLlmCall: (record) => llmRecords.push(record),
+        recordRunTrace: (event) => runTraceEvents.push(event),
+        archiveToolResult: async (event) => {
+          const cached = archiveRefsByRuntimeEventId.get(event.runtimeEventId);
+          if (
+            cached &&
+            cached.bodySha256 === event.bodySha256 &&
+            cached.originalBytes === event.originalBytes &&
+            cached.originalEstimatedTokens === event.originalEstimatedTokens
+          ) {
+            return { artifactId: cached.artifactId };
+          }
           const artifact = await artifactStore.create({
             sessionId: event.sessionId,
             turnId: event.turnId,
-            name: `phase9-synthesis-cache-${block.blockId}.json`,
+            name: `phase8-tool-result-${event.runtimeEventId}.json`,
             kind: 'file',
-            content: JSON.stringify(block, null, 2),
+            content: event.serializedResult,
             mimeType: 'application/json',
-            source: 'synthesis_cache_block',
-            summary: `Phase 9 synthesis cache block for ${input.mode}`,
+            source: 'tool_result_archive',
+            summary: `Archived ${event.toolName} Phase 8 tool result for ${input.mode}`,
           });
-          persistedSynthesisArtifactIds.push(artifact.id);
-          artifactIds.push(artifact.id);
-        }
-        synthesisCacheWrites.push({
-          requestTurnId: activeTurnId,
-          blockIds: built.blocks.map((block) => block.blockId),
-          artifactIds,
-          skipped: built.skipped ?? 0,
-          skippedReasonCounts: built.skippedReasonCounts ?? {},
-        });
-        return {
-          blocks: built.blocks,
-          ...(built.skipped > 0 ? { skipped: built.skipped } : {}),
-          ...(built.skippedReasonCounts ? { skippedReasonCounts: built.skippedReasonCounts } : {}),
-        };
-      },
-      newId: randomUUID,
-      now: Date.now,
-      maxSteps: 4,
-      streamConnectTimeoutMs: 30_000,
-      streamIdleTimeoutMs: 120_000,
-    }),
+          archiveRefsByRuntimeEventId.set(event.runtimeEventId, {
+            sessionId: event.sessionId,
+            turnId: event.turnId,
+            runtimeEventId: event.runtimeEventId,
+            toolCallId: event.toolCallId,
+            toolName: event.toolName,
+            artifactId: artifact.id,
+            bodySha256: event.bodySha256,
+            originalEstimatedTokens: event.originalEstimatedTokens,
+            originalBytes: event.originalBytes,
+            placeholderReason: event.reason,
+          });
+          return { artifactId: artifact.id };
+        },
+        readToolResultArchive: async (event) => {
+          archiveReads.push({
+            requestTurnId: activeTurnId,
+            runtimeEventId: event.runtimeEventId,
+            turnId: event.turnId,
+            artifactId: event.artifactId,
+          });
+          const record = await artifactStore.get(event.artifactId);
+          if (!record) return { ok: false, reason: 'not_found' };
+          if (record.status === 'deleted') return { ok: false, reason: 'deleted' };
+          if (record.source !== 'tool_result_archive')
+            return { ok: false, reason: 'source_mismatch' };
+          if (record.sessionId !== event.sessionId)
+            return { ok: false, reason: 'session_mismatch' };
+          if (record.sizeBytes !== event.originalBytes)
+            return { ok: false, reason: 'size_mismatch' };
+          const read = await artifactStore.readText(event.artifactId, {
+            maxBytes: event.maxBytes ?? event.originalBytes,
+          });
+          if (!read.ok) return read;
+          if (sha256(read.text) !== event.bodySha256) return { ok: false, reason: 'corrupt' };
+          return { ok: true, serializedResult: read.text };
+        },
+        loadSynthesisCache: async (event) => {
+          const loaded = await loadPersistedSynthesisCacheBlocksFromArtifacts(artifactStore, event);
+          synthesisCacheLoads.push({
+            requestTurnId: activeTurnId,
+            blockIds: loaded.blocks.map((block) => block.blockId),
+            skipped: loaded.skipped ?? 0,
+            skippedReasonCounts: loaded.skippedReasonCounts ?? {},
+          });
+          return loaded;
+        },
+        writeSynthesisCache: async (event) => {
+          const built = buildSynthesisCacheBlocksFromHydratedArchives({
+            sessionId: event.sessionId,
+            query: event.source.query,
+            hydratedRuntimeEvents: event.source.hydratedRuntimeEvents,
+            retrievedArchiveRefs: event.source.retrievedArchiveRefs,
+            archiveRetrievalMode: event.source.archiveRetrievalMode,
+            limits: event.limits,
+            ...(event.requestShapeHashBefore
+              ? { requestShapeHashBefore: event.requestShapeHashBefore }
+              : {}),
+            ...(event.requestShapeHashAfter
+              ? { requestShapeHashAfter: event.requestShapeHashAfter }
+              : {}),
+            now: Date.now(),
+          });
+          const artifactIds = [];
+          for (const block of built.blocks) {
+            const artifact = await artifactStore.create({
+              sessionId: event.sessionId,
+              turnId: event.turnId,
+              name: `phase9-synthesis-cache-${block.blockId}.json`,
+              kind: 'file',
+              content: JSON.stringify(block, null, 2),
+              mimeType: 'application/json',
+              source: 'synthesis_cache_block',
+              summary: `Phase 9 synthesis cache block for ${input.mode}`,
+            });
+            persistedSynthesisArtifactIds.push(artifact.id);
+            artifactIds.push(artifact.id);
+          }
+          synthesisCacheWrites.push({
+            requestTurnId: activeTurnId,
+            blockIds: built.blocks.map((block) => block.blockId),
+            artifactIds,
+            skipped: built.skipped ?? 0,
+            skippedReasonCounts: built.skippedReasonCounts ?? {},
+          });
+          return {
+            blocks: built.blocks,
+            ...(built.skipped > 0 ? { skipped: built.skipped } : {}),
+            ...(built.skippedReasonCounts
+              ? { skippedReasonCounts: built.skippedReasonCounts }
+              : {}),
+          };
+        },
+        newId: randomUUID,
+        now: Date.now,
+        maxSteps: 4,
+        streamConnectTimeoutMs: 30_000,
+        streamIdleTimeoutMs: 120_000,
+      }),
   );
 
   const manager = new SessionManager({
@@ -1525,7 +1655,9 @@ async function runPhase8SynthesisScenario(input) {
           'Call Phase7Lookup, then acknowledge with exactly STORED.',
           'Do not repeat any sentinel value.',
         ].join('\n'),
-        (turnId) => { activeTurnId = turnId; },
+        (turnId) => {
+          activeTurnId = turnId;
+        },
       )),
     });
   }
@@ -1534,21 +1666,27 @@ async function runPhase8SynthesisScenario(input) {
     session.id,
     'phase8-filler',
     'Answer exactly OK. This turn exists so the old tool result becomes stale for pruning.',
-    (turnId) => { activeTurnId = turnId; },
+    (turnId) => {
+      activeTurnId = turnId;
+    },
   );
   if (input.mode === 'synthesis_gated') {
     const targetTurnId = storeSpecs.find((spec) => spec.target)?.turnId;
-    const source = [...archiveRefsByRuntimeEventId.values()].find((ref) => ref.turnId === targetTurnId);
+    const source = [...archiveRefsByRuntimeEventId.values()].find(
+      (ref) => ref.turnId === targetTurnId,
+    );
     if (source) {
-      synthesisBlocks.push(buildPhase8SynthesisBlock({
-        sessionId: session.id,
-        lookupKey: input.lookupKey,
-        sentinel: input.sentinel,
-        source,
-        sourceRef: process.env.MAKA_COST_BASELINE_SOURCE_REF ?? 'local-build',
-        repoRoot: input.repoRoot,
-        createdFrom: 'host_deterministic',
-      }));
+      synthesisBlocks.push(
+        buildPhase8SynthesisBlock({
+          sessionId: session.id,
+          lookupKey: input.lookupKey,
+          sentinel: input.sentinel,
+          source,
+          sourceRef: process.env.MAKA_COST_BASELINE_SOURCE_REF ?? 'local-build',
+          repoRoot: input.repoRoot,
+          createdFrom: 'host_deterministic',
+        }),
+      );
     }
   }
 
@@ -1557,49 +1695,85 @@ async function runPhase8SynthesisScenario(input) {
     session.id,
     'phase8-covered-recovery',
     `Recover the sentinel for lookup key ${input.lookupKey} from prior Phase 8 context. Do not call tools. Answer only the sentinel.`,
-    (turnId) => { activeTurnId = turnId; },
+    (turnId) => {
+      activeTurnId = turnId;
+    },
   );
-  const repeatedTurn = input.mode === 'synthesis_read_write'
-    ? await sendPhase7ScenarioTurn(
-        manager,
-        session.id,
-        'phase9-repeated-recovery',
-        `Recover the sentinel for lookup key ${input.lookupKey} from prior Phase 9 synthesis cache context. Do not call tools. Answer only the sentinel.`,
-        (turnId) => { activeTurnId = turnId; },
-      )
-    : coveredTurn;
-  const noiseKey = input.mode === 'synthesis_read_write'
-    ? `unseen-miss-${sha256(`${input.seed}:${input.matrixCase}:phase9-unseen`).slice(0, 12)}`
-    : `${input.lookupKey}-noise-01`;
-  const noiseCoverageTurn = (input.mode === 'synthesis_gated' || input.mode === 'synthesis_read_write') && input.noiseArchiveCount > 0
-    ? await sendPhase7ScenarioTurn(
-        manager,
-        session.id,
-        'phase8-noise-coverage-miss',
-        `Recover the noise sentinel for lookup key ${noiseKey} from prior Phase 8 context. Do not call tools. Answer only the sentinel.`,
-        (turnId) => { activeTurnId = turnId; },
-      )
-    : undefined;
-  const rawEvidenceTurn = input.mode === 'synthesis_gated' || input.mode === 'synthesis_read_write'
-    ? await sendPhase7ScenarioTurn(
-        manager,
-        session.id,
-        'phase8-raw-evidence',
-        `Show the raw tool output evidence for lookup key ${input.lookupKey}. Do not call tools.`,
-        (turnId) => { activeTurnId = turnId; },
-      )
-    : undefined;
+  const repeatedTurn =
+    input.mode === 'synthesis_read_write'
+      ? await sendPhase7ScenarioTurn(
+          manager,
+          session.id,
+          'phase9-repeated-recovery',
+          `Recover the sentinel for lookup key ${input.lookupKey} from prior Phase 9 synthesis cache context. Do not call tools. Answer only the sentinel.`,
+          (turnId) => {
+            activeTurnId = turnId;
+          },
+        )
+      : coveredTurn;
+  const noiseKey =
+    input.mode === 'synthesis_read_write'
+      ? `unseen-miss-${sha256(`${input.seed}:${input.matrixCase}:phase9-unseen`).slice(0, 12)}`
+      : `${input.lookupKey}-noise-01`;
+  const noiseCoverageTurn =
+    (input.mode === 'synthesis_gated' || input.mode === 'synthesis_read_write') &&
+    input.noiseArchiveCount > 0
+      ? await sendPhase7ScenarioTurn(
+          manager,
+          session.id,
+          'phase8-noise-coverage-miss',
+          `Recover the noise sentinel for lookup key ${noiseKey} from prior Phase 8 context. Do not call tools. Answer only the sentinel.`,
+          (turnId) => {
+            activeTurnId = turnId;
+          },
+        )
+      : undefined;
+  const rawEvidenceTurn =
+    input.mode === 'synthesis_gated' || input.mode === 'synthesis_read_write'
+      ? await sendPhase7ScenarioTurn(
+          manager,
+          session.id,
+          'phase8-raw-evidence',
+          `Show the raw tool output evidence for lookup key ${input.lookupKey}. Do not call tools.`,
+          (turnId) => {
+            activeTurnId = turnId;
+          },
+        )
+      : undefined;
   activeTurnId = undefined;
 
   const coveredUsageEvent = coveredTurn.events.find((event) => event.type === 'token_usage');
   const repeatedUsageEvent = repeatedTurn.events.find((event) => event.type === 'token_usage');
-  const noiseCoverageUsageEvent = noiseCoverageTurn?.events.find((event) => event.type === 'token_usage');
-  const rawEvidenceUsageEvent = rawEvidenceTurn?.events.find((event) => event.type === 'token_usage');
+  const noiseCoverageUsageEvent = noiseCoverageTurn?.events.find(
+    (event) => event.type === 'token_usage',
+  );
+  const rawEvidenceUsageEvent = rawEvidenceTurn?.events.find(
+    (event) => event.type === 'token_usage',
+  );
   const pricingId = `${connection.providerType}:${input.model}`;
-  const coveredRecordOffset = input.mode === 'synthesis_read_write'
-    ? (rawEvidenceTurn ? (noiseCoverageTurn ? -4 : -3) : (noiseCoverageTurn ? -3 : -2))
-    : (rawEvidenceTurn ? (noiseCoverageTurn ? -3 : -2) : (noiseCoverageTurn ? -2 : -1));
-  const repeatedRecordOffset = rawEvidenceTurn ? (noiseCoverageTurn ? -3 : -2) : (noiseCoverageTurn ? -2 : -1);
+  const coveredRecordOffset =
+    input.mode === 'synthesis_read_write'
+      ? rawEvidenceTurn
+        ? noiseCoverageTurn
+          ? -4
+          : -3
+        : noiseCoverageTurn
+          ? -3
+          : -2
+      : rawEvidenceTurn
+        ? noiseCoverageTurn
+          ? -3
+          : -2
+        : noiseCoverageTurn
+          ? -2
+          : -1;
+  const repeatedRecordOffset = rawEvidenceTurn
+    ? noiseCoverageTurn
+      ? -3
+      : -2
+    : noiseCoverageTurn
+      ? -2
+      : -1;
   const noiseRecordOffset = rawEvidenceTurn ? -2 : -1;
   return {
     matrixCase: input.matrixCase,
@@ -1617,19 +1791,29 @@ async function runPhase8SynthesisScenario(input) {
       assistantText: turn.assistantText,
     })),
     recoveryAnswer: coveredTurn.assistantText,
-    recoveryArchivedToolResultsRead: archiveReads.filter((read) => read.requestTurnId === 'phase8-covered-recovery').length,
+    recoveryArchivedToolResultsRead: archiveReads.filter(
+      (read) => read.requestTurnId === 'phase8-covered-recovery',
+    ).length,
     recoveryContextBudget: coveredUsageEvent?.contextBudget,
     repeatedAnswer: repeatedTurn.assistantText,
     repeatedRecoveredSentinel: repeatedTurn.assistantText.includes(input.sentinel),
     repeatedAnswerExactlySentinel: repeatedTurn.assistantText.trim() === input.sentinel,
     archiveReads,
-    repeatedArchivedToolResultsRead: archiveReads.filter((read) =>
-      read.requestTurnId === (input.mode === 'synthesis_read_write' ? 'phase9-repeated-recovery' : 'phase8-covered-recovery')
+    repeatedArchivedToolResultsRead: archiveReads.filter(
+      (read) =>
+        read.requestTurnId ===
+        (input.mode === 'synthesis_read_write'
+          ? 'phase9-repeated-recovery'
+          : 'phase8-covered-recovery'),
     ).length,
     noiseCoverageAnswer: noiseCoverageTurn?.assistantText,
-    noiseCoverageArchivedToolResultsRead: archiveReads.filter((read) => read.requestTurnId === 'phase8-noise-coverage-miss').length,
+    noiseCoverageArchivedToolResultsRead: archiveReads.filter(
+      (read) => read.requestTurnId === 'phase8-noise-coverage-miss',
+    ).length,
     noiseCoverageContextBudget: noiseCoverageUsageEvent?.contextBudget,
-    rawEvidenceArchivedToolResultsRead: archiveReads.filter((read) => read.requestTurnId === 'phase8-raw-evidence').length,
+    rawEvidenceArchivedToolResultsRead: archiveReads.filter(
+      (read) => read.requestTurnId === 'phase8-raw-evidence',
+    ).length,
     repeatedContextBudget: repeatedUsageEvent?.contextBudget,
     rawEvidenceContextBudget: rawEvidenceUsageEvent?.contextBudget,
     recoveryUsage: usageSummary(coveredUsageEvent, llmRecords.at(coveredRecordOffset), pricingId),
@@ -1637,13 +1821,16 @@ async function runPhase8SynthesisScenario(input) {
     noiseCoverageUsage: noiseCoverageTurn
       ? usageSummary(noiseCoverageUsageEvent, llmRecords.at(noiseRecordOffset), pricingId)
       : undefined,
-    rawEvidenceUsage: rawEvidenceTurn ? usageSummary(rawEvidenceUsageEvent, llmRecords.at(-1), pricingId) : undefined,
+    rawEvidenceUsage: rawEvidenceTurn
+      ? usageSummary(rawEvidenceUsageEvent, llmRecords.at(-1), pricingId)
+      : undefined,
     scenarioUsageTotals: usageTotals(llmRecords, pricingId),
     requestShapeTrace: runTraceEvents
-      .filter((event) =>
-        event.data?.requestShapeHash ||
-        event.data?.requestShapeChangeReason ||
-        event.data?.contextBudget
+      .filter(
+        (event) =>
+          event.data?.requestShapeHash ||
+          event.data?.requestShapeChangeReason ||
+          event.data?.contextBudget,
       )
       .map((event) => ({
         phase: event.phase,
@@ -1658,7 +1845,8 @@ async function runPhase8SynthesisScenario(input) {
 function buildPhase7LookupTool(input) {
   return {
     name: 'Phase7Lookup',
-    description: 'Deterministic Phase 7 harness tool. Use only when asked to store the Phase 7 lookup key.',
+    description:
+      'Deterministic Phase 7 harness tool. Use only when asked to store the Phase 7 lookup key.',
     parameters: z.object({
       key: z.string().describe('The lookup key requested by the user.'),
     }),
@@ -1718,8 +1906,14 @@ function buildPhase7ContextBudgetPolicy(mode) {
     enabled: true,
     mode: mode === 'gated' ? 'history_search_gated' : 'eager',
     maxResults: 4,
-    maxEstimatedTokens: parsePositiveInt(process.env.MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_TOKENS, 16_384),
-    maxBytes: parsePositiveInt(process.env.MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_BYTES, 2 * 1024 * 1024),
+    maxEstimatedTokens: parsePositiveInt(
+      process.env.MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_TOKENS,
+      16_384,
+    ),
+    maxBytes: parsePositiveInt(
+      process.env.MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_BYTES,
+      2 * 1024 * 1024,
+    ),
     order: 'newest_first',
   };
   if (mode === 'gated') {
@@ -1752,8 +1946,14 @@ function buildPhase8ContextBudgetPolicy(mode, synthesisBlocks) {
         mode: 'read_write',
         blocks: synthesisBlocks,
         maxBlocks: parsePositiveInt(process.env.MAKA_CONTEXT_SYNTHESIS_CACHE_MAX_BLOCKS, 1),
-        maxEstimatedTokens: parsePositiveInt(process.env.MAKA_CONTEXT_SYNTHESIS_CACHE_MAX_TOKENS, 2048),
-        maxBlockEstimatedTokens: parsePositiveInt(process.env.MAKA_CONTEXT_SYNTHESIS_CACHE_MAX_BLOCK_TOKENS, 1024),
+        maxEstimatedTokens: parsePositiveInt(
+          process.env.MAKA_CONTEXT_SYNTHESIS_CACHE_MAX_TOKENS,
+          2048,
+        ),
+        maxBlockEstimatedTokens: parsePositiveInt(
+          process.env.MAKA_CONTEXT_SYNTHESIS_CACHE_MAX_BLOCK_TOKENS,
+          1024,
+        ),
         invalidateOnNewToolResult: true,
         schemaVersion: 1,
       },
@@ -1799,19 +1999,21 @@ function buildPhase8SynthesisBlock(input) {
       'Does not include raw tool output.',
       'Does not cover noise lookup keys or changed archive bodies.',
     ],
-    sourceRefs: [{
-      kind: 'archived_tool_result',
-      sessionId: input.sessionId,
-      turnId: input.source.turnId,
-      runtimeEventId: input.source.runtimeEventId,
-      toolCallId: input.source.toolCallId,
-      toolName: input.source.toolName,
-      artifactId: input.source.artifactId,
-      bodySha256: input.source.bodySha256,
-      originalEstimatedTokens: input.source.originalEstimatedTokens,
-      originalBytes: input.source.originalBytes,
-      placeholderReason: input.source.placeholderReason,
-    }],
+    sourceRefs: [
+      {
+        kind: 'archived_tool_result',
+        sessionId: input.sessionId,
+        turnId: input.source.turnId,
+        runtimeEventId: input.source.runtimeEventId,
+        toolCallId: input.source.toolCallId,
+        toolName: input.source.toolName,
+        artifactId: input.source.artifactId,
+        bodySha256: input.source.bodySha256,
+        originalEstimatedTokens: input.source.originalEstimatedTokens,
+        originalBytes: input.source.originalBytes,
+        placeholderReason: input.source.placeholderReason,
+      },
+    ],
     createdFrom: input.createdFrom ?? 'gated_archive_retrieval',
   };
 }
@@ -1821,7 +2023,10 @@ function buildPhase10ContextBudgetPolicy(mode) {
   const compactMode = mode === 'history_compact_read_write' ? 'read_write' : 'deterministic';
   return {
     name: `phase10-history-compact-${compactMode}`,
-    maxHistoryEstimatedTokens: parsePositiveInt(process.env.MAKA_CONTEXT_HISTORY_BUDGET_TOKENS, 1600),
+    maxHistoryEstimatedTokens: parsePositiveInt(
+      process.env.MAKA_CONTEXT_HISTORY_BUDGET_TOKENS,
+      1600,
+    ),
     minRecentTurns: 1,
     charsPerToken: parsePositiveInt(process.env.MAKA_CONTEXT_CHARS_PER_TOKEN, 1),
     historyCompact: {
@@ -1830,20 +2035,37 @@ function buildPhase10ContextBudgetPolicy(mode) {
       highWaterRatio: parseRatio(process.env.MAKA_CONTEXT_HISTORY_COMPACT_HIGH_WATER_RATIO, 0.5),
       forceRatio: parseRatio(process.env.MAKA_CONTEXT_HISTORY_COMPACT_FORCE_RATIO, 0.9),
       targetRatio: parseRatio(process.env.MAKA_CONTEXT_HISTORY_COMPACT_TARGET_RATIO, 0.25),
-      tailEstimatedTokens: parsePositiveInt(process.env.MAKA_CONTEXT_HISTORY_COMPACT_TAIL_TOKENS, 400),
-      minRecentTurns: parsePositiveInt(process.env.MAKA_CONTEXT_HISTORY_COMPACT_MIN_RECENT_TURNS, 1),
-      maxSummaryEstimatedTokens: parsePositiveInt(process.env.MAKA_CONTEXT_HISTORY_COMPACT_MAX_SUMMARY_TOKENS, 512),
+      tailEstimatedTokens: parsePositiveInt(
+        process.env.MAKA_CONTEXT_HISTORY_COMPACT_TAIL_TOKENS,
+        400,
+      ),
+      minRecentTurns: parsePositiveInt(
+        process.env.MAKA_CONTEXT_HISTORY_COMPACT_MIN_RECENT_TURNS,
+        1,
+      ),
+      maxSummaryEstimatedTokens: parsePositiveInt(
+        process.env.MAKA_CONTEXT_HISTORY_COMPACT_MAX_SUMMARY_TOKENS,
+        512,
+      ),
       maxBlocks: parsePositiveInt(process.env.MAKA_CONTEXT_HISTORY_COMPACT_MAX_BLOCKS, 1),
-      maxEstimatedTokens: parsePositiveInt(process.env.MAKA_CONTEXT_HISTORY_COMPACT_MAX_TOKENS, 8192),
-      maxBlockEstimatedTokens: parsePositiveInt(process.env.MAKA_CONTEXT_HISTORY_COMPACT_MAX_BLOCK_TOKENS, 4096),
+      maxEstimatedTokens: parsePositiveInt(
+        process.env.MAKA_CONTEXT_HISTORY_COMPACT_MAX_TOKENS,
+        8192,
+      ),
+      maxBlockEstimatedTokens: parsePositiveInt(
+        process.env.MAKA_CONTEXT_HISTORY_COMPACT_MAX_BLOCK_TOKENS,
+        4096,
+      ),
       highWaterName: `phase10-history-compact-${compactMode}`,
     },
   };
 }
 
 function buildPhase10StoragePrompt(input) {
-  const payload = Array.from({ length: input.payloadLines }, (_, index) =>
-    `phase10 old payload line ${String(index + 1).padStart(3, '0')}: stable filler for live cost accounting and prompt-cache measurement.`,
+  const payload = Array.from(
+    { length: input.payloadLines },
+    (_, index) =>
+      `phase10 old payload line ${String(index + 1).padStart(3, '0')}: stable filler for live cost accounting and prompt-cache measurement.`,
   ).join('\n');
   return [
     'Store the Phase 10 memory. Answer exactly STORED and do not repeat the sentinel.',
@@ -1857,7 +2079,9 @@ function buildPhase10StoragePrompt(input) {
 }
 
 function buildPhase10HostHistoryCompactSummary(input, event) {
-  const foldedTurnIds = [...new Set(event.source.foldedRuntimeEvents.map((runtimeEvent) => runtimeEvent.turnId))];
+  const foldedTurnIds = [
+    ...new Set(event.source.foldedRuntimeEvents.map((runtimeEvent) => runtimeEvent.turnId)),
+  ];
   return [
     'Phase 10 host history compact summary.',
     `Recoverable sentinel: ${input.sentinel}`,
@@ -1908,31 +2132,35 @@ function usageSummary(usageEvent, llmRecord, pricingId) {
     cacheMissInput: usageEvent?.cacheMissInput ?? llmRecord?.cacheMissInputTokens,
     cacheWriteInput: usageEvent?.cacheWriteInput ?? llmRecord?.cacheWriteInputTokens,
     estimatedCostUsd: cost?.totalCost,
-    requestShapeChangeReason: usageEvent?.requestShapeChangeReason ?? llmRecord?.requestShapeChangeReason,
+    requestShapeChangeReason:
+      usageEvent?.requestShapeChangeReason ?? llmRecord?.requestShapeChangeReason,
     contextBudget: usageEvent?.contextBudget ?? llmRecord?.contextBudget,
   };
 }
 
 function usageTotals(llmRecords, pricingId) {
-  return llmRecords.reduce((acc, record) => {
-    const cost = costForLlmRecord(record, pricingId);
-    acc.calls += 1;
-    acc.input += record.inputTokens ?? 0;
-    acc.output += record.outputTokens ?? 0;
-    acc.cacheHitInput += record.cacheHitInputTokens ?? 0;
-    acc.cacheMissInput += record.cacheMissInputTokens ?? 0;
-    acc.cacheWriteInput += record.cacheWriteInputTokens ?? 0;
-    acc.estimatedCostUsd += cost?.totalCost ?? 0;
-    return acc;
-  }, {
-    calls: 0,
-    input: 0,
-    output: 0,
-    cacheHitInput: 0,
-    cacheMissInput: 0,
-    cacheWriteInput: 0,
-    estimatedCostUsd: 0,
-  });
+  return llmRecords.reduce(
+    (acc, record) => {
+      const cost = costForLlmRecord(record, pricingId);
+      acc.calls += 1;
+      acc.input += record.inputTokens ?? 0;
+      acc.output += record.outputTokens ?? 0;
+      acc.cacheHitInput += record.cacheHitInputTokens ?? 0;
+      acc.cacheMissInput += record.cacheMissInputTokens ?? 0;
+      acc.cacheWriteInput += record.cacheWriteInputTokens ?? 0;
+      acc.estimatedCostUsd += cost?.totalCost ?? 0;
+      return acc;
+    },
+    {
+      calls: 0,
+      input: 0,
+      output: 0,
+      cacheHitInput: 0,
+      cacheMissInput: 0,
+      cacheWriteInput: 0,
+      estimatedCostUsd: 0,
+    },
+  );
 }
 
 function usageDelta(base, candidate) {
@@ -1948,9 +2176,7 @@ function usageDelta(base, candidate) {
 }
 
 function numericDelta(base, candidate) {
-  return typeof base === 'number' && typeof candidate === 'number'
-    ? candidate - base
-    : undefined;
+  return typeof base === 'number' && typeof candidate === 'number' ? candidate - base : undefined;
 }
 
 function costForLlmRecord(record, pricingId) {
@@ -1977,26 +2203,38 @@ function validatePhase7ToolMatrix(cases, sentinel) {
         continue;
       }
       if (scenario.storageAnswerIncludedSentinel) {
-        failures.push(`${matrixCase.name}: ${mode} scenario repeated sentinel in storage acknowledgement`);
+        failures.push(
+          `${matrixCase.name}: ${mode} scenario repeated sentinel in storage acknowledgement`,
+        );
       }
-      const expectedTurnCounts = new Map(scenario.expectedToolCallTurns.map((turnId) => [turnId, 0]));
+      const expectedTurnCounts = new Map(
+        scenario.expectedToolCallTurns.map((turnId) => [turnId, 0]),
+      );
       for (const call of scenario.toolCalls) {
         if (call.toolName !== 'Phase7Lookup') {
-          failures.push(`${matrixCase.name}: ${mode} scenario unexpected tool call ${call.toolName}`);
+          failures.push(
+            `${matrixCase.name}: ${mode} scenario unexpected tool call ${call.toolName}`,
+          );
         }
         if (!expectedTurnCounts.has(call.turnId)) {
-          failures.push(`${matrixCase.name}: ${mode} scenario unexpected tool call on ${call.turnId}`);
+          failures.push(
+            `${matrixCase.name}: ${mode} scenario unexpected tool call on ${call.turnId}`,
+          );
         } else {
           expectedTurnCounts.set(call.turnId, expectedTurnCounts.get(call.turnId) + 1);
         }
       }
       for (const [turnId, count] of expectedTurnCounts.entries()) {
         if (count !== 1) {
-          failures.push(`${matrixCase.name}: ${mode} scenario expected one Phase7Lookup call on ${turnId}, saw ${count}`);
+          failures.push(
+            `${matrixCase.name}: ${mode} scenario expected one Phase7Lookup call on ${turnId}, saw ${count}`,
+          );
         }
       }
       if (scenario.toolCalls.length !== scenario.expectedToolCallTurns.length) {
-        failures.push(`${matrixCase.name}: ${mode} scenario expected ${scenario.expectedToolCallTurns.length} tool calls, saw ${scenario.toolCalls.length}`);
+        failures.push(
+          `${matrixCase.name}: ${mode} scenario expected ${scenario.expectedToolCallTurns.length} tool calls, saw ${scenario.toolCalls.length}`,
+        );
       }
     }
 
@@ -2004,46 +2242,75 @@ function validatePhase7ToolMatrix(cases, sentinel) {
     const prune = byMode.get('prune');
     const eager = byMode.get('eager');
     const gated = byMode.get('gated');
-    if (full && !full.recoveredSentinel) failures.push(`${matrixCase.name}: full scenario did not recover sentinel`);
-    if (prune?.recoveredSentinel) failures.push(`${matrixCase.name}: prune scenario recovered sentinel without archive retrieval`);
-    if (prune && prune.archivedToolResultsRead !== 0) failures.push(`${matrixCase.name}: prune scenario unexpectedly read archives`);
-    if (eager && !eager.recoveredSentinel) failures.push(`${matrixCase.name}: eager scenario did not recover sentinel`);
-    if (eager && eager.archivedToolResultsRead < 1) failures.push(`${matrixCase.name}: eager scenario did not read any archive`);
+    if (full && !full.recoveredSentinel)
+      failures.push(`${matrixCase.name}: full scenario did not recover sentinel`);
+    if (prune?.recoveredSentinel)
+      failures.push(
+        `${matrixCase.name}: prune scenario recovered sentinel without archive retrieval`,
+      );
+    if (prune && prune.archivedToolResultsRead !== 0)
+      failures.push(`${matrixCase.name}: prune scenario unexpectedly read archives`);
+    if (eager && !eager.recoveredSentinel)
+      failures.push(`${matrixCase.name}: eager scenario did not recover sentinel`);
+    if (eager && eager.archivedToolResultsRead < 1)
+      failures.push(`${matrixCase.name}: eager scenario did not read any archive`);
     if (eager?.finalContextBudget?.archiveRetrievalMode !== 'eager') {
       failures.push(`${matrixCase.name}: eager scenario did not report eager retrieval mode`);
     }
     if ((eager?.finalContextBudget?.retrievedArchiveToolResults ?? 0) < 1) {
       failures.push(`${matrixCase.name}: eager scenario final turn did not retrieve an archive`);
     }
-    if (gated && !gated.recoveredSentinel) failures.push(`${matrixCase.name}: gated scenario did not recover sentinel`);
-    if (gated && gated.archivedToolResultsRead < 1) failures.push(`${matrixCase.name}: gated scenario did not read any archive`);
+    if (gated && !gated.recoveredSentinel)
+      failures.push(`${matrixCase.name}: gated scenario did not recover sentinel`);
+    if (gated && gated.archivedToolResultsRead < 1)
+      failures.push(`${matrixCase.name}: gated scenario did not read any archive`);
     if (gated?.finalContextBudget?.archiveRetrievalMode !== 'history_search_gated') {
-      failures.push(`${matrixCase.name}: gated scenario did not report history_search_gated retrieval mode`);
+      failures.push(
+        `${matrixCase.name}: gated scenario did not report history_search_gated retrieval mode`,
+      );
     }
     if ((gated?.finalContextBudget?.retrievedArchiveToolResults ?? 0) < 1) {
       failures.push(`${matrixCase.name}: gated scenario final turn did not retrieve an archive`);
     }
     if ((gated?.finalContextBudget?.archiveRetrievalEligibleTurns ?? 0) < 1) {
-      failures.push(`${matrixCase.name}: gated scenario did not report any archive retrieval eligible turns`);
+      failures.push(
+        `${matrixCase.name}: gated scenario did not report any archive retrieval eligible turns`,
+      );
     }
     if ((gated?.finalContextBudget?.historySearchMatches ?? 0) < 1) {
       failures.push(`${matrixCase.name}: gated scenario did not report a history search match`);
     }
     if (matrixCase.name === 'multi_archive_selectivity') {
       if ((gated?.finalArchivedToolResultsRead ?? 0) !== 1) {
-        failures.push(`${matrixCase.name}: gated scenario final turn should read exactly one matching archive, saw ${gated?.finalArchivedToolResultsRead ?? 0}`);
+        failures.push(
+          `${matrixCase.name}: gated scenario final turn should read exactly one matching archive, saw ${gated?.finalArchivedToolResultsRead ?? 0}`,
+        );
       }
       if ((gated?.finalContextBudget?.retrievedArchiveToolResults ?? 0) !== 1) {
-        failures.push(`${matrixCase.name}: gated scenario should inject exactly one matching archive, saw ${gated?.finalContextBudget?.retrievedArchiveToolResults ?? 0}`);
+        failures.push(
+          `${matrixCase.name}: gated scenario should inject exactly one matching archive, saw ${gated?.finalContextBudget?.retrievedArchiveToolResults ?? 0}`,
+        );
       }
-      if ((eager?.finalArchivedToolResultsRead ?? 0) <= (gated?.finalArchivedToolResultsRead ?? 0)) {
-        failures.push(`${matrixCase.name}: eager scenario final turn did not read more archives than gated`);
+      if (
+        (eager?.finalArchivedToolResultsRead ?? 0) <= (gated?.finalArchivedToolResultsRead ?? 0)
+      ) {
+        failures.push(
+          `${matrixCase.name}: eager scenario final turn did not read more archives than gated`,
+        );
       }
-      if ((eager?.finalContextBudget?.retrievedArchiveToolResults ?? 0) <= (gated?.finalContextBudget?.retrievedArchiveToolResults ?? 0)) {
+      if (
+        (eager?.finalContextBudget?.retrievedArchiveToolResults ?? 0) <=
+        (gated?.finalContextBudget?.retrievedArchiveToolResults ?? 0)
+      ) {
         failures.push(`${matrixCase.name}: eager scenario did not inject more archives than gated`);
       }
-      if ((eager?.finalContextBudget?.retrievedArchiveEstimatedTokens ?? 0) <= (gated?.finalContextBudget?.retrievedArchiveEstimatedTokens ?? 0)) {
-        failures.push(`${matrixCase.name}: eager scenario did not report higher retrieved archive token volume than gated`);
+      if (
+        (eager?.finalContextBudget?.retrievedArchiveEstimatedTokens ?? 0) <=
+        (gated?.finalContextBudget?.retrievedArchiveEstimatedTokens ?? 0)
+      ) {
+        failures.push(
+          `${matrixCase.name}: eager scenario did not report higher retrieved archive token volume than gated`,
+        );
       }
     }
   }
@@ -2061,7 +2328,9 @@ function validatePhase8SynthesisMatrix(cases, sentinel) {
         continue;
       }
       if (!scenario.repeatedRecoveredSentinel || !scenario.repeatedAnswerExactlySentinel) {
-        failures.push(`${matrixCase.name}: ${mode} repeated turn did not recover exactly ${sentinel}`);
+        failures.push(
+          `${matrixCase.name}: ${mode} repeated turn did not recover exactly ${sentinel}`,
+        );
       }
       if ((scenario.repeatedUsage?.cacheMissInput ?? 0) < 0) {
         failures.push(`${matrixCase.name}: ${mode} repeated cacheMissInput was not measurable`);
@@ -2108,23 +2377,38 @@ function validatePhase8SynthesisMatrix(cases, sentinel) {
         failures.push(`${matrixCase.name}: synthesis_gated comparison cost was not below gated`);
       }
       if ((synthesis.rawEvidenceArchivedToolResultsRead ?? 0) < 1) {
-        failures.push(`${matrixCase.name}: synthesis_gated raw evidence turn did not fall back to archive retrieval`);
+        failures.push(
+          `${matrixCase.name}: synthesis_gated raw evidence turn did not fall back to archive retrieval`,
+        );
       }
       if ((synthesis.rawEvidenceContextBudget?.retrievedArchiveToolResults ?? 0) < 1) {
-        failures.push(`${matrixCase.name}: synthesis_gated raw evidence turn did not report archive retrieval`);
+        failures.push(
+          `${matrixCase.name}: synthesis_gated raw evidence turn did not report archive retrieval`,
+        );
       }
       if (matrixCase.name === 'multi_archive_selectivity') {
         if ((synthesis.repeatedContextBudget?.synthesisCacheBlocksSelected ?? 0) !== 1) {
-          failures.push(`${matrixCase.name}: synthesis_gated selected more or fewer than one block`);
+          failures.push(
+            `${matrixCase.name}: synthesis_gated selected more or fewer than one block`,
+          );
         }
         if ((synthesis.repeatedContextBudget?.archiveRetrievalSkipped ?? 0) > 0) {
-          failures.push(`${matrixCase.name}: synthesis_gated repeated turn should skip archive retrieval entirely`);
+          failures.push(
+            `${matrixCase.name}: synthesis_gated repeated turn should skip archive retrieval entirely`,
+          );
         }
         if ((synthesis.noiseCoverageContextBudget?.synthesisCacheBlocksSelected ?? 0) !== 0) {
-          failures.push(`${matrixCase.name}: synthesis_gated noise query selected target synthesis`);
+          failures.push(
+            `${matrixCase.name}: synthesis_gated noise query selected target synthesis`,
+          );
         }
-        if ((synthesis.noiseCoverageContextBudget?.synthesisCacheSkippedReasonCounts?.coverage_miss ?? 0) < 1) {
-          failures.push(`${matrixCase.name}: synthesis_gated noise query did not report coverage miss`);
+        if (
+          (synthesis.noiseCoverageContextBudget?.synthesisCacheSkippedReasonCounts?.coverage_miss ??
+            0) < 1
+        ) {
+          failures.push(
+            `${matrixCase.name}: synthesis_gated noise query did not report coverage miss`,
+          );
         }
       }
     }
@@ -2145,7 +2429,9 @@ function validatePhase9SynthesisLifecycleMatrix(cases, sentinel) {
         continue;
       }
       if (!scenario.repeatedRecoveredSentinel || !scenario.repeatedAnswerExactlySentinel) {
-        failures.push(`${matrixCase.name}: ${mode} repeated turn did not recover exactly ${sentinel}`);
+        failures.push(
+          `${matrixCase.name}: ${mode} repeated turn did not recover exactly ${sentinel}`,
+        );
       }
       if (typeof scenario.repeatedUsage?.estimatedCostUsd !== 'number') {
         failures.push(`${matrixCase.name}: ${mode} repeated estimatedCostUsd was not measurable`);
@@ -2155,8 +2441,11 @@ function validatePhase9SynthesisLifecycleMatrix(cases, sentinel) {
       failures.push(`${matrixCase.name}: gated comparison turn did not read archives`);
     }
     if (!lifecycle) continue;
-    const writtenBlockCount = lifecycle.synthesisCacheWrites
-      ?.reduce((total, write) => total + (write.blockIds?.length ?? 0), 0) ?? 0;
+    const writtenBlockCount =
+      lifecycle.synthesisCacheWrites?.reduce(
+        (total, write) => total + (write.blockIds?.length ?? 0),
+        0,
+      ) ?? 0;
     if (writtenBlockCount < 1) {
       failures.push(`${matrixCase.name}: lifecycle did not write any synthesis blocks`);
     }
@@ -2164,29 +2453,45 @@ function validatePhase9SynthesisLifecycleMatrix(cases, sentinel) {
       failures.push(`${matrixCase.name}: lifecycle did not create any synthesis artifacts`);
     }
     if ((lifecycle.repeatedContextBudget?.synthesisCacheBlocksLoaded ?? 0) !== 1) {
-      failures.push(`${matrixCase.name}: lifecycle repeated turn did not load one synthesis block from artifacts`);
+      failures.push(
+        `${matrixCase.name}: lifecycle repeated turn did not load one synthesis block from artifacts`,
+      );
     }
     if ((lifecycle.repeatedContextBudget?.synthesisCacheBlocksSelected ?? 0) !== 1) {
-      failures.push(`${matrixCase.name}: lifecycle repeated turn did not select one synthesis block`);
+      failures.push(
+        `${matrixCase.name}: lifecycle repeated turn did not select one synthesis block`,
+      );
     }
-    const repeatedLoads = lifecycle.synthesisCacheLoads?.find((load) => load.requestTurnId === 'phase9-repeated-recovery');
+    const repeatedLoads = lifecycle.synthesisCacheLoads?.find(
+      (load) => load.requestTurnId === 'phase9-repeated-recovery',
+    );
     if ((repeatedLoads?.blockIds?.length ?? 0) !== 1) {
-      failures.push(`${matrixCase.name}: lifecycle repeated turn did not prove artifact-backed synthesis load`);
+      failures.push(
+        `${matrixCase.name}: lifecycle repeated turn did not prove artifact-backed synthesis load`,
+      );
     }
     if ((lifecycle.repeatedArchivedToolResultsRead ?? 0) !== 0) {
       failures.push(`${matrixCase.name}: lifecycle repeated turn read archives`);
     }
     if ((lifecycle.rawEvidenceArchivedToolResultsRead ?? 0) < 1) {
-      failures.push(`${matrixCase.name}: lifecycle raw-evidence turn did not fall back to archive retrieval`);
+      failures.push(
+        `${matrixCase.name}: lifecycle raw-evidence turn did not fall back to archive retrieval`,
+      );
     }
-    if ((lifecycle.rawEvidenceContextBudget?.synthesisCacheWriteSkippedReasonCounts?.raw_evidence_requested ?? 0) < 1) {
+    if (
+      (lifecycle.rawEvidenceContextBudget?.synthesisCacheWriteSkippedReasonCounts
+        ?.raw_evidence_requested ?? 0) < 1
+    ) {
       failures.push(`${matrixCase.name}: lifecycle raw-evidence turn did not skip synthesis write`);
     }
     if (matrixCase.name === 'bounded_budget_and_fallbacks') {
       if ((lifecycle.noiseCoverageContextBudget?.synthesisCacheBlocksSelected ?? 0) !== 0) {
         failures.push(`${matrixCase.name}: lifecycle noise query selected target synthesis`);
       }
-      if ((lifecycle.noiseCoverageContextBudget?.synthesisCacheSkippedReasonCounts?.coverage_miss ?? 0) < 1) {
+      if (
+        (lifecycle.noiseCoverageContextBudget?.synthesisCacheSkippedReasonCounts?.coverage_miss ??
+          0) < 1
+      ) {
         failures.push(`${matrixCase.name}: lifecycle noise query did not report coverage miss`);
       }
     }
@@ -2224,10 +2529,14 @@ function validatePhase10HistoryCompactMatrix(cases, sentinel) {
         failures.push(`${matrixCase.name}: ${mode} scenario repeated sentinel during storage`);
       }
       if (!scenario.recoveryRecoveredSentinel || !scenario.recoveryAnswerExactlySentinel) {
-        failures.push(`${matrixCase.name}: ${mode} recovery turn did not recover exactly ${sentinel}`);
+        failures.push(
+          `${matrixCase.name}: ${mode} recovery turn did not recover exactly ${sentinel}`,
+        );
       }
       if (!scenario.repeatedRecoveredSentinel || !scenario.repeatedAnswerExactlySentinel) {
-        failures.push(`${matrixCase.name}: ${mode} repeated turn did not recover exactly ${sentinel}`);
+        failures.push(
+          `${matrixCase.name}: ${mode} repeated turn did not recover exactly ${sentinel}`,
+        );
       }
       if (typeof scenario.repeatedUsage?.estimatedCostUsd !== 'number') {
         failures.push(`${matrixCase.name}: ${mode} repeated estimatedCostUsd was not measurable`);
@@ -2237,46 +2546,71 @@ function validatePhase10HistoryCompactMatrix(cases, sentinel) {
     const deterministic = byMode.get('deterministic');
     if (deterministic) {
       if ((deterministic.recoveryContextBudget?.historyCompactBlocksSelected ?? 0) !== 1) {
-        failures.push(`${matrixCase.name}: deterministic recovery did not select one history compact block`);
+        failures.push(
+          `${matrixCase.name}: deterministic recovery did not select one history compact block`,
+        );
       }
       if ((deterministic.repeatedContextBudget?.historyCompactBlocksSelected ?? 0) !== 1) {
-        failures.push(`${matrixCase.name}: deterministic repeated turn did not select one history compact block`);
+        failures.push(
+          `${matrixCase.name}: deterministic repeated turn did not select one history compact block`,
+        );
       }
       if ((deterministic.repeatedContextBudget?.historyCompactBlocksLoaded ?? 0) !== 0) {
-        failures.push(`${matrixCase.name}: deterministic repeated turn unexpectedly loaded persisted history compact blocks`);
+        failures.push(
+          `${matrixCase.name}: deterministic repeated turn unexpectedly loaded persisted history compact blocks`,
+        );
       }
     }
 
     const readWrite = byMode.get('history_compact_read_write');
     if (readWrite) {
       if ((readWrite.recoveryContextBudget?.historyCompactBlocksSelected ?? 0) !== 1) {
-        failures.push(`${matrixCase.name}: read_write recovery did not select one history compact draft`);
+        failures.push(
+          `${matrixCase.name}: read_write recovery did not select one history compact draft`,
+        );
       }
       if ((readWrite.recoveryContextBudget?.historyCompactWritesAttempted ?? 0) !== 1) {
-        failures.push(`${matrixCase.name}: read_write recovery did not attempt one history compact write`);
+        failures.push(
+          `${matrixCase.name}: read_write recovery did not attempt one history compact write`,
+        );
       }
       if ((readWrite.recoveryContextBudget?.historyCompactBlocksWritten ?? 0) !== 1) {
-        failures.push(`${matrixCase.name}: read_write recovery did not write one host history compact block`);
+        failures.push(
+          `${matrixCase.name}: read_write recovery did not write one host history compact block`,
+        );
       }
       if ((readWrite.persistedHistoryCompactArtifactIds?.length ?? 0) !== 1) {
-        failures.push(`${matrixCase.name}: read_write did not persist one history compact block artifact`);
+        failures.push(
+          `${matrixCase.name}: read_write did not persist one history compact block artifact`,
+        );
       }
       if ((readWrite.persistedHistoryCompactSourceArtifactIds?.length ?? 0) < 1) {
-        failures.push(`${matrixCase.name}: read_write did not persist source RuntimeEvent artifacts`);
+        failures.push(
+          `${matrixCase.name}: read_write did not persist source RuntimeEvent artifacts`,
+        );
       }
       if ((readWrite.repeatedContextBudget?.historyCompactBlocksLoaded ?? 0) !== 1) {
-        failures.push(`${matrixCase.name}: read_write repeated turn did not load one persisted history compact block`);
+        failures.push(
+          `${matrixCase.name}: read_write repeated turn did not load one persisted history compact block`,
+        );
       }
       if ((readWrite.repeatedContextBudget?.historyCompactBlocksSelected ?? 0) !== 1) {
-        failures.push(`${matrixCase.name}: read_write repeated turn did not select one persisted history compact block`);
+        failures.push(
+          `${matrixCase.name}: read_write repeated turn did not select one persisted history compact block`,
+        );
       }
       if ((readWrite.repeatedContextBudget?.historyCompactWritesAttempted ?? 0) > 0) {
-        failures.push(`${matrixCase.name}: read_write repeated turn rewrote a loaded history compact block`);
+        failures.push(
+          `${matrixCase.name}: read_write repeated turn rewrote a loaded history compact block`,
+        );
       }
-      const repeatedLoad = readWrite.historyCompactLoads
-        ?.find((load) => load.requestTurnId === 'phase10-repeated-recovery');
+      const repeatedLoad = readWrite.historyCompactLoads?.find(
+        (load) => load.requestTurnId === 'phase10-repeated-recovery',
+      );
       if ((repeatedLoad?.blockIds?.length ?? 0) !== 1) {
-        failures.push(`${matrixCase.name}: read_write repeated turn did not prove artifact-backed history compact load`);
+        failures.push(
+          `${matrixCase.name}: read_write repeated turn did not prove artifact-backed history compact load`,
+        );
       }
     }
 
@@ -2323,7 +2657,11 @@ function scenarioNameForPolicy(policy) {
       ? 'history_compact_read_write'
       : `history_compact_${policy.historyCompact.mode ?? 'deterministic'}`;
   }
-  if (policy.staleToolResultPrune?.enabled === true && !policy.maxHistoryEstimatedTokens && !policy.maxHistoryTurns) {
+  if (
+    policy.staleToolResultPrune?.enabled === true &&
+    !policy.maxHistoryEstimatedTokens &&
+    !policy.maxHistoryTurns
+  ) {
     if (policy.archiveRetrieval?.enabled === true) {
       return policy.archiveRetrieval.mode === 'history_search_gated'
         ? 'archive_prune_on_retrieval_history_search_gated'
@@ -2352,7 +2690,11 @@ function contextBudgetMode(policy) {
     if (policy.historyCompact.mode === 'lookup') return 'history_compact_lookup';
     return 'history_compact_deterministic';
   }
-  if (policy.staleToolResultPrune?.enabled === true && !policy.maxHistoryEstimatedTokens && !policy.maxHistoryTurns) {
+  if (
+    policy.staleToolResultPrune?.enabled === true &&
+    !policy.maxHistoryEstimatedTokens &&
+    !policy.maxHistoryTurns
+  ) {
     if (policy.archiveRetrieval?.enabled === true) {
       return policy.archiveRetrieval.mode === 'history_search_gated'
         ? 'archive_prune_plus_history_search_gated_retrieval'
@@ -2420,7 +2762,10 @@ function buildArchiveRetrievalPolicy() {
     enabled: true,
     ...(mode ? { mode } : {}),
     maxResults: parsePositiveInt(process.env.MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_RESULTS, 3),
-    maxEstimatedTokens: parsePositiveInt(process.env.MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_TOKENS, 8192),
+    maxEstimatedTokens: parsePositiveInt(
+      process.env.MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_TOKENS,
+      8192,
+    ),
     maxBytes: parsePositiveInt(process.env.MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_BYTES, 1024 * 1024),
     order: 'newest_first',
   };
@@ -2442,7 +2787,9 @@ function buildHistoryRewriteGatePolicy() {
     enabled: true,
     name: process.env.MAKA_CONTEXT_HISTORY_REWRITE_NAME ?? 'baseline-history-rewrite',
     historyRewriteVersion: process.env.MAKA_CONTEXT_HISTORY_REWRITE_VERSION ?? 'phase6-v1',
-    resetReason: process.env.MAKA_CONTEXT_HISTORY_REWRITE_RESET_REASON ?? 'operator_enabled_history_rewrite_gate',
+    resetReason:
+      process.env.MAKA_CONTEXT_HISTORY_REWRITE_RESET_REASON ??
+      'operator_enabled_history_rewrite_gate',
   };
 }
 
@@ -2455,7 +2802,11 @@ function buildHistoryCompactPolicy() {
     forceRatio: parseRatio(process.env.MAKA_CONTEXT_HISTORY_COMPACT_FORCE_RATIO, 0.9),
     targetRatio: parseRatio(process.env.MAKA_CONTEXT_HISTORY_COMPACT_TARGET_RATIO, 0.5),
     ...(parseOptionalPositiveInt(process.env.MAKA_CONTEXT_HISTORY_COMPACT_TAIL_TOKENS) !== undefined
-      ? { tailEstimatedTokens: parseOptionalPositiveInt(process.env.MAKA_CONTEXT_HISTORY_COMPACT_TAIL_TOKENS) }
+      ? {
+          tailEstimatedTokens: parseOptionalPositiveInt(
+            process.env.MAKA_CONTEXT_HISTORY_COMPACT_TAIL_TOKENS,
+          ),
+        }
       : {}),
     minRecentTurns: parsePositiveInt(
       process.env.MAKA_CONTEXT_HISTORY_COMPACT_MIN_RECENT_TURNS,
@@ -2467,8 +2818,12 @@ function buildHistoryCompactPolicy() {
     ),
     maxBlocks: parsePositiveInt(process.env.MAKA_CONTEXT_HISTORY_COMPACT_MAX_BLOCKS, 1),
     maxEstimatedTokens: parsePositiveInt(process.env.MAKA_CONTEXT_HISTORY_COMPACT_MAX_TOKENS, 2048),
-    maxBlockEstimatedTokens: parsePositiveInt(process.env.MAKA_CONTEXT_HISTORY_COMPACT_MAX_BLOCK_TOKENS, 1024),
-    highWaterName: process.env.MAKA_CONTEXT_HISTORY_COMPACT_HIGH_WATER_NAME ?? 'cost-baseline-history-compact',
+    maxBlockEstimatedTokens: parsePositiveInt(
+      process.env.MAKA_CONTEXT_HISTORY_COMPACT_MAX_BLOCK_TOKENS,
+      1024,
+    ),
+    highWaterName:
+      process.env.MAKA_CONTEXT_HISTORY_COMPACT_HIGH_WATER_NAME ?? 'cost-baseline-history-compact',
   };
 }
 
@@ -2511,8 +2866,10 @@ function parseHistoryCompactMode(value) {
 function classifyCacheMissShape(prefixChangeReason, requestShapeChangeReason) {
   if (!prefixChangeReason && !requestShapeChangeReason) return undefined;
   if (prefixChangeReason === 'first_turn') return 'first_turn';
-  if (prefixChangeReason && prefixChangeReason !== 'stable') return 'explicit_durable_prefix_change';
-  if (requestShapeChangeReason && requestShapeChangeReason !== 'stable') return 'derived_request_shape_change';
+  if (prefixChangeReason && prefixChangeReason !== 'stable')
+    return 'explicit_durable_prefix_change';
+  if (requestShapeChangeReason && requestShapeChangeReason !== 'stable')
+    return 'derived_request_shape_change';
   return 'stable_shape';
 }
 
@@ -2567,22 +2924,24 @@ function renderMarkdown(report, jsonPath) {
   ];
   for (const turn of report.turns) {
     const prior = turn.promptSegments?.find((segment) => segment.kind === 'prior_history');
-    lines.push([
-      `| ${turn.turn}`,
-      turn.input ?? 0,
-      turn.cacheHitInput ?? 0,
-      turn.cacheMissInput ?? 0,
-      turn.cacheWriteInput ?? 0,
-      turn.output ?? 0,
-      turn.prefixChangeReason ?? '',
-      turn.requestShapeChangeReason ?? '',
-      turn.cacheMissShapeSource ?? turn.cacheMissInputSource ?? '',
-      turn.archivePlaceholders ?? 0,
-      turn.retrievedArchiveToolResults ?? 0,
-      turn.archiveRetrievalFailures ?? 0,
-      prior?.estimatedTokens ?? 0,
-      turn.contextBudget?.estimatedTokensAfter ?? 0,
-    ].join(' | ') + ' |');
+    lines.push(
+      [
+        `| ${turn.turn}`,
+        turn.input ?? 0,
+        turn.cacheHitInput ?? 0,
+        turn.cacheMissInput ?? 0,
+        turn.cacheWriteInput ?? 0,
+        turn.output ?? 0,
+        turn.prefixChangeReason ?? '',
+        turn.requestShapeChangeReason ?? '',
+        turn.cacheMissShapeSource ?? turn.cacheMissInputSource ?? '',
+        turn.archivePlaceholders ?? 0,
+        turn.retrievedArchiveToolResults ?? 0,
+        turn.archiveRetrievalFailures ?? 0,
+        prior?.estimatedTokens ?? 0,
+        turn.contextBudget?.estimatedTokensAfter ?? 0,
+      ].join(' | ') + ' |',
+    );
   }
   lines.push('');
   return `${lines.join('\n')}\n`;

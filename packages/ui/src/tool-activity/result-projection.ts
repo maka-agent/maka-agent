@@ -2,7 +2,7 @@ import { isShellOutput, type UiLocale } from '@maka/core';
 import type { ToolActivityItem } from '../materialize.js';
 import { formatQuietJsonValue } from './builtin-preview.js';
 import { isConnectorTool } from './presentation.js';
-import { formatUserVisibleToolText } from './preview-utils.js';
+import { getToolActivityCopy } from './copy.js';
 
 // Mirror of runtime's AUTOMATION_TOOL_NAME. @maka/ui must not depend on
 // @maka/runtime, so the unified Automation tool's name is duplicated here as
@@ -12,15 +12,6 @@ const AUTOMATION_TOOL_NAME = 'Automation';
 export function isAutomationTool(name: string): boolean {
   return name === AUTOMATION_TOOL_NAME;
 }
-
-const STATUS_LABEL: Record<ToolActivityItem['status'], string> = {
-  pending: '排队中',
-  waiting_permission: '等待权限',
-  running: '运行中',
-  completed: '已完成',
-  errored: '失败',
-  interrupted: '已中断',
-};
 
 export function extractErrorText(result: ToolActivityItem['result'], locale: UiLocale): string {
   if (!result) return '';
@@ -52,7 +43,8 @@ export function extractErrorText(result: ToolActivityItem['result'], locale: UiL
 }
 
 export function isPermissionDeniedToolResult(result: ToolActivityItem['result']): boolean {
-  return result?.kind === 'text' && formatUserVisibleToolText(result.text).trim() === '用户已拒绝权限请求';
+  if (result?.kind !== 'text') return false;
+  return /^(User denied permission(?: request)?|用户已拒绝权限请求)$/.test(result.text.trim());
 }
 
 /**
@@ -68,6 +60,7 @@ export function resultOwnsOwnPanel(item: ToolActivityItem): boolean {
     case 'terminal':
     case 'shell_run':
     case 'subagent':
+    case 'agent_swarm':
     case 'explore_agent':
     case 'web_search':
     case 'web_search_error':
@@ -85,6 +78,7 @@ export function isCancelledToolResult(result: ToolActivityItem['result']): boole
   if (result.kind === 'terminal' || result.kind === 'shell_run') {
     return result.status === 'cancelled';
   }
+  if (result.kind === 'agent_swarm') return result.status === 'cancelled';
   return false;
 }
 
@@ -108,7 +102,7 @@ function resultHasCapturedStreams(result: ToolActivityItem['result']): boolean {
 export function withLiveStreamFallback(
   result: NonNullable<ToolActivityItem['result']>,
   chunks: ToolActivityItem['outputChunks'] | undefined,
-  options?: { truncated?: boolean },
+  options?: { truncated?: boolean; locale?: UiLocale },
 ): NonNullable<ToolActivityItem['result']> {
   if (result.kind !== 'terminal' && result.kind !== 'shell_run') return result;
   if (resultHasCapturedStreams(result)) return result;
@@ -136,9 +130,10 @@ export function withLiveStreamFallback(
   // Match live stream's "[已脱敏]" marker when a chunk was redacted
   // (including empty bodies that only suppressed secrets).
   if (anyRedacted) {
-    if (stdout.length > 0) stdout = `${stdout}${stdout.endsWith('\n') ? '' : '\n'}[已脱敏]`;
-    else if (stderr.length > 0) stderr = `${stderr}${stderr.endsWith('\n') ? '' : '\n'}[已脱敏]`;
-    else stdout = '[已脱敏]';
+    const marker = getToolActivityCopy(options?.locale ?? 'zh').output.redacted;
+    if (stdout.length > 0) stdout = `${stdout}${stdout.endsWith('\n') ? '' : '\n'}${marker}`;
+    else if (stderr.length > 0) stderr = `${stderr}${stderr.endsWith('\n') ? '' : '\n'}${marker}`;
+    else stdout = marker;
   }
   const output = {
     mode: 'pipes' as const,
@@ -152,15 +147,23 @@ export function withLiveStreamFallback(
   return { ...result, output };
 }
 
-export function toolStatusLabel(item: ToolActivityItem): string {
+export function toolStatusLabel(item: ToolActivityItem, locale: UiLocale = 'zh'): string {
+  const copy = getToolActivityCopy(locale).status;
   // Outer label follows call status. Panel notes still show task cancel state.
-  if (item.status === 'interrupted' && isCancelledToolResult(item.result)) return '已取消';
+  if (item.status === 'interrupted' && isCancelledToolResult(item.result)) return copy.cancelled;
   if (
     (item.result?.kind === 'terminal' || item.result?.kind === 'shell_run')
     && item.result.status === 'timed_out'
     && item.status !== 'completed'
   ) {
-    return '已超时';
+    return copy.timedOut;
   }
-  return STATUS_LABEL[item.status];
+  return {
+    pending: copy.pending,
+    waiting_permission: copy.waitingPermission,
+    running: copy.running,
+    completed: copy.completed,
+    errored: copy.failed,
+    interrupted: copy.interrupted,
+  }[item.status];
 }

@@ -19,10 +19,7 @@ import {
   type GoalSessionCloseKind,
   type GoalSessionCloseOperation,
 } from './goal-session-close-fence.js';
-import {
-  GoalTaskGatePolicy,
-  type GoalTaskGateDeps,
-} from './goal-task-gate-policy.js';
+import { GoalTaskGatePolicy, type GoalTaskGateDeps } from './goal-task-gate-policy.js';
 import type { GoalTurnOutcome } from './goal-turn-lifecycle.js';
 
 export type { GoalTurnOutcome } from './goal-turn-lifecycle.js';
@@ -44,9 +41,7 @@ export type GoalTurnAdmission =
   | { kind: 'unavailable'; reason: string };
 
 /** Exactly-once settlement capability captured when an external Agent turn starts. */
-export type GoalExternalTurnSettler = (
-  outcome: GoalTurnOutcome,
-) => Promise<void>;
+export type GoalExternalTurnSettler = (outcome: GoalTurnOutcome) => Promise<void>;
 
 export interface GoalContinuationScheduler {
   setTimeout: (callback: () => void, delayMs: number) => unknown;
@@ -70,8 +65,8 @@ export const GOAL_WAIT_BACKOFF_BASE_MS = 5_000;
 export const GOAL_WAIT_BACKOFF_MAX_MS = 5 * 60_000;
 
 const CONTINUATION_PREAMBLE =
-  '[Goal continuation] The goal is not yet met. Keep working toward it. '
-  + 'Do not redefine success around a smaller task; match your verification to the full requirement.';
+  '[Goal continuation] The goal is not yet met. Keep working toward it. ' +
+  'Do not redefine success around a smaller task; match your verification to the full requirement.';
 
 interface QueuedTurn {
   turnId: string;
@@ -144,10 +139,7 @@ export class GoalContinuationCoordinator {
    * closure is the only legal settlement path, so terminal handling never has
    * to rediscover Goal ownership from mutable current state.
    */
-  beginExternalTurn(
-    sessionId: string,
-    turnId: string,
-  ): GoalExternalTurnStart {
+  beginExternalTurn(sessionId: string, turnId: string): GoalExternalTurnStart {
     if (this.disposed) {
       return { kind: 'unavailable', reason: 'Goal continuation is disposed.' };
     }
@@ -160,9 +152,8 @@ export class GoalContinuationCoordinator {
     }
     const goal = this.deps.goalManager.get(sessionId);
     const observedControlLease = this.deps.goalManager.getControlLease(sessionId);
-    const controlLease = goal?.status === 'active' || goal?.status === 'waiting'
-      ? observedControlLease
-      : undefined;
+    const controlLease =
+      goal?.status === 'active' || goal?.status === 'waiting' ? observedControlLease : undefined;
     const registration: TurnRegistration = {
       turnId,
       lane,
@@ -186,11 +177,11 @@ export class GoalContinuationCoordinator {
     const lane = this.lanes.get(sessionId);
     const registration = lane?.turns.get(turnId);
     if (
-      !lane
-      || !this.isCurrent(lane)
-      || !registration
-      || registration.controlLease !== undefined
-      || this.deps.goalManager.getControlLease(sessionId) !== registration.observedControlLease
+      !lane ||
+      !this.isCurrent(lane) ||
+      !registration ||
+      registration.controlLease !== undefined ||
+      this.deps.goalManager.getControlLease(sessionId) !== registration.observedControlLease
     ) {
       return undefined;
     }
@@ -201,20 +192,16 @@ export class GoalContinuationCoordinator {
   }
 
   /** Mutate the exact Goal generation observed by this turn. */
-  mutateGoal(
-    sessionId: string,
-    turnId: string,
-    mutate: () => GoalState,
-  ): GoalState | undefined {
+  mutateGoal(sessionId: string, turnId: string, mutate: () => GoalState): GoalState | undefined {
     const lane = this.lanes.get(sessionId);
     const registration = lane?.turns.get(turnId);
     const controlLease = registration?.controlLease ?? registration?.observedControlLease;
     if (
-      !lane
-      || !this.isCurrent(lane)
-      || !registration
-      || !controlLease
-      || !this.deps.goalManager.matchesControlLease(sessionId, controlLease)
+      !lane ||
+      !this.isCurrent(lane) ||
+      !registration ||
+      !controlLease ||
+      !this.deps.goalManager.matchesControlLease(sessionId, controlLease)
     ) {
       return undefined;
     }
@@ -232,28 +219,25 @@ export class GoalContinuationCoordinator {
   ): Promise<void> {
     const { lane, turnId } = registration;
     const sessionId = lane.sessionId;
-    if (
-      !this.isCurrent(lane)
-      || lane.turns.get(turnId) !== registration
-    ) {
+    if (!this.isCurrent(lane) || lane.turns.get(turnId) !== registration) {
       this.consumeTurnRegistration(registration);
       return Promise.resolve();
     }
     const controlLease = registration.controlLease;
     const goal = this.deps.goalManager.get(sessionId);
     if (
-      !controlLease
-      || !this.deps.goalManager.matchesControlLease(sessionId, controlLease)
-      || !goal
-      || (goal.status !== 'active' && goal.status !== 'waiting')
+      !controlLease ||
+      !this.deps.goalManager.matchesControlLease(sessionId, controlLease) ||
+      !goal ||
+      (goal.status !== 'active' && goal.status !== 'waiting')
     ) {
       this.discardIntentOwnedBy(lane, controlLease);
       this.consumeTurnRegistration(registration);
       return Promise.resolve();
     }
     if (
-      registration.checkpoint
-      && !this.deps.goalManager.matchesActive(sessionId, registration.checkpoint)
+      registration.checkpoint &&
+      !this.deps.goalManager.matchesActive(sessionId, registration.checkpoint)
     ) {
       this.consumeTurnRegistration(registration);
       return Promise.resolve();
@@ -274,10 +258,7 @@ export class GoalContinuationCoordinator {
    * boundary. Each operation owns an independent holder, so one rollback can
    * never reopen a session still closed by another operation.
    */
-  beginSessionClose(
-    sessionId: string,
-    kind: GoalSessionCloseKind,
-  ): GoalSessionCloseOperation {
+  beginSessionClose(sessionId: string, kind: GoalSessionCloseKind): GoalSessionCloseOperation {
     const operation = this.sessionCloseFence.begin(sessionId, kind);
     this.invalidateSession(sessionId);
     return operation;
@@ -347,13 +328,13 @@ export class GoalContinuationCoordinator {
 
   private dropIdleLane(lane: SessionLane): void {
     if (
-      !this.isCurrent(lane)
-      || lane.turns.size > 0
-      || lane.queue.length > 0
-      || lane.draining
-      || lane.intent
-      || lane.busyWake
-      || lane.waitingTimer
+      !this.isCurrent(lane) ||
+      lane.turns.size > 0 ||
+      lane.queue.length > 0 ||
+      lane.draining ||
+      lane.intent ||
+      lane.busyWake ||
+      lane.waitingTimer
     ) {
       return;
     }
@@ -412,13 +393,8 @@ export class GoalContinuationCoordinator {
       if (!this.isCurrent(lane)) return;
       const goal = this.deps.goalManager.get(lane.sessionId);
       if (
-        lane.queue.length > 0
-        || (
-          lane.intent
-          && goal?.status === 'active'
-          && !lane.busyWake
-          && !lane.waitingTimer
-        )
+        lane.queue.length > 0 ||
+        (lane.intent && goal?.status === 'active' && !lane.busyWake && !lane.waitingTimer)
       ) {
         this.scheduleDrain(lane);
       } else {
@@ -427,10 +403,7 @@ export class GoalContinuationCoordinator {
     }
   }
 
-  private async processQueuedTurn(
-    lane: SessionLane,
-    item: QueuedTurn,
-  ): Promise<void> {
+  private async processQueuedTurn(lane: SessionLane, item: QueuedTurn): Promise<void> {
     if (!this.deps.goalManager.matchesControlLease(lane.sessionId, item.controlLease)) {
       return;
     }
@@ -447,12 +420,7 @@ export class GoalContinuationCoordinator {
       );
       return;
     }
-    await this.processCompletion(
-      lane,
-      item.controlLease,
-      goal,
-      item.turnId,
-    );
+    await this.processCompletion(lane, item.controlLease, goal, item.turnId);
   }
 
   private async processCompletion(
@@ -562,15 +530,8 @@ export class GoalContinuationCoordinator {
     this.resetWaitingBackoff(lane);
   }
 
-  private async tryAdmitIntent(
-    lane: SessionLane,
-    intent: ContinuationIntent,
-  ): Promise<void> {
-    if (
-      !this.isCurrent(lane)
-      || lane.queue.length > 0
-      || lane.intent !== intent
-    ) {
+  private async tryAdmitIntent(lane: SessionLane, intent: ContinuationIntent): Promise<void> {
+    if (!this.isCurrent(lane) || lane.queue.length > 0 || lane.intent !== intent) {
       return;
     }
     if (!this.ownedGoal(lane, intent)) {
@@ -582,11 +543,7 @@ export class GoalContinuationCoordinator {
       lane.sessionId,
       intent.checkpoint.goalId,
     );
-    if (
-      !this.isCurrent(lane)
-      || lane.queue.length > 0
-      || lane.intent !== intent
-    ) {
+    if (!this.isCurrent(lane) || lane.queue.length > 0 || lane.intent !== intent) {
       return;
     }
     const goal = this.ownedGoal(lane, intent);
@@ -595,11 +552,7 @@ export class GoalContinuationCoordinator {
       return;
     }
 
-    const prompt = buildContinuationPrompt(
-      goal,
-      intent.evaluation,
-      taskPlan.reminder,
-    );
+    const prompt = buildContinuationPrompt(goal, intent.evaluation, taskPlan.reminder);
     const admission = this.deps.admitTurn(lane.sessionId, prompt);
 
     if (admission.kind === 'busy') {
@@ -632,7 +585,9 @@ export class GoalContinuationCoordinator {
       return;
     }
     void completion.then(
-      (outcome) => { void this.settleRegisteredTurn(registration, outcome); },
+      (outcome) => {
+        void this.settleRegisteredTurn(registration, outcome);
+      },
       (error) => {
         void this.settleRegisteredTurn(registration, {
           kind: 'errored',
@@ -666,8 +621,8 @@ export class GoalContinuationCoordinator {
 
   private ownedGoal(lane: SessionLane, intent: ContinuationIntent): GoalState | undefined {
     if (
-      !this.deps.goalManager.matchesControlLease(lane.sessionId, intent.controlLease)
-      || !this.deps.goalManager.matchesActive(lane.sessionId, intent.checkpoint)
+      !this.deps.goalManager.matchesControlLease(lane.sessionId, intent.controlLease) ||
+      !this.deps.goalManager.matchesActive(lane.sessionId, intent.checkpoint)
     ) {
       return undefined;
     }
@@ -706,11 +661,7 @@ export class GoalContinuationCoordinator {
     this.pauseAtCheckpoint(lane, goalCheckpoint(current), reason);
   }
 
-  private pauseAtCheckpoint(
-    lane: SessionLane,
-    checkpoint: GoalCheckpoint,
-    reason: string,
-  ): void {
+  private pauseAtCheckpoint(lane: SessionLane, checkpoint: GoalCheckpoint, reason: string): void {
     const paused = this.deps.goalManager.pause(lane.sessionId, { checkpoint, reason });
     if (!paused) return;
     lane.intent = undefined;
@@ -749,20 +700,21 @@ function buildContinuationPrompt(
   evaluation: GoalEvaluation,
   taskReminder: string | undefined,
 ): string {
-  const noProgress = goal.consecutiveNoProgress > 0
-    ? `, ${goal.consecutiveNoProgress}/${goal.blockCap} no-progress`
-    : '';
-  return `${CONTINUATION_PREAMBLE}${taskReminder
-    ? `\n\n${taskReminder}`
-    : ''}`
-    + `\n\nEvaluation: ${evaluation.reason}${evaluation.waiting ? ' (scheduled external-event re-check)' : ''}\n`
-    + `Goal: "${goal.condition}" (turn ${goal.iterations}/${goal.maxIterations}${noProgress})`;
+  const noProgress =
+    goal.consecutiveNoProgress > 0
+      ? `, ${goal.consecutiveNoProgress}/${goal.blockCap} no-progress`
+      : '';
+  return (
+    `${CONTINUATION_PREAMBLE}${taskReminder ? `\n\n${taskReminder}` : ''}` +
+    `\n\nEvaluation: ${evaluation.reason}${evaluation.waiting ? ' (scheduled external-event re-check)' : ''}\n` +
+    `Goal: "${goal.condition}" (turn ${goal.iterations}/${goal.maxIterations}${noProgress})`
+  );
 }
 
 function waitBackoffMs(consecutiveWaits: number): number {
   return Math.min(
     GOAL_WAIT_BACKOFF_MAX_MS,
-    GOAL_WAIT_BACKOFF_BASE_MS * (2 ** Math.max(0, consecutiveWaits - 1)),
+    GOAL_WAIT_BACKOFF_BASE_MS * 2 ** Math.max(0, consecutiveWaits - 1),
   );
 }
 

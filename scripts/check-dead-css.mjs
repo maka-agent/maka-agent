@@ -30,9 +30,7 @@ const BASELINE_PATH = resolve(REPO_ROOT, 'scripts', 'check-dead-css-baseline.jso
 
 const RENDERER_ROOT = resolve(REPO_ROOT, 'apps', 'desktop', 'src', 'renderer');
 const STYLES_DIR = resolve(RENDERER_ROOT, 'styles');
-const EXTRA_STYLE_FILES = [
-  resolve(RENDERER_ROOT, 'reference-shell.css'),
-];
+const EXTRA_STYLE_FILES = [resolve(RENDERER_ROOT, 'reference-shell.css')];
 const SOURCE_ROOTS = [
   resolve(REPO_ROOT, 'apps', 'desktop', 'src', 'renderer'),
   resolve(REPO_ROOT, 'packages', 'ui', 'src'),
@@ -108,23 +106,27 @@ const DYNAMIC_STYLE_HOOKS = new Set([
 
 async function readCssFiles(dir) {
   const entries = await readdir(dir, { withFileTypes: true });
-  const files = await Promise.all(entries.map(async (entry) => {
-    const path = join(dir, entry.name);
-    if (entry.isDirectory()) return readCssFiles(path);
-    if (!entry.name.endsWith('.css')) return [];
-    return [path];
-  }));
+  const files = await Promise.all(
+    entries.map(async (entry) => {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) return readCssFiles(path);
+      if (!entry.name.endsWith('.css')) return [];
+      return [path];
+    }),
+  );
   return files.flat();
 }
 
 async function readSourceFiles(dir) {
   const entries = await readdir(dir, { withFileTypes: true });
-  const files = await Promise.all(entries.map(async (entry) => {
-    const path = join(dir, entry.name);
-    if (entry.isDirectory()) return readSourceFiles(path);
-    if (!SOURCE_EXTENSIONS.has(path.slice(path.lastIndexOf('.')))) return [];
-    return [await readFile(path, 'utf8')];
-  }));
+  const files = await Promise.all(
+    entries.map(async (entry) => {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) return readSourceFiles(path);
+      if (!SOURCE_EXTENSIONS.has(path.slice(path.lastIndexOf('.')))) return [];
+      return [await readFile(path, 'utf8')];
+    }),
+  );
   return files.flat();
 }
 
@@ -212,9 +214,7 @@ async function main() {
       process.exit(1);
     }
 
-    console.log(
-      `check-dead-css: within baseline (${dead.length}/${maxDeadClassCount}) ✓`,
-    );
+    console.log(`check-dead-css: within baseline (${dead.length}/${maxDeadClassCount}) ✓`);
   }
 }
 

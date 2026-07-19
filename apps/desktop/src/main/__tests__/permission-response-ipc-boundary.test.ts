@@ -46,7 +46,7 @@ describe('permission response IPC boundary', () => {
 
   it('exposes the user-question response through preload and the renderer type boundary', async () => {
     const preload = await readFile(fileURLToPath(new URL('../../../src/preload/preload.ts', import.meta.url)), 'utf8');
-    const globalTypes = await readFile(fileURLToPath(new URL('../../../src/global.d.ts', import.meta.url)), 'utf8');
+    const globalTypes = await readFile(fileURLToPath(new URL('../../../src/preload/bridge-contract.d.ts', import.meta.url)), 'utf8');
 
     assert.match(preload, /respondToUserQuestion\(sessionId: string, response: UserQuestionResponse\)/);
     assert.match(preload, /ipcRenderer\.invoke\('sessions:respondToUserQuestion', sessionId, response\)/);
@@ -201,7 +201,7 @@ describe('permission response IPC boundary', () => {
     assert.match(stop[0], /await window\.maka\.sessions\.stop\(sessionId, \{ source: 'stop_button' \}\);/);
     assert.match(
       stop[0],
-      /catch \(error\)[\s\S]*?if \(activeIdRef\.current === sessionId\) toastApi\.error\('停止失败', generalizedErrorMessageChinese\(error, '会话操作失败，请稍后重试。'\)\);/,
+      /catch \(error\)[\s\S]*?if \(activeIdRef\.current === sessionId\) \{[\s\S]*?const copy = getDesktopConversationCopy\(uiLocale\)\.actions;[\s\S]*?toastApi\.error\(copy\.stopFailedTitle, localizedShellErrorMessage\(error, copy\.stopFailedFallback, uiLocale\)\);/,
       'stop failure feedback must not leak onto a different active session',
     );
     assert.doesNotMatch(
@@ -322,17 +322,17 @@ describe('permission response IPC boundary', () => {
       'model-connection-errors.ts',
     ]);
     const errorBranch = renderer.match(/case 'error':[\s\S]*?case 'abort':/)?.[0] ?? '';
-    const helper = renderer.match(/function sessionEventErrorMessage\(event: Extract<SessionEvent, \{ type: 'error' \}>\): string \{[\s\S]*?\n\}/)?.[0] ?? '';
+    const helper = renderer.match(/export function sessionEventErrorMessage\([\s\S]*?\n\}/)?.[0] ?? '';
 
     assert.match(
       helper,
-      /generalizedErrorMessageChinese\(new Error\(event\.message\), '对话运行失败，请稍后重试。'\)/,
+      /localizedShellErrorMessage\(new Error\(event\.message\), fallback, locale\)/,
       'active chat error toasts must classify/redact raw SessionEvent.error.message before visible feedback',
     );
 
     assert.match(
       errorBranch,
-      /setInteractionBySession[\s\S]*if \(activeIdRef\.current === sessionId\) \{[\s\S]*if \(isNoRealConnectionEvent\(event\)\) \{[\s\S]*const reason = noRealConnectionReasonFromEvent\(event\);[\s\S]*showModelSetupToast\(noRealConnectionSetupDescription\(reason\), reason\);[\s\S]*\} else \{[\s\S]*toastApi\.error\('对话出错', sessionEventErrorMessage\(event\)\);[\s\S]*\}[\s\S]*\}[\s\S]*refreshSessions\(\);[\s\S]*refreshMessages\(sessionId, terminalRefreshOptions\(before\)\);/,
+      /setInteractionBySession[\s\S]*if \(activeIdRef\.current === sessionId\) \{[\s\S]*if \(isNoRealConnectionEvent\(event\)\) \{[\s\S]*const reason = noRealConnectionReasonFromEvent\(event\);[\s\S]*showModelSetupToast\(noRealConnectionSetupDescription\(reason, uiLocale\), reason\);[\s\S]*\} else \{[\s\S]*toastApi\.error\(copy\.conversationErrorTitle, sessionEventErrorMessage\(event, uiLocale\)\);[\s\S]*\}[\s\S]*\}[\s\S]*refreshSessions\(\);[\s\S]*refreshMessages\(sessionId, terminalRefreshOptions\(before\)\);/,
       'background session error events may update stored state, but must not show toasts or open Settings on the active chat surface',
     );
     assert.doesNotMatch(errorBranch, /clearLiveTurn\(sessionId\)/, 'error must retain live evidence until refresh confirms handoff');
@@ -550,7 +550,7 @@ describe('permission response IPC boundary', () => {
     );
     assert.match(
       sendBlock,
-      /if \(!sendStillOwnsCurrentSurface\) return false;[\s\S]*if \(isNoRealConnectionError\(error\)\) \{[\s\S]*const reason = noRealConnectionReasonFromError\(error\);[\s\S]*showModelSetupToast\(noRealConnectionSetupDescription\(reason\), reason\);[\s\S]*\} else if \(isSessionWorkspaceUnavailableError\(error\)\)[\s\S]*else \{[\s\S]*toastApi\.error\(copy\.sendFailedTitle, localizedShellErrorMessage\(error, copy\.sendFailedFallback, uiLocale\)\)/,
+      /if \(!sendStillOwnsCurrentSurface\) return false;[\s\S]*if \(isNoRealConnectionError\(error\)\) \{[\s\S]*const reason = noRealConnectionReasonFromError\(error\);[\s\S]*showModelSetupToast\(noRealConnectionSetupDescription\(reason, uiLocale\), reason\);[\s\S]*\} else if \(isSessionWorkspaceUnavailableError\(error\)\)[\s\S]*else \{[\s\S]*toastApi\.error\(copy\.sendFailedTitle, localizedShellErrorMessage\(error, copy\.sendFailedFallback, uiLocale\)\)/,
       'both model-setup feedback and generic send-failure toast must be guarded by the active-session owner check',
     );
     assert.doesNotMatch(
@@ -565,7 +565,7 @@ describe('permission response IPC boundary', () => {
     );
     assert.match(
       renderer,
-      /function noRealConnectionSetupDescription\(reason: string \| undefined\): string \{[\s\S]*return describeChatConfigurationReason/,
+      /function noRealConnectionSetupDescription\(reason: string \| undefined, locale: UiLocale = 'zh'\): string \{[\s\S]*getDesktopConversationCopy\(locale\)\.model/,
       'model-setup send failures should use the shared reason-driven copy instead of backend exception text',
     );
     const modelSetupToast = renderer.match(/function showModelSetupToast\(description: string, reason\?: string\) \{[\s\S]*?\n  \}/)?.[0] ?? '';

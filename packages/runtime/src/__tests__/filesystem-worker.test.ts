@@ -26,15 +26,20 @@ describe('filesystem worker operations', () => {
     const bytes = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
     await writeFile(target, bytes);
 
-    const response = await executeFilesystemWorkerRequest(requestFor(
-      { kind: 'read', cwd: root, path: target, offset: 1, limit: 1 },
-      { enforcementPath: target, access: 'read', scope: 'exact', targetType: 'file' },
-    ));
+    const response = await executeFilesystemWorkerRequest(
+      requestFor(
+        { kind: 'read', cwd: root, path: target, offset: 1, limit: 1 },
+        { enforcementPath: target, access: 'read', scope: 'exact', targetType: 'file' },
+      ),
+    );
 
     assert.equal(response.ok, true);
-    if (response.ok) assert.deepEqual(response.result, {
-      kind: 'read_image', base64: Buffer.from(bytes).toString('base64'), mimeType: 'image/png',
-    });
+    if (response.ok)
+      assert.deepEqual(response.result, {
+        kind: 'read_image',
+        base64: Buffer.from(bytes).toString('base64'),
+        mimeType: 'image/png',
+      });
   });
 
   test('classifies symlinks by their canonical target', async () => {
@@ -49,19 +54,23 @@ describe('filesystem worker operations', () => {
     await symlink(image, imageLink);
     await symlink(text, textLink);
 
-    const imageResponse = await executeFilesystemWorkerRequest(requestFor(
-      { kind: 'read', cwd: root, path: imageLink },
-      { enforcementPath: image, access: 'read', scope: 'exact', targetType: 'file' },
-      image,
-    ));
+    const imageResponse = await executeFilesystemWorkerRequest(
+      requestFor(
+        { kind: 'read', cwd: root, path: imageLink },
+        { enforcementPath: image, access: 'read', scope: 'exact', targetType: 'file' },
+        image,
+      ),
+    );
     assert.equal(imageResponse.ok, true);
     if (imageResponse.ok) assert.equal(imageResponse.result.kind, 'read_image');
 
-    const textResponse = await executeFilesystemWorkerRequest(requestFor(
-      { kind: 'read', cwd: root, path: textLink },
-      { enforcementPath: text, access: 'read', scope: 'exact', targetType: 'file' },
-      text,
-    ));
+    const textResponse = await executeFilesystemWorkerRequest(
+      requestFor(
+        { kind: 'read', cwd: root, path: textLink },
+        { enforcementPath: text, access: 'read', scope: 'exact', targetType: 'file' },
+        text,
+      ),
+    );
     assert.equal(textResponse.ok, true);
     if (textResponse.ok) assert.deepEqual(textResponse.result, { kind: 'read', content: 'notes' });
   });
@@ -73,18 +82,22 @@ describe('filesystem worker operations', () => {
     const outsidePath = join(outside, 'outside.txt');
     await writeFile(insidePath, 'inside', 'utf8');
 
-    const readResponse = await executeFilesystemWorkerRequest(requestFor(
-      { kind: 'read', cwd: root, path: insidePath },
-      { enforcementPath: insidePath, access: 'read', scope: 'exact', targetType: 'file' },
-    ));
+    const readResponse = await executeFilesystemWorkerRequest(
+      requestFor(
+        { kind: 'read', cwd: root, path: insidePath },
+        { enforcementPath: insidePath, access: 'read', scope: 'exact', targetType: 'file' },
+      ),
+    );
     assert.equal(readResponse.ok, true);
     if (readResponse.ok) assert.deepEqual(readResponse.result, { kind: 'read', content: 'inside' });
 
-    const denied = await executeFilesystemWorkerRequest(requestFor(
-      { kind: 'write', cwd: root, path: outsidePath, content: 'blocked' },
-      { enforcementPath: outsidePath, access: 'write', scope: 'exact', targetType: 'missing' },
-      insidePath,
-    ));
+    const denied = await executeFilesystemWorkerRequest(
+      requestFor(
+        { kind: 'write', cwd: root, path: outsidePath, content: 'blocked' },
+        { enforcementPath: outsidePath, access: 'write', scope: 'exact', targetType: 'missing' },
+        insidePath,
+      ),
+    );
     assert.equal(denied.ok, false);
     if (!denied.ok) assert.equal(denied.error.code, 'path_denied');
     await assert.rejects(readFile(outsidePath, 'utf8'), { code: 'ENOENT' });
@@ -95,10 +108,12 @@ describe('filesystem worker operations', () => {
     const target = join(root, 'target');
     await mkdir(target);
 
-    const response = await executeFilesystemWorkerRequest(requestFor(
-      { kind: 'read', cwd: root, path: target },
-      { enforcementPath: target, access: 'read', scope: 'exact', targetType: 'file' },
-    ));
+    const response = await executeFilesystemWorkerRequest(
+      requestFor(
+        { kind: 'read', cwd: root, path: target },
+        { enforcementPath: target, access: 'read', scope: 'exact', targetType: 'file' },
+      ),
+    );
     assert.equal(response.ok, false);
     if (!response.ok) assert.equal(response.error.code, 'path_changed');
   });
@@ -113,11 +128,13 @@ describe('filesystem worker operations', () => {
     await writeFile(replacement, 'replacement', 'utf8');
     await symlink(replacement, link);
 
-    const response = await executeFilesystemWorkerRequest(requestFor(
-      { kind: 'read', cwd: root, path: link },
-      { enforcementPath: approved, access: 'read', scope: 'exact', targetType: 'file' },
-      approved,
-    ));
+    const response = await executeFilesystemWorkerRequest(
+      requestFor(
+        { kind: 'read', cwd: root, path: link },
+        { enforcementPath: approved, access: 'read', scope: 'exact', targetType: 'file' },
+        approved,
+      ),
+    );
     assert.equal(response.ok, false);
     if (!response.ok) assert.equal(response.error.code, 'path_changed');
   });
@@ -146,11 +163,13 @@ function requestFor(
 ): FilesystemWorkerRequest {
   const operationPermission: FilesystemWorkerRequest['operationPermission'] = {
     fileSystem: {
-      entries: [{
-        path: permissionPath,
-        access: expectedTarget.access,
-        scope: expectedTarget.scope,
-      }],
+      entries: [
+        {
+          path: permissionPath,
+          access: expectedTarget.access,
+          scope: expectedTarget.scope,
+        },
+      ],
     },
   };
   return {

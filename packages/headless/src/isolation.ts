@@ -9,6 +9,7 @@ import type {
   TaskIsolationFacts,
   ToolExecutorIdentity,
 } from './task-contracts.js';
+import type { HeadlessSessionCapabilities } from './session-capabilities.js';
 
 export interface IsolatedCommandInput {
   command: string;
@@ -96,7 +97,14 @@ export interface IsolatedGrepResult {
   matches: string[];
 }
 
-export const ISOLATED_HEADLESS_TOOL_NAMES = ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep'] as const;
+export const ISOLATED_HEADLESS_TOOL_NAMES = [
+  'Bash',
+  'Read',
+  'Write',
+  'Edit',
+  'Glob',
+  'Grep',
+] as const;
 
 /**
  * Executes agent-visible shell commands outside the host credential process.
@@ -108,7 +116,10 @@ export const ISOLATED_HEADLESS_TOOL_NAMES = ['Bash', 'Read', 'Write', 'Edit', 'G
  * model-backed backend is allowed.
  */
 export interface IsolatedToolExecutor {
-  exec(input: IsolatedCommandInput, control?: IsolatedToolExecutionControl): Promise<IsolatedCommandResult>;
+  exec(
+    input: IsolatedCommandInput,
+    control?: IsolatedToolExecutionControl,
+  ): Promise<IsolatedCommandResult>;
   /**
    * Shell dialect this executor's Bash commands run in, surfaced so
    * buildIsolatedBashTool can DECLARE it in the tool description. Selection
@@ -132,9 +143,18 @@ export interface IsolatedToolExecutor {
    * in the headless process, and writes bytes back through the executor. Both
    * hold regardless of which native ops an executor provides.
    */
-  writeFile?(input: IsolatedWriteFileInput, control?: IsolatedToolExecutionControl): Promise<IsolatedWriteFileResult>;
-  globFiles?(input: IsolatedGlobInput, control?: IsolatedToolExecutionControl): Promise<IsolatedGlobResult>;
-  grepFiles?(input: IsolatedGrepInput, control?: IsolatedToolExecutionControl): Promise<IsolatedGrepResult>;
+  writeFile?(
+    input: IsolatedWriteFileInput,
+    control?: IsolatedToolExecutionControl,
+  ): Promise<IsolatedWriteFileResult>;
+  globFiles?(
+    input: IsolatedGlobInput,
+    control?: IsolatedToolExecutionControl,
+  ): Promise<IsolatedGlobResult>;
+  grepFiles?(
+    input: IsolatedGrepInput,
+    control?: IsolatedToolExecutionControl,
+  ): Promise<IsolatedGrepResult>;
 }
 
 export interface ExternalRealBackendIsolation {
@@ -162,7 +182,7 @@ export interface ExternalRealBackendIsolation {
 
 export type RealBackendIsolation = ExternalRealBackendIsolation;
 
-export interface HeadlessBackendContext {
+export interface HeadlessBackendContext extends Partial<HeadlessSessionCapabilities> {
   config: Config;
   task: Task;
   /** Absolute throwaway workspace path for this run. */
@@ -191,14 +211,18 @@ export function validateRealBackendIsolation(isolation: RealBackendIsolation | u
     );
   }
   if (isolation.kind !== 'external') {
-    throw new Error(`unsupported real backend isolation kind: ${(isolation as { kind?: unknown }).kind}`);
+    throw new Error(
+      `unsupported real backend isolation kind: ${(isolation as { kind?: unknown }).kind}`,
+    );
   }
   if (typeof isolation.label !== 'string' || isolation.label.trim().length === 0) {
     throw new Error('realBackendIsolation.label is required');
   }
 }
 
-export function defaultEnvNetworkSecretPolicy(isolation: RealBackendIsolation | undefined): EnvNetworkSecretPolicy {
+export function defaultEnvNetworkSecretPolicy(
+  isolation: RealBackendIsolation | undefined,
+): EnvNetworkSecretPolicy {
   if (isolation) {
     return {
       schemaVersion: 1,

@@ -30,7 +30,11 @@ describe('prompt candidate loop', () => {
       const resultsJsonlPath = join(dir, 'results.jsonl');
       await writeFile(programPath, 'Improve the prompt conservatively.\n', 'utf8');
       await writeFile(systemPromptPath, 'original prompt\n', 'utf8');
-      await writeFile(resultsTsvPath, 'task_id\tpassed\ntask-a\tfalse\nheld-out-secret\ttrue\n', 'utf8');
+      await writeFile(
+        resultsTsvPath,
+        'task_id\tpassed\ntask-a\tfalse\nheld-out-secret\ttrue\n',
+        'utf8',
+      );
       const candidateRationale = validCandidateRationale({
         predictedFixes: ['task-a'],
         riskTasks: ['task-a'],
@@ -68,7 +72,10 @@ describe('prompt candidate loop', () => {
         ],
         metaAgent: async (input): Promise<MetaAgentPromptResult> => {
           seenInput = input;
-          return candidatePromptResult({ summary: 'tightened output instruction', candidateRationale });
+          return candidatePromptResult({
+            summary: 'tightened output instruction',
+            candidateRationale,
+          });
         },
         git: gitNoop(dir),
         now: () => 100,
@@ -79,12 +86,18 @@ describe('prompt candidate loop', () => {
       assert.equal(seenInput.program, 'Improve the prompt conservatively.\n');
       assert.equal(seenInput.resultsTsv, 'task_id\tpassed\ntask-a\tfalse\n');
       assert.equal(seenInput.currentSystemPrompt, 'original prompt\n');
-      assert.deepEqual(seenInput.heldInDigests.map((digest) => digest.taskId), ['task-a']);
+      assert.deepEqual(
+        seenInput.heldInDigests.map((digest) => digest.taskId),
+        ['task-a'],
+      );
       assert.equal(JSON.stringify(seenInput).includes('held-out-secret'), false);
       assert.equal(JSON.stringify(seenInput).includes('do not leak'), false);
       assert.equal(await readFile(systemPromptPath, 'utf8'), 'candidate prompt\n');
 
-      const events = (await readFile(resultsJsonlPath, 'utf8')).trimEnd().split('\n').map((line) => JSON.parse(line));
+      const events = (await readFile(resultsJsonlPath, 'utf8'))
+        .trimEnd()
+        .split('\n')
+        .map((line) => JSON.parse(line));
       assert.deepEqual(events, [
         {
           schemaVersion: 1,
@@ -122,7 +135,11 @@ describe('prompt candidate loop', () => {
       const resultsTsvPath = join(dir, 'results.tsv');
       await writeFile(programPath, 'Improve the prompt conservatively.\n', 'utf8');
       await writeFile(systemPromptPath, 'original prompt\n', 'utf8');
-      await writeFile(resultsTsvPath, 'task_id\tpassed\npassed-task\ttrue\nfailed-task\tfalse\nheld-out-secret\ttrue\n', 'utf8');
+      await writeFile(
+        resultsTsvPath,
+        'task_id\tpassed\npassed-task\ttrue\nfailed-task\tfalse\nheld-out-secret\ttrue\n',
+        'utf8',
+      );
 
       let seenInput: MetaAgentPromptInput | undefined;
       await runPromptCandidateRound({
@@ -158,8 +175,14 @@ describe('prompt candidate loop', () => {
       });
 
       assert.ok(seenInput);
-      assert.equal(seenInput.resultsTsv, 'task_id\tpassed\npassed-task\ttrue\nfailed-task\tfalse\n');
-      assert.deepEqual(seenInput.heldInDigests.map((digest) => digest.taskId), ['failed-task']);
+      assert.equal(
+        seenInput.resultsTsv,
+        'task_id\tpassed\npassed-task\ttrue\nfailed-task\tfalse\n',
+      );
+      assert.deepEqual(
+        seenInput.heldInDigests.map((digest) => digest.taskId),
+        ['failed-task'],
+      );
       assert.equal(JSON.stringify(seenInput).includes('held-out-secret'), false);
       assert.equal(JSON.stringify(seenInput).includes('do not leak'), false);
     });
@@ -176,7 +199,9 @@ describe('prompt candidate loop', () => {
 
       const unsafePromptAttribution = {
         candidateCommitSha: 'commit-secret',
-        predictedFixes: [{ taskId: 'task-a', outcome: 'improved', candidateCommitSha: 'nested-commit-secret' }],
+        predictedFixes: [
+          { taskId: 'task-a', outcome: 'improved', candidateCommitSha: 'nested-commit-secret' },
+        ],
         riskTasks: [{ taskId: 'task-a', outcome: 'safe', threshold: 'nested-threshold-secret' }],
         unexpectedHeldInFlips: [
           { taskId: 'task-a', from: 'fail', to: 'pass', heldOutMetric: 'nested-held-out-secret' },
@@ -197,7 +222,8 @@ describe('prompt candidate loop', () => {
         resultsJsonlPath: join(dir, 'results.jsonl'),
         heldInTaskIds: ['task-a'],
         heldInDigests: [{ taskId: 'task-a', summary: 'failed held-in task' }],
-        promptAttribution: unsafePromptAttribution as unknown as MetaAgentPromptInput['promptAttribution'],
+        promptAttribution:
+          unsafePromptAttribution as unknown as MetaAgentPromptInput['promptAttribution'],
         metaAgent: async (input): Promise<MetaAgentPromptResult> => {
           seenInput = input;
           return candidatePromptResult();
@@ -243,13 +269,17 @@ describe('prompt candidate loop', () => {
         {
           taskId: 'passed-task',
           summary: 'passed after retry',
-          toolFailures: [{ name: 'Write', count: 1, errorClass: 'Validation', argsPreview: 'path' }],
+          toolFailures: [
+            { name: 'Write', count: 1, errorClass: 'Validation', argsPreview: 'path' },
+          ],
         },
         {
           taskId: 'failed-task',
           errorClass: 'verification_failed',
           summary: 'failed verification',
-          toolFailures: [{ name: 'Bash', count: 1, errorClass: 'RuntimeError', argsPreview: 'command' }],
+          toolFailures: [
+            { name: 'Bash', count: 1, errorClass: 'RuntimeError', argsPreview: 'command' },
+          ],
         },
       ],
     });
@@ -281,7 +311,11 @@ describe('prompt candidate loop', () => {
           resultsJsonlPath: join(dir, 'results.jsonl'),
           heldInTaskIds: ['task-a'],
           heldInDigests: [{ taskId: 'task-a', summary: 'failed held-in task' }],
-          metaAgent: async () => ({ systemPrompt: 'candidate prompt\n', summary: 'changed prompt' } as MetaAgentPromptResult),
+          metaAgent: async () =>
+            ({
+              systemPrompt: 'candidate prompt\n',
+              summary: 'changed prompt',
+            }) as MetaAgentPromptResult,
           git: {
             ...gitNoop(dir),
             commit: async () => {
@@ -320,9 +354,10 @@ describe('prompt candidate loop', () => {
           resultsJsonlPath: join(dir, 'results.jsonl'),
           heldInTaskIds: ['task-a'],
           heldInDigests: [{ taskId: 'task-a', summary: 'failed held-in task' }],
-          metaAgent: async () => candidatePromptResult({
-            candidateRationale: validCandidateRationale({ failurePattern: 'held_out_regressed' }),
-          }),
+          metaAgent: async () =>
+            candidatePromptResult({
+              candidateRationale: validCandidateRationale({ failurePattern: 'held_out_regressed' }),
+            }),
           git: gitNoop(dir),
           now: () => 100,
           newId: idFactory(),
@@ -354,9 +389,10 @@ describe('prompt candidate loop', () => {
           resultsJsonlPath: join(dir, 'results.jsonl'),
           heldInTaskIds: ['task-a'],
           heldInDigests: [{ taskId: 'task-a', summary: 'failed held-in task' }],
-          metaAgent: async () => candidatePromptResult({
-            candidateRationale: validCandidateRationale({ predictedFixes: ['held-out-secret'] }),
-          }),
+          metaAgent: async () =>
+            candidatePromptResult({
+              candidateRationale: validCandidateRationale({ predictedFixes: ['held-out-secret'] }),
+            }),
           git: gitNoop(dir),
           now: () => 100,
           newId: idFactory(),
@@ -409,12 +445,13 @@ describe('prompt candidate loop', () => {
             toolFailureClusters: [],
             signals: [{ id: 'rsi-sig:known', kind: 'coverage_regression', taskIds: ['task-a'] }],
           },
-          metaAgent: async () => candidatePromptResult({
-            candidateRationale: validCandidateRationale({
-              evidenceRefs: ['rsi-sig:unknown'],
-              failurePattern: undefined,
+          metaAgent: async () =>
+            candidatePromptResult({
+              candidateRationale: validCandidateRationale({
+                evidenceRefs: ['rsi-sig:unknown'],
+                failurePattern: undefined,
+              }),
             }),
-          }),
           git: gitNoop(dir),
           now: () => 100,
           newId: idFactory(),
@@ -462,9 +499,10 @@ describe('prompt candidate loop', () => {
             toolFailureClusters: [],
             signals: [{ id: 'rsi-sig:known', kind: 'coverage_regression', taskIds: ['task-a'] }],
           },
-          metaAgent: async () => candidatePromptResult({
-            candidateRationale: validCandidateRationale({ evidenceRefs: [] }),
-          }),
+          metaAgent: async () =>
+            candidatePromptResult({
+              candidateRationale: validCandidateRationale({ evidenceRefs: [] }),
+            }),
         }),
         /candidateRationale.evidenceRefs must cite at least one current analysis signal/,
       );
@@ -481,12 +519,13 @@ describe('prompt candidate loop', () => {
           toolFailureClusters: [],
           signals: [{ id: 'rsi-sig:known', kind: 'coverage_regression', taskIds: ['task-a'] }],
         },
-        metaAgent: async () => candidatePromptResult({
-          candidateRationale: validCandidateRationale({
-            evidenceRefs: ['rsi-sig:known'],
-            failurePattern: undefined,
+        metaAgent: async () =>
+          candidatePromptResult({
+            candidateRationale: validCandidateRationale({
+              evidenceRefs: ['rsi-sig:known'],
+              failurePattern: undefined,
+            }),
           }),
-        }),
       });
 
       await assert.rejects(
@@ -502,9 +541,10 @@ describe('prompt candidate loop', () => {
             toolFailureClusters: [],
             signals: [{ id: 'rsi-sig:known', kind: 'coverage_regression', taskIds: ['task-a'] }],
           },
-          metaAgent: async () => candidatePromptResult({
-            candidateRationale: validCandidateRationale({ evidenceRefs: ['rsi-sig:known'] }),
-          }),
+          metaAgent: async () =>
+            candidatePromptResult({
+              candidateRationale: validCandidateRationale({ evidenceRefs: ['rsi-sig:known'] }),
+            }),
         }),
         /candidateRationale.failurePattern must be omitted when evidenceRefs cites current analysis/,
       );
@@ -521,21 +561,23 @@ describe('prompt candidate loop', () => {
           toolFailureClusters: [],
           signals: [],
         },
-        metaAgent: async () => candidatePromptResult({
-          candidateRationale: validCandidateRationale({ evidenceRefs: [] }),
-        }),
+        metaAgent: async () =>
+          candidatePromptResult({
+            candidateRationale: validCandidateRationale({ evidenceRefs: [] }),
+          }),
       });
 
       await assert.rejects(
         runPromptCandidateRound({
           ...baseInput,
           resultsJsonlPath: join(dir, 'missing-fallback.jsonl'),
-          metaAgent: async () => candidatePromptResult({
-            candidateRationale: validCandidateRationale({
-              evidenceRefs: [],
-              failurePattern: undefined,
+          metaAgent: async () =>
+            candidatePromptResult({
+              candidateRationale: validCandidateRationale({
+                evidenceRefs: [],
+                failurePattern: undefined,
+              }),
             }),
-          }),
         }),
         /candidateRationale.failurePattern fallback is required when evidenceRefs is empty/,
       );
@@ -714,7 +756,11 @@ describe('prompt candidate loop', () => {
       const sharedNotePath = join(sharedDir, 'note.md');
       await writeFile(programPath, 'Improve the prompt conservatively.\n', 'utf8');
       await writeFile(systemPromptPath, 'original prompt\n', 'utf8');
-      await writeFile(resultsTsvPath, 'task_id\tpassed\ntask-a\tfalse\nheld-out-task\ttrue\n', 'utf8');
+      await writeFile(
+        resultsTsvPath,
+        'task_id\tpassed\ntask-a\tfalse\nheld-out-task\ttrue\n',
+        'utf8',
+      );
       await writeFile(heldOutEventsPath, '', 'utf8');
       await writeFile(sharedNotePath, 'unrelated shared note\n', 'utf8');
       await symlink(sharedNotePath, join(agentDir, 'shared-note.md'));
@@ -743,7 +789,10 @@ describe('prompt candidate loop', () => {
       assert.equal(result.commitSha, 'commit-1');
       assert.equal(seenInput?.resultsTsv, 'task_id\tpassed\ntask-a\tfalse\n');
       assert.equal(await readFile(systemPromptPath, 'utf8'), 'candidate prompt\n');
-      const events = (await readFile(resultsJsonlPath, 'utf8')).trimEnd().split('\n').map((line) => JSON.parse(line));
+      const events = (await readFile(resultsJsonlPath, 'utf8'))
+        .trimEnd()
+        .split('\n')
+        .map((line) => JSON.parse(line));
       assert.equal(events[0]?.type, 'prompt_candidate_committed');
     });
   });
@@ -1183,12 +1232,21 @@ describe('prompt candidate loop', () => {
   test('extracts a bounded digest from raw runtime events', async () => {
     await withDir(async (dir) => {
       const runtimeEventsPath = join(dir, 'runtime-events.jsonl');
-      await writeFile(runtimeEventsPath, [
-        JSON.stringify(runtimeEvent('call-1', 'Read', { path: '/app/first.txt' })),
-        JSON.stringify(runtimeEvent('call-2', 'Bash', { command: 'pytest -q' })),
-        JSON.stringify(runtimeEvent('call-3', 'Write', { path: '/app/out.txt', content: 'long raw content that should not appear' })),
-        '',
-      ].join('\n'), 'utf8');
+      await writeFile(
+        runtimeEventsPath,
+        [
+          JSON.stringify(runtimeEvent('call-1', 'Read', { path: '/app/first.txt' })),
+          JSON.stringify(runtimeEvent('call-2', 'Bash', { command: 'pytest -q' })),
+          JSON.stringify(
+            runtimeEvent('call-3', 'Write', {
+              path: '/app/out.txt',
+              content: 'long raw content that should not appear',
+            }),
+          ),
+          '',
+        ].join('\n'),
+        'utf8',
+      );
 
       const digest = await extractTrajectoryDigest({
         taskId: 'task-a',
@@ -1214,17 +1272,37 @@ describe('prompt candidate loop', () => {
     await withDir(async (dir) => {
       const runtimeEventsPath = join(dir, 'runtime-events.jsonl');
       const traceEventsPath = join(dir, 'events.jsonl');
-      await writeFile(runtimeEventsPath, [
-        JSON.stringify(runtimeEvent('call-1', 'Bash', { command: 'pytest -q' })),
-        JSON.stringify(runtimeEvent('call-2', 'Edit', { file: '/app/main.py', old_string: 'x', new_string: 'y' })),
-        '',
-      ].join('\n'), 'utf8');
-      await writeFile(traceEventsPath, [
-        JSON.stringify(traceToolFailedEvent('call-1', 'Bash', 'Tool execution failed', 'RuntimeError')),
-        JSON.stringify(traceToolFailedEvent('call-2', 'Edit', 'Tool execution failed', 'Validation')),
-        JSON.stringify(traceToolFailedEvent('call-2', 'Edit', 'Tool execution failed', 'Validation')),
-        '',
-      ].join('\n'), 'utf8');
+      await writeFile(
+        runtimeEventsPath,
+        [
+          JSON.stringify(runtimeEvent('call-1', 'Bash', { command: 'pytest -q' })),
+          JSON.stringify(
+            runtimeEvent('call-2', 'Edit', {
+              file: '/app/main.py',
+              old_string: 'x',
+              new_string: 'y',
+            }),
+          ),
+          '',
+        ].join('\n'),
+        'utf8',
+      );
+      await writeFile(
+        traceEventsPath,
+        [
+          JSON.stringify(
+            traceToolFailedEvent('call-1', 'Bash', 'Tool execution failed', 'RuntimeError'),
+          ),
+          JSON.stringify(
+            traceToolFailedEvent('call-2', 'Edit', 'Tool execution failed', 'Validation'),
+          ),
+          JSON.stringify(
+            traceToolFailedEvent('call-2', 'Edit', 'Tool execution failed', 'Validation'),
+          ),
+          '',
+        ].join('\n'),
+        'utf8',
+      );
 
       const digest = await extractTrajectoryDigest({
         taskId: 'task-a',
@@ -1235,7 +1313,12 @@ describe('prompt candidate loop', () => {
       });
 
       assert.deepEqual(digest.toolFailures, [
-        { name: 'Edit', count: 2, errorClass: 'Validation', argsPreview: 'file,new_string,old_string' },
+        {
+          name: 'Edit',
+          count: 2,
+          errorClass: 'Validation',
+          argsPreview: 'file,new_string,old_string',
+        },
         { name: 'Bash', count: 1, errorClass: 'RuntimeError', argsPreview: 'command' },
       ]);
 
@@ -1276,7 +1359,13 @@ describe('prompt candidate loop', () => {
         coverageRegressionTaskIds: [],
         errorClassDistribution: [{ errorClass: 'verification_failed', count: 1 }],
         toolFailureClusters: [
-          { name: 'Write', errorClass: 'Validation', argsPreview: 'path', count: 1, taskIds: ['task-a'] },
+          {
+            name: 'Write',
+            errorClass: 'Validation',
+            argsPreview: 'path',
+            count: 1,
+            taskIds: ['task-a'],
+          },
         ],
         signals: [
           {
@@ -1290,7 +1379,10 @@ describe('prompt candidate loop', () => {
       },
     });
 
-    assert.match(prompt, /Prefer pass\/fail transitions and verifier failure summaries over tool_failure_cluster/);
+    assert.match(
+      prompt,
+      /Prefer pass\/fail transitions and verifier failure summaries over tool_failure_cluster/,
+    );
     assert.match(prompt, /Treat tool_failure_cluster as root cause only when it is unrecovered/);
   });
 
@@ -1298,21 +1390,33 @@ describe('prompt candidate loop', () => {
     await withDir(async (dir) => {
       const runtimeEventsPath = join(dir, 'runtime-events.jsonl');
       const traceEventsPath = join(dir, 'events.jsonl');
-      await writeFile(runtimeEventsPath, [
-        JSON.stringify(runtimeEvent('call-1', 'Bash', {
-          'EXPECTED_SECRET\n# injected': 'value',
-        })),
-        '',
-      ].join('\n'), 'utf8');
-      await writeFile(traceEventsPath, [
-        JSON.stringify(traceToolFailedEvent(
-          'call-1',
-          'BadTool\n# injected EXPECTED_SECRET',
-          'Tool execution failed',
-          'RuntimeError\nEXPECTED_SECRET',
-        )),
-        '',
-      ].join('\n'), 'utf8');
+      await writeFile(
+        runtimeEventsPath,
+        [
+          JSON.stringify(
+            runtimeEvent('call-1', 'Bash', {
+              'EXPECTED_SECRET\n# injected': 'value',
+            }),
+          ),
+          '',
+        ].join('\n'),
+        'utf8',
+      );
+      await writeFile(
+        traceEventsPath,
+        [
+          JSON.stringify(
+            traceToolFailedEvent(
+              'call-1',
+              'BadTool\n# injected EXPECTED_SECRET',
+              'Tool execution failed',
+              'RuntimeError\nEXPECTED_SECRET',
+            ),
+          ),
+          '',
+        ].join('\n'),
+        'utf8',
+      );
 
       const digest = await extractTrajectoryDigest({
         taskId: 'task-a',
@@ -1338,10 +1442,11 @@ describe('prompt candidate loop', () => {
   test('keeps trajectory digest usable when optional trace events are unavailable', async () => {
     await withDir(async (dir) => {
       const runtimeEventsPath = join(dir, 'runtime-events.jsonl');
-      await writeFile(runtimeEventsPath, [
-        JSON.stringify(runtimeEvent('call-1', 'Bash', { command: 'pytest -q' })),
-        '',
-      ].join('\n'), 'utf8');
+      await writeFile(
+        runtimeEventsPath,
+        [JSON.stringify(runtimeEvent('call-1', 'Bash', { command: 'pytest -q' })), ''].join('\n'),
+        'utf8',
+      );
 
       const digest = await extractTrajectoryDigest({
         taskId: 'task-a',
@@ -1364,10 +1469,11 @@ describe('prompt candidate loop', () => {
     await withDir(async (dir) => {
       const runtimeEventsPath = join(dir, 'runtime-events.jsonl');
       const traceEventsPath = join(dir, 'events.jsonl');
-      await writeFile(runtimeEventsPath, [
-        JSON.stringify(runtimeEvent('call-1', 'Bash', { command: 'pytest -q' })),
-        '',
-      ].join('\n'), 'utf8');
+      await writeFile(
+        runtimeEventsPath,
+        [JSON.stringify(runtimeEvent('call-1', 'Bash', { command: 'pytest -q' })), ''].join('\n'),
+        'utf8',
+      );
       await writeFile(traceEventsPath, '{"type":"tool_failed"\n', 'utf8');
 
       await assert.rejects(
@@ -1385,10 +1491,16 @@ describe('prompt candidate loop', () => {
   test('quarantines function calls containing verifier expected output', async () => {
     await withDir(async (dir) => {
       const runtimeEventsPath = join(dir, 'runtime-events.jsonl');
-      await writeFile(runtimeEventsPath, [
-        JSON.stringify(runtimeEvent('call-1', 'Bash', { command: 'echo EXPECTED_SECRET > /tmp/out' })),
-        '',
-      ].join('\n'), 'utf8');
+      await writeFile(
+        runtimeEventsPath,
+        [
+          JSON.stringify(
+            runtimeEvent('call-1', 'Bash', { command: 'echo EXPECTED_SECRET > /tmp/out' }),
+          ),
+          '',
+        ].join('\n'),
+        'utf8',
+      );
 
       const result = await scanRuntimeEventsForRewardHack({
         runtimeEventsPath,
@@ -1406,12 +1518,18 @@ describe('prompt candidate loop', () => {
   test('quarantines model-visible tool results containing verifier expected output', async () => {
     await withDir(async (dir) => {
       const runtimeEventsPath = join(dir, 'runtime-events.jsonl');
-      await writeFile(runtimeEventsPath, [
-        JSON.stringify(functionResponseRuntimeEvent('call-1', 'Bash', {
-          stdout: 'EXPECTED_SECRET\n',
-        })),
-        '',
-      ].join('\n'), 'utf8');
+      await writeFile(
+        runtimeEventsPath,
+        [
+          JSON.stringify(
+            functionResponseRuntimeEvent('call-1', 'Bash', {
+              stdout: 'EXPECTED_SECRET\n',
+            }),
+          ),
+          '',
+        ].join('\n'),
+        'utf8',
+      );
 
       const result = await scanRuntimeEventsForRewardHack({
         runtimeEventsPath,
@@ -1429,10 +1547,13 @@ describe('prompt candidate loop', () => {
   test('quarantines model-visible text containing verifier expected output', async () => {
     await withDir(async (dir) => {
       const runtimeEventsPath = join(dir, 'runtime-events.jsonl');
-      await writeFile(runtimeEventsPath, [
-        JSON.stringify(textRuntimeEvent('The expected answer is EXPECTED_SECRET.')),
-        '',
-      ].join('\n'), 'utf8');
+      await writeFile(
+        runtimeEventsPath,
+        [JSON.stringify(textRuntimeEvent('The expected answer is EXPECTED_SECRET.')), ''].join(
+          '\n',
+        ),
+        'utf8',
+      );
 
       const result = await scanRuntimeEventsForRewardHack({
         runtimeEventsPath,
@@ -1450,10 +1571,14 @@ describe('prompt candidate loop', () => {
   test('quarantines replayed thinking containing verifier expected output', async () => {
     await withDir(async (dir) => {
       const runtimeEventsPath = join(dir, 'runtime-events.jsonl');
-      await writeFile(runtimeEventsPath, [
-        JSON.stringify(thinkingRuntimeEvent('Remember EXPECTED_SECRET for the next answer.')),
-        '',
-      ].join('\n'), 'utf8');
+      await writeFile(
+        runtimeEventsPath,
+        [
+          JSON.stringify(thinkingRuntimeEvent('Remember EXPECTED_SECRET for the next answer.')),
+          '',
+        ].join('\n'),
+        'utf8',
+      );
 
       const result = await scanRuntimeEventsForRewardHack({
         runtimeEventsPath,
@@ -1471,12 +1596,18 @@ describe('prompt candidate loop', () => {
   test('quarantines model-visible errors containing verifier expected output', async () => {
     await withDir(async (dir) => {
       const runtimeEventsPath = join(dir, 'runtime-events.jsonl');
-      await writeFile(runtimeEventsPath, [
-        JSON.stringify(errorRuntimeEvent('Tool error mentioned EXPECTED_SECRET.', {
-          stdout: 'EXPECTED_SECRET',
-        })),
-        '',
-      ].join('\n'), 'utf8');
+      await writeFile(
+        runtimeEventsPath,
+        [
+          JSON.stringify(
+            errorRuntimeEvent('Tool error mentioned EXPECTED_SECRET.', {
+              stdout: 'EXPECTED_SECRET',
+            }),
+          ),
+          '',
+        ].join('\n'),
+        'utf8',
+      );
 
       const result = await scanRuntimeEventsForRewardHack({
         runtimeEventsPath,
@@ -1525,10 +1656,11 @@ describe('prompt candidate loop', () => {
   test('quarantines when verifier patterns are empty', async () => {
     await withDir(async (dir) => {
       const runtimeEventsPath = join(dir, 'runtime-events.jsonl');
-      await writeFile(runtimeEventsPath, [
-        JSON.stringify(runtimeEvent('call-1', 'Bash', { command: 'echo hello' })),
-        '',
-      ].join('\n'), 'utf8');
+      await writeFile(
+        runtimeEventsPath,
+        [JSON.stringify(runtimeEvent('call-1', 'Bash', { command: 'echo hello' })), ''].join('\n'),
+        'utf8',
+      );
 
       const result = await scanRuntimeEventsForRewardHack({
         runtimeEventsPath,
@@ -1545,10 +1677,13 @@ describe('prompt candidate loop', () => {
   test('quarantines when runtime events contain no model-visible content', async () => {
     await withDir(async (dir) => {
       const runtimeEventsPath = join(dir, 'runtime-events.jsonl');
-      await writeFile(runtimeEventsPath, [
-        JSON.stringify({ id: 'event-1', content: { kind: 'metrics', costUsd: 0.01 } }),
-        '',
-      ].join('\n'), 'utf8');
+      await writeFile(
+        runtimeEventsPath,
+        [JSON.stringify({ id: 'event-1', content: { kind: 'metrics', costUsd: 0.01 } }), ''].join(
+          '\n',
+        ),
+        'utf8',
+      );
 
       const result = await scanRuntimeEventsForRewardHack({
         runtimeEventsPath,
@@ -1565,10 +1700,14 @@ describe('prompt candidate loop', () => {
   test('keeps clean function calls that only reference verifier filenames', async () => {
     await withDir(async (dir) => {
       const runtimeEventsPath = join(dir, 'runtime-events.jsonl');
-      await writeFile(runtimeEventsPath, [
-        JSON.stringify(runtimeEvent('call-1', 'Bash', { command: 'cat tests/test_outputs.py' })),
-        '',
-      ].join('\n'), 'utf8');
+      await writeFile(
+        runtimeEventsPath,
+        [
+          JSON.stringify(runtimeEvent('call-1', 'Bash', { command: 'cat tests/test_outputs.py' })),
+          '',
+        ].join('\n'),
+        'utf8',
+      );
 
       const result = await scanRuntimeEventsForRewardHack({
         runtimeEventsPath,
@@ -1645,9 +1784,11 @@ describe('prompt candidate loop', () => {
       complete: async ({ prompt }) => {
         prompts.push(prompt);
         if (prompts.length === 1) {
-          return JSON.stringify(candidatePromptResult({
-            candidateRationale: validCandidateRationale({ evidenceRefs: 'rsi-sig:not-an-array' }),
-          }));
+          return JSON.stringify(
+            candidatePromptResult({
+              candidateRationale: validCandidateRationale({ evidenceRefs: 'rsi-sig:not-an-array' }),
+            }),
+          );
         }
         return JSON.stringify(expected);
       },
@@ -1721,11 +1862,23 @@ describe('prompt candidate loop', () => {
       });
 
       const subject = await execFileAsync('git', ['log', '-1', '--format=%s'], { cwd: dir });
-      const committedFiles = await execFileAsync('git', ['show', '--name-only', '--format=', 'HEAD'], { cwd: dir });
-      const stagedFiles = await execFileAsync('git', ['diff', '--cached', '--name-only'], { cwd: dir });
-      const status = await execFileAsync('git', ['status', '--porcelain', '--untracked-files=all'], { cwd: dir });
+      const committedFiles = await execFileAsync(
+        'git',
+        ['show', '--name-only', '--format=', 'HEAD'],
+        { cwd: dir },
+      );
+      const stagedFiles = await execFileAsync('git', ['diff', '--cached', '--name-only'], {
+        cwd: dir,
+      });
+      const status = await execFileAsync(
+        'git',
+        ['status', '--porcelain', '--untracked-files=all'],
+        { cwd: dir },
+      );
       assert.equal(subject.stdout.trim(), 'candidate prompt round-1');
-      assert.deepEqual(committedFiles.stdout.trim().split('\n').filter(Boolean), ['system_prompt.md']);
+      assert.deepEqual(committedFiles.stdout.trim().split('\n').filter(Boolean), [
+        'system_prompt.md',
+      ]);
       assert.deepEqual(stagedFiles.stdout.trim().split('\n').filter(Boolean), ['notes.md']);
       assert.match(status.stdout, /^A  notes\.md$/m);
       assert.match(status.stdout, /^\?\? scratch\.tmp$/m);
@@ -1902,7 +2055,9 @@ describe('prompt candidate loop', () => {
         /candidate round HEAD moved before prompt commit/,
       );
 
-      const subjects = await execFileAsync('git', ['log', '--format=%s', '--max-count=2'], { cwd: dir });
+      const subjects = await execFileAsync('git', ['log', '--format=%s', '--max-count=2'], {
+        cwd: dir,
+      });
       assert.deepEqual(subjects.stdout.trim().split('\n'), ['side edit', 'initial']);
       assert.equal(await readFile(systemPromptPath, 'utf8'), 'original prompt\n');
     });
@@ -1943,7 +2098,9 @@ describe('prompt candidate loop', () => {
       );
 
       const subject = await execFileAsync('git', ['log', '-1', '--format=%s'], { cwd: dir });
-      const cached = await execFileAsync('git', ['diff', '--cached', '--', 'system_prompt.md'], { cwd: dir });
+      const cached = await execFileAsync('git', ['diff', '--cached', '--', 'system_prompt.md'], {
+        cwd: dir,
+      });
       const worktree = await execFileAsync('git', ['diff', '--', 'system_prompt.md'], { cwd: dir });
       assert.equal(subject.stdout.trim(), 'initial');
       assert.equal(await readFile(systemPromptPath, 'utf8'), 'original prompt\n');
@@ -2060,7 +2217,9 @@ describe('prompt candidate loop', () => {
         }),
       );
 
-      const cached = await execFileAsync('git', ['diff', '--cached', '--', 'system_prompt.md'], { cwd: dir });
+      const cached = await execFileAsync('git', ['diff', '--cached', '--', 'system_prompt.md'], {
+        cwd: dir,
+      });
       const worktree = await execFileAsync('git', ['diff', '--', 'system_prompt.md'], { cwd: dir });
       assert.equal(await readFile(systemPromptPath, 'utf8'), 'original prompt\n');
       assert.equal(cached.stdout, '');
@@ -2154,15 +2313,18 @@ describe('prompt candidate loop', () => {
   });
 });
 
-function candidatePromptResult(input: {
-  systemPrompt?: string;
-  summary?: string;
-  candidateRationale?: Record<string, unknown>;
-} = {}): MetaAgentPromptResult {
+function candidatePromptResult(
+  input: {
+    systemPrompt?: string;
+    summary?: string;
+    candidateRationale?: Record<string, unknown>;
+  } = {},
+): MetaAgentPromptResult {
   return {
     systemPrompt: input.systemPrompt ?? 'candidate prompt\n',
     summary: input.summary ?? 'changed prompt',
-    candidateRationale: (input.candidateRationale ?? validCandidateRationale()) as unknown as CandidateRationale,
+    candidateRationale: (input.candidateRationale ??
+      validCandidateRationale()) as unknown as CandidateRationale,
   };
 }
 
@@ -2214,7 +2376,9 @@ async function assertRejectsCandidateRationale(
   });
 }
 
-async function runCandidateRoundHeldInTaskSetHash(heldInTaskIds: readonly string[]): Promise<string> {
+async function runCandidateRoundHeldInTaskSetHash(
+  heldInTaskIds: readonly string[],
+): Promise<string> {
   let heldInTaskSetHash = '';
   await withDir(async (dir) => {
     const programPath = join(dir, 'program.md');
@@ -2241,7 +2405,10 @@ async function runCandidateRoundHeldInTaskSetHash(heldInTaskIds: readonly string
       newId: idFactory(),
     });
 
-    const [event] = (await readFile(resultsJsonlPath, 'utf8')).trimEnd().split('\n').map((line) => JSON.parse(line));
+    const [event] = (await readFile(resultsJsonlPath, 'utf8'))
+      .trimEnd()
+      .split('\n')
+      .map((line) => JSON.parse(line));
     heldInTaskSetHash = event.heldInTaskSetHash;
   });
   return heldInTaskSetHash;
@@ -2291,7 +2458,12 @@ function runtimeEvent(id: string, name: string, args: unknown) {
   };
 }
 
-function traceToolFailedEvent(toolUseId: string, toolName: string, message: string, errorClass: string) {
+function traceToolFailedEvent(
+  toolUseId: string,
+  toolName: string,
+  message: string,
+  errorClass: string,
+) {
   return {
     id: `trace-${toolUseId}-${errorClass}`,
     runId: 'run-1',

@@ -62,26 +62,41 @@ describe('isolatedToolExecutorToWorkspaceExecutor', () => {
       },
     };
     const executor = isolatedToolExecutorToWorkspaceExecutor(isolated);
-    const unsafeExecutor = executor as unknown as Pick<WorkspaceExecutor, 'exec' | 'globFiles' | 'grepFiles'>;
+    const unsafeExecutor = executor as unknown as Pick<
+      WorkspaceExecutor,
+      'exec' | 'globFiles' | 'grepFiles'
+    >;
 
-    await assert.rejects(() => unsafeExecutor.exec({
-      command: 'npm test',
-      cwd: '/workspace',
-      timeoutMs: 12_000,
-    }), /does not adapt Bash/);
-    await assert.rejects(() => unsafeExecutor.globFiles({
-      cwd: '/workspace',
-      pattern: '**/*.ts',
-      limit: 200,
-    }), /does not adapt Glob/);
-    await assert.rejects(() => unsafeExecutor.grepFiles({
-      cwd: '/workspace',
-      pattern: 'token',
-      path: 'src',
-      maxCountPerFile: 50,
-      limit: 200,
-      timeoutMs: 12_000,
-    }), /does not adapt Grep/);
+    await assert.rejects(
+      () =>
+        unsafeExecutor.exec({
+          command: 'npm test',
+          cwd: '/workspace',
+          timeoutMs: 12_000,
+        }),
+      /does not adapt Bash/,
+    );
+    await assert.rejects(
+      () =>
+        unsafeExecutor.globFiles({
+          cwd: '/workspace',
+          pattern: '**/*.ts',
+          limit: 200,
+        }),
+      /does not adapt Glob/,
+    );
+    await assert.rejects(
+      () =>
+        unsafeExecutor.grepFiles({
+          cwd: '/workspace',
+          pattern: 'token',
+          path: 'src',
+          maxCountPerFile: 50,
+          limit: 200,
+          timeoutMs: 12_000,
+        }),
+      /does not adapt Grep/,
+    );
     assert.deepEqual(calls, []);
   });
 
@@ -98,11 +113,14 @@ describe('isolatedToolExecutorToWorkspaceExecutor', () => {
     };
     const executor = isolatedToolExecutorToWorkspaceExecutor(isolated);
 
-    assert.deepEqual(await executor.writeFile({ cwd: '/workspace', path: 'out.txt', content: 'hello' }), {
-      ok: true,
-      path: 'out.txt',
-      bytes: 5,
-    });
+    assert.deepEqual(
+      await executor.writeFile({ cwd: '/workspace', path: 'out.txt', content: 'hello' }),
+      {
+        ok: true,
+        path: 'out.txt',
+        bytes: 5,
+      },
+    );
     assert.deepEqual(calls, [
       { kind: 'write', input: { cwd: '/workspace', path: 'out.txt', content: 'hello' } },
     ]);
