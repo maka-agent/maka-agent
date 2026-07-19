@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import { applyAssistantComplete, getDailyReviewCopy, getPlanReminderCopy, getSharedUiCopy, getSkillsCopy, modelMenuGroups } from '@maka/ui';
+import { getOpenGatewaySettingsCopy } from '../../renderer/locales/settings-open-gateway-copy.js';
 import {
   findInlineCjkLiterals,
   findSilentCatalogFallbacks,
@@ -42,6 +43,14 @@ const PR4_SHARED_UI_CATALOG_FILES = [
   'packages/ui/src/skills-copy.ts',
 ] as const;
 
+const PR4_DESKTOP_PRESENTATION_FILES = [
+  'apps/desktop/src/renderer/settings/open-gateway-settings-page.tsx',
+] as const;
+
+const PR4_DESKTOP_CATALOG_FILES = [
+  'apps/desktop/src/renderer/locales/settings-open-gateway-copy.ts',
+] as const;
+
 function repoSource(file: string): string {
   return readFileSync(resolve(REPO_ROOT, file), 'utf8');
 }
@@ -70,6 +79,28 @@ describe('PR4 remaining shared UI copy contract', () => {
 
   it('does not silently fall English copy back to Chinese', () => {
     const violations = PR4_SHARED_UI_CATALOG_FILES.flatMap((file) =>
+      findSilentCatalogFallbacks(repoSource(file), file),
+    );
+    assert.equal(violations.length, 0, formatSourceViolations(violations));
+  });
+});
+
+describe('PR4 remaining desktop copy contract', () => {
+  it('selects complete independent copy for both locales', () => {
+    assert.equal(getOpenGatewaySettingsCopy('zh').summary.status, '状态');
+    assert.equal(getOpenGatewaySettingsCopy('en').summary.status, 'Status');
+    assert.equal(getOpenGatewaySettingsCopy('en').endpoints.health.title, 'Health check');
+  });
+
+  it('contains no inline user-visible Chinese in migrated desktop owners', () => {
+    const violations = PR4_DESKTOP_PRESENTATION_FILES.flatMap((file) =>
+      findInlineCjkLiterals(repoSource(file), file),
+    );
+    assert.equal(violations.length, 0, formatSourceViolations(violations));
+  });
+
+  it('does not silently fall English copy back to Chinese', () => {
+    const violations = PR4_DESKTOP_CATALOG_FILES.flatMap((file) =>
       findSilentCatalogFallbacks(repoSource(file), file),
     );
     assert.equal(violations.length, 0, formatSourceViolations(violations));
