@@ -15,7 +15,7 @@ export type SessionHealthNoticeView = {
   label: string;
   tooltip?: string;
   onClick(): void;
-  onClickTarget: 'models' | 'account';
+  onClickTarget: 'models';
 };
 
 /**

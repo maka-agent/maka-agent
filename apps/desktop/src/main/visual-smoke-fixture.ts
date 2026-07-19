@@ -325,7 +325,7 @@ export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualS
     case 'oauth-relogin':
       return { ...state, activeSessionId: TURN_SESSION_ID, openSettingsSection: 'models' };
     case 'connection-error':
-      return { ...state, activeSessionId: ERROR_SESSION_ID, openSettingsSection: 'account' };
+      return { ...state, activeSessionId: ERROR_SESSION_ID, openSettingsSection: 'models' };
     case 'artifact-pane':
     case 'artifact-errors':
     // PR-UI-RENDER-3a-smoke: each preview scenario shares the same

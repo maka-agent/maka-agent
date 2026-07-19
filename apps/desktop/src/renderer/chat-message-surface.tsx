@@ -100,7 +100,7 @@ export function ChatMessageSurface({
                 className="maka-session-health-notice-action"
                 onClick={sessionHealthNotice.onClick}
               >
-                {sessionHealthNotice.onClickTarget === 'account' ? copy.goToAccount : copy.goToModels}
+                {copy.goToModels}
               </button>
             </AlertAction>
           </Alert>

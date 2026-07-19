@@ -235,10 +235,6 @@ export const Appearance: Story = {
   decorators: [withSettingsBridge],
   render: () => <SettingsStory section="appearance" />,
 };
-export const Account: Story = {
-  decorators: [withSettingsBridge],
-  render: () => <SettingsStory section="account" />,
-};
 export const Usage: Story = {
   decorators: [withSettingsBridge],
   render: () => <SettingsStory section="usage" />,

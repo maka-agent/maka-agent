@@ -388,7 +388,6 @@ type ShellCopy = {
     skipErrorTitle: string;
     tryAgainLater: string;
     loading: string;
-    goToAccount: string;
     goToModels: string;
     permissionModeChanging: string;
     permissionModeStreaming: string;
@@ -580,7 +579,6 @@ const EN_STATIC_COMMANDS: Record<StaticCommandId, CommandCopy> = {
 
 const ZH_SETTINGS_SECTIONS: Record<SettingsSection, string> = {
   general: '通用',
-  account: '账号',
   appearance: '外观',
   models: '模型',
   usage: '使用统计',
@@ -598,7 +596,6 @@ const ZH_SETTINGS_SECTIONS: Record<SettingsSection, string> = {
 
 const EN_SETTINGS_SECTIONS: Record<SettingsSection, string> = {
   general: 'General',
-  account: 'Account',
   appearance: 'Appearance',
   models: 'Models',
   usage: 'Usage',
@@ -1023,7 +1020,6 @@ const SHELL_COPY_BY_LOCALE = {
       skipErrorTitle: '跳过失败',
       tryAgainLater: '请稍后重试。',
       loading: '加载中',
-      goToAccount: '去账号',
       goToModels: '去模型',
       permissionModeChanging: '权限模式正在切换，完成后再继续操作。',
       permissionModeStreaming: '当前对话正在流式输出，等结束后再切换权限模式。',
@@ -1483,7 +1479,6 @@ const SHELL_COPY_BY_LOCALE = {
       skipErrorTitle: 'Could not skip onboarding',
       tryAgainLater: 'Try again later.',
       loading: 'Loading',
-      goToAccount: 'Go to Account',
       goToModels: 'Go to Models',
       permissionModeChanging: 'The permission mode is changing. Wait for it to finish before continuing.',
       permissionModeStreaming:

@@ -47,7 +47,10 @@ describe('session health notice layout contract (#1032)', () => {
       surface,
       /className="maka-session-health-notice"[\s\S]*?role="status"/,
     );
-    assert.match(surface, /sessionHealthNotice\.onClickTarget === 'account' \? copy\.goToAccount : copy\.goToModels/);
+    // U1: every health-notice CTA now routes to 设置 · 模型, so the action
+    // label is always `copy.goToModels` (the former per-target ternary and
+    // its 去账号 branch were retired with the account section).
+    assert.match(surface, /\{copy\.goToModels\}/);
     assert.match(composerRegion, /className="maka-composer-interaction-slot"/);
   });
 

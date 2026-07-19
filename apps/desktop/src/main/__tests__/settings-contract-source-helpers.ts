@@ -13,7 +13,6 @@ const sourcePaths = [
   'settings-skeleton.tsx',
   'daily-review-settings-page.tsx',
   'voice-settings-page.tsx',
-  'account-settings-page.tsx',
   'data-settings-page.tsx',
   'appearance-settings-page.tsx',
   'web-search-settings-page.tsx',

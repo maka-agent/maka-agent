@@ -9,7 +9,7 @@
  *  - slug-only promise for per-connection variants (no connectionName /
  *    model list leaked)
  *  - `blocked: all_connections_unhealthy` is labeled (not a generic
- *    default), and its CTA points to `account` (not `models`)
+ *    default), and its CTA points to `models` (the single connection home)
  */
 
 import { strict as assert } from 'node:assert';
@@ -105,10 +105,11 @@ describe('getOnboardingHeroCopy — per-variant mapping', () => {
     assert.match(copy.cta.label, /开始对话/);
   });
 
-  it('blocked: all_connections_unhealthy is labeled, routes to settings · account, destructive tone', () => {
+  it('blocked: all_connections_unhealthy is labeled, routes to settings · models, destructive tone', () => {
     // @kenji PR110c review gate: blocked must NOT fall through a
-    // generic default. The branch is labeled and routes to account
-    // (where lastTestStatus / re-test surfaces live), not models.
+    // generic default. The branch is labeled and routes to 模型 —
+    // the single home for connection status, re-test, and re-login
+    // now that the redundant account section is retired (U1).
     const copy = getOnboardingHeroCopy({
       kind: 'blocked',
       reason: 'all_connections_unhealthy',
@@ -116,7 +117,7 @@ describe('getOnboardingHeroCopy — per-variant mapping', () => {
     assert.ok(copy);
     assert.equal(copy.kind, 'blocked');
     assert.equal(copy.tone, 'destructive');
-    assert.equal(copy.cta.settingsSection, 'account');
+    assert.equal(copy.cta.settingsSection, 'models');
     assert.match(copy.eyebrow, /等待恢复模型连接/);
     assert.match(copy.title, /没有通过验证/);
     assert.doesNotMatch(renderedFields(copy).join('\n'), /连接暂不可用|所有模型连接都不可用/);
@@ -232,7 +233,6 @@ describe('getOnboardingHeroCopy — invariants', () => {
       'search',
       'network',
       'data',
-      'account',
       'about',
     ]);
     for (const variant of ALL_VARIANTS) {
@@ -364,7 +364,7 @@ describe('getOnboardingSetupSteps — first-run AI setup guide', () => {
     assert.match(defaultConnectionBlock, /busy: props\.refreshConnectionsPending === true/);
   });
 
-  it('keeps the blocked hero action aligned with account-status recovery', async () => {
+  it('keeps the blocked hero action driven by the copy layer, not a hardcoded CTA', async () => {
     const hero = await readFile(new URL('../../../src/renderer/OnboardingHero.tsx', import.meta.url), 'utf8');
     const blockedBlock = hero.match(/function BlockedHero[\s\S]*?function ReadyEmptyHero/)?.[0] ?? '';
 
@@ -375,7 +375,7 @@ describe('getOnboardingSetupSteps — first-run AI setup guide', () => {
     assert.doesNotMatch(
       blockedBlock,
       /primaryCta=\{\{ label: '打开设置 · 模型', onClick: \(\) => props\.onOpenSettings\('models'\) \}\}/,
-      'Blocked first-run recovery should open account status, not the model picker',
+      'Blocked first-run recovery must route through hero.cta.settingsSection, not a hardcoded models CTA that bypasses the copy layer',
     );
     assert.doesNotMatch(
       blockedBlock,
