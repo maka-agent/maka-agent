@@ -1051,11 +1051,10 @@ export class OnboardingWizard implements Component {
       this.input.onSubmitModels([...this.selectedIds]);
       return;
     }
-    // Everything else printable (non-Space) filters the model list in place.
-    const printable = decodeKittyPrintable(data) ?? (data.charCodeAt(0) >= 32 ? data : undefined);
-    if (printable !== undefined && printable !== ' ') {
-      this.modelsSearchEditor.handleInput(data);
-    }
+    // Everything else (arrows, backspace, paste, printable text) goes to the
+    // search editor — it owns editing semantics; the wizard only intercepts the
+    // keys the list owns (Esc/Ctrl+C/up/down/Space/Enter). Mirrors handleSearchInput.
+    this.modelsSearchEditor.handleInput(data);
   }
 
   private handleSuccessInput(data: string): void {

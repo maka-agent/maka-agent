@@ -621,6 +621,43 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('/setup reports a listProviders failure as an error instead of "no providers"', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'bypass',
+      terminal,
+      onboarding: {
+        listProviders: async () => {
+          throw new Error('storage read failed');
+        },
+        verify: async () => ({ kind: 'ok', models: [] }),
+        save: async () => ({ kind: 'ok', modelChoices: [] }),
+      },
+    });
+
+    await delay(20);
+    terminal.input('/setup');
+    terminal.input('\r');
+    await delay(60);
+    const out = plainTerminalOutput(terminal.screenOutput());
+    assert.match(out, /storage read failed/);
+    assert.doesNotMatch(out, /没有可配置的 API key 类供应商/);
+
+    process.emit('SIGTERM');
+    await Promise.race([
+      run,
+      delay(500).then(() => {
+        throw new Error('TUI did not close after SIGTERM');
+      }),
+    ]);
+  });
+
   test('first-run picker cancel closes the TUI without configuring', async () => {
     const terminal = new FakeTerminal();
     const driver = new SlashCommandDriver();
@@ -953,6 +990,62 @@ describe('Maka Pi TUI runner', () => {
     terminal.input('\r');
     await waitFor(() => saveCalls.length === 1);
     assert.deepEqual(saveCalls[0]!.enabledModelIds, ['gpt-5.5']);
+
+    process.emit('SIGTERM');
+    await Promise.race([
+      run,
+      delay(500).then(() => {
+        throw new Error('TUI did not close after SIGTERM');
+      }),
+    ]);
+  });
+
+  test('models search field moves the cursor with arrow keys like the other fields', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'bypass',
+      terminal,
+      onboarding: fakeOnboardingSurface(),
+    });
+
+    await delay(20);
+    terminal.input('/setup');
+    terminal.input('\r');
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), 'Set Up Provider') !== null;
+      } catch {
+        return false;
+      }
+    });
+    terminal.input('\r'); // pick provider -> key phase
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), 'API key') !== null;
+      } catch {
+        return false;
+      }
+    });
+    terminal.input('sk-test');
+    terminal.input('\r');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('3/3'));
+    terminal.input('gpt'); // type into the model search field
+    await delay(30);
+    terminal.input('\x1b[D'); // left arrow — should move the cursor left
+    terminal.input('x'); // insert x at the cursor (before the t)
+    await delay(30);
+    const out = plainTerminalOutput(terminal.screenOutput());
+    assert.ok(
+      out.includes('gpxt'),
+      'left arrow should move the cursor so x inserts before the final t',
+    );
+    assert.ok(!out.includes('gptx'), 'without the left arrow the x would append after t');
 
     process.emit('SIGTERM');
     await Promise.race([
@@ -1516,6 +1609,94 @@ describe('Maka Pi TUI runner', () => {
     resolveFirstSave({ kind: 'ok', modelChoices: [] });
     await delay(40);
     assert.doesNotMatch(plainTerminalOutput(terminal.screenOutput()), /已启用/);
+
+    process.emit('SIGTERM');
+    await Promise.race([
+      run,
+      delay(500).then(() => {
+        throw new Error('TUI did not close after SIGTERM');
+      }),
+    ]);
+  });
+
+  test('save refreshes the running model choices even when the user backs out during saving', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    let resolveFirstSave!: (value: OnboardingSaveResult) => void;
+    const saveCalls: Array<{ enabledModelIds: readonly string[] }> = [];
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'bypass',
+      terminal,
+      onboarding: fakeOnboardingSurface({
+        save: (input) => {
+          saveCalls.push(input);
+          return new Promise<OnboardingSaveResult>((r) => {
+            resolveFirstSave = r;
+          });
+        },
+      }),
+    });
+
+    await delay(20);
+    terminal.input('/setup');
+    terminal.input('\r');
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), 'Set Up Provider') !== null;
+      } catch {
+        return false;
+      }
+    });
+    terminal.input('\r'); // pick provider -> key phase
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), 'API key') !== null;
+      } catch {
+        return false;
+      }
+    });
+    terminal.input('sk-test');
+    terminal.input('\r');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('3/3'));
+    terminal.input(' '); // toggle the first model on
+    terminal.input('\r'); // save — deferred
+    await waitFor(() => saveCalls.length === 1);
+    // Back out during saving: Esc to the key step, then Ctrl+C to close the wizard.
+    terminal.input('\x1b');
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), '2/3') !== null;
+      } catch {
+        return false;
+      }
+    });
+    terminal.input('\x03'); // Ctrl+C closes the wizard
+    await delay(30);
+    // The save completes after the user left. The running TUI's ready model
+    // choices are still authoritatively refreshed — abandoning the wizard only
+    // drops the in-frame success UI, not the background state sync.
+    resolveFirstSave({
+      kind: 'ok',
+      modelChoices: [
+        {
+          connectionSlug: 'openai',
+          connectionName: 'OpenAI',
+          providerType: 'openai',
+          model: 'gpt-5.5-new',
+          isDefaultConnection: true,
+        },
+      ],
+    });
+    await delay(40);
+    terminal.input('/model');
+    terminal.input('\r');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('gpt-5.5-new'));
+    assert.deepEqual(driver.models, []);
 
     process.emit('SIGTERM');
     await Promise.race([

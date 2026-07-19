@@ -152,8 +152,9 @@ export interface MakaPiTuiInput {
   skills?: MakaCliSkillSurface;
   /** Mandatory turn ownership shared with CLI Automation and Goal continuation. */
   goalLifecycle: MakaPiTuiGoalLifecycle;
-  /** API-key onboarding surface (#1098). When present, /setup runs the wizard
-   *  and calls setup() with the chosen provider + key; the host owns the stores. */
+  /** API-key onboarding surface (#1098). When present, /setup runs the wizard,
+   *  whose listProviders/verify/save calls persist the connection + curated models
+   *  via the host-owned stores. */
   onboarding?: MakaOnboardingSurface;
   /** First-run mode: auto-open the onboarding wizard on launch instead of
    *  waiting for /setup (used when the CLI starts with no configured connection). */
@@ -1441,16 +1442,19 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       .save({ providerType, apiKey: wizardApiKey, enabledModelIds, models: wizardModels })
       .then(
         (result) => {
-          if (closed || wizard !== targetWizard || attempt !== wizardAttempt) return;
           if (result.kind === 'error') {
+            if (closed || wizard !== targetWizard || attempt !== wizardAttempt) return;
             wizard.setModelError(result.text);
             requestRender();
             return;
           }
           // Authoritatively refresh the running TUI's ready model choices so the
-          // newly configured models are immediately available from /model. The
-          // active session is not switched.
+          // newly configured models are immediately available from /model — even
+          // if the user abandoned the wizard mid-save. Abandonment only drops the
+          // in-frame success UI, not the background state sync. The active
+          // session is not switched.
           modelChoices = result.modelChoices;
+          if (closed || wizard !== targetWizard || attempt !== wizardAttempt) return;
           if (input.firstRun) {
             beginClose();
             return;
@@ -1473,8 +1477,14 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     if (input.onboarding) {
       try {
         providers = await input.onboarding.listProviders();
-      } catch {
-        providers = [];
+      } catch (error) {
+        state.entries.push({
+          kind: 'notice',
+          level: 'info',
+          text: `无法读取已配置的连接：${error instanceof Error ? error.message : String(error)}`,
+        });
+        requestRender();
+        return;
       }
     } else {
       // No surface (a minimal test host): open with the bare catalog so the
