@@ -168,6 +168,12 @@ export function projectRuntimeEventsToStoredMessages(
       projected = true;
     }
 
+    if (event.actions?.stateDelta?.continuationStart === true) {
+      // Continuation start is a canonical lineage/recovery fact with no
+      // legacy chat row. Its following model events own the visible output.
+      projected = true;
+    }
+
     if (event.actions?.permissionDecision) {
       projected = projectPermissionDecision(event, state, messages) || projected;
     }

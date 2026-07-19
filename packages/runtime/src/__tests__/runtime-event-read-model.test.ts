@@ -587,6 +587,29 @@ describe('projectRuntimeEventsToStoredMessages', () => {
     expect(out.diagnostics).toEqual([]);
   });
 
+  test('continuation-start recovery facts are accepted without creating legacy message rows', () => {
+    const out = projectRuntimeEventsToStoredMessages([
+      ev({
+        id: 'continuation-start',
+        role: 'system',
+        author: 'system',
+        actions: {
+          stateDelta: { continuationStart: true },
+          runtimeProtocol: { toolBoundary: 't1_after_preflight_v1' },
+        },
+        refs: {
+          sourceInvocationId: 'source-invocation',
+          sourceRunId: 'source-run',
+          sourceTurnId: 'source-turn',
+          sourceRuntimeEventHighWater: 2,
+        },
+      }),
+    ], { runHeaders: [header] });
+
+    expect(out.messages).toEqual([]);
+    expect(out.diagnostics).toEqual([]);
+  });
+
   test('model thinking attaches to the assistant text row that shares its step message id', () => {
     // Real emission and backfill give a step's thinking and text the same message
     // id (providerEventId / storedMessageId), so the projection pairs by id.

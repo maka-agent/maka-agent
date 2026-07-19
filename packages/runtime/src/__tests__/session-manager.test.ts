@@ -3383,6 +3383,26 @@ describe('SessionManager permission mode updates', () => {
       completedAt: 105,
     }), [
       runtimeEvent({
+        id: 'continuation-start',
+        invocationId: 'continuation-invocation',
+        sessionId: session.id,
+        runId: 'continuation-run',
+        turnId: 'continuation-turn',
+        ts: 103,
+        role: 'system',
+        author: 'system',
+        actions: {
+          stateDelta: { continuationStart: true },
+          runtimeProtocol: { toolBoundary: 't1_after_preflight_v1' },
+        },
+        refs: {
+          sourceInvocationId,
+          sourceRunId,
+          sourceTurnId,
+          sourceRuntimeEventHighWater: 2,
+        },
+      }),
+      runtimeEvent({
         id: 'continuation-article',
         invocationId: 'continuation-invocation',
         sessionId: session.id,
@@ -3446,6 +3466,7 @@ describe('SessionManager permission mode updates', () => {
 
     expect(assistantTexts).toContain('the resumed article');
     expect(assistantTexts).not.toContain('private child output');
+    expect(messages.some((message) => message.id === 'continuation-start')).toBe(false);
   });
 
   test('getMessages includes in-flight projection cache rows for an active RuntimeEvent run', async () => {
