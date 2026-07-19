@@ -142,6 +142,15 @@ export const MAKA_CATALOG_TOOLS: readonly CatalogToolDef[] = Object.freeze(
 export const MAKA_CATALOG_SURFACES: readonly CatalogSurfaceDef[] = Object.freeze(
   [
     {
+      id: 'rive',
+      label: 'Rive',
+      description:
+        'Durable multi-agent Rive workflows: validate/import/run/status, scheduler, retries.',
+      economy: 'deferred' as const,
+      toolNames: ['RiveWorkflow'],
+      hosts: desktopOnlyHosts(),
+    },
+    {
       id: 'office',
       label: 'Office',
       description: 'Read and edit Office documents (Word, Excel, PowerPoint, PDF).',
@@ -170,15 +179,6 @@ export const MAKA_CATALOG_SURFACES: readonly CatalogSurfaceDef[] = Object.freeze
       description: 'Observe and operate an explicitly approved local application.',
       economy: 'deferred' as const,
       toolNames: ['maka_computer'],
-      hosts: desktopOnlyHosts(),
-    },
-    {
-      id: 'rive',
-      label: 'Rive',
-      description:
-        'Durable multi-agent Rive workflows: validate/import/run/status, scheduler, retries.',
-      economy: 'deferred' as const,
-      toolNames: ['RiveWorkflow'],
       hosts: desktopOnlyHosts(),
     },
     {
