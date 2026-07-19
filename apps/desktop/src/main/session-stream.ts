@@ -7,6 +7,7 @@ import {
   AiSdkBackend,
   buildDefaultContextBudgetPolicy,
   buildExpertDispatchToolForTeamId,
+  buildHostCapabilitiesFromBinding,
   buildLlmHistorySummarizer,
   buildMcpTools,
   buildProviderOptions,
@@ -85,9 +86,6 @@ export interface AiSdkBackendFactoryDeps {
   telemetryRepo: TelemetryRepo;
   artifactStore: ArtifactStore;
   desktopSessionSkillHosts: Map<string, HostCapabilities>;
-  riveTools: AssembledTools['riveTools'];
-  officeTools: AssembledTools['officeTools'];
-  browserTools: AssembledTools['browserTools'];
   computerUseTools: AssembledTools['computerUseTools'];
   agentTeamLeadTools: AssembledTools['agentTeamLeadTools'];
   builtinTools: AssembledTools['builtinTools'];
@@ -123,9 +121,6 @@ export function createAiSdkBackendFactory(deps: AiSdkBackendFactoryDeps): Backen
     telemetryRepo,
     artifactStore,
     desktopSessionSkillHosts,
-    riveTools,
-    officeTools,
-    browserTools,
     computerUseTools,
     agentTeamLeadTools,
     builtinTools,
@@ -179,19 +174,7 @@ export function createAiSdkBackendFactory(deps: AiSdkBackendFactoryDeps): Backen
       ...backendTools.map((tool) => tool.name),
       ...(expertDispatchTool ? [expertDispatchTool.name, ...agentTeamLeadTools.map((tool) => tool.name)] : []),
     ]);
-    const backendCapabilities = new Set<string>();
-    for (const [capability, tools] of [
-      ['rive', riveTools],
-      ['office', officeTools],
-      ['browser', browserTools],
-      ['computer_use', computerUseTools],
-    ] as const) {
-      if (tools.some((tool) => backendToolNames.has(tool.name))) backendCapabilities.add(capability);
-    }
-    const backendSkillHost: HostCapabilities = {
-      toolNames: backendToolNames,
-      capabilities: backendCapabilities,
-    };
+    const backendSkillHost = buildHostCapabilitiesFromBinding(backendToolNames);
     // Child backends share the parent sessionId but intentionally have a
     // narrower tool surface. They do not receive the Desktop Skill tool, so
     // they must not overwrite the parent session's resolver entry.

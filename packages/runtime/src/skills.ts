@@ -504,7 +504,7 @@ export async function buildSkillsPromptFragment(
   let skills = (await scanSkills(source)).filter((skill) => skill.enabled);
   // Gate before prompt-budget truncation so a host lacking a required tool
   // never advertises the skill. `host === undefined` keeps the legacy
-  // no-gating behavior (desktop call sites stay unchanged).
+  // no-gating behavior.
   if (host) skills = gateSkillsByHostCapabilities(skills, host).filter((gated) => gated.eligible);
   if (skills.length === 0) return undefined;
 
@@ -575,8 +575,7 @@ export function loadSkillInstructionsFromScan(
   const raw = typeof name === 'string' ? name.trim() : '';
   const enabledSkills = skills.filter((skill) => skill.enabled);
   // Gate eligible skills before exposing them as available or loading them.
-  // `host === undefined` keeps the legacy no-gating behavior (desktop call
-  // sites stay unchanged).
+  // `host === undefined` keeps the legacy no-gating behavior.
   const gated = host
     ? gateSkillsByHostCapabilities(enabledSkills, host)
     : enabledSkills.map((skill) => ({
