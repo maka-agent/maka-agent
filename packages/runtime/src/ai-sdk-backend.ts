@@ -35,7 +35,6 @@
 import type {
   SessionEvent,
   CompleteEvent,
-  ContextBudgetExhaustedDetail,
   AbortEvent,
   ErrorEvent,
   TextCompleteEvent,
@@ -44,7 +43,6 @@ import type {
   StorageRef,
   AttachmentRef,
 } from '@maka/core/events';
-import { createHash } from 'node:crypto';
 import type {
   StoredMessage,
   AssistantMessage,
@@ -115,28 +113,23 @@ import {
   type RepairableAiSdkToolCall,
   type StreamTextResult,
 } from './model-adapter.js';
-import {
-  activeToolResultLineageIdentity,
-  rewriteActiveToolResultsInMessages,
-  type ActiveToolResultArchiveCandidate,
-  type ActiveToolResultPruneDiagnosticPatch,
+import type {
+  ActiveToolResultArchiveCandidate,
+  ActiveToolResultPruneDiagnosticPatch,
 } from './active-tool-result-prune.js';
 import { toolResultOutput } from './ai-sdk-tool-output.js';
 import {
   buildActiveCompactionHeadAnchor,
-  rewriteActiveFullCompactInMessages,
   type ActiveFullCompactBlock,
-  type ActiveCompactionHeadAnchor,
 } from './active-full-compact.js';
+import type { SemanticCompactBlock } from './semantic-compact.js';
+import { compactionDecisionDiagnosticPatch } from './compaction-boundary.js';
 import {
-  rewriteSemanticCompactInMessages,
-  type SemanticCompactBlock,
-  type SemanticCompactControllerState,
-} from './semantic-compact.js';
-import {
-  compactionDecisionDiagnosticPatch,
-  historyCompactBlockToCompactionBoundary,
-} from './compaction-boundary.js';
+  AiSdkCompaction,
+  composeActiveCompactionPrepareStep,
+  hasActiveToolResultPruneDiagnosticPatch,
+  hasBlockingReplayDiagnostics,
+} from './ai-sdk-compaction.js';
 import type { ToolArtifactRecorder } from './tool-artifacts.js';
 import { RunTrace, type RunTraceRecorder } from './run-trace.js';
 import { computeCost } from './telemetry/cost.js';
@@ -161,7 +154,6 @@ import {
 } from './request-shape.js';
 import { ToolAvailabilityRuntime, type ToolAvailabilityConfig } from './tool-availability.js';
 import {
-  ARCHIVED_TOOL_RESULT_REWRITE_VERSION,
   applyRuntimeEventContextBudget,
   buildContextBudgetDiagnosticShell,
   buildHistoryCompactBlockFromSummary,
@@ -181,35 +173,24 @@ import {
   shouldAppendContextCompactionFailedOpenNote,
   type ContextBudgetPolicy,
   type HistoryCompactBlock,
-  type ActiveArchivedToolResultPlaceholder,
   type StaleToolResultArchiveCandidate,
   type SynthesisCacheBlock,
   type SynthesisSourceRef,
   type ArchiveRetrievalMode,
   type ToolResultArchiveReader,
-  type ToolResultArchiveRef,
 } from './context-budget.js';
-import { collectStaleToolResultArchiveCandidates } from './tool-result-archive.js';
 import {
   evaluateHistoryCompactCheckpointReplay,
-  isHistoryCompactContentEvent,
   replaceHistoryCompactReplayBlocks,
 } from './history-compact.js';
 import { selectSynthesisCacheForReplay } from './synthesis-cache.js';
-import { HistoryCompactSummarizerError } from './history-compact-error.js';
 import {
-  buildHistoryCompactCheckpoint,
   historyCompactCheckpointToRuntimeEvent,
   matchHistoryCompactCheckpointPrefix,
   projectHistoryCompactCheckpointReplay,
   type HistoryCompactCheckpoint,
 } from './history-compact-checkpoint.js';
 import { resolveSelectedModelContextWindow } from './context-budget-policy.js';
-import {
-  estimateNextRequestTokens,
-  exceedsHighWater,
-  planMidTurnCapacityCompaction,
-} from './mid-turn-capacity-compact.js';
 export {
   DEFAULT_PERMISSION_TIMEOUT_MS,
   MAX_ACTIVE_CHILD_AGENT_RUNS_PER_TURN,
@@ -283,295 +264,6 @@ export function composePrepareStep(
     }
     return result;
   };
-}
-
-type ActiveCompactionPrepareStepResult = PrepareStepResultLike & {
-  makaSemanticCompactStatus?: 'replaced' | 'projected';
-};
-
-function composeActiveCompactionPrepareStep(
-  attention: PrepareStepFunctionLike | undefined,
-  capacity: PrepareStepFunctionLike | undefined,
-): PrepareStepFunctionLike | undefined {
-  if (!attention) return capacity;
-  if (!capacity) return attention;
-  return async (options) => {
-    const attentionResult = (await Promise.resolve(attention(options))) as
-      | ActiveCompactionPrepareStepResult
-      | undefined;
-    if (attentionResult?.makaSemanticCompactStatus === 'replaced') {
-      const { makaSemanticCompactStatus: _status, ...providerResult } = attentionResult;
-      return providerResult;
-    }
-    const capacityResult = await Promise.resolve(
-      capacity({
-        ...options,
-        messages: attentionResult?.messages ?? options.messages,
-        ...(attentionResult?.activeTools ? { activeTools: attentionResult.activeTools } : {}),
-      }),
-    );
-    if (!capacityResult) {
-      if (!attentionResult) return undefined;
-      const { makaSemanticCompactStatus: _status, ...providerResult } = attentionResult;
-      return providerResult;
-    }
-    return {
-      ...attentionResult,
-      ...capacityResult,
-      activeTools: capacityResult.activeTools ?? attentionResult?.activeTools,
-      messages: capacityResult.messages ?? attentionResult?.messages,
-    };
-  };
-}
-
-function activeToolResultArchiveKey(
-  candidate: ActiveToolResultArchiveCandidate & { bodySha256: string },
-): string {
-  return `active:${candidate.turnId}:${candidate.toolCallId}:${candidate.bodySha256}`;
-}
-
-/**
- * Tool results from the newest completed step have not crossed the provider
- * boundary yet: prepareStep is invoked immediately before the first request
- * that could show those results to the model. By default active pruning defers
- * the newest step and archives only older completed steps, after the model has
- * had one request in which to consume their exact output.
- *
- * `includeNewestStep` widens eligibility to every completed step, including the
- * newest. The caller sets it when mid-turn capacity compaction is active: the
- * final-payload verdict may need an oversized newest result pruned to a
- * placeholder before declaring exhaustion, and capacity/recovery rebuilds
- * re-materialize raw bodies from the ledger that must be re-archived.
- */
-function collectPrunablePrepareStepToolCallIds(
-  steps: PrepareStepLike['steps'],
-  includeNewestStep: boolean,
-): Set<string> {
-  const out = new Set<string>();
-  const prunableSteps = includeNewestStep ? steps : steps.slice(0, -1);
-  for (const step of prunableSteps) {
-    for (const call of step.toolCalls ?? []) {
-      if (typeof call.toolCallId === 'string' && call.toolCallId.length > 0) {
-        out.add(call.toolCallId);
-      }
-    }
-  }
-  return out;
-}
-
-interface ActiveFullCompactPrepareStepProjection {
-  sourceSignatures: readonly string[];
-  sourceSignatureMode: 'exact' | 'active_prune_lineage';
-  projectedMessages: readonly ModelMessage[];
-  semanticBlock?: SemanticCompactBlock;
-}
-
-function projectAcceptedActiveFullCompactMessages(
-  incomingMessages: readonly ModelMessage[],
-  acceptedProjection: ActiveFullCompactPrepareStepProjection | undefined,
-): ModelMessage[] | undefined {
-  if (!acceptedProjection) return undefined;
-  const sourceSignature =
-    acceptedProjection.sourceSignatureMode === 'active_prune_lineage'
-      ? projectionSourceMessageSignature
-      : modelMessageSignature;
-  if (incomingMessages.length < acceptedProjection.sourceSignatures.length) return undefined;
-  for (let index = 0; index < acceptedProjection.sourceSignatures.length; index += 1) {
-    if (sourceSignature(incomingMessages[index]!) !== acceptedProjection.sourceSignatures[index]) {
-      return undefined;
-    }
-  }
-  return [
-    ...acceptedProjection.projectedMessages,
-    ...incomingMessages.slice(acceptedProjection.sourceSignatures.length),
-  ];
-}
-
-// ============================================================================
-// Mid-turn capacity compaction — per-send trigger state
-// ============================================================================
-
-/**
- * Per-send() state for the mid-turn capacity invariant. The coverage pool is
- * NOT mirrored here: every trigger reads the current turn's persisted
- * RuntimeEvents through the injected durable-read seam, so coverage can only
- * span events the ledger already replays. This class keeps only the trigger's
- * cursor state between steps.
- */
-class MidTurnCapacityCompactState {
-  /**
-   * Chars of the final (system prompt + messages + active tool schema)
-   * payload of the LAST prepared request, recorded by the final-request
-   * estimate owner at the end of every prepareStep pipeline run. All capacity estimates are signed
-   * deltas against this number, so they are anchored to the request the
-   * provider actually saw — a compacted projection, a pruned tail, or a
-   * same-turn tool-schema expansion all move the delta the same way.
-   */
-  lastRequestPayloadChars: number | undefined;
-  /**
-   * The last request's REAL input size: the inputTokens the provider reported
-   * for the last finished step. Never input+output — the signed payload delta
-   * already carries the step's freshly generated output (assistant text/tool
-   * calls) and its tool results, so an output-inclusive baseline would count
-   * them twice. Undefined when the last step's usage is missing or unusable
-   * (no positive input count); estimates then fall back to the whole-payload
-   * cold-start path — an unusable sample is unknown, never zero.
-   */
-  lastRequestInputTokens: number | undefined;
-  /** Latest durable checkpoint (loaded or written) for roll-forward summaries. */
-  previousCheckpoint: HistoryCompactCheckpoint | undefined;
-  /** Set when the turn must end with a context_budget_exhausted outcome. */
-  exhaustedDetail: ContextBudgetExhaustedDetail | undefined;
-  /**
-   * Step whose request the capacity hook replaced. Semantic/active-full
-   * compaction yields on that exact step so one step never runs two
-   * summarizers or double-projects.
-   */
-  replacedStepNumber: number | undefined;
-  /**
-   * finish-step boundaries the event pump has flushed into the session-event
-   * queue. The capacity hook's durability wait needs it: only after the pump
-   * has flushed step N's boundary are that step's thinking/text completion
-   * events enqueued at all.
-   */
-  flushedSteps = 0;
-  /**
-   * Set by the final-request estimate owner to force one capacity re-entry on
-   * the current step, bypassing the (deliberately approximate) high-water
-   * trigger. Consumed by the capacity hook on its next invocation.
-   */
-  forcedTriggerEstimate: number | undefined;
-  /**
-   * The capacity hook's most recent shaping failure. The owner reads it (for
-   * the same step only) to pick the terminal detail and diagnostic reason
-   * when the final payload is over the window, and to avoid re-entering a
-   * shaper that already attempted and failed this step.
-   */
-  lastShapeFailure:
-    | {
-        stepNumber: number;
-        detail: ContextBudgetExhaustedDetail;
-        diagnosticReason: string;
-      }
-    | undefined;
-
-  constructor(
-    readonly headAnchor: RuntimeEvent,
-    readonly priorContentEvents: readonly RuntimeEvent[],
-    readonly contextWindow: number,
-  ) {}
-}
-
-/**
- * Char measure of the FULL provider-visible request input: the system prompt
- * (sent through the separate `system` field), the (projected) messages, and
- * the serialized schemas of the active tool subset. The capacity trigger and
- * the final-request estimate owner both measure with this ONE function, so
- * their deltas against `lastRequestPayloadChars` are commensurable and
- * same-turn tool-schema growth (a `load_tools` activation) is counted like
- * any other payload growth. The system prompt is constant between adjacent
- * requests — signed deltas cancel it — but the cold-start estimate (no usable
- * usage sample) is the whole payload, so omitting it would under-estimate by
- * exactly the system prompt and let an over-window request stream.
- */
-function midTurnRequestPayloadChars(
-  messages: readonly ModelMessage[],
-  providerTools: readonly MakaTool[],
-  activeTools: readonly string[],
-  systemPromptChars: number,
-): number {
-  return (
-    Math.max(0, Math.floor(systemPromptChars)) +
-    JSON.stringify(messages).length +
-    toolSchemaCharsForDiagnostics(providerTools, activeTools)
-  );
-}
-
-/**
- * Outcome of folding the durable turn ledger into a replacement projection.
- * Shared by the proactive prepareStep hook (which maps it to keepProjection /
- * shapeFailure / a `context_limit` replacement) and the reactive overflow
- * recovery (which maps it to a retry / a real error terminal, with an
- * `overflow` reason). The verdict/diagnostic is the caller's; this only shapes.
- */
-type MidTurnCompactionOutcome =
-  | { decision: 'skip' }
-  | {
-      decision: 'fail';
-      detail: ContextBudgetExhaustedDetail;
-      diagnosticReason: string;
-      recorderCounters?: Partial<ContextBudgetDiagnostic>;
-    }
-  | {
-      decision: 'compacted';
-      checkpoint: HistoryCompactCheckpoint;
-      replacementMessages: ModelMessage[];
-      estimatedTokensBefore: number;
-      estimatedTokensAfter: number;
-    };
-
-/**
- * The `decision: 'replaced'` diagnostic patch for a durable mid_turn fold,
- * shared by the proactive (`reason: 'context_limit'`) and reactive
- * (`reason: 'overflow'`) triggers so both report the fold identically.
- */
-function buildMidTurnReplacedDiagnosticPatch(input: {
-  checkpoint: HistoryCompactCheckpoint;
-  estimatedTokensBefore: number;
-  estimatedTokensAfter: number;
-  reason: string;
-}): Partial<ContextBudgetDiagnostic> {
-  const { checkpoint, estimatedTokensBefore, estimatedTokensAfter, reason } = input;
-  return {
-    historyCompactEnabled: true,
-    historyCompactMode: 'read_write',
-    historyCompactWritesAttempted: 1,
-    historyCompactBlocksWritten: 1,
-    historyCompactWrittenBlockIds: [checkpoint.checkpointId],
-    historyCompactWriteEstimatedTokens: checkpoint.estimatedTokens,
-    historyCompactBlockIds: [checkpoint.checkpointId],
-    historyCompactedTurns: checkpoint.coverage.turnCount,
-    historyCompactedEvents: checkpoint.coverage.eventCount,
-    historyCompactedEstimatedTokensBefore: estimatedTokensBefore,
-    historyCompactedEstimatedTokensAfter: estimatedTokensAfter,
-    highWaterName: checkpoint.highWaterName,
-    highWaterSeq: checkpoint.highWaterSeq,
-    highWaterReason: 'history_compact',
-    ...compactionDecisionDiagnosticPatch({
-      stage: 'activeStep',
-      sourceKind: 'runtimeEvents',
-      decision: 'replaced',
-      phase: 'mid_turn',
-      boundaryKind: 'historyCompact',
-      boundaryIds: [checkpoint.checkpointId],
-      coverage: { bodySha256: [checkpoint.coverage.sourceDigest] },
-      reason,
-      estimatedTokensBefore,
-      estimatedTokensAfter,
-    }),
-  };
-}
-
-/**
- * Event-driven wait for seq-ack progress: resolves when the queue reports any
- * push/ack/close/wake, or immediately on abort. The caller loops and re-checks
- * its condition — a condition variable, not a poll.
- */
-function waitForQueueProgressOrAbort(
-  queue: AsyncEventQueue<SessionEvent>,
-  abortSignal: AbortSignal | undefined,
-): Promise<void> {
-  return new Promise<void>((resolve) => {
-    let settled = false;
-    const settle = (): void => {
-      if (settled) return;
-      settled = true;
-      abortSignal?.removeEventListener('abort', settle);
-      resolve();
-    };
-    abortSignal?.addEventListener('abort', settle, { once: true });
-    void queue.waitForProgress().then(settle);
-  });
 }
 
 function joinPromptFragments(fragments: readonly (string | undefined)[]): string | undefined {
@@ -912,7 +604,6 @@ export class AiSdkBackend implements AgentBackend {
 
   private aborted = false;
   private abortController: AbortController | null = null;
-  private historyCompactAbortController: AbortController | null = null;
   private currentTurnId: string | null = null;
   private stopAfterStepRequested = false;
   private currentInvocationId: string | null = null;
@@ -937,6 +628,7 @@ export class AiSdkBackend implements AgentBackend {
   private currentRunTrace: RunTrace | null = null;
   private currentUserIntent: string | undefined;
   private priorRequestShape: RequestShapeDiagnostic | undefined;
+  private readonly compaction: AiSdkCompaction;
   private cumulativeUsageCheckpoint: NormalizedAiSdkUsage | undefined;
   /**
    * Id of the assistant step currently streaming. Read by ToolRuntime via
@@ -951,11 +643,6 @@ export class AiSdkBackend implements AgentBackend {
     this.newId = input.newId ?? (() => crypto.randomUUID());
     this.now = input.now ?? (() => Date.now());
     this.maxSteps = input.maxSteps;
-    this.toolAvailabilityRuntime = new ToolAvailabilityRuntime(
-      input.tools,
-      input.toolAvailability,
-      buildInvalidMakaTool(),
-    );
     this.modelAdapter = new ModelAdapter({
       connection: input.connection,
       apiKey: input.apiKey,
@@ -966,6 +653,22 @@ export class AiSdkBackend implements AgentBackend {
       newId: this.newId,
       now: this.now,
     });
+    this.compaction = new AiSdkCompaction({
+      input,
+      sessionId: this.sessionId,
+      now: this.now,
+      modelAdapter: this.modelAdapter,
+      computeCostUsd: (usage) => this.computeTokenUsageCostUsd(usage),
+      materializeRuntimeReplayPlan: (plan) => this.materializeRuntimeReplayPlan(plan),
+      canReplayProviderNative: (plan) => this.canReplayProviderNative(plan),
+      appendTurnTailPrompt: (content, turnTailPrompt) =>
+        this.appendTurnTailPrompt(content, turnTailPrompt),
+    });
+    this.toolAvailabilityRuntime = new ToolAvailabilityRuntime(
+      input.tools,
+      input.toolAvailability,
+      buildInvalidMakaTool(),
+    );
     const autoApprovalReviewer =
       input.autoApprovalReviewer ??
       new AiSdkAutoApprovalReviewer({
@@ -1037,137 +740,7 @@ export class AiSdkBackend implements AgentBackend {
   // --------------------------------------------------------------------------
 
   async compactHistory(input: BackendCompactHistoryInput): Promise<BackendCompactHistoryResult> {
-    const historyCompactAbortController = new AbortController();
-    this.historyCompactAbortController = historyCompactAbortController;
-    try {
-      const runtimeContext = input.runtimeContext.filter((event) => event.turnId !== input.turnId);
-      const policy = this.buildManualHistoryCompactPolicy(runtimeContext);
-      if (!policy) return {};
-
-      const contextBudget = policy;
-      const budgeted = applyRuntimeEventContextBudget(runtimeContext, contextBudget, {
-        historyCompactProtocol: this.hasHistoryCompactCheckpointWriter()
-          ? 'checkpoint_v2'
-          : 'legacy_v1',
-      });
-      let contextBudgetDiagnostic = budgeted?.diagnostic;
-
-      if (
-        budgeted?.historyCompactBlocks?.length &&
-        contextBudget.historyCompact?.mode === 'read_write' &&
-        this.hasHistoryCompactWriter()
-      ) {
-        const loadedBlockIds = new Set(
-          (contextBudget.historyCompact.blocks ?? []).map((block) => block.blockId),
-        );
-        const draftBlocks = budgeted.historyCompactBlocks.filter(
-          (block) => !loadedBlockIds.has(block.blockId),
-        );
-        if (draftBlocks.length > 0) {
-          if (this.input.summarizeHistoryCompact && this.input.recordHistoryCompactCheckpoint) {
-            let writeContextBudget = contextBudget;
-            try {
-              const checkpoint = await Promise.resolve(this.input.loadHistoryCompactCheckpoint?.());
-              if (checkpoint) {
-                writeContextBudget = {
-                  ...contextBudget,
-                  historyCompact: { ...contextBudget.historyCompact!, checkpoint },
-                };
-              }
-            } catch {
-              // A missing previous checkpoint only loses rolling reuse; the current fold remains safe to summarize.
-            }
-            const writePatch = await this.writeHistoryCompactCheckpoint({
-              turnId: input.turnId,
-              contextBudget: writeContextBudget,
-              priorRuntimeContext: runtimeContext,
-              draftBlock: draftBlocks[0]!,
-              abortSignal: historyCompactAbortController.signal,
-            });
-            if (historyCompactAbortController.signal.aborted) return {};
-            contextBudgetDiagnostic = mergeContextBudgetDiagnostic(
-              contextBudgetDiagnostic ??
-                buildContextBudgetDiagnosticShell(runtimeContext, budgeted.events, contextBudget),
-              writePatch.diagnosticPatch,
-            );
-          } else {
-            const writePatch = await this.writeHistoryCompactBlocks({
-              turnId: input.turnId,
-              contextBudget,
-              priorRuntimeContext: runtimeContext,
-              draftBlocks,
-              abortSignal: historyCompactAbortController.signal,
-            });
-            if (historyCompactAbortController.signal.aborted) return {};
-            if (writePatch.replacementBlocks.length === 0) {
-              contextBudgetDiagnostic = buildContextBudgetDiagnosticShell(
-                runtimeContext,
-                runtimeContext,
-                contextBudget,
-              );
-            }
-            contextBudgetDiagnostic = mergeContextBudgetDiagnostic(
-              contextBudgetDiagnostic ??
-                buildContextBudgetDiagnosticShell(runtimeContext, budgeted.events, contextBudget),
-              writePatch.diagnosticPatch,
-            );
-          }
-        }
-      }
-
-      return contextBudgetDiagnostic ? { contextBudget: contextBudgetDiagnostic } : {};
-    } finally {
-      if (this.historyCompactAbortController === historyCompactAbortController) {
-        this.historyCompactAbortController = null;
-      }
-    }
-  }
-
-  private buildManualHistoryCompactPolicy(
-    runtimeContext: readonly RuntimeEvent[],
-  ): ContextBudgetPolicy | undefined {
-    if (runtimeContext.length === 0 || !this.input.contextBudget || !this.hasHistoryCompactWriter())
-      return undefined;
-    const base = this.input.contextBudget;
-    const charsPerToken = base.charsPerToken ?? 4;
-    const estimatedTokens = Math.max(1, estimateRuntimeEventsTokens(runtimeContext, charsPerToken));
-    const current = base.historyCompact;
-    const currentWithoutBlocks = { ...current };
-    delete currentWithoutBlocks.blocks;
-    delete currentWithoutBlocks.checkpoint;
-    const maxHistoryEstimatedTokens =
-      base.maxHistoryEstimatedTokens ?? Math.max(estimatedTokens, 32_000);
-    return {
-      name: base.name ?? 'manual-history-compact',
-      ...(base.charsPerToken !== undefined ? { charsPerToken: base.charsPerToken } : {}),
-      maxHistoryEstimatedTokens,
-      minRecentTurns: current?.minRecentTurns ?? base.minRecentTurns ?? 1,
-      historyCompact: {
-        ...currentWithoutBlocks,
-        enabled: true,
-        mode: 'read_write',
-        highWaterRatio: 0.000001,
-        targetRatio: current?.targetRatio ?? 0.2,
-        tailEstimatedTokens: 1,
-        minRecentTurns: current?.minRecentTurns ?? base.minRecentTurns ?? 1,
-        maxBlocks: current?.maxBlocks ?? 1,
-        maxEstimatedTokens: current?.maxEstimatedTokens ?? 2048,
-        maxBlockEstimatedTokens:
-          current?.maxBlockEstimatedTokens ?? current?.maxSummaryEstimatedTokens ?? 1024,
-        highWaterName: current?.highWaterName ?? `${base.name ?? 'manual'}-manual-history-compact`,
-      },
-    };
-  }
-
-  private hasHistoryCompactWriter(): boolean {
-    return Boolean(
-      this.input.writeHistoryCompact ||
-        (this.input.summarizeHistoryCompact && this.input.recordHistoryCompactCheckpoint),
-    );
-  }
-
-  private hasHistoryCompactCheckpointWriter(): boolean {
-    return Boolean(this.input.summarizeHistoryCompact && this.input.recordHistoryCompactCheckpoint);
+    return this.compaction.compactHistory(input, this.priorRequestShape?.requestShapeHash);
   }
 
   // --------------------------------------------------------------------------
@@ -1186,7 +759,7 @@ export class AiSdkBackend implements AgentBackend {
     this.abortController = new AbortController();
     this.imageRequestBudget = { used: 0, decisions: new Map() };
 
-    const midTurnState = this.buildMidTurnCapacityCompactState(input);
+    const midTurnState = this.compaction.buildMidTurnCapacityCompactState(input);
     const queue = new AsyncEventQueue<SessionEvent>();
     this.currentQueue = queue;
     this.injectedSteeringMessages = [];
@@ -1542,7 +1115,7 @@ export class AiSdkBackend implements AgentBackend {
             priorShapeBaseline,
           ).requestShapeHash;
         const activeCompactHook = composeActiveCompactionPrepareStep(
-          this.buildSemanticCompactPrepareStep(
+          this.compaction.buildSemanticCompactPrepareStep(
             turnId,
             model,
             input.runtimeContext,
@@ -1555,8 +1128,9 @@ export class AiSdkBackend implements AgentBackend {
                 patch,
               );
             },
+            this.abortController?.signal,
           ),
-          this.buildActiveFullCompactPrepareStep(
+          this.compaction.buildActiveFullCompactPrepareStep(
             turnId,
             input.runtimeContext,
             activeCompactionHeadAnchor,
@@ -1601,7 +1175,7 @@ export class AiSdkBackend implements AgentBackend {
           );
         };
         const midTurnSystemPromptChars = systemPrompt?.length ?? 0;
-        const midTurnCapacityHook = this.buildMidTurnCapacityCompactPrepareStep(
+        const midTurnCapacityHook = this.compaction.buildMidTurnCapacityCompactPrepareStep(
           turnId,
           midTurnState,
           queue,
@@ -1610,11 +1184,12 @@ export class AiSdkBackend implements AgentBackend {
           turnTailPrompt,
           midTurnSystemPromptChars,
           onMidTurnDiagnosticPatch,
+          this.abortController?.signal,
         );
         // When mid-turn capacity compaction is active, the prune must also cover
         // the newest completed step; see collectPrunablePrepareStepToolCallIds.
         const activeToolResultPruneIncludesNewestStep = midTurnState !== undefined;
-        const activeToolResultPruneHook = this.buildActiveToolResultPrunePrepareStep(
+        const activeToolResultPruneHook = this.compaction.buildActiveToolResultPrunePrepareStep(
           turnId,
           activeToolResultPruneIncludesNewestStep,
           (patch) => {
@@ -1634,7 +1209,7 @@ export class AiSdkBackend implements AgentBackend {
         // owner measures the final payload and decides pass/terminate.
         const prepareStep =
           midTurnState && midTurnCapacityHook && shapedPrepareStep
-            ? this.buildMidTurnFinalRequestVerdict({
+            ? this.compaction.buildMidTurnFinalRequestVerdict({
                 shaped: shapedPrepareStep,
                 reentry: composePrepareStep(
                   undefined,
@@ -1647,6 +1222,7 @@ export class AiSdkBackend implements AgentBackend {
                 charsPerToken: this.input.contextBudget?.charsPerToken ?? 4,
                 systemPromptChars: midTurnSystemPromptChars,
                 onDiagnosticPatch: onMidTurnDiagnosticPatch,
+                abortController: this.abortController,
               })
             : shapedPrepareStep;
 
@@ -1875,7 +1451,7 @@ export class AiSdkBackend implements AgentBackend {
             // nothing left to grant it, so the error is terminal.
             const stepBudgetRemains = this.maxSteps === undefined || runtimeSteps < this.maxSteps;
             const recovered = stepBudgetRemains
-              ? await this.recoverFromOverflowError({
+              ? await this.compaction.recoverFromOverflowError({
                   error: streamErrorChunk,
                   retryAlreadyUsed: overflowRetryUsed,
                   midTurnState,
@@ -1887,6 +1463,7 @@ export class AiSdkBackend implements AgentBackend {
                   turnTailPrompt,
                   queue,
                   onDiagnosticPatch: onMidTurnDiagnosticPatch,
+                  abortSignal: this.abortController?.signal,
                 })
               : undefined;
             if (recovered) {
@@ -2297,7 +1874,7 @@ export class AiSdkBackend implements AgentBackend {
     }
     this.aborted = true;
     this.abortController?.abort();
-    this.historyCompactAbortController?.abort();
+    this.compaction.abortHistoryCompact();
     if (this.currentTurnId !== null) {
       this.input.permissionEngine.endTurn(this.currentTurnId, 'aborted');
       this.toolRuntime.endTurn(this.currentTurnId, 'aborted');
@@ -2388,11 +1965,13 @@ export class AiSdkBackend implements AgentBackend {
       priorStored,
       buildSteeringSidecar(priorRuntimeContext),
     );
-    const preparedContextBudget = await this.prepareContextBudgetPolicy(priorRuntimeContext);
+    const preparedContextBudget =
+      await this.compaction.prepareContextBudgetPolicy(priorRuntimeContext);
     const contextBudget = preparedContextBudget.policy;
     const budgeted = applyRuntimeEventContextBudget(priorRuntimeContext, contextBudget, {
       historyCompactProtocol:
-        contextBudget?.historyCompact?.checkpoint || this.hasHistoryCompactCheckpointWriter()
+        contextBudget?.historyCompact?.checkpoint ||
+        this.compaction.hasHistoryCompactCheckpointWriter()
           ? 'checkpoint_v2'
           : 'legacy_v1',
     });
@@ -2409,7 +1988,7 @@ export class AiSdkBackend implements AgentBackend {
     if (
       budgeted?.historyCompactBlocks?.length &&
       contextBudget?.historyCompact?.mode === 'read_write' &&
-      this.hasHistoryCompactWriter()
+      this.compaction.hasHistoryCompactWriter()
     ) {
       const loadedBlockIds = new Set(
         (contextBudget.historyCompact.blocks ?? []).map((block) => block.blockId),
@@ -2419,12 +1998,13 @@ export class AiSdkBackend implements AgentBackend {
       );
       if (draftBlocks.length > 0) {
         if (this.input.summarizeHistoryCompact && this.input.recordHistoryCompactCheckpoint) {
-          const writePatch = await this.writeHistoryCompactCheckpoint({
+          const writePatch = await this.compaction.writeHistoryCompactCheckpoint({
             turnId: input.turnId,
             contextBudget,
             priorRuntimeContext,
             draftBlock: draftBlocks[0]!,
             abortSignal: this.abortController?.signal,
+            requestShapeHashBefore: this.priorRequestShape?.requestShapeHash,
           });
           if (writePatch.replacementCheckpoint) {
             latestHistoryCompactCheckpoint = writePatch.replacementCheckpoint;
@@ -2448,12 +2028,13 @@ export class AiSdkBackend implements AgentBackend {
             writePatch.diagnosticPatch,
           );
         } else {
-          const writePatch = await this.writeHistoryCompactBlocks({
+          const writePatch = await this.compaction.writeHistoryCompactBlocks({
             turnId: input.turnId,
             contextBudget,
             priorRuntimeContext,
             draftBlocks,
             abortSignal: this.abortController?.signal,
+            requestShapeHashBefore: this.priorRequestShape?.requestShapeHash,
           });
           if (writePatch.replacementBlocks.length > 0) {
             runtimeContext = replaceHistoryCompactReplayBlocks(
@@ -2571,13 +2152,14 @@ export class AiSdkBackend implements AgentBackend {
             },
           );
         } else {
-          const writePatch = await this.writeSynthesisCacheBlocks({
+          const writePatch = await this.compaction.writeSynthesisCacheBlocks({
             turnId: input.turnId,
             query: input.text,
             hydratedRuntimeEvents: runtimeContext,
             retrievedArchiveRefs: retrieval.retrievedSourceRefs ?? [],
             archiveRetrievalMode: contextBudget.archiveRetrieval?.mode ?? 'eager',
             contextBudget,
+            requestShapeHashBefore: this.priorRequestShape?.requestShapeHash,
           });
           contextBudgetDiagnostic = mergeContextBudgetDiagnostic(
             contextBudgetDiagnostic ??
@@ -2671,1641 +2253,6 @@ export class AiSdkBackend implements AgentBackend {
       ...(contextBudgetDiagnostic ? { contextBudget: contextBudgetDiagnostic } : {}),
       ...(latestHistoryCompactCheckpoint ? { latestHistoryCompactCheckpoint } : {}),
     };
-  }
-
-  private async prepareContextBudgetPolicy(runtimeContext: readonly RuntimeEvent[]): Promise<{
-    policy: ContextBudgetPolicy | undefined;
-    diagnosticPatch?: Partial<ContextBudgetDiagnostic>;
-  }> {
-    const policy = this.input.contextBudget;
-    if (!policy) return { policy };
-    let nextPolicy = policy;
-
-    if (policy.staleToolResultPrune?.enabled === true) {
-      const candidates = collectStaleToolResultArchiveCandidates(
-        runtimeContext,
-        policy?.staleToolResultPrune,
-        policy?.charsPerToken ?? 4,
-        policy?.minRecentTurns,
-      );
-      if (candidates.length > 0) {
-        const archiveRefs = new Map<string, ToolResultArchiveRef>();
-        const existingArchiveRefs = nextPolicy.staleToolResultPrune?.archiveRefs;
-        if (Array.isArray(existingArchiveRefs)) {
-          for (const ref of existingArchiveRefs) archiveRefs.set(ref.runtimeEventId, ref);
-        } else if (existingArchiveRefs) {
-          for (const ref of Object.values(existingArchiveRefs))
-            archiveRefs.set(ref.runtimeEventId, ref);
-        }
-        for (const candidate of candidates) {
-          const bodySha256 = sha256(candidate.serializedResult);
-          const archived = await Promise.resolve(
-            this.input.archiveToolResult?.({
-              ...candidate,
-              sessionId: this.sessionId,
-              bodySha256,
-            }),
-          ).catch(() => undefined);
-          if (!archived?.artifactId) continue;
-          archiveRefs.set(candidate.runtimeEventId, {
-            runtimeEventId: candidate.runtimeEventId,
-            toolCallId: candidate.toolCallId,
-            toolName: candidate.toolName,
-            artifactId: archived.artifactId,
-            bodySha256,
-            originalEstimatedTokens: candidate.originalEstimatedTokens,
-            originalBytes: candidate.originalBytes,
-            rewriteVersion: ARCHIVED_TOOL_RESULT_REWRITE_VERSION,
-            reason: candidate.reason,
-          });
-        }
-
-        nextPolicy = {
-          ...nextPolicy,
-          staleToolResultPrune: {
-            ...nextPolicy.staleToolResultPrune!,
-            archiveRefs: [...archiveRefs.values()],
-          },
-        };
-      }
-    }
-
-    const compactLoadPatch = await this.loadHistoryCompactBlocks(nextPolicy);
-    if (compactLoadPatch.policy !== nextPolicy) nextPolicy = compactLoadPatch.policy;
-    const loadPatch = await this.loadSynthesisCacheBlocks(nextPolicy);
-    if (loadPatch.policy !== nextPolicy) nextPolicy = loadPatch.policy;
-    const diagnosticPatch = mergeContextBudgetDiagnosticPatches(
-      compactLoadPatch.diagnosticPatch,
-      loadPatch.diagnosticPatch,
-    );
-    return {
-      policy: nextPolicy,
-      ...(diagnosticPatch ? { diagnosticPatch } : {}),
-    };
-  }
-
-  private buildActiveToolResultPrunePrepareStep(
-    turnId: string,
-    includeNewestStep: boolean,
-    onDiagnosticPatch?: (patch: ActiveToolResultPruneDiagnosticPatch) => void,
-  ): PrepareStepFunctionLike | undefined {
-    const policy = this.input.contextBudget?.activeToolResultPrune;
-    if (policy?.enabled !== true) return undefined;
-
-    const archivedPlaceholders = new Map<string, ActiveArchivedToolResultPlaceholder>();
-    return async (options) => {
-      const eligibleToolCallIds = collectPrunablePrepareStepToolCallIds(
-        options.steps,
-        includeNewestStep,
-      );
-      if (eligibleToolCallIds.size === 0) return undefined;
-      const rewritten = await rewriteActiveToolResultsInMessages({
-        messages: options.messages,
-        policy,
-        stepNumber: options.stepNumber,
-        turnId,
-        charsPerToken: this.input.contextBudget?.charsPerToken,
-        eligibleToolCallIds,
-        archivedPlaceholders,
-        archiveToolResult: async (candidate) => {
-          return await Promise.resolve(
-            this.input.archiveToolResult?.({
-              ...candidate,
-              sessionId: this.sessionId,
-              runtimeEventId: candidate.runtimeEventId ?? activeToolResultArchiveKey(candidate),
-            }),
-          );
-        },
-      });
-      if (hasActiveToolResultPruneDiagnosticPatch(rewritten.diagnosticPatch)) {
-        onDiagnosticPatch?.(rewritten.diagnosticPatch);
-      }
-      return rewritten.rewritten > 0 ? { messages: rewritten.messages } : undefined;
-    };
-  }
-
-  private buildSemanticCompactPrepareStep(
-    turnId: string,
-    model: unknown,
-    runtimeEvents: readonly RuntimeEvent[] | undefined,
-    headAnchor: ActiveCompactionHeadAnchor | undefined,
-    requestShapeHashForMessages: (
-      messages: readonly ModelMessage[],
-      activeToolsForStep: readonly string[] | undefined,
-    ) => string,
-    onDiagnosticPatch?: (patch: Partial<ContextBudgetDiagnostic>) => void,
-  ): PrepareStepFunctionLike | undefined {
-    const policy = this.input.contextBudget?.semanticCompact;
-    if (policy?.enabled !== true || policy.mode === 'off' || !headAnchor) return undefined;
-
-    let acceptedProjection: ActiveFullCompactPrepareStepProjection | undefined;
-    const controllerState: SemanticCompactControllerState = {
-      consecutiveInvalidSummaries: 0,
-      totalInvalidSummaries: 0,
-      compactCallCount: 0,
-      compactCallTotalTokens: 0,
-      acceptedEstimatedTokensSaved: 0,
-    };
-    return async (options) => {
-      const activeToolsForStep = (options as PrepareStepLike & { activeTools?: readonly string[] })
-        .activeTools;
-      const dryRun = policy.mode === 'validate_only' || policy.mode === 'prepare_step_dry_run';
-      const incomingMessages = options.messages;
-      const projectedMessages = dryRun
-        ? undefined
-        : projectAcceptedActiveFullCompactMessages(incomingMessages, acceptedProjection);
-      const messagesForRewrite = projectedMessages ?? incomingMessages;
-      const summarizerModel = policy.summarizerModel
-        ? this.input.modelFactory({
-            connection: this.input.connection,
-            apiKey: this.input.apiKey,
-            modelId: policy.summarizerModel,
-          })
-        : model;
-      const summarizerModelId = policy.summarizerModel ?? this.input.modelId;
-      const rewritten = await rewriteSemanticCompactInMessages({
-        sessionId: this.sessionId,
-        turnId,
-        messages: messagesForRewrite,
-        policy,
-        controllerState,
-        runtimeEvents: runtimeEvents?.filter((event) => event.turnId === turnId),
-        stepNumber: options.stepNumber,
-        now: this.now(),
-        charsPerToken: this.input.contextBudget?.charsPerToken,
-        requestShapeHashForMessages: (messages) =>
-          requestShapeHashForMessages(messages, activeToolsForStep),
-        headAnchor,
-        ...(acceptedProjection?.semanticBlock
-          ? { predecessorBlock: acceptedProjection.semanticBlock }
-          : {}),
-        abortSignal: this.abortController?.signal,
-        summarizer: async (request) => {
-          const startedAt = this.now();
-          const callId = `semantic_compact_${turnId}_${options.stepNumber}_${startedAt}`;
-          try {
-            const result = await this.modelAdapter.generateCompactSummary({
-              model: summarizerModel,
-              system: request.system,
-              messages: request.messages,
-              maxOutputTokens: request.maxOutputTokens,
-              abortSignal: request.abortSignal,
-            });
-            this.recordSemanticCompactSummaryCall({
-              callId,
-              turnId,
-              modelId: summarizerModelId,
-              startedAt,
-              latencyMs: Math.max(0, this.now() - startedAt),
-              usage: result.usage,
-              finishReason: result.finishReason,
-              status: 'success',
-            });
-            return result;
-          } catch (error) {
-            this.recordSemanticCompactSummaryCall({
-              callId,
-              turnId,
-              modelId: summarizerModelId,
-              startedAt,
-              latencyMs: Math.max(0, this.now() - startedAt),
-              status: request.abortSignal?.aborted ? 'aborted' : 'error',
-              errorClass: this.modelAdapter.classifyError(error),
-            });
-            throw error;
-          }
-        },
-      });
-      onDiagnosticPatch?.({
-        semanticCompactEnabled: true,
-        semanticCompactMode: policy.mode ?? 'replace',
-        ...rewritten.diagnosticPatch,
-      });
-      if (!dryRun && rewritten.decision === 'replaced') {
-        if (rewritten.block) this.recordSemanticCompactBlock(rewritten.block);
-        acceptedProjection = {
-          sourceSignatures: incomingMessages.map(projectionSourceMessageSignature),
-          sourceSignatureMode: 'active_prune_lineage',
-          projectedMessages: rewritten.messages,
-          ...(rewritten.block ? { semanticBlock: rewritten.block } : {}),
-        };
-        return {
-          messages: rewritten.messages,
-          makaSemanticCompactStatus: 'replaced',
-        } as ActiveCompactionPrepareStepResult;
-      }
-      return !dryRun && projectedMessages
-        ? ({
-            messages: projectedMessages,
-            makaSemanticCompactStatus: 'projected',
-          } as ActiveCompactionPrepareStepResult)
-        : undefined;
-    };
-  }
-
-  private buildActiveFullCompactPrepareStep(
-    turnId: string,
-    runtimeEvents: readonly RuntimeEvent[] | undefined,
-    headAnchor: ActiveCompactionHeadAnchor | undefined,
-    requestShapeHashForMessages: (
-      messages: readonly ModelMessage[],
-      activeToolsForStep: readonly string[] | undefined,
-    ) => string,
-    onDiagnosticPatch?: (patch: Partial<ContextBudgetDiagnostic>) => void,
-  ): PrepareStepFunctionLike | undefined {
-    const policy = this.input.contextBudget?.activeFullCompact;
-    if (policy?.enabled !== true || policy.mode === 'index_only' || policy.mode === 'off')
-      return undefined;
-
-    let acceptedProjection: ActiveFullCompactPrepareStepProjection | undefined;
-    return (options) => {
-      const activeToolsForStep = (options as PrepareStepLike & { activeTools?: readonly string[] })
-        .activeTools;
-      const dryRun = policy.mode === 'validate_only' || policy.mode === 'prepare_step_dry_run';
-      const incomingMessages = options.messages;
-      const projectedMessages = dryRun
-        ? undefined
-        : projectAcceptedActiveFullCompactMessages(incomingMessages, acceptedProjection);
-      const messagesForRewrite = projectedMessages ?? incomingMessages;
-      const rewritten = rewriteActiveFullCompactInMessages({
-        sessionId: this.sessionId,
-        turnId,
-        messages: messagesForRewrite,
-        policy,
-        runtimeEvents: runtimeEvents?.filter((event) => event.turnId === turnId),
-        stepNumber: options.stepNumber,
-        now: this.now(),
-        charsPerToken: this.input.contextBudget?.charsPerToken,
-        requestShapeHashForMessages: (messages) =>
-          requestShapeHashForMessages(messages, activeToolsForStep),
-        ...(headAnchor ? { headAnchor } : {}),
-        dryRun,
-        ...(dryRun ? { dryRunReason: policy.mode } : {}),
-      });
-      onDiagnosticPatch?.(rewritten.diagnosticPatch);
-      if (!dryRun && rewritten.decision === 'replaced') {
-        if (rewritten.block) this.recordActiveFullCompactBlock(rewritten.block);
-        acceptedProjection = {
-          sourceSignatures: incomingMessages.map(modelMessageSignature),
-          sourceSignatureMode: 'exact',
-          projectedMessages: rewritten.messages,
-        };
-        return { messages: rewritten.messages };
-      }
-      return !dryRun && projectedMessages ? { messages: projectedMessages } : undefined;
-    };
-  }
-
-  /**
-   * Mid-turn capacity compaction eligibility (issue #882 PR 1). Explicit
-   * opt-in via `historyCompact.midTurn.enabled`; requires the checkpoint
-   * writer seams plus the durable turn-ledger read, the persisted head anchor
-   * for this turn, and a known model context window.
-   */
-  private buildMidTurnCapacityCompactState(
-    input: BackendSendInput,
-  ): MidTurnCapacityCompactState | undefined {
-    const policy = this.input.contextBudget;
-    if (
-      policy?.historyCompact?.enabled !== true ||
-      policy.historyCompact.midTurn?.enabled !== true
-    ) {
-      return undefined;
-    }
-    if (
-      !this.input.summarizeHistoryCompact ||
-      !this.input.recordHistoryCompactCheckpoint ||
-      !this.input.loadTurnRuntimeEvents
-    ) {
-      return undefined;
-    }
-    const headAnchor = input.headAnchorRuntimeEvent;
-    if (
-      !headAnchor ||
-      headAnchor.sessionId !== this.sessionId ||
-      headAnchor.turnId !== input.turnId ||
-      headAnchor.role !== 'user' ||
-      headAnchor.author !== 'user' ||
-      !isHistoryCompactContentEvent(headAnchor)
-    ) {
-      return undefined;
-    }
-    const contextWindow = resolveSelectedModelContextWindow(
-      this.input.connection,
-      this.input.modelId,
-    );
-    if (contextWindow === undefined) return undefined;
-    const priorContentEvents = (input.runtimeContext ?? [])
-      .filter((event) => event.turnId !== input.turnId)
-      .filter(isHistoryCompactContentEvent);
-    return new MidTurnCapacityCompactState(headAnchor, priorContentEvents, contextWindow);
-  }
-
-  /**
-   * prepareStep SHAPING hook for the mid-turn capacity invariant: between
-   * steps of one turn, estimate the next provider request (last step's real
-   * usage + a signed char/4 payload delta, tool schemas included) against
-   * `contextWindow - reserve`; over the high-water, fold a safe completed
-   * prefix into a durable mid_turn checkpoint and continue the same turn on
-   * `[compact block, verbatim head anchor, preserved tail]`.
-   *
-   * This hook never terminates the turn: every failure fails open with a
-   * diagnostic and records itself for the final-request estimate owner, which
-   * re-measures the payload after ALL shaping (including active tool-result
-   * pruning, which runs later and can still rescue the step) and issues the
-   * context_budget_exhausted verdict only when the request that would really
-   * go out exceeds the window. The trigger threshold here is deliberately
-   * approximate — a missed or spurious trigger is recoverable; the verdict is
-   * not, so it does not live here.
-   */
-  private buildMidTurnCapacityCompactPrepareStep(
-    turnId: string,
-    state: MidTurnCapacityCompactState | undefined,
-    queue: AsyncEventQueue<SessionEvent>,
-    providerTools: readonly MakaTool[],
-    fallbackActiveTools: () => readonly string[],
-    turnTailPrompt: string | undefined,
-    systemPromptChars: number,
-    onDiagnosticPatch: (patch: Partial<ContextBudgetDiagnostic>) => void,
-  ): PrepareStepFunctionLike | undefined {
-    if (!state) return undefined;
-    const policy = this.input.contextBudget!;
-    const compactPolicy = policy.historyCompact!;
-    const midTurn = compactPolicy.midTurn!;
-    const charsPerToken = policy.charsPerToken ?? 4;
-    const reserveTokens = midTurn.reserveTokens ?? 16_384;
-    let acceptedProjection: ActiveFullCompactPrepareStepProjection | undefined;
-
-    return async (options) => {
-      const incomingMessages = options.messages;
-      const projectedMessages = projectAcceptedActiveFullCompactMessages(
-        incomingMessages,
-        acceptedProjection,
-      );
-      const keepProjection = (): PrepareStepResultLike | undefined =>
-        projectedMessages ? { messages: projectedMessages } : undefined;
-      // Step 0 is shaped by the pre_turn path; the mid-turn trigger only runs
-      // between steps, once completed-step usage and events exist.
-      if (options.stepNumber < 1 || state.exhaustedDetail) return keepProjection();
-
-      // Real usage for the last finished step, read synchronously from the
-      // SDK's own step results (the same numbers the finish-step chunk
-      // carries) — no coupling to how far the stream consumer has advanced.
-      // Baseline = the last request's INPUT tokens only (see the state field
-      // doc: the payload delta already carries the step's output). The
-      // adapter fails closed on missing token counts (undefined, #972), and a
-      // provider can still report a zero input outright — either way a
-      // non-positive input count is unusable for estimation, so clear the
-      // baseline and let the estimate fall back to the whole-payload cold
-      // start instead of "0 + delta".
-      //
-      // The usage anchor is only meaningful PAIRED with the payload baseline
-      // of the request it was reported for (`lastRequestPayloadChars`). A
-      // successful overflow recovery restructures the request and resets that
-      // baseline to undefined: the send-global steps view still carries the
-      // dead attempt's last usage, but anchoring on it against the rejected
-      // request's chars would under-estimate the retry by the whole previous
-      // step growth — so a missing baseline forces the whole-payload cold
-      // start, exactly like a missing usage sample.
-      const lastStepInputTokens = normalizeAiSdkUsage(options.steps.at(-1)?.usage)?.inputTokens;
-      state.lastRequestInputTokens =
-        state.lastRequestPayloadChars !== undefined &&
-        lastStepInputTokens !== undefined &&
-        Number.isFinite(lastStepInputTokens) &&
-        lastStepInputTokens > 0
-          ? lastStepInputTokens
-          : undefined;
-
-      // A skipped trigger is never silent: every failure-driven skip records a
-      // failedOpen decision. Recorder counters are attached ONLY on the tiers
-      // where the recorder was actually invoked — the diagnostics must never
-      // claim a write that did not happen.
-      const failOpen = (
-        failOpenReason: string,
-        recorderCounters: Partial<ContextBudgetDiagnostic> = {},
-      ): PrepareStepResultLike | undefined => {
-        onDiagnosticPatch({
-          historyCompactEnabled: true,
-          historyCompactMode: 'read_write',
-          ...recorderCounters,
-          ...compactionDecisionDiagnosticPatch({
-            stage: 'activeStep',
-            sourceKind: 'runtimeEvents',
-            decision: 'failedOpen',
-            phase: 'mid_turn',
-            boundaryKind: 'historyCompact',
-            reason: 'context_limit',
-            failOpenReason,
-            skippedReasonCounts: { [failOpenReason]: 1 },
-          }),
-        });
-        return keepProjection();
-      };
-      // A shaping failure additionally records itself for the final-request
-      // estimate owner: when the final payload is still over the window, the
-      // owner turns this step's failure into the terminal detail instead of
-      // re-entering a shaper that already attempted and failed.
-      const shapeFailure = (
-        detail: ContextBudgetExhaustedDetail,
-        diagnosticReason: string,
-        recorderCounters: Partial<ContextBudgetDiagnostic> = {},
-      ): PrepareStepResultLike | undefined => {
-        state.lastShapeFailure = { stepNumber: options.stepNumber, detail, diagnosticReason };
-        return failOpen(diagnosticReason, recorderCounters);
-      };
-
-      // Trigger estimate: the last request's input tokens plus a SIGNED char/4 delta of
-      // this step's payload (system prompt + projected messages + active tool
-      // schemas) against the previous request's measured payload. Measured synchronously from
-      // the SDK's own projection — no ledger dependency — so a same-turn
-      // `load_tools` schema expansion or a large tool result both count. This
-      // position measures BEFORE later shapers (prune) run, so it can
-      // over-trigger; that is the recoverable direction, and the verdict owner
-      // re-measures the post-shaping payload.
-      const measuredMessages = projectedMessages ?? incomingMessages;
-      const activeToolsForStep = options.activeTools ?? fallbackActiveTools();
-      const payloadChars = midTurnRequestPayloadChars(
-        measuredMessages,
-        providerTools,
-        activeToolsForStep,
-        systemPromptChars,
-      );
-      const forcedEstimate = state.forcedTriggerEstimate;
-      state.forcedTriggerEstimate = undefined;
-      const estimate =
-        forcedEstimate ??
-        estimateNextRequestTokens({
-          ...(state.lastRequestInputTokens !== undefined
-            ? { priorUsageTokens: state.lastRequestInputTokens }
-            : {}),
-          appendedChars: payloadChars - (state.lastRequestPayloadChars ?? payloadChars),
-          charsPerToken,
-          coldStartChars: payloadChars,
-        });
-      if (
-        forcedEstimate === undefined &&
-        !exceedsHighWater(estimate, state.contextWindow, reserveTokens)
-      ) {
-        return keepProjection();
-      }
-
-      // Fold a safe completed prefix of the durable turn ledger into a
-      // replacement projection (validate → persist), shared with the reactive
-      // overflow path. This hook maps the outcome to the prepareStep contract:
-      // keep the raw projection on skip/fail, apply the fold on success.
-      const outcome = await this.computeMidTurnCompactionReplacement({
-        turnId,
-        state,
-        queue,
-        minFlushedSteps: options.stepNumber,
-        estimatedNextRequestTokens: estimate,
-        referencePayloadChars: payloadChars,
-        providerTools,
-        activeToolsForStep,
-        systemPromptChars,
-        turnTailPrompt,
-      });
-      if (outcome.decision === 'skip') return keepProjection();
-      if (outcome.decision === 'fail') {
-        return shapeFailure(outcome.detail, outcome.diagnosticReason, outcome.recorderCounters);
-      }
-      acceptedProjection = {
-        sourceSignatures: incomingMessages.map(modelMessageSignature),
-        sourceSignatureMode: 'exact',
-        projectedMessages: outcome.replacementMessages,
-      };
-      state.replacedStepNumber = options.stepNumber;
-      onDiagnosticPatch(
-        buildMidTurnReplacedDiagnosticPatch({
-          checkpoint: outcome.checkpoint,
-          estimatedTokensBefore: outcome.estimatedTokensBefore,
-          estimatedTokensAfter: outcome.estimatedTokensAfter,
-          reason: 'context_limit',
-        }),
-      );
-      return { messages: outcome.replacementMessages };
-    };
-  }
-
-  /**
-   * Fold a safe completed prefix of the durable turn ledger into a persisted
-   * mid_turn checkpoint and its `[block, verbatim anchor, tail]` replacement
-   * messages — the compaction core shared by the proactive prepareStep hook
-   * (issue #882 PR 1) and the reactive overflow recovery (PR 2). It waits for
-   * the seq-ack durability boundary, reads the ledger, plans the fold, then
-   * validates (materializable ∧ smaller than the reference request ∧
-   * replay-admissible) and persists BEFORE returning the replacement, so a
-   * recovery re-projection never re-injects a covered raw span. It only shapes:
-   * the pass/terminate verdict and the diagnostic emission are the caller's.
-   */
-  private async computeMidTurnCompactionReplacement(input: {
-    turnId: string;
-    state: MidTurnCapacityCompactState;
-    queue: AsyncEventQueue<SessionEvent>;
-    minFlushedSteps: number;
-    estimatedNextRequestTokens: number;
-    referencePayloadChars: number;
-    providerTools: readonly MakaTool[];
-    activeToolsForStep: readonly string[];
-    systemPromptChars: number;
-    turnTailPrompt: string | undefined;
-  }): Promise<MidTurnCompactionOutcome> {
-    const {
-      turnId,
-      state,
-      queue,
-      providerTools,
-      activeToolsForStep,
-      systemPromptChars,
-      turnTailPrompt,
-    } = input;
-    const summarizer = this.input.summarizeHistoryCompact!;
-    const recorder = this.input.recordHistoryCompactCheckpoint!;
-    const loadTurnRuntimeEvents = this.input.loadTurnRuntimeEvents!;
-    const policy = this.input.contextBudget!;
-    const compactPolicy = policy.historyCompact!;
-    const midTurn = compactPolicy.midTurn!;
-    const charsPerToken = policy.charsPerToken ?? 4;
-    const reserveTokens = midTurn.reserveTokens ?? 16_384;
-
-    // Coverage pool = the durable run ledger, read through the injected
-    // seam. Covered events are persisted by construction (no crash window
-    // between checkpoint and source), and their bytes are exactly what a
-    // recovery re-projection replays.
-    //
-    // Seq-ack durability boundary. The replacement projection REPLACES the
-    // whole message list, so any completed-step content event missing from
-    // the durable pool is silently dropped from the next request — a
-    // lagging ledger here is content loss (e.g. a step's already-emitted
-    // assistant text), not a conservative under-count. No event-kind
-    // predicate can close that: the wait counts the event stream itself.
-    //  1. The pump has flushed every finish-step boundary the SDK reports
-    //     completed (state.flushedSteps), so ALL of the completed steps'
-    //     session events — tool pairs AND thinking/text completions — are
-    //     enqueued with producer-stamped sequence numbers.
-    //  2. The consumer has fully processed everything enqueued
-    //     (consumedCount >= pushedCount). The consumer's pull is the ack
-    //     (see drain()): it fires after processing, not after persisting,
-    //     so deliberately-unpersisted events (non-terminal errors,
-    //     partials) can never deadlock the wait.
-    // After both, ONE durable read (which itself re-awaits the run's
-    // serialized write queue) sees every event the projection may carry.
-    // Exits: the boundary, an abort, a detached consumer, or a read failure.
-    const abortSignal = this.abortController?.signal;
-    for (;;) {
-      if (abortSignal?.aborted) {
-        return {
-          decision: 'fail',
-          detail: 'no_safe_completed_span',
-          diagnosticReason: 'ledger_wait_aborted',
-        };
-      }
-      if (queue.consumerDetached) {
-        return {
-          decision: 'fail',
-          detail: 'no_safe_completed_span',
-          diagnosticReason: 'ledger_wait_aborted',
-        };
-      }
-      if (state.flushedSteps >= input.minFlushedSteps && queue.consumedCount >= queue.pushedCount)
-        break;
-      await waitForQueueProgressOrAbort(queue, abortSignal);
-    }
-    let turnLedger: RuntimeEvent[];
-    try {
-      turnLedger = await loadTurnRuntimeEvents(turnId);
-    } catch {
-      return {
-        decision: 'fail',
-        detail: 'no_safe_completed_span',
-        diagnosticReason: 'ledger_read_failed',
-      };
-    }
-    const currentTurnEvents = turnLedger
-      .filter((event) => event.turnId === turnId)
-      .filter(isHistoryCompactContentEvent);
-    // The head anchor is persisted before backend.send() is invoked, so
-    // its absence is a wiring error, not replication lag — fail open now.
-    if (!currentTurnEvents.some((event) => event.id === state.headAnchor.id)) {
-      return {
-        decision: 'fail',
-        detail: 'no_safe_completed_span',
-        diagnosticReason: 'head_anchor_not_durable',
-      };
-    }
-    const orderedEvents = [...state.priorContentEvents, ...currentTurnEvents];
-
-    const plan = await planMidTurnCapacityCompaction({
-      sessionId: this.sessionId,
-      orderedEvents,
-      headAnchor: { runtimeEventId: state.headAnchor.id, turnId },
-      estimatedNextRequestTokens: input.estimatedNextRequestTokens,
-      contextWindow: state.contextWindow,
-      reserveTokens,
-      reserveTailEvents: midTurn.reserveTailEvents ?? 1,
-      charsPerToken,
-      now: this.now(),
-      ...(compactPolicy.highWaterName !== undefined
-        ? { highWaterName: compactPolicy.highWaterName }
-        : {}),
-      ...(state.previousCheckpoint ? { previousCheckpoint: state.previousCheckpoint } : {}),
-      summarize: async ({ coveredRuntimeEvents, newlyFoldedRuntimeEvents, previousCheckpoint }) => {
-        return await Promise.resolve(
-          summarizer({
-            sessionId: this.sessionId,
-            turnId,
-            source: { foldedRuntimeEvents: [...coveredRuntimeEvents] },
-            ...(previousCheckpoint ? { previousCheckpoint } : {}),
-            newlyFoldedRuntimeEvents: [...newlyFoldedRuntimeEvents],
-            ...(this.abortController?.signal ? { abortSignal: this.abortController.signal } : {}),
-          }),
-        );
-      },
-    });
-
-    if (plan.decision === 'skip') return { decision: 'skip' };
-    if (plan.decision === 'fail_open') {
-      return {
-        decision: 'fail',
-        detail: plan.reason,
-        diagnosticReason: plan.diagnosticReason ?? plan.reason,
-      };
-    }
-
-    // Lifecycle order is validate → persist → apply, where validate =
-    // materializable ∧ smaller ∧ replay-admissible. Replay applies the
-    // session's latest checkpoint BEFORE any high-water check, so a
-    // checkpoint that fails ANY of the three must never be persisted — it
-    // would poison every later projection even though this step correctly
-    // refused it.
-    const replayPlan = buildRuntimeEventModelReplayPlan(plan.replacementEvents, {
-      toolActivityTurnIds: collectToolActivityTurnIds(orderedEvents),
-    });
-    if (
-      replayPlan.items.length === 0 ||
-      hasBlockingReplayDiagnostics(replayPlan) ||
-      (replayPlan.hasProviderNativeSemantics && !this.canReplayProviderNative(replayPlan))
-    ) {
-      return {
-        decision: 'fail',
-        detail: 'no_safe_completed_span',
-        diagnosticReason: 'replacement_unmaterializable',
-      };
-    }
-    // The head anchor must render exactly like the raw projection's current
-    // user message: the initial request decorates it with the volatile turn
-    // tail (cwd, shell context, task state — see send()), which is not part
-    // of the durable anchor bytes. Reuse the same decoration owner
-    // (appendTurnTailPrompt) on the anchor's replay item so a replacement
-    // never silently drops that context — and never counts the drop as
-    // shrinkage in the guard below.
-    const replayItemsWithAnchorTail = replayPlan.items.map((item) =>
-      item.kind === 'text' && item.role === 'user' && item.eventId === state.headAnchor.id
-        ? { ...item, content: this.appendTurnTailPrompt(item.content, turnTailPrompt) as string }
-        : item,
-    );
-    const replacementMessages = await this.materializeRuntimeReplayPlan({
-      ...replayPlan,
-      items: replayItemsWithAnchorTail,
-    });
-    // Apply the shape only when it actually shrinks the request versus the
-    // reference payload (the incoming request for the proactive hook, the
-    // request that overflowed for reactive recovery): a materialized
-    // replacement that is not smaller proves the summarizer's OUTPUT is
-    // unusable, reported as summarizer_failed via replacement_not_smaller.
-    const replacedPayloadChars = midTurnRequestPayloadChars(
-      replacementMessages,
-      providerTools,
-      activeToolsForStep,
-      systemPromptChars,
-    );
-    if (replacedPayloadChars >= input.referencePayloadChars) {
-      return {
-        decision: 'fail',
-        detail: 'summarizer_failed',
-        diagnosticReason: 'replacement_not_smaller',
-      };
-    }
-    // Replay admissibility uses the same complete-prefix capacity gate as
-    // recovery. Actual payload shrinkage was already checked above because
-    // only this owner can measure the fully materialized provider request.
-    const replayFit = evaluateHistoryCompactCheckpointReplay(
-      plan.checkpoint,
-      plan.replacementEvents.slice(1),
-      policy?.charsPerToken,
-      policy?.maxHistoryEstimatedTokens,
-    );
-    if (!replayFit.fits) {
-      return {
-        decision: 'fail',
-        detail: 'head_anchor_exceeds_capacity',
-        diagnosticReason: `replay_rejected_${replayFit.reason}`,
-      };
-    }
-
-    // The replacement is valid: durably persist the checkpoint BEFORE
-    // applying the projection — the same order as the pre_turn path. A
-    // persistence failure keeps raw messages and records write_failed.
-    try {
-      await Promise.resolve(recorder(plan.checkpoint, turnId));
-    } catch {
-      return {
-        decision: 'fail',
-        detail: 'summarizer_failed',
-        diagnosticReason: 'write_failed',
-        recorderCounters: { historyCompactWritesAttempted: 1, historyCompactWriteFailures: 1 },
-      };
-    }
-    state.previousCheckpoint = plan.checkpoint;
-    return {
-      decision: 'compacted',
-      checkpoint: plan.checkpoint,
-      replacementMessages,
-      estimatedTokensBefore: plan.estimatedTokensBefore,
-      estimatedTokensAfter: plan.estimatedTokensAfter,
-    };
-  }
-
-  /**
-   * Reactive overflow recovery (issue #882 PR 2): the second line of defense.
-   * When a provider rejects a request with a context-length error, fold the
-   * durable turn ledger once and resend once — a single compact-and-retry
-   * latch (pi's `_overflowRecoveryAttempted`). Returns the compacted messages
-   * to resend, or undefined when recovery is impossible or already spent, in
-   * which case the caller surfaces the real provider error rather than a
-   * fabricated success or a synthesized `context_budget_exhausted` (the
-   * provider — not the runtime — rejected the request). Non-context-length
-   * errors and turns without the mid-turn seam never reach compaction, so the
-   * default (no seam) behavior is already better than the old fake end_turn.
-   */
-  private async recoverFromOverflowError(input: {
-    error: unknown;
-    retryAlreadyUsed: boolean;
-    midTurnState: MidTurnCapacityCompactState | undefined;
-    turnId: string;
-    currentMessages: readonly ModelMessage[];
-    providerTools: readonly MakaTool[];
-    activeTools: readonly string[];
-    systemPromptChars: number;
-    turnTailPrompt: string | undefined;
-    queue: AsyncEventQueue<SessionEvent>;
-    onDiagnosticPatch: (patch: Partial<ContextBudgetDiagnostic>) => void;
-  }): Promise<{ messages: ModelMessage[] } | undefined> {
-    const state = input.midTurnState;
-    if (input.retryAlreadyUsed || !state) return undefined;
-    if (this.modelAdapter.classifyError(input.error) !== 'ContextLength') return undefined;
-
-    // The shrink baseline is the request the provider actually rejected. Its
-    // single owner is the verdict owner's per-request payload measure
-    // (state.lastRequestPayloadChars), recorded at the end of every
-    // prepareStep run — the attempt-INITIAL messages undercount the rejected
-    // request by every same-turn tool step, and a baseline anchored there
-    // refuses folds that genuinely shrink the real request (review P1-1).
-    // The cold-start fallback only covers a send whose verdict owner never
-    // ran a prepareStep (defensive; step 0 records the baseline too).
-    const referencePayloadChars =
-      state.lastRequestPayloadChars ??
-      midTurnRequestPayloadChars(
-        input.currentMessages,
-        input.providerTools,
-        input.activeTools,
-        input.systemPromptChars,
-      );
-    const outcome = await this.computeMidTurnCompactionReplacement({
-      turnId: input.turnId,
-      state,
-      queue: input.queue,
-      // The stream has ended, so every completed step is already flushed; wait
-      // only for the consumer to drain the durable ledger up to date.
-      minFlushedSteps: state.flushedSteps,
-      // The provider rejected the request outright, so force the fold past the
-      // high water regardless of the (evidently under-counting) estimate.
-      estimatedNextRequestTokens: state.contextWindow + 1,
-      referencePayloadChars,
-      providerTools: input.providerTools,
-      activeToolsForStep: input.activeTools,
-      systemPromptChars: input.systemPromptChars,
-      turnTailPrompt: input.turnTailPrompt,
-    });
-    if (outcome.decision !== 'compacted') {
-      // Recovery attempted but could not produce a smaller, admissible
-      // request; record the failed overflow attempt and let the caller surface
-      // the real provider error.
-      input.onDiagnosticPatch({
-        historyCompactEnabled: true,
-        historyCompactMode: 'read_write',
-        ...(outcome.decision === 'fail' && outcome.recorderCounters
-          ? outcome.recorderCounters
-          : {}),
-        ...compactionDecisionDiagnosticPatch({
-          stage: 'activeStep',
-          sourceKind: 'runtimeEvents',
-          decision: 'failedOpen',
-          phase: 'mid_turn',
-          boundaryKind: 'historyCompact',
-          reason: 'overflow',
-          ...(outcome.decision === 'fail'
-            ? {
-                failOpenReason: outcome.diagnosticReason,
-                skippedReasonCounts: { [outcome.diagnosticReason]: 1 },
-              }
-            : {}),
-        }),
-      });
-      return undefined;
-    }
-    input.onDiagnosticPatch(
-      buildMidTurnReplacedDiagnosticPatch({
-        checkpoint: outcome.checkpoint,
-        estimatedTokensBefore: outcome.estimatedTokensBefore,
-        estimatedTokensAfter: outcome.estimatedTokensAfter,
-        reason: 'overflow',
-      }),
-    );
-    // A successful recovery restructures the request, so the rejected
-    // request's payload measure no longer describes what the retry sends.
-    // Reset the baseline: the capacity hook's usage anchor is only coherent
-    // paired with the payload chars of the SAME request, and a missing
-    // baseline forces the whole-payload cold-start estimate instead of a
-    // stale pairing against the dead attempt.
-    state.lastRequestPayloadChars = undefined;
-    return { messages: outcome.replacementMessages };
-  }
-
-  /**
-   * The single end-of-pipeline estimate owner for the mid-turn capacity
-   * invariant. Every prepareStep hook only shapes; this wrapper measures the
-   * FINAL outgoing (messages, tools) payload — the bytes the provider will
-   * actually see, after capacity compaction, active tool-result pruning, and
-   * semantic/active-full compaction have all run — and issues the one
-   * safety-critical verdict:
-   *
-   *  - estimate = the last request's real INPUT tokens + signed char/4 delta
-   *    against the previous request's measured payload (recorded here on
-   *    every step, including step 0's baseline); the delta already carries
-   *    the step's fresh output, so an output-inclusive baseline would count
-   *    it twice, and an unusable usage sample falls back to the whole-payload
-   *    cold start rather than a zero baseline;
-   *  - over the window with no capacity attempt this step (the approximate
-   *    trigger missed, e.g. growth the trigger under-weighted), force ONE
-   *    capacity re-entry — the verdict must not terminate a turn a shaper can
-   *    still rescue, and one bounded re-entry preserves termination;
-   *  - still over the window → context_budget_exhausted, with the terminal
-   *    detail taken from this step's capacity outcome: a replacement that
-   *    remains too large is head_anchor_exceeds_capacity (the irreducible
-   *    remainder exceeds capacity); a recorded shaping failure keeps its own
-   *    detail and diagnostic reason.
-   *
-   * Step 0 is shaped by the pre_turn path and only records the baseline here.
-   */
-  private buildMidTurnFinalRequestVerdict(input: {
-    shaped: PrepareStepFunctionLike;
-    reentry: PrepareStepFunctionLike;
-    state: MidTurnCapacityCompactState;
-    providerTools: readonly MakaTool[];
-    fallbackActiveTools: () => readonly string[];
-    charsPerToken: number;
-    systemPromptChars: number;
-    onDiagnosticPatch: (patch: Partial<ContextBudgetDiagnostic>) => void;
-  }): PrepareStepFunctionLike {
-    const {
-      shaped,
-      reentry,
-      state,
-      providerTools,
-      fallbackActiveTools,
-      charsPerToken,
-      systemPromptChars,
-      onDiagnosticPatch,
-    } = input;
-    return async (options) => {
-      let result = await Promise.resolve(shaped(options));
-      const finalPayloadChars = (): number =>
-        midTurnRequestPayloadChars(
-          result?.messages ?? options.messages,
-          providerTools,
-          result?.activeTools ?? options.activeTools ?? fallbackActiveTools(),
-          systemPromptChars,
-        );
-      let payloadChars = finalPayloadChars();
-      if (options.stepNumber >= 1 && !state.exhaustedDetail) {
-        const estimateFinal = (): number =>
-          estimateNextRequestTokens({
-            ...(state.lastRequestInputTokens !== undefined
-              ? { priorUsageTokens: state.lastRequestInputTokens }
-              : {}),
-            appendedChars: payloadChars - (state.lastRequestPayloadChars ?? payloadChars),
-            charsPerToken,
-            coldStartChars: payloadChars,
-          });
-        let estimate = estimateFinal();
-        const capacityAttemptedThisStep =
-          state.replacedStepNumber === options.stepNumber ||
-          state.lastShapeFailure?.stepNumber === options.stepNumber;
-        if (estimate > state.contextWindow && !capacityAttemptedThisStep) {
-          // One bounded capacity re-entry: the trigger threshold is
-          // approximate on purpose (recoverable), so a miss must become a
-          // rescue attempt before it can become a terminal verdict. Re-run
-          // only the capacity + prune shapers over the already-shaped
-          // projection; a second attempt after a same-step failure is
-          // pointless (the failure was not a trigger miss) and would double
-          // recorder counters and summarizer calls.
-          state.forcedTriggerEstimate = estimate;
-          const reshaped = await Promise.resolve(
-            reentry({
-              ...options,
-              messages: result?.messages ?? options.messages,
-              ...(result?.activeTools ? { activeTools: result.activeTools } : {}),
-            }),
-          );
-          state.forcedTriggerEstimate = undefined;
-          if (reshaped) {
-            result = {
-              ...(result ?? {}),
-              ...reshaped,
-              activeTools: reshaped.activeTools ?? result?.activeTools,
-            };
-          }
-          payloadChars = finalPayloadChars();
-          estimate = estimateFinal();
-        }
-        if (estimate > state.contextWindow) {
-          const failure =
-            state.lastShapeFailure?.stepNumber === options.stepNumber
-              ? state.lastShapeFailure
-              : undefined;
-          const replacedThisStep = state.replacedStepNumber === options.stepNumber;
-          const detail: ContextBudgetExhaustedDetail = replacedThisStep
-            ? 'head_anchor_exceeds_capacity'
-            : (failure?.detail ?? 'no_safe_completed_span');
-          const diagnosticReason = replacedThisStep
-            ? 'head_anchor_exceeds_capacity'
-            : (failure?.diagnosticReason ?? 'no_safe_completed_span');
-          state.exhaustedDetail = detail;
-          onDiagnosticPatch({
-            historyCompactEnabled: true,
-            historyCompactMode: 'read_write',
-            ...compactionDecisionDiagnosticPatch({
-              stage: 'activeStep',
-              sourceKind: 'runtimeEvents',
-              decision: 'unchanged',
-              phase: 'mid_turn',
-              boundaryKind: 'historyCompact',
-              reason: 'context_budget_exhausted',
-              skippedReasonCounts: { [diagnosticReason]: 1 },
-            }),
-          });
-          this.abortController?.abort(new Error(`mid-turn context budget exhausted: ${detail}`));
-          return result;
-        }
-      }
-      state.lastRequestPayloadChars = payloadChars;
-      return result;
-    };
-  }
-
-  private recordSemanticCompactSummaryCall(input: {
-    callId: string;
-    turnId: string;
-    modelId: string;
-    startedAt: number;
-    latencyMs: number;
-    usage?: NormalizedAiSdkUsage;
-    finishReason?: string;
-    status: LlmCallRecord['status'];
-    errorClass?: string;
-  }): void {
-    if (!input.usage) return;
-    const costUsd = this.computeTokenUsageCostUsd(input.usage);
-    this.input.recordLlmCall?.({
-      sessionId: this.sessionId,
-      turnId: input.turnId,
-      callKind: 'semantic_compact',
-      callId: input.callId,
-      connectionSlug: this.input.connection.slug,
-      providerId: this.input.connection.providerType,
-      modelId: input.modelId,
-      inputTokens: input.usage.inputTokens,
-      outputTokens: input.usage.outputTokens,
-      cacheHitInputTokens: input.usage.cacheHitInputTokens,
-      cacheMissInputTokens: input.usage.cacheMissInputTokens,
-      ...(input.usage.cacheMissInputSource !== undefined
-        ? { cacheMissInputSource: input.usage.cacheMissInputSource }
-        : {}),
-      cachedInputTokens: input.usage.cachedInputTokens,
-      cacheWriteInputTokens: input.usage.cacheWriteInputTokens,
-      reasoningTokens: input.usage.reasoningTokens,
-      totalTokens: input.usage.totalTokens,
-      ...(input.finishReason !== undefined ? { rawFinishReason: input.finishReason } : {}),
-      ...(input.usage.raw !== undefined ? { rawUsage: input.usage.raw } : {}),
-      latencyMs: input.latencyMs,
-      status: input.status,
-      ...(input.errorClass ? { errorClass: input.errorClass } : {}),
-      startedAt: input.startedAt,
-      ...(costUsd !== undefined ? { costUsd } : {}),
-    });
-  }
-
-  private recordSemanticCompactBlock(block: SemanticCompactBlock): void {
-    const recorder = this.input.recordSemanticCompactBlock;
-    if (!recorder) return;
-    try {
-      const result = recorder(block);
-      if (result && typeof (result as PromiseLike<void>).then === 'function') {
-        void Promise.resolve(result).catch(() => {
-          // Semantic compact persistence is diagnostic/storage-only and must
-          // never perturb provider request projection or tool-loop progress.
-        });
-      }
-    } catch {
-      // Semantic compact persistence is diagnostic/storage-only and must never
-      // perturb provider request projection or tool-loop progress.
-    }
-  }
-
-  private recordActiveFullCompactBlock(block: ActiveFullCompactBlock): void {
-    const recorder = this.input.recordActiveFullCompactBlock;
-    if (!recorder) return;
-    try {
-      const result = recorder(block);
-      if (result && typeof (result as PromiseLike<void>).then === 'function') {
-        void Promise.resolve(result).catch(() => {
-          // Active compact persistence is diagnostic/storage-only and must never
-          // perturb provider request projection or tool-loop progress.
-        });
-      }
-    } catch {
-      // Active compact persistence is diagnostic/storage-only and must never
-      // perturb provider request projection or tool-loop progress.
-    }
-  }
-
-  private async loadHistoryCompactBlocks(
-    policy: ContextBudgetPolicy,
-  ): Promise<{ policy: ContextBudgetPolicy; diagnosticPatch?: Partial<ContextBudgetDiagnostic> }> {
-    const historyCompact = policy.historyCompact;
-    if (
-      historyCompact?.enabled !== true ||
-      (!this.input.loadHistoryCompactCheckpoint && !this.input.loadHistoryCompact)
-    ) {
-      return { policy };
-    }
-    if (historyCompact.checkpoint !== undefined || (historyCompact.blocks?.length ?? 0) > 0) {
-      return { policy };
-    }
-    let loadFailures = 0;
-    let checkpoint: HistoryCompactCheckpoint | undefined;
-    try {
-      checkpoint = await Promise.resolve(this.input.loadHistoryCompactCheckpoint?.());
-    } catch {
-      loadFailures += 1;
-    }
-    if (checkpoint) {
-      return {
-        policy: {
-          ...policy,
-          historyCompact: { ...historyCompact, checkpoint },
-        },
-        diagnosticPatch: {
-          historyCompactEnabled: true,
-          historyCompactMode: historyCompact.mode ?? 'deterministic',
-          historyCompactBlocksLoaded: 1,
-          historyCompactBlocksAvailable: 1,
-        },
-      };
-    }
-    if (!this.input.loadHistoryCompact) {
-      return loadFailures > 0
-        ? {
-            policy,
-            diagnosticPatch: {
-              historyCompactEnabled: true,
-              historyCompactMode: historyCompact.mode ?? 'deterministic',
-              historyCompactLoadFailures: loadFailures,
-            },
-          }
-        : { policy };
-    }
-    try {
-      // No maxBytes here: the block JSON carries per-event provenance and
-      // legitimately outgrows the token budget; the loader caps reads by
-      // storage size, and token limits are enforced on the loaded blocks.
-      const result = await Promise.resolve(
-        this.input.loadHistoryCompact({
-          sessionId: this.sessionId,
-          maxBlocks: historyCompact.maxBlocks,
-          maxEstimatedTokens: historyCompact.maxEstimatedTokens,
-        }),
-      );
-      const blocks = result.blocks ?? [];
-      return {
-        policy: {
-          ...policy,
-          historyCompact: {
-            ...historyCompact,
-            blocks,
-          },
-        },
-        diagnosticPatch: {
-          historyCompactEnabled: true,
-          historyCompactMode: historyCompact.mode ?? 'deterministic',
-          historyCompactBlocksLoaded: blocks.length,
-          historyCompactBlocksAvailable: blocks.length,
-          ...(loadFailures > 0 ? { historyCompactLoadFailures: loadFailures } : {}),
-          ...(result.skipped && result.skipped > 0
-            ? { historyCompactLoadSkipped: result.skipped }
-            : {}),
-          ...(result.skippedReasonCounts
-            ? { historyCompactLoadSkippedReasonCounts: result.skippedReasonCounts }
-            : {}),
-        },
-      };
-    } catch {
-      loadFailures += 1;
-      return {
-        policy,
-        diagnosticPatch: {
-          historyCompactEnabled: true,
-          historyCompactMode: historyCompact.mode ?? 'deterministic',
-          historyCompactLoadFailures: loadFailures,
-        },
-      };
-    }
-  }
-
-  private async loadSynthesisCacheBlocks(
-    policy: ContextBudgetPolicy,
-  ): Promise<{ policy: ContextBudgetPolicy; diagnosticPatch?: Partial<ContextBudgetDiagnostic> }> {
-    const synthesisCache = policy.synthesisCache;
-    if (synthesisCache?.enabled !== true || !this.input.loadSynthesisCache) {
-      return { policy };
-    }
-    if ((synthesisCache.blocks?.length ?? 0) > 0) {
-      return { policy };
-    }
-    try {
-      const result = await Promise.resolve(
-        this.input.loadSynthesisCache({
-          sessionId: this.sessionId,
-          maxBlocks: synthesisCache.maxBlocks,
-          maxEstimatedTokens: synthesisCache.maxEstimatedTokens,
-          maxBytes: (synthesisCache.maxEstimatedTokens ?? 2_048) * (policy.charsPerToken ?? 4),
-        }),
-      );
-      const blocks = result.blocks ?? [];
-      return {
-        policy: {
-          ...policy,
-          synthesisCache: {
-            ...synthesisCache,
-            blocks,
-          },
-        },
-        diagnosticPatch: {
-          synthesisCacheEnabled: true,
-          synthesisCacheMode: synthesisCache.mode ?? 'lookup',
-          synthesisCacheBlocksLoaded: blocks.length,
-          synthesisCacheBlocksAvailable: blocks.length,
-          ...(result.skipped && result.skipped > 0
-            ? { synthesisCacheLoadSkipped: result.skipped }
-            : {}),
-          ...(result.skippedReasonCounts
-            ? { synthesisCacheLoadSkippedReasonCounts: result.skippedReasonCounts }
-            : {}),
-          ...(result.evicted && result.evicted > 0
-            ? { synthesisCacheEvicted: result.evicted }
-            : {}),
-          ...(result.evictionReasonCounts
-            ? { synthesisCacheEvictionReasonCounts: result.evictionReasonCounts }
-            : {}),
-        },
-      };
-    } catch {
-      return {
-        policy,
-        diagnosticPatch: {
-          synthesisCacheEnabled: true,
-          synthesisCacheMode: synthesisCache.mode ?? 'lookup',
-          synthesisCacheLoadFailures: 1,
-        },
-      };
-    }
-  }
-
-  private async writeSynthesisCacheBlocks(input: {
-    turnId: string;
-    query: string;
-    hydratedRuntimeEvents: RuntimeEvent[];
-    retrievedArchiveRefs: SynthesisSourceRef[];
-    archiveRetrievalMode: ArchiveRetrievalMode;
-    contextBudget: ContextBudgetPolicy;
-  }): Promise<Partial<ContextBudgetDiagnostic>> {
-    const synthesisCache = input.contextBudget.synthesisCache;
-    if (
-      synthesisCache?.enabled !== true ||
-      synthesisCache.mode !== 'read_write' ||
-      !this.input.writeSynthesisCache
-    ) {
-      return {};
-    }
-    const limits = {
-      maxBlocks: synthesisCache.maxBlocks ?? 1,
-      maxBlockEstimatedTokens: synthesisCache.maxBlockEstimatedTokens ?? 1_024,
-      maxEstimatedTokens: synthesisCache.maxEstimatedTokens ?? 2_048,
-      charsPerToken: input.contextBudget.charsPerToken ?? 4,
-    };
-    try {
-      const result = await Promise.resolve(
-        this.input.writeSynthesisCache({
-          sessionId: this.sessionId,
-          turnId: input.turnId,
-          source: {
-            createdFrom:
-              input.archiveRetrievalMode === 'history_search_gated'
-                ? 'gated_archive_retrieval'
-                : 'eager_archive_retrieval',
-            query: input.query,
-            hydratedRuntimeEvents: input.hydratedRuntimeEvents,
-            retrievedArchiveRefs: input.retrievedArchiveRefs,
-            archiveRetrievalMode: input.archiveRetrievalMode,
-          },
-          limits,
-          requestShapeHashBefore: this.priorRequestShape?.requestShapeHash,
-        }),
-      );
-      const blocks = result?.blocks ?? [];
-      const estimatedTokens = blocks.reduce(
-        (total, block) => total + (block.estimatedTokens ?? 0),
-        0,
-      );
-      return {
-        synthesisCacheEnabled: true,
-        synthesisCacheMode: 'read_write',
-        synthesisCacheWritesAttempted: 1,
-        synthesisCacheBlocksWritten: blocks.length,
-        ...(blocks.length > 0
-          ? {
-              synthesisCacheWrittenBlockIds: blocks.map((block) => block.blockId),
-              synthesisCacheWriteEstimatedTokens: estimatedTokens,
-              highWaterName: blocks[0]!.highWaterName,
-              highWaterSeq: blocks[0]!.highWaterSeq,
-              highWaterReason: 'synthesis_cache_write',
-            }
-          : {}),
-        ...(result?.skipped && result.skipped > 0
-          ? { synthesisCacheWriteSkipped: result.skipped }
-          : {}),
-        ...(result?.skippedReasonCounts
-          ? { synthesisCacheWriteSkippedReasonCounts: result.skippedReasonCounts }
-          : {}),
-      };
-    } catch {
-      return {
-        synthesisCacheEnabled: true,
-        synthesisCacheMode: 'read_write',
-        synthesisCacheWritesAttempted: 1,
-        synthesisCacheWriteFailures: 1,
-      };
-    }
-  }
-
-  private async writeHistoryCompactCheckpoint(input: {
-    turnId: string;
-    contextBudget: ContextBudgetPolicy;
-    priorRuntimeContext: readonly RuntimeEvent[];
-    draftBlock: HistoryCompactBlock;
-    abortSignal?: AbortSignal;
-  }): Promise<{
-    diagnosticPatch: Partial<ContextBudgetDiagnostic>;
-    replacementCheckpoint?: HistoryCompactCheckpoint;
-    fallbackCheckpoint?: HistoryCompactCheckpoint;
-  }> {
-    const summarizer = this.input.summarizeHistoryCompact;
-    const recorder = this.input.recordHistoryCompactCheckpoint;
-    if (!summarizer || !recorder) return { diagnosticPatch: {} };
-    const foldedIds = new Set(input.draftBlock.coverage.runtimeEventIds);
-    const foldedRuntimeEvents = input.priorRuntimeContext.filter((event) =>
-      foldedIds.has(event.id),
-    );
-    if (foldedRuntimeEvents.length === 0) {
-      return {
-        diagnosticPatch: {
-          historyCompactWritesAttempted: 0,
-          historyCompactWriteSkipped: 1,
-          historyCompactWriteSkippedReasonCounts: { source_missing: 1 },
-        },
-      };
-    }
-    const loadedCheckpoint = input.contextBudget.historyCompact?.checkpoint;
-    const checkpointMatch = loadedCheckpoint
-      ? matchHistoryCompactCheckpointPrefix(loadedCheckpoint, foldedRuntimeEvents)
-      : undefined;
-    const previousCheckpoint =
-      checkpointMatch && !checkpointMatch.reason ? loadedCheckpoint : undefined;
-    const newlyFoldedRuntimeEvents = previousCheckpoint
-      ? checkpointMatch!.successorRuntimeEvents
-      : foldedRuntimeEvents;
-    const retainedRuntimeEvents = input.priorRuntimeContext.filter(
-      (event) => !foldedIds.has(event.id) && !event.id.startsWith('history-compact:'),
-    );
-    const previousCheckpointFitsCurrentLimits =
-      previousCheckpoint !== undefined &&
-      evaluateHistoryCompactCheckpointReplay(
-        previousCheckpoint,
-        retainedRuntimeEvents,
-        input.contextBudget?.charsPerToken,
-        input.contextBudget?.maxHistoryEstimatedTokens,
-        { sourceReplayEvents: [...foldedRuntimeEvents, ...retainedRuntimeEvents] },
-      ).fits;
-    if (
-      previousCheckpoint &&
-      newlyFoldedRuntimeEvents.length === 0 &&
-      previousCheckpointFitsCurrentLimits
-    ) {
-      return {
-        fallbackCheckpoint: previousCheckpoint,
-        diagnosticPatch: {
-          historyCompactEnabled: true,
-          historyCompactMode: 'read_write',
-          historyCompactWritesAttempted: 0,
-          historyCompactWriteSkipped: 1,
-          historyCompactWriteSkippedReasonCounts: { already_compacted: 1 },
-          historyCompactBlocksAvailable: 1,
-          historyCompactBlocksSelected: 1,
-          historyCompactBlockIds: [previousCheckpoint.checkpointId],
-          historyCompactedTurns: previousCheckpoint.coverage.turnCount,
-          historyCompactedEvents: previousCheckpoint.coverage.eventCount,
-          historyCompactedEstimatedTokensAfter: previousCheckpoint.estimatedTokens,
-          historyCompactCoverageHashes: [previousCheckpoint.coverage.sourceDigest],
-          ...compactionDecisionDiagnosticPatch({
-            stage: 'priorReplay',
-            sourceKind: 'runtimeEvents',
-            decision: 'unchanged',
-            boundaryKind: 'historyCompact',
-            boundaryIds: [previousCheckpoint.checkpointId],
-            reason: 'already_compacted',
-          }),
-        },
-      };
-    }
-    try {
-      const summary = await Promise.resolve(
-        summarizer({
-          sessionId: this.sessionId,
-          turnId: input.turnId,
-          source: { foldedRuntimeEvents },
-          ...(previousCheckpoint ? { previousCheckpoint } : {}),
-          newlyFoldedRuntimeEvents,
-          requestShapeHashBefore: this.priorRequestShape?.requestShapeHash,
-          abortSignal: input.abortSignal,
-        }),
-      );
-      if (!summary?.trim()) {
-        return {
-          ...(previousCheckpoint ? { fallbackCheckpoint: previousCheckpoint } : {}),
-          diagnosticPatch: {
-            historyCompactEnabled: true,
-            historyCompactMode: 'read_write',
-            historyCompactWritesAttempted: 1,
-            historyCompactWriteFailures: 1,
-            historyCompactWriteSkippedReasonCounts: { empty_summary: 1 },
-            ...compactionDecisionDiagnosticPatch({
-              stage: 'priorReplay',
-              sourceKind: 'runtimeEvents',
-              decision: 'failedOpen',
-              boundaryKind: 'historyCompact',
-              failOpenReason: 'empty_summary',
-            }),
-          },
-        };
-      }
-      const checkpoint = buildHistoryCompactCheckpoint({
-        sessionId: this.sessionId,
-        coveredRuntimeEvents: foldedRuntimeEvents,
-        summary,
-        highWaterName: input.draftBlock.highWaterName,
-        highWaterSeq: input.draftBlock.highWaterSeq,
-        ...(previousCheckpoint ? { previousCheckpointId: previousCheckpoint.checkpointId } : {}),
-        charsPerToken: input.contextBudget.charsPerToken,
-        now: this.now(),
-      });
-      const replayFit = evaluateHistoryCompactCheckpointReplay(
-        checkpoint,
-        retainedRuntimeEvents,
-        input.contextBudget?.charsPerToken,
-        input.contextBudget?.maxHistoryEstimatedTokens,
-        { sourceReplayEvents: [...foldedRuntimeEvents, ...retainedRuntimeEvents] },
-      );
-      const rejectedReason = !replayFit.fits ? replayFit.reason : undefined;
-      if (rejectedReason) {
-        return {
-          ...(previousCheckpoint ? { fallbackCheckpoint: previousCheckpoint } : {}),
-          diagnosticPatch: {
-            historyCompactEnabled: true,
-            historyCompactMode: 'read_write',
-            historyCompactWritesAttempted: 1,
-            historyCompactWriteFailures: 1,
-            historyCompactWriteSkippedReasonCounts: { [rejectedReason]: 1 },
-            ...compactionDecisionDiagnosticPatch({
-              stage: 'priorReplay',
-              sourceKind: 'runtimeEvents',
-              decision: 'failedOpen',
-              boundaryKind: 'historyCompact',
-              failOpenReason: rejectedReason,
-            }),
-          },
-        };
-      }
-      await Promise.resolve(recorder(checkpoint, input.turnId));
-      return {
-        replacementCheckpoint: checkpoint,
-        diagnosticPatch: {
-          historyCompactEnabled: true,
-          historyCompactMode: 'read_write',
-          historyCompactWritesAttempted: 1,
-          historyCompactBlocksWritten: 1,
-          historyCompactWrittenBlockIds: [checkpoint.checkpointId],
-          historyCompactWriteEstimatedTokens: checkpoint.estimatedTokens,
-          historyCompactBlockIds: [checkpoint.checkpointId],
-          historyCompactedEstimatedTokensAfter: checkpoint.estimatedTokens,
-          highWaterName: checkpoint.highWaterName,
-          highWaterSeq: checkpoint.highWaterSeq,
-          highWaterReason: 'history_compact',
-        },
-      };
-    } catch (error) {
-      const failureReason =
-        error instanceof HistoryCompactSummarizerError ? error.reason : 'write_failed';
-      return {
-        ...(previousCheckpoint ? { fallbackCheckpoint: previousCheckpoint } : {}),
-        diagnosticPatch: {
-          historyCompactEnabled: true,
-          historyCompactMode: 'read_write',
-          historyCompactWritesAttempted: 1,
-          historyCompactWriteFailures: 1,
-          historyCompactWriteSkippedReasonCounts: { [failureReason]: 1 },
-          ...compactionDecisionDiagnosticPatch({
-            stage: 'priorReplay',
-            sourceKind: 'runtimeEvents',
-            decision: 'failedOpen',
-            boundaryKind: 'historyCompact',
-            failOpenReason: failureReason,
-          }),
-        },
-      };
-    }
-  }
-
-  private async writeHistoryCompactBlocks(input: {
-    turnId: string;
-    contextBudget: ContextBudgetPolicy;
-    priorRuntimeContext: readonly RuntimeEvent[];
-    draftBlocks: HistoryCompactBlock[];
-    abortSignal?: AbortSignal;
-  }): Promise<{
-    diagnosticPatch: Partial<ContextBudgetDiagnostic>;
-    replacementBlocks: HistoryCompactBlock[];
-  }> {
-    const historyCompact = input.contextBudget.historyCompact;
-    if (
-      historyCompact?.enabled !== true ||
-      historyCompact.mode !== 'read_write' ||
-      !this.input.writeHistoryCompact
-    ) {
-      return { diagnosticPatch: {}, replacementBlocks: [] };
-    }
-    const limits = {
-      maxBlocks: historyCompact.maxBlocks ?? 1,
-      maxBlockEstimatedTokens:
-        historyCompact.maxBlockEstimatedTokens ?? historyCompact.maxSummaryEstimatedTokens ?? 1_024,
-      maxEstimatedTokens: historyCompact.maxEstimatedTokens ?? 2_048,
-      charsPerToken: input.contextBudget.charsPerToken ?? 4,
-    };
-    const replacementBlocks: HistoryCompactBlock[] = [];
-    let writesAttempted = 0;
-    let written = 0;
-    let skipped = 0;
-    const skippedReasonCounts: Record<string, number> = {};
-    try {
-      for (const draftBlock of input.draftBlocks.slice(0, limits.maxBlocks)) {
-        const foldedIds = new Set(draftBlock.coverage.runtimeEventIds);
-        const foldedRuntimeEvents = input.priorRuntimeContext.filter((event) =>
-          foldedIds.has(event.id),
-        );
-        if (foldedRuntimeEvents.length === 0) {
-          skipped += 1;
-          incrementRecord(skippedReasonCounts, 'source_missing');
-          continue;
-        }
-        writesAttempted += 1;
-        const result = await Promise.resolve(
-          this.input.writeHistoryCompact({
-            sessionId: this.sessionId,
-            turnId: input.turnId,
-            source: {
-              draftBlock,
-              foldedRuntimeEvents,
-            },
-            limits,
-            requestShapeHashBefore: this.priorRequestShape?.requestShapeHash,
-            abortSignal: input.abortSignal,
-          }),
-        );
-        const blocks = result?.blocks ?? [];
-        if (result?.skipped && result.skipped > 0) {
-          skipped += result.skipped;
-          mergeCountsInto(skippedReasonCounts, result.skippedReasonCounts);
-        }
-        for (const block of blocks) {
-          replacementBlocks.push(block);
-          written += 1;
-        }
-      }
-      const estimatedTokens = replacementBlocks.reduce(
-        (total, block) => total + (block.estimatedTokens ?? 0),
-        0,
-      );
-      const replacementRuntimeEventIds = new Set(
-        replacementBlocks.flatMap((block) => block.coverage.runtimeEventIds),
-      );
-      const estimatedTokensBefore = estimateRuntimeEventsTokens(
-        input.priorRuntimeContext.filter((event) => replacementRuntimeEventIds.has(event.id)),
-        limits.charsPerToken,
-      );
-      const replacementDecisionPatch =
-        replacementBlocks.length > 0
-          ? compactionDecisionDiagnosticPatch({
-              stage: 'priorReplay',
-              sourceKind: 'runtimeEvents',
-              decision: 'replaced',
-              boundaryKind: 'historyCompact',
-              boundaryIds: replacementBlocks.map(
-                (block) => historyCompactBlockToCompactionBoundary(block).boundaryId,
-              ),
-              coverage: {
-                turnIds: Array.from(
-                  new Set(replacementBlocks.flatMap((block) => block.coverage.turnIds)),
-                ),
-                runtimeEventIds: Array.from(replacementRuntimeEventIds),
-                contentKinds: Array.from(
-                  new Set(replacementBlocks.flatMap((block) => block.coverage.contentKinds)),
-                ),
-                bodySha256: replacementBlocks.flatMap((block) => block.coverage.bodySha256),
-              },
-              estimatedTokensBefore,
-              estimatedTokensAfter: estimatedTokens,
-            })
-          : compactionDecisionDiagnosticPatch({
-              stage: 'priorReplay',
-              sourceKind: 'runtimeEvents',
-              decision: 'failedOpen',
-              boundaryKind: 'historyCompact',
-              failOpenReason: Object.keys(skippedReasonCounts)[0] ?? 'write_empty',
-              ...(Object.keys(skippedReasonCounts).length > 0 ? { skippedReasonCounts } : {}),
-            });
-      return {
-        replacementBlocks,
-        diagnosticPatch: {
-          historyCompactEnabled: true,
-          historyCompactMode: 'read_write',
-          historyCompactWritesAttempted: writesAttempted,
-          historyCompactBlocksWritten: written,
-          ...(replacementBlocks.length > 0
-            ? {
-                historyCompactWrittenBlockIds: replacementBlocks.map((block) => block.blockId),
-                historyCompactWriteEstimatedTokens: estimatedTokens,
-                historyCompactBlockIds: replacementBlocks.map((block) => block.blockId),
-                historyCompactedEstimatedTokensAfter: estimatedTokens,
-                highWaterName: replacementBlocks[0]!.highWaterName,
-                highWaterSeq: replacementBlocks[0]!.highWaterSeq,
-                highWaterReason: 'history_compact',
-              }
-            : {}),
-          ...(skipped > 0 ? { historyCompactWriteSkipped: skipped } : {}),
-          ...(Object.keys(skippedReasonCounts).length > 0
-            ? { historyCompactWriteSkippedReasonCounts: skippedReasonCounts }
-            : {}),
-          ...replacementDecisionPatch,
-        },
-      };
-    } catch {
-      return {
-        replacementBlocks: [],
-        diagnosticPatch: {
-          historyCompactEnabled: true,
-          historyCompactMode: 'read_write',
-          historyCompactWritesAttempted: writesAttempted || 1,
-          historyCompactWriteFailures: 1,
-          ...compactionDecisionDiagnosticPatch({
-            stage: 'priorReplay',
-            sourceKind: 'runtimeEvents',
-            decision: 'failedOpen',
-            boundaryKind: 'historyCompact',
-            failOpenReason: 'write_failed',
-          }),
-        },
-      };
-    }
   }
 
   private canReplayProviderNative(plan: RuntimeEventModelReplayPlan): boolean {
@@ -4949,61 +2896,6 @@ function buildInvalidMakaTool(): MakaTool<{ tool?: string; error?: string }, nev
   };
 }
 
-function sha256(text: string): string {
-  return createHash('sha256').update(text).digest('hex');
-}
-
-function modelMessageSignature(message: ModelMessage): string {
-  return sha256(stableStringifyForSignature(message));
-}
-
-/**
- * A projection source signature must survive representation-only active
- * pruning. Preserve every message field except a tool-result payload, whose
- * raw body and archive placeholder are normalized to the same stable lineage
- * identity (tool call + original body hash). Any other source mutation still
- * invalidates the accepted projection.
- */
-function projectionSourceMessageSignature(message: ModelMessage): string {
-  if (message.role !== 'tool' || !Array.isArray(message.content)) {
-    return modelMessageSignature(message);
-  }
-  const normalizedContent = (message.content as unknown[]).map((part) => {
-    const lineage = activeToolResultLineageIdentity(part);
-    if (!lineage || !part || typeof part !== 'object') return part;
-    const { output: _output, result: _result, ...metadata } = part as Record<string, unknown>;
-    return {
-      ...metadata,
-      makaProjectionToolResultLineage: lineage,
-    };
-  });
-  return modelMessageSignature({ ...message, content: normalizedContent } as ModelMessage);
-}
-
-function stableStringifyForSignature(value: unknown): string {
-  if (value === undefined) return '';
-  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? '';
-  if (Array.isArray(value)) return `[${value.map(stableStringifyForSignature).join(',')}]`;
-  const object = value as Record<string, unknown>;
-  return `{${Object.keys(object)
-    .sort()
-    .map((key) => `${JSON.stringify(key)}:${stableStringifyForSignature(object[key])}`)
-    .join(',')}}`;
-}
-
-function hasBlockingReplayDiagnostics(plan: RuntimeEventModelReplayPlan): boolean {
-  // `unmatched_tool_result` is deliberately NOT blocking: the materializer
-  // drops an orphan tool result (its call sliced away or the ledger corrupt)
-  // on its own — see pushToolResults — so one orphan must not degrade the
-  // whole ledger to stored-message projection.
-  return plan.diagnostics.some(
-    (diagnostic) =>
-      diagnostic.code === 'unsupported_role' ||
-      diagnostic.code === 'unsupported_content' ||
-      diagnostic.code === 'tool_id_mismatch',
-  );
-}
-
 function priorReplayFailureTrace(replay: {
   gate: string;
   diagnostics: readonly { code: string }[];
@@ -5068,16 +2960,6 @@ function sumOptionalCounts<K extends keyof ActiveToolResultPruneDiagnosticPatch>
 ): Pick<ActiveToolResultPruneDiagnosticPatch, K> | Record<string, never> {
   const total = (left[key] ?? 0) + (right[key] ?? 0);
   return total > 0 ? ({ [key]: total } as Pick<ActiveToolResultPruneDiagnosticPatch, K>) : {};
-}
-
-function hasActiveToolResultPruneDiagnosticPatch(
-  patch: ActiveToolResultPruneDiagnosticPatch,
-): boolean {
-  return (
-    (patch.activePrunedToolResults ?? 0) > 0 ||
-    (patch.activeArchiveFailures ?? 0) > 0 ||
-    (patch.activeEstimatedTokensSaved ?? 0) > 0
-  );
 }
 
 function contextBudgetWithActivePrepareStepDiagnostics(
@@ -5147,17 +3029,4 @@ function buildHistoryCompactCheckpointFailOpenContext(
   ).fits
     ? replayEvents
     : [...retainedCandidates];
-}
-
-function incrementRecord(counts: Record<string, number>, key: string): void {
-  counts[key] = (counts[key] ?? 0) + 1;
-}
-
-function mergeCountsInto(
-  target: Record<string, number>,
-  source: Record<string, number> | undefined,
-): void {
-  for (const [key, value] of Object.entries(source ?? {})) {
-    target[key] = (target[key] ?? 0) + value;
-  }
 }
