@@ -1,0 +1,13 @@
+# Revisions that git blame should ignore — bulk mechanical reformats with no
+# authorship meaning. Configure your local clone once with:
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+# (GitHub's blame view honors this file automatically.)
+#
+# Entries must be hashes that exist on main. This repo squash-merges PRs, so
+# a reformat PR adds its landed hash here in a follow-up right after the
+# squash (a hash unknown to the clone makes `git blame` error out with
+# "cannot find revision ... to ignore"). Find the landed hash with:
+#   git log --oneline --grep 'Biome format baseline' -1
+
+# style: apply Biome format baseline outside the UI surface (#415)
+# -> squash-commit hash added in a follow-up immediately after this PR lands.
