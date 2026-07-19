@@ -6,6 +6,7 @@ import { readRendererContractCss } from './contract-css-helpers.js';
 import { readRendererShellCombinedSource, readRendererShellSources } from './renderer-shell-source-helpers.js';
 import { extractFunctionBlock } from './function-block-helpers.js';
 import { readSettingsCombinedSource } from './settings-contract-source-helpers.js';
+import { getDailyReviewSettingsCopy } from '../../renderer/locales/settings-daily-review-copy.js';
 
 const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');
 
@@ -286,7 +287,7 @@ describe('Daily Review copy feedback contract', () => {
     );
     assert.match(
       saveBlock,
-      /if \(mountedRef\.current && saveConfigGuard\.current === key\) \{\s*toast\.error\('保存每日回顾设置失败', settingsActionErrorMessage\(err\)\);\s*\}/,
+      /if \(mountedRef\.current && saveConfigGuard\.current === key\) \{\s*toast\.error\(copy\.saveFailed, settingsActionErrorMessage\(err, locale\)\);\s*\}/,
       'Late config save failures must not toast after Settings closes or ownership changes',
     );
     assert.match(
@@ -303,12 +304,12 @@ describe('Daily Review copy feedback contract', () => {
     );
     assert.match(
       runBlock,
-      /if \(mountedRef\.current && runModeGuard\.current === mode\) \{\s*toast\.success\(mode === 'daily' \? '已生成每日回顾' : '已生成深度分析', '可在「每日回顾」面板查看。'\);\s*\}/,
+      /if \(mountedRef\.current && runModeGuard\.current === mode\) \{\s*toast\.success\(copy\.runSuccess\[mode\], copy\.runSuccessDetail\);\s*\}/,
       'Manual run success feedback must be owned by the still-mounted request',
     );
     assert.match(
       runBlock,
-      /if \(mountedRef\.current && runModeGuard\.current === mode\) \{\s*toast\.error\('生成回顾失败', settingsActionErrorMessage\(err\)\);\s*\}/,
+      /if \(mountedRef\.current && runModeGuard\.current === mode\) \{\s*toast\.error\(copy\.runFailed, settingsActionErrorMessage\(err, locale\)\);\s*\}/,
       'Manual run failure feedback must be owned by the still-mounted request',
     );
     assert.match(
@@ -317,6 +318,8 @@ describe('Daily Review copy feedback contract', () => {
       'Manual run owners must be released by the matching request only',
     );
     assert.match(pageBlock, /disabled=\{runningMode !== null\}/);
+    assert.equal(getDailyReviewSettingsCopy('zh').runSuccess.daily, '已生成每日回顾');
+    assert.equal(getDailyReviewSettingsCopy('en').runSuccess.daily, 'Daily Review generated');
   });
 
   it('scrubs Daily Review load and action failures before rendering them', async () => {

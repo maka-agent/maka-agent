@@ -13,6 +13,8 @@ import { getDataSettingsCopy } from '../../renderer/locales/settings-data-copy.j
 import { getUsageSettingsCopy } from '../../renderer/locales/settings-usage-copy.js';
 import { getVoiceSettingsCopy } from '../../renderer/locales/settings-voice-copy.js';
 import { getWebSearchSettingsCopy } from '../../renderer/locales/settings-web-search-copy.js';
+import { getDailyReviewSettingsCopy } from '../../renderer/locales/settings-daily-review-copy.js';
+import { getHealthCenterCopy } from '../../renderer/locales/settings-health-copy.js';
 import {
   findInlineCjkLiterals,
   findSilentCatalogFallbacks,
@@ -65,6 +67,8 @@ const PR4_DESKTOP_PRESENTATION_FILES = [
   'apps/desktop/src/renderer/settings/open-gateway-settings-page.tsx',
   'apps/desktop/src/renderer/settings/voice-settings-page.tsx',
   'apps/desktop/src/renderer/settings/web-search-settings-page.tsx',
+  'apps/desktop/src/renderer/settings/daily-review-settings-page.tsx',
+  'apps/desktop/src/renderer/settings/health-center-page.tsx',
 ] as const;
 
 const PR4_DESKTOP_CATALOG_FILES = [
@@ -78,6 +82,8 @@ const PR4_DESKTOP_CATALOG_FILES = [
   'apps/desktop/src/renderer/locales/settings-open-gateway-copy.ts',
   'apps/desktop/src/renderer/locales/settings-voice-copy.ts',
   'apps/desktop/src/renderer/locales/settings-web-search-copy.ts',
+  'apps/desktop/src/renderer/locales/settings-daily-review-copy.ts',
+  'apps/desktop/src/renderer/locales/settings-health-copy.ts',
 ] as const;
 
 function repoSource(file: string): string {
@@ -134,6 +140,10 @@ describe('PR4 remaining desktop copy contract', () => {
     assert.equal(getVoiceSettingsCopy('en').microphone, 'Microphone permission');
     assert.equal(getWebSearchSettingsCopy('zh').search, '搜索');
     assert.equal(getWebSearchSettingsCopy('en').search, 'Search');
+    assert.equal(getDailyReviewSettingsCopy('zh').generateDaily, '生成每日回顾');
+    assert.equal(getDailyReviewSettingsCopy('en').generateDaily, 'Generate Daily Review');
+    assert.equal(getHealthCenterCopy('zh').statuses.ok.label, '正常');
+    assert.equal(getHealthCenterCopy('en').statuses.ok.label, 'Healthy');
   });
 
   it('contains no inline user-visible Chinese in migrated desktop owners', () => {

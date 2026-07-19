@@ -5,6 +5,12 @@ import { join } from 'node:path';
 import { readRendererContractCss } from './contract-css-helpers.js';
 import { readProviderSettingsCombinedSource } from './provider-contract-source-helpers.js';
 import { readSettingsCombinedSource } from './settings-contract-source-helpers.js';
+import { getDailyReviewSettingsCopy } from '../../renderer/locales/settings-daily-review-copy.js';
+import { getHealthCenterCopy } from '../../renderer/locales/settings-health-copy.js';
+import { getVoiceSettingsCopy } from '../../renderer/locales/settings-voice-copy.js';
+import { getDataSettingsCopy } from '../../renderer/locales/settings-data-copy.js';
+import { getOpenGatewaySettingsCopy } from '../../renderer/locales/settings-open-gateway-copy.js';
+import { getPermissionCenterCopy } from '../../renderer/locales/permission-center-copy.js';
 
 const repoRoot = process.cwd().endsWith('apps/desktop')
   ? join(process.cwd(), '..', '..')
@@ -55,25 +61,26 @@ describe('Settings coming-soon cleanup contract', () => {
 
   it('keeps feature status pages product-scoped instead of demo-version or future-roadmap copy', async () => {
     const settings = await readSettingsCombinedSource();
+    const dailyCopy = getDailyReviewSettingsCopy('zh');
 
     assert.doesNotMatch(settings, /V0\.1|V0\.2|capture smoke|之后会加|后续版本开放|阶段开放/, 'feature status pages must not read like demo-stage roadmap copy');
     // PR-DAILY-REVIEW-FULL-0: Settings → 每日回顾 became a real config form
     // (enable toggle, execute time, section toggles, deep analysis, manual
     // trigger). The page status now describes the wired automatic analysis
     // path and keeps the local-only fallback copy in the same branch.
-    assert.match(settings, /每天自动分析前一天的工作内容，提供摘要与建议。/, 'Daily Review status should describe the shipped automatic analysis mode');
-    assert.match(settings, /当前版本仅本地数字聚合，定时生成 \/ LLM 摘要尚未连接到后端。/, 'Daily Review fallback should still describe the local aggregate mode when the pipeline is not wired');
-    assert.match(settings, /启用每日回顾/, 'Daily Review settings must surface the auto-run enable toggle');
-    assert.match(settings, /执行时间/, 'Daily Review settings must surface the configurable execute time');
-    assert.match(settings, /对话摘要/, 'Daily Review settings must expose the 对话摘要 section toggle');
-    assert.match(settings, /遗漏提醒/, 'Daily Review settings must expose the 遗漏提醒 section toggle');
-    assert.match(settings, /使用洞察/, 'Daily Review settings must expose the 使用洞察 section toggle');
-    assert.match(settings, /代码建议/, 'Daily Review settings must expose the 代码建议 section toggle');
-    assert.match(settings, /深度分析/, 'Daily Review settings must expose the 深度分析 mode toggle');
-    assert.match(settings, /分析模型/, 'Daily Review settings must expose the 分析模型 selector');
-    assert.match(settings, /生成每日回顾/, 'Daily Review settings must surface the manual 生成每日回顾 trigger');
-    assert.match(settings, /生成深度分析/, 'Daily Review settings must surface the manual 生成深度分析 trigger');
-    assert.match(settings, /本地自检/, 'Voice status badge should describe the shipped local smoke boundary');
+    assert.match(dailyCopy.enabledHelp, /每天自动分析/, 'Daily Review status should describe the shipped automatic analysis mode');
+    assert.match(dailyCopy.unavailable, /仅本地数字聚合/, 'Daily Review fallback should still describe the local aggregate mode when the pipeline is not wired');
+    assert.match(settings, /copy\.enabled/, 'Daily Review settings must surface the auto-run enable toggle');
+    assert.match(settings, /copy\.executeTime/, 'Daily Review settings must surface the configurable execute time');
+    assert.equal(dailyCopy.sections.summary.title, '对话摘要');
+    assert.equal(dailyCopy.sections.gaps.title, '遗漏提醒');
+    assert.equal(dailyCopy.sections.usage.title, '使用洞察');
+    assert.equal(dailyCopy.sections.code.title, '代码建议');
+    assert.equal(dailyCopy.deep, '深度分析');
+    assert.equal(dailyCopy.model, '分析模型');
+    assert.equal(dailyCopy.generateDaily, '生成每日回顾');
+    assert.equal(dailyCopy.generateDeep, '生成深度分析');
+    assert.equal(getVoiceSettingsCopy('zh').badge, '本地自检', 'Voice status badge should describe the shipped local smoke boundary');
   });
 
   it('sanitizes Settings action errors before they reach visible toasts', async () => {
@@ -112,11 +119,12 @@ describe('Settings coming-soon cleanup contract', () => {
   it('keeps Voice settings boundary copy in current-policy language', async () => {
     const settings = await readSettingsCombinedSource();
     const voicePage = settings.match(/function VoiceModelsSettingsPage\(\)[\s\S]*?async function readBrowserMicrophonePermission/);
+    const voiceCopy = getVoiceSettingsCopy('zh');
 
     assert.ok(voicePage, 'Voice settings page block must exist');
-    assert.match(voicePage![0], /语音转写和语音朗读模型必须遵守这个边界/, 'Voice settings should frame speech features as a current policy boundary');
-    assert.match(voicePage![0], /转写文本只进入消息输入框草稿；用户发送前必须能编辑。/, 'Voice transcript handling should be stated as current policy');
-    assert.match(voicePage![0], /录音样本只在本机内存里/, 'Voice privacy boundary must be stated in the 当前边界 copy');
+    assert.match(voiceCopy.subtitle, /语音转写和语音朗读模型必须遵守这个边界/, 'Voice settings should frame speech features as a current policy boundary');
+    assert.match(voiceCopy.boundaries.join('\n'), /转写文本只进入消息输入框草稿；用户发送前必须能编辑。/, 'Voice transcript handling should be stated as current policy');
+    assert.match(voiceCopy.boundaries.join('\n'), /录音样本只在本机内存里/, 'Voice privacy boundary must be stated in the current boundary copy');
     assert.doesNotMatch(
       voicePage![0],
       /未来|后续|接入会叠在|之后会加|采集链路 smoke|capture smoke|STT \/ TTS/,
@@ -134,10 +142,11 @@ describe('Settings coming-soon cleanup contract', () => {
   it('keeps Data settings backup copy actionable instead of future export/import roadmap copy', async () => {
     const settings = await readSettingsCombinedSource();
     const dataPage = settings.match(/function DataSettingsPage\(\)[\s\S]*?function PersonalizationSettingsPage/);
+    const dataCopy = getDataSettingsCopy('zh');
 
     assert.ok(dataPage, 'Data settings page block must exist');
-    assert.match(dataPage![0], /需要备份时先退出 Maka，再复制整个目录/, 'Data settings should give a current manual backup path');
-    assert.match(dataPage![0], /恢复后需要重新测试/, 'Data settings should explain credential restore behavior');
+    assert.match(dataCopy.backupNotice, /需要备份时先退出 Maka，再复制整个目录/, 'Data settings should give a current manual backup path');
+    assert.match(dataCopy.backupNotice, /恢复后需要重新测试/, 'Data settings should explain credential restore behavior');
     assert.doesNotMatch(
       dataPage![0],
       /\.maka\.zip|schemaVersion|V0\.2|阶段开放|导入备份/,
@@ -188,11 +197,12 @@ describe('Settings coming-soon cleanup contract', () => {
 
   it('keeps Open Gateway token setup copy action-oriented', async () => {
     const settings = await readSettingsCombinedSource();
+    const gatewayCopy = getOpenGatewaySettingsCopy('zh');
 
-    assert.match(settings, /网关已开启，等待生成访问 token。生成 token 后服务会自动启动。/);
-    assert.match(settings, /生成访问 token 后服务会自动启动/);
-    assert.match(settings, /gatewayDraft\.token \? '已配置' : '等待 token'/);
-    assert.match(settings, /if \(error === 'missing_token'\) return '等待生成访问 token'/);
+    assert.match(gatewayCopy.form.waitingNotice, /网关已开启，等待生成访问 token。生成 token 后服务会自动启动。/);
+    assert.match(gatewayCopy.status.waitingTokenDetail, /生成访问 token 后服务会自动启动/);
+    assert.match(settings, /gatewayDraft\.token \? copy\.summary\.configured : copy\.summary\.waitingToken/);
+    assert.match(settings, /if \(error === 'missing_token'\) return copy\.status\.waitingToken/);
     assert.doesNotMatch(
       settings,
       /网关已开启，但还没有 token|缺少访问 token|gateway(?:Draft)?\.token \? '已配置' : '未配置'/,
@@ -203,7 +213,8 @@ describe('Settings coming-soon cleanup contract', () => {
   it('keeps Permission Center copy scoped to current product boundaries', async () => {
     const settings = await readSettingsCombinedSource();
     const permissionPage = settings.match(/function PermissionCenterPage\(\)[\s\S]*?function CapabilityRow/);
-    const capabilityRow = settings.match(/function CapabilityRow\(props: \{ capability: CapabilitySnapshot \}\)[\s\S]*?function OsPermissionRow/);
+    const capabilityRow = settings.match(/function CapabilityRow\(props: \{ capability: CapabilitySnapshot; copy: PermissionCenterCopy; locale: UiLocale \}\)[\s\S]*?function OsPermissionRow/);
+    const permissionCopy = getPermissionCenterCopy('zh');
 
     assert.ok(permissionPage, 'Permission Center page block must exist');
     assert.ok(capabilityRow, 'Permission Center capability row block must exist');
@@ -211,24 +222,24 @@ describe('Settings coming-soon cleanup contract', () => {
     // snapshot — system permissions row now exposes 请求授权 / 前往系统设置
     // action buttons. The "read-only snapshot" framing moved to the
     // footnote so the page intro can lead with the action affordance.
-    assert.match(permissionPage![0], /只读取系统权限与功能能力的当前快照/, 'Permission Center footnote must still explain the read-only snapshot boundary for capabilities');
-    assert.match(permissionPage![0], /系统设置 → 隐私与安全性/, 'Permission Center must point users to the current OS permission path');
-    assert.match(permissionPage![0], /<ul className="settingsCapabilityList" aria-label="功能能力列表"/, 'Permission Center capability list must have an accessible name');
-    assert.match(permissionPage![0], /<ul className="settingsOsPermissionList" aria-label="系统权限列表">/, 'Permission Center OS permission list must have an accessible name');
+    assert.match(permissionCopy.footnote, /只读取系统权限与功能能力的当前快照/, 'Permission Center footnote must still explain the read-only snapshot boundary for capabilities');
+    assert.match(permissionCopy.footnote, /系统设置 → 隐私与安全性/, 'Permission Center must point users to the current OS permission path');
+    assert.match(permissionPage![0], /<ul className="settingsCapabilityList" aria-label=\{copy\.capabilityListAria\}/, 'Permission Center capability list must have an accessible name');
+    assert.match(permissionPage![0], /<ul className="settingsOsPermissionList" aria-label=\{copy\.osListAria\}>/, 'Permission Center OS permission list must have an accessible name');
     assert.match(permissionPage![0], /window\.maka\.permissions\.requestAccess/, 'Permission Center must wire the requestAccess IPC for direct-request permissions');
     assert.match(permissionPage![0], /window\.maka\.permissions\.openSystemSettings/, 'Permission Center must wire the openSystemSettings IPC for deep-link permissions');
-    assert.match(capabilityRow![0], /<dl className="settingsCapabilityLayers" aria-label=\{`\$\{capability\.label\}能力状态明细`\}>/, 'Capability status definition lists must expose row-scoped accessible names');
-    assert.match(capabilityRow![0], /<ul aria-label=\{`\$\{capability\.label\}所需系统权限列表`\}>/, 'Capability required-permission lists must expose row-scoped accessible names');
-    assert.match(capabilityRow![0], /<ul aria-label=\{`\$\{capability\.label\}处理建议列表`\}>/, 'Capability guidance lists must expose row-scoped accessible names');
-    assert.match(capabilityRow![0], /<ul aria-label=\{`\$\{capability\.label\}审计记录列表`\}>/, 'Capability audit-event lists must expose row-scoped accessible names');
+    assert.match(capabilityRow![0], /<dl className="settingsCapabilityLayers" aria-label=\{copy\.layers\.aria\(capabilityLabel\)\}>/, 'Capability status definition lists must expose row-scoped accessible names');
+    assert.match(capabilityRow![0], /<ul aria-label=\{copy\.requiredPermissionsAria\(capabilityLabel\)\}>/, 'Capability required-permission lists must expose row-scoped accessible names');
+    assert.match(capabilityRow![0], /<ul aria-label=\{copy\.guidanceAria\(capabilityLabel\)\}>/, 'Capability guidance lists must expose row-scoped accessible names');
+    assert.match(capabilityRow![0], /<ul aria-label=\{copy\.auditAria\(capabilityLabel\)\}>/, 'Capability audit-event lists must expose row-scoped accessible names');
     assert.doesNotMatch(capabilityRow![0], /<dl className="settingsCapabilityLayers">/, 'Capability status details must not regress to an anonymous definition list');
-    assert.match(settings, /not_determined:\s*\{\s*label:\s*'等待授权'/, 'OS not_determined should read as an actionable waiting state');
-    assert.match(settings, /not_configured:\s*\{\s*label:\s*'等待配置'/, 'capability not_configured should read as an actionable waiting state');
-    assert.match(settings, /case\s+'missing':\s*return\s+'等待补齐配置'/, 'configuration missing should read as an actionable waiting state');
-    assert.match(settings, /仍有运行态、权限或子功能需要处理/, 'degraded capability copy should describe a current action state');
+    assert.equal(permissionCopy.osStates.not_determined.label, '等待授权', 'OS not_determined should read as an actionable waiting state');
+    assert.equal(permissionCopy.readiness.not_configured.label, '等待配置', 'capability not_configured should read as an actionable waiting state');
+    assert.equal(permissionCopy.layers.configurationStates.missing, '等待补齐配置', 'configuration missing should read as an actionable waiting state');
+    assert.match(permissionCopy.readiness.degraded.detail, /仍有运行态、权限或子功能需要处理/, 'degraded capability copy should describe a current action state');
     assert.match(
       permissionPage![0],
-      /setError\(settingsActionErrorMessage\(err\)\)/,
+      /setError\(settingsActionErrorMessage\(err, locale\)\)/,
       'Permission Center snapshot load failures must use the shared sanitized Settings error copy',
     );
     assert.doesNotMatch(
@@ -295,30 +306,31 @@ describe('Settings coming-soon cleanup contract', () => {
   it('keeps Health Center copy scoped to read-only current signals', async () => {
     const settings = await readSettingsCombinedSource();
     const healthPage = settings.match(/function HealthCenterPage\(\)[\s\S]*?function HealthSummaryTile/);
-    const healthSignalRow = settings.match(/function HealthSignalRow\(props: \{ signal: HealthSignal \}\)[\s\S]*?function groupSignalsByLayer/);
+    const healthSignalRow = settings.match(/function HealthSignalRow\(props: \{ signal: HealthSignal; copy: HealthCenterCopy \}\)[\s\S]*?function groupSignalsByLayer/);
+    const healthCopy = getHealthCenterCopy('zh');
 
     assert.ok(healthPage, 'Health Center page block must exist');
     assert.ok(healthSignalRow, 'HealthSignalRow block must exist');
-    assert.match(settings, /const HEALTH_SOURCE_LABEL\b/, 'Health Center should have a source-label presentation map');
-    assert.match(healthPage![0], /只汇总当前已记录的健康信号/, 'Health Center must explain its current read-only signal boundary');
-    assert.match(healthPage![0], /发送通路以运行态探测结果为准/, 'Health Center must keep validation and operational runtime distinct');
-    assert.match(healthPage![0], /健康信号会阻塞发送/, 'Health Center blocker copy should use localized product wording');
-    assert.match(healthPage![0], /健康信号会阻塞能力/, 'Health Center capability blocker copy should use localized product wording');
+    assert.match(healthSignalRow![0], /copy\.sources\[signal\.source\]/, 'Health Center should use the localized source-label presentation map');
+    assert.match(healthCopy.footnote, /只汇总当前已记录的健康信号/, 'Health Center must explain its current read-only signal boundary');
+    assert.match(healthCopy.validationWarning, /验证通过 ≠ 运行可用/, 'Health Center must keep validation and operational runtime distinct');
+    assert.match(healthCopy.blockers.send(2), /健康信号会阻塞发送/, 'Health Center blocker copy should use localized product wording');
+    assert.match(healthCopy.blockers.capability(2), /健康信号会阻塞能力/, 'Health Center capability blocker copy should use localized product wording');
     // PR-HEALTH-SUMMARY-LIST-A11Y-0 (round 19/30): semantic
     // `<ul>` / `<li>` replaces `<section role="list">` +
     // `<div role="listitem">`. ARIA list semantics still hold
     // — the elements carry them implicitly.
-    assert.match(healthPage![0], /<ul aria-label="健康摘要" className="settingsHealthSummary">/, 'Health Center summary metrics must expose list semantics');
+    assert.match(healthPage![0], /<ul aria-label=\{copy\.summaryAria\} className="settingsHealthSummary">/, 'Health Center summary metrics must expose list semantics');
     // Convergence R4: the tile is the shared StatTile rendered as="li" —
     // listitem semantics preserved through the primitive's `as` prop.
     assert.match(settings, /<StatTile\s+as="li"\s+className="settingsHealthSummaryTile"/, 'Health Center summary metric tiles must expose listitem semantics via StatTile as="li"');
-    assert.match(healthPage![0], /aria-label=\{`\$\{copy\.label\}健康信号`\}/, 'Health Center section aria labels should not mix English "signals" into Chinese UI');
-    assert.match(healthPage![0], /<ul className="settingsHealthSignalList" aria-label=\{`\$\{copy\.label\}健康信号列表`\}>/, 'Health Center signal lists must expose product-scoped accessible names');
-    assert.match(healthSignalRow![0], /来源：\{HEALTH_SOURCE_LABEL\[signal\.source\]\}/, 'Health Center row should present localized source labels');
-    assert.match(healthSignalRow![0], /读取：<RelativeTime/, 'Health Center row should present localized checked-time labels');
+    assert.match(healthPage![0], /aria-label=\{copy\.layerAria\(layerCopy\.label\)\}/, 'Health Center section aria labels should use the active locale');
+    assert.match(healthPage![0], /<ul className="settingsHealthSignalList" aria-label=\{copy\.layerListAria\(layerCopy\.label\)\}>/, 'Health Center signal lists must expose product-scoped accessible names');
+    assert.match(healthSignalRow![0], /\{copy\.source\}\{copy\.sources\[signal\.source\]\}/, 'Health Center row should present localized source labels');
+    assert.match(healthSignalRow![0], /\{copy\.checked\}<RelativeTime/, 'Health Center row should present localized checked-time labels');
     assert.match(
       healthPage![0],
-      /setError\(settingsActionErrorMessage\(err\)\)/,
+      /setError\(settingsActionErrorMessage\(err, locale\)\)/,
       'Health Center snapshot load failures must use the shared sanitized Settings error copy',
     );
     assert.doesNotMatch(

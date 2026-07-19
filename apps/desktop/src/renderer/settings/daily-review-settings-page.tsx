@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { DailyReviewConfig, DailyReviewMode, LlmConnection } from '@maka/core';
-import { Alert, AlertDescription, Button, Input, SettingsSelect, SettingsSwitch as Switch, useMountedRef, useToast } from '@maka/ui';
+import { Alert, AlertDescription, Button, Input, SettingsSelect, SettingsSwitch as Switch, useMountedRef, useToast, useUiLocale } from '@maka/ui';
 import { buildCatalogDailyReviewModelOptions } from '../model-catalog-choices';
+import { getDailyReviewSettingsCopy, type DailyReviewSettingsCopy } from '../locales/settings-daily-review-copy';
 import { settingsActionErrorMessage } from './settings-error-copy';
 import { SettingsRows } from './settings-rows';
 import { useActionGuard } from './use-action-guard';
@@ -12,25 +13,17 @@ import { useActionGuard } from './use-action-guard';
  * page summarizes what it does, the privacy boundary, and offers a
  * one-click jump to the sidebar.
  */
-const DAILY_REVIEW_SECTION_LABELS: ReadonlyArray<{
-  key: 'summary' | 'gaps' | 'usage' | 'code';
-  title: string;
-  detail: string;
-}> = [
-  { key: 'summary', title: '对话摘要', detail: '昨天聊了什么，关键结论是什么。' },
-  { key: 'gaps', title: '遗漏提醒', detail: '开始但未完成的讨论、可能忽略的要点。' },
-  { key: 'usage', title: '使用洞察', detail: '模型选择、Token 消耗、工具使用效率。' },
-  { key: 'code', title: '代码建议', detail: '基于对话中的代码讨论，给出优化建议。' },
-];
+const DAILY_REVIEW_SECTION_KEYS = ['summary', 'gaps', 'usage', 'code'] as const;
 
 const DAILY_REVIEW_DEFAULT_MODEL_VALUE = '__maka_daily_review_default_model__';
 
 function buildDailyReviewModelOptions(
   connections: readonly LlmConnection[],
   currentModelKey: string,
+  copy: DailyReviewSettingsCopy,
 ): Array<readonly [string, string]> {
   const options: Array<readonly [string, string]> = [
-    [DAILY_REVIEW_DEFAULT_MODEL_VALUE, '跟随对话默认'],
+    [DAILY_REVIEW_DEFAULT_MODEL_VALUE, copy.defaultModel],
   ];
   options.push(...buildCatalogDailyReviewModelOptions(
     connections,
@@ -40,6 +33,8 @@ function buildDailyReviewModelOptions(
 }
 
 export function DailyReviewSettingsPage(props: { connections: readonly LlmConnection[]; onOpenDailyReview?: () => void }) {
+  const locale = useUiLocale();
+  const copy = getDailyReviewSettingsCopy(locale);
   const toast = useToast();
   const dailyReviewIpc = window.maka.dailyReview;
   const hasConfigIpc = Boolean(dailyReviewIpc.getConfig && dailyReviewIpc.setConfig);
@@ -73,14 +68,14 @@ export function DailyReviewSettingsPage(props: { connections: readonly LlmConnec
       })
       .catch((err: unknown) => {
         if (!cancelled && mountedRef.current) {
-          setLoadError(settingsActionErrorMessage(err));
+          setLoadError(settingsActionErrorMessage(err, locale));
           setLoading(false);
         }
       });
     return () => {
       cancelled = true;
     };
-  }, [hasConfigIpc, dailyReviewIpc]);
+  }, [hasConfigIpc, dailyReviewIpc, locale]);
 
   async function patchConfig(key: string, patch: Partial<DailyReviewConfig>) {
     if (!dailyReviewIpc.setConfig || !config || saveConfigGuard.current !== null) return;
@@ -91,7 +86,7 @@ export function DailyReviewSettingsPage(props: { connections: readonly LlmConnec
       if (mountedRef.current && saveConfigGuard.current === key) setConfig(next);
     } catch (err) {
       if (mountedRef.current && saveConfigGuard.current === key) {
-        toast.error('保存每日回顾设置失败', settingsActionErrorMessage(err));
+        toast.error(copy.saveFailed, settingsActionErrorMessage(err, locale));
       }
     } finally {
       if (saveConfigGuard.current === key) {
@@ -108,11 +103,11 @@ export function DailyReviewSettingsPage(props: { connections: readonly LlmConnec
     try {
       await dailyReviewIpc.runOnce({ mode });
       if (mountedRef.current && runModeGuard.current === mode) {
-        toast.success(mode === 'daily' ? '已生成每日回顾' : '已生成深度分析', '可在「每日回顾」面板查看。');
+        toast.success(copy.runSuccess[mode], copy.runSuccessDetail);
       }
     } catch (err) {
       if (mountedRef.current && runModeGuard.current === mode) {
-        toast.error('生成回顾失败', settingsActionErrorMessage(err));
+        toast.error(copy.runFailed, settingsActionErrorMessage(err, locale));
       }
     } finally {
       if (runModeGuard.current === mode) {
@@ -125,39 +120,39 @@ export function DailyReviewSettingsPage(props: { connections: readonly LlmConnec
   const effectiveConfig = config;
   const formDisabled = !hasConfigIpc || loading || Boolean(loadError) || !effectiveConfig || savingKey !== null;
   const modelOptions = useMemo(
-    () => buildDailyReviewModelOptions(props.connections, effectiveConfig?.modelKey ?? ''),
-    [effectiveConfig?.modelKey, props.connections],
+    () => buildDailyReviewModelOptions(props.connections, effectiveConfig?.modelKey ?? '', copy),
+    [copy, effectiveConfig?.modelKey, props.connections],
   );
   const selectedModelValue = effectiveConfig?.modelKey?.trim()
     ? effectiveConfig.modelKey.trim()
     : DAILY_REVIEW_DEFAULT_MODEL_VALUE;
 
   return (
-    <section className="settingsFeatureStatusPage" aria-label="每日回顾">
+    <section className="settingsFeatureStatusPage" aria-label={copy.aria}>
       {/* Detail audit: the always-on feature banner repeated the page
           subtitle — report by exception instead: only the not-wired
           fallback state warrants a banner. */}
       {!hasConfigIpc && (
         <header className="settingsFeatureStatusBanner" role="status">
           <span className="settingsFeatureStatusBannerDot" aria-hidden="true" />
-          <span>当前版本仅本地数字聚合，定时生成 / LLM 摘要尚未连接到后端。</span>
+          <span>{copy.unavailable}</span>
         </header>
       )}
 
       {loadError ? (
         <Alert variant="error" className="settingsSurfaceAlert">
-          <AlertDescription>读取每日回顾设置失败：{loadError}</AlertDescription>
+          <AlertDescription>{copy.loadFailed(loadError)}</AlertDescription>
         </Alert>
       ) : null}
 
       <SettingsRows>
         <div className="settingsRow">
           <div>
-            <strong>启用每日回顾</strong>
-            <small>每天自动分析前一天的工作内容，提供摘要与建议。</small>
+            <strong>{copy.enabled}</strong>
+            <small>{copy.enabledHelp}</small>
           </div>
           <Switch
-            ariaLabel="启用每日回顾"
+            ariaLabel={copy.enabled}
             checked={effectiveConfig?.enabled ?? false}
             disabled={formDisabled || savingKey === 'enabled'}
             onChange={(enabled) => void patchConfig('enabled', { enabled })}
@@ -166,12 +161,12 @@ export function DailyReviewSettingsPage(props: { connections: readonly LlmConnec
 
         <div className="settingsRow" data-control-width="compact">
           <div>
-            <strong>执行时间</strong>
-            <small>默认 08:00 本地时间触发。</small>
+            <strong>{copy.executeTime}</strong>
+            <small>{copy.executeTimeHelp}</small>
           </div>
           <Input
             type="time"
-            aria-label="每日回顾执行时间"
+            aria-label={copy.executeTimeAria}
             className="settingsTimeInput"
             value={effectiveConfig?.executeTime ?? '08:00'}
             disabled={formDisabled || savingKey === 'executeTime'}
@@ -186,21 +181,21 @@ export function DailyReviewSettingsPage(props: { connections: readonly LlmConnec
           />
         </div>
 
-        {DAILY_REVIEW_SECTION_LABELS.map((item) => (
-          <div key={item.key} className="settingsRow">
+        {DAILY_REVIEW_SECTION_KEYS.map((key) => (
+          <div key={key} className="settingsRow">
             <div>
-              <strong>{item.title}</strong>
-              <small>{item.detail}</small>
+              <strong>{copy.sections[key].title}</strong>
+              <small>{copy.sections[key].detail}</small>
             </div>
             <Switch
-              ariaLabel={item.title}
-              checked={effectiveConfig?.sections[item.key] ?? false}
-              disabled={formDisabled || savingKey === `section:${item.key}` || !(effectiveConfig?.enabled ?? false)}
+              ariaLabel={copy.sections[key].title}
+              checked={effectiveConfig?.sections[key] ?? false}
+              disabled={formDisabled || savingKey === `section:${key}` || !(effectiveConfig?.enabled ?? false)}
               onChange={(next) =>
-                void patchConfig(`section:${item.key}`, {
+                void patchConfig(`section:${key}`, {
                   sections: {
                     ...(effectiveConfig?.sections ?? { summary: false, gaps: false, usage: false, code: false }),
-                    [item.key]: next,
+                    [key]: next,
                   },
                 })
               }
@@ -210,11 +205,11 @@ export function DailyReviewSettingsPage(props: { connections: readonly LlmConnec
 
         <div className="settingsRow">
           <div>
-            <strong>深度分析</strong>
-            <small>消耗更多资源，对更长时间周期进行深入调研。</small>
+            <strong>{copy.deep}</strong>
+            <small>{copy.deepHelp}</small>
           </div>
           <Switch
-            ariaLabel="深度分析"
+            ariaLabel={copy.deep}
             checked={effectiveConfig?.deepEnabled ?? false}
             disabled={formDisabled || savingKey === 'deepEnabled'}
             onChange={(deepEnabled) => void patchConfig('deepEnabled', { deepEnabled })}
@@ -223,14 +218,12 @@ export function DailyReviewSettingsPage(props: { connections: readonly LlmConnec
 
         <div className="settingsRow" data-control-width="select">
           <div>
-            <strong>分析模型</strong>
-            <small>
-              用于生成回顾和分析的模型连接；默认跟随当前对话默认模型。
-            </small>
+            <strong>{copy.model}</strong>
+            <small>{copy.modelHelp}</small>
           </div>
           <SettingsSelect
             value={selectedModelValue}
-            ariaLabel="分析模型连接"
+            ariaLabel={copy.modelAria}
             options={modelOptions}
             disabled={formDisabled || savingKey === 'modelKey' || modelOptions.length === 0}
             onChange={(value) => {
@@ -243,11 +236,11 @@ export function DailyReviewSettingsPage(props: { connections: readonly LlmConnec
 
         <div className="settingsRow">
           <div>
-            <strong>包含 Claude Code CLI 会话</strong>
-            <small>将已同步的 Claude Code 对话纳入分析范围。</small>
+            <strong>{copy.includeCli}</strong>
+            <small>{copy.includeCliHelp}</small>
           </div>
           <Switch
-            ariaLabel="包含 Claude Code CLI 会话"
+            ariaLabel={copy.includeCli}
             checked={effectiveConfig?.includeClaudeCode ?? false}
             disabled={formDisabled || savingKey === 'includeClaudeCode'}
             onChange={(includeClaudeCode) => void patchConfig('includeClaudeCode', { includeClaudeCode })}
@@ -256,13 +249,11 @@ export function DailyReviewSettingsPage(props: { connections: readonly LlmConnec
 
         <div className="settingsRow">
           <div>
-            <strong>生成后发送外部通知</strong>
-            <small>
-              当前运行时尚未接入报告自动推送。机器人通道可以在「机器人对话」里配置，但每日回顾不会假装已发送。
-            </small>
+            <strong>{copy.notify}</strong>
+            <small>{copy.notifyHelp}</small>
           </div>
           <Switch
-            ariaLabel="生成后发送外部通知"
+            ariaLabel={copy.notify}
             checked={false}
             disabled={true}
             onChange={() => undefined}
@@ -271,7 +262,7 @@ export function DailyReviewSettingsPage(props: { connections: readonly LlmConnec
       </SettingsRows>
 
       {(props.onOpenDailyReview || hasRunOnceIpc) && (
-        <div className="settingsPageFooterActions" role="toolbar" aria-label="每日回顾操作">
+        <div className="settingsPageFooterActions" role="toolbar" aria-label={copy.actionsAria}>
           {hasRunOnceIpc && (
             <>
               <Button
@@ -280,7 +271,7 @@ export function DailyReviewSettingsPage(props: { connections: readonly LlmConnec
                 onClick={() => void triggerRun('deep')}
                 disabled={runningMode !== null}
               >
-                {runningMode === 'deep' ? '生成中…' : '生成深度分析'}
+                {runningMode === 'deep' ? copy.generating : copy.generateDeep}
               </Button>
               <Button
                 type="button"
@@ -288,7 +279,7 @@ export function DailyReviewSettingsPage(props: { connections: readonly LlmConnec
                 onClick={() => void triggerRun('daily')}
                 disabled={runningMode !== null}
               >
-                {runningMode === 'daily' ? '生成中…' : '生成每日回顾'}
+                {runningMode === 'daily' ? copy.generating : copy.generateDaily}
               </Button>
             </>
           )}
@@ -297,7 +288,7 @@ export function DailyReviewSettingsPage(props: { connections: readonly LlmConnec
               type="button"
               onClick={props.onOpenDailyReview}
             >
-              打开每日回顾
+              {copy.open}
             </Button>
           )}
         </div>
