@@ -2467,7 +2467,7 @@ const BOTTOM_PICKER_MARGIN_ROWS = 4;
 // The editor's autocomplete window height. Keep it at least as large as the
 // full slash-command menu, so a bare `/` shows every command rather than
 // silently clipping the last command.
-const EDITOR_AUTOCOMPLETE_MAX_VISIBLE = 14;
+const EDITOR_AUTOCOMPLETE_MAX_VISIBLE = 16;
 
 // A short, stable slice of a session id — enough to tell two same-named
 // sessions apart in the picker without showing the full unreadable uuid.
