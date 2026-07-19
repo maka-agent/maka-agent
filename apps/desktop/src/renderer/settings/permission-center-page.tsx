@@ -214,7 +214,10 @@ export function PermissionCenterPage() {
       />
 
       <section className="settingsPermissionSummary" aria-label="权限概览">
-        <PermissionSummaryTile label="已授权" value={counts.granted} tone="success" />
+        {/* 已授权 is the expected steady state — neutral, not success.
+            #651 exception-only status color: matches the granted row chip
+            (OS_PERMISSION_STATE_COPY.granted → neutral) and health's 正常 tile. */}
+        <PermissionSummaryTile label="已授权" value={counts.granted} tone="neutral" />
         <PermissionSummaryTile label="等待授权" value={counts.pending} tone="warning" />
         <PermissionSummaryTile label="已拒绝" value={counts.denied} tone="destructive" />
         <PermissionSummaryTile label="未知 / 不支持" value={counts.other} tone="neutral" />
