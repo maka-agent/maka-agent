@@ -197,11 +197,12 @@ describe('plan mid-turn capacity compaction', () => {
     // Normal thresholds: even though the raw ledger is far below the default
     // high water, the accepted mid_turn checkpoint replays — recovery never
     // re-injects the replaced raw span.
-    const replay = applyRuntimeEventHistoryCompact(events, {
-      maxHistoryEstimatedTokens: 1_000_000,
-      charsPerToken: 4,
-      historyCompact: { enabled: true, mode: 'read_write', checkpoint: result.checkpoint },
-    });
+    const replay = applyRuntimeEventHistoryCompact(
+      events,
+      { enabled: true, mode: 'read_write', checkpoint: result.checkpoint },
+      4,
+      1_000_000,
+    );
     assert.equal(replay.checkpoint?.checkpointId, result.checkpoint.checkpointId);
     const replayIds = replay.events.map((event) => event.id);
     assert.equal(replayIds[0], `history-compact:${result.checkpoint.checkpointId}`);

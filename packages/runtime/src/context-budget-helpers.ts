@@ -124,3 +124,17 @@ export function tokenizeSearchQuery(query: string): string[] {
     ),
   ].slice(0, 16);
 }
+
+export function finiteRatio(value: number | undefined, fallback: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return fallback;
+  return Math.min(1, value);
+}
+
+export function normalizeWhitespace(value: string): string {
+  return value.replace(/\s+/g, ' ').trim();
+}
+
+export function boundText(value: string, maxChars: number): string {
+  if (value.length <= maxChars) return value;
+  return `${value.slice(0, Math.max(0, maxChars - 14)).trimEnd()}\n[truncated]`;
+}

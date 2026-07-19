@@ -1442,14 +1442,20 @@ describe('context-budget history compact', () => {
       },
     } as const;
 
-    const first = applyRuntimeEventHistoryCompact(events, policy, {
-      charsPerToken: 1,
-      maxHistoryEstimatedTokens: 1500,
-    });
-    const second = applyRuntimeEventHistoryCompact(events, policy, {
-      charsPerToken: 1,
-      maxHistoryEstimatedTokens: 1500,
-    });
+    const first = applyRuntimeEventHistoryCompact(
+      events,
+      policy.historyCompact,
+      policy.charsPerToken,
+      policy.maxHistoryEstimatedTokens,
+      { charsPerToken: 1, maxHistoryEstimatedTokens: 1500 },
+    );
+    const second = applyRuntimeEventHistoryCompact(
+      events,
+      policy.historyCompact,
+      policy.charsPerToken,
+      policy.maxHistoryEstimatedTokens,
+      { charsPerToken: 1, maxHistoryEstimatedTokens: 1500 },
+    );
 
     assert.equal(first.blocks.length, 1);
     assert.equal(first.blocks[0]?.blockId, second.blocks[0]?.blockId);

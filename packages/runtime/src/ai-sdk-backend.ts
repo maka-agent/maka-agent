@@ -3390,7 +3390,8 @@ export class AiSdkBackend implements AgentBackend {
     const replayFit = evaluateHistoryCompactCheckpointReplay(
       plan.checkpoint,
       plan.replacementEvents.slice(1),
-      policy,
+      policy?.charsPerToken,
+      policy?.maxHistoryEstimatedTokens,
     );
     if (!replayFit.fits) {
       return {
@@ -4010,7 +4011,8 @@ export class AiSdkBackend implements AgentBackend {
       evaluateHistoryCompactCheckpointReplay(
         previousCheckpoint,
         retainedRuntimeEvents,
-        input.contextBudget,
+        input.contextBudget?.charsPerToken,
+        input.contextBudget?.maxHistoryEstimatedTokens,
         { sourceReplayEvents: [...foldedRuntimeEvents, ...retainedRuntimeEvents] },
       ).fits;
     if (
@@ -4088,7 +4090,8 @@ export class AiSdkBackend implements AgentBackend {
       const replayFit = evaluateHistoryCompactCheckpointReplay(
         checkpoint,
         retainedRuntimeEvents,
-        input.contextBudget,
+        input.contextBudget?.charsPerToken,
+        input.contextBudget?.maxHistoryEstimatedTokens,
         { sourceReplayEvents: [...foldedRuntimeEvents, ...retainedRuntimeEvents] },
       );
       const rejectedReason = !replayFit.fits ? replayFit.reason : undefined;
@@ -5131,9 +5134,15 @@ function buildHistoryCompactCheckpointFailOpenContext(
     match.coveredRuntimeEvents,
     replayTail,
   );
-  return evaluateHistoryCompactCheckpointReplay(checkpoint, replayEvents.slice(1), policy, {
-    sourceReplayEvents: [...match.coveredRuntimeEvents, ...replayTail],
-  }).fits
+  return evaluateHistoryCompactCheckpointReplay(
+    checkpoint,
+    replayEvents.slice(1),
+    policy?.charsPerToken,
+    policy?.maxHistoryEstimatedTokens,
+    {
+      sourceReplayEvents: [...match.coveredRuntimeEvents, ...replayTail],
+    },
+  ).fits
     ? replayEvents
     : [...retainedCandidates];
 }

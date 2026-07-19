@@ -473,11 +473,12 @@ function defineMidTurnSuite(consumer: ConsumerMode): void {
     // Invariant: a persisted checkpoint always passes the single replay gate
     // under the same policy the backend replays with — the next projection
     // selects it (no coverage_miss, no size rejection).
-    const fit = evaluateHistoryCompactCheckpointReplay(checkpoint, fixture.ledger, {
-      maxHistoryEstimatedTokens: 100_000,
-      minRecentTurns: 1,
-      historyCompact: { enabled: true, mode: 'read_write' },
-    });
+    const fit = evaluateHistoryCompactCheckpointReplay(
+      checkpoint,
+      fixture.ledger,
+      undefined,
+      100_000,
+    );
     assert.equal(fit.fits, true);
   });
 
