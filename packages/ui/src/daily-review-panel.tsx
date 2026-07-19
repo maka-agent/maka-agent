@@ -10,6 +10,7 @@ import type {
   DailyReviewSummary,
   DailyReviewTopEntry,
 } from '@maka/core';
+import { uiLocaleToIntlLocale } from '@maka/core';
 import {
   type DailyReviewRange,
   dailyReviewPanelErrorMessage,
@@ -30,28 +31,10 @@ import { PageHeader } from './primitives/page-header.js';
 import type { DailyReviewBridge, DailyReviewMarkdownActionInput } from './module-panel-types.js';
 import { RelativeTime } from './relative-time.js';
 import { Markdown } from './markdown.js';
+import { useUiLocale } from './locale-context.js';
+import { getDailyReviewCopy } from './daily-review-copy.js';
 
 type DailyReviewArchiveSectionKey = keyof DailyReviewArchive['sections'];
-
-const DAILY_REVIEW_ARCHIVE_SECTION_LABEL: Record<DailyReviewArchiveSectionKey, string> = {
-  summary: '对话摘要',
-  gaps: '遗漏提醒',
-  usage: '使用洞察',
-  code: '代码建议',
-};
-
-const DAILY_REVIEW_ARCHIVE_STATUS_LABEL: Record<DailyReviewArchive['status'], string> = {
-  ok: '已生成',
-  no_model: '缺少模型',
-  no_data: '无数据',
-  failed: '生成失败',
-  skipped: '已跳过',
-};
-
-const DAILY_REVIEW_ARCHIVE_TRIGGER_LABEL: Record<DailyReviewArchive['trigger'], string> = {
-  cron: '定时',
-  manual: '手动',
-};
 
 const EMPTY_MODEL_OPTIONS: ReadonlyArray<readonly [string, string]> = [];
 
@@ -73,6 +56,9 @@ export function DailyReviewPanel(props: {
   onAppendMarkdown?: (input: DailyReviewMarkdownActionInput) => Promise<void> | void;
   onSaveMarkdown?: (input: DailyReviewMarkdownActionInput) => Promise<void> | void;
 }) {
+  const locale = useUiLocale();
+  const copy = getDailyReviewCopy(locale);
+  const intlLocale = uiLocaleToIntlLocale(locale);
   const [offsetDays, setOffsetDays] = useState(0);
   // PR-DAILY-REVIEW-RANGE-0: 今日 / 本周 / 本月 tabs that map to a
   // 1 / 7 / 30 day aggregation. When span > 1, the day-stepper
@@ -143,13 +129,13 @@ export function DailyReviewPanel(props: {
           setSummary(null);
           setSummaryScopeKey(null);
         }
-        setError(dailyReviewPanelErrorMessage(err));
+        setError(dailyReviewPanelErrorMessage(err, locale));
         setLoading(false);
       });
     return () => {
       cancelled = true;
     };
-  }, [offsetDays, range, reloadToken]);
+  }, [locale, offsetDays, range, reloadToken]);
 
   useEffect(() => {
     const listArchives = bridgeRef.current.listArchives;
@@ -172,12 +158,12 @@ export function DailyReviewPanel(props: {
       })
       .catch((err: unknown) => {
         if (cancelled) return;
-        setArchiveError(dailyReviewPanelErrorMessage(err));
+        setArchiveError(dailyReviewPanelErrorMessage(err, locale));
       });
     return () => {
       cancelled = true;
     };
-  }, [archiveReloadToken]);
+  }, [archiveReloadToken, locale]);
 
   useEffect(() => {
     const getArchive = bridgeRef.current.getArchive;
@@ -204,13 +190,13 @@ export function DailyReviewPanel(props: {
         if (cancelled) return;
         if (archiveLoadRequestRef.current !== archiveRequestId) return;
         setSelectedArchive(null);
-        setArchiveError(dailyReviewPanelErrorMessage(err));
+        setArchiveError(dailyReviewPanelErrorMessage(err, locale));
         setArchiveLoading(false);
       });
     return () => {
       cancelled = true;
     };
-  }, [archiveReloadToken, selectedArchiveId]);
+  }, [archiveReloadToken, locale, selectedArchiveId]);
 
   useEffect(() => {
     if (modelOptions.length === 0) {
@@ -225,29 +211,29 @@ export function DailyReviewPanel(props: {
 
   const dayLabel = (() => {
     if (range === 1) {
-      if (offsetDays === 0) return '今天';
-      if (offsetDays === -1) return '昨天';
-      return `${-offsetDays} 天前`;
+      if (offsetDays === 0) return copy.date.today;
+      if (offsetDays === -1) return copy.date.yesterday;
+      return copy.date.daysAgo(-offsetDays);
     }
-    const rangeText = range === 7 ? '最近 7 天' : '最近 30 天';
+    const rangeText = range === 7 ? copy.date.recent7Days : copy.date.recent30Days;
     if (offsetDays === 0) return rangeText;
-    return `${rangeText}（往前 ${-offsetDays} 天）`;
+    return copy.date.shiftedRange(rangeText, -offsetDays);
   })();
 
   // Stepper step matches the range size — for 7-day mode the user
   // skips a whole week at a time, not a single day.
-  const stepperLabel = range === 1 ? '天' : range === 7 ? '周' : '月';
+  const stepperLabel = range === 1 ? copy.date.unit.day : range === 7 ? copy.date.unit.week : copy.date.unit.month;
   // IA restructure: the 概览 section is ALWAYS rendered (honest zeros +
   // this one inline hint) so a no-activity scope no longer collapses the
   // page to a floating orphan line at the bottom. The hint absorbs the old
   // bottom-of-page orphan into the 概览 header's flow. Copy keeps the endorsed
   // waiting-state framing (等待记录今天活动 / 无活动 — visible-copy-hygiene).
   const emptyOverviewTitle = offsetDays === 0 && range === 1
-    ? '等待记录今天活动'
-    : `${dayLabel}无活动`;
+    ? copy.emptyOverview.todayTitle
+    : copy.emptyOverview.rangeTitle(dayLabel);
   const emptyOverviewBody = offsetDays === 0 && range === 1
-    ? '今天还没有发起对话，也没有调用模型。'
-    : `${dayLabel}范围内没有发起对话，也没有调用模型。`;
+    ? copy.emptyOverview.todayBody
+    : copy.emptyOverview.rangeBody(dayLabel);
 
   async function runDailyReviewAction(actionKey: string, action: () => void | Promise<void>) {
     if (pendingDailyReviewActionRef.current !== null) return;
@@ -283,7 +269,7 @@ export function DailyReviewPanel(props: {
         setArchiveReloadToken((n) => n + 1);
         setReloadToken((n) => n + 1);
       } catch (err) {
-        if (isDailyReviewActionCurrent(actionKey)) setError(dailyReviewPanelErrorMessage(err));
+        if (isDailyReviewActionCurrent(actionKey)) setError(dailyReviewPanelErrorMessage(err, locale));
       }
     });
   }
@@ -293,7 +279,7 @@ export function DailyReviewPanel(props: {
   // daily-review-copy-feedback contract — do not restructure the condition.
   const overviewActions =
     visibleSummary && visibleSummary.totals.sessionCount + visibleSummary.totals.requestCount > 0 && hasDailyReviewActions ? (
-      <div className="maka-daily-review-actions" aria-label="回顾导出操作">
+      <div className="maka-daily-review-actions" aria-label={copy.export.ariaLabel}>
         {props.onCopyMarkdown && (
           <UiButton
             type="button"
@@ -301,15 +287,15 @@ export function DailyReviewPanel(props: {
             size="sm"
             className="maka-daily-review-copy min-w-[4rem]"
             onClick={() => void runDailyReviewAction('copy', async () => {
-              const md = formatDailyReviewMarkdown(visibleSummary, dayLabel);
+              const md = formatDailyReviewMarkdown(visibleSummary, dayLabel, locale);
               await props.onCopyMarkdown?.({ markdown: md, label: dayLabel, summary: visibleSummary });
             })}
             disabled={dailyReviewActionBusy}
             data-pending={pendingDailyReviewAction === 'copy' ? 'true' : undefined}
             aria-busy={pendingDailyReviewAction === 'copy' ? 'true' : undefined}
-            title="复制为 Markdown 摘要，方便分享 / 贴到笔记"
+            title={copy.export.copyTitle}
           >
-            {pendingDailyReviewAction === 'copy' ? '复制中…' : '复制'}
+            {pendingDailyReviewAction === 'copy' ? copy.export.copying : copy.export.copy}
           </UiButton>
         )}
         {props.onAppendMarkdown && (
@@ -319,15 +305,15 @@ export function DailyReviewPanel(props: {
             size="sm"
             className="maka-daily-review-append min-w-[5rem]"
             onClick={() => void runDailyReviewAction('append', async () => {
-              const md = formatDailyReviewMarkdown(visibleSummary, dayLabel);
+              const md = formatDailyReviewMarkdown(visibleSummary, dayLabel, locale);
               await props.onAppendMarkdown?.({ markdown: md, label: dayLabel, summary: visibleSummary });
             })}
             disabled={dailyReviewActionBusy}
             data-pending={pendingDailyReviewAction === 'append' ? 'true' : undefined}
             aria-busy={pendingDailyReviewAction === 'append' ? 'true' : undefined}
-            title="追加到当前输入框草稿"
+            title={copy.export.appendTitle}
           >
-            {pendingDailyReviewAction === 'append' ? '追加中…' : '粘到输入框'}
+            {pendingDailyReviewAction === 'append' ? copy.export.appending : copy.export.append}
           </UiButton>
         )}
         {props.onSaveMarkdown && (
@@ -337,15 +323,15 @@ export function DailyReviewPanel(props: {
             size="sm"
             className="maka-daily-review-save min-w-[4rem]"
             onClick={() => void runDailyReviewAction('save', async () => {
-              const md = formatDailyReviewMarkdown(visibleSummary, dayLabel);
+              const md = formatDailyReviewMarkdown(visibleSummary, dayLabel, locale);
               await props.onSaveMarkdown?.({ markdown: md, label: dayLabel, summary: visibleSummary });
             })}
             disabled={dailyReviewActionBusy}
             data-pending={pendingDailyReviewAction === 'save' ? 'true' : undefined}
             aria-busy={pendingDailyReviewAction === 'save' ? 'true' : undefined}
-            title="保存为 Markdown 文件"
+            title={copy.export.saveTitle}
           >
-            {pendingDailyReviewAction === 'save' ? '保存中…' : '保存'}
+            {pendingDailyReviewAction === 'save' ? copy.export.saving : copy.export.save}
           </UiButton>
         )}
       </div>
@@ -361,14 +347,14 @@ export function DailyReviewPanel(props: {
       <PageHeader
         className="maka-module-main-header"
         as="h2"
-        title="每日回顾"
-        subtitle="自动汇总本机对话，生成摘要、遗漏提醒与深度分析；可在设置中开启定时执行。"
+        title={copy.page.title}
+        subtitle={copy.page.subtitle}
         actions={canManualRun ? (
-          <div className="maka-daily-review-generate" role="group" aria-label="生成回顾">
+          <div className="maka-daily-review-generate" role="group" aria-label={copy.page.generateAriaLabel}>
             {modelOptions.length > 0 && (
               <SettingsSelect
                 value={selectedModelKey}
-                ariaLabel="分析模型"
+                ariaLabel={copy.page.analysisModel}
                 options={modelOptions}
                 onChange={setSelectedModelKey}
                 disabled={dailyReviewActionBusy}
@@ -386,7 +372,7 @@ export function DailyReviewPanel(props: {
               data-pending={pendingDailyReviewAction === 'run:daily' ? 'true' : undefined}
               aria-busy={pendingDailyReviewAction === 'run:daily' ? 'true' : undefined}
             >
-              {pendingDailyReviewAction === 'run:daily' ? '生成中…' : '生成每日回顾'}
+              {pendingDailyReviewAction === 'run:daily' ? copy.page.generating : copy.page.generateDaily}
             </UiButton>
             <UiButton
               type="button"
@@ -398,7 +384,7 @@ export function DailyReviewPanel(props: {
               data-pending={pendingDailyReviewAction === 'run:deep' ? 'true' : undefined}
               aria-busy={pendingDailyReviewAction === 'run:deep' ? 'true' : undefined}
             >
-              {pendingDailyReviewAction === 'run:deep' ? '生成中…' : '生成深度分析'}
+              {pendingDailyReviewAction === 'run:deep' ? copy.page.generating : copy.page.generateDeep}
             </UiButton>
           </div>
         ) : undefined}
@@ -407,15 +393,15 @@ export function DailyReviewPanel(props: {
       {/* One time-scope row directly under the header: the 今日/本周/本月
           segmented + the day-stepper are BOTH time navigation, so they form a
           single visual cluster (was two floating rows at opposite corners). */}
-      <div className="maka-daily-review-scope" aria-label="时间范围">
+      <div className="maka-daily-review-scope" aria-label={copy.page.timeRange}>
         <Segmented
           value={String(range)}
-          options={[['1', '今日'], ['7', '本周'], ['30', '本月']]}
+          options={copy.page.rangeOptions}
           onChange={(v) => {
             setRange(Number(v) as DailyReviewRange);
             setOffsetDays(0);
           }}
-          ariaLabel="时间范围切换"
+          ariaLabel={copy.page.rangeSwitch}
           className="maka-daily-review-range-tabs"
         />
         <div className="maka-daily-review-scope-stepper">
@@ -425,7 +411,7 @@ export function DailyReviewPanel(props: {
             size="icon-sm"
             className="maka-daily-review-stepper"
             onClick={() => setOffsetDays((n) => n - range)}
-            aria-label={`查看更早一${stepperLabel}`}
+            aria-label={copy.date.earlier(stepperLabel)}
           >
             <ChevronLeft aria-hidden="true" />
           </UiButton>
@@ -437,7 +423,7 @@ export function DailyReviewPanel(props: {
             className="maka-daily-review-stepper"
             onClick={() => setOffsetDays((n) => Math.min(0, n + range))}
             disabled={offsetDays >= 0}
-            aria-label={`查看更晚一${stepperLabel}`}
+            aria-label={copy.date.later(stepperLabel)}
           >
             <ChevronRight aria-hidden="true" />
           </UiButton>
@@ -447,11 +433,11 @@ export function DailyReviewPanel(props: {
       {/* 概览 — ALWAYS rendered for the selected scope. Honest zeros + one
           inline hint replace the old bottom orphan line, so a no-activity
           scope no longer collapses the page to nothing. */}
-      <section className="maka-daily-review-overview" aria-label={`${dayLabel}概览`}>
-        <SectionHeader as="h4" accent title="概览" action={overviewActions} />
+      <section className="maka-daily-review-overview" aria-label={copy.overview.ariaLabel(dayLabel)}>
+        <SectionHeader as="h4" accent title={copy.overview.title} action={overviewActions} />
         {error && visibleSummary ? (
           <Alert variant="warning" className="maka-daily-review-alert">
-            <AlertDescription>每日回顾刷新失败：{error}</AlertDescription>
+            <AlertDescription>{copy.overview.refreshFailed(error)}</AlertDescription>
             <AlertAction>
               <UiButton
                 type="button"
@@ -461,7 +447,7 @@ export function DailyReviewPanel(props: {
                 onClick={() => setReloadToken((n) => n + 1)}
                 disabled={loading}
               >
-                重试
+                {copy.overview.retry}
               </UiButton>
             </AlertAction>
           </Alert>
@@ -470,9 +456,9 @@ export function DailyReviewPanel(props: {
         {error && !visibleSummary ? (
           <EmptyState
             Icon={CalendarDays}
-            title="读取失败"
+            title={copy.overview.readFailed}
             body={error}
-            cta={{ label: '重试', onClick: () => setReloadToken((n) => n + 1) }}
+            cta={{ label: copy.overview.retry, onClick: () => setReloadToken((n) => n + 1) }}
             extraClassName="maka-daily-review-summary-empty"
           />
         ) : !visibleSummary ? (
@@ -484,19 +470,19 @@ export function DailyReviewPanel(props: {
         ) : (
           <>
             <div className="maka-daily-review-totals">
-              <DailyReviewTotalsCell label="对话" value={visibleSummary.totals.sessionCount.toString()} />
-              <DailyReviewTotalsCell label="请求" value={visibleSummary.totals.requestCount.toString()} />
+              <DailyReviewTotalsCell label={copy.overview.conversations} value={visibleSummary.totals.sessionCount.toString()} />
+              <DailyReviewTotalsCell label={copy.overview.requests} value={visibleSummary.totals.requestCount.toString()} />
               <DailyReviewTotalsCell
                 label="Token"
-                value={visibleSummary.totals.totalTokens.toLocaleString()}
+                value={visibleSummary.totals.totalTokens.toLocaleString(intlLocale)}
               />
               <DailyReviewTotalsCell
-                label="费用"
+                label={copy.overview.cost}
                 value={`$${visibleSummary.totals.costUsd.toFixed(2)}`}
               />
               {visibleSummary.totals.errorCount > 0 && (
                 <DailyReviewTotalsCell
-                  label="错误"
+                  label={copy.overview.errors}
                   value={visibleSummary.totals.errorCount.toString()}
                   tone="error"
                 />
@@ -508,9 +494,9 @@ export function DailyReviewPanel(props: {
             ) : (
               <>
                 {visibleSummary.sessions.length > 0 && (
-                  <section className="maka-daily-review-section" aria-label="活跃对话">
-                    <SectionHeader as="h4" accent title="活跃对话" />
-                    <ul className="maka-daily-review-list" aria-label="活跃对话列表">
+                  <section className="maka-daily-review-section" aria-label={copy.overview.activeConversations}>
+                    <SectionHeader as="h4" accent title={copy.overview.activeConversations} />
+                    <ul className="maka-daily-review-list" aria-label={copy.overview.activeConversationList}>
                       {visibleSummary.sessions.map((session) => (
                         <li key={session.id} className="maka-daily-review-list-item">
                           {/* Active-conversation rows are composite navigation
@@ -540,11 +526,11 @@ export function DailyReviewPanel(props: {
                 )}
 
                 {visibleSummary.topModels.length > 0 && (
-                  <DailyReviewTopList title="模型使用" entries={visibleSummary.topModels} />
+                  <DailyReviewTopList title={copy.overview.modelUsage} entries={visibleSummary.topModels} />
                 )}
 
                 {visibleSummary.topTools.length > 0 && (
-                  <DailyReviewTopList title="工具调用" entries={visibleSummary.topTools} />
+                  <DailyReviewTopList title={copy.overview.toolCalls} entries={visibleSummary.topTools} />
                 )}
               </>
             )}
@@ -559,16 +545,16 @@ export function DailyReviewPanel(props: {
           left the list column half-empty. Body loads stay single-selection
           (getArchive) — the archive-body-load contract pins that lazy path. */}
       {canLoadArchives && (
-        <section className="maka-daily-review-reports" aria-label="报告">
+        <section className="maka-daily-review-reports" aria-label={copy.reports.title}>
           <SectionHeader
             as="h4"
             accent
-            title="报告"
-            count={<span className="maka-daily-review-archive-count">{archives.length} 份</span>}
+            title={copy.reports.title}
+            count={<span className="maka-daily-review-archive-count">{copy.reports.count(archives.length)}</span>}
           />
           {archiveError && (
             <Alert variant="warning" className="maka-daily-review-alert">
-              <AlertDescription>回顾报告读取失败：{archiveError}</AlertDescription>
+              <AlertDescription>{copy.reports.readFailed(archiveError)}</AlertDescription>
               <AlertAction>
                 <UiButton
                   type="button"
@@ -578,7 +564,7 @@ export function DailyReviewPanel(props: {
                   onClick={() => setArchiveReloadToken((n) => n + 1)}
                   disabled={archiveLoading}
                 >
-                  重试
+                  {copy.overview.retry}
                 </UiButton>
               </AlertAction>
             </Alert>
@@ -586,17 +572,17 @@ export function DailyReviewPanel(props: {
           {archives.length === 0 && !archiveError ? (
             <EmptyState
               Icon={CalendarDays}
-              title="还没有生成报告"
-              body="点击「生成每日回顾」后，报告会保存到本机并显示在这里。"
+              title={copy.reports.emptyTitle}
+              body={copy.reports.emptyBody}
               cta={canManualRun ? {
-                label: '生成每日回顾',
+                label: copy.page.generateDaily,
                 onClick: () => void triggerManualRun('daily'),
                 disabled: dailyReviewActionBusy,
               } : undefined}
               extraClassName="maka-daily-review-summary-empty"
             />
           ) : (
-            <ul className="maka-daily-review-report-list" aria-label="回顾报告历史">
+            <ul className="maka-daily-review-report-list" aria-label={copy.reports.historyAriaLabel}>
               {archives.map((archive) => {
                 const selected = selectedArchiveId === archive.id;
                 // Status color is exception-only (#651): 已生成 / 无数据 / 已跳过
@@ -604,9 +590,9 @@ export function DailyReviewPanel(props: {
                 // failed / no_model run raises a colored Chip that needs eyes.
                 const exceptional = archive.status === 'failed' || archive.status === 'no_model';
                 const meta = [
-                  `${archive.totals.sessionCount} 对话`,
-                  `${DAILY_REVIEW_ARCHIVE_TRIGGER_LABEL[archive.trigger]}生成 ${formatDailyReviewArchiveGeneratedAt(archive.generatedAt)}`,
-                  archive.modelKey ? formatDailyReviewModelLabel(archive.modelKey) : '默认对话模型',
+                  copy.archive.sessionCount(archive.totals.sessionCount),
+                  copy.archive.generated(copy.archive.trigger[archive.trigger], formatDailyReviewArchiveGeneratedAt(archive.generatedAt, locale)),
+                  archive.modelKey ? formatDailyReviewModelLabel(archive.modelKey) : copy.archive.defaultModel,
                 ].join(' · ');
                 return (
                   <li key={archive.id}>
@@ -619,7 +605,7 @@ export function DailyReviewPanel(props: {
                       >
                         <span className="maka-daily-review-report-heading">
                           <span className="maka-daily-review-report-title">
-                            {formatDailyReviewArchiveTitle(archive)}
+                            {formatDailyReviewArchiveTitle(archive, locale)}
                           </span>
                           <span className="maka-daily-review-archive-row-meta">{meta}</span>
                         </span>
@@ -630,7 +616,7 @@ export function DailyReviewPanel(props: {
                             className="maka-daily-review-report-status"
                             data-status={archive.status}
                           >
-                            {DAILY_REVIEW_ARCHIVE_STATUS_LABEL[archive.status]}
+                            {copy.archive.status[archive.status]}
                           </Chip>
                         )}
                       </button>
@@ -650,6 +636,8 @@ export function DailyReviewPanel(props: {
 }
 
 function DailyReviewArchiveBody(props: { archive: DailyReviewArchive | null; loading: boolean }) {
+  const locale = useUiLocale();
+  const copy = getDailyReviewCopy(locale);
   if (props.loading) {
     return (
       <div className="maka-daily-review-report-body" aria-busy="true">
@@ -662,12 +650,12 @@ function DailyReviewArchiveBody(props: { archive: DailyReviewArchive | null; loa
   if (!props.archive) {
     return (
       <div className="maka-daily-review-report-body maka-daily-review-archive-empty">
-        正在打开这份报告…
+        {copy.archive.opening}
       </div>
     );
   }
   const archive = props.archive;
-  const sections = (Object.keys(DAILY_REVIEW_ARCHIVE_SECTION_LABEL) as DailyReviewArchiveSectionKey[])
+  const sections = (Object.keys(copy.archive.section) as DailyReviewArchiveSectionKey[])
     .map((key) => {
       const content = archive.sections[key]?.trim();
       return content ? { key, content } : null;
@@ -677,7 +665,7 @@ function DailyReviewArchiveBody(props: { archive: DailyReviewArchive | null; loa
   // head above this body (no repeated header, no 已生成 status chip on the
   // expected state) — the body carries only the report substance.
   return (
-    <div className="maka-daily-review-report-body" aria-label={formatDailyReviewArchiveTitle(archive)}>
+    <div className="maka-daily-review-report-body" aria-label={formatDailyReviewArchiveTitle(archive, locale)}>
       {archive.errorMessage && (
         <p className="maka-daily-review-archive-error">{archive.errorMessage}</p>
       )}
@@ -685,7 +673,7 @@ function DailyReviewArchiveBody(props: { archive: DailyReviewArchive | null; loa
         <div className="maka-daily-review-archive-sections">
           {sections.map((section) => (
             <section key={section.key} className="maka-daily-review-archive-section">
-              <SectionHeader as="h4" accent title={DAILY_REVIEW_ARCHIVE_SECTION_LABEL[section.key]} />
+              <SectionHeader as="h4" accent title={copy.archive.section[section.key]} />
               {/* Reports are LLM-generated markdown — bullet lists and
                   inline code rendered as flat pre-wrap text read as mush.
                   Reuse the shared Markdown pipeline (same one chat uses). */}
@@ -697,7 +685,7 @@ function DailyReviewArchiveBody(props: { archive: DailyReviewArchive | null; loa
         </div>
       ) : (
         <p className="maka-daily-review-archive-empty">
-          这份报告没有生成正文内容。
+          {copy.archive.noContent}
         </p>
       )}
     </div>
@@ -719,15 +707,17 @@ function DailyReviewTotalsCell(props: { label: string; value: string; tone?: 'er
 }
 
 function DailyReviewTopList(props: { title: string; entries: ReadonlyArray<DailyReviewTopEntry> }) {
+  const locale = useUiLocale();
+  const copy = getDailyReviewCopy(locale);
   return (
     <section className="maka-daily-review-section" aria-label={props.title}>
       <SectionHeader as="h4" accent title={props.title} />
-      <ul className="maka-daily-review-list" aria-label={`${props.title}列表`}>
+      <ul className="maka-daily-review-list" aria-label={copy.list.ariaLabel(props.title)}>
         {props.entries.map((entry) => (
           <li key={entry.key} className="maka-daily-review-list-item">
             <span className="maka-daily-review-top-label">{entry.label}</span>
             <span className="maka-daily-review-top-meta">
-              {entry.requests} 次 · {entry.totalTokens.toLocaleString()} tok
+              {copy.list.requestCount(entry.requests)} · {entry.totalTokens.toLocaleString(uiLocaleToIntlLocale(locale))} tok
               {entry.costUsd > 0 ? ` · $${entry.costUsd.toFixed(2)}` : ''}
             </span>
           </li>

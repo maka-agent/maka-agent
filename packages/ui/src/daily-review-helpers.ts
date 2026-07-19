@@ -21,8 +21,10 @@ import type {
   DailyReviewArchive,
   DailyReviewArchiveSummary,
   DailyReviewSummary,
+  UiLocale,
 } from '@maka/core';
-import { generalizedErrorMessageChinese } from '@maka/core';
+import { generalizedErrorMessage, generalizedErrorMessageChinese, uiLocaleToIntlLocale } from '@maka/core';
+import { getDailyReviewCopy } from './daily-review-copy.js';
 
 /** Visible day-range options on the Daily Review panel. */
 export type DailyReviewRange = 1 | 7 | 30;
@@ -31,18 +33,25 @@ export function dailyReviewScopeKey(offsetDays: number, range: DailyReviewRange)
   return `${offsetDays}:${range}`;
 }
 
-export function dailyReviewPanelErrorMessage(error: unknown): string {
-  return generalizedErrorMessageChinese(error, '每日回顾暂时不可用，请稍后重试。');
+export function dailyReviewPanelErrorMessage(error: unknown, locale: UiLocale): string {
+  const fallback = getDailyReviewCopy(locale).errorFallback;
+  return locale === 'zh'
+    ? generalizedErrorMessageChinese(error, fallback)
+    : generalizedErrorMessage(error, fallback);
 }
 
-export function formatDailyReviewArchiveTitle(archive: DailyReviewArchive | DailyReviewArchiveSummary): string {
+export function formatDailyReviewArchiveTitle(
+  archive: DailyReviewArchive | DailyReviewArchiveSummary,
+  locale: UiLocale,
+): string {
+  const copy = getDailyReviewCopy(locale).archive;
   const d = new Date(archive.day.fromMs);
-  const date = d.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' });
-  return `${date} · ${archive.mode === 'deep' ? '深度分析' : '每日回顾'}`;
+  const date = d.toLocaleDateString(uiLocaleToIntlLocale(locale), { month: '2-digit', day: '2-digit' });
+  return copy.title(date, archive.mode === 'deep' ? copy.mode.deep : copy.mode.daily);
 }
 
-export function formatDailyReviewArchiveGeneratedAt(generatedAt: number): string {
-  return new Date(generatedAt).toLocaleString('zh-CN', {
+export function formatDailyReviewArchiveGeneratedAt(generatedAt: number, locale: UiLocale): string {
+  return new Date(generatedAt).toLocaleString(uiLocaleToIntlLocale(locale), {
     month: '2-digit',
     day: '2-digit',
     hour: '2-digit',
@@ -59,37 +68,40 @@ export function formatDailyReviewArchiveGeneratedAt(generatedAt: number): string
 export function formatDailyReviewMarkdown(
   summary: DailyReviewSummary,
   dayLabel: string,
+  locale: UiLocale,
 ): string {
+  const copy = getDailyReviewCopy(locale).markdown;
+  const intlLocale = uiLocaleToIntlLocale(locale);
   const lines: string[] = [];
-  lines.push(`# Maka · 每日回顾 · ${dayLabel}`);
+  lines.push(copy.title(dayLabel));
   lines.push('');
-  lines.push(`- 对话：${summary.totals.sessionCount}`);
-  lines.push(`- 请求：${summary.totals.requestCount}`);
-  lines.push(`- Token：${summary.totals.totalTokens.toLocaleString()}`);
-  lines.push(`- 费用：$${summary.totals.costUsd.toFixed(2)}`);
+  lines.push(`- ${copy.conversations}${copy.separator} ${summary.totals.sessionCount}`);
+  lines.push(`- ${copy.requests}${copy.separator} ${summary.totals.requestCount}`);
+  lines.push(`- ${copy.tokens}${copy.separator} ${summary.totals.totalTokens.toLocaleString(intlLocale)}`);
+  lines.push(`- ${copy.cost}${copy.separator} $${summary.totals.costUsd.toFixed(2)}`);
   if (summary.totals.errorCount > 0) {
-    lines.push(`- 错误：${summary.totals.errorCount}`);
+    lines.push(`- ${copy.errors}${copy.separator} ${summary.totals.errorCount}`);
   }
   if (summary.sessions.length > 0) {
     lines.push('');
-    lines.push('## 活跃对话');
+    lines.push(`## ${copy.activeConversations}`);
     for (const session of summary.sessions) {
       lines.push(`- ${session.name}`);
     }
   }
   if (summary.topModels.length > 0) {
     lines.push('');
-    lines.push('## 模型使用');
+    lines.push(`## ${copy.modelUsage}`);
     for (const entry of summary.topModels) {
       const cost = entry.costUsd > 0 ? ` · $${entry.costUsd.toFixed(2)}` : '';
-      lines.push(`- ${entry.label}：${entry.requests} 次 · ${entry.totalTokens.toLocaleString()} tok${cost}`);
+      lines.push(`- ${entry.label}${copy.separator} ${copy.requestCount(entry.requests)} · ${entry.totalTokens.toLocaleString(intlLocale)} tok${cost}`);
     }
   }
   if (summary.topTools.length > 0) {
     lines.push('');
-    lines.push('## 工具调用');
+    lines.push(`## ${copy.toolCalls}`);
     for (const entry of summary.topTools) {
-      lines.push(`- ${entry.label}：${entry.requests} 次`);
+      lines.push(`- ${entry.label}${copy.separator} ${copy.requestCount(entry.requests)}`);
     }
   }
   return lines.join('\n');

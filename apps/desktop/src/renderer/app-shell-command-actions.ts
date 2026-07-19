@@ -249,7 +249,7 @@ export function buildAppShellCommandList(
       const { dailyReviewBridge, toastApi } = optionsRef.current;
       try {
         const summary = await dailyReviewBridge.fetchDay(0, 1);
-        const markdown = formatDailyReviewMarkdown(summary, copy.today);
+        const markdown = formatDailyReviewMarkdown(summary, copy.today, options.uiLocale);
         await navigator.clipboard.writeText(markdown);
         toastApi.success(
           copy.reviewCopiedTitle,
@@ -269,7 +269,7 @@ export function buildAppShellCommandList(
       if (!owner.sessionId) return;
       try {
         const summary = await dailyReviewBridge.fetchDay(0, 1);
-        const markdown = formatDailyReviewMarkdown(summary, copy.today);
+        const markdown = formatDailyReviewMarkdown(summary, copy.today, options.uiLocale);
         if (!isComposerImportOwnerActive(owner)) return;
         composerRef.current?.appendText(markdown);
         toastApi.success(
@@ -289,7 +289,7 @@ export function buildAppShellCommandList(
       const { dailyReviewBridge, saveDailyReviewMarkdown, toastApi } = optionsRef.current;
       try {
         const summary = await dailyReviewBridge.fetchDay(0, 1);
-        const markdown = formatDailyReviewMarkdown(summary, copy.today);
+        const markdown = formatDailyReviewMarkdown(summary, copy.today, options.uiLocale);
         await saveDailyReviewMarkdown({ markdown, label: copy.today, summary });
       } catch (err) {
         toastApi.error(
