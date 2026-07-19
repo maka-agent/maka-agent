@@ -36,6 +36,10 @@ const ALLOW = new Map([
   ],
   ['apps/desktop/src/main/main.ts', 'dev-gated by VITE_DEV_SERVER_URL / NODE_ENV (PR100).'],
   [
+    'apps/desktop/src/main/settings-runtime-effects.ts',
+    'external-settings apply failure is a main-process diagnostic, no secrets (moved from main.ts, arch R5).',
+  ],
+  [
     'apps/desktop/src/main/app-ipc-main.ts',
     'visual-smoke capture marker is fixture-gated and stdout-parsed by capture tooling (moved from main.ts, #1084).',
   ],

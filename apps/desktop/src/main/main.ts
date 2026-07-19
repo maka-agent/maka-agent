@@ -6,13 +6,11 @@ import { startConfigFileWatcher, type ConfigFileWatcher } from './config-file-wa
 import {
   DEFAULT_SESSION_NAME,
   filterModelVisibleTaskLedgerTasks,
-  isDeepResearchSession,
   resolveModelVisionSupport,
   DEEP_RESEARCH_SESSION_LABEL,
   expertTeamIdFromLabels,
 } from '@maka/core';
 import type {
-  AppSettings,
   BotProvider,
   ConnectionEvent,
   CreateSessionInput,
@@ -20,7 +18,6 @@ import type {
   SessionChangedEvent,
   SessionChangedReason,
   SessionEvent,
-  UpdateAppSettingsInput,
 } from '@maka/core';
 import { deriveBotStatusPersistenceUpdate } from './bot-status-persistence.js';
 import { WEB_SEARCH_TOOL_NAME } from './web-search/agent-tool.js';
@@ -97,7 +94,6 @@ import { createFileCredentialStore, migrateLegacyCredentials } from './credentia
 import { bindOnboardingDeps, createOnboardingService } from './onboarding-service.js';
 import { handleQuickChatStart as runQuickChatStart, type QuickChatResult } from './quick-chat.js';
 import { createDailyReviewArchiveStore } from './daily-review-archive-store.js';
-import { preserveSensitivePlaceholders } from './settings-ipc-helpers.js';
 import { resolveDefaultPermissionMode } from './permission-mode-default.js';
 import {
   resolveVisualSmokeFixture,
@@ -131,10 +127,7 @@ import { createMainAutomationWiring, evaluateAutomationCanFire } from './automat
 import { createMainGoalWiring } from './goal-wiring.js';
 import { startDesktopSessionTurn, type SessionGoalBoundary } from './session-turn-stream.js';
 import { createOAuthModelConnectionsMainService } from './oauth-model-connections-main.js';
-import {
-  maskNetworkSettings,
-  toContractNetworkSettings,
-} from './network-settings-main.js';
+import { toContractNetworkSettings } from './network-settings-main.js';
 import { registerMemoryIpc } from './memory-ipc-main.js';
 import { registerSubscriptionIpc } from './subscription-ipc-main.js';
 import { registerBrowserIpc } from './browser-ipc-main.js';
@@ -157,6 +150,7 @@ import { registerSettingsIpc } from './settings-ipc-main.js';
 import type { SettingsIpcHandle } from './settings-ipc-main.js';
 import { createVisualSmokeBotOnboardingAdapters } from './bot-onboarding-visual-smoke.js';
 import { createKeepSystemAwakeController } from './keep-system-awake.js';
+import { createSettingsRuntimeEffects } from './settings-runtime-effects.js';
 import { registerGatewayIpc } from './gateway-ipc-main.js';
 import { registerSessionsIpc } from './sessions-ipc-main.js';
 import {
@@ -1142,66 +1136,16 @@ function canCreateFakeSessionFromRenderer(): boolean {
   );
 }
 
-async function normalizeSettingsPatch(patch: UpdateAppSettingsInput): Promise<UpdateAppSettingsInput> {
-  const current = await settingsStore.get();
-  return preserveSensitivePlaceholders(patch, current);
-}
-
-async function applySettingsRuntimeEffects(settings: AppSettings, patch: UpdateAppSettingsInput): Promise<void> {
-  if (patch.network) {
-    const network = toContractNetworkSettings(settings.network);
-    setActiveProxy(network.proxy);
-    safeSendToRenderer('settings:network:changed', maskNetworkSettings(network));
-  }
-  if (patch.botChat) {
-    await botRegistry.applySettings(settings.botChat);
-  }
-  if (patch.openGateway) {
-    const status = await openGateway.sync(settings.openGateway);
-    safeSendToRenderer('gateway:statusChanged', status);
-  }
-  if (patch.chatDefaults?.permissionMode) {
-    await syncDefaultPermissionModeToSessions(settings.chatDefaults.permissionMode);
-  }
-  if (patch.system) {
-    // Start/stop the power-save blocker the instant the toggle flips so the
-    // capability reflects the user's choice without waiting for a relaunch.
-    keepSystemAwake.apply(settings.system.keepSystemAwake);
-  }
-}
-
-async function syncDefaultPermissionModeToSessions(mode: Exclude<PermissionMode, 'explore'>): Promise<void> {
-  const sessions = await runtime.listSessions();
-  await Promise.all(sessions.map(async (session) => {
-    if (session.permissionMode === mode) return;
-    if (isDeepResearchSession(session.labels)) return;
-    if (session.status === 'running' || session.status === 'waiting_for_user') return;
-    try {
-      await runtime.setPermissionMode(session.id, mode);
-      emitSessionsChanged('mode-change', session.id);
-    } catch {
-      // Best effort: the persisted global default is still the authority for
-      // new sessions; busy sessions can be reconciled on a later change.
-    }
-  }));
-}
-
-async function handleExternalSettingsChange(): Promise<void> {
-  try {
-    const settings = await settingsStore.get();
-    const fullPatch: UpdateAppSettingsInput = {
-      network: settings.network,
-      botChat: settings.botChat,
-      openGateway: settings.openGateway,
-      system: settings.system,
-    };
-    await applySettingsRuntimeEffects(settings, fullPatch);
-  } catch (error) {
-    console.error('[config-watcher] failed to apply external settings change:', error);
-  }
-  // Always notify renderer, even on partial failure above
-  safeSendToRenderer('settings:externalChanged', { ts: Date.now() });
-}
+const { normalizeSettingsPatch, applySettingsRuntimeEffects, handleExternalSettingsChange } =
+  createSettingsRuntimeEffects({
+    settingsStore,
+    botRegistry,
+    openGateway,
+    keepSystemAwake,
+    runtime,
+    safeSendToRenderer,
+    emitSessionsChanged,
+  });
 
 function streamEvents(
   sessionId: string,
