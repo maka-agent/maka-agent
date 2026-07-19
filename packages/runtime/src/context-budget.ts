@@ -1,5 +1,23 @@
 import { Buffer } from 'node:buffer';
-import { createHash } from 'node:crypto';
+import {
+  estimateTokens,
+  estimateRuntimeEventChars,
+  estimateRuntimeEventsTokens,
+  stableJsonLength,
+  turnKey,
+  groupEventsByTurn,
+  uniqueSorted,
+  sha256,
+  stableStringify,
+  finitePositive,
+  nonEmpty,
+  allNonEmpty,
+  increment,
+  escapeAttribute,
+  tokenizeSearchQuery,
+} from './context-budget-helpers.js';
+
+export { estimateTokens, estimateRuntimeEventsTokens };
 import type { ModelMessage } from 'ai';
 import type { RuntimeEvent } from '@maka/core/runtime-event';
 import type {
@@ -1714,51 +1732,12 @@ export function estimateModelMessagesChars(messages: readonly ModelMessage[]): n
   return messages.reduce((total, message) => total + estimateModelMessageChars(message), 0);
 }
 
-export function estimateRuntimeEventsTokens(
-  events: readonly RuntimeEvent[],
-  charsPerToken = 4,
-): number {
-  const chars = events.reduce((total, event) => total + estimateRuntimeEventChars(event), 0);
-  return estimateTokens(chars, charsPerToken);
-}
-
 function fitsHistoryBudget(
   events: readonly RuntimeEvent[],
   maxTokens: number | undefined,
   charsPerToken: number,
 ): boolean {
   return maxTokens === undefined || estimateRuntimeEventsTokens(events, charsPerToken) <= maxTokens;
-}
-
-export function estimateTokens(chars: number, charsPerToken = 4): number {
-  if (chars <= 0) return 0;
-  return Math.ceil(chars / Math.max(1, charsPerToken));
-}
-
-function groupEventsByTurn(
-  events: readonly RuntimeEvent[],
-  charsPerToken: number,
-): Array<{
-  turnId: string;
-  estimatedTokens: number;
-  events: RuntimeEvent[];
-}> {
-  const order: string[] = [];
-  const byTurn = new Map<string, RuntimeEvent[]>();
-  for (const event of events) {
-    const key = turnKey(event);
-    const group = byTurn.get(key);
-    if (group) group.push(event);
-    else {
-      order.push(key);
-      byTurn.set(key, [event]);
-    }
-  }
-  return order.map((turnId) => ({
-    turnId,
-    events: byTurn.get(turnId) ?? [],
-    estimatedTokens: estimateRuntimeEventsTokens(byTurn.get(turnId) ?? [], charsPerToken),
-  }));
 }
 
 function selectLatestCompleteTurnEvents(
@@ -2306,25 +2285,9 @@ function recentTurnIds(events: readonly RuntimeEvent[], count: number): Set<stri
   return new Set(order.slice(Math.max(0, order.length - count)));
 }
 
-function turnKey(event: RuntimeEvent): string {
-  return event.turnId || '<unknown-turn>';
-}
-
 /** True when the event carries model-visible content the compact projection counts. */
 export function isHistoryCompactContentEvent(event: RuntimeEvent): boolean {
   return estimateRuntimeEventChars(event) > 0;
-}
-
-function estimateRuntimeEventChars(event: RuntimeEvent): number {
-  let total = 0;
-  const content = event.content;
-  if (content?.kind === 'text' || content?.kind === 'thinking') total += content.text.length;
-  else if (content?.kind === 'function_call')
-    total += content.name.length + stableJsonLength(content.args);
-  else if (content?.kind === 'function_response')
-    total += content.name.length + stableJsonLength(content.result);
-  else if (content?.kind === 'error') total += content.message.length;
-  return total;
 }
 
 function estimateModelMessageChars(message: ModelMessage): number {
@@ -2363,15 +2326,6 @@ function segment(
     chars,
     estimatedTokens: estimateTokens(chars, charsPerToken),
   };
-}
-
-function stableJsonLength(value: unknown): number {
-  if (value === undefined) return 0;
-  try {
-    return JSON.stringify(value)?.length ?? 0;
-  } catch {
-    return String(value).length;
-  }
 }
 
 function buildSynthesisArchiveExcerpts(
@@ -2531,10 +2485,6 @@ function isValidSynthesisSourceRef(value: unknown): value is SynthesisSourceRef 
     );
   }
   return false;
-}
-
-function uniqueSorted(values: readonly string[]): string[] {
-  return [...new Set(values.filter((value) => value.length > 0))].sort();
 }
 
 function collectArchiveRetrievalCandidates(
@@ -2794,55 +2744,8 @@ function renderSynthesisSourceRef(ref: SynthesisSourceRef): string {
   }
 }
 
-function escapeAttribute(value: string): string {
-  return value.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;');
-}
-
-function nonEmpty(value: unknown): value is string {
-  return typeof value === 'string' && value.length > 0;
-}
-
-function allNonEmpty(values: readonly unknown[]): boolean {
-  return values.every(nonEmpty);
-}
-
-function tokenizeSearchQuery(query: string): string[] {
-  return [
-    ...new Set(
-      query
-        .toLowerCase()
-        .split(/[^a-z0-9_./:-]+/i)
-        .map((term) => term.trim())
-        .filter((term) => term.length >= 2),
-    ),
-  ].slice(0, 16);
-}
-
-function stableStringify(value: unknown): string {
-  if (value === undefined) return '';
-  try {
-    return JSON.stringify(value) ?? '';
-  } catch {
-    return String(value);
-  }
-}
-
-function increment(counts: Record<string, number>, key: string): void {
-  counts[key] = (counts[key] ?? 0) + 1;
-}
-
-function sha256(text: string): string {
-  return createHash('sha256').update(text).digest('hex');
-}
-
 function utf8ByteLength(text: string): number {
   return Buffer.byteLength(text, 'utf8');
-}
-
-function finitePositive(value: number | undefined): number | undefined {
-  return typeof value === 'number' && Number.isFinite(value) && value > 0
-    ? Math.floor(value)
-    : undefined;
 }
 
 function finiteRatio(value: number | undefined, fallback: number): number {
