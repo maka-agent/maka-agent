@@ -193,10 +193,47 @@ workspaces are exit 0 today; R1 makes them also report ZERO hints. Storybook sto
   closes only after cleanup completes, so this proves the moved teardown ran end-to-end);
   confirmed behavior-identical to the pre-R6 baseline. Campaign main.ts total: 1903 → 1175
   (−728 across R4–R6).
-- [ ] **R7 — provider-connection-detail.tsx controller-hook decomposition.** 983 lines,
-  17 useState — the renderer's densest remaining state cluster. Needs its own blade plan
-  (which state clusters extract into which controller hooks, which contracts pin the file)
-  before any extraction; not a mechanical move like R2.
+- [x] **R7 — provider-connection-detail.tsx controller-hook decomposition (shipped
+  `chore/arch-round-7-final`, detail view 983 → 373, −610).** Blade plan (from reading the
+  file): the sheet was one entangled controller — 12 useState in `ConnectionDetailInner`
+  plus a single `useKeyedActionGuard` covering save/test/fetch-models/save-enabled-models/
+  set-default/delete (all mutually exclusive), one lifecycle/`isConnectionDetailCurrent`
+  gate, an aggregated `detailActionBusy`, and a cross-call (`save` auto-fetches models). That
+  interlock is one cohesive cluster, so it extracted whole into **one** controller hook
+  rather than splitting per sub-cluster (which would have to thread the guard + lifecycle ref
+  between hooks and risk behavior drift). Two extractions under
+  `apps/desktop/src/renderer/settings/`:
+  `use-connection-detail.ts` (522 lines) — `useConnectionDetail(props)` owns every useState,
+  the 4 refs, all 4 effects (lifecycle reset, credential-presence probe, snapshot prop-sync,
+  enabledModelIds sync), every derived flag (supportsApiKey / needsOAuth / oauthLoginService /
+  hasFixedOAuthBaseUrl / credentialProbePending / hasUsableCredential / detailActionBusy /
+  apiKeyStatusHint / issue / lastTestMessage / …), the 7 handlers (save / updateEnabledModels
+  / runTest / refreshModels / setAsDefault / remove / refreshAfterRelogin), `oauthLoginServiceFor`
+  + the `OAuthLoginService`/`ConnectionDetailProps` types, and the pure snapshot/equality
+  helpers; returns a controller object.
+  `provider-enabled-model-manager.tsx` (187 lines) — the roving-tabindex model-list editor
+  (owns `query` + `activeRowId`), an independent cluster.
+  `provider-connection-detail.tsx` (373 lines) is now a thin view that destructures the hook,
+  keeping `ConnectionDetail` / `UnknownConnectionDetail` / `ConnectionDetailInner` (JSX) plus
+  the presentation-only `ConnectionEndpointField` / `GitHubCopilotReloginNotice` /
+  `OAuthReloginNotice`. Every identifier and statement moved verbatim — ZERO behavior change,
+  stable identities preserved (destructured under the same names so `onClick={save}` etc. stay
+  literal). Contract re-pins (maintainer-authorized): `provider-contract-source-helpers` joins
+  `use-connection-detail.ts` + `provider-enabled-model-manager.tsx` into the combined source,
+  adjacent to the detail view, so `function ConnectionDetail … function modelIdListsEqual(`
+  slices span view + controller contiguously; the `model-oauth-section-contract` ConnectionDetail
+  controller-slice terminators widened from `function GitHubCopilotReloginNotice` to
+  `function modelIdListsEqual(` (the handler bodies / flags / effects / snapshot helpers now
+  live in the hook), the `ConnectionDetailInner` view-order slice is unchanged, and the
+  last-test-message-helper assertion re-points to the combined source; `web-search-boundary`
+  adds the two new renderer files to its scanned set. Every behavior invariant preserved, none
+  deleted. No entangled remainder — the whole controller moved. Gates: desktop 2744 + ui 196 +
+  storage 396 suites green, 5-tsconfig (preload/main/renderer/storybook + ui) typecheck clean,
+  check-console/a11y/copy clean, check-dead-css clean, knip ×2 exit 0 (zero hints),
+  AUDIT_PORT_BASE=25300 alignment auditor exit 0 (all 13 fixtures clean incl. settings-usage).
+  CDP: the **oauth-relogin** fixture (which opens this component's `codex-oauth` detail sheet)
+  renders identically pre/post — OAuthReloginNotice with the 登录 button, EnabledModelManager
+  (启用模型 1 · GPT-5.5 默认), test/refresh/delete actions, no error boundary.
 - [ ] **R8 — CSS raw-hex residue (this PR). VERIFIED CLEAN — no residue on this tip.**
   Audit premise was stale: prose.css + sidebar.css carry NO raw hex/rgb/rgba/hsl color
   literals on d48183c2. The `#618`/`#546`/`#739` matches a naive grep surfaces are all
@@ -220,3 +257,40 @@ Update checkboxes as rounds ship. Every round: suite + typecheck + dead-css + al
 auditor + CDP spot captures, exit-code gated. R4–R6 are gated additionally on
 maintainer-approved contract re-pins; R7 needs its own blade plan; R3 is unblocked only
 after the concurrent visual-smoke fixture branch lands.
+
+## Campaign closing summary (2026-07-19 → 07-20)
+
+The two mega-modules the campaign targeted are decomposed and the config/CSS rot is
+resolved:
+
+- **main.ts: 1903 → 1175 (−728)** across R4 (tool-assembly + tool-artifact-persistence),
+  R5 (settings-runtime-effects + session-stream core), R6 (app-lifecycle) — each a pure
+  move behind injected seams, contract-re-pinned through the
+  `main-process-contract-source-helpers` aggregator.
+- **provider-connection-detail.tsx: 983 → 373 (−610)** via R7 — the densest renderer state
+  cluster extracted into `use-connection-detail.ts` (one controller hook for the whole keyed-
+  action-guard state machine) + `provider-enabled-model-manager.tsx` (the model-list editor).
+- **visual-smoke-fixture.ts: 2538 → 689 barrel + 6 domain modules** (R3), the #1 hotspot.
+- **app-shell.tsx: 1654** (R2 resume-cluster extraction — the `use-shell-resume.ts` mechanical
+  move — remains open/optional; the file is no longer a campaign hotspot after the 2026-07-13
+  simplification pass).
+- **R1 (knip de-rot)** and **R8 (CSS raw-hex / byte-formatter residue)** are analysis-complete:
+  R8 verified no code change needed; R1 clears the 13 config hints when scheduled. knip ×2
+  already reports zero hints on the current tip.
+
+Files split this campaign (new modules): `main/tool-assembly.ts`,
+`main/tool-artifact-persistence.ts`, `main/settings-runtime-effects.ts`,
+`main/session-stream.ts`, `main/app-lifecycle.ts`, the 6 `main/visual-smoke/*` seeders +
+barrel, `renderer/settings/use-connection-detail.ts`,
+`renderer/settings/provider-enabled-model-manager.tsx`.
+
+**Also shipped this round (out-of-band bug from #1252's report):** `settingsStore.usageStats`
+aggregated `byTool` PER-SESSION (`sessions.flatMap(toolStatsFromMessages)`), so Settings →
+使用统计 → 工具统计 showed the same tool name on multiple rows (several Bash rows).
+`byProvider`/`byModel` were already global (`aggregateBy` over the flattened `modelLogs`) —
+only `byTool` was affected. Fixed by `aggregateToolStats(sessions, since)`: tool_call ↔
+tool_result matching stays session-scoped (ids are only unique within a session) while
+counts/success/errors/durations merge into one row per tool name, sorted by call count desc.
+Regression test added (two sessions × Bash → one merged row). Verified on the settings-usage
+fixture via CDP (`window.maka.settings.usageStats('all')`): `byTool` = 6 unique rows (Bash 6,
+Read 4, Grep 2 [1✓1✗], Write 2, Edit 1, WebSearch 1), no duplicate tool names.
