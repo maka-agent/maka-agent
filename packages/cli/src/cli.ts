@@ -253,6 +253,7 @@ export async function runMakaCli(argv: string[] = process.argv.slice(2)): Promis
           goalLifecycle: context.goalContinuation,
           onboarding: context.onboarding,
           recap: context.recap,
+          foreignSessions: context.foreignSessions,
           onProcessExit: handleMakaCliProcessExit,
           resumeSessionId: command.resumeSessionId,
         });

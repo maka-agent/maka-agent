@@ -22,6 +22,13 @@ import {
   projectShellRunUpdateForSession,
   type ShellRunUpdate,
 } from '@maka/core';
+import {
+  buildForeignSessionHandoffMessage,
+  foreignSessionHandoffDisplayText,
+  foreignSourceLabel,
+  type ForeignSessionSummary,
+} from '@maka/core/foreign-session';
+import type { ForeignSessionStore } from '@maka/storage';
 import type { GoalTurnOutcome, SessionActivityLease } from '@maka/runtime';
 import type { ModelChoice } from './connection-target.js';
 import { listApiKeyOnboardableProviders, type MakaOnboardingSurface } from './onboarding.js';
@@ -157,6 +164,13 @@ export interface MakaPiTuiInput {
    * session the driver was created with.
    */
   resumeSessionId?: string;
+  /**
+   * Read-only store of sessions from other coding agents (Claude Code,
+   * Codex). When present, the session picker lists foreign sessions for the
+   * current cwd; selecting one distills it into a handoff digest and opens a
+   * fresh Maka session seeded with it. Omitting it hides the feature.
+   */
+  foreignSessions?: ForeignSessionStore;
 }
 
 export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
@@ -1510,13 +1524,42 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
 
   const showSessionList = async () => {
     const sessions = await input.driver.listSessions();
-    const availability = new Map(await Promise.all(sessions.map(async (session) => {
-      return [
-        session.id,
-        await input.driver.getSessionResumeAvailability?.(session)
-          ?? await inspectSessionResumeAvailability(session),
-      ] as const;
-    })));
+    // Maka-session availability and the foreign scan are independent I/O; run
+    // them concurrently so the picker's open latency is the slower of the two,
+    // not their sum.
+    const [availabilityEntries, foreignScan] = await Promise.all([
+      Promise.all(sessions.map(async (session) => {
+        return [
+          session.id,
+          await input.driver.getSessionResumeAvailability?.(session)
+            ?? await inspectSessionResumeAvailability(session),
+        ] as const;
+      })),
+      input.foreignSessions
+        ? input.foreignSessions.listSessions({ cwd }).then(
+            (summaries) => ({ summaries }),
+            (error: unknown) => ({ error }),
+          )
+        : Promise.resolve({ summaries: [] as ForeignSessionSummary[] }),
+    ]);
+    const availability = new Map(availabilityEntries);
+    // Foreign (Claude Code / Codex) sessions for the current cwd, keyed by a
+    // prefixed select value so they never collide with Maka session ids. A scan
+    // error is surfaced (not silently swallowed): degrade to no rows but tell
+    // the user why, so a real store bug isn't mistaken for "no sessions".
+    const foreignByValue = new Map<string, ForeignSessionSummary>();
+    if ('error' in foreignScan) {
+      const detail = foreignScan.error instanceof Error ? foreignScan.error.message : String(foreignScan.error);
+      state.entries.push({
+        kind: 'notice',
+        level: 'error',
+        text: `读取外部会话失败：${detail}`,
+      });
+    } else {
+      for (const summary of foreignScan.summaries) {
+        foreignByValue.set(`foreign:${summary.source}:${summary.id}`, summary);
+      }
+    }
     const renderScope = (): void => {
       const visibleSessions = sessionListScope === 'current'
         ? sessions.filter((session) => session.cwd === cwd)
@@ -1532,12 +1575,27 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
             : `${shortSessionId(session.id)}${location} ${session.llmConnectionSlug} ${session.model}`,
         };
       });
+      // Foreign sessions are cwd-scoped; show them in both scope views (they
+      // belong to this project) so a Tab toggle never makes them vanish.
+      for (const [value, summary] of foreignByValue) {
+        items.push({
+          value,
+          label: summary.title,
+          description: `↩ resume from ${foreignSourceLabel(summary.source)}`,
+        });
+      }
       const list = new SelectList(items, 10, selectListTheme(), {
         minPrimaryColumnWidth: 20,
         maxPrimaryColumnWidth: Math.max(20, terminal.columns - 30),
       });
       let overlay: OverlayHandle | undefined;
       list.onSelect = (item) => {
+        const foreign = foreignByValue.get(item.value);
+        if (foreign) {
+          overlay?.hide();
+          void importForeignSession(foreign);
+          return;
+        }
         if (availability.get(item.value)?.available === false) return;
         overlay?.hide();
         void runControl(() => switchSession(item.value));
@@ -1597,6 +1655,44 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     replaceTranscriptWithStoredMessages(state, []);
     shellRunElapsedTicker.sync();
     requestRender();
+  };
+
+  // Import a foreign (Claude Code / Codex) session: read its digest, open a
+  // fresh Maka session, and seed the first turn with an untrusted handoff
+  // envelope. Mirrors submitPreparedUserPrompt: claim `busy` + an activity lease
+  // SYNCHRONOUSLY before the async read so no other turn (a Goal auto-
+  // continuation, or a user Enter) can start during it and make the import a
+  // silent no-op. runAgentTurn re-asserts busy for the turn; on any failure the
+  // finally releases the lease. The handoff is the model-facing `sendText`; a
+  // short line shows in the transcript.
+  const importForeignSession = async (summary: ForeignSessionSummary): Promise<void> => {
+    if (busy || input.foreignSessions === undefined) return;
+    busy = true;
+    const activity = beginActivity();
+    editor.disableSubmit = true;
+    let handedOff = false;
+    try {
+      const digest = await input.foreignSessions.readDigest(summary);
+      if (closed) return;
+      newSession();
+      void runAgentTurn({
+        kind: 'external',
+        prompt: foreignSessionHandoffDisplayText(digest),
+        sessionId: input.driver.getSessionId(),
+        sendText: buildForeignSessionHandoffMessage(digest),
+      });
+      handedOff = true;
+    } catch (error) {
+      if (closed) return;
+      reportError(error);
+    } finally {
+      if (!handedOff) {
+        busy = false;
+        editor.disableSubmit = false;
+        requestRender();
+      }
+      activity.finish();
+    }
   };
 
   const showHelp = () => {

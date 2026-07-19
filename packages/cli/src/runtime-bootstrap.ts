@@ -52,11 +52,13 @@ import {
   createAutomationStore,
   createConnectionStore,
   createFileCredentialStore,
+  createForeignSessionStore,
   createReadImageSnapshotter,
   createRuntimeEventStore,
   createSessionStore,
   createSettingsStore,
   createShellRunStore,
+  type ForeignSessionStore,
 } from '@maka/storage';
 import type { ToolPermissionRule } from '@maka/core/permission';
 import { fetchProviderModels } from '@maka/runtime';
@@ -92,6 +94,8 @@ export interface MakaCliRuntimeContext {
   goalContinuation: CliGoalContinuation;
   /** One-sentence session recap generator (issue #1055), shared by `/recap` and idle-return auto-recap. */
   recap: SessionRecapGenerator;
+  /** Read-only scanner for other agents' sessions (Claude Code, Codex), for the resume picker (#1057). */
+  foreignSessions: ForeignSessionStore;
   close(): Promise<void>;
   /** API-key onboarding surface for the /setup wizard (#1098). */
   onboarding: MakaOnboardingSurface;
@@ -159,6 +163,9 @@ export async function createMakaCliRuntimeContext(
   const connectionStore = createConnectionStore(input.workspaceRoot);
   const credentialStore = createFileCredentialStore(input.workspaceRoot);
   const settingsStore = createSettingsStore(input.workspaceRoot);
+  // Read-only scanner over other agents' local session stores (~/.claude,
+  // ~/.codex). Independent of the Maka workspace — takes no workspaceRoot.
+  const foreignSessions = createForeignSessionStore();
   // Authoritative RuntimeEvent read model (issue #1055's session-recap
   // generator projects through this instead of re-deriving its own lossy
   // StoredMessage-based projection). Built once and shared — mirrors
@@ -700,6 +707,7 @@ export async function createMakaCliRuntimeContext(
     goalContinuation,
     onboarding: createApiKeyOnboardingSurface({ connectionStore, credentialStore, fetchModels: fetchProviderModels }),
     recap,
+    foreignSessions,
     close: async () => {
       // Stop the automation scheduler's timer (else it keeps the process alive
       // and ticks into a stopped session), then terminate background shell runs.

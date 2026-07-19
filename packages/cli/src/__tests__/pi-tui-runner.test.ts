@@ -3982,6 +3982,113 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('imports a foreign session from /session into a fresh handoff turn', async () => {
+    const terminal = new FakeTerminal();
+    // No Maka sessions, so the only picker row is the foreign one.
+    const driver = new SlashCommandDriver([]);
+    const summary = {
+      source: 'claude-code' as const,
+      id: 'fabc',
+      title: 'Prior parser work',
+      cwd: '/repo',
+      updatedAtMs: Date.now(),
+      transcriptPath: '/home/u/.claude/projects/-repo/fabc.jsonl',
+    };
+    let readDigestCalls = 0;
+    const foreignSessions = {
+      availableSources: async () => ['claude-code' as const],
+      listSessions: async () => [summary],
+      readDigest: async () => {
+        readDigestCalls += 1;
+        return {
+          source: 'claude-code' as const,
+          id: 'fabc',
+          title: 'Prior parser work',
+          cwd: '/repo',
+          updatedAtMs: summary.updatedAtMs,
+          userMessages: ['重构解析器'],
+          assistantTexts: ['已修复并补测试'],
+          filesTouched: ['/repo/parser.ts'],
+          warnings: [],
+        };
+      },
+    };
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+      foreignSessions,
+    });
+
+    terminal.input('/session');
+    terminal.input('\r');
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('Resume Session Current'));
+    // The foreign row is labeled by its title and marked as a resume-from row.
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('Prior parser work'));
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('resume from Claude Code'));
+
+    terminal.input('\r');
+    await waitFor(() => readDigestCalls === 1);
+    await waitFor(() => driver.startNewSessionCalls === 1);
+    await waitFor(() => driver.prompts.length === 1);
+
+    // The transcript shows a short human line; the model receives the full
+    // untrusted handoff envelope.
+    assert.equal(driver.displayPrompts[0], 'Resuming Claude Code session: Prior parser work');
+    assert.match(driver.prompts[0]!, /<foreign-session-digest>/);
+    assert.match(driver.prompts[0]!, /untrusted reference DATA/);
+    assert.match(driver.prompts[0]!, /重构解析器/);
+
+    exitMaka(terminal);
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close during test cleanup');
+      }),
+    ]);
+  });
+
+  test('surfaces a notice when the foreign-session scan fails', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver([]);
+    const foreignSessions = {
+      availableSources: async () => ['claude-code' as const],
+      listSessions: async () => {
+        throw new Error('corrupt index');
+      },
+      readDigest: async () => {
+        throw new Error('unused');
+      },
+    };
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+      foreignSessions,
+    });
+
+    terminal.input('/session');
+    terminal.input('\r');
+    // The scan failure is surfaced, not swallowed into an empty list.
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('读取外部会话失败：corrupt index'));
+
+    exitMaka(terminal);
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close during test cleanup');
+      }),
+    ]);
+  });
+
   test('renders switched session history instead of a session id note', async () => {
     const terminal = new FakeTerminal();
     const driver = new SlashCommandDriver(

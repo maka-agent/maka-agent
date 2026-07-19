@@ -754,6 +754,10 @@ export type {
 } from './foreign-session.js';
 export {
   CODEX_SUPPORTED_THREAD_SOURCES,
+  FOREIGN_SESSION_HANDOFF_INSTRUCTION,
+  buildForeignSessionHandoffMessage,
+  foreignSessionHandoffDisplayText,
+  foreignSourceLabel,
   FOREIGN_SESSION_DIGEST_MAX_FILES,
   FOREIGN_SESSION_DIGEST_MAX_MESSAGES,
   FOREIGN_SESSION_DIGEST_MAX_READ_BYTES,
