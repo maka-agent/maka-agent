@@ -38,9 +38,9 @@ describe('renderer lazy fallback contract', () => {
 
     assert.match(modulePages, /function ModulePageFallback/, 'whole-page modules must reserve a module loading shell');
     assert.match(modulePages, /function ModulePanelFallback/, 'daily review content must reserve a panel loading shell');
-    assert.match(modulePages, /<Suspense fallback=\{<ModulePageFallback label="技能" message="正在加载技能…" \/>\}>/);
-    assert.match(modulePages, /<Suspense fallback=\{<ModulePageFallback label="定时任务" message="正在加载定时任务…" \/>\}>/);
-    assert.match(modulePages, /<Suspense fallback=\{<ModulePanelFallback message="正在加载每日回顾…" \/>\}>/);
+    assert.match(modulePages, /<Suspense fallback=\{<ModulePageFallback label=\{copy\.skills\} message=\{copy\.loadingSkills\} \/>\}>/);
+    assert.match(modulePages, /<Suspense fallback=\{<ModulePageFallback label=\{copy\.automations\} message=\{copy\.loadingAutomations\} \/>\}>/);
+    assert.match(modulePages, /<Suspense fallback=\{<ModulePanelFallback message=\{copy\.loadingDailyReview\} \/>\}>/);
     assert.doesNotMatch(modulePages, /<Suspense fallback=\{null\}>/);
   });
 });

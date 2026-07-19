@@ -21,19 +21,20 @@ import type {
 } from '@maka/core';
 import {
   deriveCapabilityAuditReport,
-  formatPlanReminderDeliveryTarget,
+  generalizedErrorMessage,
   generalizedErrorMessageChinese,
 } from '@maka/core';
 import {
-  PLAN_REMINDER_EXAMPLE_TEMPLATES,
   type PlanReminderExampleTemplate,
   type PlanReminderFormSeed,
   comparePlanReminderBySort,
   createPlanReminderFormSeed,
   formatPlanRecurrence,
+  formatPlanReminderDeliveryTargetLabel,
   formatReminderCountdown,
   formatReminderTime,
   normalizePlanReminderSearchQuery,
+  getPlanReminderExampleTemplates,
   planReminderDuplicateSeed,
   planReminderEditSeed,
   planReminderMatchesSearch,
@@ -64,6 +65,8 @@ import type {
   PlanReminderDraftInput,
   PlanReminderUpdatePatch,
 } from './module-panel-types.js';
+import { getPlanReminderCopy } from './plan-reminder-copy.js';
+import { useUiLocale } from './locale-context.js';
 
 // Run-history status Chip tone. triggered = it fired (info, informational,
 // not a health signal), blocked = intentionally skipped (warning), failed =
@@ -96,6 +99,9 @@ export function PlanReminderPanel(props: {
   onClearRunHistory?(id: string): void | Promise<void>;
   onDelete?(id: string): void | Promise<void>;
 }) {
+  const locale = useUiLocale();
+  const copy = getPlanReminderCopy(locale);
+  const templates = getPlanReminderExampleTemplates(locale);
   // 'active' = scheduled + paused — the default view and the tab badge
   // count, matching the sidebar nav badge (which also excludes completed).
   type PlanReminderListFilter = 'active' | 'all' | PlanReminderStatus;
@@ -132,14 +138,14 @@ export function PlanReminderPanel(props: {
   const keepSystemAwakePendingRef = useRef(false);
   const normalizedListQuery = normalizePlanReminderSearchQuery(listQuery);
   const searchMatchedReminders = normalizedListQuery
-    ? props.reminders.filter((reminder) => planReminderMatchesSearch(reminder, normalizedListQuery))
+    ? props.reminders.filter((reminder) => planReminderMatchesSearch(reminder, normalizedListQuery, locale))
     : props.reminders;
   const visibleReminders = listFilter === 'all'
     ? searchMatchedReminders
     : listFilter === 'active'
       ? searchMatchedReminders.filter((reminder) => reminder.status !== 'completed')
       : searchMatchedReminders.filter((reminder) => reminder.status === listFilter);
-  const sortedReminders = [...visibleReminders].sort((a, b) => comparePlanReminderBySort(a, b, listSort));
+  const sortedReminders = [...visibleReminders].sort((a, b) => comparePlanReminderBySort(a, b, listSort, locale));
   const runRangeStart = planReminderRunRangeStart(runRange, Date.now());
   const visibleRunEntries = props.reminders
     .flatMap((reminder) => reminder.runs.map((run) => ({ reminder, run })))
@@ -180,10 +186,9 @@ export function PlanReminderPanel(props: {
     } catch (error) {
       // Revert to reflect REALITY, and surface the failure in Chinese.
       if (planReminderMountedRef.current) setKeepSystemAwakeChecked(!next);
-      toast.error(
-        '无法更新保持系统唤醒',
-        generalizedErrorMessageChinese(error, '更新保持系统唤醒设置失败，请稍后重试。'),
-      );
+      toast.error(copy.page.keepAwakeErrorTitle, locale === 'zh'
+        ? generalizedErrorMessageChinese(error, copy.page.keepAwakeErrorFallback)
+        : generalizedErrorMessage(error, copy.page.keepAwakeErrorFallback));
     } finally {
       keepSystemAwakePendingRef.current = false;
       if (planReminderMountedRef.current) setKeepSystemAwakePending(false);
@@ -209,7 +214,7 @@ export function PlanReminderPanel(props: {
   }
 
   function duplicateReminder(reminder: PlanReminder) {
-    openReminderDialog(planReminderDuplicateSeed(reminder));
+    openReminderDialog(planReminderDuplicateSeed(reminder, locale));
   }
 
   async function runPlanReminderAction(
@@ -250,20 +255,20 @@ export function PlanReminderPanel(props: {
           as_wrapper="div"
           className="maka-plan-hero"
           as="h2"
-          title="定时任务"
-          subtitle="创建和管理周期性任务，让 Maka 按计划执行提醒、复盘和投递。"
+          title={copy.page.title}
+          subtitle={copy.page.subtitle}
           contentClassName="maka-plan-heading"
           actions={
-          <div className="maka-plan-top-actions" aria-label="计划提醒操作">
+          <div className="maka-plan-top-actions" aria-label={copy.page.actionsAriaLabel}>
             <UiButton
               type="button"
               variant="quiet"
               size="icon"
               onClick={() => void refreshFromPanel()}
               disabled={!props.onRefresh || refreshPending}
-              aria-label={refreshPending ? '正在刷新定时任务' : '刷新定时任务'}
+              aria-label={refreshPending ? copy.page.refreshing : copy.page.refresh}
               aria-busy={refreshPending ? 'true' : undefined}
-              title={refreshPending ? '正在刷新定时任务' : '刷新定时任务'}
+              title={refreshPending ? copy.page.refreshing : copy.page.refresh}
             >
               <RefreshCcw size={15} aria-hidden="true" />
             </UiButton>
@@ -274,7 +279,7 @@ export function PlanReminderPanel(props: {
                 different (chat-driven) flow exists. */}
             <UiButton type="button" onClick={openCreateReminderDialog}>
               <Plus size={15} aria-hidden="true" />
-              新建定时任务
+              {copy.page.create}
             </UiButton>
           </div>
           }
@@ -296,12 +301,12 @@ export function PlanReminderPanel(props: {
           <div className="maka-plan-system-awake" data-tone="passive">
             <div className="maka-plan-system-awake-main">
               <Info size={15} aria-hidden="true" />
-              <span>定时任务仅在电脑保持唤醒时运行</span>
+              <span>{copy.page.keepAwakeHint}</span>
             </div>
             <div className="maka-plan-system-awake-control">
-              <span className="maka-plan-system-awake-label">保持系统唤醒</span>
+              <span className="maka-plan-system-awake-label">{copy.page.keepAwake}</span>
               <SettingsSwitch
-                ariaLabel="保持系统唤醒"
+                ariaLabel={copy.page.keepAwake}
                 checked={keepSystemAwakeChecked}
                 disabled={keepSystemAwakePending}
                 onChange={(next) => void toggleKeepSystemAwake(next)}
@@ -320,70 +325,61 @@ export function PlanReminderPanel(props: {
           }}
         >
           <div className="maka-plan-tabs-bar">
-            <TabsList variant="underline" className="maka-plan-tabs-list" aria-label="计划提醒视图">
+            <TabsList variant="underline" className="maka-plan-tabs-list" aria-label={copy.page.viewsAriaLabel}>
               <TabsTrigger className="maka-plan-tab" value="tasks">
-                我的定时任务
+                {copy.page.tasks}
                 <span>{props.reminders.filter((reminder) => reminder.status !== 'completed').length}</span>
               </TabsTrigger>
               <TabsTrigger className="maka-plan-tab" value="runs">
-                执行记录
+                {copy.page.runs}
                 <span>{visibleRunEntries.length}</span>
               </TabsTrigger>
             </TabsList>
             {planView === 'tasks' ? (
-              <div className="maka-plan-toolbar" aria-label="计划提醒筛选">
+              <div className="maka-plan-toolbar" aria-label={copy.page.filtersAriaLabel}>
                 <label className="maka-plan-compact-select maka-plan-sort-select">
-                  <span>排序</span>
+                  <span>{copy.page.sort}</span>
                   <PlanReminderSelect
                     value={listSort}
                     onChange={(value) => setListSort(value)}
-                    ariaLabel="定时任务排序"
-                    options={[
-                      ['created-desc', '按创建时间倒序'],
-                      ['next-run-asc', '按下次触发升序'],
-                      ['updated-desc', '按更新时间倒序'],
-                    ] satisfies ReadonlyArray<readonly [PlanReminderSort, string]>}
+                    ariaLabel={copy.page.sortAriaLabel}
+                    options={copy.page.sortOptions}
                   />
                 </label>
                 <label className="maka-plan-search">
-                  <span>搜索计划提醒</span>
+                  <span>{copy.page.searchLabel}</span>
                   <Input
                     value={listQuery}
                     onChange={(event) => setListQuery(event.currentTarget.value)}
                     maxLength={120}
-                    placeholder="搜索标题、备注、投递或执行记录…"
+                    placeholder={copy.page.searchPlaceholder}
                   />
                 </label>
                 <label className="maka-plan-compact-select">
-                  <span>状态</span>
+                  <span>{copy.page.state}</span>
                   <PlanReminderSelect
                     value={listFilter}
                     onChange={(value) => setListFilter(value)}
-                    ariaLabel="计划提醒筛选"
+                    ariaLabel={copy.page.filterAriaLabel}
                     options={[
-                      ['active', `进行中 ${filterCounts.active}`],
-                      ['all', `全部 ${filterCounts.all}`],
-                      ['scheduled', `待触发 ${filterCounts.scheduled}`],
-                      ['paused', `已暂停 ${filterCounts.paused}`],
-                      ['completed', `已完成 ${filterCounts.completed}`],
+                      ['active', copy.page.filterOption(copy.page.active, filterCounts.active)],
+                      ['all', copy.page.filterOption(copy.page.all, filterCounts.all)],
+                      ['scheduled', copy.page.filterOption(copy.status.scheduled, filterCounts.scheduled)],
+                      ['paused', copy.page.filterOption(copy.status.paused, filterCounts.paused)],
+                      ['completed', copy.page.filterOption(copy.status.completed, filterCounts.completed)],
                     ] satisfies ReadonlyArray<readonly [PlanReminderListFilter, string]>}
                   />
                 </label>
               </div>
             ) : (
-              <div className="maka-plan-toolbar maka-plan-toolbar-compact" aria-label="执行记录筛选">
+              <div className="maka-plan-toolbar maka-plan-toolbar-compact" aria-label={copy.page.runsFilterAriaLabel}>
                 <label className="maka-plan-compact-select">
-                  <span>范围</span>
+                  <span>{copy.page.range}</span>
                   <PlanReminderSelect
                     value={runRange}
                     onChange={(value) => setRunRange(value)}
-                    ariaLabel="执行记录范围"
-                    options={[
-                      ['day', '今天'],
-                      ['week', '近 7 天'],
-                      ['month', '近 30 天'],
-                      ['all', '全部记录'],
-                    ] satisfies ReadonlyArray<readonly [PlanReminderRunRange, string]>}
+                    ariaLabel={copy.page.rangeAriaLabel}
+                    options={copy.page.rangeOptions}
                   />
                 </label>
               </div>
@@ -393,14 +389,14 @@ export function PlanReminderPanel(props: {
           <TabsPanel className="maka-plan-tab-panel" value="tasks">
             {normalizedListQuery && (
               <div className="maka-plan-search-summary" role="status" aria-live="polite">
-                <span>找到 {searchMatchedReminders.length} 个匹配提醒</span>
-                <UiButton type="button" variant="ghost" size="sm" onClick={() => setListQuery('')}>清除搜索</UiButton>
+                <span>{copy.page.searchMatches(searchMatchedReminders.length)}</span>
+                <UiButton type="button" variant="ghost" size="sm" onClick={() => setListQuery('')}>{copy.page.clearSearch}</UiButton>
               </div>
             )}
             {props.reminders.length === 0 ? (
               <div className="maka-plan-empty-wrap" data-mode="starter-cards">
-                <div className="maka-plan-template-strip" data-layout="cards" aria-label="定时任务示例模板">
-                  {PLAN_REMINDER_EXAMPLE_TEMPLATES.map((template) => (
+                <div className="maka-plan-template-strip" data-layout="cards" aria-label={copy.page.templatesAriaLabel}>
+                  {templates.map((template) => (
                     <BaseButton
                       key={template.id}
                       type="button"
@@ -425,13 +421,13 @@ export function PlanReminderPanel(props: {
             ) : sortedReminders.length === 0 ? (
               <EmptyState
                 Icon={Clock}
-                title={normalizedListQuery ? '没有匹配的提醒' : '当前筛选没有提醒'}
-                body={normalizedListQuery ? '调整搜索词，或切换状态筛选查看其他提醒。' : '切换筛选查看其他状态，或创建新的计划提醒。'}
-                secondaryCta={{ label: '清除搜索', onClick: () => setListQuery(''), disabled: !normalizedListQuery }}
+                title={normalizedListQuery ? copy.page.noSearchTitle : copy.page.noFilterTitle}
+                body={normalizedListQuery ? copy.page.noSearchBody : copy.page.noFilterBody}
+                secondaryCta={{ label: copy.page.clearSearch, onClick: () => setListQuery(''), disabled: !normalizedListQuery }}
                 extraClassName="maka-plan-empty"
               />
             ) : (
-              <div className="maka-plan-card-grid agents-dual-card-row" aria-label="计划提醒列表">
+              <div className="maka-plan-card-grid agents-dual-card-row" aria-label={copy.page.listAriaLabel}>
                 {sortedReminders.map((reminder) => {
                   const reminderActionPrefix = `${reminder.id}:`;
                   const reminderActionPending = Array.from(pendingActionKeys).some((key) => key.startsWith(reminderActionPrefix));
@@ -443,12 +439,12 @@ export function PlanReminderPanel(props: {
                             as "paused", not "done". Show the terminal
                             state instead of a dead control. */}
                         {reminder.status === 'completed' ? (
-                          <Badge variant="secondary" className="maka-plan-card-done-badge">已完成</Badge>
+                          <Badge variant="secondary" className="maka-plan-card-done-badge">{copy.page.completed}</Badge>
                         ) : (
                           <Switch
                             checked={reminder.enabled}
                             disabled={reminderActionPending}
-                            aria-label={reminder.enabled ? '暂停提醒' : '启用提醒'}
+                            aria-label={reminder.enabled ? copy.page.pause : copy.page.enable}
                             onCheckedChange={() => void runPlanReminderAction(`${reminder.id}:toggle`, () => props.onToggle?.(reminder.id, !reminder.enabled))}
                           />
                         )}
@@ -456,7 +452,7 @@ export function PlanReminderPanel(props: {
                           <MenuTrigger
                             className="maka-plan-card-menu-trigger"
                             disabled={reminderActionPending}
-                            aria-label="提醒操作"
+                            aria-label={copy.page.reminderActions}
                           >
                             <MoreHorizontal size={16} aria-hidden="true" />
                           </MenuTrigger>
@@ -466,35 +462,35 @@ export function PlanReminderPanel(props: {
                               disabled={reminderActionPending || reminder.status === 'completed'}
                             >
                               <Pencil size={14} aria-hidden="true" />
-                              编辑
+                              {copy.page.edit}
                             </MenuItem>
                             <MenuItem
                               onClick={() => duplicateReminder(reminder)}
                               disabled={reminderActionPending}
                             >
                               <Copy size={14} aria-hidden="true" />
-                              复制
+                              {copy.page.duplicate}
                             </MenuItem>
                             <MenuItem
                               onClick={() => void runPlanReminderAction(`${reminder.id}:trigger`, () => props.onTriggerNow?.(reminder.id))}
                               disabled={reminderActionPending || !reminder.enabled}
                             >
                               <RefreshCcw size={14} aria-hidden="true" />
-                              {pendingActionKeys.has(`${reminder.id}:trigger`) ? '触发中…' : '立即触发'}
+                              {pendingActionKeys.has(`${reminder.id}:trigger`) ? copy.page.triggering : copy.page.triggerNow}
                             </MenuItem>
                             <MenuItem
                               onClick={() => void runPlanReminderAction(`${reminder.id}:snooze`, () => props.onSnooze?.(reminder.id))}
                               disabled={reminderActionPending || !reminder.enabled || reminder.status !== 'scheduled' || typeof reminder.nextRunAt !== 'number'}
                             >
                               <Clock size={14} aria-hidden="true" />
-                              {pendingActionKeys.has(`${reminder.id}:snooze`) ? '延后中…' : '延后 10 分钟'}
+                              {pendingActionKeys.has(`${reminder.id}:snooze`) ? copy.page.snoozing : copy.page.snooze}
                             </MenuItem>
                             <MenuItem
                               onClick={() => void runPlanReminderAction(`${reminder.id}:clear-runs`, () => props.onClearRunHistory?.(reminder.id))}
                               disabled={reminderActionPending || reminder.runs.length === 0 || reminder.status === 'completed'}
                             >
                               <ArchiveRestore size={14} aria-hidden="true" />
-                              {pendingActionKeys.has(`${reminder.id}:clear-runs`) ? '清空中…' : '清空记录'}
+                              {pendingActionKeys.has(`${reminder.id}:clear-runs`) ? copy.page.clearing : copy.page.clearRuns}
                             </MenuItem>
                             <MenuItem
                               variant="destructive"
@@ -502,7 +498,7 @@ export function PlanReminderPanel(props: {
                               disabled={reminderActionPending}
                             >
                               <Trash2 size={14} aria-hidden="true" />
-                              {pendingActionKeys.has(`${reminder.id}:delete`) ? '删除中…' : '删除'}
+                              {pendingActionKeys.has(`${reminder.id}:delete`) ? copy.page.deleting : copy.page.delete}
                             </MenuItem>
                           </MenuPopup>
                         </Menu>
@@ -511,15 +507,15 @@ export function PlanReminderPanel(props: {
                         <div className="maka-plan-card-title-row">
                           <h3 className="maka-plan-card-title">{reminder.title}</h3>
                           <Badge variant={reminder.status === 'scheduled' ? 'success' : reminder.status === 'paused' ? 'warning' : 'secondary'}>
-                            {planReminderStatusLabel(reminder.status)}
+                            {planReminderStatusLabel(reminder.status, locale)}
                           </Badge>
                         </div>
                         <p className="maka-plan-card-note">
-                          {reminder.note || `触发后投递到：${formatPlanReminderDeliveryTarget(reminder.delivery)}`}
+                          {reminder.note || copy.delivery.fallback(formatPlanReminderDeliveryTargetLabel(reminder.delivery, locale))}
                         </p>
                         {reminder.lastRun && (
                           <div className="maka-plan-card-run">
-                            {runStatusLabel(reminder.lastRun.status)}：{reminder.lastRun.message}
+                            {copy.page.lastRun(runStatusLabel(reminder.lastRun.status, locale), reminder.lastRun.message)}
                           </div>
                         )}
                       </div>
@@ -528,18 +524,18 @@ export function PlanReminderPanel(props: {
                           <Clock size={13} aria-hidden="true" />
                           {reminder.nextRunAt ? (
                             <>
-                              下次触发：{formatReminderTime(reminder.nextRunAt)}
-                              <span className="maka-plan-card-countdown">{formatReminderCountdown(reminder.nextRunAt)}</span>
+                              {copy.page.nextRun(formatReminderTime(reminder.nextRunAt, locale))}
+                              <span className="maka-plan-card-countdown">{formatReminderCountdown(reminder.nextRunAt, locale)}</span>
                             </>
                           ) : reminder.lastRun ? (
-                            `最近 ${formatReminderTime(reminder.lastRun.at)}`
+                            copy.page.recentRun(formatReminderTime(reminder.lastRun.at, locale))
                           ) : (
-                            '未安排'
+                            copy.page.unscheduled
                           )}
                         </span>
                         <span className="maka-plan-card-chip">
                           <Repeat size={13} aria-hidden="true" />
-                          {formatPlanRecurrence(reminder)}
+                          {formatPlanRecurrence(reminder, locale)}
                         </span>
                       </div>
                     </article>
@@ -553,12 +549,12 @@ export function PlanReminderPanel(props: {
             {visibleRunEntries.length === 0 ? (
               <EmptyState
                 Icon={Clock}
-                title="暂无执行记录"
-                body="提醒触发、手动执行或投递失败后，会在这里保留最近记录。"
+                title={copy.page.noRunsTitle}
+                body={copy.page.noRunsBody}
                 extraClassName="maka-plan-empty maka-plan-runs-empty"
               />
             ) : (
-              <div className="maka-plan-run-list" aria-label="计划提醒执行记录">
+              <div className="maka-plan-run-list" aria-label={copy.page.runsAriaLabel}>
                 {visibleRunEntries.map(({ reminder, run }) => (
                   <article key={`${reminder.id}:${run.id}`} className="maka-plan-run-row">
                     <Chip
@@ -567,13 +563,13 @@ export function PlanReminderPanel(props: {
                       className="maka-plan-run-status"
                       data-status={run.status}
                     >
-                      {runStatusLabel(run.status)}
+                      {runStatusLabel(run.status, locale)}
                     </Chip>
                     <div className="maka-plan-run-main">
                       <strong>{reminder.title}</strong>
                       <span>{run.message}</span>
                     </div>
-                    <time>{formatReminderTime(run.at)}</time>
+                    <time>{formatReminderTime(run.at, locale)}</time>
                   </article>
                 ))}
               </div>

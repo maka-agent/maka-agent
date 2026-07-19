@@ -97,7 +97,7 @@ describe('Plan Reminder panel async action contract', () => {
       'keep-awake pending owner must be released on unmount alongside the refresh/action owners',
     );
 
-    // Toggle: synchronous duplicate-guard, optimistic flip, revert + Chinese
+    // Toggle: synchronous duplicate-guard, optimistic flip, localized error
     // toast on failure, mounted-guarded state writes in finally.
     assert.match(
       toggleBlock,
@@ -115,8 +115,8 @@ describe('Plan Reminder panel async action contract', () => {
     );
     assert.match(
       toggleBlock,
-      /toast\.error\(\s*'无法更新保持系统唤醒',/,
-      'a failed write must surface a Chinese error toast',
+      /toast\.error\(copy\.page\.keepAwakeErrorTitle, locale === 'zh'/,
+      'a failed write must surface a locale-aware error toast',
     );
     assert.match(
       toggleBlock,

@@ -22,61 +22,20 @@ import type {
   PlanReminderDeliveryTarget,
   PlanReminderRecurrence,
   PlanReminderStatus,
+  UiLocale,
 } from '@maka/core';
 import {
   BOT_DELIVERY_PROVIDERS,
   botDisplayLabel,
-  formatPlanReminderDeliveryTarget,
+  uiLocaleToIntlLocale,
 } from '@maka/core';
+import { getPlanReminderCopy, type PlanReminderExampleTemplate } from './plan-reminder-copy.js';
 
-export type PlanReminderExampleTemplate = {
-  id: string;
-  title: string;
-  note: string;
-  scheduleLabel: string;
-  recurrence: PlanReminderRecurrence;
-  cronExpression: string;
-  nextRun: { weekday?: number; hour: number; minute: number };
-};
+export type { PlanReminderExampleTemplate } from './plan-reminder-copy.js';
 
-export const PLAN_REMINDER_EXAMPLE_TEMPLATES: readonly PlanReminderExampleTemplate[] = [
-  {
-    id: 'daily-download-cleanup',
-    title: '每日下载文件夹清理',
-    note: '请帮我整理「下载」文件夹，把截图、安装包和临时文档按类型归档，并列出可删除项。',
-    scheduleLabel: '每天 18:30',
-    recurrence: 'cron',
-    cronExpression: '30 18 * * *',
-    nextRun: { hour: 18, minute: 30 },
-  },
-  {
-    id: 'midday-reset',
-    title: '午间充电站',
-    note: '午休时间到了，帮我回顾上午完成了什么，并给下午列一个轻量可执行计划。',
-    scheduleLabel: '工作日 12:30',
-    recurrence: 'cron',
-    cronExpression: '30 12 * * 1-5',
-    nextRun: { hour: 12, minute: 30 },
-  },
-  {
-    id: 'weekend-todo-review',
-    title: '周末待办整理',
-    note: '梳理这周完成 / 未完成的待办，输出下周计划，并标记需要优先处理的 3 件事。',
-    scheduleLabel: '每周日 20:00',
-    recurrence: 'cron',
-    cronExpression: '0 20 * * 0',
-    nextRun: { weekday: 0, hour: 20, minute: 0 },
-  },
-  {
-    id: 'daily-news-brief',
-    title: '每日新闻摘要',
-    note: '总结今天科技 / AI / Maka 相关新闻 5 条，按重要性排序，并给出每条 1 句影响判断。',
-    scheduleLabel: '每天 09:30',
-    recurrence: 'cron',
-    cronExpression: '30 9 * * *',
-    nextRun: { hour: 9, minute: 30 },
-  },
-];
+export function getPlanReminderExampleTemplates(locale: UiLocale): readonly PlanReminderExampleTemplate[] {
+  return getPlanReminderCopy(locale).templates;
+}
 
 export type PlanReminderDisplayRow =
   | { kind: 'group'; key: string; label: string; count: number }
@@ -125,15 +84,16 @@ export function planReminderFormValidationMessage(input: {
   cronExpression: string;
   delivery: PlanReminderDeliveryTarget;
   now: number;
-}): string | null {
-  if (input.title.trim().length === 0) return '填写标题后才能保存提醒。';
-  if (!Number.isFinite(input.parsedRunAt)) return '选择有效的提醒时间。';
-  if (input.parsedRunAt < input.now) return '提醒时间必须晚于当前时间。';
+}, locale: UiLocale): string | null {
+  const copy = getPlanReminderCopy(locale).validation;
+  if (input.title.trim().length === 0) return copy.title;
+  if (!Number.isFinite(input.parsedRunAt)) return copy.timeInvalid;
+  if (input.parsedRunAt < input.now) return copy.timePast;
   if (input.recurrence === 'cron' && input.cronExpression.trim().split(/\s+/).length !== 5) {
-    return 'Cron 需要 5 段表达式，例如 0 9 * * 1-5。';
+    return copy.cron;
   }
   if (input.delivery.channel === 'bot' && input.delivery.chatId.length === 0) {
-    return '选择机器人聊天时需要填写 Chat ID。';
+    return copy.chatId;
   }
   return null;
 }
@@ -142,7 +102,7 @@ export function formatPlanDeliveryProviderList(): string {
   return BOT_DELIVERY_PROVIDERS.map((provider) => botDisplayLabel(provider)).join(' / ');
 }
 
-export function comparePlanReminderForDisplay(a: PlanReminder, b: PlanReminder): number {
+export function comparePlanReminderForDisplay(a: PlanReminder, b: PlanReminder, locale: UiLocale): number {
   const statusDelta = planReminderStatusDisplayRank(a) - planReminderStatusDisplayRank(b);
   if (statusDelta !== 0) return statusDelta;
   if (a.status === 'scheduled' && b.status === 'scheduled') {
@@ -151,17 +111,17 @@ export function comparePlanReminderForDisplay(a: PlanReminder, b: PlanReminder):
   if (a.status === 'completed' && b.status === 'completed') {
     return planReminderLastRunSortValue(b) - planReminderLastRunSortValue(a);
   }
-  return a.title.localeCompare(b.title, 'zh-Hans-CN');
+  return a.title.localeCompare(b.title, uiLocaleToIntlLocale(locale));
 }
 
-export function comparePlanReminderBySort(a: PlanReminder, b: PlanReminder, sort: 'created-desc' | 'next-run-asc' | 'updated-desc'): number {
+export function comparePlanReminderBySort(a: PlanReminder, b: PlanReminder, sort: 'created-desc' | 'next-run-asc' | 'updated-desc', locale: UiLocale): number {
   if (sort === 'created-desc') {
-    return b.createdAt - a.createdAt || comparePlanReminderForDisplay(a, b);
+    return b.createdAt - a.createdAt || comparePlanReminderForDisplay(a, b, locale);
   }
   if (sort === 'updated-desc') {
-    return b.updatedAt - a.updatedAt || comparePlanReminderForDisplay(a, b);
+    return b.updatedAt - a.updatedAt || comparePlanReminderForDisplay(a, b, locale);
   }
-  return comparePlanReminderForDisplay(a, b);
+  return comparePlanReminderForDisplay(a, b, locale);
 }
 
 function planReminderStatusDisplayRank(reminder: PlanReminder): number {
@@ -183,19 +143,19 @@ export function normalizePlanReminderSearchQuery(query: string): string {
   return query.trim().toLocaleLowerCase();
 }
 
-export function planReminderMatchesSearch(reminder: PlanReminder, query: string): boolean {
-  return planReminderSearchText(reminder).toLocaleLowerCase().includes(query);
+export function planReminderMatchesSearch(reminder: PlanReminder, query: string, locale: UiLocale): boolean {
+  return planReminderSearchText(reminder, locale).toLocaleLowerCase().includes(query);
 }
 
-export function planReminderSearchText(reminder: PlanReminder): string {
+export function planReminderSearchText(reminder: PlanReminder, locale: UiLocale): string {
   return [
     reminder.title,
     reminder.note,
     reminder.status,
-    formatPlanRecurrence(reminder),
-    formatPlanReminderDeliveryTarget(reminder.delivery),
+    formatPlanRecurrence(reminder, locale),
+    formatPlanReminderDeliveryTargetLabel(reminder.delivery, locale),
     reminder.lastRun?.message,
-    ...reminder.runs.map((run) => `${runStatusLabel(run.status)} ${run.message}`),
+    ...reminder.runs.map((run) => `${runStatusLabel(run.status, locale)} ${run.message}`),
   ].filter(Boolean).join('\n');
 }
 
@@ -203,26 +163,24 @@ export function planReminderSearchText(reminder: PlanReminder): string {
 // Demoted (was `export`) to keep it — and its sibling helpers it references —
 // out of knip's unused-export report without deleting the cohesive plan-reminder
 // display API. Re-export if/when a panel adopts it.
-function planReminderDisplayRows(filter: 'all' | PlanReminderStatus, reminders: PlanReminder[]): PlanReminderDisplayRow[] {
+function planReminderDisplayRows(filter: 'all' | PlanReminderStatus, reminders: PlanReminder[], locale: UiLocale): PlanReminderDisplayRow[] {
   if (filter !== 'all') return reminders.map((reminder) => ({ kind: 'reminder', reminder }));
   const rows: PlanReminderDisplayRow[] = [];
   for (const status of ['scheduled', 'paused', 'completed'] satisfies PlanReminderStatus[]) {
     const group = reminders.filter((reminder) => reminder.status === status);
     if (group.length === 0) continue;
-    rows.push({ kind: 'group', key: `group-${status}`, label: planReminderStatusGroupLabel(status), count: group.length });
+    rows.push({ kind: 'group', key: `group-${status}`, label: planReminderStatusGroupLabel(status, locale), count: group.length });
     rows.push(...group.map((reminder) => ({ kind: 'reminder' as const, reminder })));
   }
   return rows;
 }
 
-export function planReminderStatusGroupLabel(status: PlanReminderStatus): string {
-  if (status === 'scheduled') return '待触发';
-  if (status === 'paused') return '已暂停';
-  return '已完成';
+export function planReminderStatusGroupLabel(status: PlanReminderStatus, locale: UiLocale): string {
+  return getPlanReminderCopy(locale).status[status];
 }
 
-export function planReminderStatusLabel(status: PlanReminderStatus): string {
-  return planReminderStatusGroupLabel(status);
+export function planReminderStatusLabel(status: PlanReminderStatus, locale: UiLocale): string {
+  return planReminderStatusGroupLabel(status, locale);
 }
 
 export function planReminderRunRangeStart(range: 'day' | 'week' | 'month' | 'all', now: number): number | null {
@@ -247,14 +205,14 @@ export function planReminderRecurrenceValue(reminder: PlanReminder): PlanReminde
   return reminder.schedule.recurrence;
 }
 
-export function duplicatePlanReminderTitle(title: string): string {
-  const suffix = ' 副本';
+export function duplicatePlanReminderTitle(title: string, locale: UiLocale): string {
+  const suffix = getPlanReminderCopy(locale).duplicateSuffix;
   if (title.endsWith(suffix)) return title;
   return `${title}${suffix}`.slice(0, 120);
 }
 
-export function formatReminderTime(ts: number): string {
-  return new Intl.DateTimeFormat('zh-CN', {
+export function formatReminderTime(ts: number, locale: UiLocale): string {
+  return new Intl.DateTimeFormat(uiLocaleToIntlLocale(locale), {
     month: '2-digit',
     day: '2-digit',
     hour: '2-digit',
@@ -270,33 +228,37 @@ export function formatReminderTime(ts: number): string {
  * buckets so screen-reader users get a single self-contained
  * label.
  */
-export function formatReminderCountdown(ts: number, now: number = Date.now()): string {
+export function formatReminderCountdown(ts: number, locale: UiLocale, now: number = Date.now()): string {
+  const copy = getPlanReminderCopy(locale).countdown;
   const diffMs = ts - now;
-  if (diffMs <= -60_000) return '已过期';
-  if (diffMs < 60_000) return '马上';
+  if (diffMs <= -60_000) return copy.overdue;
+  if (diffMs < 60_000) return copy.soon;
   const diffMin = Math.round(diffMs / 60_000);
-  if (diffMin < 60) return `${diffMin} 分钟后`;
+  if (diffMin < 60) return copy.minutes(diffMin);
   const diffHour = Math.round(diffMin / 60);
-  if (diffHour < 24) return `${diffHour} 小时后`;
+  if (diffHour < 24) return copy.hours(diffHour);
   const diffDay = Math.round(diffHour / 24);
-  if (diffDay === 1) return '明天';
-  if (diffDay < 7) return `${diffDay} 天后`;
-  if (diffDay < 30) return `${Math.round(diffDay / 7)} 周后`;
-  return `${Math.round(diffDay / 30)} 个月后`;
+  if (diffDay === 1) return copy.tomorrow;
+  if (diffDay < 7) return copy.days(diffDay);
+  if (diffDay < 30) return copy.weeks(Math.round(diffDay / 7));
+  return copy.months(Math.round(diffDay / 30));
 }
 
-export function formatPlanRecurrence(reminder: PlanReminder): string {
-  if (reminder.schedule.kind === 'once') return '一次性提醒';
-  if (reminder.schedule.kind === 'cron') return `Cron：${reminder.schedule.expression}`;
-  if (reminder.schedule.recurrence === 'daily') return '重复：每天';
-  if (reminder.schedule.recurrence === 'weekly') return '重复：每周';
-  return '重复：每月';
+export function formatPlanRecurrence(reminder: PlanReminder, locale: UiLocale): string {
+  const copy = getPlanReminderCopy(locale).recurrence;
+  if (reminder.schedule.kind === 'once') return copy.once;
+  if (reminder.schedule.kind === 'cron') return copy.cron(reminder.schedule.expression);
+  return copy.recurring[reminder.schedule.recurrence];
 }
 
-export function runStatusLabel(status: NonNullable<PlanReminder['lastRun']>['status']): string {
-  if (status === 'triggered') return '已触发';
-  if (status === 'blocked') return '已阻止';
-  return '失败';
+export function runStatusLabel(status: NonNullable<PlanReminder['lastRun']>['status'], locale: UiLocale): string {
+  return getPlanReminderCopy(locale).runStatus[status];
+}
+
+export function formatPlanReminderDeliveryTargetLabel(delivery: PlanReminderDeliveryTarget, locale: UiLocale): string {
+  const copy = getPlanReminderCopy(locale).delivery;
+  if (delivery.channel === 'local') return copy.local;
+  return copy.bot(botDisplayLabel(delivery.platform), delivery.chatId);
 }
 
 /**
@@ -366,10 +328,10 @@ export function planReminderEditSeed(reminder: PlanReminder): PlanReminderFormSe
 }
 
 /** Create-mode seed copying an existing reminder under a 副本 title. */
-export function planReminderDuplicateSeed(reminder: PlanReminder): PlanReminderFormSeed {
+export function planReminderDuplicateSeed(reminder: PlanReminder, locale: UiLocale): PlanReminderFormSeed {
   return {
     ...planReminderReminderSeed(reminder),
     editingId: null,
-    title: duplicatePlanReminderTitle(reminder.title),
+    title: duplicatePlanReminderTitle(reminder.title, locale),
   };
 }

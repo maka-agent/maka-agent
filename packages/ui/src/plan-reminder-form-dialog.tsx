@@ -42,6 +42,8 @@ import {
 } from './ui.js';
 import { Input } from './primitives/input.js';
 import { Textarea as UiTextarea } from './primitives/textarea.js';
+import { getPlanReminderCopy } from './plan-reminder-copy.js';
+import { useUiLocale } from './locale-context.js';
 import type {
   PlanReminderDraftInput,
   PlanReminderUpdatePatch,
@@ -56,6 +58,8 @@ export function PlanReminderFormDialog(props: {
   onCreate?(input: PlanReminderDraftInput): boolean | Promise<boolean> | void | Promise<void>;
   onUpdate?(id: string, patch: PlanReminderUpdatePatch): boolean | Promise<boolean> | void | Promise<void>;
 }) {
+  const locale = useUiLocale();
+  const copy = getPlanReminderCopy(locale).form;
   const [title, setTitle] = useState(props.seed.title);
   const [note, setNote] = useState(props.seed.note);
   const [runAtLocal, setRunAtLocal] = useState(props.seed.runAtLocal);
@@ -79,7 +83,7 @@ export function PlanReminderFormDialog(props: {
     cronExpression,
     delivery,
     now: Date.now(),
-  });
+  }, locale);
   const canCreate = validationMessage === null;
   const submitDisabled = !canCreate || submitPending;
   const formInteractionDisabled = submitPending;
@@ -166,33 +170,33 @@ export function PlanReminderFormDialog(props: {
         <form className="maka-plan-form" onSubmit={submit} aria-busy={submitPending ? 'true' : undefined}>
           <header className="maka-plan-form-header">
             <div>
-              <p className="maka-plan-eyebrow">计划提示词</p>
-              <h3 id="maka-plan-dialog-title" className="maka-plan-form-title">{isEditing ? '编辑提醒' : '新建提醒'}</h3>
+              <p className="maka-plan-eyebrow">{copy.eyebrow}</p>
+              <h3 id="maka-plan-dialog-title" className="maka-plan-form-title">{isEditing ? copy.editTitle : copy.createTitle}</h3>
             </div>
             <DialogClose
               render={<UiButton variant="quiet" size="icon-sm" />}
               type="button"
               onClick={closeReminderDialog}
               disabled={formInteractionDisabled}
-              aria-label="关闭计划提醒表单"
+              aria-label={copy.close}
             >
               <X size={16} aria-hidden="true" />
             </DialogClose>
           </header>
           <div className="maka-plan-form-grid">
             <label className="maka-plan-field">
-              <span>标题</span>
+              <span>{copy.field.title}</span>
               <Input
                 value={title}
                 onChange={(event) => setTitle(event.currentTarget.value)}
                 maxLength={120}
                 data-maka-plan-title-input="true"
-                placeholder="例如：明天复盘项目进度"
+                placeholder={copy.titlePlaceholder}
                 disabled={formInteractionDisabled}
               />
             </label>
             <label className="maka-plan-field">
-              <span>时间</span>
+              <span>{copy.field.time}</span>
               <Input
                 value={runAtLocal}
                 onChange={(event) => setRunAtLocal(event.currentTarget.value)}
@@ -201,25 +205,20 @@ export function PlanReminderFormDialog(props: {
                 autoComplete="off"
                 spellCheck={false}
                 placeholder="2026-06-05 13:44"
-                aria-label="提醒时间"
+                aria-label={copy.timeAriaLabel}
                 disabled={formInteractionDisabled}
               />
             </label>
           </div>
-          <div className="maka-plan-presets" aria-label="快速设置提醒时间">
-            {[
-              ['ten-minutes', '10 分钟后'],
-              ['one-hour', '1 小时后'],
-              ['tomorrow-morning', '明天 9 点'],
-              ['next-monday', '下周一 9 点'],
-            ].map(([preset, label]) => (
+          <div className="maka-plan-presets" aria-label={copy.presetsAriaLabel}>
+            {copy.presets.map(([preset, label]) => (
               <UiButton
                 key={preset}
                 type="button"
                 variant="secondary"
                 size="sm"
                 className="maka-plan-preset"
-                onClick={() => applyRunAtPreset(preset as 'ten-minutes' | 'one-hour' | 'tomorrow-morning' | 'next-monday')}
+                onClick={() => applyRunAtPreset(preset)}
                 disabled={formInteractionDisabled}
               >
                 {label}
@@ -228,32 +227,23 @@ export function PlanReminderFormDialog(props: {
           </div>
           <div className="maka-plan-form-grid">
             <label className="maka-plan-field">
-              <span>重复</span>
+              <span>{copy.field.recurrence}</span>
               <PlanReminderSelect
                 value={recurrence}
                 onChange={(value) => setRecurrence(value)}
                 disabled={formInteractionDisabled}
-                ariaLabel="重复"
-                options={[
-                  ['none', '不重复'],
-                  ['daily', '每天'],
-                  ['weekly', '每周'],
-                  ['monthly', '每月'],
-                  ['cron', 'Cron'],
-                ] satisfies ReadonlyArray<readonly [PlanReminderRecurrence, string]>}
+                ariaLabel={copy.field.recurrence}
+                options={copy.recurrenceOptions}
               />
             </label>
             <label className="maka-plan-field">
-              <span>投递</span>
+              <span>{copy.field.delivery}</span>
               <PlanReminderSelect
                 value={deliveryChannel}
                 onChange={(value) => setDeliveryChannel(value)}
                 disabled={formInteractionDisabled}
-                ariaLabel="投递"
-                options={[
-                  ['local', '本地提醒'],
-                  ['bot', '机器人聊天'],
-                ] satisfies ReadonlyArray<readonly [PlanReminderDeliveryTarget['channel'], string]>}
+                ariaLabel={copy.field.delivery}
+                options={copy.deliveryOptions}
               />
             </label>
           </div>
@@ -264,7 +254,7 @@ export function PlanReminderFormDialog(props: {
                 value={cronExpression}
                 onChange={(event) => setCronExpression(event.currentTarget.value)}
                 maxLength={80}
-                placeholder="例如 0 9 * * 1-5"
+                placeholder={copy.cronPlaceholder}
                 disabled={formInteractionDisabled}
               />
             </label>
@@ -273,12 +263,12 @@ export function PlanReminderFormDialog(props: {
             <>
               <div className="maka-plan-delivery-grid">
                 <label className="maka-plan-field">
-                  <span>平台</span>
+                  <span>{copy.field.platform}</span>
                   <PlanReminderSelect
                     value={deliveryPlatform}
                     onChange={(value) => setDeliveryPlatform(value)}
                     disabled={formInteractionDisabled}
-                    ariaLabel="平台"
+                    ariaLabel={copy.field.platform}
                     options={BOT_DELIVERY_PROVIDERS.map((provider) => {
                       const icon = (
                         <BotBrandLogo
@@ -298,24 +288,24 @@ export function PlanReminderFormDialog(props: {
                     value={deliveryChatId}
                     onChange={(event) => setDeliveryChatId(event.currentTarget.value)}
                     maxLength={160}
-                    placeholder="例如 Telegram chat_id"
+                    placeholder={copy.chatIdPlaceholder}
                     disabled={formInteractionDisabled}
                   />
                 </label>
               </div>
               <p className="maka-plan-delivery-help">
-                当前可投递到 {formatPlanDeliveryProviderList()}；其它机器人平台不会出现在投递目标里。
+                {copy.deliveryHelp(formatPlanDeliveryProviderList())}
               </p>
             </>
           )}
           <label className="maka-plan-field maka-plan-prompt-field">
-            <span>备注</span>
+            <span>{copy.field.note}</span>
             <UiTextarea
               value={note}
               onChange={(event) => setNote(event.currentTarget.value)}
               maxLength={1000}
               rows={5}
-              placeholder="可选：补充需要提醒的上下文"
+              placeholder={copy.notePlaceholder}
               disabled={formInteractionDisabled}
             />
           </label>
@@ -331,11 +321,11 @@ export function PlanReminderFormDialog(props: {
               onClick={closeReminderDialog}
               disabled={formInteractionDisabled}
             >
-              取消
+              {copy.cancel}
             </UiButton>
             <UiButton type="submit" disabled={submitDisabled}>
               {isEditing ? <Check size={14} aria-hidden="true" /> : <Plus size={14} aria-hidden="true" />}
-              <span>{submitPending ? (isEditing ? '保存中…' : '创建中…') : (isEditing ? '保存提醒' : '创建提醒')}</span>
+              <span>{submitPending ? (isEditing ? copy.saving : copy.creating) : (isEditing ? copy.save : copy.create)}</span>
             </UiButton>
           </footer>
         </form>
