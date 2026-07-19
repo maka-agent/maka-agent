@@ -2,157 +2,246 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import type { LlmConnection, ModelInfo, ProviderType } from '@maka/core/llm-connections';
 import type { ConnectionStore, CredentialStore } from '@maka/storage';
-import { listApiKeyOnboardableProviders, setupApiKeyConnection } from '../onboarding.js';
+import {
+  listApiKeyOnboardableProviders,
+  listOnboardingProviders,
+  saveApiKeyConnection,
+  verifyApiKeyConnection,
+} from '../onboarding.js';
 
-describe('setupApiKeyConnection', () => {
-  test('creates the connection, stores the API key secret, and returns discovered models', async () => {
-    const createdInputs: Array<{ slug: string; providerType: ProviderType }> = [];
-    const storedSecrets: Array<{ slug: string; kind: string; value: string }> = [];
-    const fakeModels: ModelInfo[] = [{ id: 'gpt-5.5' }, { id: 'gpt-5.5-mini' }];
-
-    const result = await setupApiKeyConnection({
-      providerType: 'openai',
+describe('listOnboardingProviders', () => {
+  test('marks existing connections as set and carries their enabled model ids', async () => {
+    const openai = makeConnection({
       slug: 'openai',
+      providerType: 'openai',
+      defaultModel: 'gpt-5.5',
+      enabledModelIds: ['gpt-5.5', 'gpt-5.5-mini'],
+    });
+
+    const providers = await listOnboardingProviders({
+      connectionStore: {
+        list: async () => [openai],
+      },
+    });
+
+    const openaiEntry = providers.find((p) => p.providerType === 'openai');
+    assert.equal(openaiEntry?.hasConnection, true);
+    assert.deepEqual(openaiEntry?.enabledModelIds, ['gpt-5.5', 'gpt-5.5-mini']);
+    // A provider with no connection is not marked set and starts with no models.
+    const anthropic = providers.find((p) => p.providerType === 'anthropic');
+    assert.equal(anthropic?.hasConnection, false);
+    assert.deepEqual(anthropic?.enabledModelIds, []);
+  });
+
+  test('only lists API-key providers that do not require a base url', async () => {
+    const providers = await listOnboardingProviders({
+      connectionStore: { list: async () => [] },
+    });
+    for (const provider of providers) {
+      assert.equal(provider.requiresBaseUrl, false);
+      assert.ok(provider.authKind === 'api_key' || provider.authKind === 'optional_api_key');
+    }
+    assert.ok(!providers.some((p) => p.providerType === 'ollama'));
+  });
+});
+
+describe('verifyApiKeyConnection', () => {
+  test('probes a new connection with the supplied key without persisting', async () => {
+    let created = false;
+    let secretStored = false;
+    let defaultSet = false;
+    let probed: Array<{ slug: string; providerType: ProviderType; apiKey: string }> = [];
+    const connectionStore: Pick<
+      ConnectionStore,
+      'get' | 'create' | 'update' | 'remove' | 'getDefault' | 'setDefault'
+    > = {
+      get: async () => null,
+      create: async () => {
+        created = true;
+        return makeConnection({});
+      },
+      update: async () => {
+        throw new Error('update must not be called during verify');
+      },
+      remove: async () => {},
+      getDefault: async () => null,
+      setDefault: async () => {
+        defaultSet = true;
+      },
+    };
+    const credentialStore: Pick<CredentialStore, 'getSecret' | 'setSecret'> = {
+      getSecret: async () => null,
+      setSecret: async () => {
+        secretStored = true;
+      },
+    };
+
+    const result = await verifyApiKeyConnection({
+      providerType: 'openai',
       apiKey: 'sk-test',
+      connectionStore,
+      credentialStore,
+      fetchModels: async (connection, apiKey) => {
+        probed.push({ slug: connection.slug, providerType: connection.providerType, apiKey });
+        return [{ id: 'gpt-5.5' }];
+      },
+    });
+
+    assert.deepEqual(result, { kind: 'ok', models: [{ id: 'gpt-5.5' }] });
+    assert.equal(created, false, 'verify must not create the connection');
+    assert.equal(secretStored, false, 'verify must not store the secret');
+    assert.equal(defaultSet, false, 'verify must not set the default');
+    assert.equal(probed.length, 1);
+    assert.equal(probed[0]!.apiKey, 'sk-test');
+    assert.equal(probed[0]!.providerType, 'openai');
+  });
+
+  test('rejects a blank key for a new required-key provider without probing', async () => {
+    let probed = false;
+    const result = await verifyApiKeyConnection({
+      providerType: 'openai',
+      apiKey: '   ',
+      connectionStore: { get: async () => null },
+      credentialStore: { getSecret: async () => null },
+      fetchModels: async () => {
+        probed = true;
+        return [];
+      },
+    });
+
+    assert.equal(result.kind, 'error');
+    assert.match((result as { text: string }).text, /API key is required/);
+    assert.equal(probed, false);
+  });
+
+  test('reuses the stored secret for an existing connection when the key is blank', async () => {
+    let probedKey = '';
+    let secretStored = false;
+    const credentialStore: Pick<CredentialStore, 'getSecret' | 'setSecret'> = {
+      getSecret: async () => 'stored-key',
+      setSecret: async () => {
+        secretStored = true;
+      },
+    };
+    const result = await verifyApiKeyConnection({
+      providerType: 'openai',
+      apiKey: '',
+      connectionStore: {
+        get: async () => makeConnection({ slug: 'openai', providerType: 'openai' }),
+      },
+      credentialStore,
+      fetchModels: async (_connection, apiKey) => {
+        probedKey = apiKey;
+        return [{ id: 'gpt-5.5' }];
+      },
+    });
+
+    assert.equal(result.kind, 'ok');
+    assert.equal(probedKey, 'stored-key');
+    assert.equal(secretStored, false, 'verify must not rotate the stored key');
+  });
+
+  test('probes with a newly supplied key for an existing connection (rotation preview)', async () => {
+    let probedKey = '';
+    let readStored = false;
+    const result = await verifyApiKeyConnection({
+      providerType: 'openai',
+      apiKey: 'sk-rotated',
+      connectionStore: {
+        get: async () => makeConnection({ slug: 'openai', providerType: 'openai' }),
+      },
+      credentialStore: {
+        getSecret: async () => {
+          readStored = true;
+          return 'stored-key';
+        },
+      },
+      fetchModels: async (_connection, apiKey) => {
+        probedKey = apiKey;
+        return [{ id: 'gpt-5.5' }];
+      },
+    });
+
+    assert.equal(result.kind, 'ok');
+    assert.equal(probedKey, 'sk-rotated');
+    assert.equal(readStored, false, 'a supplied key short-circuits the stored secret read');
+  });
+
+  test('records a probe failure as an error without throwing', async () => {
+    const result = await verifyApiKeyConnection({
+      providerType: 'openai',
+      apiKey: 'sk-bad',
+      connectionStore: { get: async () => null },
+      credentialStore: { getSecret: async () => null },
+      fetchModels: async () => {
+        throw new Error('HTTP 401');
+      },
+    });
+
+    assert.deepEqual(result, { kind: 'error', text: 'HTTP 401' });
+  });
+
+  test('rejects a provider that does not accept an API key before probing', async () => {
+    let probed = false;
+    const result = await verifyApiKeyConnection({
+      providerType: 'ollama',
+      apiKey: 'unused',
+      connectionStore: { get: async () => null },
+      credentialStore: { getSecret: async () => null },
+      fetchModels: async () => {
+        probed = true;
+        return [];
+      },
+    });
+
+    assert.equal(result.kind, 'error');
+    assert.match((result as { text: string }).text, /does not accept an API key/);
+    assert.equal(probed, false);
+  });
+});
+
+describe('saveApiKeyConnection', () => {
+  test('persists a new connection with curation and sets default only when none exists', async () => {
+    const createdInputs: Array<{ slug: string; providerType: ProviderType; defaultModel: string }> =
+      [];
+    const updatedPatches: Array<{
+      enabledModelIds?: string[];
+      defaultModel?: string;
+      models?: ModelInfo[];
+      lastTestStatus?: string;
+    }> = [];
+    const storedSecrets: Array<{ slug: string; value: string }> = [];
+    let defaultSlug: string | null = null;
+    const setDefaultCalls: string[] = [];
+
+    const result = await saveApiKeyConnection({
+      providerType: 'openai',
+      apiKey: 'sk-test',
+      enabledModelIds: ['gpt-5.5', 'gpt-5.5-mini'],
+      models: [{ id: 'gpt-5.5' }, { id: 'gpt-5.5-mini' }],
       connectionStore: {
         get: async () => null,
         create: async (input) => {
-          createdInputs.push({ slug: input.slug, providerType: input.providerType });
+          createdInputs.push({
+            slug: input.slug,
+            providerType: input.providerType,
+            defaultModel: input.defaultModel ?? '',
+          });
           return makeConnection({
             slug: input.slug,
             providerType: input.providerType,
-            defaultModel: 'gpt-5.5',
+            defaultModel: input.defaultModel ?? 'gpt-5.5',
           });
         },
-        remove: async () => {},
-        getDefault: async () => null,
-        setDefault: async () => {},
-      } satisfies Pick<ConnectionStore, 'create' | 'get' | 'remove' | 'getDefault' | 'setDefault'>,
-      credentialStore: {
-        setSecret: async (slug, kind, value) => {
-          storedSecrets.push({ slug, kind, value });
+        update: async (_slug, patch) => {
+          updatedPatches.push({
+            enabledModelIds: patch.enabledModelIds,
+            defaultModel: patch.defaultModel,
+            models: patch.models,
+            lastTestStatus: patch.lastTestStatus,
+          });
+          return makeConnection({ slug: 'openai', providerType: 'openai' });
         },
-      } satisfies Pick<CredentialStore, 'setSecret'>,
-      fetchModels: async () => fakeModels,
-    });
-
-    // The connection is persisted with the chosen slug and provider type.
-    assert.deepEqual(createdInputs, [{ slug: 'openai', providerType: 'openai' }]);
-    // The API key is stored under the connection slug, typed api_key.
-    assert.deepEqual(storedSecrets, [{ slug: 'openai', kind: 'api_key', value: 'sk-test' }]);
-    // The created connection and the discovered models come back for the next step.
-    assert.equal(result.connection.slug, 'openai');
-    assert.deepEqual(
-      result.models.map((m) => m.id),
-      ['gpt-5.5', 'gpt-5.5-mini'],
-    );
-  });
-
-  test('records a model-fetch failure as a non-blocking test error instead of throwing', async () => {
-    const result = await setupApiKeyConnection({
-      providerType: 'openai',
-      slug: 'openai',
-      apiKey: 'sk-test',
-      connectionStore: {
-        get: async () => null,
-        create: async (input) =>
-          makeConnection({ slug: input.slug, providerType: input.providerType }),
-        remove: async () => {},
-        getDefault: async () => null,
-        setDefault: async () => {},
-      },
-      credentialStore: {
-        setSecret: async () => {},
-      },
-      fetchModels: async () => {
-        throw new Error('HTTP 401');
-      },
-    });
-
-    // A failing probe (wrong key, offline, no /models endpoint) must not abort
-    // onboarding — the connection is already saved; the wizard offers manual entry.
-    assert.deepEqual(result.models, []);
-    assert.equal(result.testError, 'HTTP 401');
-  });
-
-  test('a failing probe does not make the broken connection the default', async () => {
-    const setDefaultCalls: string[] = [];
-    const result = await setupApiKeyConnection({
-      providerType: 'openai',
-      slug: 'openai',
-      apiKey: 'sk-typo',
-      connectionStore: {
-        get: async () => null,
-        create: async (input) =>
-          makeConnection({ slug: input.slug, providerType: input.providerType }),
-        remove: async () => {},
-        getDefault: async () => null,
-        setDefault: async (slug) => {
-          if (slug) setDefaultCalls.push(slug);
-        },
-      } satisfies Pick<ConnectionStore, 'create' | 'get' | 'remove' | 'getDefault' | 'setDefault'>,
-      credentialStore: {
-        setSecret: async () => {},
-      } satisfies Pick<CredentialStore, 'setSecret'>,
-      fetchModels: async () => {
-        throw new Error('HTTP 401');
-      },
-    });
-
-    // The connection is saved (retrying rotates the key), but a broken key
-    // must NOT become the default — otherwise the host would report it as
-    // configured and trap the next launch out of onboarding.
-    assert.equal(result.testError, 'HTTP 401');
-    assert.deepEqual(setDefaultCalls, []);
-  });
-
-  test('rejects a provider that does not accept an API key before touching the stores', async () => {
-    let created = false;
-    let stored = false;
-
-    await assert.rejects(
-      setupApiKeyConnection({
-        providerType: 'ollama', // authKind 'none' — keyless local model
-        slug: 'ollama',
-        apiKey: 'unused',
-        connectionStore: {
-          get: async () => null,
-          create: async () => {
-            created = true;
-            return makeConnection({});
-          },
-          remove: async () => {},
-          getDefault: async () => null,
-          setDefault: async () => {},
-        },
-        credentialStore: {
-          setSecret: async () => {
-            stored = true;
-          },
-        },
-        fetchModels: async () => [],
-      }),
-      /does not accept an API key/,
-    );
-
-    // The guard fires before any write so a miscategorized provider never gets
-    // a bogus api_key secret persisted.
-    assert.equal(created, false);
-    assert.equal(stored, false);
-  });
-
-  test('makes the new connection the default even when one already exists', async () => {
-    let defaultSlug: string | null = 'old-default';
-    const setDefaultCalls: string[] = [];
-
-    await setupApiKeyConnection({
-      providerType: 'openai',
-      slug: 'openai',
-      apiKey: 'sk-test',
-      connectionStore: {
-        get: async () => null,
-        create: async (input) =>
-          makeConnection({ slug: input.slug, providerType: input.providerType }),
         remove: async () => {},
         getDefault: async () => defaultSlug,
         setDefault: async (slug) => {
@@ -161,163 +250,371 @@ describe('setupApiKeyConnection', () => {
         },
       },
       credentialStore: {
-        setSecret: async () => {},
+        getSecret: async () => null,
+        deleteSecret: async () => {},
+        setSecret: async (slug, _kind, value) => {
+          storedSecrets.push({ slug, value });
+        },
       },
-      fetchModels: async () => [],
+      fetchModelChoices: async () => [
+        {
+          connectionSlug: 'openai',
+          connectionName: 'OpenAI',
+          providerType: 'openai',
+          model: 'gpt-5.5',
+          isDefaultConnection: true,
+        },
+      ],
     });
 
-    // A freshly onboarded connection becomes the active default so the first turn runs on it.
+    assert.equal(result.kind, 'ok');
+    // The secret is written for a new connection.
+    assert.deepEqual(storedSecrets, [{ slug: 'openai', value: 'sk-test' }]);
+    // The connection is created then updated with the curated enabled set + cache.
+    assert.equal(createdInputs.length, 1);
+    assert.equal(createdInputs[0]!.slug, 'openai');
+    assert.equal(updatedPatches.length, 1);
+    assert.deepEqual(updatedPatches[0]!.enabledModelIds, ['gpt-5.5', 'gpt-5.5-mini']);
+    assert.deepEqual(updatedPatches[0]!.models, [{ id: 'gpt-5.5' }, { id: 'gpt-5.5-mini' }]);
+    assert.equal(updatedPatches[0]!.lastTestStatus, 'verified');
+    // No default existed, so the new connection becomes the default.
     assert.deepEqual(setDefaultCalls, ['openai']);
+    // The refreshed ready model choices come back for the running TUI.
+    assert.equal((result as { modelChoices: unknown[] }).modelChoices.length, 1);
   });
 
-  test('rejects an empty API key for a provider that requires one, before touching the stores', async () => {
-    let created = false;
-    await assert.rejects(
-      setupApiKeyConnection({
-        providerType: 'openai', // authKind 'api_key' (required)
-        slug: 'openai',
-        apiKey: '   ',
-        connectionStore: {
-          get: async () => null,
-          create: async () => {
-            created = true;
-            return makeConnection({});
-          },
-          remove: async () => {},
-          getDefault: async () => null,
-          setDefault: async () => {},
-        },
-        credentialStore: {
-          setSecret: async () => {},
-        },
-        fetchModels: async () => [],
-      }),
-      /API key is required/,
-    );
-    assert.equal(created, false);
-  });
-
-  test('passes a custom baseUrl through to the created connection', async () => {
-    const createdInputs: Array<{ baseUrl?: string }> = [];
-    await setupApiKeyConnection({
+  test('rolls back a newly created connection when the secret write fails', async () => {
+    const removedSlugs: string[] = [];
+    const result = await saveApiKeyConnection({
       providerType: 'openai',
-      slug: 'self-hosted',
       apiKey: 'sk-test',
-      baseUrl: 'https://my-gateway.example/v1',
+      enabledModelIds: ['gpt-5.5'],
+      models: [{ id: 'gpt-5.5' }],
       connectionStore: {
         get: async () => null,
-        create: async (input) => {
-          createdInputs.push(input);
-          return makeConnection({ slug: input.slug, providerType: input.providerType });
+        create: async (input) =>
+          makeConnection({ slug: input.slug, providerType: input.providerType }),
+        update: async () => {
+          throw new Error('update must not be called when the secret write fails');
         },
-        remove: async () => {},
+        remove: async (slug) => {
+          removedSlugs.push(slug);
+        },
         getDefault: async () => null,
         setDefault: async () => {},
       },
       credentialStore: {
-        setSecret: async () => {},
+        getSecret: async () => null,
+        deleteSecret: async () => {},
+        setSecret: async () => {
+          throw new Error('disk full');
+        },
       },
-      fetchModels: async () => [],
+      fetchModelChoices: async () => [],
     });
 
-    assert.equal(createdInputs[0]?.baseUrl, 'https://my-gateway.example/v1');
+    assert.equal(result.kind, 'error');
+    assert.match((result as { text: string }).text, /disk full/);
+    assert.deepEqual(removedSlugs, ['openai']);
   });
 
-  test('rotates the key when the slug already exists instead of creating a duplicate (upsert)', async () => {
-    // Re-onboarding the same provider (e.g. fixing a typo'd key) must update the
-    // secret on the existing connection rather than throw "slug already exists".
-    const storedSecrets: Array<{ slug: string; value: string }> = [];
-
-    const result = await setupApiKeyConnection({
+  test('rolls back a newly created connection and secret when the model update fails', async () => {
+    const removedSlugs: string[] = [];
+    const deletedSecrets: Array<{ slug: string; kind?: string }> = [];
+    const result = await saveApiKeyConnection({
       providerType: 'openai',
-      slug: 'openai',
-      apiKey: 'key-rotated',
+      apiKey: 'sk-new',
+      enabledModelIds: ['gpt-5.5'],
+      models: [{ id: 'gpt-5.5' }],
+      connectionStore: {
+        get: async () => null,
+        create: async (input) =>
+          makeConnection({ slug: input.slug, providerType: input.providerType }),
+        update: async () => {
+          throw new Error('disk full');
+        },
+        remove: async (slug) => {
+          removedSlugs.push(slug);
+        },
+        getDefault: async () => null,
+        setDefault: async () => {},
+      },
+      credentialStore: {
+        getSecret: async () => null,
+        setSecret: async () => {},
+        deleteSecret: async (slug, kind) => {
+          deletedSecrets.push({ slug, kind });
+        },
+      },
+      fetchModelChoices: async () => [],
+    });
+
+    assert.equal(result.kind, 'error');
+    assert.match((result as { text: string }).text, /disk full/);
+    assert.deepEqual(removedSlugs, ['openai']);
+    assert.deepEqual(deletedSecrets, [{ slug: 'openai', kind: 'api_key' }]);
+  });
+
+  test('rolls back a rotated secret when the model update fails on an existing connection', async () => {
+    const secretWrites: string[] = [];
+    let currentSecret = 'sk-old';
+    const result = await saveApiKeyConnection({
+      providerType: 'openai',
+      apiKey: 'sk-new',
+      enabledModelIds: ['gpt-5.5'],
+      models: [{ id: 'gpt-5.5' }],
+      connectionStore: {
+        get: async () =>
+          makeConnection({ slug: 'openai', providerType: 'openai', defaultModel: 'gpt-5.5' }),
+        create: async () => {
+          throw new Error('create must not be called for an existing connection');
+        },
+        update: async () => {
+          throw new Error('disk full');
+        },
+        remove: async () => {},
+        getDefault: async () => 'openai',
+        setDefault: async () => {
+          throw new Error('setDefault must not be called when a default already exists');
+        },
+      },
+      credentialStore: {
+        getSecret: async () => currentSecret,
+        setSecret: async (_slug, _kind, value) => {
+          secretWrites.push(value);
+          currentSecret = value;
+        },
+        deleteSecret: async () => {
+          throw new Error('deleteSecret must not be called when an old secret exists');
+        },
+      },
+      fetchModelChoices: async () => [],
+    });
+
+    assert.equal(result.kind, 'error');
+    assert.match((result as { text: string }).text, /disk full/);
+    assert.deepEqual(secretWrites, ['sk-new', 'sk-old']);
+    assert.equal(currentSecret, 'sk-old');
+  });
+
+  test('updates an existing connection without rotating the key when it is blank', async () => {
+    let secretStored = false;
+    const updatedPatches: Array<{ enabledModelIds?: string[]; defaultModel?: string }> = [];
+    const result = await saveApiKeyConnection({
+      providerType: 'openai',
+      apiKey: '',
+      enabledModelIds: ['gpt-5.5', 'gpt-5.5-mini'],
+      models: [{ id: 'gpt-5.5' }, { id: 'gpt-5.5-mini' }],
+      connectionStore: {
+        get: async () =>
+          makeConnection({ slug: 'openai', providerType: 'openai', defaultModel: 'gpt-5.5' }),
+        create: async () => {
+          throw new Error('create must not be called for an existing connection');
+        },
+        update: async (_slug, patch) => {
+          updatedPatches.push({
+            enabledModelIds: patch.enabledModelIds,
+            defaultModel: patch.defaultModel,
+          });
+          return makeConnection({ slug: 'openai', providerType: 'openai' });
+        },
+        remove: async () => {},
+        getDefault: async () => 'openai',
+        setDefault: async () => {
+          throw new Error('setDefault must not be called when a default already exists');
+        },
+      },
+      credentialStore: {
+        getSecret: async () => null,
+        deleteSecret: async () => {},
+        setSecret: async () => {
+          secretStored = true;
+        },
+      },
+      fetchModelChoices: async () => [],
+    });
+
+    assert.equal(result.kind, 'ok');
+    assert.equal(secretStored, false, 'a blank key must not rotate the stored secret');
+    assert.equal(updatedPatches.length, 1);
+    assert.deepEqual(updatedPatches[0]!.enabledModelIds, ['gpt-5.5', 'gpt-5.5-mini']);
+  });
+
+  test('rotates the key before updating an existing connection and leaves it untouched on failure', async () => {
+    const storedSecrets: Array<string> = [];
+    let updated = false;
+    const result = await saveApiKeyConnection({
+      providerType: 'openai',
+      apiKey: 'sk-rotated',
+      enabledModelIds: ['gpt-5.5'],
+      models: [{ id: 'gpt-5.5' }],
       connectionStore: {
         get: async () => makeConnection({ slug: 'openai', providerType: 'openai' }),
         create: async () => {
-          throw new Error('create must not be called when the slug already exists');
+          throw new Error('create must not be called');
+        },
+        update: async () => {
+          updated = true;
+          return makeConnection({ slug: 'openai', providerType: 'openai' });
         },
         remove: async () => {},
         getDefault: async () => 'openai',
         setDefault: async () => {},
       },
       credentialStore: {
-        setSecret: async (slug, _kind, value) => {
-          storedSecrets.push({ slug, value });
+        getSecret: async () => null,
+        deleteSecret: async () => {},
+        setSecret: async () => {
+          throw new Error('disk full');
         },
-      } satisfies Pick<CredentialStore, 'setSecret'>,
-      fetchModels: async () => [],
+      },
+      fetchModelChoices: async () => [],
     });
 
-    assert.equal(result.connection.slug, 'openai');
-    assert.deepEqual(storedSecrets, [{ slug: 'openai', value: 'key-rotated' }]);
+    assert.equal(result.kind, 'error');
+    assert.match((result as { text: string }).text, /disk full/);
+    assert.equal(updated, false, 'a rotation failure must not update the existing connection');
+    assert.deepEqual(storedSecrets, []);
   });
 
-  test('rolls back a newly created connection when the secret write fails', async () => {
-    // Atomicity: create succeeds, setSecret fails -> the orphan connection is
-    // removed so a half-configured connection never becomes the default.
-    const removedSlugs: string[] = [];
-
-    await assert.rejects(
-      setupApiKeyConnection({
-        providerType: 'openai',
-        slug: 'openai',
-        apiKey: 'sk-test',
-        connectionStore: {
-          get: async () => null,
-          create: async (input) =>
-            makeConnection({ slug: input.slug, providerType: input.providerType }),
-          remove: async (slug) => {
-            removedSlugs.push(slug);
-          },
-          getDefault: async () => null,
-          setDefault: async () => {},
+  test('does not replace an existing default connection during in-session setup', async () => {
+    const setDefaultCalls: string[] = [];
+    const result = await saveApiKeyConnection({
+      providerType: 'anthropic',
+      apiKey: 'sk-test',
+      enabledModelIds: ['claude-sonnet-5'],
+      models: [{ id: 'claude-sonnet-5' }],
+      connectionStore: {
+        get: async (slug) =>
+          slug === 'anthropic'
+            ? makeConnection({ slug: 'anthropic', providerType: 'anthropic' })
+            : null,
+        create: async (input) =>
+          makeConnection({ slug: input.slug, providerType: input.providerType }),
+        update: async () => makeConnection({ slug: 'anthropic', providerType: 'anthropic' }),
+        remove: async () => {},
+        getDefault: async () => 'openai', // another connection is already the default
+        setDefault: async (slug) => {
+          if (slug) setDefaultCalls.push(slug);
         },
-        credentialStore: {
-          setSecret: async () => {
-            throw new Error('disk full');
-          },
-        },
-        fetchModels: async () => [],
-      }),
-      /disk full/,
-    );
+      },
+      credentialStore: {
+        getSecret: async () => null,
+        setSecret: async () => {},
+        deleteSecret: async () => {},
+      },
+      fetchModelChoices: async () => [],
+    });
 
-    assert.deepEqual(removedSlugs, ['openai']);
+    assert.equal(result.kind, 'ok');
+    assert.deepEqual(setDefaultCalls, [], 'in-session setup must not replace the existing default');
   });
 
-  test('leaves an existing connection in place when a key rotation secret write fails', async () => {
-    // Upsert atomicity: an existing connection whose key rotation fails must not
-    // be deleted (its previous secret stands); only newly-created ones roll back.
-    const removedSlugs: string[] = [];
-
-    await assert.rejects(
-      setupApiKeyConnection({
+  test('keeps the existing defaultModel when it is still enabled, else picks the first enabled', async () => {
+    const cases: Array<{ existingDefault: string; enabled: string[]; expected: string }> = [
+      { existingDefault: 'gpt-5.5', enabled: ['gpt-5.5', 'gpt-5.5-mini'], expected: 'gpt-5.5' },
+      { existingDefault: 'gpt-4', enabled: ['gpt-5.5', 'gpt-5.5-mini'], expected: 'gpt-5.5' },
+    ];
+    for (const { existingDefault, enabled, expected } of cases) {
+      let savedDefault: string | undefined;
+      await saveApiKeyConnection({
         providerType: 'openai',
-        slug: 'openai',
-        apiKey: 'sk-test',
+        apiKey: '',
+        enabledModelIds: enabled,
+        models: enabled.map((id) => ({ id })),
         connectionStore: {
-          get: async () => makeConnection({ slug: 'openai', providerType: 'openai' }),
+          get: async () =>
+            makeConnection({
+              slug: 'openai',
+              providerType: 'openai',
+              defaultModel: existingDefault,
+            }),
           create: async () => {
             throw new Error('create must not be called');
           },
-          remove: async (slug) => {
-            removedSlugs.push(slug);
+          update: async (_slug, patch) => {
+            savedDefault = patch.defaultModel;
+            return makeConnection({ slug: 'openai', providerType: 'openai' });
           },
+          remove: async () => {},
           getDefault: async () => 'openai',
           setDefault: async () => {},
         },
         credentialStore: {
-          setSecret: async () => {
-            throw new Error('disk full');
-          },
+          getSecret: async () => null,
+          setSecret: async () => {},
+          deleteSecret: async () => {},
         },
-        fetchModels: async () => [],
-      }),
-      /disk full/,
-    );
+        fetchModelChoices: async () => [],
+      });
+      assert.equal(savedDefault, expected);
+    }
+  });
 
-    assert.deepEqual(removedSlugs, []);
+  test('rejects an empty enabled-model set before touching the stores', async () => {
+    let created = false;
+    let updated = false;
+    let secretStored = false;
+    const result = await saveApiKeyConnection({
+      providerType: 'openai',
+      apiKey: 'sk-test',
+      enabledModelIds: [],
+      models: [],
+      connectionStore: {
+        get: async () => null,
+        create: async () => {
+          created = true;
+          return makeConnection({});
+        },
+        update: async () => {
+          updated = true;
+          return makeConnection({});
+        },
+        remove: async () => {},
+        getDefault: async () => null,
+        setDefault: async () => {},
+      },
+      credentialStore: {
+        getSecret: async () => null,
+        deleteSecret: async () => {},
+        setSecret: async () => {
+          secretStored = true;
+        },
+      },
+      fetchModelChoices: async () => [],
+    });
+
+    assert.equal(result.kind, 'error');
+    assert.match((result as { text: string }).text, /至少选择一个模型|at least one model/i);
+    assert.equal(created, false);
+    assert.equal(updated, false);
+    assert.equal(secretStored, false);
+  });
+
+  test('rejects a provider that does not accept an API key before persisting', async () => {
+    const result = await saveApiKeyConnection({
+      providerType: 'ollama',
+      apiKey: 'unused',
+      enabledModelIds: ['x'],
+      models: [{ id: 'x' }],
+      connectionStore: {
+        get: async () => null,
+        create: async () => makeConnection({}),
+        update: async () => makeConnection({}),
+        remove: async () => {},
+        getDefault: async () => null,
+        setDefault: async () => {},
+      },
+      credentialStore: {
+        getSecret: async () => null,
+        setSecret: async () => {},
+        deleteSecret: async () => {},
+      },
+      fetchModelChoices: async () => [],
+    });
+
+    assert.equal(result.kind, 'error');
+    assert.match((result as { text: string }).text, /does not accept an API key/);
   });
 });
 

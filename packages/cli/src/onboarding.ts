@@ -1,85 +1,17 @@
 import {
   CATALOG_PROVIDER_TYPES,
   PROVIDER_DEFAULTS,
+  connectionEnabledModelIds,
   providerAuthSupportsApiKey,
+  type ConnectionLastTestStatus,
   type LlmConnection,
+  type ModelDiscoverySource,
   type ModelInfo,
   type ProviderType,
 } from '@maka/core/llm-connections';
 import type { ConnectionStore, CredentialStore } from '@maka/storage';
-
-export interface SetupApiKeyConnectionInput {
-  providerType: ProviderType;
-  slug: string;
-  apiKey: string;
-  name?: string;
-  baseUrl?: string;
-  defaultModel?: string;
-  connectionStore: Pick<ConnectionStore, 'create' | 'get' | 'remove' | 'getDefault' | 'setDefault'>;
-  credentialStore: Pick<CredentialStore, 'setSecret'>;
-  fetchModels: (connection: LlmConnection, apiKey: string) => Promise<ModelInfo[]>;
-}
-
-export interface SetupApiKeyConnectionResult {
-  connection: LlmConnection;
-  models: ModelInfo[];
-  /** Set when the model probe failed. The connection is still saved; onboarding
-   *  offers manual model entry instead of aborting (non-blocking test). */
-  testError?: string;
-}
-
-/**
- * Persist a single API-key connection end to end: create the connection, store
- * its secret, and probe it for models. Onboarding's write side — the read side
- * lives in `connection-target.ts`. Pure and dependency-injected so the TUI wizard
- * (PR②) drives the same seam the tests do.
- */
-export async function setupApiKeyConnection(
-  input: SetupApiKeyConnectionInput,
-): Promise<SetupApiKeyConnectionResult> {
-  if (!providerAuthSupportsApiKey(input.providerType)) {
-    throw new Error(`Provider "${input.providerType}" does not accept an API key`);
-  }
-  if (PROVIDER_DEFAULTS[input.providerType]?.authKind === 'api_key' && !input.apiKey.trim()) {
-    throw new Error('API key is required');
-  }
-  // Upsert by slug so re-onboarding the same provider (e.g. fixing a typo'd
-  // key) rotates the secret instead of throwing "slug already exists". An
-  // existing connection keeps its endpoint/model; only the key is refreshed.
-  const existing = await input.connectionStore.get(input.slug);
-  const connection = existing
-    ? existing
-    : await input.connectionStore.create({
-        slug: input.slug,
-        name: input.name ?? input.slug,
-        providerType: input.providerType,
-        ...(input.baseUrl ? { baseUrl: input.baseUrl } : {}),
-        ...(input.defaultModel ? { defaultModel: input.defaultModel } : {}),
-      });
-  try {
-    await input.credentialStore.setSecret(input.slug, 'api_key', input.apiKey);
-  } catch (error) {
-    // Atomicity: a newly-created connection is rolled back when the secret write
-    // fails, so no half-configured connection becomes the default. An existing
-    // connection is left in place — its previous secret stands.
-    if (!existing) await input.connectionStore.remove(input.slug);
-    throw error;
-  }
-  try {
-    const models = await input.fetchModels(connection, input.apiKey);
-    // Only a verified connection becomes the default: a probe failure leaves
-    // the host's getDefault() accurate so a cancelled first-run attempt does
-    // not trap the next launch out of onboarding.
-    await input.connectionStore.setDefault(input.slug);
-    return { connection, models };
-  } catch (error) {
-    return {
-      connection,
-      models: [],
-      testError: error instanceof Error ? error.message : String(error),
-    };
-  }
-}
+import type { ModelChoice } from './connection-target.js';
+import { listReadyModelChoices } from './connection-target.js';
 
 export interface OnboardableProvider {
   providerType: ProviderType;
@@ -91,41 +23,68 @@ export interface OnboardableProvider {
   fallbackModels: readonly string[];
 }
 
-/** Host-supplied onboarding surface. The TUI wizard collects a provider + API
- *  key and calls setup(); the host owns the connection/credential stores and
- *  runs the real setupApiKeyConnection. `setup` resolves with `{ testError }`
- *  when the connection was saved but the model probe failed, so the wizard can
- *  re-arm the key prompt instead of claiming success. */
+/** Host-supplied onboarding surface for the three-step `/setup` wizard. The
+ *  wizard is UI-only: it calls `listProviders` to open, `verify` to check a
+ *  supplied-or-stored key and discover models without persisting, and `save` to
+ *  persist the curated enabled-model set + cache and refresh the running TUI's
+ *  ready model choices. The host owns the connection/credential stores; the
+ *  secret never crosses back into the wizard. */
 export interface MakaOnboardingSurface {
-  setup: (input: {
-    providerType: ProviderType;
-    apiKey: string;
-    baseUrl?: string;
-  }) => Promise<{ testError?: string }>;
+  listProviders: () => Promise<OnboardingProviderEntry[]>;
+  verify: (input: OnboardingVerifyInput) => Promise<OnboardingVerifyResult>;
+  save: (input: OnboardingSaveInput) => Promise<OnboardingSaveResult>;
 }
+
+/** Wizard-facing verify input: a provider plus an optional key (blank reuses a
+ *  stored secret for an existing connection). */
+export type OnboardingVerifyInput = Pick<VerifyApiKeyConnectionInput, 'providerType' | 'apiKey'>;
+export type OnboardingVerifyResult = VerifyApiKeyConnectionResult;
+
+/** Wizard-facing save input: the verified provider, an optional key (blank
+ *  keeps the stored secret for an existing connection), the curated enabled
+ *  set, and the discovered models to cache. */
+export type OnboardingSaveInput = Pick<
+  SaveApiKeyConnectionInput,
+  'providerType' | 'apiKey' | 'enabledModelIds' | 'models'
+>;
+export type OnboardingSaveResult = SaveApiKeyConnectionResult;
 
 /** Build the onboarding surface the TUI wizard calls, owning the connection and
  *  credential stores plus the model probe. Centralizes the `slug = providerType`
  *  policy so the first-run host (cli.ts) and the in-session host
  *  (runtime-bootstrap) share one write path. */
 export function createApiKeyOnboardingSurface(deps: {
-  connectionStore: Pick<ConnectionStore, 'create' | 'get' | 'remove' | 'getDefault' | 'setDefault'>;
-  credentialStore: Pick<CredentialStore, 'setSecret'>;
+  connectionStore: Pick<
+    ConnectionStore,
+    'list' | 'get' | 'create' | 'update' | 'remove' | 'getDefault' | 'setDefault'
+  >;
+  credentialStore: Pick<CredentialStore, 'getSecret' | 'setSecret' | 'deleteSecret'>;
   fetchModels: (connection: LlmConnection, apiKey: string) => Promise<ModelInfo[]>;
 }): MakaOnboardingSurface {
   return {
-    setup: async ({ providerType, apiKey, baseUrl }) => {
-      const result = await setupApiKeyConnection({
-        providerType,
-        slug: providerType,
-        apiKey,
-        ...(baseUrl ? { baseUrl } : {}),
+    listProviders: () => listOnboardingProviders({ connectionStore: deps.connectionStore }),
+    verify: (input) =>
+      verifyApiKeyConnection({
+        providerType: input.providerType,
+        apiKey: input.apiKey,
         connectionStore: deps.connectionStore,
         credentialStore: deps.credentialStore,
         fetchModels: deps.fetchModels,
-      });
-      return result.testError ? { testError: result.testError } : {};
-    },
+      }),
+    save: (input) =>
+      saveApiKeyConnection({
+        providerType: input.providerType,
+        apiKey: input.apiKey,
+        enabledModelIds: input.enabledModelIds,
+        models: input.models,
+        connectionStore: deps.connectionStore,
+        credentialStore: deps.credentialStore,
+        fetchModelChoices: () =>
+          listReadyModelChoices({
+            connectionStore: deps.connectionStore,
+            credentialStore: deps.credentialStore,
+          }),
+      }),
   };
 }
 
@@ -149,4 +108,224 @@ export function listApiKeyOnboardableProviders(): OnboardableProvider[] {
       // exclude them until the base-URL prompt lands (phase 2).
       .filter((provider) => !provider.requiresBaseUrl)
   );
+}
+
+/** A catalog provider annotated with whether a connection already exists for
+ *  it, plus that connection's curated enabled model ids. The wizard's provider
+ *  search marks existing providers `已设置` and pre-selects their enabled set in
+ *  the model step; new connections start with no models selected. */
+export interface OnboardingProviderEntry extends OnboardableProvider {
+  hasConnection: boolean;
+  enabledModelIds: readonly string[];
+}
+
+/** Catalog API-key providers (phase 1) annotated with the host's existing
+ *  connection state. The wizard calls this when it opens so `已设置` and the
+ *  preserved enabled set reflect live storage, not a startup snapshot. */
+export async function listOnboardingProviders(input: {
+  connectionStore: Pick<ConnectionStore, 'list'>;
+}): Promise<OnboardingProviderEntry[]> {
+  const connections = await input.connectionStore.list();
+  const bySlug = new Map(connections.map((connection) => [connection.slug, connection]));
+  return listApiKeyOnboardableProviders().map((provider) => {
+    const existing = bySlug.get(provider.providerType);
+    return {
+      ...provider,
+      hasConnection: existing !== undefined,
+      enabledModelIds: existing ? connectionEnabledModelIds(existing) : [],
+    };
+  });
+}
+
+export interface VerifyApiKeyConnectionInput {
+  providerType: ProviderType;
+  /** Supplied key. Blank for an existing connection reuses the stored secret;
+   *  blank for a new required-key connection is rejected. Never returned to the
+   *   wizard — verify is host-owned. */
+  apiKey?: string;
+  connectionStore: Pick<ConnectionStore, 'get'>;
+  credentialStore: Pick<CredentialStore, 'getSecret'>;
+  fetchModels: (connection: LlmConnection, apiKey: string) => Promise<ModelInfo[]>;
+}
+
+export type VerifyApiKeyConnectionResult =
+  | { kind: 'ok'; models: ModelInfo[] }
+  | { kind: 'error'; text: string };
+
+/** Probe a provider with a supplied or stored secret without persisting: the
+ *  wizard's key step verifies the key works and discovers models, then defers
+ *  all persistence to {@link saveApiKeyConnection}. An existing connection may
+ *  leave the key blank to reuse the stored secret; a new required-key connection
+ *  must supply one. Pure and dependency-injected so the TUI wizard drives the
+ *  same seam the tests do. */
+export async function verifyApiKeyConnection(
+  input: VerifyApiKeyConnectionInput,
+): Promise<VerifyApiKeyConnectionResult> {
+  if (!providerAuthSupportsApiKey(input.providerType)) {
+    return { kind: 'error', text: `Provider "${input.providerType}" does not accept an API key` };
+  }
+  const def = PROVIDER_DEFAULTS[input.providerType];
+  const requiresKey = def?.authKind === 'api_key';
+  const suppliedKey = input.apiKey?.trim() ?? '';
+  const existing = await input.connectionStore.get(input.providerType);
+  let connection: LlmConnection;
+  let secret: string;
+  if (existing) {
+    connection = existing;
+    if (suppliedKey) {
+      secret = suppliedKey;
+    } else {
+      const stored = (await input.credentialStore.getSecret(input.providerType, 'api_key')) ?? '';
+      if (requiresKey && !stored) return { kind: 'error', text: 'API key is required' };
+      secret = stored;
+    }
+  } else {
+    if (requiresKey && !suppliedKey) return { kind: 'error', text: 'API key is required' };
+    secret = suppliedKey;
+    connection = transientOnboardingConnection(input.providerType);
+  }
+  try {
+    const models = await input.fetchModels(connection, secret);
+    return { kind: 'ok', models };
+  } catch (error) {
+    return { kind: 'error', text: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+/** Build a transient, in-memory connection from catalog defaults so a new
+ *  provider's verify can probe without persisting a half-configured connection. */
+function transientOnboardingConnection(providerType: ProviderType): LlmConnection {
+  const def = PROVIDER_DEFAULTS[providerType];
+  const now = Date.now();
+  return {
+    slug: providerType,
+    name: def.label,
+    providerType,
+    ...(def.baseUrl ? { baseUrl: def.baseUrl } : {}),
+    defaultModel: def.fallbackModels[0] ?? '',
+    enabled: true,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+export interface SaveApiKeyConnectionInput {
+  providerType: ProviderType;
+  /** Supplied key. Blank for an existing connection leaves the stored secret
+   *   untouched; a new connection must supply one (verify already enforced it). */
+  apiKey?: string;
+  /** Curated enabled model ids — at least one is required before saving. */
+  enabledModelIds: readonly string[];
+  /** Discovered models from verify, cached on the connection. */
+  models: readonly ModelInfo[];
+  connectionStore: Pick<
+    ConnectionStore,
+    'get' | 'create' | 'update' | 'remove' | 'getDefault' | 'setDefault'
+  >;
+  credentialStore: Pick<CredentialStore, 'getSecret' | 'setSecret' | 'deleteSecret'>;
+  /** Refreshed authoritative ready model choices for the running TUI. */
+  fetchModelChoices: () => Promise<ModelChoice[]>;
+}
+
+export type SaveApiKeyConnectionResult =
+  | { kind: 'ok'; modelChoices: ModelChoice[] }
+  | { kind: 'error'; text: string };
+
+/** Persist the verified connection with the curated enabled-model set, caching
+ *  discovered models and normalizing the required compatibility `defaultModel`
+ *  (kept when still enabled, otherwise the first enabled model — never a user
+ *  default choice). `setDefault` runs only when no default connection exists, so
+ *  in-session setup never replaces an existing default. A new connection's
+ *  secret-write failure rolls back the created connection; an existing
+ *  connection's rotation failure leaves it untouched. Pure and DI so the TUI
+ *  wizard drives the same seam the tests do. */
+export async function saveApiKeyConnection(
+  input: SaveApiKeyConnectionInput,
+): Promise<SaveApiKeyConnectionResult> {
+  if (!providerAuthSupportsApiKey(input.providerType)) {
+    return { kind: 'error', text: `Provider "${input.providerType}" does not accept an API key` };
+  }
+  const enabled = input.enabledModelIds.map((id) => id.trim()).filter(Boolean);
+  if (enabled.length === 0) {
+    return { kind: 'error', text: '至少选择一个模型再保存' };
+  }
+  const def = PROVIDER_DEFAULTS[input.providerType];
+  const suppliedKey = input.apiKey?.trim() ?? '';
+  const existing = await input.connectionStore.get(input.providerType);
+  const normalizedDefault =
+    existing && enabled.includes(existing.defaultModel) ? existing.defaultModel : enabled[0]!;
+  const testAt = new Date().toISOString();
+  const modelPatch = {
+    defaultModel: normalizedDefault,
+    enabledModelIds: enabled,
+    models: [...input.models],
+    modelSource: 'fetched' as ModelDiscoverySource,
+    modelsFetchedAt: Date.now(),
+    lastTestStatus: 'verified' as ConnectionLastTestStatus,
+    lastTestAt: testAt,
+  };
+
+  if (existing) {
+    // Rotate the key first (if supplied): a rotation failure leaves the existing
+    // connection untouched (previous secret + previous curation stand). A failed
+    // curation write rolls the rotation back so the connection keeps its previous
+    // secret + curation — save stays atomic from the caller's view.
+    if (suppliedKey) {
+      const previousSecret = await input.credentialStore.getSecret(input.providerType, 'api_key');
+      try {
+        await input.credentialStore.setSecret(input.providerType, 'api_key', suppliedKey);
+      } catch (error) {
+        return { kind: 'error', text: error instanceof Error ? error.message : String(error) };
+      }
+      try {
+        await input.connectionStore.update(input.providerType, modelPatch);
+      } catch (error) {
+        if (previousSecret !== null) {
+          await input.credentialStore.setSecret(input.providerType, 'api_key', previousSecret);
+        } else {
+          await input.credentialStore.deleteSecret(input.providerType, 'api_key');
+        }
+        return { kind: 'error', text: error instanceof Error ? error.message : String(error) };
+      }
+    } else {
+      try {
+        await input.connectionStore.update(input.providerType, modelPatch);
+      } catch (error) {
+        return { kind: 'error', text: error instanceof Error ? error.message : String(error) };
+      }
+    }
+  } else {
+    await input.connectionStore.create({
+      slug: input.providerType,
+      name: def.label,
+      providerType: input.providerType,
+      defaultModel: normalizedDefault,
+    });
+    try {
+      await input.credentialStore.setSecret(input.providerType, 'api_key', suppliedKey);
+    } catch (error) {
+      // Atomicity: a newly-created connection is rolled back when the secret
+      // write fails, so no half-configured connection becomes the default.
+      await input.connectionStore.remove(input.providerType);
+      return { kind: 'error', text: error instanceof Error ? error.message : String(error) };
+    }
+    try {
+      await input.connectionStore.update(input.providerType, modelPatch);
+    } catch (error) {
+      // Atomicity: a failed curation write rolls back the new connection + secret
+      // so no half-configured default connection is left behind for first-run.
+      await input.connectionStore.remove(input.providerType);
+      await input.credentialStore.deleteSecret(input.providerType, 'api_key');
+      return { kind: 'error', text: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  // setDefault only when no default connection exists (first run, or a host with
+  // no prior default). In-session setup never replaces an existing default.
+  if ((await input.connectionStore.getDefault()) === null) {
+    await input.connectionStore.setDefault(input.providerType);
+  }
+
+  const modelChoices = await input.fetchModelChoices();
+  return { kind: 'ok', modelChoices };
 }

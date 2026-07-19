@@ -19,7 +19,7 @@ import {
   thinkingVariantsForModel,
   type ThinkingLevel,
 } from '@maka/core/model-thinking';
-import { PROVIDER_DEFAULTS, type ProviderType } from '@maka/core/llm-connections';
+import { type ModelInfo, type ProviderType } from '@maka/core/llm-connections';
 import {
   ShellRunUpdateBuffer,
   mergeShellRunUpdate,
@@ -35,7 +35,11 @@ import {
 import type { ForeignSessionStore } from '@maka/storage';
 import type { GoalTurnOutcome, SessionActivityLease } from '@maka/runtime';
 import type { ModelChoice } from './connection-target.js';
-import { listApiKeyOnboardableProviders, type MakaOnboardingSurface } from './onboarding.js';
+import {
+  listApiKeyOnboardableProviders,
+  type MakaOnboardingSurface,
+  type OnboardingProviderEntry,
+} from './onboarding.js';
 import type { MakaCliSkillSurface, SessionRecapGenerator } from './runtime-bootstrap.js';
 import { AUTO_RECAP_DISPLAY_LIMIT_BYTES, shouldAutoRecap } from './session-recap.js';
 import {
@@ -148,8 +152,9 @@ export interface MakaPiTuiInput {
   skills?: MakaCliSkillSurface;
   /** Mandatory turn ownership shared with CLI Automation and Goal continuation. */
   goalLifecycle: MakaPiTuiGoalLifecycle;
-  /** API-key onboarding surface (#1098). When present, /setup runs the wizard
-   *  and calls setup() with the chosen provider + key; the host owns the stores. */
+  /** API-key onboarding surface (#1098). When present, /setup runs the wizard,
+   *  whose listProviders/verify/save calls persist the connection + curated models
+   *  via the host-owned stores. */
   onboarding?: MakaOnboardingSurface;
   /** First-run mode: auto-open the onboarding wizard on launch instead of
    *  waiting for /setup (used when the CLI starts with no configured connection). */
@@ -733,7 +738,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     // connection-less driver. Slash commands above already routed to the
     // command layer (/exit still exits, /help still shows help).
     if (input.firstRun) {
-      showSetupWizard();
+      void showSetupWizard();
       return;
     }
     // Refreshed only for a prompt that actually opens a turn: a slash command
@@ -914,14 +919,24 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   };
 
   // Onboarding wizard (#1098 UX redesign): one overlay spans provider search
-  // → API key entry, keeping every prompt/verifying/failure notice beside the
-  // input field instead of the transcript entry flow.
+  // → API key → model curation, keeping every prompt/verifying/failure/saving/
+  // success notice beside the input field instead of the transcript entry flow.
   let wizardOverlay: OverlayHandle | undefined;
   let wizard: OnboardingWizard | undefined;
   let wizardProviderType: ProviderType | undefined;
+  // The user's supplied key from the key step ('' reuses the stored secret for an
+  // existing connection) and the models from the last verify (cached on save).
+  // The runner holds them so the wizard stays UI-only; the secret never crosses
+  // back into the wizard.
+  let wizardApiKey = '';
+  let wizardModels: readonly ModelInfo[] = [];
+  // Authoritative ready model choices for `/model`. A startup snapshot refreshed
+  // in place after `/setup` saves so newly configured models are immediately
+  // available — the single source the picker and connection/model lookups read.
+  let modelChoices = input.modelChoices;
   // Monotonic attempt id: each setup submit captures one, and any transition
   // that abandons the in-flight attempt (back, re-pick, close) increments it so
-  // a late probe settlement cannot clobber a newer attempt.
+  // a late verify/save settlement cannot clobber a newer attempt.
   let wizardAttempt = 0;
 
   editor.onSubmit = (prompt) => {
@@ -1104,7 +1119,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   const setModel = async (nextModel: string) => {
     await input.driver.setModel(nextModel);
     model = nextModel;
-    const match = input.modelChoices?.find((choice) => choice.model === nextModel);
+    const match = modelChoices?.find((choice) => choice.model === nextModel);
     if (match) modelContextWindow = match.contextWindow;
     thinkingLevel = undefined;
     thinkingLevels = providerType ? thinkingVariantsForModel(providerType, nextModel) : [];
@@ -1158,7 +1173,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     model = summary.model;
     const previousConnectionSlug = connectionSlug;
     connectionSlug = summary.llmConnectionSlug;
-    const matchingChoice = input.modelChoices?.find(
+    const matchingChoice = modelChoices?.find(
       (choice) => choice.connectionSlug === summary.llmConnectionSlug,
     );
     providerType =
@@ -1173,7 +1188,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     // clear the window rather than keep showing the previous session's ctx
     // total under a different model. No match but the target didn't change
     // (e.g. rewind within the same session) leaves the window untouched.
-    const contextWindowMatch = input.modelChoices?.find(
+    const contextWindowMatch = modelChoices?.find(
       (choice) =>
         choice.connectionSlug === summary.llmConnectionSlug && choice.model === summary.model,
     );
@@ -1355,11 +1370,13 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   };
 
   const closeWizard = (): void => {
-    wizardAttempt += 1; // drop any in-flight setup before clearing the slots
+    wizardAttempt += 1; // drop any in-flight verify/save before clearing the slots
     wizardOverlay?.hide();
     wizardOverlay = undefined;
     wizard = undefined;
     wizardProviderType = undefined;
+    wizardApiKey = '';
+    wizardModels = [];
   };
 
   // Key submit from the wizard. Slash commands route as commands (so /exit
@@ -1374,55 +1391,110 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       return;
     }
     if (!input.onboarding) {
-      wizard.setResult({ kind: 'error', text: 'Onboarding 不可用：当前运行环境未提供配置入口。' });
+      wizard.setKeyError('Onboarding 不可用：当前运行环境未提供配置入口。');
       requestRender();
       return;
     }
+    wizardApiKey = apiKey;
     const targetWizard = wizard;
     const attempt = ++wizardAttempt;
     targetWizard.setVerifying();
     requestRender();
-    void input.onboarding.setup({ providerType, apiKey }).then(
+    void input.onboarding.verify({ providerType, apiKey }).then(
       (result) => {
         if (closed || wizard !== targetWizard || attempt !== wizardAttempt) return;
-        if (result.testError) {
-          // Probe failed: re-arm the key field in place — the upsert rotates
-          // the key, so retrying does not throw "slug already exists".
-          wizard.setResult({
-            kind: 'error',
-            text: `API key 验证失败：${result.testError}。请检查后重新输入。`,
-          });
+        if (result.kind === 'error') {
+          // Probe failed: re-arm the key field in place. The host stores nothing
+          // during verify, so retrying with a corrected key is clean.
+          wizard.setKeyError(`API key 验证失败：${result.text}。请检查后重新输入。`);
           requestRender();
           return;
         }
-        const label = PROVIDER_DEFAULTS[providerType]?.label ?? providerType;
-        if (input.firstRun) {
-          beginClose();
-          return;
-        }
-        // The wizard's in-flight notices never reached the transcript; only the
-        // completed configuration is recorded as an event for the next launch.
-        closeWizard();
-        state.entries.push({
-          kind: 'notice',
-          level: 'info',
-          text: `已配置 ${label}。新连接将在下次启动 maka 时生效。`,
-        });
+        wizardModels = result.models;
+        wizard.setModels(result.models); // advance to the models step
         requestRender();
       },
       (error) => {
         if (closed || wizard !== targetWizard || attempt !== wizardAttempt) return;
-        wizard.setResult({
-          kind: 'error',
-          text: `配置失败：${error instanceof Error ? error.message : String(error)}`,
-        });
+        wizard.setKeyError(`配置失败：${error instanceof Error ? error.message : String(error)}`);
         requestRender();
       },
     );
   };
 
-  const showSetupWizard = (): void => {
-    const providers = listApiKeyOnboardableProviders();
+  // Models submit from the wizard: persist the curated enabled set, refresh the
+  // running TUI's authoritative ready model choices, and show an in-frame
+  // success (first-run closes the TUI so the host re-resolves the new default).
+  // Setup never appends a transcript Note and never switches the active session.
+  const submitWizardModels = (enabledModelIds: readonly string[]): void => {
+    const providerType = wizardProviderType;
+    if (!providerType || !wizard) return;
+    if (!input.onboarding) {
+      wizard.setModelError('Onboarding 不可用：当前运行环境未提供配置入口。');
+      requestRender();
+      return;
+    }
+    const targetWizard = wizard;
+    const attempt = ++wizardAttempt;
+    targetWizard.setSaving();
+    requestRender();
+    void input.onboarding
+      .save({ providerType, apiKey: wizardApiKey, enabledModelIds, models: wizardModels })
+      .then(
+        (result) => {
+          if (result.kind === 'error') {
+            if (closed || wizard !== targetWizard || attempt !== wizardAttempt) return;
+            wizard.setModelError(result.text);
+            requestRender();
+            return;
+          }
+          // Authoritatively refresh the running TUI's ready model choices so the
+          // newly configured models are immediately available from /model — even
+          // if the user abandoned the wizard mid-save. Abandonment only drops the
+          // in-frame success UI, not the background state sync. The active
+          // session is not switched.
+          modelChoices = result.modelChoices;
+          if (closed || wizard !== targetWizard || attempt !== wizardAttempt) return;
+          if (input.firstRun) {
+            beginClose();
+            return;
+          }
+          wizard.setSuccess(enabledModelIds.length);
+          requestRender();
+        },
+        (error) => {
+          if (closed || wizard !== targetWizard || attempt !== wizardAttempt) return;
+          wizard.setModelError(
+            `保存失败：${error instanceof Error ? error.message : String(error)}`,
+          );
+          requestRender();
+        },
+      );
+  };
+
+  const showSetupWizard = async (): Promise<void> => {
+    let providers: OnboardingProviderEntry[];
+    if (input.onboarding) {
+      try {
+        providers = await input.onboarding.listProviders();
+      } catch (error) {
+        state.entries.push({
+          kind: 'notice',
+          level: 'info',
+          text: `无法读取已配置的连接：${error instanceof Error ? error.message : String(error)}`,
+        });
+        requestRender();
+        return;
+      }
+    } else {
+      // No surface (a minimal test host): open with the bare catalog so the
+      // wizard can report unavailability in-frame at submit instead of throwing.
+      providers = listApiKeyOnboardableProviders().map((provider) => ({
+        ...provider,
+        hasConnection: false,
+        enabledModelIds: [],
+      }));
+    }
     if (providers.length === 0) {
       state.entries.push({
         kind: 'notice',
@@ -1437,10 +1509,13 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       providers,
       onPickProvider: (providerType) => {
         wizardProviderType = providerType;
+        wizardApiKey = '';
+        wizardModels = [];
         wizardAttempt += 1; // a new pick supersedes any in-flight attempt
         requestRender();
       },
       onSubmitKey: submitWizardKey,
+      onSubmitModels: submitWizardModels,
       onCancel: () => {
         closeWizard();
         // First-run has no connection to fall back to: cancelling the wizard
@@ -1448,9 +1523,11 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
         if (input.firstRun) beginClose();
       },
       onBack: () => {
-        wizardProviderType = undefined;
-        wizardAttempt += 1; // abandoning the key field invalidates its probe
+        wizardAttempt += 1; // back one level invalidates any in-flight verify/save
         requestRender();
+      },
+      onClose: () => {
+        closeWizard();
       },
     });
     wizardOverlay = showBottomPicker(wizard);
@@ -1822,7 +1899,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   };
 
   const showModelList = () => {
-    const choices = input.modelChoices;
+    const choices = modelChoices;
     // Cross-connection picker when the caller supplied choices across all ready
     // connections; otherwise the single-connection list (typed /model, tests).
     if (choices && choices.length > 0) {
@@ -2051,7 +2128,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
           requestRender();
           return;
         }
-        showSetupWizard();
+        void showSetupWizard();
       },
     },
     {
@@ -2432,7 +2509,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     // to the enable sequence (a focus-in `\x1b[I`) is echoed by the cooked-mode
     // line discipline and leaks onto the screen as a stray `^[[I` on launch.
     terminal.write(ENABLE_FOCUS_REPORTING);
-    if (input.firstRun) showSetupWizard();
+    if (input.firstRun) void showSetupWizard();
   } catch (error) {
     beginClose(error instanceof Error ? error : new Error(String(error)));
   }
