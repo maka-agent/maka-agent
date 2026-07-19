@@ -4,11 +4,7 @@
  * instances; this module only projects names and surface metadata.
  */
 
-import {
-  MAKA_CATALOG_SURFACES,
-  catalogToolByName,
-  type ToolHostId,
-} from '@maka/core/tool-catalog';
+import { MAKA_CATALOG_SURFACES, catalogToolByName, type ToolHostId } from '@maka/core/tool-catalog';
 import type { HostCapabilities } from './skills.js';
 import type { ToolGroup } from './tool-availability.js';
 
@@ -37,9 +33,7 @@ export function buildDeferredToolGroupsFromCatalog(
   host: ToolHostId,
   boundToolNames: Iterable<string>,
 ): ToolGroup[] {
-  const bound = boundToolNames instanceof Set
-    ? boundToolNames
-    : new Set(boundToolNames);
+  const bound = boundToolNames instanceof Set ? boundToolNames : new Set(boundToolNames);
   const groups: ToolGroup[] = [];
   for (const surface of MAKA_CATALOG_SURFACES) {
     if (surface.economy !== 'deferred') continue;

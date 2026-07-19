@@ -7,16 +7,8 @@ import {
 
 describe('buildHostCapabilitiesFromBinding', () => {
   it('collects bound tool names and capability tags from catalog rows', () => {
-    const host = buildHostCapabilitiesFromBinding([
-      'Read',
-      'OfficeDocument',
-      'OfficeDocumentEdit',
-    ]);
-    assert.deepEqual([...host.toolNames].sort(), [
-      'OfficeDocument',
-      'OfficeDocumentEdit',
-      'Read',
-    ]);
+    const host = buildHostCapabilitiesFromBinding(['Read', 'OfficeDocument', 'OfficeDocumentEdit']);
+    assert.deepEqual([...host.toolNames].sort(), ['OfficeDocument', 'OfficeDocumentEdit', 'Read']);
     assert.deepEqual([...(host.capabilities ?? [])].sort(), ['office']);
   });
 
@@ -36,10 +28,7 @@ describe('buildDeferredToolGroupsFromCatalog', () => {
       'agent_list',
       'RiveWorkflow',
     ]);
-    assert.deepEqual(
-      groups.map((group) => group.id).sort(),
-      ['agent', 'office', 'rive'],
-    );
+    assert.deepEqual(groups.map((group) => group.id).sort(), ['agent', 'office', 'rive']);
     const office = groups.find((group) => group.id === 'office');
     assert.deepEqual(office?.toolNames, ['OfficeDocument']);
     assert.equal(office?.label, 'Office');
@@ -60,7 +49,10 @@ describe('buildDeferredToolGroupsFromCatalog', () => {
     ];
     for (const host of ['cli', 'headless'] as const) {
       const groups = buildDeferredToolGroupsFromCatalog(host, bound);
-      assert.deepEqual(groups.map((group) => group.id), ['agent']);
+      assert.deepEqual(
+        groups.map((group) => group.id),
+        ['agent'],
+      );
       assert.equal(
         groups.some((group) => ['office', 'browser', 'computer_use', 'rive'].includes(group.id)),
         false,

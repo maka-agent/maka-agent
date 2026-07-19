@@ -144,7 +144,8 @@ export const MAKA_CATALOG_SURFACES: readonly CatalogSurfaceDef[] = [
   {
     id: 'rive',
     label: 'Rive',
-    description: 'Durable multi-agent Rive workflows: validate/import/run/status, scheduler, retries.',
+    description:
+      'Durable multi-agent Rive workflows: validate/import/run/status, scheduler, retries.',
     economy: 'deferred',
     toolNames: ['RiveWorkflow'],
     hosts: DESKTOP_ONLY,
