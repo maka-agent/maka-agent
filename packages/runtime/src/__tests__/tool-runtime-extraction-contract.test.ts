@@ -127,6 +127,36 @@ describe('ModelAdapter extraction contract', () => {
   });
 });
 
+describe('Provider error classification extraction contract', () => {
+  test('ToolRuntime and ModelAdapter depend on a dedicated classification leaf', async () => {
+    const classifier = await readRepo('packages/runtime/src/provider-error-classification.ts');
+    const runtime = await readRepo('packages/runtime/src/tool-runtime.ts');
+    const adapter = await readRepo('packages/runtime/src/model-adapter.ts');
+
+    assert.match(classifier, /export function isContextOverflowErrorText/);
+    assert.match(classifier, /export function classifyError/);
+    assert.match(classifier, /export function errorPresentationFromClass/);
+    assert.match(classifier, /interface ProviderErrorEvidence/);
+    assert.match(classifier, /CONTEXT_OVERFLOW_PROVIDER_CODES/);
+    assert.match(classifier, /CONTEXT_OVERFLOW_PATTERNS/);
+    assert.match(classifier, /NON_CONTEXT_OVERFLOW_PATTERNS/);
+    assert.doesNotMatch(classifier, /from '\.\/(?:tool-runtime|model-adapter)\.js'/);
+
+    assert.match(
+      runtime,
+      /import \{ classifyError \} from '\.\/provider-error-classification\.js'/,
+    );
+    assert.doesNotMatch(runtime, /interface ProviderErrorEvidence/);
+    assert.doesNotMatch(runtime, /CONTEXT_OVERFLOW_PROVIDER_CODES/);
+    assert.doesNotMatch(runtime, /export function isContextOverflowErrorText/);
+    assert.doesNotMatch(runtime, /export function classifyError/);
+    assert.doesNotMatch(runtime, /export function errorPresentationFromClass/);
+
+    assert.match(adapter, /from '\.\/provider-error-classification\.js'/);
+    assert.doesNotMatch(adapter, /from '\.\/tool-runtime\.js'/);
+  });
+});
+
 describe('RunTrace extraction contract', () => {
   test('AiSdkBackend owns turn/model/usage/abort tracing as an internal hook', async () => {
     const backend = await readRepo('packages/runtime/src/ai-sdk-backend.ts');
