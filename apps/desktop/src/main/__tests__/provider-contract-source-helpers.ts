@@ -14,6 +14,13 @@ export interface ProviderSettingsSources {
   displayCopy: string;
   addForm: string;
   detail: string;
+  // R7: the connection detail sheet's controller state machine + its
+  // enabled-model editor were extracted out of provider-connection-detail.tsx.
+  // Both stay part of the provider settings surface the contract tests pin, and
+  // are joined right after the detail view so the ConnectionDetail → controller
+  // slices stay contiguous.
+  detailController: string;
+  enabledModelManager: string;
   shared: string;
   combined: string;
 }
@@ -31,11 +38,26 @@ const sourcePaths = {
   displayCopy: resolve(SETTINGS_ROOT, 'provider-display-copy.ts'),
   addForm: resolve(SETTINGS_ROOT, 'provider-add-form.tsx'),
   detail: resolve(SETTINGS_ROOT, 'provider-connection-detail.tsx'),
+  detailController: resolve(SETTINGS_ROOT, 'use-connection-detail.ts'),
+  enabledModelManager: resolve(SETTINGS_ROOT, 'provider-enabled-model-manager.tsx'),
   shared: resolve(SETTINGS_ROOT, 'provider-panel-shared.ts'),
 } as const;
 
 export async function readProviderSettingsSources(): Promise<ProviderSettingsSources> {
-  const [panel, dialog, catalog, oauth, claudeCard, display, displayCopy, addForm, detail, shared] = await Promise.all([
+  const [
+    panel,
+    dialog,
+    catalog,
+    oauth,
+    claudeCard,
+    display,
+    displayCopy,
+    addForm,
+    detail,
+    detailController,
+    enabledModelManager,
+    shared,
+  ] = await Promise.all([
     readFile(sourcePaths.panel, 'utf8'),
     readFile(sourcePaths.dialog, 'utf8'),
     readFile(sourcePaths.catalog, 'utf8'),
@@ -45,6 +67,8 @@ export async function readProviderSettingsSources(): Promise<ProviderSettingsSou
     readFile(sourcePaths.displayCopy, 'utf8'),
     readFile(sourcePaths.addForm, 'utf8'),
     readFile(sourcePaths.detail, 'utf8'),
+    readFile(sourcePaths.detailController, 'utf8'),
+    readFile(sourcePaths.enabledModelManager, 'utf8'),
     readFile(sourcePaths.shared, 'utf8'),
   ]);
 
@@ -58,6 +82,8 @@ export async function readProviderSettingsSources(): Promise<ProviderSettingsSou
     displayCopy,
     addForm,
     detail,
+    detailController,
+    enabledModelManager,
     shared,
     combined: [
       panel,
@@ -68,7 +94,12 @@ export async function readProviderSettingsSources(): Promise<ProviderSettingsSou
       display,
       displayCopy,
       addForm,
+      // detail view, then its extracted controller, then its enabled-model
+      // editor — kept adjacent so `function ConnectionDetail … function
+      // modelIdListsEqual` slices span the view + controller contiguously.
       detail,
+      detailController,
+      enabledModelManager,
       shared,
     ].join('\n'),
   };
