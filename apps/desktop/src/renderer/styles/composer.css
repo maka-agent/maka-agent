@@ -506,12 +506,11 @@
 
 .maka-composer-no-model-hint-action {
   flex-shrink: 0;
-  color: var(--accent);
+  color: var(--link);
   font-size: var(--font-size-caption);
   font-weight: var(--font-weight-medium);
   text-decoration: none;
   border-radius: var(--radius-control);
-  cursor: pointer;
 }
 
 .maka-composer-no-model-hint-action:hover {

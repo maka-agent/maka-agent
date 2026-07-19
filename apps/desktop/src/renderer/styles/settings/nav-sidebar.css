@@ -540,14 +540,6 @@
    (cards carry their own L padding internally), and bump the heading
    to 12/2px tracking so it reads as a real sub-section break rather
    than a hairline. */
-.settingsEmptyState {
-  min-height: 240px;
-  display: grid;
-  place-items: center;
-  color: var(--muted-foreground);
-  font-size: var(--font-size-ui);
-}
-
 .settingsBackButton:active,
 .settingsNavItem:active {
   background: var(--state-selected-bg);

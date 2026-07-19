@@ -309,27 +309,6 @@
    (packages/ui/src/primitives/chip.tsx, size="sm"). Generic settings labels
    stay squared (radius-control), not pill Badge. */
 
-/* Per-connection card on AccountSettingsPage. Status badge tone derives
- * from the closed-form ConnectionUiStatus enum:
- *   neutral / info / success / warning / destructive.
- */
-.settingsConnectionList {
-  /* PR-CONNECTION-LIST-A11Y-0 (round 17/30): switched from
-     `<div role="list">` to semantic `<ul>`. Reset the UA's
-     default bullet + 40px padding-left so the grid layout
-     stays the same. */
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  gap: var(--space-2-5);
-}
-
-.settingsConnectionList > li {
-  margin: 0;
-  padding: 0;
-}
-
 .settingsBotActionStack {
   display: flex;
   align-items: center;
