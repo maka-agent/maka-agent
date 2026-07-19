@@ -47,6 +47,7 @@ import { BUSY_SPINNER_FRAMES } from '../tui-attention.js';
 import { arrangeAutocompleteAboveEditor } from '../tui-autocomplete-layout.js';
 import {
   assertBottomPickerPlacement,
+  autocompleteSuggestionLines,
   FakeTerminal,
   inputSurfaceRows,
   latestPlainLineContaining,
@@ -3237,12 +3238,20 @@ describe('Maka Pi TUI runner', () => {
 
     terminal.input('/');
 
-    await waitFor(() => plainTerminalOutput(terminal.output()).includes('/session'));
-    const output = plainTerminalOutput(terminal.output());
-    const exitIndex = output.indexOf('/exit');
-    const modelIndex = output.indexOf('/model');
-    const permissionsIndex = output.indexOf('/permissions');
-    const sessionIndex = output.indexOf('/session');
+    await waitFor(() => {
+      const lines = plainTerminalOutput(terminal.screenOutput()).split(/\r?\n/);
+      return autocompleteSuggestionLines(lines).some((line) => line.includes('/session'));
+    });
+    // Scope to the autocomplete overlay — the empty-session home now shows
+    // /session /model /setup as hint text, so a whole-screen grep would pick up
+    // the home's copies and misorder them against the menu (#1098).
+    const suggestions = autocompleteSuggestionLines(
+      plainTerminalOutput(terminal.screenOutput()).split(/\r?\n/),
+    ).join('\n');
+    const exitIndex = suggestions.indexOf('/exit');
+    const modelIndex = suggestions.indexOf('/model');
+    const permissionsIndex = suggestions.indexOf('/permissions');
+    const sessionIndex = suggestions.indexOf('/session');
 
     assert.ok(exitIndex >= 0);
     assert.ok(modelIndex >= 0);
@@ -3253,7 +3262,7 @@ describe('Maka Pi TUI runner', () => {
     assert.ok(permissionsIndex < sessionIndex);
     // The whole menu is visible at once — including the last command
     // alphabetically — so new commands don't push older ones below the fold.
-    assert.ok(output.indexOf('/thinking') > sessionIndex);
+    assert.ok(suggestions.indexOf('/thinking') > sessionIndex);
 
     exitMaka(terminal);
     await Promise.race([
@@ -3279,20 +3288,31 @@ describe('Maka Pi TUI runner', () => {
 
     terminal.input('/');
 
-    await waitFor(() => plainTerminalOutput(terminal.output()).includes('/session'));
-    const lines = plainTerminalOutput(terminal.output()).split(/\r?\n/);
-    const suggestionIndex = lines.findIndex((line) => line.includes('/model'));
+    await waitFor(() => {
+      const lines = plainTerminalOutput(terminal.screenOutput()).split(/\r?\n/);
+      return (
+        lines.some((line) => line.includes('→')) &&
+        autocompleteSuggestionLines(lines).some((line) => line.includes('/model'))
+      );
+    });
+    // Scope to the autocomplete overlay, not the whole screen: the empty-session
+    // home now shows /session /model /setup as hint text, so a whole-screen
+    // findIndex('/model') would land on the home's hint and pass even if the
+    // overlay never rendered (#1098).
+    const lines = plainTerminalOutput(terminal.screenOutput()).split(/\r?\n/);
+    const [editorTopBorder, editorBottomBorder] = inputSurfaceRows(lines);
+    const cursorIndex = lines.findIndex((line) => line.includes('→'));
     const statusLineIndex = lines.findIndex((line) =>
       line.includes('Maka · ask · deepseek-v4-flash · deepseek · /repo'),
     );
-    const editorBorderIndexes = lines
-      .map((line, index) => (/^─+$/.test(line) ? index : -1))
-      .filter((index) => index >= 0);
 
-    assert.ok(suggestionIndex >= 0);
-    assert.ok(editorBorderIndexes.length >= 2);
-    assert.ok(suggestionIndex < editorBorderIndexes[editorBorderIndexes.length - 2]!);
-    assert.equal(editorBorderIndexes[editorBorderIndexes.length - 1], statusLineIndex - 1);
+    // The autocomplete menu (→ cursor) renders above the editor's top border.
+    assert.ok(cursorIndex >= 0);
+    assert.ok(cursorIndex < editorTopBorder);
+    // The menu carries /model, scoped to the overlay rather than the home hint.
+    assert.ok(autocompleteSuggestionLines(lines).some((line) => line.includes('/model')));
+    // The editor's bottom border sits just above the statusline.
+    assert.equal(editorBottomBorder, statusLineIndex - 1);
 
     exitMaka(terminal);
     await Promise.race([
@@ -3318,29 +3338,41 @@ describe('Maka Pi TUI runner', () => {
 
     terminal.input('/');
 
-    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('/session'));
+    await waitFor(() => {
+      const lines = plainTerminalOutput(terminal.screenOutput()).split(/\r?\n/);
+      return autocompleteSuggestionLines(lines).some((line) => line.includes('/session'));
+    });
     const beforeLines = plainTerminalOutput(terminal.screenOutput()).split(/\r?\n/);
     const beforeRows = inputSurfaceRows(beforeLines);
-    const beforeSessionRow = beforeLines.findIndex((line) => line.includes('/session'));
 
     terminal.input('s');
 
     await waitFor(() => {
-      const output = plainTerminalOutput(terminal.screenOutput());
-      return output.includes('/session') && !output.includes('/model');
+      const suggestions = autocompleteSuggestionLines(
+        plainTerminalOutput(terminal.screenOutput()).split(/\r?\n/),
+      );
+      return (
+        suggestions.some((line) => line.includes('/session')) &&
+        !suggestions.some((line) => line.includes('/model'))
+      );
     });
     const afterLines = plainTerminalOutput(terminal.screenOutput()).split(/\r?\n/);
     const afterRows = inputSurfaceRows(afterLines);
-    const afterSessionRow = afterLines.findIndex((line) => line.includes('/session'));
-    const afterSkillRow = afterLines.findIndex((line) => line.includes('/skill'));
-    const afterSetupRow = afterLines.findIndex((line) => line.includes('/setup'));
+    const afterSuggestions = autocompleteSuggestionLines(afterLines);
 
-    assert.ok(beforeSessionRow >= 0);
+    // The input surface did not shift while filtering.
     assert.deepEqual(afterRows, beforeRows);
-    // The 's' filter matches three commands — /session, /setup, /skill — bottom-aligned.
-    assert.equal(afterSkillRow, afterRows[0] - 1);
-    assert.equal(afterSetupRow, afterRows[0] - 2);
-    assert.equal(afterSessionRow, afterRows[0] - 3);
+    // The 's' filter matches three commands — /session, /setup, /skill — bottom-
+    // aligned immediately above the editor's top border. Scope to the overlay so
+    // the empty-session home's /session /model /setup hints don't collide (#1098).
+    assert.equal(afterSuggestions.length, 3);
+    assert.deepEqual(
+      afterSuggestions.map((line) => line.match(/\/\w+/)?.[0]),
+      ['/session', '/setup', '/skill'],
+    );
+    assert.ok(afterLines[afterRows[0] - 1]!.includes('/skill'));
+    assert.ok(afterLines[afterRows[0] - 2]!.includes('/setup'));
+    assert.ok(afterLines[afterRows[0] - 3]!.includes('/session'));
 
     exitMaka(terminal);
     await Promise.race([
@@ -3645,7 +3677,10 @@ describe('Maka Pi TUI runner', () => {
 
     terminal.input('/m');
 
-    await waitFor(() => plainTerminalOutput(terminal.output()).includes('/model'));
+    await waitFor(() => {
+      const lines = plainTerminalOutput(terminal.screenOutput()).split(/\r?\n/);
+      return autocompleteSuggestionLines(lines).some((line) => line.includes('/model'));
+    });
     terminal.input('\r');
     await waitFor(() => terminal.output().includes('Select Model'));
 
@@ -5145,9 +5180,7 @@ describe('Maka Pi TUI runner', () => {
     // /new empties the transcript, so it opens on the same welcome block as a
     // cold start rather than a one-off notice — that block is the "fresh session"
     // cue and a notice would suppress it.
-    await waitFor(() =>
-      plainTerminalOutput(terminal.screenOutput()).includes('输入消息开始对话，或用斜杠命令：'),
-    );
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('陪你把事做完'));
     // The previous turn is gone from the visible transcript.
     await waitFor(() => !plainTerminalOutput(terminal.screenOutput()).includes('remember this'));
     assert.equal(terminal.titles.at(-1), 'Maka');

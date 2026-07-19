@@ -1020,7 +1020,7 @@ export function renderMakaPiTranscript(
   // first screen greets and orients instead of showing an empty pane. Once the
   // first prompt lands, entries take over and it never renders again.
   if (state.entries.length === 0 && !state.pendingInteraction) {
-    return renderWelcomeBlock(metadata, safeWidth);
+    return renderWelcomeBlock(safeWidth);
   }
 
   const entryFirstLine = new Map<MakaPiTranscriptEntry, number>();
@@ -1567,26 +1567,46 @@ function renderNotice(entry: MakaPiNoticeEntry, width: number): string[] {
   return renderIndented(`${label}: ${entry.text}`, width, 0).map((line) => fitLine(line, width));
 }
 
-// Shown on a fresh, empty session. Greets, states where we are (model /
-// connection / folder), and lists the handful of commands and keys worth
-// knowing up front — enough to start without reading docs.
-function renderWelcomeBlock(metadata: MakaPiTranscriptMetadata, width: number): string[] {
-  // Point at /help for the full command list rather than duplicating it here —
-  // the autocomplete already teaches commands as you type. Just the greeting plus
-  // the keys you cannot discover by typing `/`.
-  const tips: [string, string][] = [
-    ['/help', '查看全部命令与快捷键'],
-    ['Ctrl+O', '展开或折叠工具输出'],
-    ['Esc Esc', '回退到较早的轮次'],
+// Shown on a fresh, empty session. Greets with the branded maka wordmark and a
+// short tagline, then points at the command-center entry points (direct input,
+// /session, /model, /setup) — enough to start without reading docs.
+// Four-line lowercase ASCII maka wordmark in Maka blue (#1098). Pure ASCII so it
+// renders under any locale; stored without trailing spaces so the welcome lines
+// and their tests agree after rtrim. A terminal too narrow to fit it falls back
+// to a single `maka` line — see renderWelcomeBlock.
+const MAKA_WORDMARK_LINES = [
+  ' _ __    __ _  _  __   __ _',
+  "| '_ \\  / _` | | |/ / / _` |",
+  '| |_) | | (_| | |   <  | (_| |',
+  '|_.__/  \\__,_| |_|\\_\\  \\__,_|',
+];
+const MAKA_WORDMARK_WIDTH = Math.max(...MAKA_WORDMARK_LINES.map((line) => line.length));
+
+function renderWelcomeBlock(width: number): string[] {
+  // The branded home greets with the maka wordmark, a short Chinese-first
+  // tagline, and the command-center entry points (direct input, /session,
+  // /model, /setup) so a fresh session shows the main actions without typing
+  // `/`. The active model and connection live in the statusline, so the
+  // welcome does not repeat them.
+  const hints: [string, string][] = [
+    ['/session', '切换或恢复会话'],
+    ['/model', '切换模型'],
+    ['/setup', '配置模型提供商'],
   ];
-  const keyWidth = Math.max(...tips.map(([key]) => key.length));
-  const lines = [
-    fitLine(ansi.accent('maka'), width),
-    fitLine(ansi.dim(`${metadata.model} · ${metadata.connectionSlug} · ${metadata.cwd}`), width),
-    '',
-    fitLine('输入消息开始对话，或用斜杠命令：', width),
-  ];
-  for (const [key, description] of tips) {
+  const keyWidth = Math.max(...hints.map(([key]) => key.length));
+  const lines: string[] = [];
+  if (width < MAKA_WORDMARK_WIDTH) {
+    lines.push(fitLine(ansi.accent('maka'), width));
+  } else {
+    for (const line of MAKA_WORDMARK_LINES) {
+      lines.push(fitLine(ansi.accent(line), width));
+    }
+  }
+  lines.push('');
+  lines.push(fitLine(ansi.dim('陪你把事做完'), width));
+  lines.push('');
+  lines.push(fitLine('  输入消息开始对话', width));
+  for (const [key, description] of hints) {
     lines.push(fitLine(ansi.dim(`  ${key.padEnd(keyWidth)}  ${description}`), width));
   }
   return lines;
