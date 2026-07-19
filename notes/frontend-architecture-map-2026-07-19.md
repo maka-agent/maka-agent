@@ -83,13 +83,36 @@ workspaces are exit 0 today; R1 makes them also report ZERO hints. Storybook sto
   inherently nondeterministic at the byte level (4 captures → 4 hashes, ~1426 KB each,
   pre-existing — the onboarding modal renders a live countdown), so the auditor's
   structural walk is the meaningful proof there.
-- [ ] **R4 — main.ts tool-assembly extraction (~L648–809). Requires maintainer-approved
-  contract re-pin.** The deferred-tool/economy assembly block (riveTools, officeTools, the
-  MakaTool catalog filter, webSearchTool, agentTeamChildTools) extracts into a
-  tool-assembly module. The main-process-wiring-contract locks `registerIpc` in main.ts
-  (function at L1222, invoked L1697); `startup`, `tool-assembly`, and `modelSupportsVision`
-  (L964) are direct-pinned to main.ts by contract. Extraction needs the maintainer to
-  re-pin those contracts first.
+- [x] **R4 — main.ts tool-assembly + tool-artifact-persistence extraction (shipped
+  `chore/arch-round-4`, main.ts 1903 → 1656, −247).** Two pure-move modules under
+  `apps/desktop/src/main/`:
+  `tool-assembly.ts` (277 lines) exports `assembleDesktopTools(deps)` — the sandbox /
+  filesystem-worker init, the deferred capability groups (Rive, Office, browser,
+  computer-use, agent-orchestration), the WebSearch tool, the builtin + skill host surface,
+  the deferred-group `toolAvailability`, and `childAgentTools`; returns the 11 collections
+  main.ts consumes downstream (riveTools/officeTools/browserTools/computerUse/
+  computerUseOverlay/computerUseTools/agentTeamLeadTools/desktopHostCapabilities/
+  builtinTools/toolAvailability/childAgentTools). `tool-artifact-persistence.ts` (124
+  lines) exports `createToolArtifactPersistence(deps)` → `{ persistToolArtifacts,
+  snapshotReadImage, persistArchivedToolResult, readArchivedToolResult }` (internal
+  `resolveToolArtifactSourcePath` / `isInsideOrSamePath`). main.ts keeps every call site
+  and the module-scoped seams: `registerIpc`, the `backends.register('ai-sdk')` closure
+  (`modelSupportsVision` NOT moved — it belongs to the R5 session-stream core),
+  `systemPromptService`, `storeReadImage`, and the `onMainWindowClose = () =>
+  computerUseOverlay.destroyAll()` teardown (it assigns a module `let`). Contract re-pins
+  (maintainer-authorized): added the two module paths to the
+  `main-process-contract-source-helpers` aggregator, so every combined-source consumer
+  auto-covers the moved symbols; switched three direct-main.ts readers to the combined
+  source keeping every assertion — `agent-swarm-host-contract` (buildParentAgentTools +
+  buildDeferredToolGroupsFromCatalog), `agent-team-collaboration-contract` (childAgentTools
+  + team tool builders), `attachment-frontend-contract` (snapshotReadImage); relaxed the
+  block-closer regexes in `permission-response-ipc-boundary` to tolerate the now-indented
+  in-function brackets. `main-process-wiring-contract` (registerIpc anchor) untouched —
+  registerIpc stays in main.ts. Gates: desktop 2744 + ui 196 suites green, 4-tsconfig +
+  ui typecheck clean, check-dead-css clean, knip ×2 exit 0 (zero hints),
+  AUDIT_PORT_BASE=24500 alignment auditor exit 0 (all 11 fixtures clean — full-app boot
+  proves main.ts still assembles), turn-narrative CDP smoke renders the chat surface (10
+  turns + composer). R5/R6 line boundaries below shift up by ~247.
 - [ ] **R5 — main.ts settings-runtime-effects + session-stream core splits (~L1360–1642).
   Requires maintainer-approved contract re-pin.** Same direct-pin constraint as R4.
 - [ ] **R6 — main.ts startup/lifecycle module (~L1642–1865). Requires maintainer-approved
