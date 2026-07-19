@@ -250,6 +250,8 @@ describe('saveApiKeyConnection', () => {
         },
       },
       credentialStore: {
+        getSecret: async () => null,
+        deleteSecret: async () => {},
         setSecret: async (slug, _kind, value) => {
           storedSecrets.push({ slug, value });
         },
@@ -302,6 +304,8 @@ describe('saveApiKeyConnection', () => {
         setDefault: async () => {},
       },
       credentialStore: {
+        getSecret: async () => null,
+        deleteSecret: async () => {},
         setSecret: async () => {
           throw new Error('disk full');
         },
@@ -312,6 +316,85 @@ describe('saveApiKeyConnection', () => {
     assert.equal(result.kind, 'error');
     assert.match((result as { text: string }).text, /disk full/);
     assert.deepEqual(removedSlugs, ['openai']);
+  });
+
+  test('rolls back a newly created connection and secret when the model update fails', async () => {
+    const removedSlugs: string[] = [];
+    const deletedSecrets: Array<{ slug: string; kind?: string }> = [];
+    const result = await saveApiKeyConnection({
+      providerType: 'openai',
+      apiKey: 'sk-new',
+      enabledModelIds: ['gpt-5.5'],
+      models: [{ id: 'gpt-5.5' }],
+      connectionStore: {
+        get: async () => null,
+        create: async (input) =>
+          makeConnection({ slug: input.slug, providerType: input.providerType }),
+        update: async () => {
+          throw new Error('disk full');
+        },
+        remove: async (slug) => {
+          removedSlugs.push(slug);
+        },
+        getDefault: async () => null,
+        setDefault: async () => {},
+      },
+      credentialStore: {
+        getSecret: async () => null,
+        setSecret: async () => {},
+        deleteSecret: async (slug, kind) => {
+          deletedSecrets.push({ slug, kind });
+        },
+      },
+      fetchModelChoices: async () => [],
+    });
+
+    assert.equal(result.kind, 'error');
+    assert.match((result as { text: string }).text, /disk full/);
+    assert.deepEqual(removedSlugs, ['openai']);
+    assert.deepEqual(deletedSecrets, [{ slug: 'openai', kind: 'api_key' }]);
+  });
+
+  test('rolls back a rotated secret when the model update fails on an existing connection', async () => {
+    const secretWrites: string[] = [];
+    let currentSecret = 'sk-old';
+    const result = await saveApiKeyConnection({
+      providerType: 'openai',
+      apiKey: 'sk-new',
+      enabledModelIds: ['gpt-5.5'],
+      models: [{ id: 'gpt-5.5' }],
+      connectionStore: {
+        get: async () =>
+          makeConnection({ slug: 'openai', providerType: 'openai', defaultModel: 'gpt-5.5' }),
+        create: async () => {
+          throw new Error('create must not be called for an existing connection');
+        },
+        update: async () => {
+          throw new Error('disk full');
+        },
+        remove: async () => {},
+        getDefault: async () => 'openai',
+        setDefault: async () => {
+          throw new Error('setDefault must not be called when a default already exists');
+        },
+      },
+      credentialStore: {
+        getSecret: async () => currentSecret,
+        setSecret: async (_slug, _kind, value) => {
+          secretWrites.push(value);
+          currentSecret = value;
+        },
+        deleteSecret: async () => {
+          throw new Error('deleteSecret must not be called when an old secret exists');
+        },
+      },
+      fetchModelChoices: async () => [],
+    });
+
+    assert.equal(result.kind, 'error');
+    assert.match((result as { text: string }).text, /disk full/);
+    assert.deepEqual(secretWrites, ['sk-new', 'sk-old']);
+    assert.equal(currentSecret, 'sk-old');
   });
 
   test('updates an existing connection without rotating the key when it is blank', async () => {
@@ -342,6 +425,8 @@ describe('saveApiKeyConnection', () => {
         },
       },
       credentialStore: {
+        getSecret: async () => null,
+        deleteSecret: async () => {},
         setSecret: async () => {
           secretStored = true;
         },
@@ -377,6 +462,8 @@ describe('saveApiKeyConnection', () => {
         setDefault: async () => {},
       },
       credentialStore: {
+        getSecret: async () => null,
+        deleteSecret: async () => {},
         setSecret: async () => {
           throw new Error('disk full');
         },
@@ -411,7 +498,11 @@ describe('saveApiKeyConnection', () => {
           if (slug) setDefaultCalls.push(slug);
         },
       },
-      credentialStore: { setSecret: async () => {} },
+      credentialStore: {
+        getSecret: async () => null,
+        setSecret: async () => {},
+        deleteSecret: async () => {},
+      },
       fetchModelChoices: async () => [],
     });
 
@@ -449,7 +540,11 @@ describe('saveApiKeyConnection', () => {
           getDefault: async () => 'openai',
           setDefault: async () => {},
         },
-        credentialStore: { setSecret: async () => {} },
+        credentialStore: {
+          getSecret: async () => null,
+          setSecret: async () => {},
+          deleteSecret: async () => {},
+        },
         fetchModelChoices: async () => [],
       });
       assert.equal(savedDefault, expected);
@@ -480,6 +575,8 @@ describe('saveApiKeyConnection', () => {
         setDefault: async () => {},
       },
       credentialStore: {
+        getSecret: async () => null,
+        deleteSecret: async () => {},
         setSecret: async () => {
           secretStored = true;
         },
@@ -508,7 +605,11 @@ describe('saveApiKeyConnection', () => {
         getDefault: async () => null,
         setDefault: async () => {},
       },
-      credentialStore: { setSecret: async () => {} },
+      credentialStore: {
+        getSecret: async () => null,
+        setSecret: async () => {},
+        deleteSecret: async () => {},
+      },
       fetchModelChoices: async () => [],
     });
 

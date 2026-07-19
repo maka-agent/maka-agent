@@ -58,7 +58,7 @@ export function createApiKeyOnboardingSurface(deps: {
     ConnectionStore,
     'list' | 'get' | 'create' | 'update' | 'remove' | 'getDefault' | 'setDefault'
   >;
-  credentialStore: Pick<CredentialStore, 'getSecret' | 'setSecret'>;
+  credentialStore: Pick<CredentialStore, 'getSecret' | 'setSecret' | 'deleteSecret'>;
   fetchModels: (connection: LlmConnection, apiKey: string) => Promise<ModelInfo[]>;
 }): MakaOnboardingSurface {
   return {
@@ -222,7 +222,7 @@ export interface SaveApiKeyConnectionInput {
     ConnectionStore,
     'get' | 'create' | 'update' | 'remove' | 'getDefault' | 'setDefault'
   >;
-  credentialStore: Pick<CredentialStore, 'setSecret'>;
+  credentialStore: Pick<CredentialStore, 'getSecret' | 'setSecret' | 'deleteSecret'>;
   /** Refreshed authoritative ready model choices for the running TUI. */
   fetchModelChoices: () => Promise<ModelChoice[]>;
 }
@@ -267,15 +267,33 @@ export async function saveApiKeyConnection(
 
   if (existing) {
     // Rotate the key first (if supplied): a rotation failure leaves the existing
-    // connection untouched (previous secret + previous curation stand).
+    // connection untouched (previous secret + previous curation stand). A failed
+    // curation write rolls the rotation back so the connection keeps its previous
+    // secret + curation — save stays atomic from the caller's view.
     if (suppliedKey) {
+      const previousSecret = await input.credentialStore.getSecret(input.providerType, 'api_key');
       try {
         await input.credentialStore.setSecret(input.providerType, 'api_key', suppliedKey);
       } catch (error) {
         return { kind: 'error', text: error instanceof Error ? error.message : String(error) };
       }
+      try {
+        await input.connectionStore.update(input.providerType, modelPatch);
+      } catch (error) {
+        if (previousSecret !== null) {
+          await input.credentialStore.setSecret(input.providerType, 'api_key', previousSecret);
+        } else {
+          await input.credentialStore.deleteSecret(input.providerType, 'api_key');
+        }
+        return { kind: 'error', text: error instanceof Error ? error.message : String(error) };
+      }
+    } else {
+      try {
+        await input.connectionStore.update(input.providerType, modelPatch);
+      } catch (error) {
+        return { kind: 'error', text: error instanceof Error ? error.message : String(error) };
+      }
     }
-    await input.connectionStore.update(input.providerType, modelPatch);
   } else {
     await input.connectionStore.create({
       slug: input.providerType,
@@ -291,7 +309,15 @@ export async function saveApiKeyConnection(
       await input.connectionStore.remove(input.providerType);
       return { kind: 'error', text: error instanceof Error ? error.message : String(error) };
     }
-    await input.connectionStore.update(input.providerType, modelPatch);
+    try {
+      await input.connectionStore.update(input.providerType, modelPatch);
+    } catch (error) {
+      // Atomicity: a failed curation write rolls back the new connection + secret
+      // so no half-configured default connection is left behind for first-run.
+      await input.connectionStore.remove(input.providerType);
+      await input.credentialStore.deleteSecret(input.providerType, 'api_key');
+      return { kind: 'error', text: error instanceof Error ? error.message : String(error) };
+    }
   }
 
   // setDefault only when no default connection exists (first run, or a host with
