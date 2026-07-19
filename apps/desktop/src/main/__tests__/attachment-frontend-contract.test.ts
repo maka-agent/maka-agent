@@ -82,7 +82,9 @@ describe('attachment frontend contract', () => {
   });
 
   it('passes selected model vision capability to the runtime attachment renderer', async () => {
-    const main = await readRepo('apps/desktop/src/main/main.ts');
+    // modelSupportsVision + the ai-sdk backend wiring moved into session-stream.ts
+    // (arch R5); scan the combined main-process source so the pins follow the split.
+    const main = await readMainProcessCombinedSource();
 
     assert.match(
       main,
