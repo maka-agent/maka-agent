@@ -1,6 +1,6 @@
 import { useEffect, useId, useState } from 'react';
 import { Sparkles } from '@maka/ui/icons';
-import { Button, PageHeader, useMountedRef, useToast, useUiLocale } from '@maka/ui';
+import { Alert, AlertDescription, AlertTitle, Button, PageHeader, useMountedRef, useToast, useUiLocale } from '@maka/ui';
 import { SettingsRows, SettingRow } from './settings-rows';
 import { settingsActionErrorMessage } from './settings-error-copy';
 import { SettingsSkeletonStack } from './settings-skeleton';
@@ -63,10 +63,10 @@ export function AboutSettingsPage() {
   if (!info) {
     return (
       <div className="settingsStructuredPage">
-        <div className="settingsNotice" role="alert">
-          <strong>{copy.unavailable}</strong>
-          <small>{infoError}</small>
-        </div>
+        <Alert variant="info" role="alert">
+          <AlertTitle>{copy.unavailable}</AlertTitle>
+          <AlertDescription>{infoError}</AlertDescription>
+        </Alert>
       </div>
     );
   }

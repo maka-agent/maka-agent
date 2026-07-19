@@ -56,30 +56,6 @@
     font-size: var(--font-size-caption);
   }
 
-.settingsHealthError {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-2);
-    padding: var(--space-4);
-    border: var(--border-width-hairline) solid oklch(from var(--destructive) l c h / 0.30);
-    background: oklch(from var(--destructive) l c h / 0.08);
-    border-radius: var(--radius-surface);
-    color: var(--destructive-text);
-  }
-
-.settingsHealthError strong {
-    font-size: var(--font-size-ui);
-  }
-
-.settingsHealthError small {
-    color: var(--foreground-secondary);
-    font-size: var(--font-size-ui);
-  }
-
-.settingsHealthError button {
-    align-self: flex-start;
-  }
-
 .settingsHealthSummary {
     /* PR-HEALTH-SUMMARY-LIST-A11Y-0 (round 19/30): switched from
        `<section role="list">` to semantic `<ul>`. Reset the UA's

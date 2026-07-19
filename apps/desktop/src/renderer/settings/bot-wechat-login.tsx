@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Button as BaseButton } from '@base-ui/react/button';
 import type { BotChannelSettings } from '@maka/core';
 import type { WechatBridgeQrCodeResult } from '@maka/runtime';
-import { Button, DialogContent, DialogHeader, DialogRoot, Input } from '@maka/ui';
+import { Alert, AlertDescription, Button, DialogContent, DialogHeader, DialogRoot, Input } from '@maka/ui';
 import { PasswordInput } from './password-input';
 import { settingsActionErrorMessage } from './settings-error-copy';
 
@@ -74,9 +74,11 @@ export function BotWeChatFields(props: {
                 ariaLabel="微信公众号 App Secret"
               />
             </label>
-            <div className="settingsNotice">
-              本机 bridge 默认为 <code>http://127.0.0.1:18400</code>。公众号 App ID / App Secret 仅用于公众号消息发送，个人微信扫码登录走本机 bridge。
-            </div>
+            <Alert variant="info">
+              <AlertDescription>
+                本机 bridge 默认为 <code>http://127.0.0.1:18400</code>。公众号 App ID / App Secret 仅用于公众号消息发送，个人微信扫码登录走本机 bridge。
+              </AlertDescription>
+            </Alert>
           </div>
         )}
       </div>

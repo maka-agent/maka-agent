@@ -48,7 +48,7 @@ describe('Settings app-info loading contract', () => {
     );
     assert.match(
       dataBlock,
-      /role="alert"[\s\S]*无法载入工作区路径：\{infoError\}/,
+      /<Alert variant="info">[\s\S]*无法载入工作区路径：\{infoError\}/,
       'Data page should render an alert with the workspace-path load failure',
     );
   });

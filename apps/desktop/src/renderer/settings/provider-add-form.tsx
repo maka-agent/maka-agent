@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { PROVIDER_DEFAULTS, validateSlug, type ProviderType } from '@maka/core';
 import { providerAuthRequiresSecret, providerAuthSupportsApiKey } from '@maka/core/llm-connections';
-import { Button, Chip, Input, useMountedRef, useUiLocale } from '@maka/ui';
+import { Alert, AlertDescription, AlertTitle, Button, Chip, Input, useMountedRef, useUiLocale } from '@maka/ui';
 import { buildCatalogRecommendedDefaultModel } from '../model-catalog-choices';
 import { PasswordInput } from './password-input';
 import { providerDisplay } from './provider-display';
@@ -128,12 +128,12 @@ export function AddProviderForm(props: {
         <Chip variant="neutral" size="sm">{categoryLabel(defaults.category)}</Chip>
       </div>
       {isExperimental && (
-        <div className="providerUnavailableNotice">
-          <strong>{isWiredOAuth ? '使用账号连接登录' : '账号登录暂未接入'}</strong>
-          <span>{isWiredOAuth
+        <Alert variant="info">
+          <AlertTitle>{isWiredOAuth ? '使用账号连接登录' : '账号登录暂未接入'}</AlertTitle>
+          <AlertDescription>{isWiredOAuth
             ? '不要在这里手动添加；请回到模型连接页的账号连接完成登录，Maka 会自动创建并刷新模型连接。'
-            : '这类账号登录暂未接入聊天发送。当前请先使用同一家厂商的模型密钥。'}</span>
-        </div>
+            : '这类账号登录暂未接入聊天发送。当前请先使用同一家厂商的模型密钥。'}</AlertDescription>
+        </Alert>
       )}
       {supportsApiKey && (
         <label>

@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import type { ConfigCategory } from '@maka/storage';
 import {
+  Alert,
+  AlertDescription,
   Button,
   SettingsSelect,
   SettingsSwitch as Switch,
@@ -247,14 +249,16 @@ export function DataSettingsPage() {
           {isDataActionPending('input-history:clear') ? '清空中…' : '清空输入历史'}
         </Button>
       </div>
-      <div className="settingsNotice">
-        本机数据保存在工作区。需要备份时先退出 Maka，再复制整个目录；恢复时替换同一路径后重启。
-        模型连接凭据随工作区恢复后需要重新测试；订阅账号令牌通常需要重新登录。
-      </div>
+      <Alert variant="info">
+        <AlertDescription>
+          本机数据保存在工作区。需要备份时先退出 Maka，再复制整个目录；恢复时替换同一路径后重启。
+          模型连接凭据随工作区恢复后需要重新测试；订阅账号令牌通常需要重新登录。
+        </AlertDescription>
+      </Alert>
       {infoError && (
-        <div className="settingsNotice" role="alert">
-          无法载入工作区路径：{infoError}
-        </div>
+        <Alert variant="info">
+          <AlertDescription>无法载入工作区路径：{infoError}</AlertDescription>
+        </Alert>
       )}
 
       <section className="settingsAboutPrivacy" aria-label="配置导入导出">

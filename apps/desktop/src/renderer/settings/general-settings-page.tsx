@@ -9,6 +9,8 @@ import type {
 } from '@maka/core';
 import type { TestProxyInput } from '@maka/core/settings/network-settings';
 import {
+  Alert,
+  AlertDescription,
   Button,
   Input,
   NumberField,
@@ -362,9 +364,9 @@ function NetworkProxySection(props: {
             <small>{copy.bypassHelp}</small>
           </label>
 
-          <div className="settingsNotice">
-            {copy.autoBypass(proxyDraft.autoBypassDomains.length)}
-          </div>
+          <Alert variant="info">
+            <AlertDescription>{copy.autoBypass(proxyDraft.autoBypassDomains.length)}</AlertDescription>
+          </Alert>
 
           <div className="settingsActionRow">
             <Button

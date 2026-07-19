@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { AppSettings, OpenGatewayRuntimeStatus, UpdateAppSettingsResult } from '@maka/core';
-import { Button, Input, NumberField, NumberFieldInput, SettingsSelect, SettingsSwitch as Switch, Textarea, useToast } from '@maka/ui';
+import { Alert, AlertDescription, Button, Input, NumberField, NumberFieldInput, SettingsSelect, SettingsSwitch as Switch, Textarea, useToast } from '@maka/ui';
 import { PasswordInput } from './password-input';
 import { MetricCard } from './settings-metric-card';
 import { SettingsRows, SettingRow } from './settings-rows';
@@ -160,9 +160,9 @@ export function OpenGatewaySettingsPage(props: {
         <MetricCard title="能力" value="19 个端点" detail="/health · openapi · state · sessions · events · requests" />
       </div>
       {statusLoadError && (
-        <div className="settingsNotice" role="alert">
-          开放网关运行状态读取失败：{statusLoadError}
-        </div>
+        <Alert variant="info" role="alert">
+          <AlertDescription>开放网关运行状态读取失败：{statusLoadError}</AlertDescription>
+        </Alert>
       )}
 
       <div className="settingsFormRow">
@@ -222,14 +222,14 @@ export function OpenGatewaySettingsPage(props: {
       </div>
 
       {gatewayDraft.enabled && !gatewayDraft.token && (
-        <div className="settingsNotice" data-tone="passive">
-          网关已开启，等待生成访问 token。生成 token 后服务会自动启动。
-        </div>
+        <Alert variant="passive">
+          <AlertDescription>网关已开启，等待生成访问 token。生成 token 后服务会自动启动。</AlertDescription>
+        </Alert>
       )}
       {status?.lastError && (
-        <div className="settingsNotice">
-          启动状态：{gatewayErrorCopy(status.lastError)}
-        </div>
+        <Alert variant="info">
+          <AlertDescription>启动状态：{gatewayErrorCopy(status.lastError)}</AlertDescription>
+        </Alert>
       )}
 
       <div className="settingsActionRow" role="group" aria-label="开放网关操作">

@@ -92,7 +92,7 @@ describe('voice capture smoke Settings contract', () => {
     );
     assert.match(
       voicePage!,
-      /<div id=\{smokeStatusId\} className="settingsNotice"[\s\S]*role="status">/,
+      /<Alert id=\{smokeStatusId\}[\s\S]*role="status">/,
       'voice capture status must expose both the referenced id and live status role',
     );
   });

@@ -15,6 +15,12 @@ const alertVariants = cva(
         error:
           "border-destructive/32 bg-destructive/4 [&>svg]:text-destructive",
         info: "border-info/32 bg-info/4 [&>svg]:text-info",
+        // Quiet neutral notice — no status colour, for passive "just so you
+        // know" copy (expected states, #651 exception-only rule). Matches the
+        // retired .settingsNotice[data-tone="passive"] wash (foreground-5 bg,
+        // muted text) so migrated passive notices keep their calm look.
+        passive:
+          "border-transparent bg-secondary text-muted-foreground [&>svg]:text-muted-foreground",
         success: "border-success/32 bg-success/4 [&>svg]:text-success",
         warning: "border-warning/32 bg-warning/4 [&>svg]:text-warning",
       },

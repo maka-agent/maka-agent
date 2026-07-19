@@ -93,6 +93,9 @@
   box-shadow: 0 0 0 var(--focus-glow-width) oklch(from var(--focus-ring) l c h / 0.12);
 }
 
+/* .settingsNotice is the legacy info-panel chip. Most settings notices have
+   migrated to the shared <Alert> primitive (Wave A F4); this rule remains only
+   for account-settings-page.tsx, whose notice is owned by another change. */
 .settingsNotice {
   border-radius: var(--radius-surface);
   background: oklch(from var(--info) l c h / 0.10);
@@ -100,11 +103,6 @@
   padding: var(--space-3);
   font-size: var(--font-size-ui);
   line-height: var(--leading-normal);
-}
-
-.settingsNotice[data-tone="passive"] {
-  background: var(--foreground-5);
-  color: var(--muted-foreground);
 }
 
 .settingsActionRow {

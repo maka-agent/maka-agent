@@ -7,7 +7,7 @@ import type {
   HealthSnapshot,
 } from '@maka/core';
 import { HEALTH_SIGNAL_LAYERS } from '@maka/core';
-import { Button, Badge, RelativeTime, PageHeader, StatTile } from '@maka/ui';
+import { Alert, AlertAction, AlertDescription, AlertTitle, Button, Badge, RelativeTime, PageHeader, StatTile } from '@maka/ui';
 import { settingsActionErrorMessage } from './settings-error-copy';
 import { statusBadgeVariant } from './settings-status-badge';
 import { SettingsSkeletonStack } from './settings-skeleton';
@@ -101,13 +101,15 @@ export function HealthCenterPage() {
   if (error || !snapshot) {
     return (
       <div className="settingsHealthPage">
-        <div className="settingsHealthError" role="alert">
-          <strong>无法读取健康快照</strong>
-          <small>{error ?? '健康服务未返回数据。'}</small>
-          <Button type="button" onClick={() => setRefreshTick((tick) => tick + 1)}>
-            重新读取
-          </Button>
-        </div>
+        <Alert variant="error">
+          <AlertTitle>无法读取健康快照</AlertTitle>
+          <AlertDescription>{error ?? '健康服务未返回数据。'}</AlertDescription>
+          <AlertAction>
+            <Button type="button" onClick={() => setRefreshTick((tick) => tick + 1)}>
+              重新读取
+            </Button>
+          </AlertAction>
+        </Alert>
       </div>
     );
   }

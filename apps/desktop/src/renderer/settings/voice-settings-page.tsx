@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { Volume2 } from '@maka/ui/icons';
 import type { VoicePermissionStatus } from '@maka/core';
 import { defaultVoiceCaptureCaps, validateVoiceCaptureRequest } from '@maka/core';
-import { Badge, Button, PageHeader, formatBytes, useMountedRef, useToast } from '@maka/ui';
+import { Alert, AlertDescription, Badge, Button, PageHeader, formatBytes, useMountedRef, useToast } from '@maka/ui';
 import { useActionGuard } from './use-action-guard';
 
 type VoiceSmokeState =
@@ -178,9 +178,9 @@ export function VoiceModelsSettingsPage() {
         </Button>
       </div>
 
-      <div id={smokeStatusId} className="settingsNotice" data-tone={smoke.status === 'error' ? undefined : 'passive'} role="status">
-        {smoke.message}
-      </div>
+      <Alert id={smokeStatusId} variant={smoke.status === 'error' ? 'info' : 'passive'} role="status">
+        <AlertDescription>{smoke.message}</AlertDescription>
+      </Alert>
 
       <div className="settingsFeatureStatusHeroHeading">
         <h3>当前边界</h3>

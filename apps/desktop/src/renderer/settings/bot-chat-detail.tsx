@@ -315,9 +315,9 @@ export function BotChatChannelDetail(props: {
         )}
 
         {support === 'planned' && (
-          <div className="settingsNotice" data-tone="passive">
-            这个平台当前只作为平台清单展示，不会进入可用渠道，也不会保存为计划提醒投递目标。
-          </div>
+          <Alert variant="passive">
+            <AlertDescription>这个平台当前只作为平台清单展示，不会进入可用渠道，也不会保存为计划提醒投递目标。</AlertDescription>
+          </Alert>
         )}
 
         {/* WeChat keeps scan login as a first-class action, separate from
@@ -494,10 +494,9 @@ function BotCredentialFields(props: {
             );
           case 'notice':
             return (
-              <div key={`notice-${index}`} className="settingsBotInfoNotice">
-                <span className="settingsBotInfoNoticeIcon" aria-hidden="true">ⓘ</span>
-                <span>{field.text}</span>
-              </div>
+              <Alert key={`notice-${index}`} variant="info">
+                <AlertDescription>{field.text}</AlertDescription>
+              </Alert>
             );
         }
       })}

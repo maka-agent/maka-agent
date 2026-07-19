@@ -194,28 +194,6 @@
   justify-content: flex-end;
 }
 
-.providerUnavailableNotice {
-  display: grid;
-  gap: var(--space-1);
-  border: var(--border-width-hairline) solid oklch(from var(--info) l c h / 0.22);
-  border-radius: var(--radius-surface);
-  background: oklch(from var(--info) l c h / 0.10);
-  color: var(--info-text);
-  padding: var(--space-3);
-}
-
-.providerUnavailableNotice span {
-  font-size: var(--font-size-ui);
-  line-height: var(--leading-snug);
-}
-
-/* The 重新登录 / 登录 CTA keeps its natural width and sits below the copy,
- * left-aligned, instead of stretching across the grid cell. */
-.providerUnavailableNotice > button {
-  justify-self: start;
-  margin-top: var(--space-1);
-}
-
 /* Direct child only: the descendant model table header must not inherit the
  * editor title layout. Provider editors now live in the Settings main pane. */
 .providerEditor > header {

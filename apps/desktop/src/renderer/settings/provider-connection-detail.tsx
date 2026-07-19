@@ -11,6 +11,10 @@ import {
 } from '@maka/core';
 import { providerAuthRequiresSecret, providerAuthSupportsApiKey } from '@maka/core/llm-connections';
 import {
+  Alert,
+  AlertAction,
+  AlertDescription,
+  AlertTitle,
   Button,
   FieldDescription,
   FieldRoot,
@@ -547,8 +551,8 @@ function ConnectionDetailInner(props: ConnectionDetailProps) {
             onRelogin={refreshAfterRelogin}
           />
         ) : (
-          <div className="providerUnavailableNotice" data-auth-kind="oauth">
-            <strong>
+          <Alert variant="info">
+            <AlertTitle>
               {hasSecret === true
                 ? 'OAuth 已登录'
                 : hasSecret === 'loading'
@@ -556,8 +560,8 @@ function ConnectionDetailInner(props: ConnectionDetailProps) {
                   : hasSecret === 'error'
                     ? 'OAuth 状态未知'
                     : '等待 OAuth 登录'}
-            </strong>
-            <span>
+            </AlertTitle>
+            <AlertDescription>
               {hasSecret === true
                 ? '该模型连接使用主进程保存的 OAuth access token；若请求提示需要重新登录，请到账号连接重新授权。'
                 : hasSecret === 'loading'
@@ -565,8 +569,8 @@ function ConnectionDetailInner(props: ConnectionDetailProps) {
                   : hasSecret === 'error'
                     ? '暂时无法读取本机 OAuth 登录状态；请刷新页面或重新打开设置。'
                     : '请到账号连接完成登录；登录成功后会自动出现在模型连接里。'}
-            </span>
-          </div>
+            </AlertDescription>
+          </Alert>
         )
       )}
       {credentialProbePending && (
@@ -682,15 +686,17 @@ function GitHubCopilotReloginNotice(props: {
   }
 
   return (
-    <div className="providerUnavailableNotice" data-auth-kind="oauth">
-      <strong>{loggedIn ? 'GitHub Copilot 已登录' : loading ? 'OAuth 状态读取中' : '等待兼容 GitHub 凭据'}</strong>
-      <span>{loggedIn ? '若账号或组织策略变化，可重新导入兼容凭据。' : '配置具有 Copilot Requests 权限的凭据后从本机安全导入。'}</span>
+    <Alert variant="info">
+      <AlertTitle>{loggedIn ? 'GitHub Copilot 已登录' : loading ? 'OAuth 状态读取中' : '等待兼容 GitHub 凭据'}</AlertTitle>
+      <AlertDescription>{loggedIn ? '若账号或组织策略变化，可重新导入兼容凭据。' : '配置具有 Copilot Requests 权限的凭据后从本机安全导入。'}</AlertDescription>
       {!loading && (
-        <Button type="button" size="sm" disabled={busy} onClick={() => void connect()}>
-          {busy ? '导入中…' : loggedIn ? '重新导入' : '导入兼容凭据'}
-        </Button>
+        <AlertAction>
+          <Button type="button" size="sm" disabled={busy} onClick={() => void connect()}>
+            {busy ? '导入中…' : loggedIn ? '重新导入' : '导入兼容凭据'}
+          </Button>
+        </AlertAction>
       )}
-    </div>
+    </Alert>
   );
 }
 
@@ -729,20 +735,22 @@ function OAuthReloginNotice(props: {
         ? '暂时无法读取本机 OAuth 登录状态；请刷新页面或重新打开设置。'
         : '点下方按钮打开浏览器完成登录，授权成功后会自动刷新这里的状态。';
   return (
-    <div className="providerUnavailableNotice" data-auth-kind="oauth">
-      <strong>{title}</strong>
-      <span>{detail}</span>
+    <Alert variant="info">
+      <AlertTitle>{title}</AlertTitle>
+      <AlertDescription>{detail}</AlertDescription>
       {!loading && (
-        <Button
-          type="button"
-          size="sm"
-          disabled={flow.actionBusy}
-          onClick={() => void flow.startLogin()}
-        >
-          {flow.pendingAction === 'login' ? '登录中…' : loggedIn ? '重新登录' : '登录'}
-        </Button>
+        <AlertAction>
+          <Button
+            type="button"
+            size="sm"
+            disabled={flow.actionBusy}
+            onClick={() => void flow.startLogin()}
+          >
+            {flow.pendingAction === 'login' ? '登录中…' : loggedIn ? '重新登录' : '登录'}
+          </Button>
+        </AlertAction>
       )}
-    </div>
+    </Alert>
   );
 }
 

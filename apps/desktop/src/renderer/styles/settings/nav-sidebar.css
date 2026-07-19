@@ -355,10 +355,6 @@
   margin-top: var(--space-3);
 }
 
-.settingsNoticeAction {
-  margin-top: var(--space-2);
-}
-
 .settingsLoadingSkeleton {
   padding: var(--space-2) 0;
   max-width: 540px;
