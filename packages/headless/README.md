@@ -86,11 +86,14 @@ await runExperiment(config, task, {
     toolExecutor: executor,
   },
   registerBackends(registry, context) {
-    registry.register('ai-sdk', (ctx) => createAiSdkBackend({
-      ...ctx,
-      tools: [...(ctx.tools ?? buildIsolatedHeadlessTools(context.toolExecutor!))],
-      toolAvailability: buildIsolatedHeadlessToolAvailability(),
-    }));
+    registry.register('ai-sdk', (ctx) => {
+      const tools = [...(ctx.tools ?? buildIsolatedHeadlessTools(context.toolExecutor!))];
+      return createAiSdkBackend({
+        ...ctx,
+        tools,
+        toolAvailability: buildIsolatedHeadlessToolAvailability(tools.map((tool) => tool.name)),
+      });
+    });
   },
 });
 ```

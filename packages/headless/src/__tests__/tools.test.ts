@@ -1593,7 +1593,7 @@ describe('isolated headless tools', () => {
 
     assert.ok(
       readme.includes(
-        'tools: [...(ctx.tools ?? buildIsolatedHeadlessTools(context.toolExecutor!))],',
+        'const tools = [...(ctx.tools ?? buildIsolatedHeadlessTools(context.toolExecutor!))];',
       ),
     );
   });

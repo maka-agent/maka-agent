@@ -77,12 +77,6 @@ export function buildIsolatedHeadlessTools(
     buildIsolatedGrepTool(executor, options),
     ...buildParentAgentTools(),
   ];
-  // Product tools must stay catalog-clean (#1099 S2). Experiment packs below
-  // are harness-only and intentionally outside the product vocabulary.
-  assertProductBindingCatalogClean(
-    'headless',
-    tools.map((tool) => tool.name),
-  );
   if (options.heavyTaskProgress) {
     tools.push(...buildHeavyTaskProgressTools(options.heavyTaskProgress));
   }
@@ -92,22 +86,27 @@ export function buildIsolatedHeadlessTools(
   if (options.taskLedgerExperiment) {
     tools.push(...buildTaskLedgerExperimentTools(options.taskLedgerExperiment));
   }
+  // Product tools must stay catalog-clean (#1099 S2). Experiment packs are
+  // harness-only and intentionally outside the product vocabulary, so exclude
+  // them from the cleanliness check (the catalog derive ignores them anyway).
+  assertProductBindingCatalogClean(
+    'headless',
+    tools.map((tool) => tool.name).filter((name) => !HEADLESS_EXPERIMENT_TOOL_NAMES.has(name)),
+  );
   return tools;
 }
 
 /**
  * Deferred groups from catalog ∩ bound product tools. Affinity-unsupported
- * packs never appear. Optional experiment tools are ignored for derivation.
+ * packs never appear; harness experiment names are not catalog members, so
+ * the catalog derive ignores them without an explicit filter.
  */
 export function buildIsolatedHeadlessToolAvailability(
-  boundToolNames?: Iterable<string>,
+  boundToolNames: Iterable<string>,
 ): ToolAvailabilityConfig {
-  const productNames = boundToolNames
-    ? [...boundToolNames].filter((name) => !HEADLESS_EXPERIMENT_TOOL_NAMES.has(name))
-    : ['agent_spawn', 'agent_swarm', 'agent_list', 'agent_output'];
   return {
     economy: true,
-    groups: buildDeferredToolGroupsFromCatalog('headless', productNames),
+    groups: buildDeferredToolGroupsFromCatalog('headless', boundToolNames),
   };
 }
 
