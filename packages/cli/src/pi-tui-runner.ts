@@ -22,6 +22,13 @@ import {
   projectShellRunUpdateForSession,
   type ShellRunUpdate,
 } from '@maka/core';
+import {
+  buildForeignSessionHandoffMessage,
+  foreignSessionHandoffDisplayText,
+  type ForeignSessionSource,
+  type ForeignSessionSummary,
+} from '@maka/core/foreign-session';
+import type { ForeignSessionStore } from '@maka/storage';
 import type { GoalTurnOutcome, SessionActivityLease } from '@maka/runtime';
 import type { ModelChoice } from './connection-target.js';
 import { listApiKeyOnboardableProviders, type MakaOnboardingSurface } from './onboarding.js';
@@ -157,6 +164,13 @@ export interface MakaPiTuiInput {
    * session the driver was created with.
    */
   resumeSessionId?: string;
+  /**
+   * Read-only store of sessions from other coding agents (Claude Code,
+   * Codex). When present, the session picker lists foreign sessions for the
+   * current cwd; selecting one distills it into a handoff digest and opens a
+   * fresh Maka session seeded with it. Omitting it hides the feature.
+   */
+  foreignSessions?: ForeignSessionStore;
 }
 
 export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
@@ -1517,6 +1531,16 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
           ?? await inspectSessionResumeAvailability(session),
       ] as const;
     })));
+    // Foreign (Claude Code / Codex) sessions for the current cwd, keyed by a
+    // prefixed select value so they never collide with Maka session ids. A
+    // scan failure (no ~/.claude, permission error) degrades to no items.
+    const foreignByValue = new Map<string, ForeignSessionSummary>();
+    if (input.foreignSessions) {
+      const summaries = await input.foreignSessions.listSessions({ cwd }).catch(() => []);
+      for (const summary of summaries) {
+        foreignByValue.set(`foreign:${summary.source}:${summary.id}`, summary);
+      }
+    }
     const renderScope = (): void => {
       const visibleSessions = sessionListScope === 'current'
         ? sessions.filter((session) => session.cwd === cwd)
@@ -1532,12 +1556,29 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
             : `${shortSessionId(session.id)}${location} ${session.llmConnectionSlug} ${session.model}`,
         };
       });
+      // Foreign sessions are cwd-scoped, so append them under 'current' (they
+      // belong to this project) after Maka's own sessions.
+      if (sessionListScope === 'current') {
+        for (const [value, summary] of foreignByValue) {
+          items.push({
+            value,
+            label: summary.title,
+            description: `↩ resume from ${foreignSourceLabel(summary.source)}`,
+          });
+        }
+      }
       const list = new SelectList(items, 10, selectListTheme(), {
         minPrimaryColumnWidth: 20,
         maxPrimaryColumnWidth: Math.max(20, terminal.columns - 30),
       });
       let overlay: OverlayHandle | undefined;
       list.onSelect = (item) => {
+        const foreign = foreignByValue.get(item.value);
+        if (foreign) {
+          overlay?.hide();
+          void importForeignSession(foreign);
+          return;
+        }
         if (availability.get(item.value)?.available === false) return;
         overlay?.hide();
         void runControl(() => switchSession(item.value));
@@ -1597,6 +1638,31 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     replaceTranscriptWithStoredMessages(state, []);
     shellRunElapsedTicker.sync();
     requestRender();
+  };
+
+  // Import a foreign (Claude Code / Codex) session: read its digest, open a
+  // fresh Maka session, and seed the first turn with an untrusted handoff
+  // envelope. NOT wrapped in runControl — runAgentTurn asserts busy itself, and
+  // the digest read must happen before the turn starts. The handoff text is the
+  // model-facing `sendText`; a short line is shown in the transcript.
+  const importForeignSession = async (summary: ForeignSessionSummary): Promise<void> => {
+    if (busy || input.foreignSessions === undefined) return;
+    let digest;
+    try {
+      digest = await input.foreignSessions.readDigest(summary);
+    } catch (error) {
+      reportError(error);
+      return;
+    }
+    // The read is async; bail if the shell closed or a turn started meanwhile.
+    if (closed || busy) return;
+    newSession();
+    void runAgentTurn({
+      kind: 'external',
+      prompt: foreignSessionHandoffDisplayText(digest),
+      sessionId: input.driver.getSessionId(),
+      sendText: buildForeignSessionHandoffMessage(digest),
+    });
   };
 
   const showHelp = () => {
@@ -2265,6 +2331,10 @@ const EDITOR_AUTOCOMPLETE_MAX_VISIBLE = 14;
 // sessions apart in the picker without showing the full unreadable uuid.
 function shortSessionId(id: string): string {
   return id.slice(0, 8);
+}
+
+function foreignSourceLabel(source: ForeignSessionSource): string {
+  return source === 'claude-code' ? 'Claude Code' : 'Codex';
 }
 
 // Matches only the four exact "close the TUI" spellings — bare `quit`/`exit`
