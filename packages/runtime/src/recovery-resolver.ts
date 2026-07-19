@@ -1,4 +1,8 @@
-import type { RuntimeEvent, ToolBoundaryProtocol } from '@maka/core/runtime-event';
+import {
+  TOOL_BOUNDARY_PROTOCOL_V1,
+  type RuntimeEvent,
+  type ToolBoundaryProtocol,
+} from '@maka/core/runtime-event';
 
 export type ToolRecoveryDecisionStatus =
   | 'completed'
@@ -13,6 +17,8 @@ export type ToolRecoveryDecisionReason =
   | 'legacy_dispatch_unknown'
   | 'orphan_dispatch'
   | 'orphan_response'
+  | 'duplicate_dispatch'
+  | 'duplicate_response'
   | 'identity_conflict'
   | 'protocol_marker_invalid';
 
@@ -42,13 +48,20 @@ export interface RuntimeRecoveryResolution {
 export function resolveRuntimeRecovery(
   events: readonly RuntimeEvent[],
 ): RuntimeRecoveryResolution {
-  const toolBoundaryProtocol = events[0]?.actions?.runtimeProtocol?.toolBoundary;
-  const issues = events.slice(1)
-    .filter((event) => event.actions?.runtimeProtocol !== undefined)
-    .map((event) => ({
+  const firstProtocol = events[0]?.actions?.runtimeProtocol;
+  const toolBoundaryProtocol = firstProtocol?.toolBoundary === TOOL_BOUNDARY_PROTOCOL_V1
+    ? TOOL_BOUNDARY_PROTOCOL_V1
+    : undefined;
+  const issues: RuntimeRecoveryResolution['issues'] = [];
+  if (firstProtocol !== undefined && toolBoundaryProtocol === undefined && events[0]) {
+    issues.push({
       code: 'protocol_marker_invalid' as const,
-      eventId: event.id,
-    }));
+      eventId: events[0].id,
+    });
+  }
+  issues.push(...events.slice(1)
+    .filter((event) => event.actions?.runtimeProtocol !== undefined)
+    .map((event) => ({ code: 'protocol_marker_invalid' as const, eventId: event.id })));
   const decisions: ToolRecoveryDecision[] = [];
   const decisionsByToolCallId = new Map<string, ToolRecoveryDecision>();
   for (const event of events) {
@@ -83,6 +96,11 @@ export function resolveRuntimeRecovery(
       });
       continue;
     }
+    if (decision.dispatchRuntimeEventId !== undefined) {
+      decision.status = 'corruption';
+      decision.reason = 'duplicate_dispatch';
+      continue;
+    }
     decision.operationId = dispatch.operationId;
     decision.dispatchRuntimeEventId = event.id;
     if (
@@ -111,11 +129,16 @@ export function resolveRuntimeRecovery(
       });
       continue;
     }
+    if (decision.responseRuntimeEventId !== undefined) {
+      decision.status = 'corruption';
+      decision.reason = 'duplicate_response';
+      continue;
+    }
     decision.responseRuntimeEventId = event.id;
     decision.responseIsError = event.content.isError === true;
+    if (decision.status === 'corruption') continue;
     if (
-      decision.status === 'corruption'
-      || decision.toolName !== event.content.name
+      decision.toolName !== event.content.name
       || (decision.operationId !== undefined
         && event.refs?.operationId !== decision.operationId)
       || (event.refs?.toolCallId !== undefined

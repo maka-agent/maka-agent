@@ -1288,6 +1288,23 @@ export class AiSdkBackend implements AgentBackend {
 
     // --- Build messages from RuntimeEvent history and its compatibility projection. ---
     const priorReplay = await this.buildPriorMessages(input);
+    if (input.continuation && priorReplay.messages.length === 0) {
+      const replay = priorReplayFailureTrace(priorReplay);
+      const error = new ContinuationReplayEmptyError(replay.gate, replay.diagnosticCodes);
+      trace.modelStreamFailed(error.code, error, replay);
+      queue.push(this.makeErrorEvent(turnId, error));
+      queue.push({
+        type: 'complete',
+        id: this.newId(),
+        turnId,
+        ts: this.now(),
+        stopReason: 'error',
+      } satisfies CompleteEvent);
+      queue.close();
+      this.cleanupAfterTurn(turnId);
+      yield* this.drain(queue);
+      return;
+    }
     if (midTurnState) {
       // Roll-forward seed: the latest durable checkpoint (loaded or written at
       // turn start) so a mid-turn summary only re-reads the newly folded span.
@@ -4325,6 +4342,15 @@ function priorReplayFailureTrace(replay: {
     gate: replay.gate,
     diagnosticCodes: [...new Set(replay.diagnostics.map((diagnostic) => diagnostic.code))],
   };
+}
+
+class ContinuationReplayEmptyError extends Error {
+  readonly code = 'continuation_replay_empty';
+
+  constructor(readonly replayGate: string, readonly diagnosticCodes: readonly string[]) {
+    super(`Continuation replay is empty after ${replayGate}`);
+    this.name = 'ContinuationReplayEmptyError';
+  }
 }
 
 function mergeActiveToolResultPruneDiagnosticPatches(

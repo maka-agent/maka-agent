@@ -171,6 +171,63 @@ describe('AiSdkBackend model history', () => {
     ]);
   });
 
+  test('continuation fails before the provider when replay materializes no messages', async () => {
+    const trace: RunTraceEvent[] = [];
+    const model = completionModel();
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+      recordRunTrace: (event) => trace.push(event),
+    });
+
+    const events: SessionEvent[] = [];
+    for await (const event of backend.send({
+      turnId: 'turn-resume',
+      text: '',
+      context: [],
+      runtimeContext: [
+        runtimeEvent({
+          id: 'rt-failed',
+          turnId: 'turn-source',
+          role: 'system',
+          author: 'system',
+          status: 'failed',
+          content: { kind: 'error', reason: 'runtime_error', message: 'previous attempt failed' },
+          actions: { endInvocation: true },
+        }),
+      ],
+      continuation: {
+        sourceInvocationId: 'invocation-source',
+        sourceRunId: 'run-source',
+        sourceTurnId: 'turn-source',
+        sourceRuntimeEventHighWater: 1,
+      },
+    })) {
+      events.push(event);
+    }
+
+    assert.equal(model.doStreamCalls.length, 0);
+    assert.deepEqual(events.map((event) => event.type), ['error', 'complete']);
+    const error = events.find((event): event is Extract<SessionEvent, { type: 'error' }> => event.type === 'error');
+    assert.equal(error?.code, 'continuation_replay_empty');
+    const failure = trace.find((event) => event.type === 'model_stream_failed');
+    assert.equal(failure?.data?.errorClass, 'continuation_replay_empty');
+    assert.equal(failure?.data?.priorReplayGate, 'runtime_replay_text_only');
+    assert.deepEqual(failure?.data?.priorReplayDiagnosticCodes, [
+      'terminal_fact_diagnostic_only',
+      'system_runtime_fact_diagnostic_only',
+    ]);
+  });
+
   test('continuation materializes validated RuntimeEvents when provider-native replay is unavailable', async () => {
     const model = completionModel();
     const backend = new AiSdkBackend({
