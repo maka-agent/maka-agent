@@ -105,42 +105,70 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
   const executor = options.executor ?? createLocalWorkspaceExecutor();
   const executionFacts = executor.facts;
   const readDescription = `Read a text file${options.snapshotImage ? ' or supported image' : ''} from disk${options.runtimeResources ? ', or read a whole runtime resource using ref' : ''}.`;
+  const pathField = z
+    .string()
+    .describe('A file path; relative paths are resolved from the session cwd');
+  const offsetField = z
+    .number()
+    .int()
+    .nonnegative()
+    .describe('Zero-based text file line offset')
+    .optional();
+  const limitField = z
+    .number()
+    .int()
+    .positive()
+    .describe('Maximum text file lines to read')
+    .optional();
+  const refField = z.string().describe('A runtime resource ref returned by another tool');
   const fileReadParameters = z
     .object({
-      path: z.string().describe('A file path; relative paths are resolved from the session cwd'),
-      offset: z
-        .number()
-        .int()
-        .nonnegative()
-        .describe('Zero-based text file line offset')
-        .optional(),
-      limit: z.number().int().positive().describe('Maximum text file lines to read').optional(),
+      path: pathField,
+      offset: offsetField,
+      limit: limitField,
     })
     .strict();
   const runtimeResourceReadParameters = z
     .object({
-      ref: z.string().describe('A runtime resource ref returned by another tool'),
+      ref: refField,
     })
     .strict();
   const strictReadParameters = z
     .union([fileReadParameters, runtimeResourceReadParameters])
     .describe('Read a file with path, or a whole runtime resource with ref; provide exactly one');
-  const strictReadProviderSchema = zodSchema(strictReadParameters);
+  // Provider-facing schema: a single top-level object with every field optional.
+  // Anthropic rejects a tool definition whose input schema carries a top-level
+  // `anyOf`, so the file-vs-ref exclusivity is stated in the field descriptions
+  // here and enforced authoritatively by the strict union in `validate` below
+  // (see #1228 — a union-generated `anyOf` had been leaking onto the wire).
+  const providerReadParameters = z
+    .object({
+      path: pathField
+        .describe(
+          'A file path; relative paths are resolved from the session cwd. Provide either path (optionally with offset/limit) or ref, never both.',
+        )
+        .optional(),
+      offset: offsetField,
+      limit: limitField,
+      ref: refField
+        .describe(
+          'A runtime resource ref returned by another tool. Provide ref on its own, without path/offset/limit.',
+        )
+        .optional(),
+    })
+    .describe(
+      'Read a file with path (optionally offset/limit), or a whole runtime resource with ref; provide exactly one of path or ref.',
+    );
+  const providerReadSchema = zodSchema(providerReadParameters);
   const readParameters = options.runtimeResources
-    ? jsonSchema(
-        async () => ({
-          ...(await strictReadProviderSchema.jsonSchema),
-          type: 'object',
-        }),
-        {
-          validate: async (value) => {
-            const result = await strictReadParameters.safeParseAsync(value);
-            return result.success
-              ? { success: true, value: result.data }
-              : { success: false, error: result.error };
-          },
+    ? jsonSchema(async () => await providerReadSchema.jsonSchema, {
+        validate: async (value) => {
+          const result = await strictReadParameters.safeParseAsync(value);
+          return result.success
+            ? { success: true, value: result.data }
+            : { success: false, error: result.error };
         },
-      )
+      })
     : fileReadParameters;
   const shell = options.shell ?? defaultShellPlan();
   const sandboxPlatform = options.sandboxPlatform ?? process.platform;

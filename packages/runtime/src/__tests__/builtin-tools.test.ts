@@ -790,9 +790,19 @@ describe('builtin Bash streaming output', () => {
       validate(value: unknown): PromiseLike<{ success: boolean }> | { success: boolean };
     };
     const providerSchema = await parameters.jsonSchema;
+    // Anthropic-compatible: a plain top-level object with properties, and no
+    // top-level union combinator (#1228).
     expect(providerSchema.type).toBe('object');
-    expect(Array.isArray(providerSchema.anyOf)).toBe(true);
-    expect((providerSchema.anyOf as unknown[]).length).toBe(2);
+    expect(providerSchema.anyOf).toBeUndefined();
+    expect(providerSchema.oneOf).toBeUndefined();
+    expect(providerSchema.allOf).toBeUndefined();
+    expect(Object.keys(providerSchema.properties as Record<string, unknown>).sort()).toEqual([
+      'limit',
+      'offset',
+      'path',
+      'ref',
+    ]);
+    // The strict file-vs-ref union remains the authoritative runtime validator.
     expect((await parameters.validate({ path: 'README.md', offset: 2, limit: 10 })).success).toBe(
       true,
     );
