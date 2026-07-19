@@ -134,7 +134,7 @@ function diagnostic(
   };
 }
 
-function headerLineage(
+export function headerLineage(
   header: AgentRunHeader,
 ): Partial<
   Pick<
