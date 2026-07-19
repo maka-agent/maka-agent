@@ -131,7 +131,7 @@ export function HealthCenterPage() {
         }
         meta={
           <div className="settingsHealthMeta">
-            <Badge variant="info">只读快照</Badge>
+            <Badge variant="secondary">只读快照</Badge>
             <small>
               最近一次读取：<RelativeTime ts={healthCheckedAtMs} className="settingsHelpInlineTime" />
             </small>

@@ -359,19 +359,6 @@
   margin-top: var(--space-2);
 }
 
-.settingsFeatureStatusBadge {
-  display: inline-flex;
-  align-items: center;
-  padding: var(--space-0-5) var(--space-2);
-  border-radius: var(--radius-pill);
-  background: oklch(from var(--nav-active) l c h / 0.12);
-  color: var(--nav-active);
-  font-size: var(--font-size-caption);
-  font-weight: var(--font-weight-semibold);
-  letter-spacing: var(--tracking-wide);
-  white-space: nowrap;
-}
-
 .settingsLoadingSkeleton {
   padding: var(--space-2) 0;
   max-width: 540px;

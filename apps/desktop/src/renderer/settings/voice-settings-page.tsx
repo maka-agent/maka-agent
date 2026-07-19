@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { Volume2 } from '@maka/ui/icons';
 import type { VoicePermissionStatus } from '@maka/core';
 import { defaultVoiceCaptureCaps, validateVoiceCaptureRequest } from '@maka/core';
-import { Button, PageHeader, formatBytes, useMountedRef, useToast } from '@maka/ui';
+import { Badge, Button, PageHeader, formatBytes, useMountedRef, useToast } from '@maka/ui';
 import { useActionGuard } from './use-action-guard';
 
 type VoiceSmokeState =
@@ -142,7 +142,7 @@ export function VoiceModelsSettingsPage() {
         iconClassName="settingsFeatureStatusIcon"
         headingRowClassName="settingsFeatureStatusHeroHeading"
         title="语音模型"
-        badge={<span className="settingsFeatureStatusBadge">本地自检</span>}
+        badge={<Badge variant="secondary">本地自检</Badge>}
         subtitle="这页现在可以验证麦克风权限和本地录音链路。语音转写和语音朗读模型必须遵守这个边界：转写结果必须先回到消息输入框，由用户编辑确认后才能发送；音频样本默认不落盘。"
       />
 
