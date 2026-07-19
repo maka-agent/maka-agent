@@ -270,7 +270,7 @@ test('harness A/B completion log preserves the report status', async () => {
   const scriptPath = new URL('../../harbor/run-harness-ab.mjs', import.meta.url);
   const source = await readFile(scriptPath, 'utf8');
 
-  assert.match(source, /console\.log\(`\$\{report\.runStatus\}:/);
+  assert.match(source, /console\.log\(\s*`\$\{report\.runStatus\}:/);
 });
 
 test('detached named-task launcher requires a run id before creating artifacts', async () => {

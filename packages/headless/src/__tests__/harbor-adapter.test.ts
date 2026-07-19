@@ -412,7 +412,7 @@ describe('Harbor adapter contract', () => {
     );
     assert.match(
       source,
-      /const keyFile = envPath\('MAKA_PROMPT_KEY_FILE', join\(localEvalRoot, '\.local-secrets', 'deepseek-key'\)\);/,
+      /const keyFile = envPath\(\s*'MAKA_PROMPT_KEY_FILE',\s*join\(localEvalRoot, '\.local-secrets', 'deepseek-key'\),\s*\);/,
     );
     assert.match(source, /MAKA_PROMPT_INITIAL_SYSTEM_PROMPT_FILE/);
     assert.match(
@@ -518,7 +518,7 @@ describe('Harbor adapter contract', () => {
     );
     assert.match(
       source,
-      /const harborTimeoutMs = envPosInt\('MAKA_PROMPT_AB_HARBOR_TIMEOUT_MS', \(taskBudgetSec \+ 300\) \* 1000\);/,
+      /const harborTimeoutMs = envPosInt\(\s*'MAKA_PROMPT_AB_HARBOR_TIMEOUT_MS',\s*\(taskBudgetSec \+ 300\) \* 1000,\s*\);/,
     );
     assert.match(source, /Direct evaluation tasks:/);
     assert.doesNotMatch(source, /runPromptAbConcurrencyCalibration/);
