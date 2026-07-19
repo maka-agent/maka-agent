@@ -329,7 +329,7 @@ async function runFirstRunOnboarding(workspaceRoot: string): Promise<boolean> {
     }),
   });
   // Configured iff a connection was actually persisted during the wizard — the
-  // wizard only closes after a verified key (or on cancel; see runner firstRun).
+  // wizard only closes after a successful save (or on cancel; see runner firstRun).
   return (await connectionStore.getDefault()) !== null;
 }
 

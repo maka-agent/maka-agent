@@ -7,6 +7,7 @@ const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');
 export const MAIN_PROCESS_SOURCE_REPO_PATHS: readonly string[] = [
   'apps/desktop/src/main/main.ts',
   'apps/desktop/src/main/app-ipc-main.ts',
+  'apps/desktop/src/main/app-lifecycle.ts',
   'apps/desktop/src/main/bot-incoming-main.ts',
   'apps/desktop/src/main/browser-ipc-main.ts',
   'apps/desktop/src/main/config-ipc-main.ts',
@@ -30,6 +31,8 @@ export const MAIN_PROCESS_SOURCE_REPO_PATHS: readonly string[] = [
   'apps/desktop/src/main/project-root-controller.ts',
   'apps/desktop/src/main/session-entry-ipc-main.ts',
   'apps/desktop/src/main/session-branch.ts',
+  'apps/desktop/src/main/session-stream.ts',
+  'apps/desktop/src/main/settings-runtime-effects.ts',
   'apps/desktop/src/main/sessions-ipc-main.ts',
   'apps/desktop/src/main/settings-ipc-main.ts',
   'apps/desktop/src/main/subscription-model-fetch.ts',

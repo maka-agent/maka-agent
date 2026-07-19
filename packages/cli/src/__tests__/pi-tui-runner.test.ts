@@ -37,6 +37,14 @@ import type {
 import { CliGoalContinuation, type CliGoalTurnHost } from '../cli-goal-continuation.js';
 import type { ModelChoice } from '../connection-target.js';
 import {
+  listApiKeyOnboardableProviders,
+  type MakaOnboardingSurface,
+  type OnboardingProviderEntry,
+  type OnboardingSaveResult,
+  type OnboardingVerifyResult,
+} from '../onboarding.js';
+import type { ModelInfo, ProviderType } from '@maka/core/llm-connections';
+import {
   runMakaPiTui as runMakaPiTuiImpl,
   type MakaPiTuiGoalLifecycle,
   type MakaPiTuiInput,
@@ -119,6 +127,44 @@ function deferred<T>() {
     resolve = done;
   });
   return { promise, resolve };
+}
+
+/** Catalog API-key providers as wizard entries with no existing connection —
+ *  the default `/setup` provider list for tests that don't need 已设置 state. */
+function defaultOnboardingProviders(): OnboardingProviderEntry[] {
+  return listApiKeyOnboardableProviders().map((provider) => ({
+    ...provider,
+    hasConnection: false,
+    enabledModelIds: [],
+  }));
+}
+
+interface FakeOnboardingOpts {
+  providers?: OnboardingProviderEntry[];
+  verify?: (input: {
+    providerType: ProviderType;
+    apiKey?: string;
+  }) => Promise<OnboardingVerifyResult>;
+  save?: (input: {
+    providerType: ProviderType;
+    apiKey?: string;
+    enabledModelIds: readonly string[];
+    models: readonly ModelInfo[];
+  }) => Promise<OnboardingSaveResult>;
+}
+
+/** A controllable `/setup` surface: the wizard calls `listProviders` to open,
+ *  `verify` to check a key and discover models, and `save` to persist. Defaults
+ *  verify two models and save ok so a test can drive the whole flow by opting
+ *  into the branches it cares about. */
+function fakeOnboardingSurface(opts: FakeOnboardingOpts = {}): MakaOnboardingSurface {
+  return {
+    listProviders: async () => opts.providers ?? defaultOnboardingProviders(),
+    verify:
+      opts.verify ??
+      (async () => ({ kind: 'ok', models: [{ id: 'gpt-5.5' }, { id: 'gpt-5.5-mini' }] })),
+    save: opts.save ?? (async () => ({ kind: 'ok', modelChoices: [] })),
+  };
 }
 
 describe('Maka Pi TUI runner', () => {
@@ -275,6 +321,7 @@ describe('Maka Pi TUI runner', () => {
       connectionSlug: 'claude-subscription',
       permissionMode: 'bypass',
       terminal,
+      onboarding: fakeOnboardingSurface(),
     });
 
     await delay(20);
@@ -289,11 +336,12 @@ describe('Maka Pi TUI runner', () => {
       }
     });
 
-    const output = plainTerminalOutput(terminal.writes.join(''));
+    const output = plainTerminalOutput(terminal.screenOutput());
     assert.ok(
       output.includes('Anthropic') || output.includes('OpenAI'),
       'provider picker should list an API-key provider',
     );
+    assert.ok(output.includes('1/3'), 'provider search is step 1/3');
 
     terminal.input('\x1b');
     await delay(30);
@@ -307,10 +355,14 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
-  test('/setup collects an API key after picking a provider and calls onboarding.setup', async () => {
+  test('/setup marks existing connections 已设置 in the provider search', async () => {
     const terminal = new FakeTerminal();
     const driver = new SlashCommandDriver();
-    const setupCalls: Array<{ providerType: string; apiKey: string }> = [];
+    const providers = defaultOnboardingProviders().map((p) =>
+      p.providerType === 'anthropic'
+        ? { ...p, hasConnection: true, enabledModelIds: ['claude-sonnet-5'] }
+        : p,
+    );
     const run = runMakaPiTui({
       title: 'Maka',
       driver,
@@ -319,12 +371,7 @@ describe('Maka Pi TUI runner', () => {
       connectionSlug: 'claude-subscription',
       permissionMode: 'bypass',
       terminal,
-      onboarding: {
-        setup: async (req) => {
-          setupCalls.push(req);
-          return {};
-        },
-      },
+      onboarding: fakeOnboardingSurface({ providers }),
     });
 
     await delay(20);
@@ -337,24 +384,7 @@ describe('Maka Pi TUI runner', () => {
         return false;
       }
     });
-
-    // Enter picks the highlighted provider; the wizard then asks for the API key.
-    terminal.input('\r');
-    await waitFor(() => {
-      try {
-        return latestPlainLineContaining(terminal.writes.join(''), 'API key') !== null;
-      } catch {
-        return false;
-      }
-    });
-
-    // Submitting the key fires onboarding.setup instead of an agent turn.
-    terminal.input('sk-test');
-    terminal.input('\r');
-    await waitFor(() => setupCalls.length === 1);
-
-    assert.equal(setupCalls[0]!.apiKey, 'sk-test');
-    assert.ok(setupCalls[0]!.providerType);
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('已设置'));
 
     process.emit('SIGTERM');
     await Promise.race([
@@ -365,10 +395,10 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
-  test('/setup re-arms the key prompt when the probe fails so the key can be retried', async () => {
+  test('/setup verifies the key then shows the model multi-select', async () => {
     const terminal = new FakeTerminal();
     const driver = new SlashCommandDriver();
-    const setupCalls: Array<{ apiKey: string }> = [];
+    const verifyCalls: Array<{ providerType: ProviderType; apiKey?: string }> = [];
     const run = runMakaPiTui({
       title: 'Maka',
       driver,
@@ -377,19 +407,25 @@ describe('Maka Pi TUI runner', () => {
       connectionSlug: 'claude-subscription',
       permissionMode: 'bypass',
       terminal,
-      onboarding: {
-        setup: async (req) => {
-          setupCalls.push({ apiKey: req.apiKey });
-          // First attempt fails the probe (wrong key); the retry verifies.
-          return setupCalls.length === 1 ? { testError: 'HTTP 401 Unauthorized' } : {};
+      onboarding: fakeOnboardingSurface({
+        verify: async (input) => {
+          verifyCalls.push(input);
+          return { kind: 'ok', models: [{ id: 'gpt-5.5' }, { id: 'gpt-5.5-mini' }] };
         },
-      },
+      }),
     });
 
     await delay(20);
     terminal.input('/setup');
     terminal.input('\r');
-    terminal.input('\r'); // pick the highlighted provider
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), 'Set Up Provider') !== null;
+      } catch {
+        return false;
+      }
+    });
+    terminal.input('\r'); // pick the highlighted provider -> key phase
     await waitFor(() => {
       try {
         return latestPlainLineContaining(terminal.writes.join(''), 'API key') !== null;
@@ -397,12 +433,65 @@ describe('Maka Pi TUI runner', () => {
         return false;
       }
     });
+    terminal.input('sk-test');
+    terminal.input('\r');
+    await waitFor(() => verifyCalls.length === 1);
+    assert.equal(verifyCalls[0]!.apiKey, 'sk-test');
+    // Verify success advances to the searchable model multi-select (step 3/3).
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('3/3'));
 
-    // Submit a key that fails the probe.
+    process.emit('SIGTERM');
+    await Promise.race([
+      run,
+      delay(500).then(() => {
+        throw new Error('TUI did not close after SIGTERM');
+      }),
+    ]);
+  });
+
+  test('verify failure re-arms the key prompt so the key can be retried', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const verifyCalls: string[] = [];
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'bypass',
+      terminal,
+      onboarding: fakeOnboardingSurface({
+        verify: async (input) => {
+          verifyCalls.push(input.apiKey ?? '');
+          return verifyCalls.length === 1
+            ? { kind: 'error', text: 'HTTP 401 Unauthorized' }
+            : { kind: 'ok', models: [{ id: 'gpt-5.5' }] };
+        },
+      }),
+    });
+
+    await delay(20);
+    terminal.input('/setup');
+    terminal.input('\r');
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), 'Set Up Provider') !== null;
+      } catch {
+        return false;
+      }
+    });
+    terminal.input('\r'); // pick provider -> key phase
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), 'API key') !== null;
+      } catch {
+        return false;
+      }
+    });
     terminal.input('sk-bad');
     terminal.input('\r');
-    await waitFor(() => setupCalls.length === 1);
-    // The failure is surfaced and the prompt re-arms — not the success notice.
+    await waitFor(() => verifyCalls.length === 1);
     await waitFor(() => {
       try {
         return latestPlainLineContaining(terminal.writes.join(''), '验证失败') !== null;
@@ -410,23 +499,12 @@ describe('Maka Pi TUI runner', () => {
         return false;
       }
     });
-
-    // Retrying with a good key succeeds (no testError this time).
+    // Retrying with a good key verifies and advances to the models step.
     terminal.input('sk-good');
     terminal.input('\r');
-    await waitFor(() => setupCalls.length === 2);
-    await waitFor(() => {
-      try {
-        return latestPlainLineContaining(terminal.writes.join(''), '已配置') !== null;
-      } catch {
-        return false;
-      }
-    });
-
-    assert.deepEqual(
-      setupCalls.map((c) => c.apiKey),
-      ['sk-bad', 'sk-good'],
-    );
+    await waitFor(() => verifyCalls.length === 2);
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('3/3'));
+    assert.deepEqual(verifyCalls, ['sk-bad', 'sk-good']);
 
     process.emit('SIGTERM');
     await Promise.race([
@@ -440,7 +518,7 @@ describe('Maka Pi TUI runner', () => {
   test('an armed key prompt routes a slash command instead of swallowing it as the key', async () => {
     const terminal = new FakeTerminal();
     const driver = new SlashCommandDriver();
-    const setupCalls: Array<unknown> = [];
+    const verifyCalls: unknown[] = [];
     const run = runMakaPiTui({
       title: 'Maka',
       driver,
@@ -449,18 +527,25 @@ describe('Maka Pi TUI runner', () => {
       connectionSlug: 'claude-subscription',
       permissionMode: 'bypass',
       terminal,
-      onboarding: {
-        setup: async (req) => {
-          setupCalls.push(req);
-          return {};
+      onboarding: fakeOnboardingSurface({
+        verify: async (req) => {
+          verifyCalls.push(req);
+          return { kind: 'ok', models: [] };
         },
-      },
+      }),
     });
 
     await delay(20);
     terminal.input('/setup');
     terminal.input('\r');
-    terminal.input('\r'); // pick the highlighted provider -> arms the key prompt
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), 'Set Up Provider') !== null;
+      } catch {
+        return false;
+      }
+    });
+    terminal.input('\r'); // pick provider -> arms the key prompt
     await waitFor(() => {
       try {
         return latestPlainLineContaining(terminal.writes.join(''), 'API key') !== null;
@@ -468,13 +553,12 @@ describe('Maka Pi TUI runner', () => {
         return false;
       }
     });
-
-    // A slash command typed while armed must be routed as a command, not stored
+    // A slash command typed while armed must route as a command, not be stored
     // as the API key (otherwise /exit, /model, etc. become persisted secrets).
     terminal.input('/setup');
     terminal.input('\r');
     await delay(60);
-    assert.equal(setupCalls.length, 0);
+    assert.equal(verifyCalls.length, 0);
 
     process.emit('SIGTERM');
     await Promise.race([
@@ -485,11 +569,11 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
-  test('/setup without an onboarding surface reports unavailable instead of throwing', async () => {
+  test('/setup without an onboarding surface reports unavailable in-frame instead of throwing', async () => {
     const terminal = new FakeTerminal();
     const driver = new SlashCommandDriver();
-    // No onboarding surface: a minimal host that can open /setup's picker but
-    // cannot actually collect a key.
+    // No onboarding surface: a minimal host that can open /setup's picker (via
+    // the catalog fallback) but cannot verify or save.
     const run = runMakaPiTui({
       title: 'Maka',
       driver,
@@ -503,7 +587,14 @@ describe('Maka Pi TUI runner', () => {
     await delay(20);
     terminal.input('/setup');
     terminal.input('\r');
-    terminal.input('\r'); // pick the highlighted provider -> arms the key prompt
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), 'Set Up Provider') !== null;
+      } catch {
+        return false;
+      }
+    });
+    terminal.input('\r'); // pick provider -> key phase
     await waitFor(() => {
       try {
         return latestPlainLineContaining(terminal.writes.join(''), 'API key') !== null;
@@ -511,9 +602,6 @@ describe('Maka Pi TUI runner', () => {
         return false;
       }
     });
-
-    // Submitting a key with no onboarding surface reports unavailable instead
-    // of throwing TypeError on `undefined.then`.
     terminal.input('sk-test');
     terminal.input('\r');
     await waitFor(() => {
@@ -523,6 +611,43 @@ describe('Maka Pi TUI runner', () => {
         return false;
       }
     });
+
+    process.emit('SIGTERM');
+    await Promise.race([
+      run,
+      delay(500).then(() => {
+        throw new Error('TUI did not close after SIGTERM');
+      }),
+    ]);
+  });
+
+  test('/setup reports a listProviders failure as an error instead of "no providers"', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'bypass',
+      terminal,
+      onboarding: {
+        listProviders: async () => {
+          throw new Error('storage read failed');
+        },
+        verify: async () => ({ kind: 'ok', models: [] }),
+        save: async () => ({ kind: 'ok', modelChoices: [] }),
+      },
+    });
+
+    await delay(20);
+    terminal.input('/setup');
+    terminal.input('\r');
+    await delay(60);
+    const out = plainTerminalOutput(terminal.screenOutput());
+    assert.match(out, /storage read failed/);
+    assert.doesNotMatch(out, /没有可配置的 API key 类供应商/);
 
     process.emit('SIGTERM');
     await Promise.race([
@@ -545,9 +670,7 @@ describe('Maka Pi TUI runner', () => {
       permissionMode: 'bypass',
       terminal,
       firstRun: true,
-      onboarding: {
-        setup: async () => ({}),
-      },
+      onboarding: fakeOnboardingSurface(),
     });
 
     await waitFor(() => {
@@ -557,7 +680,6 @@ describe('Maka Pi TUI runner', () => {
         return false;
       }
     });
-
     // Esc cancels the picker; in first-run mode that closes the TUI (the host
     // sees no configured connection) rather than dropping into a driver-less editor.
     terminal.input('\x1b');
@@ -581,9 +703,7 @@ describe('Maka Pi TUI runner', () => {
       permissionMode: 'bypass',
       terminal,
       firstRun: true,
-      onboarding: {
-        setup: async () => ({}),
-      },
+      onboarding: fakeOnboardingSurface(),
     });
 
     await waitFor(() => {
@@ -615,7 +735,7 @@ describe('Maka Pi TUI runner', () => {
       permissionMode: 'bypass',
       terminal,
       firstRun: true,
-      onboarding: { setup: async () => ({}) },
+      onboarding: fakeOnboardingSurface(),
     });
 
     await waitFor(() => {
@@ -646,10 +766,10 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
-  test('onboarding wizard keeps verifying/failure status beside the input, out of the transcript', async () => {
+  test('verify/saving status stays beside the input, out of the transcript', async () => {
     const terminal = new FakeTerminal();
     const driver = new SlashCommandDriver();
-    const setupCalls: Array<{ apiKey: string }> = [];
+    const verifyCalls: string[] = [];
     const run = runMakaPiTui({
       title: 'Maka',
       driver,
@@ -658,12 +778,14 @@ describe('Maka Pi TUI runner', () => {
       connectionSlug: 'claude-subscription',
       permissionMode: 'bypass',
       terminal,
-      onboarding: {
-        setup: async (req) => {
-          setupCalls.push({ apiKey: req.apiKey });
-          return setupCalls.length === 1 ? { testError: 'HTTP 401 Unauthorized' } : {};
+      onboarding: fakeOnboardingSurface({
+        verify: async (input) => {
+          verifyCalls.push(input.apiKey ?? '');
+          return verifyCalls.length === 1
+            ? { kind: 'error', text: 'HTTP 401 Unauthorized' }
+            : { kind: 'ok', models: [{ id: 'gpt-5.5' }] };
         },
-      },
+      }),
     });
 
     await delay(20);
@@ -676,7 +798,7 @@ describe('Maka Pi TUI runner', () => {
         return false;
       }
     });
-    terminal.input('\r'); // pick the highlighted provider -> key phase
+    terminal.input('\r'); // pick provider -> key phase
     await waitFor(() => {
       try {
         return latestPlainLineContaining(terminal.writes.join(''), 'API key') !== null;
@@ -684,11 +806,9 @@ describe('Maka Pi TUI runner', () => {
         return false;
       }
     });
-
-    // A failing probe surfaces the error beside the key field (wizard overlay).
     terminal.input('sk-bad');
     terminal.input('\r');
-    await waitFor(() => setupCalls.length === 1);
+    await waitFor(() => verifyCalls.length === 1);
     await waitFor(() => {
       try {
         return latestPlainLineContaining(terminal.writes.join(''), '验证失败') !== null;
@@ -696,21 +816,12 @@ describe('Maka Pi TUI runner', () => {
         return false;
       }
     });
-
-    // A succeeding retry closes the wizard. The in-flight failure status lived
-    // only in the overlay, so once it closes it leaves no residue in the
-    // transcript — only the completed-configuration event remains on screen.
+    // A succeeding retry advances to the models step. The in-flight failure
+    // status lived only in the overlay, so it leaves no residue in the transcript.
     terminal.input('sk-good');
     terminal.input('\r');
-    await waitFor(() => setupCalls.length === 2);
-    await waitFor(() => {
-      try {
-        return latestPlainLineContaining(terminal.writes.join(''), '已配置') !== null;
-      } catch {
-        return false;
-      }
-    });
-
+    await waitFor(() => verifyCalls.length === 2);
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('3/3'));
     assert.doesNotMatch(plainTerminalOutput(terminal.screenOutput()), /验证失败/);
 
     process.emit('SIGTERM');
@@ -722,7 +833,7 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
-  test('onboarding wizard key Esc returns to the provider search', async () => {
+  test('key Esc returns to the provider search (step 1/3)', async () => {
     const terminal = new FakeTerminal();
     const driver = new SlashCommandDriver();
     const run = runMakaPiTui({
@@ -733,7 +844,7 @@ describe('Maka Pi TUI runner', () => {
       connectionSlug: 'claude-subscription',
       permissionMode: 'bypass',
       terminal,
-      onboarding: { setup: async () => ({}) },
+      onboarding: fakeOnboardingSurface(),
     });
 
     await delay(20);
@@ -746,7 +857,7 @@ describe('Maka Pi TUI runner', () => {
         return false;
       }
     });
-    terminal.input('\r'); // pick the highlighted provider -> key phase
+    terminal.input('\r'); // pick provider -> key phase
     await waitFor(() => {
       try {
         return latestPlainLineContaining(terminal.writes.join(''), 'API key') !== null;
@@ -754,14 +865,838 @@ describe('Maka Pi TUI runner', () => {
         return false;
       }
     });
-
     // Esc from the key field returns to the search phase: the step marker is
-    // back to 1/2 and the provider list is visible again.
+    // back to 1/3 and the provider list is visible again.
     terminal.input('\x1b');
     await waitFor(() => {
       const out = plainTerminalOutput(terminal.screenOutput());
-      return out.includes('1/2') && out.includes('Anthropic');
+      return out.includes('1/3') && out.includes('Anthropic');
     });
+
+    process.emit('SIGTERM');
+    await Promise.race([
+      run,
+      delay(500).then(() => {
+        throw new Error('TUI did not close after SIGTERM');
+      }),
+    ]);
+  });
+
+  test('models Esc returns to the key step (step 2/3)', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'bypass',
+      terminal,
+      onboarding: fakeOnboardingSurface(),
+    });
+
+    await delay(20);
+    terminal.input('/setup');
+    terminal.input('\r');
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), 'Set Up Provider') !== null;
+      } catch {
+        return false;
+      }
+    });
+    terminal.input('\r'); // pick provider -> key phase
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), 'API key') !== null;
+      } catch {
+        return false;
+      }
+    });
+    terminal.input('sk-test');
+    terminal.input('\r');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('3/3'));
+    // Esc from the models step moves back exactly one level to the key step.
+    terminal.input('\x1b');
+    await waitFor(() => {
+      const out = plainTerminalOutput(terminal.screenOutput());
+      return out.includes('2/3') && out.includes('API key');
+    });
+
+    process.emit('SIGTERM');
+    await Promise.race([
+      run,
+      delay(500).then(() => {
+        throw new Error('TUI did not close after SIGTERM');
+      }),
+    ]);
+  });
+
+  test('models Space toggles selection; Enter saves at least one model', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const saveCalls: Array<{ enabledModelIds: readonly string[] }> = [];
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'bypass',
+      terminal,
+      onboarding: fakeOnboardingSurface({
+        save: async (input) => {
+          saveCalls.push(input);
+          return { kind: 'ok', modelChoices: [] };
+        },
+      }),
+    });
+
+    await delay(20);
+    terminal.input('/setup');
+    terminal.input('\r');
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), 'Set Up Provider') !== null;
+      } catch {
+        return false;
+      }
+    });
+    terminal.input('\r'); // pick provider -> key phase
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), 'API key') !== null;
+      } catch {
+        return false;
+      }
+    });
+    terminal.input('sk-test');
+    terminal.input('\r');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('3/3'));
+    // A new connection starts with no models selected: Enter with 0 does not save.
+    terminal.input('\r');
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), '至少选择一个模型') !== null;
+      } catch {
+        return false;
+      }
+    });
+    assert.equal(saveCalls.length, 0);
+    // Space toggles the highlighted model on; Enter then saves the selection.
+    terminal.input(' ');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('已选 1 ·'));
+    terminal.input('\r');
+    await waitFor(() => saveCalls.length === 1);
+    assert.deepEqual(saveCalls[0]!.enabledModelIds, ['gpt-5.5']);
+
+    process.emit('SIGTERM');
+    await Promise.race([
+      run,
+      delay(500).then(() => {
+        throw new Error('TUI did not close after SIGTERM');
+      }),
+    ]);
+  });
+
+  test('models search field moves the cursor with arrow keys like the other fields', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'bypass',
+      terminal,
+      onboarding: fakeOnboardingSurface(),
+    });
+
+    await delay(20);
+    terminal.input('/setup');
+    terminal.input('\r');
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), 'Set Up Provider') !== null;
+      } catch {
+        return false;
+      }
+    });
+    terminal.input('\r'); // pick provider -> key phase
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), 'API key') !== null;
+      } catch {
+        return false;
+      }
+    });
+    terminal.input('sk-test');
+    terminal.input('\r');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('3/3'));
+    terminal.input('gpt'); // type into the model search field
+    await delay(30);
+    terminal.input('\x1b[D'); // left arrow — should move the cursor left
+    terminal.input('x'); // insert x at the cursor (before the t)
+    await delay(30);
+    const out = plainTerminalOutput(terminal.screenOutput());
+    assert.ok(
+      out.includes('gpxt'),
+      'left arrow should move the cursor so x inserts before the final t',
+    );
+    assert.ok(!out.includes('gptx'), 'without the left arrow the x would append after t');
+
+    process.emit('SIGTERM');
+    await Promise.race([
+      run,
+      delay(500).then(() => {
+        throw new Error('TUI did not close after SIGTERM');
+      }),
+    ]);
+  });
+
+  test('model search filters without discarding selections', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const saveCalls: Array<{ enabledModelIds: readonly string[] }> = [];
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'bypass',
+      terminal,
+      onboarding: fakeOnboardingSurface({
+        save: async (input) => {
+          saveCalls.push(input);
+          return { kind: 'ok', modelChoices: [] };
+        },
+      }),
+    });
+
+    await delay(20);
+    terminal.input('/setup');
+    terminal.input('\r');
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), 'Set Up Provider') !== null;
+      } catch {
+        return false;
+      }
+    });
+    terminal.input('\r'); // pick provider -> key phase
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), 'API key') !== null;
+      } catch {
+        return false;
+      }
+    });
+    terminal.input('sk-test');
+    terminal.input('\r');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('3/3'));
+    terminal.input(' '); // toggle the first model on (gpt-5.5)
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('已选 1 ·'));
+    // Filtering to 'mini' hides gpt-5.5, but its selection survives.
+    terminal.input('mini');
+    await waitFor(() => {
+      const out = plainTerminalOutput(terminal.screenOutput());
+      return (
+        out.includes('gpt-5.5-mini') && !out.includes('☐ gpt-5.5 ') && !out.includes('☑ gpt-5.5 ')
+      );
+    });
+    terminal.input(' '); // toggle gpt-5.5-mini on while filtered
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('已选 2 ·'));
+    terminal.input('\r');
+    await waitFor(() => saveCalls.length === 1);
+    // Both selections reach save — the filtered-out gpt-5.5 was not discarded.
+    assert.deepEqual(saveCalls[0]!.enabledModelIds, ['gpt-5.5', 'gpt-5.5-mini']);
+
+    process.emit('SIGTERM');
+    await Promise.race([
+      run,
+      delay(500).then(() => {
+        throw new Error('TUI did not close after SIGTERM');
+      }),
+    ]);
+  });
+
+  test('existing connection preserves its enabled set; new starts empty', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'bypass',
+      terminal,
+      onboarding: fakeOnboardingSurface({
+        providers: defaultOnboardingProviders().map((p) =>
+          p.providerType === 'anthropic'
+            ? { ...p, hasConnection: true, enabledModelIds: ['claude-sonnet-5'] }
+            : p,
+        ),
+        verify: async () => ({
+          kind: 'ok',
+          models: [{ id: 'claude-sonnet-5' }, { id: 'claude-haiku-5' }],
+        }),
+      }),
+    });
+
+    await delay(20);
+    terminal.input('/setup');
+    terminal.input('\r');
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), 'Set Up Provider') !== null;
+      } catch {
+        return false;
+      }
+    });
+    // anthropic may not be the first provider, so filter to it then pick it.
+    terminal.input('anth');
+    await waitFor(() => {
+      const out = plainTerminalOutput(terminal.screenOutput());
+      return out.includes('Anthropic') && !out.includes('DeepSeek');
+    });
+    terminal.input('\r'); // pick anthropic -> key phase
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), 'API key') !== null;
+      } catch {
+        return false;
+      }
+    });
+    terminal.input('\r'); // blank key reuses the stored secret -> verify -> models
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('3/3'));
+    // The existing enabled set (claude-sonnet-5) is pre-selected.
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('已选 1 ·'));
+
+    process.emit('SIGTERM');
+    await Promise.race([
+      run,
+      delay(500).then(() => {
+        throw new Error('TUI did not close after SIGTERM');
+      }),
+    ]);
+  });
+
+  test('blank key for an existing connection reuses the stored secret', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const verifyCalls: Array<{ apiKey?: string }> = [];
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'bypass',
+      terminal,
+      onboarding: fakeOnboardingSurface({
+        providers: defaultOnboardingProviders().map((p) =>
+          p.providerType === 'anthropic'
+            ? { ...p, hasConnection: true, enabledModelIds: ['claude-sonnet-5'] }
+            : p,
+        ),
+        verify: async (input) => {
+          verifyCalls.push(input);
+          return { kind: 'ok', models: [{ id: 'claude-sonnet-5' }] };
+        },
+      }),
+    });
+
+    await delay(20);
+    terminal.input('/setup');
+    terminal.input('\r');
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), 'Set Up Provider') !== null;
+      } catch {
+        return false;
+      }
+    });
+    terminal.input('anth');
+    await waitFor(() => {
+      const out = plainTerminalOutput(terminal.screenOutput());
+      return out.includes('Anthropic') && !out.includes('DeepSeek');
+    });
+    terminal.input('\r'); // pick anthropic -> key phase
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), 'API key') !== null;
+      } catch {
+        return false;
+      }
+    });
+    terminal.input('\r'); // blank submit reuses the stored secret
+    await waitFor(() => verifyCalls.length === 1);
+    assert.equal(verifyCalls[0]!.apiKey, '');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('3/3'));
+
+    process.emit('SIGTERM');
+    await Promise.race([
+      run,
+      delay(500).then(() => {
+        throw new Error('TUI did not close after SIGTERM');
+      }),
+    ]);
+  });
+
+  test('key rotation passes the new key to verify and save', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const verifyCalls: Array<{ apiKey?: string }> = [];
+    const saveCalls: Array<{ apiKey?: string; enabledModelIds: readonly string[] }> = [];
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'bypass',
+      terminal,
+      onboarding: fakeOnboardingSurface({
+        providers: defaultOnboardingProviders().map((p) =>
+          p.providerType === 'anthropic'
+            ? { ...p, hasConnection: true, enabledModelIds: ['claude-sonnet-5'] }
+            : p,
+        ),
+        verify: async (input) => {
+          verifyCalls.push(input);
+          return { kind: 'ok', models: [{ id: 'claude-sonnet-5' }, { id: 'claude-haiku-5' }] };
+        },
+        save: async (input) => {
+          saveCalls.push(input);
+          return { kind: 'ok', modelChoices: [] };
+        },
+      }),
+    });
+
+    await delay(20);
+    terminal.input('/setup');
+    terminal.input('\r');
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), 'Set Up Provider') !== null;
+      } catch {
+        return false;
+      }
+    });
+    terminal.input('anth');
+    await waitFor(() => {
+      const out = plainTerminalOutput(terminal.screenOutput());
+      return out.includes('Anthropic') && !out.includes('DeepSeek');
+    });
+    terminal.input('\r'); // pick anthropic -> key phase
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), 'API key') !== null;
+      } catch {
+        return false;
+      }
+    });
+    terminal.input('sk-rotated');
+    terminal.input('\r');
+    await waitFor(() => verifyCalls.length === 1);
+    assert.equal(verifyCalls[0]!.apiKey, 'sk-rotated');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('3/3'));
+    // The preserved enabled set already satisfies the minimum, so Enter saves.
+    terminal.input('\r');
+    await waitFor(() => saveCalls.length === 1);
+    assert.equal(saveCalls[0]!.apiKey, 'sk-rotated');
+    assert.deepEqual(saveCalls[0]!.enabledModelIds, ['claude-sonnet-5']);
+
+    process.emit('SIGTERM');
+    await Promise.race([
+      run,
+      delay(500).then(() => {
+        throw new Error('TUI did not close after SIGTERM');
+      }),
+    ]);
+  });
+
+  test('save refreshes the running TUI model choices, shows success in-frame, and does not switch the session', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const saveCalls: Array<{ enabledModelIds: readonly string[] }> = [];
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'bypass',
+      terminal,
+      onboarding: fakeOnboardingSurface({
+        save: async (input) => {
+          saveCalls.push(input);
+          return {
+            kind: 'ok',
+            modelChoices: [
+              {
+                connectionSlug: 'openai',
+                connectionName: 'OpenAI',
+                providerType: 'openai',
+                model: 'gpt-5.5-new',
+                isDefaultConnection: true,
+              },
+            ],
+          };
+        },
+      }),
+    });
+
+    await delay(20);
+    terminal.input('/setup');
+    terminal.input('\r');
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), 'Set Up Provider') !== null;
+      } catch {
+        return false;
+      }
+    });
+    terminal.input('\r'); // pick provider -> key phase
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), 'API key') !== null;
+      } catch {
+        return false;
+      }
+    });
+    terminal.input('sk-test');
+    terminal.input('\r');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('3/3'));
+    terminal.input(' '); // toggle the first model on
+    terminal.input('\r'); // save
+    await waitFor(() => saveCalls.length === 1);
+    // Success shows the enabled-model count in-frame; no transcript setup Note.
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('已启用 1 个模型'));
+    assert.doesNotMatch(plainTerminalOutput(terminal.screenOutput()), /已配置/);
+    terminal.input('\r'); // close the in-frame success
+    await delay(40);
+    // The refreshed ready model choices are immediately available from /model.
+    terminal.input('/model');
+    terminal.input('\r');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('gpt-5.5-new'));
+    // Setup never switched the active session (no setModel call).
+    assert.deepEqual(driver.models, []);
+
+    process.emit('SIGTERM');
+    await Promise.race([
+      run,
+      delay(500).then(() => {
+        throw new Error('TUI did not close after SIGTERM');
+      }),
+    ]);
+  });
+
+  test('first-run setup save closes the TUI so the host re-resolves the new default', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const saveCalls: Array<{ enabledModelIds: readonly string[] }> = [];
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: '',
+      connectionSlug: '',
+      permissionMode: 'bypass',
+      terminal,
+      firstRun: true,
+      onboarding: fakeOnboardingSurface({
+        save: async (input) => {
+          saveCalls.push(input);
+          return { kind: 'ok', modelChoices: [] };
+        },
+      }),
+    });
+
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), 'Set Up Provider') !== null;
+      } catch {
+        return false;
+      }
+    });
+    terminal.input('\r'); // pick provider -> key phase
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), 'API key') !== null;
+      } catch {
+        return false;
+      }
+    });
+    terminal.input('sk-test');
+    terminal.input('\r');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('3/3'));
+    terminal.input(' '); // toggle the first model on
+    terminal.input('\r'); // save -> first-run closes the TUI for re-entry
+    await waitFor(() => saveCalls.length === 1);
+    // The wizard does not show an in-frame success on first run; it closes so the
+    // host re-resolves the now-configured default connection and relaunches.
+    await Promise.race([
+      run,
+      delay(500).then(() => {
+        throw new Error('first-run TUI did not close after save');
+      }),
+    ]);
+  });
+
+  test('wizard ignores a verify result from an abandoned attempt', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const verifyCalls: Array<{ apiKey?: string }> = [];
+    let resolveFirst!: (value: OnboardingVerifyResult) => void;
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'bypass',
+      terminal,
+      onboarding: fakeOnboardingSurface({
+        verify: (input) => {
+          verifyCalls.push({ apiKey: input.apiKey });
+          return verifyCalls.length === 1
+            ? new Promise<OnboardingVerifyResult>((r) => {
+                resolveFirst = r;
+              })
+            : Promise.resolve<OnboardingVerifyResult>({ kind: 'ok', models: [{ id: 'gpt-5.5' }] });
+        },
+      }),
+    });
+
+    await delay(20);
+    terminal.input('/setup');
+    terminal.input('\r');
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), 'Set Up Provider') !== null;
+      } catch {
+        return false;
+      }
+    });
+    terminal.input('\r'); // pick provider A -> key phase
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), 'API key') !== null;
+      } catch {
+        return false;
+      }
+    });
+    terminal.input('sk-a');
+    terminal.input('\r'); // submit A — verify deferred, wizard shows verifying
+    await waitFor(() => verifyCalls.length === 1);
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), '验证') !== null;
+      } catch {
+        return false;
+      }
+    });
+    // Abandon A: Esc back to search, move to the second provider, pick it, and
+    // start typing its key (do not submit).
+    terminal.input('\x1b');
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), '1/3') !== null;
+      } catch {
+        return false;
+      }
+    });
+    terminal.input('\x1b[B'); // down to the second provider
+    terminal.input('\r');
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), 'API key') !== null;
+      } catch {
+        return false;
+      }
+    });
+    terminal.input('sk-b');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('sk-b'));
+    // A's verify now resolves with a failure. It must not clobber attempt B:
+    // no failure status line, and the key being typed for B survives.
+    resolveFirst({ kind: 'error', text: 'HTTP 401 Unauthorized' });
+    await delay(40);
+
+    const out = plainTerminalOutput(terminal.screenOutput());
+    assert.doesNotMatch(out, /验证失败/);
+    assert.ok(out.includes('sk-b'));
+
+    process.emit('SIGTERM');
+    await Promise.race([
+      run,
+      delay(500).then(() => {
+        throw new Error('TUI did not close after SIGTERM');
+      }),
+    ]);
+  });
+
+  test('wizard ignores a save result from an abandoned attempt', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const saveCalls: Array<{ enabledModelIds: readonly string[] }> = [];
+    let resolveFirstSave!: (value: OnboardingSaveResult) => void;
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'bypass',
+      terminal,
+      onboarding: fakeOnboardingSurface({
+        save: (input) => {
+          saveCalls.push(input);
+          return saveCalls.length === 1
+            ? new Promise<OnboardingSaveResult>((r) => {
+                resolveFirstSave = r;
+              })
+            : Promise.resolve<OnboardingSaveResult>({ kind: 'ok', modelChoices: [] });
+        },
+      }),
+    });
+
+    await delay(20);
+    terminal.input('/setup');
+    terminal.input('\r');
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), 'Set Up Provider') !== null;
+      } catch {
+        return false;
+      }
+    });
+    terminal.input('\r'); // pick provider -> key phase
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), 'API key') !== null;
+      } catch {
+        return false;
+      }
+    });
+    terminal.input('sk-test');
+    terminal.input('\r'); // verify ok -> models
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('3/3'));
+    terminal.input(' '); // toggle the first model on
+    terminal.input('\r'); // save A — deferred
+    await waitFor(() => saveCalls.length === 1);
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), '保存') !== null;
+      } catch {
+        return false;
+      }
+    });
+    // Abandon A: Esc back to the key step.
+    terminal.input('\x1b');
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), '2/3') !== null;
+      } catch {
+        return false;
+      }
+    });
+    // A's save now resolves ok. It must not show success or refresh choices.
+    resolveFirstSave({ kind: 'ok', modelChoices: [] });
+    await delay(40);
+    assert.doesNotMatch(plainTerminalOutput(terminal.screenOutput()), /已启用/);
+
+    process.emit('SIGTERM');
+    await Promise.race([
+      run,
+      delay(500).then(() => {
+        throw new Error('TUI did not close after SIGTERM');
+      }),
+    ]);
+  });
+
+  test('save refreshes the running model choices even when the user backs out during saving', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    let resolveFirstSave!: (value: OnboardingSaveResult) => void;
+    const saveCalls: Array<{ enabledModelIds: readonly string[] }> = [];
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'bypass',
+      terminal,
+      onboarding: fakeOnboardingSurface({
+        save: (input) => {
+          saveCalls.push(input);
+          return new Promise<OnboardingSaveResult>((r) => {
+            resolveFirstSave = r;
+          });
+        },
+      }),
+    });
+
+    await delay(20);
+    terminal.input('/setup');
+    terminal.input('\r');
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), 'Set Up Provider') !== null;
+      } catch {
+        return false;
+      }
+    });
+    terminal.input('\r'); // pick provider -> key phase
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), 'API key') !== null;
+      } catch {
+        return false;
+      }
+    });
+    terminal.input('sk-test');
+    terminal.input('\r');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('3/3'));
+    terminal.input(' '); // toggle the first model on
+    terminal.input('\r'); // save — deferred
+    await waitFor(() => saveCalls.length === 1);
+    // Back out during saving: Esc to the key step, then Ctrl+C to close the wizard.
+    terminal.input('\x1b');
+    await waitFor(() => {
+      try {
+        return latestPlainLineContaining(terminal.writes.join(''), '2/3') !== null;
+      } catch {
+        return false;
+      }
+    });
+    terminal.input('\x03'); // Ctrl+C closes the wizard
+    await delay(30);
+    // The save completes after the user left. The running TUI's ready model
+    // choices are still authoritatively refreshed — abandoning the wizard only
+    // drops the in-frame success UI, not the background state sync.
+    resolveFirstSave({
+      kind: 'ok',
+      modelChoices: [
+        {
+          connectionSlug: 'openai',
+          connectionName: 'OpenAI',
+          providerType: 'openai',
+          model: 'gpt-5.5-new',
+          isDefaultConnection: true,
+        },
+      ],
+    });
+    await delay(40);
+    terminal.input('/model');
+    terminal.input('\r');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('gpt-5.5-new'));
+    assert.deepEqual(driver.models, []);
 
     process.emit('SIGTERM');
     await Promise.race([
@@ -789,7 +1724,7 @@ describe('Maka Pi TUI runner', () => {
       permissionMode: 'bypass',
       terminal,
       firstRun: true,
-      onboarding: { setup: async () => ({}) },
+      onboarding: fakeOnboardingSurface(),
     });
 
     await waitFor(() => {
@@ -855,7 +1790,7 @@ describe('Maka Pi TUI runner', () => {
       permissionMode: 'bypass',
       terminal,
       firstRun: true,
-      onboarding: { setup: async () => ({}) },
+      onboarding: fakeOnboardingSurface(),
     });
 
     await waitFor(() => {
@@ -914,7 +1849,7 @@ describe('Maka Pi TUI runner', () => {
       permissionMode: 'bypass',
       terminal,
       firstRun: true,
-      onboarding: { setup: async () => ({}) },
+      onboarding: fakeOnboardingSurface(),
     });
 
     await waitFor(() => {
@@ -968,7 +1903,7 @@ describe('Maka Pi TUI runner', () => {
       permissionMode: 'bypass',
       terminal,
       firstRun: true,
-      onboarding: { setup: async () => ({}) },
+      onboarding: fakeOnboardingSurface(),
     });
 
     await waitFor(() => {
@@ -1002,7 +1937,7 @@ describe('Maka Pi TUI runner', () => {
       permissionMode: 'bypass',
       terminal,
       firstRun: true,
-      onboarding: { setup: async () => ({}) },
+      onboarding: fakeOnboardingSurface(),
     });
 
     await waitFor(() => {
@@ -1028,102 +1963,6 @@ describe('Maka Pi TUI runner', () => {
       run,
       delay(500).then(() => {
         throw new Error('Ctrl+C did not close the first-run wizard from the key phase');
-      }),
-    ]);
-  });
-
-  test('onboarding wizard ignores a setup result from an abandoned attempt', async () => {
-    const terminal = new FakeTerminal();
-    const driver = new SlashCommandDriver();
-    const setupCalls: Array<{ apiKey: string }> = [];
-    let resolveFirst!: (value: { testError?: string }) => void;
-    const run = runMakaPiTui({
-      title: 'Maka',
-      driver,
-      cwd: '/repo',
-      model: 'claude-sonnet-4-5',
-      connectionSlug: 'claude-subscription',
-      permissionMode: 'bypass',
-      terminal,
-      onboarding: {
-        setup: (req) => {
-          setupCalls.push({ apiKey: req.apiKey });
-          // First attempt stays in flight (deferred); the user abandons it.
-          return setupCalls.length === 1
-            ? new Promise((r) => {
-                resolveFirst = r;
-              })
-            : Promise.resolve({});
-        },
-      },
-    });
-
-    await delay(20);
-    terminal.input('/setup');
-    terminal.input('\r');
-    await waitFor(() => {
-      try {
-        return latestPlainLineContaining(terminal.writes.join(''), 'Set Up Provider') !== null;
-      } catch {
-        return false;
-      }
-    });
-    terminal.input('\r'); // pick provider A -> key phase
-    await waitFor(() => {
-      try {
-        return latestPlainLineContaining(terminal.writes.join(''), 'API key') !== null;
-      } catch {
-        return false;
-      }
-    });
-
-    terminal.input('sk-a');
-    terminal.input('\r'); // submit A — probe deferred, wizard shows verifying
-    await waitFor(() => setupCalls.length === 1);
-    await waitFor(() => {
-      try {
-        return latestPlainLineContaining(terminal.writes.join(''), '验证') !== null;
-      } catch {
-        return false;
-      }
-    });
-
-    // Abandon A: Esc back to search, move to the second provider, pick it, and
-    // start typing its key (do not submit).
-    terminal.input('\x1b');
-    await waitFor(() => {
-      try {
-        return latestPlainLineContaining(terminal.writes.join(''), '1/2') !== null;
-      } catch {
-        return false;
-      }
-    });
-    terminal.input('\x1b[B'); // down to the second provider
-    terminal.input('\r');
-    await waitFor(() => {
-      try {
-        return latestPlainLineContaining(terminal.writes.join(''), 'API key') !== null;
-      } catch {
-        return false;
-      }
-    });
-    terminal.input('sk-b');
-    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('sk-b'));
-
-    // A's probe now resolves with a failure. It must not clobber attempt B:
-    // no failure status line, and the key being typed for B survives.
-    resolveFirst({ testError: 'HTTP 401 Unauthorized' });
-    await delay(40);
-
-    const out = plainTerminalOutput(terminal.screenOutput());
-    assert.doesNotMatch(out, /验证失败/);
-    assert.ok(out.includes('sk-b'));
-
-    process.emit('SIGTERM');
-    await Promise.race([
-      run,
-      delay(500).then(() => {
-        throw new Error('TUI did not close after SIGTERM');
       }),
     ]);
   });

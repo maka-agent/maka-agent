@@ -113,12 +113,86 @@ workspaces are exit 0 today; R1 makes them also report ZERO hints. Storybook sto
   AUDIT_PORT_BASE=24500 alignment auditor exit 0 (all 11 fixtures clean — full-app boot
   proves main.ts still assembles), turn-narrative CDP smoke renders the chat surface (10
   turns + composer). R5/R6 line boundaries below shift up by ~247.
-- [ ] **R5 — main.ts settings-runtime-effects + session-stream core splits (~L1360–1642).
-  Requires maintainer-approved contract re-pin.** Same direct-pin constraint as R4.
-- [ ] **R6 — main.ts startup/lifecycle module (~L1642–1865). Requires maintainer-approved
-  contract re-pin.** The post-`registerIpc()` startup/lifecycle tail. Same constraint.
-  (main.ts is 1871 lines total; R4–R6 line boundaries are the audit's approximate ranges
-  and must be re-verified against the tip at implementation time.)
+- [x] **R5 — main.ts settings-runtime-effects + session-stream core splits (shipped
+  `chore/arch-round-5`, main.ts 1656 → 1372, −284).** Two pure-move modules under
+  `apps/desktop/src/main/` (one commit each). Post-R4 the clusters had shifted far from
+  the map's pre-R4 estimates — session-stream sat EARLY (modelSupportsVision + the ai-sdk
+  register at ~L720–861, before registerIpc), settings runtime-effects at ~L1145–1204;
+  true ranges were re-read at implementation time.
+  `settings-runtime-effects.ts` (127 lines) exports `createSettingsRuntimeEffects(deps)`
+  → `{ normalizeSettingsPatch, applySettingsRuntimeEffects, handleExternalSettingsChange }`
+  (internal `syncDefaultPermissionModeToSessions`); deps = settingsStore / botRegistry /
+  openGateway / keepSystemAwake / runtime / safeSendToRenderer / emitSessionsChanged.
+  The keep-awake runtime-effect (#1207) rides `applySettingsRuntimeEffects` byte-identical.
+  `session-stream.ts` (409 lines) exports `createAiSdkBackendFactory(deps): BackendFactory`
+  (the entire `backends.register('ai-sdk', …)` closure + the internal `modelSupportsVision`)
+  and `createSessionStreamer(deps): StreamEvents` (`streamEvents` + the two event
+  classifiers + StreamEventsOptions/Result). Entanglement seams handled without behavior
+  change: `getRuntime: () => runtime` (SessionManager is constructed AFTER the register
+  point — the register call stays put so registry-construction order is preserved) and
+  `getLookupPricing: () => lookupPricing` (the module-`let` is reassigned by usage IPC +
+  startup; used in BOTH the snapshot `lookupPricing` field and the live-read
+  `recordLlmCall` closure — a single accessor reproduces both exactly). `desktopSessionSkillHosts`
+  Map + `sessionActivities` + the `lookupPricing` let + `runtime` + the fake/e2e backend
+  registers + every `streamEvents` call site stay in main.ts. Contract re-pins
+  (maintainer-authorized): added both module paths to the
+  `main-process-contract-source-helpers` aggregator; switched three direct-main.ts readers
+  to the combined source keeping every assertion — `attachment-frontend-contract`
+  (modelSupportsVision + `const supportsVision` + `supportsVision,` vision pin, which was
+  main.ts-anchored → re-pinned to the aggregator), `ipc-surface-contract` (memoryPromptSnapshot
+  + buildBackendSystemPrompt childInstruction), `web-search-telemetry-scrub-contract`
+  (argsSummary scrub); allowlisted the moved `[config-watcher]` console.error at its new
+  path in check-console.mjs. `main-process-wiring-contract` (registerIpc anchor) untouched.
+  Gates: desktop 2744 + ui 196 suites green, 4-tsconfig + ui typecheck clean, check-dead-css
+  clean, knip ×2 exit 0 (zero hints), AUDIT_PORT_BASE=24700 alignment auditor exit 0 (all 11
+  fixtures clean — full-app boot proves main.ts still assembles + registers the ai-sdk
+  backend), CDP smoke: turn-narrative renders chat turns + composer + textarea (the hot
+  path), settings-general renders 65 interactive controls (settings-runtime-effects feeds
+  it). R6 line boundary below shifts up by ~284.
+- [x] **R6 — main.ts startup/lifecycle module (shipped `chore/arch-round-6`, main.ts
+  1372 → 1175, −197).** One pure-move module `apps/desktop/src/main/app-lifecycle.ts`
+  (335 lines) exports `wireAppLifecycle(deps): void` — the entire post-`registerIpc()`
+  startup/lifecycle tail: the `app.whenReady()` flow (dock icon / visual-smoke seeding /
+  credential startup / window creation / background startup), `runCredentialStartup` /
+  `runBackgroundStartup` / `ensureBootstrapConnection` / `recoverInterruptedSessionsOnStartup`,
+  the `window-all-closed` + `before-quit` handlers, and `runBeforeQuitCleanup`. Startup
+  ORDER (whenReady → credential migration → second-instance/activate → background startup →
+  createWindow → await) and teardown ORDER (#1197 botOnboarding/botRegistry dispose,
+  scheduler, keep-awake-dies-with-process) are byte-identical to the originals; every
+  process-scoped collaborator is injected. Entanglement seams follow the R5 accessor
+  precedent: `setLookupPricing` reassigns the module-`let` pricing lookup (read live by the
+  session streamer + usage IPC) and `getSettingsIpc: () => settingsIpc` reads the handle
+  assigned inside `registerIpc()`; `configWatcher` + the `beforeQuitCleanup{Started,Complete}`
+  flags become `wireAppLifecycle` closure state. Stayed in main.ts (injected in): the
+  single-instance lock + `registerIpc()` anchor, `focusOrCreateMainWindow` (next to the
+  window controller), `emitConnectionListChanged` / `emitSessionsChanged`,
+  `computerUseCapabilityInput`, the `lookupPricing` + `settingsIpc` module-`let`s, and
+  `keepSystemAwake`. No entangled remainder — the tail moved whole. Contract re-pins
+  (maintainer-authorized): added `app-lifecycle.ts` to the
+  `main-process-contract-source-helpers` aggregator; switched five direct-main.ts readers
+  of the moved slices to the combined source keeping every assertion —
+  `session-startup-recovery-contract` (runBackgroundStartup block + recovery + whenReady
+  ordering; block-closer regex relaxed for the now in-function indentation per the R4
+  precedent), `runtime-resume-routing-contract` (recovery block, same relaxation),
+  `subscription-shared-credential-store` (safeStorage-never-invoked + one-shot OAuth import
+  + credential-migration ordering), `single-instance-lock-contract` (the second-instance/
+  activate wiring case only — the lock + focusOrCreateMainWindow-definition assertions stay
+  on main.ts). `credential-store-secret-kinds-contract` + `computer-use-capability` +
+  `window-reveal-after-first-commit-contract` already read the combined source, so the
+  aggregator addition carried them. Allowlisted app-lifecycle.ts's startup/shutdown console
+  sites in check-console.mjs. `main-process-wiring-contract` (registerIpc anchor) untouched.
+  Startup fail-soft contracts do NOT read main.ts slices (`renderer-startup-fail-soft`
+  reads the renderer-shell + settings combined sources) — no re-pin needed. Gates: desktop
+  2744 + ui 196 suites green, 4-tsconfig + ui typecheck clean, check-dead-css clean, knip
+  ×2 exit 0 (zero hints), check-console OK, AUDIT_PORT_BASE=25100 alignment auditor exit 0
+  (all 11 fixtures clean — every fixture is a full app boot AND teardown, the strongest
+  lifecycle proof). CDP turn-narrative renders the chat surface (composer + textarea +
+  data-turn-id turns). Quit-path independently verified past the auditor's SIGKILL: a manual
+  boot + graceful `app.quit()` drove `before-quit` → `runBeforeQuitCleanup` → window
+  torn-down → **process exited code 0 @265ms, no orphan, no cleanup failures** (window
+  closes only after cleanup completes, so this proves the moved teardown ran end-to-end);
+  confirmed behavior-identical to the pre-R6 baseline. Campaign main.ts total: 1903 → 1175
+  (−728 across R4–R6).
 - [ ] **R7 — provider-connection-detail.tsx controller-hook decomposition.** 983 lines,
   17 useState — the renderer's densest remaining state cluster. Needs its own blade plan
   (which state clusters extract into which controller hooks, which contracts pin the file)
