@@ -17,6 +17,56 @@ No source code, prompts, or documentation are copied from the paper's reference
 repository. The Maka implementation is built independently on Maka's existing
 event-ledger and Artifact Store contracts.
 
+## Status and audience
+
+This document is the stable architecture and safety contract for the initial
+Deep Research workspace shipped by PR #1227. It is intended for:
+
+- reviewers checking issue #566 against the implementation;
+- runtime and storage maintainers evolving the ledger or tools;
+- Desktop maintainers consuming the projected run state; and
+- contributors adding local exploration, web research, or report-generation
+  behavior without weakening the read-only boundary.
+
+Code and contract tests remain authoritative if this document and the
+implementation disagree.
+
+## Reviewer summary
+
+The change deliberately separates workflow metadata from large research
+content:
+
+| Concern | Authority | Main implementation |
+| --- | --- | --- |
+| Run lifecycle and invariants | Event projection | `packages/core/src/deep-research-run.ts` |
+| Append-only persistence and replay | Deep Research store | `packages/storage/src/deep-research-store.ts` |
+| Source, note, and report bodies | Existing Artifact Store | `packages/core/src/artifacts.ts` |
+| Model-facing mutations and reads | Eight runtime tools | `packages/runtime/src/deep-research-tools.ts` |
+| Session gating and IPC | Desktop main/preload | `apps/desktop/src/main/main.ts`, `apps/desktop/src/preload/preload.ts` |
+| Visible progress and handoff | Desktop renderer/UI | `apps/desktop/src/renderer/use-deep-research-run.ts`, `packages/ui/src/chat-view.tsx` |
+
+The highest-risk review areas are:
+
+1. projection invariants and failure behavior for corrupt or conflicting events;
+2. artifact ownership, source traceability, and integrity-checked reads;
+3. root-session gating for Maka-owned write tools; and
+4. the explicit transition from a read-only research session to a new normal
+   implementation task.
+
+## Paper-to-Maka mapping
+
+The paper describes a persistent workspace shared by a Context Builder and a
+Report Writer. Maka adopts the systems boundary, not the reference
+implementation:
+
+| FS-Researcher idea | Maka reproduction | Deliberate difference |
+| --- | --- | --- |
+| File system as external memory | JSONL event ledger plus Artifact Store | Maka reuses app-owned storage rather than exposing arbitrary project paths |
+| Context Builder archives sources and notes | `source` and `evidence_note` artifacts with explicit provenance | Search and worker scheduling remain bounded, separately authorized substeps |
+| Report Writer consumes the knowledge base | Outline, five report sections, final report, and handoff artifacts | Completion is enforced by projection invariants rather than prompt convention alone |
+| Work survives context boundaries | Status projection and chunked artifact reads | Resume fails closed on corrupt state or integrity mismatch |
+| Multiple agents coordinate through durable files | Research steps can record worker run ids and evidence | The initial slice records workers but does not introduce a new autonomous scheduler |
+
 ## Scope
 
 This slice adds a bounded, inspectable research workspace. It provides:
@@ -65,6 +115,50 @@ Every mutation includes available run, turn, and tool-call references. The
 event is projected and validated before it is appended. Corrupt JSONL fails
 closed instead of returning a partial workspace.
 
+## Lifecycle and state model
+
+```text
+not started
+    |
+    | research_started
+    v
+knowledge_base (active or blocked)
+    |
+    | archived sources + evidence + bounded steps + checkpoints
+    v
+report_writing (active or blocked)
+    |
+    | five completed sections + final report + handoff
+    v
+completed
+```
+
+Stages and checkpoint rounds are monotonic. A completed run is terminal:
+subsequent mutations are rejected, except an exact replay of the original
+tool call.
+
+### Event types
+
+| Event | Purpose | Important validation |
+| --- | --- | --- |
+| `research_started` | Establish objective and scope | Must be first and unique |
+| `research_artifact_recorded` | Attach source or derived artifact metadata | Derived artifacts must cite archived source artifacts |
+| `research_checklist_updated` | Persist required review progress | Evidence and blocker fields must match the status |
+| `research_step_recorded` | Record bounded local or web work | Requires roots or keywords, stop condition, and evidence contract |
+| `research_checkpoint_recorded` | Mark resumable progress | Round and stage cannot regress |
+| `research_completed` | Seal report and implementation handoff | Requires sources, settled checklist, five sections, report, and handoff |
+
+### Artifact roles
+
+| Role | Meaning | Source-reference rule |
+| --- | --- | --- |
+| `source` | Archived raw source or inspectable primary material | No parent source required |
+| `evidence_note` | Derived finding or comparison note | Must cite one or more `source` artifacts |
+| `outline` | Planned report structure | Must cite one or more `source` artifacts |
+| `report_section` | One required report section | Must cite sources and carry section key/status |
+| `report` | Final user-facing research report | Must cite one or more `source` artifacts |
+| `handoff` | Structured implementation input | Must cite one or more `source` artifacts |
+
 ## Tool protocol
 
 The root Deep Research agent follows this sequence:
@@ -92,6 +186,20 @@ Save-artifact ids also derive from session, turn, and tool-call ids. If ledger
 validation fails after an artifact body was created, the artifact is rolled
 back.
 
+## Resume and failure semantics
+
+| Situation | Behavior |
+| --- | --- |
+| Process or model-context restart | Reproject the JSONL ledger, call `deep_research_status`, then read only required artifacts |
+| Exact mutation retry | Return the existing projection without appending a duplicate event |
+| Same tool-call id with different input | Reject the request as a semantic conflict |
+| Invalid event or invariant regression | Validate before append and leave the ledger unchanged |
+| Artifact created but event rejected | Roll back the newly created artifact |
+| Corrupt JSONL | Fail closed; do not expose a partial run |
+| Missing, deleted, or cross-session artifact | Reject the read |
+| Artifact content hash mismatch | Reject the read as an integrity failure |
+| Interrupted or blocked research | Preserve checkpoint, blocker, inspected refs, and collected evidence for review/resume |
+
 ## Read-only implementation handoff
 
 Completion does not change the research session's permission mode. The Desktop
@@ -118,6 +226,61 @@ Status and artifact text are secret-redacted and strip forged workspace
 envelope tags before they are returned to the model. Artifact reads verify
 session ownership, live state, source type, and the SHA-256 hash recorded in the
 ledger.
+
+## Compatibility and operating limits
+
+The initial run schema is version `1`. The ledger is append-only and has no
+in-place migration path in this slice. A future schema change must either remain
+backward-projectable or introduce an explicit migration with fixture coverage.
+
+Limits are defensive bounds, not product targets:
+
+| Limit | Value |
+| --- | ---: |
+| Artifacts per run | 2,000 |
+| Research steps per run | 500 |
+| Checkpoints per run | 500 |
+| Checklist items per run | 50 |
+| Inspected refs per step | 200 |
+| Artifact body accepted by a tool | 512,000 characters |
+| Artifact body returned in one read | 64,000 characters |
+| Artifacts included in status output | Most recent 100 |
+
+These bounds prevent an untrusted or looping model from turning projection or
+status rendering into an unbounded operation. Large research bodies are read in
+chunks and remain outside the event ledger.
+
+## Non-goals and follow-up seams
+
+The initial reproduction does not claim to provide:
+
+- a new search provider, browser driver, citation-ranking algorithm, or
+  automatic bibliography formatter;
+- an autonomous scheduler for worker runs;
+- clickable artifact/ref drill-down throughout the progress panel;
+- ledger compaction, indexing, or schema migration;
+- a report-quality benchmark equivalent to the paper's evaluation; or
+- permission to modify the user's project from a Deep Research session.
+
+Those capabilities should build on this contract in separate changes rather
+than widening the initial persistence and permission boundary.
+
+## Reviewer checklist
+
+- [ ] Only root sessions labeled `mode:deep_research` receive the eight tools.
+- [ ] Tool writes are limited to Maka-owned ledger and artifact state.
+- [ ] Derived artifacts cannot be recorded without archived-source provenance.
+- [ ] Exact retries are idempotent and conflicting retries fail closed.
+- [ ] Stage/round regression, corrupt ledgers, and integrity mismatches are
+      rejected.
+- [ ] Completion cannot bypass checklist, section, report, source, or handoff
+      requirements.
+- [ ] Desktop progress comes from the durable projection rather than model-only
+      text.
+- [ ] Completing research does not mutate the original session's `explore`
+      permission.
+- [ ] The implementation handoff creates a normal task, fills but does not send
+      its bounded prompt, and leaves the original run inspectable.
 
 ## Verification
 
