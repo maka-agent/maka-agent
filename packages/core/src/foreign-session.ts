@@ -257,15 +257,21 @@ export function claudeFirstPromptCandidate(record: Record<string, unknown>): str
 
 /**
  * True when a `user` record's text is synthetic — not something the human
- * typed. Covers interrupt notices (`[Request interrupted by user …]`) and any
- * text opening with a `<lowercase` tag (command output like
- * `<local-command-stdout>…`, hook results, injected markup). Shared by the
- * title picker and the digest so neither surface can attribute Claude's own
- * generated/tool content to the user.
+ * typed. Covers interrupt notices (`[Request interrupted by user …]`) and the
+ * specific Claude Code wrappers for slash-command / bash invocations and their
+ * captured output. Shared by the title picker and the digest so neither surface
+ * attributes Claude's own generated/tool content to the user.
+ *
+ * The tag set is an explicit allowlist rather than "any `<lowercase` tag": a
+ * real prompt can legitimately open with `<button>`, `<ref …>`, `<div>`, etc.,
+ * and must not be dropped from the handoff.
  */
 export function isSyntheticClaudeUserText(text: string): boolean {
   const t = text.trimStart();
-  return t.startsWith('[Request interrupted by user') || /^<[a-z]/.test(t);
+  return (
+    t.startsWith('[Request interrupted by user') ||
+    /^<\/?(command-(name|message|args|contents)|local-command-(stdout|stderr)|bash-(input|stdout|stderr))[\s>]/.test(t)
+  );
 }
 
 export function pickClaudeTitle(titles: ClaudeTitleCandidates): string {
@@ -569,7 +575,9 @@ export function renderForeignSessionDigestForPrompt(digest: ForeignSessionDigest
     `title=${safe(digest.title)}`,
     `cwd=${safe(digest.cwd)}`,
     ...(digest.gitBranch ? [`git_branch=${safe(digest.gitBranch)}`] : []),
-    `updated_at=${new Date(digest.updatedAtMs).toISOString()}`,
+    // A non-finite timestamp (corrupt store row) would make new Date().toISOString()
+    // throw RangeError, so guard it rather than let the render crash.
+    `updated_at=${Number.isFinite(digest.updatedAtMs) ? new Date(digest.updatedAtMs).toISOString() : 'unknown'}`,
     '',
     '## User messages (chronological)',
     ...digest.userMessages.map((m, i) => `${i + 1}. ${safe(m)}`),
@@ -619,8 +627,12 @@ export function buildForeignSessionHandoffMessage(digest: ForeignSessionDigest):
   return `${FOREIGN_SESSION_HANDOFF_INSTRUCTION}\n\n${renderForeignSessionDigestForPrompt(digest)}`;
 }
 
+/** Human-facing product name for a foreign session source. */
+export function foreignSourceLabel(source: ForeignSessionSource): string {
+  return source === 'claude-code' ? 'Claude Code' : 'Codex';
+}
+
 /** Short human-facing label for the resumed-session turn (transcript/sidebar). */
 export function foreignSessionHandoffDisplayText(digest: ForeignSessionDigest): string {
-  const tool = digest.source === 'claude-code' ? 'Claude Code' : 'Codex';
-  return `Resuming ${tool} session: ${digest.title}`;
+  return `Resuming ${foreignSourceLabel(digest.source)} session: ${digest.title}`;
 }

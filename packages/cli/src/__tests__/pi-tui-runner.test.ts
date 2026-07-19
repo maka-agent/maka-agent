@@ -4052,6 +4052,43 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('surfaces a notice when the foreign-session scan fails', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver([]);
+    const foreignSessions = {
+      availableSources: async () => ['claude-code' as const],
+      listSessions: async () => {
+        throw new Error('corrupt index');
+      },
+      readDigest: async () => {
+        throw new Error('unused');
+      },
+    };
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+      foreignSessions,
+    });
+
+    terminal.input('/session');
+    terminal.input('\r');
+    // The scan failure is surfaced, not swallowed into an empty list.
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('读取外部会话失败：corrupt index'));
+
+    exitMaka(terminal);
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close during test cleanup');
+      }),
+    ]);
+  });
+
   test('renders switched session history instead of a session id note', async () => {
     const terminal = new FakeTerminal();
     const driver = new SlashCommandDriver(

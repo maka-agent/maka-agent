@@ -757,6 +757,7 @@ export {
   FOREIGN_SESSION_HANDOFF_INSTRUCTION,
   buildForeignSessionHandoffMessage,
   foreignSessionHandoffDisplayText,
+  foreignSourceLabel,
   FOREIGN_SESSION_DIGEST_MAX_FILES,
   FOREIGN_SESSION_DIGEST_MAX_MESSAGES,
   FOREIGN_SESSION_DIGEST_MAX_READ_BYTES,

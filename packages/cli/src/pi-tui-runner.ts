@@ -25,7 +25,7 @@ import {
 import {
   buildForeignSessionHandoffMessage,
   foreignSessionHandoffDisplayText,
-  type ForeignSessionSource,
+  foreignSourceLabel,
   type ForeignSessionSummary,
 } from '@maka/core/foreign-session';
 import type { ForeignSessionStore } from '@maka/storage';
@@ -1524,20 +1524,39 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
 
   const showSessionList = async () => {
     const sessions = await input.driver.listSessions();
-    const availability = new Map(await Promise.all(sessions.map(async (session) => {
-      return [
-        session.id,
-        await input.driver.getSessionResumeAvailability?.(session)
-          ?? await inspectSessionResumeAvailability(session),
-      ] as const;
-    })));
+    // Maka-session availability and the foreign scan are independent I/O; run
+    // them concurrently so the picker's open latency is the slower of the two,
+    // not their sum.
+    const [availabilityEntries, foreignScan] = await Promise.all([
+      Promise.all(sessions.map(async (session) => {
+        return [
+          session.id,
+          await input.driver.getSessionResumeAvailability?.(session)
+            ?? await inspectSessionResumeAvailability(session),
+        ] as const;
+      })),
+      input.foreignSessions
+        ? input.foreignSessions.listSessions({ cwd }).then(
+            (summaries) => ({ summaries }),
+            (error: unknown) => ({ error }),
+          )
+        : Promise.resolve({ summaries: [] as ForeignSessionSummary[] }),
+    ]);
+    const availability = new Map(availabilityEntries);
     // Foreign (Claude Code / Codex) sessions for the current cwd, keyed by a
-    // prefixed select value so they never collide with Maka session ids. A
-    // scan failure (no ~/.claude, permission error) degrades to no items.
+    // prefixed select value so they never collide with Maka session ids. A scan
+    // error is surfaced (not silently swallowed): degrade to no rows but tell
+    // the user why, so a real store bug isn't mistaken for "no sessions".
     const foreignByValue = new Map<string, ForeignSessionSummary>();
-    if (input.foreignSessions) {
-      const summaries = await input.foreignSessions.listSessions({ cwd }).catch(() => []);
-      for (const summary of summaries) {
+    if ('error' in foreignScan) {
+      const detail = foreignScan.error instanceof Error ? foreignScan.error.message : String(foreignScan.error);
+      state.entries.push({
+        kind: 'notice',
+        level: 'error',
+        text: `读取外部会话失败：${detail}`,
+      });
+    } else {
+      for (const summary of foreignScan.summaries) {
         foreignByValue.set(`foreign:${summary.source}:${summary.id}`, summary);
       }
     }
@@ -1556,16 +1575,14 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
             : `${shortSessionId(session.id)}${location} ${session.llmConnectionSlug} ${session.model}`,
         };
       });
-      // Foreign sessions are cwd-scoped, so append them under 'current' (they
-      // belong to this project) after Maka's own sessions.
-      if (sessionListScope === 'current') {
-        for (const [value, summary] of foreignByValue) {
-          items.push({
-            value,
-            label: summary.title,
-            description: `↩ resume from ${foreignSourceLabel(summary.source)}`,
-          });
-        }
+      // Foreign sessions are cwd-scoped; show them in both scope views (they
+      // belong to this project) so a Tab toggle never makes them vanish.
+      for (const [value, summary] of foreignByValue) {
+        items.push({
+          value,
+          label: summary.title,
+          description: `↩ resume from ${foreignSourceLabel(summary.source)}`,
+        });
       }
       const list = new SelectList(items, 10, selectListTheme(), {
         minPrimaryColumnWidth: 20,
@@ -1642,27 +1659,40 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
 
   // Import a foreign (Claude Code / Codex) session: read its digest, open a
   // fresh Maka session, and seed the first turn with an untrusted handoff
-  // envelope. NOT wrapped in runControl — runAgentTurn asserts busy itself, and
-  // the digest read must happen before the turn starts. The handoff text is the
-  // model-facing `sendText`; a short line is shown in the transcript.
+  // envelope. Mirrors submitPreparedUserPrompt: claim `busy` + an activity lease
+  // SYNCHRONOUSLY before the async read so no other turn (a Goal auto-
+  // continuation, or a user Enter) can start during it and make the import a
+  // silent no-op. runAgentTurn re-asserts busy for the turn; on any failure the
+  // finally releases the lease. The handoff is the model-facing `sendText`; a
+  // short line shows in the transcript.
   const importForeignSession = async (summary: ForeignSessionSummary): Promise<void> => {
     if (busy || input.foreignSessions === undefined) return;
-    let digest;
+    busy = true;
+    const activity = beginActivity();
+    editor.disableSubmit = true;
+    let handedOff = false;
     try {
-      digest = await input.foreignSessions.readDigest(summary);
+      const digest = await input.foreignSessions.readDigest(summary);
+      if (closed) return;
+      newSession();
+      void runAgentTurn({
+        kind: 'external',
+        prompt: foreignSessionHandoffDisplayText(digest),
+        sessionId: input.driver.getSessionId(),
+        sendText: buildForeignSessionHandoffMessage(digest),
+      });
+      handedOff = true;
     } catch (error) {
+      if (closed) return;
       reportError(error);
-      return;
+    } finally {
+      if (!handedOff) {
+        busy = false;
+        editor.disableSubmit = false;
+        requestRender();
+      }
+      activity.finish();
     }
-    // The read is async; bail if the shell closed or a turn started meanwhile.
-    if (closed || busy) return;
-    newSession();
-    void runAgentTurn({
-      kind: 'external',
-      prompt: foreignSessionHandoffDisplayText(digest),
-      sessionId: input.driver.getSessionId(),
-      sendText: buildForeignSessionHandoffMessage(digest),
-    });
   };
 
   const showHelp = () => {
@@ -2331,10 +2361,6 @@ const EDITOR_AUTOCOMPLETE_MAX_VISIBLE = 14;
 // sessions apart in the picker without showing the full unreadable uuid.
 function shortSessionId(id: string): string {
   return id.slice(0, 8);
-}
-
-function foreignSourceLabel(source: ForeignSessionSource): string {
-  return source === 'claude-code' ? 'Claude Code' : 'Codex';
 }
 
 // Matches only the four exact "close the TUI" spellings — bare `quit`/`exit`
