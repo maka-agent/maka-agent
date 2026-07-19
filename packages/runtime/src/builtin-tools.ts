@@ -107,40 +107,57 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
   const readDescription = `Read a text file${options.snapshotImage ? ' or supported image' : ''} from disk${options.runtimeResources ? ', or read a whole runtime resource using ref' : ''}.`;
   const fileReadParameters = z
     .object({
-      path: z.string().describe('A file path; relative paths are resolved from the session cwd'),
+      path: z
+        .string()
+        .describe(
+          '[file read] A file path; relative paths are resolved from the session cwd. Do not provide ref.',
+        ),
       offset: z
         .number()
         .int()
         .nonnegative()
-        .describe('Zero-based text file line offset')
+        .describe('[file read] Zero-based text file line offset. Only valid with path.')
         .optional(),
-      limit: z.number().int().positive().describe('Maximum text file lines to read').optional(),
+      limit: z
+        .number()
+        .int()
+        .positive()
+        .describe('[file read] Maximum text file lines to read. Only valid with path.')
+        .optional(),
     })
     .strict();
   const runtimeResourceReadParameters = z
     .object({
-      ref: z.string().describe('A runtime resource ref returned by another tool'),
+      ref: z
+        .string()
+        .describe(
+          '[runtime resource read] A runtime resource ref returned by another tool. Do not provide path, offset, or limit.',
+        ),
     })
     .strict();
   const strictReadParameters = z
     .union([fileReadParameters, runtimeResourceReadParameters])
     .describe('Read a file with path, or a whole runtime resource with ref; provide exactly one');
-  const strictReadProviderSchema = zodSchema(strictReadParameters);
+  const readProviderParameters = z
+    .object({
+      ...fileReadParameters.shape,
+      ...runtimeResourceReadParameters.shape,
+    })
+    .partial()
+    .strict()
+    .describe(
+      'Read either a file with path (plus optional offset and limit) or a whole runtime resource with ref. Provide exactly one of path or ref, and never mix their fields.',
+    );
+  const readProviderSchema = zodSchema(readProviderParameters);
   const readParameters = options.runtimeResources
-    ? jsonSchema(
-        async () => ({
-          ...(await strictReadProviderSchema.jsonSchema),
-          type: 'object',
-        }),
-        {
-          validate: async (value) => {
-            const result = await strictReadParameters.safeParseAsync(value);
-            return result.success
-              ? { success: true, value: result.data }
-              : { success: false, error: result.error };
-          },
+    ? jsonSchema(async () => await readProviderSchema.jsonSchema, {
+        validate: async (value) => {
+          const result = await strictReadParameters.safeParseAsync(value);
+          return result.success
+            ? { success: true, value: result.data }
+            : { success: false, error: result.error };
         },
-      )
+      })
     : fileReadParameters;
   const shell = options.shell ?? defaultShellPlan();
   const sandboxPlatform = options.sandboxPlatform ?? process.platform;

@@ -791,8 +791,13 @@ describe('builtin Bash streaming output', () => {
     };
     const providerSchema = await parameters.jsonSchema;
     expect(providerSchema.type).toBe('object');
-    expect(Array.isArray(providerSchema.anyOf)).toBe(true);
-    expect((providerSchema.anyOf as unknown[]).length).toBe(2);
+    expect(providerSchema.anyOf).toBe(undefined);
+    expect(providerSchema.oneOf).toBe(undefined);
+    const properties = providerSchema.properties as Record<string, { type?: unknown }>;
+    expect(properties.path?.type).toBe('string');
+    expect(properties.offset?.type).toBe('integer');
+    expect(properties.limit?.type).toBe('integer');
+    expect(properties.ref?.type).toBe('string');
     expect((await parameters.validate({ path: 'README.md', offset: 2, limit: 10 })).success).toBe(
       true,
     );
