@@ -499,7 +499,7 @@ describe('AiSdkBackend model history', () => {
     assert.equal(failure?.data?.priorReplayGate, 'runtime_replay_text_only');
     assert.deepEqual(failure?.data?.priorReplayDiagnosticCodes, [
       'terminal_fact_diagnostic_only',
-      'system_runtime_fact_diagnostic_only',
+      'error_content_diagnostic_only',
     ]);
   });
 
