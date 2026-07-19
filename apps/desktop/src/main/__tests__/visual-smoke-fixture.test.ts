@@ -8,6 +8,7 @@ import {
   resolveVisualSmokeFixture,
   seedVisualSmokeFixture,
 } from '../visual-smoke-fixture.js';
+import { readVisualSmokeFixtureCombinedSource } from './visual-smoke-fixture-source-helpers.js';
 
 describe('visual smoke fixture mode', () => {
   it('stays fully disabled when MAKA_VISUAL_SMOKE_FIXTURE is unset', () => {
@@ -338,7 +339,10 @@ describe('visual smoke fixture mode', () => {
   });
 
   it('fixture source does not seed visible placeholder chat copy', async () => {
-    const src = await readFile(join(process.cwd(), 'src', 'main', 'visual-smoke-fixture.ts'), 'utf8');
+    // arch Round 3: the fixture split into a registry barrel + per-domain
+    // seeder modules, so this hygiene scan aggregates every fixture source
+    // file rather than the single monolith it used to read.
+    const src = await readVisualSmokeFixtureCombinedSource();
     assert.doesNotMatch(src, /占位用户消息|占位回复/, 'visual smoke screenshots must use product-like chat copy, not placeholder text');
   });
 

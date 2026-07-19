@@ -29,6 +29,7 @@ import { describe, it } from 'node:test';
 import { join, resolve } from 'node:path';
 import { readRendererContractCss } from './contract-css-helpers.js';
 import { RENDERER_SHELL_SOURCE_REPO_PATHS } from './renderer-shell-source-helpers.js';
+import { VISUAL_SMOKE_FIXTURE_SOURCE_REPO_PATHS } from './visual-smoke-fixture-source-helpers.js';
 
 // Cwd is `apps/desktop` when the test runs (per the existing
 // sidebar-scroll-contract pattern).
@@ -53,7 +54,10 @@ const FILES_TO_SCAN = [
   join(process.cwd(), 'src', 'renderer', 'onboarding-hero-copy.ts'),
   join(process.cwd(), 'src', 'renderer', 'session-health-notice.ts'),
   join(process.cwd(), 'src', 'main', 'chat-readiness.ts'),
-  join(process.cwd(), 'src', 'main', 'visual-smoke-fixture.ts'),
+  // arch Round 3: the visual-smoke fixture split into a registry barrel +
+  // per-domain seeder modules; scan them all so the seeded-copy hygiene
+  // coverage follows the copy into its new homes.
+  ...VISUAL_SMOKE_FIXTURE_SOURCE_REPO_PATHS.map((repoPath) => resolve(process.cwd(), '..', '..', repoPath)),
 ];
 
 interface ForbiddenCopy {
