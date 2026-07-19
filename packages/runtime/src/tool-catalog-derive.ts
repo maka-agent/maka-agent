@@ -1,10 +1,15 @@
 /**
  * Derive HostCapabilities and deferred ToolAvailability groups from the shared
- * tool catalog ∩ host binding (#1099 S1). Hosts still construct MakaTool
+ * tool catalog ∩ host binding (#1099). Hosts still construct MakaTool
  * instances; this module only projects names and surface metadata.
  */
 
-import { MAKA_CATALOG_SURFACES, catalogToolByName, type ToolHostId } from '@maka/core/tool-catalog';
+import {
+  MAKA_CATALOG_SURFACES,
+  catalogToolByName,
+  unknownBoundToolNames,
+  type ToolHostId,
+} from '@maka/core/tool-catalog';
 import type { HostCapabilities } from './skills.js';
 import type { ToolGroup } from './tool-availability.js';
 
@@ -48,4 +53,23 @@ export function buildDeferredToolGroupsFromCatalog(
     });
   }
   return groups;
+}
+
+/**
+ * Product-tool catalog cleanliness for host wiring (#1099 S2).
+ *
+ * MCP tools (`mcp__…`) are external and out of product-catalog scope. Harness /
+ * experiment names may be excluded by the caller before invoking this helper.
+ * Throws when any remaining bound name is missing from the catalog.
+ */
+export function assertProductBindingCatalogClean(
+  hostLabel: string,
+  boundToolNames: Iterable<string>,
+): void {
+  const productNames = [...boundToolNames].filter((name) => !name.startsWith('mcp__'));
+  const unknown = unknownBoundToolNames(productNames);
+  if (unknown.length === 0) return;
+  throw new Error(
+    `[tool-catalog] ${hostLabel}: bound product tools missing from catalog: ${unknown.join(', ')}`,
+  );
 }

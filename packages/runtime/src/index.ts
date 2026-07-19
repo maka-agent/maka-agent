@@ -1060,6 +1060,7 @@ export type {
 
 // tool-catalog-derive.ts — HostCapabilities + deferred groups from catalog ∩ binding (#1099).
 export {
+  assertProductBindingCatalogClean,
   buildDeferredToolGroupsFromCatalog,
   buildHostCapabilitiesFromBinding,
 } from './tool-catalog-derive.js';

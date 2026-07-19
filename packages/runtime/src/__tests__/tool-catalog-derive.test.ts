@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
+  assertProductBindingCatalogClean,
   buildDeferredToolGroupsFromCatalog,
   buildHostCapabilitiesFromBinding,
 } from '../tool-catalog-derive.js';
@@ -63,5 +64,20 @@ describe('buildDeferredToolGroupsFromCatalog', () => {
   it('returns no group when a supported surface has zero bound members', () => {
     const groups = buildDeferredToolGroupsFromCatalog('desktop', ['Read', 'Bash']);
     assert.deepEqual(groups, []);
+  });
+});
+
+describe('assertProductBindingCatalogClean', () => {
+  it('accepts catalog product names and ignores mcp__ tools', () => {
+    assert.doesNotThrow(() =>
+      assertProductBindingCatalogClean('test', ['Read', 'Bash', 'mcp__server__tool']),
+    );
+  });
+
+  it('throws when a product name is missing from the catalog', () => {
+    assert.throws(
+      () => assertProductBindingCatalogClean('cli', ['Read', 'NotARealTool']),
+      /cli: bound product tools missing from catalog: NotARealTool/,
+    );
   });
 });
