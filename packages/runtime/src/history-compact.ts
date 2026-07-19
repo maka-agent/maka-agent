@@ -34,6 +34,8 @@ import {
   stableStringify,
   turnKey,
   uniqueSorted,
+  optionalNonNegativeFiniteNumber,
+  utf8ByteLength,
 } from './context-budget-helpers.js';
 import {
   compactionDecisionDiagnosticPatch,
@@ -46,16 +48,39 @@ import {
   matchHistoryCompactCheckpointPrefix,
   midTurnHeadAnchorEvent,
 } from './history-compact-checkpoint.js';
-import {
-  HistoryCompactSourceArchiveRef,
-  isValidHistoryCompactSourceArchiveRef,
-  isValidSynthesisSourceRef,
-  optionalNonNegativeFiniteNumber,
-  runtimeEventArchiveBody,
-  runtimeEventBodySha256,
-  SynthesisSourceRef,
-  utf8ByteLength,
-} from './synthesis-cache.js';
+import { isValidSynthesisSourceRef, type SynthesisSourceRef } from './context-source-ref.js';
+
+export interface HistoryCompactSourceArchiveRef {
+  runtimeEventId: string;
+  artifactId: string;
+  bodySha256: string;
+  originalEstimatedTokens: number;
+  originalBytes: number;
+}
+
+export function runtimeEventArchiveBody(event: RuntimeEvent): string {
+  return stableStringify(event.content ?? {});
+}
+
+export function runtimeEventBodySha256(event: RuntimeEvent): string {
+  return sha256(runtimeEventArchiveBody(event));
+}
+
+export function isValidHistoryCompactSourceArchiveRef(
+  value: unknown,
+): value is HistoryCompactSourceArchiveRef {
+  if (!value || typeof value !== 'object') return false;
+  const ref = value as Partial<HistoryCompactSourceArchiveRef>;
+  return (
+    nonEmpty(ref.runtimeEventId) &&
+    nonEmpty(ref.artifactId) &&
+    nonEmpty(ref.bodySha256) &&
+    Number.isFinite(ref.originalEstimatedTokens) &&
+    Number.isFinite(ref.originalBytes) &&
+    (ref.originalEstimatedTokens ?? 0) > 0 &&
+    (ref.originalBytes ?? 0) > 0
+  );
+}
 
 /** The single current-policy gate for every checkpoint entering model replay. */
 export function evaluateHistoryCompactCheckpointReplay(

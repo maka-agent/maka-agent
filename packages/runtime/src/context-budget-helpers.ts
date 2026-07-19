@@ -138,3 +138,11 @@ export function boundText(value: string, maxChars: number): string {
   if (value.length <= maxChars) return value;
   return `${value.slice(0, Math.max(0, maxChars - 14)).trimEnd()}\n[truncated]`;
 }
+
+export function utf8ByteLength(text: string): number {
+  return Buffer.byteLength(text, 'utf8');
+}
+
+export function optionalNonNegativeFiniteNumber(value: unknown): boolean {
+  return value === undefined || (typeof value === 'number' && Number.isFinite(value) && value >= 0);
+}

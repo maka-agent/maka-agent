@@ -18,29 +18,32 @@ import {
   finiteRatio,
   normalizeWhitespace,
   boundText,
+  optionalNonNegativeFiniteNumber,
+  utf8ByteLength,
 } from './context-budget-helpers.js';
 
 export { estimateTokens, estimateRuntimeEventsTokens };
 
 export * from './synthesis-cache.js';
 import {
-  ActiveToolResultPrunePolicy,
-  ArchiveRetrievalPolicy,
-  HistoryCompactSourceArchiveRef,
-  isValidHistoryCompactSourceArchiveRef,
-  isValidSynthesisSourceRef,
-  optionalNonNegativeFiniteNumber,
-  pruneStaleToolResultsBeforeCompact,
-  runtimeEventArchiveBody,
-  runtimeEventBodySha256,
   RuntimeEventHistoryAroundResult,
   RuntimeEventHistorySearchPolicy,
   searchRuntimeEventHistory,
-  StaleToolResultPrunePolicy,
   SynthesisCachePolicy,
-  SynthesisSourceRef,
-  utf8ByteLength,
 } from './synthesis-cache.js';
+
+export * from './tool-result-archive.js';
+import {
+  ArchiveRetrievalPolicy,
+  pruneStaleToolResultsBeforeCompact,
+  StaleToolResultPrunePolicy,
+} from './tool-result-archive.js';
+
+export * from './context-source-ref.js';
+import { isValidSynthesisSourceRef, type SynthesisSourceRef } from './context-source-ref.js';
+
+export * from './active-tool-result-prune.js';
+import { type ActiveToolResultPrunePolicy } from './active-tool-result-prune.js';
 
 export * from './history-compact.js';
 import {
@@ -50,6 +53,10 @@ import {
   type HistoryCompactPolicy,
   type HistoryCompactReplayOptions,
   type HistoryRewriteGatePolicy,
+  HistoryCompactSourceArchiveRef,
+  isValidHistoryCompactSourceArchiveRef,
+  runtimeEventArchiveBody,
+  runtimeEventBodySha256,
 } from './history-compact.js';
 
 import type { ModelMessage } from 'ai';
