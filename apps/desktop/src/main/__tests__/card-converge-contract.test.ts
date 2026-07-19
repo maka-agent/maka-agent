@@ -14,8 +14,9 @@
  *
  * The usage stats table is NOT on a public Table primitive: with only one HTML
  * <table> consumer it was premature abstraction (PR9 review P3), so
- * SimpleStatsTable keeps its styles inline in usage-settings-page. The table
- * a11y semantics (aria-label + scope) are locked in settings-usage-contract.
+ * UsageStatsTable keeps its styles inline in usage-settings-page (shared across
+ * all five usage tabs). The table a11y semantics (aria-label + scope) and
+ * per-column alignment are locked in settings-usage-contract.
  */
 
 import { strict as assert } from 'node:assert';
