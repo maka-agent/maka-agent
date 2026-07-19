@@ -63,6 +63,8 @@ import type {
   ThemePreference,
   Task,
   TaskLedgerChangedEvent,
+  DeepResearchChangedEvent,
+  DeepResearchRun,
   LocalMemoryEntryPreview,
 } from '@maka/core';
 import type {
@@ -173,6 +175,10 @@ export interface MakaBridge {
   tasks: {
     list(sessionId: string): Promise<Task[]>;
     subscribeChanges(handler: (event: TaskLedgerChangedEvent) => void): () => void;
+  };
+  deepResearch: {
+    get(sessionId: string): Promise<DeepResearchRun | undefined>;
+    subscribeChanges(handler: (event: DeepResearchChangedEvent) => void): () => void;
   };
   sessions: {
     list(filter?: SessionListFilter): Promise<SessionSummary[]>;

@@ -25,6 +25,7 @@ export * from './plan-reminder-store.js';
 export * from './plan-store.js';
 export * from './task-ledger-store.js';
 export * from './foreign-session-store.js';
+export * from './deep-research-store.js';
 export * from './agent-mailbox-store.js';
 export * from './config-transfer.js';
 export * from './automation-store.js';

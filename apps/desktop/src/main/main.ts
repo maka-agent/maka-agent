@@ -33,6 +33,7 @@ import {
   PermissionEngine,
   SessionManager,
   createLocalContinuationSafetyInspector,
+  buildDeepResearchTools,
   getAIModel,
   generateSessionTitle as generateRuntimeSessionTitle,
   buildProviderOptions,
@@ -53,6 +54,7 @@ import {
   createAgentRunStore,
   createAgentMailboxStore,
   createArtifactStore,
+  createDeepResearchStore,
   createReadImageSnapshotter,
   createConnectionStore,
   createPlanReminderStore,
@@ -222,6 +224,7 @@ function ensureMcpReady(): Promise<void> {
 const telemetryRepo = createTelemetryRepo(workspaceRoot);
 const dailyReviewArchiveStore = createDailyReviewArchiveStore(workspaceRoot);
 const artifactStore = createArtifactStore(workspaceRoot);
+const deepResearchStore = createDeepResearchStore(workspaceRoot);
 const storeReadImage = createReadImageSnapshotter(artifactStore);
 const attachmentApprovals = createAttachmentApprovalRegistry();
 const credentialStore = createFileCredentialStore(workspaceRoot);
@@ -512,6 +515,12 @@ function focusOrCreateMainWindow(): void {
 }
 const safeSendToRenderer = mainWindowController.send;
 taskLedgerStore.subscribe((event) => safeSendToRenderer('tasks:changed', event));
+deepResearchStore.subscribe((event) => safeSendToRenderer('deepResearch:changed', event));
+const deepResearchTools = buildDeepResearchTools({
+  store: deepResearchStore,
+  artifactStore,
+  onArtifactCreated: (event) => safeSendToRenderer('artifacts:changed', event),
+});
 const openGateway = new OpenGatewayService({
   getSettings: () => settingsStore.get(),
   listSessions: () => runtime.listSessions(),
@@ -681,6 +690,7 @@ backends.register('ai-sdk', createAiSdkBackendFactory({
   taskLedgerStore,
   telemetryRepo,
   artifactStore,
+  deepResearchTools,
   desktopSessionSkillHosts,
   computerUseTools,
   agentTeamLeadTools,
@@ -837,6 +847,8 @@ const onboardingService = createOnboardingService(
 
 function registerIpc(): void {
   const currentProjectRoot = resolveCurrentProjectRoot;
+  ipcMain.handle('deepResearch:get', (_event, sessionId: string) =>
+    deepResearchStore.read(sessionId));
   registerMcpIpcMain({
     ipcMain,
     store: mcpConfigStore,

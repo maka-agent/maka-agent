@@ -555,6 +555,26 @@ export {
   isTaskLedgerToolsEnabled,
 } from './task-ledger-tools.js';
 export {
+  DEEP_RESEARCH_ARTIFACT_CONTENT_MAX_CHARS,
+  DEEP_RESEARCH_ARTIFACT_READ_DEFAULT_CHARS,
+  DEEP_RESEARCH_ARTIFACT_READ_MAX_CHARS,
+  DEEP_RESEARCH_STATUS_ARTIFACTS_MAX,
+  DEEP_RESEARCH_CHECKPOINT_TOOL_NAME,
+  DEEP_RESEARCH_COMPLETE_TOOL_NAME,
+  DEEP_RESEARCH_READ_ARTIFACT_TOOL_NAME,
+  DEEP_RESEARCH_RECORD_STEP_TOOL_NAME,
+  DEEP_RESEARCH_SAVE_ARTIFACT_TOOL_NAME,
+  DEEP_RESEARCH_START_TOOL_NAME,
+  DEEP_RESEARCH_STATUS_TOOL_NAME,
+  DEEP_RESEARCH_UPDATE_CHECKLIST_TOOL_NAME,
+  buildDeepResearchTools,
+  renderDeepResearchRunStatus,
+} from './deep-research-tools.js';
+export type {
+  BuildDeepResearchToolsDeps,
+  DeepResearchArtifactStore,
+} from './deep-research-tools.js';
+export {
   deriveToolArtifactCandidates,
   extractStdoutRedirectPath,
   recordToolArtifactsSafely,

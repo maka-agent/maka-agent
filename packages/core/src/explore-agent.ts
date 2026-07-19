@@ -6,6 +6,8 @@
  * scoped local investigation; it is not a hidden autonomous writer.
  */
 
+import type { DeepResearchRun } from './deep-research-run.js';
+
 export const QUICK_CHAT_MODES = ['chat', 'deep_research'] as const;
 export type QuickChatMode = (typeof QUICK_CHAT_MODES)[number];
 
@@ -137,6 +139,46 @@ export function isDeepResearchSession(labels: readonly string[] | undefined): bo
   return Array.isArray(labels) && labels.includes(DEEP_RESEARCH_SESSION_LABEL);
 }
 
+export const DEEP_RESEARCH_IMPLEMENTATION_PROMPT_MAX_CHARS = 12_000;
+
+export function buildDeepResearchImplementationPrompt(run: DeepResearchRun): string {
+  if (run.status !== 'completed' || !run.handoff || !run.reportArtifactId) {
+    throw new Error('Deep Research implementation handoff requires a completed run');
+  }
+  const lines: string[] = [
+    'This is a new implementation task created from a completed read-only Deep Research session.',
+    'The original research session remains read-only. Inspect the current code and present an implementation plan before changing project files.',
+    '',
+    `Research objective: ${run.objective}`,
+    `Source session: ${run.sessionId}`,
+    `Final report artifact: ${run.reportArtifactId}`,
+    `Handoff artifact: ${run.handoff.artifactId}`,
+    '',
+    'Implementation tasks:',
+    ...run.handoff.implementationTasks.map((item) => `- ${item}`),
+    '',
+    'Recommended issues:',
+    ...(run.handoff.recommendedIssues.length > 0
+      ? run.handoff.recommendedIssues.map((item) => `- ${item}`)
+      : ['- None specified.']),
+    '',
+    'Recommended pull requests:',
+    ...(run.handoff.recommendedPullRequests.length > 0
+      ? run.handoff.recommendedPullRequests.map((item) => `- ${item}`)
+      : ['- None specified.']),
+    '',
+    'Verification commands:',
+    ...run.handoff.verificationCommands.map((item) => `- ${item}`),
+  ];
+  const content = lines.join('\n');
+  const characters = Array.from(content);
+  if (characters.length <= DEEP_RESEARCH_IMPLEMENTATION_PROMPT_MAX_CHARS) return content;
+  const marker = '\n[Handoff truncated to the safe composer limit.]';
+  return characters
+    .slice(0, DEEP_RESEARCH_IMPLEMENTATION_PROMPT_MAX_CHARS - Array.from(marker).length)
+    .join('') + marker;
+}
+
 export function buildDeepResearchSystemPromptFragment(): string {
   return [
     'Deep research mode is active for this session.',
@@ -146,10 +188,21 @@ export function buildDeepResearchSystemPromptFragment(): string {
     '- Use ExploreAgent only for a separate, self-contained local investigation that benefits from a bounded read-only worker. Keep synthesis and final judgment in the main thread.',
     '- Do not use ExploreAgent just because it is available. If the next step is a known file, a specific symbol, package scripts, test setup, config, or 1-3 obvious files, inspect directly in the main thread.',
     '- When using ExploreAgent, bound the prompt with a goal, relevant paths or keywords, what to ignore, a stopping condition, and exactly what evidence the worker should return.',
-    '- Do not write, edit, delete, move, rename, install, run migrations, start services, or send network requests unless the user explicitly leaves research mode.',
+    '- Do not write, edit, delete, move, or rename user project files; do not install, run migrations, start services, or send network requests unless the user explicitly leaves research mode.',
+    '- The deep_research_* tools are the one write exception: they only update Maka-owned research artifacts and an append-only workspace ledger, never the user project.',
     '- If implementation is needed, produce a concrete plan with files, risks, and verification commands instead of modifying files.',
     '- Keep findings source-grounded: name files, functions, configs, tests, and observed behavior.',
     '- Summarize borrow / diverge / risk / gate when comparing a reference project to Maka.',
+    '',
+    'Durable workspace protocol:',
+    '- Call deep_research_start once with the concrete objective and scope level. After interruption or context compaction, call deep_research_status, then deep_research_read_artifact for the exact saved evidence needed to continue.',
+    '- Knowledge-base stage: archive each important raw source first with deep_research_save_artifact role=source, then save evidence notes that cite those source artifact ids.',
+    '- After each bounded local exploration or web-research substep, call deep_research_record_step with roots or query terms, ignored paths, a stopping condition, expected evidence, inspected files/symbols/URLs, worker run ids, persisted evidence ids, and any blocker.',
+    '- Keep the four durable checklist items current with deep_research_update_checklist. Completed items require evidence artifacts; blocked items require an explicit reason.',
+    '- Checkpoint every meaningful research round with deep_research_checkpoint, including open questions, next steps, related task ids, and the artifacts needed to resume.',
+    '- Report-writing stage: save an outline, then source-backed report_section artifacts for conclusion, source_evidence, borrow_diverge_risk_gate, implementation_recommendations, and verification. Mark each section completed only when it is ready.',
+    '- Save one final role=report artifact and one role=handoff artifact. The handoff must turn findings into implementation tasks, recommended issues and/or PRs, and verification commands without performing project writes.',
+    '- Call deep_research_complete only after every checklist item is completed or explicitly skipped, all five report sections are completed, and both report and handoff artifacts are persisted.',
     '',
     'Research workflow:',
     ...DEEP_RESEARCH_WORKFLOW_STEPS.map((step) => `- ${step.title}: ${step.body}`),

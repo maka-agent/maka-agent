@@ -7,6 +7,7 @@ export type ArtifactSource =
   | 'history_compact_block'
   | 'history_compact_source'
   | 'provider_request_capture'
+  | 'deep_research'
   | 'user_upload'
   | 'export'
   | 'snapshot'

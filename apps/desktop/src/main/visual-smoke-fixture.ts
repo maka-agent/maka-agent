@@ -66,6 +66,12 @@ import {
   writeSettings,
 } from './visual-smoke/scenarios-settings.js';
 import { usageStatsSessions } from './visual-smoke/scenarios-usage.js';
+import {
+  DEEP_RESEARCH_SESSION_ID,
+  deepResearchMessages,
+  deepResearchSession,
+  writeDeepResearchLedger,
+} from './visual-smoke/scenarios-deep-research.js';
 
 const VISUAL_SMOKE_SCENARIOS = new Set<VisualSmokeScenario>([
   'all',
@@ -80,6 +86,7 @@ const VISUAL_SMOKE_SCENARIOS = new Set<VisualSmokeScenario>([
   'oauth-relogin',
   'turn-narrative',
   'task-ledger',
+  'deep-research-progress',
   'artifact-pane',
   'artifact-errors',
   'streaming-sidebar',
@@ -399,6 +406,8 @@ export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualS
     case 'turn-narrative':
     case 'task-ledger':
       return { ...state, activeSessionId: TURN_SESSION_ID, workbarCollapsed: false, workbarTab: 'tasks' };
+    case 'deep-research-progress':
+      return { ...state, activeSessionId: DEEP_RESEARCH_SESSION_ID };
     case 'browser-empty':
       // #819: the active turn session is also seeded as a live browser
       // session so BrowserPanel mounts over the chat. No native
@@ -614,6 +623,10 @@ export async function seedVisualSmokeFixture(input: {
     await input.credentialStore.setSecret(slug, 'api_key', `fixture-key-${slug}`);
   }
   await writeSession(input.workspaceRoot, turnSession(now), turnMessages(now));
+  if (input.fixture.scenario === 'deep-research-progress') {
+    await writeSession(input.workspaceRoot, deepResearchSession(now), deepResearchMessages(now));
+    await writeDeepResearchLedger(input.workspaceRoot, now);
+  }
   if (input.fixture.scenario === 'task-ledger') {
     await writeTaskLedgerFixture(input.workspaceRoot, now);
   }

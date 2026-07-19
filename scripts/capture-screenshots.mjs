@@ -69,6 +69,7 @@ const ALL_SCENARIOS = [
   // Long conversation transcript — scroll/height + message-density baseline.
   'long-transcript',
   'task-ledger',
+  'deep-research-progress',
   'artifact-pane',
   'artifact-errors',
   'streaming-sidebar',
@@ -318,7 +319,7 @@ async function captureSingle(scenario, variant) {
 
   const timeoutHandle = setTimeout(() => {
     console.error(`[capture-screenshots] timed out for ${scenario}/${variant.name}, killing`);
-    child.kill('SIGKILL');
+    terminateCaptureProcessTree(child);
   }, CAPTURE_TIMEOUT_MS);
 
   await new Promise((resolveExit) => {
@@ -337,7 +338,7 @@ async function captureSingle(scenario, variant) {
         // waiting on it; SIGKILL drops that to 2-3s. No cleanup regression: the
         // per-run user-data dir lives under os.tmpdir() and is never explicitly
         // removed here (the OS reclaims it), so there is nothing to unwind.
-        child.kill('SIGKILL');
+        terminateCaptureProcessTree(child);
       }
     }, 250);
   });
@@ -357,6 +358,22 @@ async function captureSingle(scenario, variant) {
   // calling loop can stamp it into the per-capture sidecar that
   // `diff-screenshots.mjs` reads when building the baseline manifest.
   return { ok: true, destPath, sourcePath: capturedPath, bytes: sz, locale };
+}
+
+function terminateCaptureProcessTree(child) {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  if (process.platform === 'win32' && child.pid) {
+    // Electron owns renderer/GPU subprocesses. A POSIX-style signal sent to
+    // only the Windows browser process can leave that tree alive and keep the
+    // screenshot driver waiting forever after the PNG was already captured.
+    const killer = spawn('taskkill.exe', ['/pid', String(child.pid), '/t', '/f'], {
+      stdio: 'ignore',
+      windowsHide: true,
+    });
+    killer.once('error', () => child.kill());
+    return;
+  }
+  child.kill('SIGKILL');
 }
 
 async function resolveElectronBin() {

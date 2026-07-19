@@ -338,6 +338,42 @@ describe('visual smoke fixture mode', () => {
     }
   });
 
+  it('deep-research-progress seeds a completed durable run for visual review', async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-visual-smoke-deep-research-'));
+    try {
+      const fixture = resolveVisualSmokeFixture('deep-research-progress', false);
+      assert.ok(fixture);
+      await seedVisualSmokeFixture({
+        workspaceRoot,
+        fixture,
+        credentialStore: fakeCredentialStore(),
+        now: 1_700_000_000_000,
+      });
+      assert.equal(getVisualSmokeState(fixture)?.activeSessionId, 'visual-smoke-deep-research');
+      const ledger = await readFile(
+        join(
+          workspaceRoot,
+          'sessions',
+          'visual-smoke-deep-research',
+          'deep-research',
+          'events.jsonl',
+        ),
+        'utf8',
+      );
+      const events = ledger.trim().split('\n').map((line) => JSON.parse(line) as {
+        type: string;
+        artifact?: { role?: string };
+      });
+      assert.equal(events.at(-1)?.type, 'research_completed');
+      assert.equal(
+        events.filter((event) => event.artifact?.role === 'report_section').length,
+        5,
+      );
+    } finally {
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
   it('fixture source does not seed visible placeholder chat copy', async () => {
     // arch Round 3: the fixture split into a registry barrel + per-domain
     // seeder modules, so this hygiene scan aggregates every fixture source

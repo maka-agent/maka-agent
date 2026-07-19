@@ -40,6 +40,7 @@
     "./agent-mailbox": "./dist/agent-mailbox.js",
     "./task-ledger": "./dist/task-ledger.js",
     "./foreign-session": "./dist/foreign-session.js",
+    "./deep-research-run": "./dist/deep-research-run.js",
     "./memory": "./dist/memory.js",
     "./voice": "./dist/voice.js",
     "./incognito": "./dist/incognito.js",

@@ -76,6 +76,8 @@ import type {
   ThemePreference,
   Task,
   TaskLedgerChangedEvent,
+  DeepResearchChangedEvent,
+  DeepResearchRun,
 } from '@maka/core';
 import type {
   PricingConfig,
@@ -117,6 +119,17 @@ const makaBridge = {
       const listener = (_event: Electron.IpcRendererEvent, payload: TaskLedgerChangedEvent) => handler(payload);
       ipcRenderer.on('tasks:changed', listener);
       return () => ipcRenderer.off('tasks:changed', listener);
+    },
+  },
+  deepResearch: {
+    get(sessionId: string): Promise<DeepResearchRun | undefined> {
+      return ipcRenderer.invoke('deepResearch:get', sessionId);
+    },
+    subscribeChanges(handler: (event: DeepResearchChangedEvent) => void): () => void {
+      const listener = (_event: Electron.IpcRendererEvent, payload: DeepResearchChangedEvent) =>
+        handler(payload);
+      ipcRenderer.on('deepResearch:changed', listener);
+      return () => ipcRenderer.off('deepResearch:changed', listener);
     },
   },
   sessions: {

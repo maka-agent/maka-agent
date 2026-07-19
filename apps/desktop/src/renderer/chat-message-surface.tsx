@@ -1,9 +1,16 @@
 import type { ComponentProps, ReactNode } from 'react';
-import type { LlmConnection, OnboardingState, QuickChatMode, SettingsSection } from '@maka/core';
+import {
+  isDeepResearchSession,
+  type LlmConnection,
+  type OnboardingState,
+  type QuickChatMode,
+  type SettingsSection,
+} from '@maka/core';
 import { Alert, AlertAction, AlertDescription, AlertTitle, ChatView, useUiLocale } from '@maka/ui';
 import { OnboardingEmptyState } from './onboarding-empty-state';
 import type { SessionHealthNoticeView } from './use-shell-chat-model';
 import { getShellCopy } from './locales/shell-copy';
+import { useDeepResearchRun } from './use-deep-research-run';
 
 /**
  * The sessions-section message surface (issue #1043): ChatView plus the
@@ -15,7 +22,10 @@ import { getShellCopy } from './locales/shell-copy';
  * is conditionally mounted - the always-mounted Composer lives in a separate
  * region and is not affected by this surface mounting or unmounting.
  */
-interface ChatMessageSurfaceProps extends Omit<ComponentProps<typeof ChatView>, 'emptyOverride'> {
+interface ChatMessageSurfaceProps extends Omit<
+  ComponentProps<typeof ChatView>,
+  'deepResearchRun' | 'emptyOverride'
+> {
   sessionHealthNotice?: SessionHealthNoticeView;
   showOnboardingHero: boolean;
   onboardingState: OnboardingState | undefined;
@@ -53,6 +63,11 @@ export function ChatMessageSurface({
   // Every session-health-notice CTA routes to 设置 · 模型 (U1); this is the
   // action button's visible label.
   const goToModelsLabel = copy.goToModels;
+  const activeSession = chatViewRest.activeSession;
+  const deepResearchRun = useDeepResearchRun(
+    activeSession?.id,
+    isDeepResearchSession(activeSession?.labels),
+  );
   const emptyOverride: ReactNode =
     showOnboardingHero && onboardingState ? (
       <OnboardingEmptyState
@@ -83,7 +98,11 @@ export function ChatMessageSurface({
 
   return (
     <>
-      <ChatView {...chatViewRest} emptyOverride={emptyOverride} />
+      <ChatView
+        {...chatViewRest}
+        deepResearchRun={deepResearchRun}
+        emptyOverride={emptyOverride}
+      />
       {sessionHealthNotice && (
         <div className="maka-session-health-notice">
           <Alert

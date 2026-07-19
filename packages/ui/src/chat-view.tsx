@@ -3,6 +3,7 @@ import { Button as BaseButton } from '@base-ui/react/button';
 import {
   AlertTriangle,
   ArrowDown,
+  ArrowRight,
   BookOpen,
   GitBranch,
   Target,
@@ -12,7 +13,13 @@ import { DeepResearchEmptyHero, EmptyChatHero } from './chat-empty-hero.js';
 import type { ChatModelChoice } from './chat-model-helpers.js';
 import { OverlayScrollArea } from './overlay-scroll-area.js';
 import { PromptAnchorRail } from './prompt-anchor-rail.js';
-import type { ProviderType, SessionSummary, ShellRunUpdate, StoredMessage } from '@maka/core';
+import type {
+  DeepResearchRun,
+  ProviderType,
+  SessionSummary,
+  ShellRunUpdate,
+  StoredMessage,
+} from '@maka/core';
 import { isDeepResearchSession } from '@maka/core';
 import { materializeChat, materializeTurns, overlayLiveTurn, overlayShellRunUpdates } from './materialize.js';
 import type { LiveTurnProjection } from './live-turn-projection.js';
@@ -52,6 +59,10 @@ export function ChatView(props: {
    */
   continuingIndicator?: boolean;
   activeSession?: SessionSummary;
+  /** Durable Deep Research projection supplied by the host for visible progress and resume state. */
+  deepResearchRun?: DeepResearchRun;
+  /** Explicitly starts a normal implementation task from a completed read-only research run. */
+  onContinueDeepResearchHandoff?(run: DeepResearchRun): void;
   activeConnectionLabel?: string;
   activeModel?: string;
   activeModelLabel?: string;
@@ -374,6 +385,12 @@ export function ChatView(props: {
             composer left-controls. Header keeps the per-session status
             chips only. */}
       </header>
+      {deepResearchActive && props.deepResearchRun && (
+        <DeepResearchProgressPanel
+          run={props.deepResearchRun}
+          onContinue={props.onContinueDeepResearchHandoff}
+        />
+      )}
       <div className="maka-chat-shell">
         {props.branchBanner && (
           <SessionBranchBanner
@@ -482,6 +499,116 @@ export function ChatView(props: {
         )}
       </div>
     </main>
+  );
+}
+
+const REPORT_SECTION_LABELS: Record<DeepResearchRun['reportSections'][number]['key'], string> = {
+  conclusion: '结论',
+  source_evidence: '证据',
+  borrow_diverge_risk_gate: '取舍与风险',
+  implementation_recommendations: '实施建议',
+  verification: '验证',
+};
+
+export function DeepResearchProgressPanel({
+  run,
+  onContinue,
+}: {
+  run: DeepResearchRun;
+  onContinue?: (run: DeepResearchRun) => void;
+}) {
+  const completedItems = run.checklist.filter(
+    (item) => item.status === 'completed' || item.status === 'skipped',
+  ).length;
+  const inspectedRefs = run.steps.flatMap((step) => step.inspectedRefs).slice(-8);
+  const workerRunIds = [...new Set(run.steps.flatMap((step) => step.workerRunIds))].slice(-8);
+  const blockers = [
+    ...run.checklist.flatMap((item) =>
+      item.blockedReason ? [`${item.title}: ${item.blockedReason}`] : []),
+    ...run.steps.flatMap((step) =>
+      step.blockedReason ? [`${step.objective}: ${step.blockedReason}`] : []),
+  ];
+
+  return (
+    <section
+      className="maka-deep-research-run-panel"
+      aria-label="深度研究实时进度"
+      data-status={run.status}
+    >
+      <div className="maka-deep-research-run-summary">
+        <div>
+          <strong>研究进度</strong>
+          <span>
+            {run.status === 'completed'
+              ? '研究完成 · 原会话保持只读'
+              : `${run.stage} · ${run.scopeLevel} · 第 ${run.round} 轮`}
+          </span>
+        </div>
+        <div className="maka-deep-research-run-actions">
+          <span className="maka-deep-research-run-count">
+            {completedItems}/{run.checklist.length}
+          </span>
+          {run.status === 'completed' && onContinue && (
+            <BaseButton
+              type="button"
+              className="maka-deep-research-handoff-button"
+              onClick={() => onContinue(run)}
+              title="新建普通任务并填入研究 handoff；不会自动发送，也不会改变原研究会话权限"
+            >
+              <span>在新任务中继续实现</span>
+              <ArrowRight size={12} aria-hidden="true" />
+            </BaseButton>
+          )}
+        </div>
+      </div>
+      <div className="maka-deep-research-run-grid">
+        <div>
+          <h3>检查清单</h3>
+          <ul>
+            {run.checklist.map((item) => (
+              <li key={item.itemId} data-status={item.status}>
+                <span>{item.status === 'completed' ? '✓' : item.status === 'blocked' ? '!' : '·'}</span>
+                {item.title}
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div>
+          <h3>报告草稿</h3>
+          <ul>
+            {run.reportSections.map((section) => (
+              <li key={section.key} data-status={section.status}>
+                <span>{section.status === 'completed' ? '✓' : section.status === 'drafted' ? '◐' : '·'}</span>
+                {REPORT_SECTION_LABELS[section.key]}
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div>
+          <h3>已检查位置</h3>
+          {inspectedRefs.length > 0 ? (
+            <ul>
+              {inspectedRefs.map((ref, index) => (
+                <li key={`${ref.kind}-${ref.locator}-${index}`}>
+                  <span>{ref.kind}</span>
+                  <code>{ref.locator}</code>
+                </li>
+              ))}
+            </ul>
+          ) : <p>等待记录文件、符号或来源。</p>}
+        </div>
+        <div>
+          <h3>执行与阻塞</h3>
+          <p>{run.steps.length} 个研究步骤 · {run.artifacts.length} 个持久化证据</p>
+          {workerRunIds.length > 0 && <p>Workers: {workerRunIds.join(', ')}</p>}
+          {blockers.length > 0 ? (
+            <ul className="maka-deep-research-run-blockers">
+              {blockers.map((blocker) => <li key={blocker}>{blocker}</li>)}
+            </ul>
+          ) : <p>当前无阻塞。</p>}
+        </div>
+      </div>
+    </section>
   );
 }
 /**

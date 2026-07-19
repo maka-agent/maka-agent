@@ -2,6 +2,7 @@ import { strict as assert } from 'node:assert';
 import { describe, it } from 'node:test';
 import {
   DEEP_RESEARCH_EVIDENCE_CHECKLIST,
+  DEEP_RESEARCH_IMPLEMENTATION_PROMPT_MAX_CHARS,
   DEEP_RESEARCH_PROGRESS_CHECKPOINTS,
   DEEP_RESEARCH_REPORT_SECTIONS,
   DEEP_RESEARCH_SCOPE_OPTIONS,
@@ -9,9 +10,11 @@ import {
   DEEP_RESEARCH_STARTER_PROMPTS,
   DEEP_RESEARCH_WORKFLOW_STEPS,
   buildDeepResearchSystemPromptFragment,
+  buildDeepResearchImplementationPrompt,
   isDeepResearchSession,
   normalizeQuickChatMode,
 } from '../explore-agent.js';
+import type { DeepResearchRun } from '../deep-research-run.js';
 import { PERMISSION_POLICY } from '../permission.js';
 
 describe('deep research session profile', () => {
@@ -26,6 +29,45 @@ describe('deep research session profile', () => {
     assert.equal(isDeepResearchSession([DEEP_RESEARCH_SESSION_LABEL]), true);
     assert.equal(isDeepResearchSession(['research']), false);
     assert.equal(isDeepResearchSession(undefined), false);
+  });
+
+  it('builds a bounded, explicit read-only-to-implementation handoff prompt', () => {
+    const run = {
+      schemaVersion: 1,
+      sessionId: 'session-research',
+      objective: 'Improve Deep Research.',
+      scopeLevel: 'standard',
+      status: 'completed',
+      stage: 'completed',
+      round: 2,
+      createdAt: 1,
+      updatedAt: 2,
+      artifacts: [],
+      checklist: [],
+      steps: [],
+      reportSections: [],
+      checkpoints: [],
+      reportArtifactId: 'report-1',
+      handoff: {
+        artifactId: 'handoff-1',
+        implementationTasks: ['Add an explicit transition.'],
+        recommendedIssues: ['Track visual verification.'],
+        recommendedPullRequests: [],
+        verificationCommands: ['npm test'],
+      },
+      completedAt: 2,
+    } satisfies DeepResearchRun;
+
+    const prompt = buildDeepResearchImplementationPrompt(run);
+    assert.match(prompt, /original research session remains read-only/i);
+    assert.match(prompt, /present an implementation plan before changing project files/i);
+    assert.match(prompt, /Add an explicit transition/);
+    assert.match(prompt, /Final report artifact: report-1/);
+    assert.ok(Array.from(prompt).length <= DEEP_RESEARCH_IMPLEMENTATION_PROMPT_MAX_CHARS);
+    assert.throws(
+      () => buildDeepResearchImplementationPrompt({ ...run, status: 'active', stage: 'knowledge_base' }),
+      /requires a completed run/,
+    );
   });
 
   it('explore policy remains read-only for writes and destructive actions', () => {
@@ -49,6 +91,15 @@ describe('deep research session profile', () => {
     );
     assert.match(prompt, /goal, relevant paths or keywords, what to ignore, a stopping condition/);
     assert.match(prompt, /Do not write/);
+    assert.match(prompt, /deep_research_\* tools are the one write exception/);
+    assert.match(prompt, /deep_research_start once/);
+    assert.match(prompt, /deep_research_status, then deep_research_read_artifact/);
+    assert.match(prompt, /archive each important raw source first/);
+    assert.match(prompt, /deep_research_record_step/);
+    assert.match(prompt, /deep_research_update_checklist/);
+    assert.match(prompt, /deep_research_checkpoint/);
+    assert.match(prompt, /all five report sections are completed/);
+    assert.match(prompt, /role=handoff artifact/);
     assert.match(prompt, /borrow \/ diverge \/ risk \/ gate/);
     for (const step of DEEP_RESEARCH_WORKFLOW_STEPS) {
       assert.match(prompt, new RegExp(step.title));

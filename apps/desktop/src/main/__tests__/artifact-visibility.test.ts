@@ -35,6 +35,7 @@ describe('generated artifact visibility', () => {
   it('preserves user-facing generated files and legacy records without a source', () => {
     const visibleSources: Array<ArtifactSource | undefined> = [
       'tool_result',
+      'deep_research',
       'export',
       'snapshot',
       'fixture',

@@ -1,5 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import { activePlanExecution, expertTeamIdFromLabels, resolveModelVisionSupport } from '@maka/core';
+import {
+  activePlanExecution,
+  expertTeamIdFromLabels,
+  isDeepResearchSession,
+  resolveModelVisionSupport,
+} from '@maka/core';
 import type { SessionChangedReason, SessionEvent } from '@maka/core';
 import type { PlanStore } from '@maka/core/plan';
 import type { LlmConnection } from '@maka/core/llm-connections';
@@ -32,6 +37,7 @@ import type {
   BackendFactory,
   GoalTurnOutcome,
   HostCapabilities,
+  MakaTool,
   PermissionEngine,
   SessionActivityLease,
   SessionActivityRegistry,
@@ -95,6 +101,7 @@ export interface AiSdkBackendFactoryDeps {
   taskLedgerStore: TaskLedgerStore;
   telemetryRepo: TelemetryRepo;
   artifactStore: ArtifactStore;
+  deepResearchTools: MakaTool[];
   desktopSessionSkillHosts: Map<string, HostCapabilities>;
   computerUseTools: AssembledTools['computerUseTools'];
   agentTeamLeadTools: AssembledTools['agentTeamLeadTools'];
@@ -132,6 +139,7 @@ export function createAiSdkBackendFactory(deps: AiSdkBackendFactoryDeps): Backen
     taskLedgerStore,
     telemetryRepo,
     artifactStore,
+    deepResearchTools,
     desktopSessionSkillHosts,
     computerUseTools,
     agentTeamLeadTools,
@@ -166,7 +174,11 @@ export function createAiSdkBackendFactory(deps: AiSdkBackendFactoryDeps): Backen
       ? computerUseTools
       : ctx.tools
         ? [...ctx.tools]
-        : [...builtinTools, ...buildMcpTools(mcpManager)];
+        : [
+            ...builtinTools,
+            ...(isDeepResearchSession(ctx.header.labels) ? deepResearchTools : []),
+            ...buildMcpTools(mcpManager),
+          ];
     const candidateToolAvailability = isComputerUseRealModelE2e
       ? { economy: false, groups: [] }
       : toolAvailability;

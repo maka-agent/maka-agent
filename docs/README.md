@@ -23,6 +23,7 @@ This page is the authority map for Maka documentation. Code and contract tests r
 
 ### Runtime and Headless
 
+- [Deep Research durable workspace](./deep-research-durable-workspace.md)
 - [Session task ledger lifecycle](./session-task-ledger-lifecycle.md)
 - [Execution identity and evidence spine](./execution-evidence-spine.md)
 - [AHE target protocol and evidence export](./ahe-target-protocol.md)

@@ -17,6 +17,7 @@ export type VisualSmokeScenario =
   | 'oauth-relogin'
   | 'turn-narrative'
   | 'task-ledger'
+  | 'deep-research-progress'
   | 'artifact-pane'
   | 'artifact-errors'
   | 'streaming-sidebar'

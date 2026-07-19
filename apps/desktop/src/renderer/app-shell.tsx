@@ -11,7 +11,11 @@ import {
   type SetStateAction,
 } from 'react';
 import type { PermissionMode, PlanReminder, SessionSummary, UiLocale, UiLocalePreference } from '@maka/core';
-import { hasSettledInitialOnboarding, resolveUiLocale } from '@maka/core';
+import {
+  buildDeepResearchImplementationPrompt,
+  hasSettledInitialOnboarding,
+  resolveUiLocale,
+} from '@maka/core';
 import {
   AutomationsPage,
   DailyReviewPage,
@@ -1539,6 +1543,15 @@ function AppShellContent({
                 onBranchBannerClick={handleBranchBannerClick}
                 onNew={createSession}
                 onPromptSuggestion={(prompt) => composerRef.current?.appendText(prompt)}
+                onContinueDeepResearchHandoff={(run) => {
+                  const prompt = buildDeepResearchImplementationPrompt(run);
+                  void createSession().then(() => {
+                    window.requestAnimationFrame(() => {
+                      composerRef.current?.setText(prompt);
+                      composerRef.current?.focus();
+                    });
+                  });
+                }}
                 sessionHealthNotice={sessionHealthNotice}
                 showOnboardingHero={showOnboardingHero}
                 onboardingState={onboardingState}
