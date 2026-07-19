@@ -230,11 +230,13 @@ function AppShellContent({
     settingsOpen,
     settingsRequestedSection,
     settingsProviderCatalogOpen,
+    settingsConnectionDetailSlug,
     setSettingsOpen,
     setSettingsProviderCatalogOpen,
     openSettings,
     openSettingsSection,
     openProviderCatalog,
+    openConnectionDetail,
   } = useSettingsModal();
   const {
     themePref,
@@ -822,6 +824,7 @@ function AppShellContent({
   const { applyVisualSmokeFixture } = useStableActions(createAppShellVisualSmokeActions, {
     openPalette,
     openSettingsSection,
+    openConnectionDetail,
     refreshSessions,
     setActiveId,
     setLiveBrowserSessionIds,
@@ -1608,6 +1611,7 @@ function AppShellContent({
         setUserLabel={setUserLabel}
         settingsRequestedSection={settingsRequestedSection}
         settingsProviderCatalogOpen={settingsProviderCatalogOpen}
+        settingsConnectionDetailSlug={settingsConnectionDetailSlug}
         onOpenDailyReview={() => {
           closeSettings();
           setNavSelection({ section: 'daily-review' });

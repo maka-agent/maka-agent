@@ -14,6 +14,7 @@ export interface AppShellVisualSmokeActions {
 export function createAppShellVisualSmokeActions(options: {
   openPalette: () => void;
   openSettingsSection: (section: SettingsSection) => void;
+  openConnectionDetail: (slug: string) => void;
   refreshSessions: () => Promise<unknown>;
   setActiveId: (sessionId: string | undefined) => void;
   setLiveBrowserSessionIds: Dispatch<SetStateAction<string[]>>;
@@ -30,6 +31,7 @@ export function createAppShellVisualSmokeActions(options: {
   const {
     openPalette,
     openSettingsSection,
+    openConnectionDetail,
     refreshSessions,
     setActiveId,
     setLiveBrowserSessionIds,
@@ -122,7 +124,12 @@ export function createAppShellVisualSmokeActions(options: {
     }
     if (state.workbarCollapsed !== undefined) setWorkbarCollapsed(state.workbarCollapsed);
     if (state.workbarTab) setWorkbarTab(state.workbarTab);
-    if (state.openSettingsSection) {
+    if (state.openConnectionDetailSlug) {
+      // oauth-relogin fixture: open Settings → 模型 with the seeded
+      // needs_reauth connection's detail sheet expanded so the re-login
+      // affordance is captured. Takes precedence over a bare section open.
+      openConnectionDetail(state.openConnectionDetailSlug);
+    } else if (state.openSettingsSection) {
       openSettingsSection(state.openSettingsSection);
     }
     // PR-SIDEBAR-IA-0 Phase 2 fixup v3 (xuan msg `dce5a6fb` #2): when

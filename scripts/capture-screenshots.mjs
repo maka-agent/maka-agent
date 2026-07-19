@@ -62,7 +62,12 @@ const ALL_SCENARIOS = [
   'fallback-source',
   'fetched-empty',
   'connection-error',
+  // Model connection-detail sheet reopened in the re-login state — the
+  // fixture seeds a selected connection so the auth/re-login flow is visible.
+  'oauth-relogin',
   'turn-narrative',
+  // Long conversation transcript — scroll/height + message-density baseline.
+  'long-transcript',
   'task-ledger',
   'artifact-pane',
   'artifact-errors',
@@ -81,8 +86,18 @@ const ALL_SCENARIOS = [
   'settings-general',
   'settings-memory',
   'settings-daily-review',
+  // Remaining settings sections that had a registered fixture but no capture
+  // entry, so review had no screenshot evidence of these pages.
+  'settings-permissions',
+  'settings-voice',
+  'settings-gateway',
+  'settings-search',
+  'settings-usage',
+  'settings-health',
   'module-skills',
   'module-daily-review',
+  // MCP module surface (registered fixture, previously uncaptured).
+  'module-mcp',
   'workstation-statuses',
   // PR-PLAN-REMINDER-MVP-0: first non-placeholder 计划 surface.
   // Opens the Automations module with scheduled / paused / completed
@@ -311,7 +326,13 @@ async function captureSingle(scenario, variant) {
     const poll = setInterval(() => {
       if (capturedPath) {
         clearInterval(poll);
-        child.kill('SIGTERM');
+        // SIGKILL, not SIGTERM: the capture marker is already on disk, so the
+        // Electron process has nothing left to flush. SIGTERM let Electron run
+        // its (slow) graceful teardown — the audit measured ~60s per capture
+        // waiting on it; SIGKILL drops that to 2-3s. No cleanup regression: the
+        // per-run user-data dir lives under os.tmpdir() and is never explicitly
+        // removed here (the OS reclaims it), so there is nothing to unwind.
+        child.kill('SIGKILL');
       }
     }, 250);
   });

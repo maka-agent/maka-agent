@@ -51,6 +51,7 @@ export function SettingsSurface(props: {
   onUserLabelChange?(label: string): void;
   requestedSection?: SettingsSection;
   openProviderCatalog?: boolean;
+  initialConnectionSlug?: string;
   initialFocusRef: RefObject<HTMLButtonElement | null>;
   onOpenDailyReview?(): void;
   onOpenSession?(sessionId: string): void;
@@ -292,6 +293,7 @@ export function SettingsSurface(props: {
               onOpenDailyReview={props.onOpenDailyReview}
               onOpenSession={props.onOpenSession}
               openProviderCatalog={providerCatalogRequested}
+              initialConnectionSlug={props.initialConnectionSlug}
             />
           )}
         </OverlayScrollArea>
@@ -317,6 +319,7 @@ function SettingsPage(props: {
   onOpenDailyReview?(): void;
   onOpenSession?(sessionId: string): void;
   openProviderCatalog?: boolean;
+  initialConnectionSlug?: string;
 }) {
   const locale = useUiLocale();
   const copy = getSettingsSharedCopy(locale);
@@ -333,6 +336,7 @@ function SettingsPage(props: {
           <ProvidersPanel
             bridge={window.maka.connections}
             initialPage={props.openProviderCatalog ? 'catalog' : 'connections'}
+            initialConnectionSlug={props.initialConnectionSlug}
           />
         </div>
       );
