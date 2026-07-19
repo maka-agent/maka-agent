@@ -83,16 +83,41 @@ describe('tool catalog contract', () => {
   it('reports bound names missing from the catalog', () => {
     assert.deepEqual(unknownBoundToolNames(['Read', 'NotARealTool', 'Bash']), ['NotARealTool']);
     assert.deepEqual(unknownBoundToolNames(['Read', 'Bash']), []);
+    assert.deepEqual(unknownBoundToolNames(['expert_dispatch']), []);
+  });
+
+  it('freezes catalog tables and isolates surface host affinity', () => {
+    assert.equal(Object.isFrozen(MAKA_CATALOG_TOOLS), true);
+    assert.equal(Object.isFrozen(MAKA_CATALOG_SURFACES), true);
+
+    const office = MAKA_CATALOG_SURFACES.find((entry) => entry.id === 'office');
+    const browser = MAKA_CATALOG_SURFACES.find((entry) => entry.id === 'browser');
+    assert.ok(office && browser);
+    assert.equal(Object.isFrozen(office), true);
+    assert.equal(Object.isFrozen(office.hosts), true);
+    assert.equal(Object.isFrozen(office.toolNames), true);
+    assert.notEqual(office.hosts, browser.hosts);
+
+    assert.throws(() => {
+      // @ts-expect-error intentional mutation probe against frozen hosts
+      office.hosts.cli = 'supported';
+    }, TypeError);
+    assert.equal(office.hosts.cli, 'unsupported');
+    assert.equal(browser.hosts.cli, 'unsupported');
+
+    const names = catalogToolNameSet() as Set<string>;
+    names.add('__probe__');
+    assert.equal(catalogToolNameSet().has('__probe__'), false);
   });
 
   it('covers expected host fixture names as catalog subsets', () => {
     // Optional fixtures for S2: each host's known product tools must already be catalog rows.
+    // Desktop omits Edit: main filters it out of buildBuiltinTools.
     const fixtures: Record<ToolHostId, readonly string[]> = {
       desktop: [
         'Bash',
         'Read',
         'Write',
-        'Edit',
         'Glob',
         'Grep',
         'FormatJson',
@@ -130,6 +155,7 @@ describe('tool catalog contract', () => {
         'team_inbox',
         'team_task_list',
         'team_task_claim',
+        'expert_dispatch',
       ],
       cli: [
         'Bash',
