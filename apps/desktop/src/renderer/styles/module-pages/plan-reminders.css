@@ -693,16 +693,19 @@
   display: none;
 }
 
-/* PR-PLAN-NEXT-RUN-COUNTDOWN-0: small accent pill next to the
-   absolute next-run time so user sees both wall-clock and
-   distance-from-now in one glance. */
+/* PR-PLAN-NEXT-RUN-COUNTDOWN-0: small pill next to the absolute next-run
+   time so user sees both wall-clock and distance-from-now in one glance.
+   #651 exception-only status color: a scheduled countdown is the expected
+   steady state, so the pill is neutral (foreground wash) rather than
+   accent-tinted — colour is reserved for genuinely exceptional states
+   (e.g. an overdue run), which would opt in via a data-attribute. */
 .maka-plan-card-countdown {
   display: inline-block;
   margin-left: var(--space-1);
   padding: 0 var(--space-1);
   border-radius: var(--radius-pill);
-  background: oklch(from var(--nav-active) l c h / 0.10);
-  color: var(--nav-active);
+  background: oklch(from var(--foreground) l c h / 0.08);
+  color: var(--foreground-secondary);
   font-weight: var(--font-weight-semibold);
   font-size: var(--font-size-caption);
   letter-spacing: var(--tracking-normal);
